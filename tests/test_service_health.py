@@ -33,10 +33,21 @@ class ServiceHealthTests(unittest.TestCase):
         folder=self.root/'connector_users'/'alice';folder.mkdir(parents=True)
         (folder/'telegram.json').write_text('{SECRET')
         other=self.root/'secret.json';other.write_text(json.dumps({'access_token':'SECRET'}))
-        (folder/'instagram.json').symlink_to(other)
-        result=service_health.report('alice')
+        target=folder/'instagram.json';target.write_bytes(other.read_bytes())
+        original=Path.is_symlink
+        with patch.object(Path,'is_symlink',autospec=True,side_effect=lambda p:p==target or original(p)):
+            result=service_health.report('alice')
         self.assertIn('Telegram: yapılandırma okunamadı',result)
         self.assertIn('Instagram: yapılandırma okunamadı',result);self.assertNotIn('SECRET',result)
+
+    def test_real_symlink_is_rejected_when_os_permits_creation(self):
+        folder=self.root/'connector_users'/'alice';folder.mkdir(parents=True)
+        other=self.root/'secret.json';other.write_text('{}')
+        try:(folder/'instagram.json').symlink_to(other)
+        except OSError as exc:
+            if getattr(exc,'winerror',None)==1314:self.skipTest('Windows kullanıcı hesabında symlink oluşturma izni yok.')
+            raise
+        self.assertIn('Instagram: yapılandırma okunamadı',service_health.report('alice'))
 
     def test_command_restores_context_and_reports_explicit_flags(self):
         folder=self.root/'connector_users'/'alice';folder.mkdir(parents=True)

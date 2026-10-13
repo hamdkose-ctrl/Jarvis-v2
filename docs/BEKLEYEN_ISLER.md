@@ -128,3 +128,7 @@ Bu koruma kayıtlı commit ilişkisine dayanır; ZIP'in yükleme tarihi veya dos
 ## Yerel servis kurulum kontrolü — son sürüm
 
 `hesap durumu`, `hesap kurulumu kontrol` ve `servis durumu` mevcut kullanıcı için OAuth dosyaları, servis yapılandırmasının gerekli alanları, WhatsApp webhook/maliyet yetkisi, Telegram güncelleme tüketimi ve FFmpeg/FFprobe/Piper/SAPI önkoşullarını gösterir. Kontrol ağ çağrısı, OAuth yenileme, giriş penceresi veya ayar yazımı yapmaz; sır ve dosya yolu göstermez. Dosyanın/programın bulunması canlı bağlantı, geçerli izin veya çalışma testi değildir. Kullanıcı ve istek sahibi eşleşmelidir. Gerçek Windows/mikrofon/hesap, HTTPS webhook ve ses kalitesi kabul testleri hâlâ açıktır.
+
+## Windows symlink test düzeltmesi
+
+Normal Windows kullanıcısında WinError 1314 nedeniyle iki test gerçek sembolik bağ oluşturamıyordu. Boş/bozuk veri ve sembolik bağ reddi her ortamda çalıştırılır; gerçek dosya sistemi bağ testi ayrı tutulur ve yalnız WinError 1314 için atlanır. Diğer OSError hataları gizlenmez. Üretimdeki sembolik bağ koruması değiştirilmedi.

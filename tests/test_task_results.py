@@ -75,9 +75,18 @@ class ResultTests(unittest.TestCase):
     def test_empty_and_symlink_files_cannot_prove_success(self):
         self.path.write_bytes(b'')
         with self.assertRaises(ValueError): results.seal('browser', self.browser())
+        self.path.write_bytes(b'screenshot bytes')
+        original=Path.is_symlink
+        with patch.object(Path,'is_symlink',autospec=True,side_effect=lambda p:p==self.path or original(p)):
+            with self.assertRaises(ValueError): results.seal('browser', self.browser())
+
+    def test_real_symlink_cannot_prove_success_when_os_permits_creation(self):
         self.path.unlink()
-        self.path.symlink_to(Path(__file__))
-        with self.assertRaises(ValueError): results.seal('browser', self.browser())
+        try:self.path.symlink_to(Path(__file__).resolve())
+        except OSError as exc:
+            if getattr(exc,'winerror',None)==1314:self.skipTest('Windows kullanıcı hesabında symlink oluşturma izni yok.')
+            raise
+        with self.assertRaises(ValueError):results.seal('browser',self.browser())
 
     def test_resume_rechecks_completed_browser_without_replaying(self):
         from modules import browser_agent
