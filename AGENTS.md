@@ -342,3 +342,7 @@ Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XM
 ## Doğrudan ek seçimi
 
 `ilk mailin eklerini göster` önce güncel okunmamış gelen kutusu listesini alır, kullanıcı/özet doğrulamasından geçen ilk mailin eklerini listeler. `ilk mailin ilk ekini oku` aynı zincirde birinci eki okur. Model planı veya ek gönderimi yoktur. “İlk”, API'nin döndürdüğü ilk okunmamış maildir; liste boş/belirsiz/değişmişse tahmin edilmez. Normal “mesajlara bak” Gmail/Outlook özet davranışı korunur.
+
+## Türkçe büyük İ ile ek komut yönlendirmesi
+
+“İlk mailin eklerini göster” ve “İlk mailin ilk ekini oku” casefold sonrasında birleşik nokta nedeniyle tanınmıyordu; karşılaştırmada bu nokta normalize edilir. Mail kimlikleri ve dosya metinleri değiştirilmez. Gerçek komut yönlendirici üzerinden büyük İ ile listelenen/okunan ek komutlarının modele veya eski posta yoluna düşmediği sınanır. Yeni kod uygulanınca Jarvis kapatılıp yeniden başlatılmalıdır; çalışan eski süreç kodu bellekte tutar.

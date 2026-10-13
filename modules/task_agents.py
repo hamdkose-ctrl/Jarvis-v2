@@ -540,7 +540,9 @@ def _resume(owner, approval, emit=None):
 def handle(owner, command, emit=None):
     request=requests_state._current.get()
     if request is not None and request[0]!=owner:raise PermissionError('Görev ve istek kullanıcısı eşleşmiyor.')
-    c=command.casefold().strip()
+    # Turkish capital İ casefolds to i + combining dot, which otherwise misses
+    # deterministic aliases and falls through to the model/legacy mail routes.
+    c=command.casefold().replace('\u0307','').strip()
     if c in ('ilk mailin eklerini göster','ilk e-postanın eklerini göster','görev ilk mail ekleri','ilk mailin ilk ekini oku','görev ilk mail ek oku'):
         read=c in ('ilk mailin ilk ekini oku','görev ilk mail ek oku')
         data={'service':'gmail','operation':'read_attachment' if read else 'list_attachments','index':1}
