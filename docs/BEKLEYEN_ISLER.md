@@ -2,23 +2,19 @@
 
 ## Gmail ek takip düzeltmesi (güncel GitHub tabanı e966462)
 
-- Yapılan: kısa `ilk ekini oku` / `ilk eki oku` Gmail yönlendirmesi, boşluk/noktalama normalizasyonu ve doğrulanmış son Gmail sonucundaki mail kimliğinin takipte korunması. Arayüz/Android değişmedi.
-- Doğrulanan: Gmail ekleri, hesap okuma, mail içeriği, komut yönlendirmesi ve sonuç kanıtı için 57 test; 56 geçti, 1 mevcut test atlandı. Gelen kutusu değişirken aynı mailin eki okunması ve model çağrısız kısa komut sınandı.
-- Bekleyen: gerçek kullanıcının Gmail OAuth hesabında yazılı/sesli uçtan uca deneme ve kurulu Jarvis'e aktarım. Tam belge okuyucu testinde bu ortamda `python-pptx` eksik; Office belge test grubu tamamlandı sayılmaz. Kullanıcı çalışma dalının gönderimini onayladı; son talimatıyla PR açılmayacak. Ana sürüme birleştirme yapılmadı.
+- Yapılan: kısa Gmail ek komutları, gösterilen mail kimliğinin korunması, sade ek yanıtları, ek olmayan mailde normal tamamlama ve Windows Unicode belge okuma düzeltmesi. Üç arka uç dosyası güncel kuruluma yedekli aktarıldı ve uygulama yeniden başlatıldı. Arayüz/Android değişmedi.
+- Doğrulanan: 66 ilgili test; 65 geçti, 1 mevcut test atlandı. Gerçek Gmail'de `İlk mailin eklerini göster` ve `İlk ekini oku` yanıtları `Bu mailde ek yok.` olarak görüldü; Outlook hatası, görev dökümü ve tekrar sürdürme önerisi yok. Gözetimli açılış onaylandı, kurulu kaynak hash'leri eşleşiyor.
+- Bekleyen: gerçek ek içeren mailde içerik okuma ve gerçek sesli komut kabulü. Mevcut ilk mailde ek yok; bu nedenle gerçek ek içeriği okundu sayılmaz. Kullanıcı çalışma dalının gönderimini onayladı; PR açılmayacak, ana sürüme birleştirme yapılmadı.
 - PR öncesi salt okunur kural denetimi geçti: kullanıcı ayrımı, model kotası, ses, arayüz/Android ve AGENTS.md kontrolünde engelleyici bulgu yok.
 
 ### Aynı dalda devam — kurulu Windows ortamı
 
 - Kullanıcının canlı örneğinde ilk mailde ek olmadığı halde okuma `incomplete/failed` ve sürdürme komutu gösteriyordu. Boş ek listesi doğrulanmış normal sonuç olarak tamamlanır. Doğal ek komutlarının yanıtı sadeleştirildi: `Bu mailde ek yok.`, numaralı dosya listesi veya dosya adı/içeriği. Görev kimliği, yinelenen mail başlıkları ve SHA-256 teknik kayıtlar içinde kalır.
 - Son ilgili kontrol: 66 test, 65 başarılı ve 1 mevcut atlama. Boş ek okuması, sade yanıt, gerçek Office/PDF ve ASCII pipe altında Unicode dahil.
-- Yeniden kurulum kaydı `d718f2e4dffd4632841dc916c4e504cd`: üç arka uç dosyası aynı yedekli işlemde aktarıldı. Jarvis kendi yerel API'siyle yeniden başlatıldı; yeni motor çalışıyor, açılış durumu `confirmed`, dosya hash'leri yeni kurulumla eşleşiyor. Canlı Gmail'de ek listesi yanıtı `Bu mailde ek yok.` olarak doğrulandı; Outlook hatası ve teknik döküm yok.
+- Yeniden kurulum kaydı `d718f2e4dffd4632841dc916c4e504cd`: üç arka uç dosyası aynı yedekli işlemde aktarıldı. Jarvis kendi yerel API'siyle yeniden başlatıldı; yeni motor çalışıyor, açılış durumu `confirmed`, dosya hash'leri yeni kurulumla eşleşiyor. Canlı Gmail'de hem ek listesi hem kısa okuma takip yanıtı `Bu mailde ek yok.` olarak doğrulandı; Outlook hatası ve teknik döküm yok.
 - Bekleyen kabul: gerçek ek içeren mailde içerik okuma; mevcut ilk okunmamış mailde ek bulunmadığı için bu örnek tamamlandı sayılamaz. Arayüz/Android değiştirilmedi, GitHub main'e birleştirme yok ve PR açılmayacak.
 
-- Belge testleri kurulu Python ortamında çalıştırıldı. Türkçe Excel formül uyarısının alt süreç pipe kodlamasında bozulduğu saptandı; JSON Unicode kaçışlarıyla düzeltildi. DOCX/XLSX/PPTX/PDF ve ASCII pipe altında Türkçe/Unicode metin dahil 64 test: 63 geçti, 1 mevcut test atlandı. Önceki eksik `python-pptx` notu bu ortam için kapandı.
-- Çalışan `Desktop/Jarvis Güncel` kurulumuna yalnız `modules/task_agents.py` ve `modules/attachment_documents.py` aktarıldı. Başlangıç tabanı karşılaştırıldı; Jarvis release_guard yedeği/geri alma kaydı `544aaf41662645bea03691472ec5af25`, durum `awaiting_start`. Arayüz, Android ve hesap ayarları değiştirilmedi.
-- Bekleyen: mevcut Jarvis'in yeniden başlatılmasıyla gözetimli açılış onayı ve gerçek Gmail hesabında komut/ek kabul denemesi. GitHub main'e birleştirme yok; PR açılmayacak.
-
-Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
+Esas geliştirme sürümü: `hamdkose-ctrl/Jarvis-v2`, `codex/gmail-attachment-followups-20261014` dalı. Kurulu uygulamadaki Gmail düzeltmesi bu dala karşı doğrulandı. GitHub main bu düzeltmeyi henüz içermez; main ZIP'iyle yeniden kopyalama bu değişiklikleri geri alabilir. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır.
 
 - Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.
 - Video araçları tamamlandı: kullanıcı PC'sinde gerçek H.264 üretimi ve FFprobe boyut/süre doğrulamasının geçtiği bildirildi (14 Ekim 2026). Ses ve hesap kontrolleri ayrı kalır.
