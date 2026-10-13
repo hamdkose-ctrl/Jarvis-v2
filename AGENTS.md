@@ -2,6 +2,8 @@
 
 ## Gmail ek takip düzeltmesi — 14 Ekim 2026
 
+- Belge okuyucu alt süreç JSON çıktısında Unicode kaçışları kullanır; Windows pipe kod sayfası Türkçe/Unicode ek metnini bozmaz. `test_worker_preserves_unicode_with_ascii_windows_pipe` bunu gerçek alt süreçle sınar.
+
 - `ilk mailin eklerini göster`, `ilk ekini oku` ve `ilk eki oku` doğrudan Gmail görev yoluna gider; Türkçe büyük İ, fazla boşluk ve son noktalama kabul edilir.
 - Son görevdeki doğrulanmış Gmail listesi veya ek sonucu aynı kullanıcı için mail kimliğini korur; takipte gelen yeni mail sıralamayı değiştirmez. Bağlam yoksa ilk okunmamış mail listelenir. Dış ek içeriği talimat olarak çalıştırılmaz.
 - Arayüz ve Android kaynakları değiştirilmedi. Canlı Gmail/OAuth ve sesli cihaz kabul testi ayrıca bekler.

@@ -7,6 +7,12 @@
 - Bekleyen: gerçek kullanıcının Gmail OAuth hesabında yazılı/sesli uçtan uca deneme ve kurulu Jarvis'e aktarım. Tam belge okuyucu testinde bu ortamda `python-pptx` eksik; Office belge test grubu tamamlandı sayılmaz. Kullanıcı çalışma dalının gönderimini onayladı; son talimatıyla PR açılmayacak. Ana sürüme birleştirme yapılmadı.
 - PR öncesi salt okunur kural denetimi geçti: kullanıcı ayrımı, model kotası, ses, arayüz/Android ve AGENTS.md kontrolünde engelleyici bulgu yok.
 
+### Aynı dalda devam — kurulu Windows ortamı
+
+- Belge testleri kurulu Python ortamında çalıştırıldı. Türkçe Excel formül uyarısının alt süreç pipe kodlamasında bozulduğu saptandı; JSON Unicode kaçışlarıyla düzeltildi. DOCX/XLSX/PPTX/PDF ve ASCII pipe altında Türkçe/Unicode metin dahil 64 test: 63 geçti, 1 mevcut test atlandı. Önceki eksik `python-pptx` notu bu ortam için kapandı.
+- Çalışan `Desktop/Jarvis Güncel` kurulumuna yalnız `modules/task_agents.py` ve `modules/attachment_documents.py` aktarıldı. Başlangıç tabanı karşılaştırıldı; Jarvis release_guard yedeği/geri alma kaydı `544aaf41662645bea03691472ec5af25`, durum `awaiting_start`. Arayüz, Android ve hesap ayarları değiştirilmedi.
+- Bekleyen: mevcut Jarvis'in yeniden başlatılmasıyla gözetimli açılış onayı ve gerçek Gmail hesabında komut/ek kabul denemesi. GitHub main'e birleştirme yok; PR açılmayacak.
+
 Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
 
 - Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.

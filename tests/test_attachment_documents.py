@@ -7,6 +7,16 @@ from modules import attachment_documents as docs,mail_attachments
 
 
 class DocumentAttachmentTests(unittest.TestCase):
+    def test_worker_preserves_unicode_with_ascii_windows_pipe(self):
+        import os
+        text='İlk ek: ığüşöç — 中文'
+        buf=io.BytesIO()
+        with zipfile.ZipFile(buf,'w') as archive:
+            archive.writestr('word/document.xml',
+                             '<w:document xmlns:w="urn:word"><w:p><w:t>'+text+'</w:t></w:p></w:document>')
+        with patch.dict(os.environ,{'PYTHONIOENCODING':'ascii'}):
+            self.assertEqual(docs.read(buf.getvalue(),'.docx')['body'],text)
+
     def test_real_docx_xlsx_and_pptx_text_without_formula_execution(self):
         from docx import Document
         from openpyxl import Workbook

@@ -90,4 +90,5 @@ def read(raw,suffix):
 
 if __name__=='__main__':
     data=sys.stdin.buffer.read(MAX_BYTES+1)
-    print(json.dumps(extract(data,sys.argv[1]),ensure_ascii=False))
+    # JSON escapes keep the subprocess protocol independent of Windows code pages.
+    print(json.dumps(extract(data,sys.argv[1]),ensure_ascii=True))
