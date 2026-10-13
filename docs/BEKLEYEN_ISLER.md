@@ -132,3 +132,7 @@ Bu koruma kayıtlı commit ilişkisine dayanır; ZIP'in yükleme tarihi veya dos
 ## Windows symlink test düzeltmesi
 
 Normal Windows kullanıcısında WinError 1314 nedeniyle iki test gerçek sembolik bağ oluşturamıyordu. Boş/bozuk veri ve sembolik bağ reddi her ortamda çalıştırılır; gerçek dosya sistemi bağ testi ayrı tutulur ve yalnız WinError 1314 için atlanır. Diğer OSError hataları gizlenmez. Üretimdeki sembolik bağ koruması değiştirilmedi.
+
+## Güncel depo: Jarvis-v2
+
+GitHub okuma/güncelleme ve kaynak yayınlama hedefi `hamdkose-ctrl/Jarvis-v2`, dal `main`. Yeni sürüm kaydı `~/.jarvis/update-Jarvis-v2.json`; eski `update.json` değiştirilmez ve yeni deponun commit tabanı sayılmaz. İlk kullanımda GitHub doğrulaması kaynakların eşitliğini kanıtlamadan taban commit kaydedilmez. Taban bilinmiyorsa normal kurulum güvenli biçimde durur. Açılış kontrolü kaynak kurmaz. Mevcut GitHub anahtarının yeni özel depoya erişimi ayrıca gerekir; token/hesap otomatik değiştirilmez. Kullanıcı daha yeni ZIP gönderirse kaynak farkları doğrulanır; eski depo taban alınmaz.

@@ -103,3 +103,7 @@ Canlı hesap/OAuth ve dış HTTPS webhook kurulumu, gerçek Windows/mikrofon kab
 Güncelleme kontrolü, kaynak doğrulama ve yedekleyerek kurma yolları kayıtlı yerel commit'in gerisindeki GitHub commit'ini ayırt eder. Eski sürüm yeni güncelleme diye sunulmaz; yedek seçeneği geriye kurma engelini aşamaz. Engellenen işlem kaynakları ve kayıtlı commit'i değiştirmez.
 
 Bu koruma kayıtlı commit ilişkisine dayanır; ZIP'in yükleme tarihi veya dosya tarihleri sürüm kanıtı değildir. Taban commit bilinmiyorsa ya da yerel kaynaklar yayınlanmadıysa GitHub'ın güncel olduğu varsayılmaz. Normal güncellemenin yerel değişiklik engeli korunur; ayrışmış sürümü açıkça yedekleyerek alma mevcut davranıştır. Önce güncel yerel kaynakları doğrulayarak eşitlemek gerekir. Canlı Windows ve hesap kontrolleri açık kalır.
+
+## Güncel depo: Jarvis-v2
+
+GitHub okuma/güncelleme ve kaynak yayınlama hedefi `hamdkose-ctrl/Jarvis-v2`, dal `main`. Yeni sürüm kaydı `~/.jarvis/update-Jarvis-v2.json`; eski `update.json` değiştirilmez ve yeni deponun commit tabanı sayılmaz. İlk kullanımda GitHub doğrulaması kaynakların eşitliğini kanıtlamadan taban commit kaydedilmez. Taban bilinmiyorsa normal kurulum güvenli biçimde durur. Açılış kontrolü kaynak kurmaz. Mevcut GitHub anahtarının yeni özel depoya erişimi ayrıca gerekir; token/hesap otomatik değiştirilmez. Kullanıcı daha yeni ZIP gönderirse kaynak farkları doğrulanır; eski depo taban alınmaz.
