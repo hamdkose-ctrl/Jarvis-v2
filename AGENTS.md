@@ -347,7 +347,7 @@ Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XM
 
 ## Doğrudan ek seçimi
 
-`ilk mailin eklerini göster` önce güncel okunmamış gelen kutusu listesini alır, kullanıcı/özet doğrulamasından geçen ilk mailin eklerini listeler. `ilk mailin ilk ekini oku` aynı zincirde birinci eki okur. Model planı veya ek gönderimi yoktur. “İlk”, API'nin döndürdüğü ilk okunmamış maildir; liste boş/belirsiz/değişmişse tahmin edilmez. Normal “mesajlara bak” Gmail/Outlook özet davranışı korunur.
+`ilk mailin eklerini göster` son görevdeki doğrulanmış Gmail listesinde ilk maili seçer; son görev ek sonucuysa aynı mail kimliğini korur. Bağlam yoksa güncel okunmamış gelen kutusu listesini alır. `ilk mailin ilk ekini oku` ve `ilk ekini oku` aynı mailin birinci ekini okur. Model planı veya ek gönderimi yoktur. Liste boşsa mail seçilmez; gelen kutusu sırası değişse de gösterilen mail kimliği korunur. Normal “mesajlara bak” Gmail/Outlook özet davranışı korunur.
 
 ## Türkçe büyük İ ile ek komut yönlendirmesi
 

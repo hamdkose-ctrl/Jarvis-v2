@@ -4,7 +4,8 @@
 
 - Yapılan: kısa `ilk ekini oku` / `ilk eki oku` Gmail yönlendirmesi, boşluk/noktalama normalizasyonu ve doğrulanmış son Gmail sonucundaki mail kimliğinin takipte korunması. Arayüz/Android değişmedi.
 - Doğrulanan: Gmail ekleri, hesap okuma, mail içeriği, komut yönlendirmesi ve sonuç kanıtı için 57 test; 56 geçti, 1 mevcut test atlandı. Gelen kutusu değişirken aynı mailin eki okunması ve model çağrısız kısa komut sınandı.
-- Bekleyen: gerçek kullanıcının Gmail OAuth hesabında yazılı/sesli uçtan uca deneme ve kurulu Jarvis'e aktarım. Tam belge okuyucu testinde bu ortamda `python-pptx` eksik; Office belge test grubu tamamlandı sayılmaz. GitHub'a dal gönderimi/PR, depo geliştirme rehberindeki ayrı kullanıcı onayı nedeniyle bekler.
+- Bekleyen: gerçek kullanıcının Gmail OAuth hesabında yazılı/sesli uçtan uca deneme ve kurulu Jarvis'e aktarım. Tam belge okuyucu testinde bu ortamda `python-pptx` eksik; Office belge test grubu tamamlandı sayılmaz. Kullanıcı çalışma dalının gönderimini onayladı; son talimatıyla PR açılmayacak. Ana sürüme birleştirme yapılmadı.
+- PR öncesi salt okunur kural denetimi geçti: kullanıcı ayrımı, model kotası, ses, arayüz/Android ve AGENTS.md kontrolünde engelleyici bulgu yok.
 
 Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
 
