@@ -114,3 +114,31 @@ class MailAttachmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
             result=dispatch(context,'İlk mailin eklerini göster','ilk mailin eklerini göster')
             self.assertIsNotNone(result);self.assertIn('note.txt',result)
+
+    def test_followup_keeps_displayed_mail_when_inbox_changes(self):
+        import tempfile
+        from pathlib import Path
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            task_agents.handle('alice','görev mail oku')
+            self.messages.list.reset_mock()
+            self.messages.list.return_value.execute.return_value={'messages':[{'id':'M2'}]}
+            self.assertIn('note.txt',task_agents.handle('alice','İlk mailin eklerini göster!'))
+            self.assertIn('hello attachment',task_agents.handle('alice','İlk   ekini oku.'))
+            self.assertIn('hello attachment',task_agents.handle('alice','ilk eki oku'))
+            self.messages.list.assert_not_called()
+            self.messages.attachments.return_value.get.assert_called_with(userId='me',messageId='M1',id='A1')
+
+    def test_dispatch_short_read_followup_uses_gmail(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from modules.command_manager import CommandContext,dispatch
+        from modules.session_state import SessionState
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        context=CommandContext(SimpleNamespace(slug='alice'),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(),Mock())
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            result=dispatch(context,'İlk ekini oku!','ilk ekini oku!')
+            self.assertIn('hello attachment',result)

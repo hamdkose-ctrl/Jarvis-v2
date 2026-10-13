@@ -1,5 +1,11 @@
 # Güncel açık işler — 14 Ekim 2026
 
+## Gmail ek takip düzeltmesi (güncel GitHub tabanı e966462)
+
+- Yapılan: kısa `ilk ekini oku` / `ilk eki oku` Gmail yönlendirmesi, boşluk/noktalama normalizasyonu ve doğrulanmış son Gmail sonucundaki mail kimliğinin takipte korunması. Arayüz/Android değişmedi.
+- Doğrulanan: Gmail ekleri, hesap okuma, mail içeriği, komut yönlendirmesi ve sonuç kanıtı için 57 test; 56 geçti, 1 mevcut test atlandı. Gelen kutusu değişirken aynı mailin eki okunması ve model çağrısız kısa komut sınandı.
+- Bekleyen: gerçek kullanıcının Gmail OAuth hesabında yazılı/sesli uçtan uca deneme ve kurulu Jarvis'e aktarım. Tam belge okuyucu testinde bu ortamda `python-pptx` eksik; Office belge test grubu tamamlandı sayılmaz. GitHub'a dal gönderimi/PR, depo geliştirme rehberindeki ayrı kullanıcı onayı nedeniyle bekler.
+
 Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
 
 - Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.

@@ -542,11 +542,34 @@ def handle(owner, command, emit=None):
     if request is not None and request[0]!=owner:raise PermissionError('Görev ve istek kullanıcısı eşleşmiyor.')
     # Turkish capital İ casefolds to i + combining dot, which otherwise misses
     # deterministic aliases and falls through to the model/legacy mail routes.
-    c=command.casefold().replace('\u0307','').strip()
-    if c in ('ilk mailin eklerini göster','ilk e-postanın eklerini göster','görev ilk mail ekleri','ilk mailin ilk ekini oku','görev ilk mail ek oku'):
-        read=c in ('ilk mailin ilk ekini oku','görev ilk mail ek oku')
+    c=' '.join(command.casefold().replace('\u0307','').split()).strip(' .!?')
+    if c in ('ilk mailin eklerini göster','ilk e-postanın eklerini göster','görev ilk mail ekleri','ilk mailin ilk ekini oku','ilk mailin ekini oku','ilk ekini oku','ilk eki oku','görev ilk mail ek oku'):
+        read=c in ('ilk mailin ilk ekini oku','ilk mailin ekini oku','ilk ekini oku','ilk eki oku','görev ilk mail ek oku')
         data={'service':'gmail','operation':'read_attachment' if read else 'list_attachments','index':1}
         if read:data['attachment_index']=1
+        # Keep ordinal follow-ups on the displayed list, even if the inbox changes.
+        previous=recent(owner)
+        lists=[out for out in (previous or {}).get('outputs',{}).values()
+               if isinstance(out,dict) and isinstance(out.get('snapshot'),dict)
+               and out['snapshot'].get('service')=='gmail'
+               and out['snapshot'].get('operation')=='list_unread' and out.get('state')=='done']
+        if len(lists)==1:
+            task_results.verify(lists[0],owner=owner)
+            items=lists[0]['snapshot']['items']
+            if not items:return 'Gösterilen listede okunmamış Gmail maili yok.'
+            data.pop('index');data['message_id']=items[0]['id']
+            return render(execute(owner,[{'id':'list','agent':'account','input':data}],
+                                  'Gmail ilk ekini oku' if read else 'Gmail eklerini göster',emit))
+        attachments=[out for out in (previous or {}).get('outputs',{}).values()
+                     if isinstance(out,dict) and isinstance(out.get('snapshot'),dict)
+                     and out['snapshot'].get('service')=='gmail'
+                     and out['snapshot'].get('operation') in ('list_attachments','read_attachment')
+                     and out.get('state')=='done']
+        if len(attachments)==1:
+            task_results.verify(attachments[0],owner=owner)
+            data.pop('index');data['message_id']=attachments[0]['snapshot']['message_id']
+            return render(execute(owner,[{'id':'attachment','agent':'account','input':data}],
+                                  'Gmail ilk ekini oku' if read else 'Gmail eklerini göster',emit))
         tasks=[{'id':'list','agent':'account','input':{'service':'gmail','operation':'list_unread','limit':5}},
                {'id':'attachment','agent':'account','depends':['list'],'input':data}]
         return render(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))

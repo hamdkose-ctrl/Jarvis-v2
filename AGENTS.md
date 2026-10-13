@@ -1,5 +1,11 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## Gmail ek takip düzeltmesi — 14 Ekim 2026
+
+- `ilk mailin eklerini göster`, `ilk ekini oku` ve `ilk eki oku` doğrudan Gmail görev yoluna gider; Türkçe büyük İ, fazla boşluk ve son noktalama kabul edilir.
+- Son görevdeki doğrulanmış Gmail listesi veya ek sonucu aynı kullanıcı için mail kimliğini korur; takipte gelen yeni mail sıralamayı değiştirmez. Bağlam yoksa ilk okunmamış mail listelenir. Dış ek içeriği talimat olarak çalıştırılmaz.
+- Arayüz ve Android kaynakları değiştirilmedi. Canlı Gmail/OAuth ve sesli cihaz kabul testi ayrıca bekler.
+
 Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex vb.) içindir. Kod değiştiğinde bu dosya da aynı PR'da güncellenir.
 
 ## Çalışma kuralları
