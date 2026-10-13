@@ -3,7 +3,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from modules import publish_services, service_store
+from modules import publish_services, service_store, requests_state
 _record_failure=publish_services._record_failure
 
 
@@ -35,5 +35,37 @@ def render(owner,text,path):
         _record_failure('modules/local_narration.py:render')
         raise Unavailable('Windows yerel ses dosyası oluşturulamadı.') from None
     finally:
-        if stream is not None:stream.Close()
-        if initialized:comtypes.CoUninitialize()
+        try:
+            if stream is not None:
+                try:stream.Close()
+                except Exception:
+                    _record_failure('modules/local_narration.py:close')
+                    raise Unavailable('Windows ses dosyası kapatılamadı; çıktı doğrulanmadı.') from None
+        finally:
+            if initialized:comtypes.CoUninitialize()
+
+
+def check(owner):
+    """Produce and validate a private temporary WAV without playing it."""
+    import tempfile
+    import wave
+    service_store.identity(owner);requests_state.check()
+    try:
+        with tempfile.TemporaryDirectory(prefix='jarvis-narration-check-') as folder:
+            path=Path(folder)/'check.wav'
+            backend=render(owner,'Jarvis yerel ses kontrolü.',path)
+            requests_state.check()
+            if not path.is_file() or path.is_symlink() or path.stat().st_size>20_000_000:
+                raise ValueError('Ses çıktısı geçersiz.')
+            with wave.open(str(path),'rb') as audio:
+                frames=audio.getnframes();rate=audio.getframerate()
+                if audio.getcomptype()!='NONE' or audio.getnchannels() not in (1,2) or rate<=0 or not 0<frames/rate<=60:
+                    raise ValueError('Ses metaverisi geçersiz.')
+                data=audio.readframes(frames)
+                silent=all(value==128 for value in data) if audio.getsampwidth()==1 else not any(data)
+                if len(data)!=frames*audio.getnchannels()*audio.getsampwidth() or silent:
+                    raise ValueError('Ses verisi eksik veya sessiz.')
+    except (Unavailable,OSError,ValueError,EOFError,wave.Error,subprocess.SubprocessError):
+        return {'ok':False,'text':'Yerel anlatım çalışma testi geçmedi. Kurulu Piper modeli veya Windows SAPI ve comtypes gerekli; bulut sesi kullanılmadı.'}
+    requests_state.check()
+    return {'ok':True,'text':'Yerel anlatım ('+backend+') gerçek WAV dosyası üretti; süre ve ses verisi doğrulandı. Geçici dosya temizlendi, hoparlörde çalınmadı. Ses dili ve kalitesi ayrıca denenmeli.'}

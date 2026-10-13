@@ -1,3 +1,19 @@
+# Güncel açık işler — 14 Ekim 2026
+
+Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
+
+- Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.
+- Video: kullanıcı PC'sinde scripts/video_kurulum.bat; ardından video araçlarını kontrol et. BAT/WinGet burada çalıştırılmadı.
+- Anlatım: yerel anlatımı kontrol et; Windows SAPI veya kullanıcının mevcut Piper modeliyle dil/kalite.
+- Hesaplar: mevcut kullanıcı Gmail/YouTube OAuth kapsamları; Telegram bot/sohbet, Meta Business/profesyonel hesap ve HTTPS webhook. Gerçek izin/okuma/gönderim/yayın kabulü.
+- Yeni özel depoya kullanıcı GitHub anahtarının erişimi ve kaynak doğrulaması. Eski deponun sürüm kaydı taşınmaz.
+- Telefon/Android/iOS: cihaz ve APK kabul testi ayrı çalışma; bu aşamada Android kaynakları değiştirilmedi.
+- Açık ürün sınırları: geriye dönük WhatsApp sohbet çekme, Gmail ek okuma, fotogerçekçi üretken video ve sınırsız genel masaüstü geliştirme mevcut kapsamda tamamlanmış değildir.
+
+Kodda uygulanmış: kalıcı görev/kanıt kurtarma, servis outbox/izin ve zamanlama, mesaj/teslim, kendi içeriklerine yorum, Reels, güvenli paralel roller, yerel montaj, kurulum kontrolleri, eski commit'e dönüş engeli ve Windows symlink test uyumluluğu. Hesap/anahtar veya fiziksel cihaz gerektiren işler burada yapılmış sayılmaz.
+
+## Önceki durum kayıtları
+
 # Bekleyen doğrulamalar
 
 ## Komut ve masaüstü entegrasyonu — 11 Ekim 2026

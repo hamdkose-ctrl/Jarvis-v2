@@ -27,3 +27,7 @@ GitHub okuma/güncelleme ve kaynak yayınlama hedefi `hamdkose-ctrl/Jarvis-v2`, 
 Windows'ta isteğe bağlı `scripts/video_kurulum.bat`, kullanıcı Evet seçerse yalnız `winget install --id Gyan.FFmpeg --exact --source winget --scope user` çalıştırır. Uygulama kendiliğinden kurulum/indirme yapmaz. WinGet eksikse App Installer veya FFmpeg'in Windows dağıtımı gerekir. WinGet sonucu başarısızsa başarı denmez; kurulumdan sonra Jarvis yeniden başlatılır (PATH yenilenmesi). Paket kaynağı: https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/Gyan/FFmpeg .
 
 `video araçlarını kontrol et` / `video kurulum kontrol` yerel FFmpeg ve FFprobe sürüm çağrılarını, 0,3 saniyelik geçici H.264 kodlamayı ve gerçek dosya/codec/boyut/süre doğrulamasını yapar. Sürüm 5 sn, kodlama 15 sn, doğrulama 5 sn sınırındadır. Geçici çıktı temizlenir, ham araç çıktısı/dosya yolu gösterilmez; model/ağ/hesap/ses çağrısı yoktur. Eksik/bozuk/zaman aşımı başarı sayılmaz. Windows BAT/WinGet kurulumu gerçek PC'de ayrıca denenmelidir.
+
+## Yerel anlatım çalışma kontrolü — 14 Ekim 2026
+
+`yerel anlatımı kontrol et` mevcut kullanıcının kurulu Piper/Windows SAPI motoruyla sabit kısa metinden geçici WAV üretir. Dosya boyutu, PCM yapısı, süre, tam ses verisi ve 8/16 bit sessizlik kontrol edilir. Dosya temizlenir; hoparlörde oynatma, ses tercihi değiştirme, bulut/model indirme veya hesap isteği yoktur. Başarı dil/kalite testi değildir. SAPI dosya kapatmada hata verse bile COM temizliği yapılır ve çıktı başarı sayılmaz. Gerçek Windows/SAPI ve kullanıcının Piper modeli ayrıca denenmelidir.

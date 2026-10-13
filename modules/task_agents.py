@@ -541,6 +541,11 @@ def handle(owner, command, emit=None):
     request=requests_state._current.get()
     if request is not None and request[0]!=owner:raise PermissionError('Görev ve istek kullanıcısı eşleşmiyor.')
     c=command.casefold().strip()
+    if c in ('yerel anlatımı kontrol et','yerel anlatım kontrol'):
+        from modules import local_narration
+        token=llm._key_context.set(owner)
+        try:return local_narration.check(owner)['text']
+        finally:llm._key_context.reset(token)
     if c in ('video araçlarını kontrol et','video araçları kontrol','video kurulum kontrol'):
         from modules import media_setup
         return media_setup.check()['text']
