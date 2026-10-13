@@ -1,0 +1,47 @@
+JARVIS ANDROID 3.0
+==================
+
+Bu sürümde
+- Komut Merkezi görünümü: koyu lacivert zemin, dönen JARVIS çemberi, sohbet balonları
+- QR ile kurulum: bilgisayardaki Jarvis -> Telefon sayfası -> "Android Jarvis uygulaması · kurulum"
+  -> kullanıcıyı seç -> "Kurulum QR'ını göster" -> telefonda "QR ile kur"
+- Telefon Gemini'ye kendi başına bağlanır: bilgisayar kapalıyken de çalışır
+- Birden fazla kullanıcı: sol menüden geçiş, QR ile ekleme, basılı tutup silme
+- Yazarak sohbet, yazım hatalarını anlar
+- Sohbet geçmişi telefonda kullanıcı başına saklanır (tarih ayraçlarıyla)
+- Bağlantı sorunlarında açık hata mesajı ve "Tekrar dene"
+
+Adım 2 — ses
+- Mikrofon düğmesi ya da çembere dokun: konuş, susunca soru gider (ikinci dokunuş hemen gönderir)
+- Sesle sorulan soru sesli cevaplanır; "Yazınca da sesli cevap" menüden açılıp kapanır
+- Konuşurken çembere dokunursan susar
+- Menü → SES: ses seçimi (dokununca dinletir), hız, ton — her kullanıcıya ayrı
+- Türkçe ses paketi yoksa menü uyarır ve ayarlara götürür
+- İlk mikrofon kullanımında izin sorulur
+
+Adım 3 — kamera ile soru
+- Kamera düğmesi: "Fotoğraf çek" ya da "Galeriden seç"
+- Fotoğraf yazı kutusunun üstünde önizlenir: "Adım adım anlat" / "Sadece cevap" seç, istersen not ekle (ör. "5. soru")
+- Not yazmadan da gönderebilirsin; fotoğraf eklenmişken mikrofonla da sorabilirsin
+- Fotoğraflar sohbet geçmişinde kalır; dokununca tam ekran açılır
+- Fotoğraf okunaklı kalacak şekilde küçültülür (en uzun kenar 1600 piksel)
+
+Adım 4 — uyandırma kelimesi
+- Menü → UYANDIRMA (ya da çembere basılı tut): 15 dk / 30 dk / 1 saat / 2 saat dinle
+- İlk açılışta ~35 MB Türkçe ses modeli bir kez indirilir (internetsiz ve pil dostu dinleme için)
+- Kelimeyi herkes kendisi seçer; "Dene" ekranı ne duyduğunu gösterir, "bunu da kabul et" ile öğretilir
+- Hassasiyet: sıkı / normal / gevşek
+- Ekran kilitliyken de çalışır: kelime → bip → sorunu söyle → Jarvis sesli cevaplar
+- Bildirimde: Sor / +30 dk / Durdur; süre bitince kendiliğinden kapanır
+
+Adım 5 — hedefler
+- Menü → Hedefler ve ilerleme: en fazla 3 ölçülebilir hedef (ör. günde 20 soru, 15 dakika)
+- Kayıt: +1/+5 düğmeleri, "Miktar…", kamerayla çözülen sorular (otomatik), ya da sohbette "bugün 25 soru çözdüm"
+- Son 7 gün grafiği, seri, haftalık tamamlama; çemberin altında bugünkü durum
+- Hatırlatma saati (varsayılan 20:00): eksik hedef varsa bildirim; pazar günleri haftalık analiz daveti
+- Haftalık analiz: son 14 günün verisiyle açık sözlü değerlendirme ve öneriler
+
+Adım 6 — dosyalar
+- Menü → PC'ye dosya gönder: dosyayı seç, Tailscale'de bilgisayarını seç → bilgisayarın İndirilenler klasörü
+- Menü → PC'den gelen dosyalar: telefonun İndirilenler klasörü (Jarvis'e "test planını telefonuma gönder" de)
+- Telefonda Tailscale kurulu ve bilgisayarla aynı hesapta olmalı

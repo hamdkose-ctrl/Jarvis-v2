@@ -1,0 +1,1 @@
+Jarvis’i kapat ve klasörünü yedekle. Bu ZIP içindeki klasörleri mevcut Jarvis köküne birleştirerek kopyala. Ayrıntılar: docs/HOLOGRAM_ENTEGRASYONU.md

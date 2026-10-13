@@ -1,0 +1,2 @@
+# Kurulum ve geliştirme aynı sabitlenmiş sürümleri kullanır.
+-r requirements.lock.txt

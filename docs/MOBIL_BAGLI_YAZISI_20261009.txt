@@ -1,0 +1,1 @@
+Mobil web bağlantı yazısı Bağlı / Bağlı Değil olarak düzenlendi. Dar ekranda yazı görünür kalır. Mobil davranış testi geçti; fiziksel telefon testi yapılmadı. Önceki paket değişiklikleri dahildir.

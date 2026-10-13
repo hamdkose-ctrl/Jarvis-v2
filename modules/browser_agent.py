@@ -1,0 +1,185 @@
+"""Real Playwright browser, isolated owner profile, bounded declarative actions."""
+from __future__ import annotations
+import base64
+import hashlib
+import json
+from pathlib import Path
+import re
+import threading
+import time
+from urllib.parse import urlsplit
+import uuid
+from config import DATA_DIR
+from modules import privacy, requests_state
+from modules.diagnostics import record_failure as _record_failure
+
+STORE = DATA_DIR / 'browser_agent'
+_LOCK = threading.RLock()
+_ALLOWED = {'goto','read','click','fill','select','press','screenshot'}
+
+
+def _root(owner):
+    if not re.fullmatch(r'[\w-]{1,100}', owner or ''): raise ValueError('Kullanıcı geçersiz.')
+    root = STORE / owner; root.mkdir(parents=True,exist_ok=True); return root
+
+
+def _url(url):
+    parsed = urlsplit(str(url))
+    if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError('Yalnız http/https adresi kullanılır; adres içinde şifre kullanılamaz.')
+    return url
+
+
+def _digest(page):
+    return hashlib.sha256((page.url+'\n'+page.title()+'\n'+page.locator('body').inner_text()[:16000]).encode()).hexdigest()
+
+
+def snapshot(page):
+    # The model receives visible page data, never scripts, cookies or password values.
+    return {'url':page.url,'title':page.title(),'text':page.locator('body').inner_text()[:12000],
+        'controls':page.locator('a,button,input,textarea,select').evaluate_all('''els => els.slice(0,100).map(e => ({tag:e.tagName.toLowerCase(),id:e.id,name:e.name||'',type:e.type||'',text:(e.innerText||e.getAttribute('aria-label')||e.placeholder||'').slice(0,150),href:e.tagName==='A'?e.href:''}))''')}
+
+
+def _target(page, selector):
+    if not isinstance(selector,str) or not selector or len(selector)>400: raise ValueError('Seçici geçersiz.')
+    item = page.locator(selector)
+    if item.count()!=1: raise ValueError('Hedef tek bir öğeye karşılık gelmeli.')
+    if not item.is_visible(): raise ValueError('Hedef görünür değil.')
+    return item
+
+
+def _signature(item):
+    return item.evaluate("e => JSON.stringify({tag:e.tagName,type:e.type||'',id:e.id,name:e.name||'',text:(e.innerText||e.getAttribute('aria-label')||e.placeholder||'').slice(0,150),href:e.href||'',formAction:e.formAction||e.form?.action||'',formMethod:e.formMethod||e.form?.method||''})")
+
+
+def _sensitive(action, item):
+    # A link may have event handlers or a GET endpoint with side effects.
+    # Every interactive step is included in the concrete approval preview.
+    return action['op'] in ('click','fill','select','press')
+
+
+def validate(actions):
+    if not isinstance(actions,list) or not 1<=len(actions)<=20: raise ValueError('1–20 tarayıcı adımı gerekli.')
+    result=[]
+    for a in actions:
+        if not isinstance(a,dict) or a.get('op') not in _ALLOWED: raise ValueError('Tarayıcı aracı geçersiz.')
+        a=dict(a)
+        if a['op']=='goto': _url(a.get('url',''))
+        if a['op'] in ('click','select','press') and not (a.get('expect_text') or a.get('expect_url')):
+            raise ValueError('Düğme/tuş/seçim işlemi için beklenen metin veya URL doğrulaması gerekli.')
+        if a['op']=='press' and a.get('key') not in ('Enter','Tab','Escape','ArrowDown','ArrowUp'): raise ValueError('Tuş desteklenmiyor.')
+        if len(str(a.get('value',''))) > 10000: raise ValueError('Alan metni çok uzun.')
+        result.append(a)
+    return result
+
+
+def _save_pending(root, page, actions, item):
+    token=uuid.uuid4().hex[:12]
+    pending={'id':token,'created':time.time(),'url':page.url,'digest':_digest(page),
+             'signature':_signature(item),'actions':actions}
+    path=root/'pending.json'; path.write_text(json.dumps(pending,ensure_ascii=False),encoding='utf-8')
+    return {'state':'approval','id':token,'action':actions[0], 'url':page.url,
+            'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}. Bu planı uygulamak için ‘tarayıcı onayla {token}’, vazgeçmek için ‘tarayıcı iptal’ yaz."}
+
+
+def _execute(page, root, actions, approved=None):
+    log=[]
+    plan_approved=False
+    for i,a in enumerate(validate(actions)):
+        requests_state.check()
+        op=a['op']; item=None
+        if op in ('click','fill','select','press'):
+            item=_target(page,a.get('selector'))
+            if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
+            sensitive=_sensitive(a,item)
+            if sensitive and not plan_approved:
+                if approved is None: return {**_save_pending(root,page,actions[i:],item),'steps':log,'page':snapshot(page)}
+                if approved['digest']!=_digest(page) or approved['signature']!=_signature(item):
+                    raise ValueError('Sayfa veya hedef değişmiş; yeni işlem önizlemesi gerekli.')
+                plan_approved=True  # The displayed remainder is the exact approved plan.
+        before_url=page.url
+        before_text=page.locator('body').inner_text() if op in ('click','press') else ''
+        if op=='goto': page.goto(_url(a['url']),wait_until='domcontentloaded',timeout=25000)
+        elif op=='read': pass
+        elif op=='click': item.click(timeout=10000)
+        elif op=='fill':
+            item.fill(str(a.get('value','')),timeout=10000)
+            if item.input_value()!=str(a.get('value','')): raise ValueError('Alan değeri doğrulanamadı.')
+        elif op=='select': item.select_option(str(a.get('value','')),timeout=10000)
+        elif op=='press': item.press(a['key'],timeout=10000)
+        elif op=='screenshot': pass
+        page.wait_for_timeout(150)
+        if a.get('expect_url') and a['expect_url'] != page.url: raise ValueError('Beklenen adres doğrulanamadı.')
+        if a.get('expect_text') and a['expect_text'] not in page.locator('body').inner_text(): raise ValueError('Beklenen metin doğrulanamadı.')
+        if op in ('click','press') and page.url==before_url and not (a.get('expect_text') and a['expect_text'] not in before_text):
+            raise ValueError('İşlem uygulandı fakat beklenen yeni sonuç doğrulanamadı; otomatik tekrar uygulanmadı.')
+        log.append({'op':op,'url':page.url,'verified':bool(a.get('expect_text') or a.get('expect_url') or op in ('read','goto','fill','screenshot'))})
+    path=root/('screen-'+uuid.uuid4().hex[:12]+'.png'); page.screenshot(path=str(path),full_page=False)
+    return {'state':'done','steps':log,'page':snapshot(page),'image':str(path)}
+
+
+def run(owner, actions=None, approval=None, *, headless=False):
+    with _LOCK:
+        return _run(owner,actions,approval,headless=headless)
+
+
+def _run(owner, actions=None, approval=None, *, headless=False):
+    if blocked:=privacy.blocked('web'): return {'state':'blocked','message':blocked}
+    root=_root(owner)
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {'state':'unavailable','message':'Tarayıcı ajanını hazırlamak için Jarvis kökündeki kurulum.bat dosyasını çalıştır.'}
+    pending=None
+    if not approval and (root/'pending.json').exists():
+        raise ValueError('Önce bekleyen tarayıcı planını onayla veya tarayıcı iptal yaz.')
+    if approval:
+        path=root/'pending.json'
+        try: pending=json.loads(path.read_text(encoding='utf-8'))
+        except (OSError,ValueError): raise ValueError('Bekleyen tarayıcı işlemi yok.')
+        if pending['id']!=approval or time.time()-pending['created']>600: raise ValueError('Onay eşleşmiyor veya süresi dolmuş.')
+        actions=pending['actions']
+    else: actions=validate(actions)
+    requests_state.check()
+    with _LOCK, sync_playwright() as pw:
+        try:
+            context=pw.chromium.launch_persistent_context(str(root/'profile'),headless=headless,accept_downloads=False)
+        except Exception:
+            _record_failure('modules/browser_agent.py:run')
+            return {'state':'unavailable','message':'Chromium açılamadı. kurulum.bat ile kurulumu onar; ayrıntı tanılama kaydında.'}
+        try:
+            page=context.pages[0] if context.pages else context.new_page()
+            if pending:
+                page.goto(pending['url'],wait_until='domcontentloaded',timeout=25000)
+                # Consume before any effect: a retry must never send/submit twice.
+                (root/'pending.json').unlink()
+            result=_execute(page,root,actions,pending)
+            privacy.audit('tarayıcı ajanı',result['state'])
+            return result
+        finally: context.close()
+
+
+def cancel(owner):
+    with _LOCK:
+        (_root(owner)/'pending.json').unlink(missing_ok=True)
+    return 'Bekleyen tarayıcı işlemi iptal edildi.'
+
+
+def render(result):
+    state=result['state']
+    text=result.get('message','')
+    if result.get('page'):
+        page=result['page']; text+='\n\n'+page['title']+'\n'+page['url']+'\n\n'+page['text'][:9000]
+    if result.get('image'):
+        data=base64.b64encode(Path(result['image']).read_bytes()).decode()
+        text+='\n\n![Tarayıcı sonucu](data:image/png;base64,'+data+')'
+    return f'Tarayıcı: {state}\n'+text
+
+
+def handle(owner, command):
+    c=command.casefold().strip()
+    if c=='tarayıcı iptal': return cancel(owner)
+    if c.startswith('tarayıcı onayla '):
+        try: return render(run(owner,approval=command.strip().split()[-1]))
+        except (ValueError,RuntimeError) as exc: return str(exc)
+    return None

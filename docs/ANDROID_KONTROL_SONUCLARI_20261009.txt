@@ -1,0 +1,1 @@
+16 Java dosyası javalang ile sözdizimi ayrıştırmasından geçti. 11 XML dosyası ElementTree ile ayrıştırıldı. Gradle wrapper Git blob SHA1 doğrulandı. APK derlenmedi. Gerçek Android/Windows cihazında denenmedi.

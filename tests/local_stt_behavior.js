@@ -1,0 +1,20 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),'utf8');
+(async()=>{
+ const calls=[],messages=[];
+ const c={ACT:{},$:()=>({value:'base'}),ask:async()=>false,api:async(...a)=>{calls.push(a)},toast:t=>messages.push(t),drawSettings:()=>{}};
+ vm.createContext(c);vm.runInContext(src.slice(src.indexOf('function localSttText(')),c);
+ await c.ACT.lsttprepare();assert.equal(calls.length,0);
+ c.ask=async()=>true;await c.ACT.lsttprepare();
+ assert.equal(calls[0][0],'settings_save');assert.equal(calls[0][1].local_stt_model,'base');
+ assert.deepEqual(calls[1],['local_stt_prepare','base']);
+ assert(c.localSttText({installed:true,preparing:true}).includes('indiriliyor'));
+ assert(c.localSttText({installed:true,ready:true}).includes('hazır'));
+ calls.length=0;c.api=async()=>{throw Error('Normal moda geç')};await c.ACT.lsttprepare();
+ assert.equal(calls.length,0);assert(messages.at(-1).includes('Normal'));
+ calls.length=0;c.api=async(...a)=>{calls.push(a)};c.$=s=>({value:s==='#lsttbeam'?'2':s==='#lstt'?'1':'base'});c.SX={};c.S={};c.loadUi=async()=>{};
+ const vs=src.indexOf('ACT.vsave=');vm.runInContext(src.slice(vs,src.indexOf('\n',vs)),c);
+ await c.ACT.vsave();assert.equal(calls[0][0],'settings_save');assert.equal(calls[0][1].local_stt_beam,2);assert.equal(calls[0][1].local_stt_model,'base');
+ c.$=s=>({value:s==='#lsttbeam'?'':'base'});await c.ACT.vsave();assert.equal(calls[1][1].local_stt_beam,5);
+ console.log('Yerel ses UI: indirme onayı, iptal, model seçimi, durum ve hata gösterimi geçti.');
+})().catch(e=>{console.error(e);process.exit(1)});

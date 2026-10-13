@@ -1,0 +1,105 @@
+Python testleri
+Jarvis hazır (model: gemini-3.5-flash-lite), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: 'kapat'
+Jarvis kapatıldı.
+Jarvis hazır (model: gemini-3.5-flash-lite), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: 'kapat'
+Sen (web): selam
+Jarvis: Merhaba
+Sen (yazı): kapat
+Jarvis kapatıldı.
+Jarvis tek kopya kilidi oluşturulamadı; açılış durduruldu.
+Yeni sürüm sağlıklı açılmadı; önceki kaynaklar ve Python ortamı geri yüklendi.
+Yeni sürüm sağlıklı açılmadı; önceki kaynaklar ve Python ortamı geri yüklendi.
+Yeni sürüm sağlıklı açılmadı; önceki kaynaklar ve Python ortamı geri yüklendi.
+Yeni sürüm sağlıklı açılmadı; önceki kaynaklar ve Python ortamı geri yüklendi.
+(Excel çevirisi: 1/1 hücre)
+  File "/tmp/tmp6f_c8a2x/project/gui.py", line 1
+    def broken(
+              ^
+SyntaxError: '(' was never closed
+Traceback (most recent call last):
+  File "/tmp/tmpvbw0bx7k/project/gui.py", line 1, in <module>
+    raise RuntimeError('candidate startup failed')
+RuntimeError: candidate startup failed
+----------------------------------------------------------------------
+Ran 522 tests in 17.308s
+
+OK (skipped=1)
+
+webui/earth.js
+
+webui/guide.js
+
+webui/icons.js
+
+webui/math-workspace.js
+
+webui/mobile/install.js
+
+webui/mobile/notes.js
+
+webui/mobile/sw.js
+
+webui/nx.js
+
+webui/pc-guide.js
+
+webui/study-workspace.js
+
+desktop_flows
+Masaüstü: boş konuyla seçili kaynak, takvim/görev/not birleşimi, ay/gün seçimi ve kamera önizlemesi geçti (taklit DOM).
+
+mobile_behavior
+Mobil davranış: QR, profil, başarısız/başarılı gönderim, mikrofon kapanması ve iPhone kurulum yönlendirmesi geçti.
+
+continuity_behavior
+Bağlantı: kalıcı yanıt uzlaştırması, profil önbelleği, doğrudan durdurma ve kuyruk reddi kontrolleri geçti.
+
+fieldnotes_behavior
+Saha notları: çevrimdışı kayıt, yeniden bağlantı aktarımı ve tek kayıt kontrolleri geçti.
+
+desktop_auth_behavior
+Masaüstü erişimi: fragment temizliği, oturum kurulumu ve URL dışında anahtar taşıma geçti.
+
+paid_provider_behavior
+Ücretli sağlayıcı UI: kaydetme ayrı, etkinleştirme onaylı, iptal hiçbir sağlayıcı değiştirmiyor, anahtar alanı temizleniyor.
+
+developer_behavior
+Geliştirme: kalıcı görsel Markdown, yenileme sonrası önizleme, güvenli kaynak ve sohbet komutları geçti.
+Geliştirme: pano görseli, metin koruma, yükleme hatası, gönderme bekletme ve kullanıcı değişimi geçti.
+
+router_behavior
+Smart Router UI: ücretsiz hesap seçimi, anahtar temizleme, kullanıcı değişiminde durum yenileme geçti.
+
+study_behavior
+Matematik UI: ara/nihai sonuç ayrımı, formüller, eski çizim dönüşümü, tam kaynakla Çöz, yeniden açılma ve HTML kaçışı geçti.
+Çalışma UI: geç ders cevabı kullanıcı/konu değiştirmiyor; çift yanıt tek gönderim, deneme kimliği ve konu filtresi korunuyor; geç medya kullanıcıya taşınmıyor; tükenen soru temizleniyor.
+
+navigation_start_behavior
+Ayarlar yönlendirmesi, bağlantı kısayolu ve konu/kaynak çalışma başlangıcı geçti.
+
+headless_smoke
+Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).
+
+maintenance_smoke
+Real integration: concurrent engine profiles, study page dispatch and document actions passed
+Motor: önceki sesli kısa yanıt temizliği, rehberlikten bağımsız kapatma ve telefon kapatma sınırı geçti.
+Motor: ilk hızlı işleyici yanıtladığında diğer işleyiciler ve yan etkileri çalışmıyor.
+İç içe kullanıcı bağlamları: PC kimliği, konuk geri dönüşü ve hata sonrası model bağlamı korundu.
+
+voice_actions_smoke
+Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).
+Sesli ortak işlemler: 72 kayıt, gerçek Bridge imzaları, kullanıcı ayrımı, silme/onay, mikrofon kapalı kalma ve tema kaydı geçti.
+
+paid_provider_smoke
+Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).
+Ücretli sağlayıcı gerçek Bridge: kayıt çağrı/aktivasyon yapmıyor; kullanıcı bağlamı, aday model, onaylı seçim ve anahtar silme doğru.
+
+developer_smoke
+Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).
+Geliştirme gerçek Bridge: şifre, dosya okuma/düzenleme, kalıcı görsel, sesli kısa sonuç, uygulama ve geri alma geçti.
+
+router_agents_smoke
+Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).
+Router/ajan PC+ses: gerçek Bridge, ana sohbet ve canlı ses yönlendirmesi, kalıcı rapor, doğrulanmamış donanım ayrımı geçti (model/OS taklitleri).
+
+Tüm test grupları başarılı.
