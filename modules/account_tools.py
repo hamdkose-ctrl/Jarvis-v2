@@ -27,7 +27,9 @@ def validate_input(data):
     if type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError('Mail listesi sınırı 1–20 olmalı.')
     if data['operation'] in ('list_attachments','read_attachment'):
-        if data['service']!='gmail' or 'index' in data or 'limit' in data or not isinstance(data.get('message_id'),str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,200}',data['message_id']):raise ValueError('Ek okuma için kesin Gmail mail kimliği gerekli.')
+        if data['service']!='gmail' or 'limit' in data or ('message_id' in data)==('index' in data):raise ValueError('Ek okuma için kesin Gmail mail kimliği veya doğrulanmış liste sırası gerekli.')
+        if 'message_id' in data and (not isinstance(data['message_id'],str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,200}',data['message_id'])):raise ValueError('Ek mail kimliği geçersiz.')
+        if 'index' in data and (type(data['index']) is not int or not 1<=data['index']<=20):raise ValueError('Ek mail sırası 1–20 olmalı.')
         if data['operation']=='read_attachment' and (type(data.get('attachment_index')) is not int or not 1<=data['attachment_index']<=20):raise ValueError('Ek sıra numarası 1–20 olmalı.')
     elif data['operation'] == 'read_message':
         if 'limit' in data or ('message_id' in data) == ('index' in data):
@@ -86,7 +88,7 @@ def run(owner, data, dependencies=None):
     if service!='gmail':
         from modules import social_reads
         return social_reads.run(owner,data)
-    if data['operation'] == 'read_message' and 'index' in data:
+    if data['operation'] in ('read_message','list_attachments','read_attachment') and 'index' in data:
         from modules import task_results
         candidates = [out for out in (dependencies or {}).values() if isinstance(out, dict)
                       and isinstance(out.get('snapshot'), dict) and out['snapshot'].get('operation') == 'list_unread']
@@ -113,7 +115,7 @@ def run(owner, data, dependencies=None):
                 index=data['attachment_index']
                 if index>len(parts):raise ValueError('Seçilen sırada ek yok.')
                 item,part=parts[index-1]
-                if not item['supported']:return {'state':'unavailable','text':'Bu ek desteklenmiyor: yalnız en fazla 256 KiB TXT/CSV/Markdown metni okunur.'}
+                if not item['supported']:return {'state':'unavailable','text':'Bu ek desteklenmiyor: TXT/CSV/Markdown 256 KiB; PDF/DOCX/XLSX/PPTX 4 MiB sınırında okunur.'}
                 snapshot['attachment']={**item,**mail_attachments.read(messages,data['message_id'],part)}
             return {'state':'done','text':render_snapshot(snapshot),'snapshot':snapshot,'sha256':digest(snapshot)}
         if data['operation'] == 'read_message':

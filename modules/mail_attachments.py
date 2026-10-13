@@ -7,6 +7,17 @@ from modules import mail_content, requests_state
 MAX_BYTES=262144
 SUFFIXES={'.txt','.csv','.md'}
 MIMES={'text/plain','text/csv','text/markdown','application/csv','application/octet-stream'}
+DOCUMENT_MIMES={'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation'}
+
+
+def size_limit(name):
+    return 4*1024*1024 if PurePosixPath(name.replace('\\','/')).suffix.lower() in DOCUMENT_MIMES else MAX_BYTES
+
+
+def supported(name,mime,size):
+    suffix=PurePosixPath(name.replace('\\','/')).suffix.lower()
+    return size<=size_limit(name) and ((suffix in SUFFIXES and mime in MIMES) or (suffix in DOCUMENT_MIMES and mime in (DOCUMENT_MIMES[suffix],'application/octet-stream')))
 
 
 def parts(payload):
@@ -24,7 +35,7 @@ def parts(payload):
             if not isinstance(body,dict) or not isinstance(mime,str) or type(body.get('size')) is not int or body['size']<0:raise ValueError('Ek metaverisi geçersiz.')
             suffix=PurePosixPath(name.replace('\\','/')).suffix.lower()
             found.append(({'index':len(found)+1,'filename':name,'mime':mime,'size':body['size'],
-                           'supported':suffix in SUFFIXES and mime in MIMES and body['size']<=MAX_BYTES},part))
+                           'supported':supported(name,mime,body['size'])},part))
             return
         for child in children:visit(child,depth+1)
     visit(payload,0)
@@ -41,9 +52,14 @@ def read(messages,mid,part):
         requests_state.check()
         if not isinstance(result,dict):raise ValueError('Ek yanıtı geçersiz.')
         encoded=result.get('data')
-    if not isinstance(encoded,str) or len(encoded)>350000:raise ValueError('Ek kodlaması sınırı aşıyor.')
+    limit=size_limit(part['filename'])
+    if not isinstance(encoded,str) or len(encoded)>((limit+2)//3)*4+4:raise ValueError('Ek kodlaması sınırı aşıyor.')
     raw=base64.b64decode(encoded+'='*(-len(encoded)%4),altchars=b'-_',validate=True)
-    if not raw or len(raw)>MAX_BYTES or len(raw)!=body['size']:raise ValueError('Ek boyutu doğrulanamadı.')
+    if not raw or len(raw)>limit or len(raw)!=body['size']:raise ValueError('Ek boyutu doğrulanamadı.')
+    suffix=PurePosixPath(part['filename'].replace('\\','/')).suffix.lower()
+    if suffix in DOCUMENT_MIMES:
+        from modules import attachment_documents
+        result=attachment_documents.read(raw,suffix);requests_state.check();return result
     headers=mail_content.headers(part);message=Message();message['content-type']=headers.get('content-type',part['mimeType'])
     try:text=raw.decode(message.get_content_charset() or 'utf-8')
     except (UnicodeError,LookupError):raise ValueError('Ek metin kodlaması okunamadı.') from None
@@ -71,4 +87,4 @@ def verify(snapshot):
         if type(snapshot.get('has_more')) is not bool or [i['index'] for i in items]!=list(range(1,len(items)+1)):raise ValueError('Ek liste kapsamı geçersiz.')
     else:
         item=items[0]
-        if item['supported'] is not True or not 0<item['size']<=MAX_BYTES or not isinstance(item.get('body'),str) or not item['body'].strip() or len(item['body'])>mail_content.MAX_TEXT or type(item.get('truncated')) is not bool:raise ValueError('Ek metin kanıtı geçersiz.')
+        if item['supported'] is not True or not 0<item['size']<=size_limit(item['filename']) or not supported(item['filename'],item['mime'],item['size']) or not isinstance(item.get('body'),str) or not item['body'].strip() or len(item['body'])>mail_content.MAX_TEXT or type(item.get('truncated')) is not bool:raise ValueError('Ek metin kanıtı geçersiz.')

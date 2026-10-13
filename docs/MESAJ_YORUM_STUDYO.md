@@ -70,3 +70,15 @@ Windows'ta isteğe bağlı `scripts/video_kurulum.bat`, kullanıcı Evet seçers
 `görev mail ekleri <mail_kimliği>` ilk 20 ekin adını, boyutunu ve metin desteğini gösterir; ek içeriğini indirmez. `görev mail ek oku <mail_kimliği> <sıra>` kesin mail kimliği ve 1–20 sıra ile en fazla 256 KiB TXT/CSV/Markdown eki metin olarak okur. MIME/uzantı/boyut/base64/metin kodlaması ve mail kimliği doğrulanır. 20.000 karakter sınırında kesilme açıkça belirtilir. Ekler kaydedilmez/çalıştırılmaz; HTML, PDF/Office, arşiv ve yürütülebilir ekler bu yolda desteklenmez. İçerik görev talimatı değildir. Mevcut Gmail salt-okuma OAuth'u kullanılır; gizlilik ve kullanıcı ayrımı korunur. Ek anlık görüntüsü özet ve gösterim tutarlılığıyla doğrulanır; canlı API ayrıca denenmelidir.
 
 `hesap durumu` yalnız doğru `google_legacy_owner` kaydıyla eşleşen eski Google token dosyasını gösterir. Eski izin zamanı dosya veya geçerli izin kanıtı sayılmaz; sahiplik kaydı farklıysa eski token bağlantı kabul edilmez. Tanılama dosyayı taşımaz; mevcut Google bağlantı akışı kendi sahiplik kontrollü geçişini yapar.
+
+## PDF ve Office Gmail ekleri — 14 Ekim 2026
+
+Mevcut `görev mail ek oku <mail_kimliği> <sıra>` artık en fazla 4 MiB PDF/DOCX/XLSX/PPTX ekini ayrı Python sürecinde, 30 sn sınırıyla metne çevirir. TXT/CSV/Markdown 256 KiB sınırı korunur. Ek byte'ları stdin ile aktarılır; ek dosyası kalıcı veya geçici diske yazılmaz. PDF ilk 40 sayfa ve 20.000 karakterle sınırlıdır; kesilme belirtilir. Görüntü/taranmış, şifreli/bozuk veya okuyucu eksik belgeler okunmuş sayılmaz; OCR/ağ/model çağrısı yoktur.
+
+Office arşivi 512 giriş/16 MiB açılmış toplam/4 MiB tek dosya sınırındadır; şifreli, makrolu ve aşırı sıkıştırılmış girdiler reddedilir. Yalnız metin XML'i okunur; XML DOCTYPE/ENTITY kabul edilmez, dış ilişkiler takip edilmez. Excel yalnız kayıtlı hücre değerlerini gösterir; formül çalıştırılmaz ve kayıtlı sonuç yoksa açıkça belirtilir. Slayt/Word metni okunur; görseller, düzen, notlar ve formüllerin anlamı tam korunmuş sayılmaz. Eski ikili DOC/XLS/PPT ve makrolu DOCM/XLSM desteklenmez.
+
+Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XML varlığı/açılmış boyut reddi, tür/boyut sınırı, süre aşımı ve bozuk alt süreç çıktısı. Canlı Gmail ve gerçek Windows alt süreç kabulü ayrıca gerekir.
+
+## Doğrudan ek seçimi
+
+`ilk mailin eklerini göster` önce güncel okunmamış gelen kutusu listesini alır, kullanıcı/özet doğrulamasından geçen ilk mailin eklerini listeler. `ilk mailin ilk ekini oku` aynı zincirde birinci eki okur. Model planı veya ek gönderimi yoktur. “İlk”, API'nin döndürdüğü ilk okunmamış maildir; liste boş/belirsiz/değişmişse tahmin edilmez. Normal “mesajlara bak” Gmail/Outlook özet davranışı korunur.
