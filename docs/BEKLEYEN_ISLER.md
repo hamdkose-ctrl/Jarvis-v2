@@ -3,7 +3,7 @@
 Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
 
 - Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.
-- Video: kullanıcı PC'sinde scripts/video_kurulum.bat; ardından video araçlarını kontrol et. BAT/WinGet burada çalıştırılmadı.
+- Video araçları tamamlandı: kullanıcı PC'sinde gerçek H.264 üretimi ve FFprobe boyut/süre doğrulamasının geçtiği bildirildi (14 Ekim 2026). Ses ve hesap kontrolleri ayrı kalır.
 - Anlatım: yerel anlatımı kontrol et; Windows SAPI veya kullanıcının mevcut Piper modeliyle dil/kalite.
 - Hesaplar: mevcut kullanıcı Gmail/YouTube OAuth kapsamları; Telegram bot/sohbet, Meta Business/profesyonel hesap ve HTTPS webhook. Gerçek izin/okuma/gönderim/yayın kabulü.
 - Yeni özel depoya kullanıcı GitHub anahtarının erişimi ve kaynak doğrulaması. Eski deponun sürüm kaydı taşınmaz.
