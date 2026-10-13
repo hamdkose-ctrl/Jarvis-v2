@@ -1,0 +1,357 @@
+"""Focused runtime actions with explicitly injected dependencies."""
+from __future__ import annotations
+from modules.diagnostics import record_failure as _record_failure
+
+def _plain(runtime, text: str) -> str:
+    return runtime.re.sub('\\s+', ' ', text).strip(' .,:;!-')
+
+def _note_text(runtime, command: str, cmd_lower: str) -> str:
+    """Komut bir not isteğiyse notun metnini döndürür: "Not pazartesi ekip gelecek", "not ekle …", "… diye not al"."""
+    m = runtime._NOTE_HEAD.match(cmd_lower.strip())
+    if m:
+        body = m.group(1)
+        if runtime.re.match('(?:defter|listesi|lar|ları|larım)\\b', body):
+            return ''
+        text = runtime._plain(command.strip()[len(command.strip()) - len(body):])
+        if cmd_lower.startswith('hatırlatma'):
+            text = 'Hatırlatma: ' + runtime.re.sub('^(?:ve|ile|da|de)\\s+', '', text, flags=runtime.re.I)
+        return text
+    m = runtime._NOTE_TAIL.match(cmd_lower.strip())
+    if m and len(m.group(1).split()) >= 2:
+        return runtime._plain(command.strip()[:len(m.group(1))])
+    return ''
+
+def _add_note(runtime, text: str, photo: str | None=None) -> dict:
+    item = runtime.profile.add_note_item(text + (' 📷' if photo else ''))
+    if photo:
+        item['photo'] = photo
+        runtime.profile.save()
+    runtime._last_note[runtime.profile.slug] = runtime.time.time()
+    return item
+
+def _fix_word(runtime, text: str, right: str) -> str | None:
+    """Son nottaki, doğru yazılışa en çok benzeyen kelimeyi düzeltir ("israliyesini" + "irsaliye" -> "irsaliyesini")."""
+    words, rl = (text.split(), runtime._tr_lower(right))
+    best, bi = (0.0, -1)
+    for i, w in enumerate(words):
+        r = runtime.difflib.SequenceMatcher(None, rl, runtime._tr_lower(w)[:len(rl)]).ratio()
+        if r > best:
+            best, bi = (r, i)
+    if best < 0.6:
+        return None
+    w = words[bi]
+    new = right if not w[:1].islower() else runtime._tr_lower(right)
+    words[bi] = new + (w[len(right):] if len(w) > len(right) else '')
+    return ' '.join(words)
+
+def _note_fix(runtime, command: str, cmd_lower: str) -> str | None:
+    """Son notu sil / düzelt. Kısa düzeltmeler ("X olarak değiştir", "X değil Y") yalnızca nottan hemen sonra (15 dk)."""
+    items = runtime.profile.data['items']
+    if not items:
+        return None
+    last = items[-1]
+    cl = cmd_lower.strip(' .!?')
+    if runtime.re.fullmatch('son not(?:u|umu)?\\s+(?:sil|kaldır|iptal et)\\w*', cl):
+        runtime.profile.delete_note_item(last['id'])
+        return f"Son notu sildim: {last['text']}"
+    m = runtime.re.match('^son not(?:u|umu)?\\s+(?:düzelt|değiştir)\\w*\\s*[:,]?\\s+(.+)$', cl)
+    if m:
+        last['text'] = runtime._plain(command.strip()[len(command.strip()) - len(m.group(1)):])
+        runtime.profile.save()
+        return f"Son notu düzelttim: {last['text']}"
+    if runtime.time.time() - runtime._last_note.get(runtime.profile.slug, 0) > 900:
+        return None
+    m = runtime.re.match('^(?:yanlış oldu\\s+|doğrusu\\s+|hayır\\s+)?(.+?)\\s+(?:olarak|diye)\\s+(?:değiştir|düzelt)\\w*$', cl) or runtime.re.match('^(?:yanlış oldu|doğrusu|yanlış yazdın)[\\s:,]+(.+)$', cl)
+    loose = None if m else runtime.re.match('^(?:.+?)\\s+değil[\\s,]+(.+?)(?:\\s+(?:olacak|olsun|yaz))?$', cl)
+    if not (m or loose):
+        return None
+    right = (m or loose).group(1).strip()
+    if ' ' in right:
+        return None
+    new = runtime._fix_word(last['text'], right)
+    if not new and loose:
+        return None
+    if not new:
+        return f"Son notta “{right}” kelimesine benzeyen bir yer bulamadım. Not şu an: {last['text']}. “Son notu düzelt: …” diyerek tamamını yeniden yazabilirsin."
+    last['text'] = new
+    runtime.profile.save()
+    runtime._last_note[runtime.profile.slug] = runtime.time.time()
+    return f'Düzelttim: {new}'
+
+def _notes_text(runtime) -> str:
+    items = runtime.profile.data['items']
+    if not items:
+        return 'Not defterin boş.'
+    return 'Notların: ' + '; '.join((f"{i}) {n['text']}" for i, n in enumerate(items, 1)))
+
+def _agenda_text(runtime, day: str, label: str) -> str:
+    """O günün programı: Jarvis'in kendi takvimi + (bağlıysa) Google Takvim. "Takvimimde ne var" sorusu önce
+    yalnızca Jarvis'in takvimine bakıyordu; Google Takvim'deki etkinlikler hiç söylenmiyordu."""
+    evs = runtime.profile.events_on(day)
+    parts = [(e['when'][11:16] + ' ' if len(e['when']) > 10 else '') + e['title'] for e in evs]
+    google = ''
+    try:
+        if runtime.google_api._ready() is None:
+            offset = (runtime.datetime.strptime(day, '%Y-%m-%d').date() - runtime.datetime.now().date()).days
+            google = runtime.google_api.agenda(offset, label)
+    except Exception:
+        _record_failure('main.py:_agenda_text')
+    g_empty = not google or 'etkinlik yok' in google
+    if not parts and g_empty:
+        return f'{label} için takviminde bir şey yok' + (" (Google Takvim'e de baktım)." if google else '.')
+    out = []
+    if parts:
+        out.append(f'{label}: ' + '; '.join(parts) + '.')
+    if google and (not g_empty):
+        out.append(google)
+    return ' '.join(out)
+
+def _add_event(runtime, title: str, when: str) -> str:
+    runtime.profile.add_event(title, when)
+    return f'Takvime ekledim: {title}, {runtime.whenmod.describe(when)}.'
+
+def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
+    """Not defteri ve takvim komutları (kullanıcıya özel)."""
+    now = runtime.datetime.now()
+    if runtime._session().pending_event_title is not None:
+        title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
+        if cmd_lower in ('iptal', 'vazgeç', 'boşver'):
+            return 'Tamam, eklemedim.'
+        when, rest = runtime.whenmod.parse_when(command, now)
+        if when:
+            return runtime._add_event(title, when)
+    if runtime.re.fullmatch('(notlarım(ı (oku|göster|say))?|notlarımı (oku|göster|say)|notları (oku|göster|say)|notlar)', cmd_lower.strip(' .!?')):
+        return runtime._notes_text()
+    m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)
+    if m:
+        idx = int(m.group(1) or m.group(2))
+        items = runtime.profile.data['items']
+        if 1 <= idx <= len(items):
+            gone = items[idx - 1]
+            runtime.profile.delete_note_item(gone['id'])
+            return f"Notu sildim: {gone['text']}"
+        return 'Böyle bir numaralı not yok.'
+    if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
+        runtime.profile.clear_note_items()
+        return 'Tüm notlarını sildim.'
+    fixed = runtime._note_fix(command, cmd_lower)
+    if fixed is not None:
+        return fixed
+    text = runtime._note_text(command, cmd_lower)
+    if text:
+        runtime._add_note(text)
+        return f'Not aldım: {text}'
+    m = runtime.re.search('\\btakvime\\s+(?:ekle|yaz|not et)\\w*\\s*$', cmd_lower) or runtime.re.match('^(?:takvime ekle|takvime not et|takvime yaz|hatırlat|bana hatırlat|bana .*hatırlat|randevu ekle|etkinlik ekle)\\b', cmd_lower) or (runtime.re.search('\\bhatırlat\\w*\\b', cmd_lower) and runtime.re.search("\\b(yarın|bugün|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|gün sonra|saat sonra|dakika sonra|\\d{1,2}[:.]\\d{2}|\\d{1,2}['’](?:da|de|ta|te))", cmd_lower))
+    if m:
+        body = runtime.re.sub('^(?:bana\\s+)?(?:takvime (?:ekle|not et|yaz)|hatırlat\\w*|randevu ekle|etkinlik ekle)\\s*[:,]?\\s*', '', command, flags=runtime.re.I)
+        body = runtime.re.sub('\\b(?:diye\\s+)?hatırlat\\w*\\b|\\b(?:için\\s+)?takvime\\s+(?:ekle|yaz|not et)\\w*', '', body, flags=runtime.re.I)
+        when, title = runtime.whenmod.parse_when(body, now)
+        title = runtime.re.sub('^(?:günü|gün|günleri)\\s+', '', runtime._plain(title))
+        if not title:
+            return 'Neyi eklememi istersin?'
+        if when:
+            return runtime._add_event(title, when)
+        runtime._session().pending_event_title = title
+        return f"'{title}' için ne zaman? Örneğin 'yarın 10'da'."
+    if runtime.re.search('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*', cmd_lower) and (not runtime.re.search('\\b(ekle|yaz|sil|not et)\\b', cmd_lower)):
+        day_txt = runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
+        if runtime.re.search('\\b(aç|açar mısın|açsana|göster|getir)', cmd_lower) and runtime.google_api._ready() is None:
+            import webbrowser
+            webbrowser.open('https://calendar.google.com')
+            return "Google Takvim'i tarayıcıda açtım. " + day_txt
+        return day_txt
+    if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|planım|randevum)\\b|\\b(programım|takvimim|planım|ajandam)\\b|\\bne işim var\\b', cmd_lower):
+        if 'yarın' in cmd_lower:
+            d = (now + __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d')
+            return runtime._agenda_text(d, 'Yarın')
+        return runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
+    if runtime.re.search('\\b(yaklaşan|sıradaki|önümüzdeki)\\b.*\\b(etkinlik|randevu|hatırlatma|program)\\w*', cmd_lower):
+        up = runtime.profile.upcoming(now, 5)
+        if not up:
+            return 'Yaklaşan bir kaydın yok.'
+        return 'Yaklaşanlar: ' + '; '.join((f"{runtime.whenmod.describe(e['when'], now)} {e['title']}" for e in up)) + '.'
+    return None
+
+def _macro_key(runtime, text: str) -> str:
+    return runtime.re.sub('\\s+', ' ', runtime.re.sub('[^\\w\\s]', ' ', runtime._tr_lower(text))).strip()
+
+def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
+    m = runtime.re.match('^[\'\\"“‘]?(.+?)[\'\\"”’]?\\s+(?:dersem|dediğimde|dediğim zaman|desem)\\s*,?\\s+(.+)$', cmd_lower)
+    if not m:
+        return None
+    trigger, actions = (m.group(1).strip(), m.group(2).strip())
+    if not trigger or len(trigger.split()) > 5:
+        return None
+    pieces = [p for p in runtime._MACRO_SPLIT.split(actions) if p]
+    verb = next((vm.group(1) for p in reversed(pieces) if (vm := runtime._VERB_END.search(p))), 'aç')
+    cmds, unknown = ([], [])
+    for p in pieces:
+        base = runtime._VERB_END.sub('', p).strip()
+        app = runtime.system_control.find_app(base)
+        if app:
+            cmds.append(f'{app} {verb}')
+        elif runtime._NONAPP.search(p):
+            cmds.append(p)
+        else:
+            unknown.append(base)
+    if not cmds and (not runtime._VERB_END.search(actions)):
+        return None
+    if not cmds:
+        return 'Bu kısayol için tanıdığım bir uygulama ya da komut bulamadım' + (f" ({', '.join(unknown)})." if unknown else '.') + ' Uygulama adını Başlat menüsündeki gibi söyler misin?'
+    runtime.profile.data.setdefault('macros', {})[runtime._macro_key(trigger)] = {'title': trigger, 'actions': cmds}
+    runtime.profile.save()
+    out = f'Kısayolu kaydettim: “{trigger}” dediğinde şunları yapacağım: ' + ', '.join(cmds) + '.'
+    if unknown:
+        out += f" Şunları tanımadığım için eklemedim: {', '.join(unknown)}."
+    return out
+
+def _macro_run(runtime, cmd_lower: str) -> str | None:
+    macros = runtime.profile.data.get('macros') or {}
+    if not macros or runtime._session()._in_macro:
+        return None
+    key = runtime._macro_key(cmd_lower)
+    cands = {key, runtime._VERB_END.sub('', key).strip(), runtime.re.sub('\\s+(aç|başlat|çalıştır|etkinleştir)$', '', key)}
+    cands |= {runtime.re.sub('(?:nu|nü|ni|nı|u|ü|i|ı)$', '', c) for c in list(cands)}
+    hit = macros.get(key) or next((macros[c] for c in sorted(cands) if c in macros), None)
+    if not hit:
+        return None
+    from modules.command_manager import awaiting_input
+    session, owner = runtime._session(), runtime.profile.slug
+    session._in_macro = True
+    failed, executed = [], []
+    try:
+        for index, act in enumerate(hit['actions']):
+            runtime.requests_state.check()
+            if runtime.stop_event.is_set() or runtime.flags.get('closing'):
+                return 'Jarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
+            reply = runtime.handle(act)
+            executed.append(act)
+            runtime.requests_state.check()
+            if runtime.profile.slug != owner:
+                return str(reply or '') + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'
+            if awaiting_input(session):
+                return str(reply or '') + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
+            if runtime.flags.get('closing') or runtime.stop_event.is_set():
+                return str(reply or '') + '\nJarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
+            if runtime.re.search('bulamadım|açamadım|anlamadım|başlatılamadı', reply or ''):
+                failed.append(act)
+            if index + 1 < len(hit['actions']):
+                runtime.time.sleep(0.4)
+    finally:
+        session._in_macro = False
+        session.speech_override = None  # Do not reuse an individual action's short reply.
+    out = f"“{hit['title']}” kısayolunu çalıştırdım: " + ', '.join(executed) + '.'
+    return out + (f" Şunlar olmadı: {', '.join(failed)}." if failed else '')
+
+def _macro_manage(runtime, cmd_lower: str) -> str | None:
+    macros = runtime.profile.data.get('macros') or {}
+    if runtime.re.search('kısayol\\w*\\s+(listele|göster|neler)|kısayollarım', cmd_lower):
+        if not macros:
+            return 'Kayıtlı kısayolun yok. Örnek: “çalışma modu dersem spotify, chrome ve vs code aç”.'
+        return 'Kısayolların: ' + '; '.join((f"{v['title']} → {', '.join(v['actions'])}" for v in macros.values())) + '.'
+    m = runtime.re.match('^[\'\\"“‘]?(.+?)[\'\\"”’]?\\s+kısayol\\w*\\s+(?:sil|unut|kaldır)$', cmd_lower)
+    if m:
+        key = runtime._macro_key(m.group(1))
+        if key in macros:
+            title = macros.pop(key)['title']
+            runtime.profile.save()
+            return f'“{title}” kısayolunu sildim.'
+        return 'Böyle bir kısayolun yok.'
+    return None
+
+def _brief_facts(runtime) -> list[str]:
+    """Günlük özet için gerçek veriler: hava, takvim, hatırlatmalar, mailler (yalnızca gönderen/konu), görevler."""
+    now = runtime.datetime.now()
+    facts = [f"Şu an: {now.strftime('%d.%m.%Y %H:%M')}, {runtime._DAYS[now.weekday()]}. Kullanıcının adı: {runtime.profile.name}."]
+    try:
+        wx = runtime.weather.report(runtime.profile.data['prefs'].get('city') or None)
+        if wx:
+            facts.append('Hava: ' + ' '.join(wx.split()))
+    except Exception:
+        _record_failure('main.py:_brief_facts')
+        pass
+    today = now.strftime('%Y-%m-%d')
+    tomorrow = (now + runtime.timedelta(days=1)).strftime('%Y-%m-%d')
+    for day, label in ((today, 'Bugün'), (tomorrow, 'Yarın')):
+        evs = runtime.profile.events_on(day)
+        facts.append(f'{label} Jarvis hatırlatmaları: ' + ('; '.join(((e['when'][11:16] + ' ' if len(e['when']) > 10 else '') + e['title'] for e in evs[:6])) if evs else 'yok'))
+    try:
+        if runtime.google_api.TOKEN.exists():
+            facts.append('Google Takvim: ' + runtime.google_api.agenda(0, 'Bugün'))
+            facts.append('Gmail: ' + runtime.google_api.unread_mail())
+    except Exception:
+        _record_failure('main.py:_brief_facts')
+        pass
+    try:
+        from modules import handoff
+        line = handoff.brief_line()
+        if line:
+            facts.append(line)
+    except Exception:
+        _record_failure('main.py:_brief_facts')
+        pass
+    try:
+        from modules import outlook
+        if outlook.installed():
+            facts.append('İş maili (Outlook): ' + outlook.unread_mail())
+            from modules import worktrack
+            line = worktrack.brief_line()
+            if line:
+                facts.append(line)
+    except Exception:
+        _record_failure('main.py:_brief_facts')
+        pass
+    open_tasks = [t['text'] for t in runtime.profile.data.get('tasks', []) if not t['done']]
+    facts.append(f'Açık görevler ({len(open_tasks)}): ' + ('; '.join(open_tasks[:8]) if open_tasks else 'yok'))
+    goals = runtime.profile.data.get('goals') or []
+    if goals:
+        facts.append('Kullanıcının hedefi: ' + goals[-1])
+    return facts
+
+def _daily_briefing(runtime) -> str:
+    """"Bugün neler oldu?" özeti: gerçek verileri toplar, yapay zeka doğal ve kısa bir konuşmaya çevirir."""
+    facts = runtime._brief_facts()
+    plain = ' '.join((f for f in facts[1:] if not f.endswith(': yok')))
+    try:
+        text = runtime.ask('\n'.join(facts), f'Sen {runtime.ASSISTANT_NAME} adlı kişisel asistansın. Aşağıdaki GERÇEK verilerden kullanıcıya sesli okunacak kısa bir günlük özet yaz: selamla (saate göre), önce en önemli/acil olanı söyle (yaklaşan toplantı, önemli mail), sonra kalanları toparla. En fazla 6 cümle. Veride olmayan hiçbir şeyi uydurma; boş kalemleri hiç anma. Mailleri tek tek okumak yerine kimden ve ne hakkında olduklarını grupla. Madde işareti, başlık ya da emoji kullanma; doğal, sıcak ve profesyonel Türkçe konuş.', 600).strip()
+        if text:
+            return text
+    except Exception as exc:
+        _record_failure('main.py:_daily_briefing')
+    now = runtime.datetime.now()
+    hello = f'Günaydın {runtime.profile.name}.' if now.hour < 12 else f'Merhaba {runtime.profile.name}.'
+    return hello + ' ' + plain
+
+def _morning_brief(runtime) -> None:
+    """Prepare the PC owner's briefing without borrowing a phone guest's profile."""
+    if runtime.stop_event.wait(8):
+        return
+    try:
+        from types import SimpleNamespace
+        owner = runtime.pc_profile()
+        now = runtime.datetime.now()
+        today = now.strftime('%Y-%m-%d')
+        if not 5 <= now.hour < 12 or owner.data['prefs'].get('last_brief') == today or runtime.flags.get('sleep'):
+            return
+        if owner.data['prefs'].get('morning_brief') is False:
+            return
+        # A captured runtime view avoids holding the command lock during network calls.
+        owned = SimpleNamespace(**vars(runtime))
+        owned.profile = owner
+        owned._brief_facts = lambda: _brief_facts(owned)
+        owned._llm.set_user_context(owner.slug)
+        text = _daily_briefing(owned)
+        if now.weekday() == 4:
+            try:
+                from modules import outlook, worktrack
+                if outlook.installed():
+                    text += ' ' + worktrack.report('weekly')
+            except Exception:
+                _record_failure('main.py:_morning_brief')
+        if runtime.stop_event.is_set() or runtime.pc_profile().slug != owner.slug or runtime.flags.get('sleep'):
+            return
+        owner.set_pref('last_brief', today)
+        runtime._emit_for(owner, 'assistant', text)
+        runtime.events.put(('say', text, owner.slug))
+    except Exception:
+        _record_failure('main.py:_morning_brief')

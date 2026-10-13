@@ -1,0 +1,2 @@
+# Optional browser agent. Core voice/PC setup continues without Chromium.
+playwright==1.58.0

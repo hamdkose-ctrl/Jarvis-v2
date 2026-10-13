@@ -1,0 +1,3 @@
+*.bat -text
+*.png binary
+tools/claude/agents/*.md text eol=lf

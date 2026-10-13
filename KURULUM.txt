@@ -1,0 +1,19 @@
+Jarvis güncel taban + son eklemeler — 13 Ekim 2026
+
+TABAN: Hamdi'nin son gönderdiği Jarvis - Kopya.zip. Eski GitHub main taban alınmadı.
+Bu paket tam kaynak sürümüdür. Mevcut Python ortamı, hesaplar ve modeller içermez.
+
+Jarvis'i kapatın ve mevcut klasörü yedekleyin. ZIP içindeki Jarvis klasörünün içeriğini mevcut Jarvis klasörüne birleştirin. Aynı kaynak dosyalarını değiştirin; kendi .venv ve kullanıcı verilerinizi koruyun. baslat.bat ile açın.
+
+Arayüz, hologram, web sunucusu ve Android kaynakları gönderdiğiniz ZIP'ten birebir korunmuştur. Son eklemeler: gelen mesaj ve teslim takibi; kendi içeriklerine yorum okuma/yanıtlama; aynı Reels konteynerini takip etme; güvenli rollerde paralel görev; yerel sahneli video/altyazı/ses montajı ve isteğe bağlı Piper/Windows SAPI anlatım.
+
+Önce okuyun: docs/MESAJ_YORUM_STUDYO.md ve docs/JARVIS_BIRLESIK_KULLANIM.md.
+Video için FFmpeg/FFprobe gerekir. Piper kullanılırsa modeli kullanıcı sağlamalıdır. Canlı hesaplar/OAuth ve HTTPS webhook kurulumu ayrıca gerekir. Ücretli sağlayıcı otomatik seçilmez; WhatsApp maliyet yetkisi varsayılan kapalıdır. Video stüdyosu fotogerçekçi üretken video modeli içermez.
+
+Zorunlu sürüm doğrulaması başarılı: Python testleri, 22 Node test grubu, 6 smoke grubu ve Python/JavaScript sözdizimi kontrolü. Hesap/model/donanım testlerde taklit edilir; gerçek Windows mikrofon/pencere ve canlı servis kabul testi ayrıca gerekir.
+
+Eski Jarvis_Tam_Surum_20261013.zip yerine bu paket kullanılmalıdır.
+
+Son bakım: kayıtlı yerel commit'ten eski GitHub sürümünün kurulması yedek alınmış olsa da engellenir. Yeni sürüm bildirimi eski commit için gösterilmez. Kayıtlı commit yoksa ZIP tarihinden sürüm sırası çıkarılmaz.
+
+Son sürüm: hesap durumu komutu da DAHİL. Kurulum sonrası sohbete hesap durumu yazın. Bu yalnız yerel önkoşulları gösterir; canlı hesabı doğrulamaz.

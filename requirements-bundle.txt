@@ -1,0 +1,4 @@
+# Tek kurulumdaki ekler. Çekirdek sürümleri requirements.lock.txt belirler.
+-r requirements-browser.txt
+faster-whisper
+markitdown[docx,xlsx,pptx]

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="jarvis_bg">#FFE8F0FB</color>
+    <style name="Jarvis" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">@color/jarvis_bg</item>
+        <item name="android:statusBarColor">@color/jarvis_bg</item>
+        <item name="android:navigationBarColor">@color/jarvis_bg</item>
+        <item name="android:colorAccent">#FF237DD0</item>
+        <item name="android:colorPrimary">#FF237DD0</item>
+        <item name="android:textColorHint">#FF60788F</item>
+    </style>
+</resources>
