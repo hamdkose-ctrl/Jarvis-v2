@@ -20,6 +20,14 @@ class ServiceHealthTests(unittest.TestCase):
             result=service_health.report('alice')
         self.assertIn('ffmpeg: bulunamadı',result);self.assertEqual(list(self.root.iterdir()),[])
 
+    def test_legacy_google_token_requires_matching_owner_and_never_migrates(self):
+        old=self.root/'google_token.json';old.write_text('SECRET')
+        settings=self.root/'settings.json';settings.write_text(json.dumps({'google_legacy_owner':'bob','granted_google_token':123}))
+        self.assertIn('Gmail okuma: kullanıcı OAuth dosyası yok',service_health.report('alice'))
+        settings.write_text(json.dumps({'google_legacy_owner':'alice'}))
+        result=service_health.report('alice');self.assertIn('atanmış eski OAuth dosyası mevcut',result)
+        self.assertNotIn('SECRET',result);self.assertTrue(old.exists());self.assertFalse((self.root/'google_users').exists())
+
     def test_owner_isolation_and_no_secret_disclosure(self):
         for owner in ('alice','bob'):
             folder=self.root/'google_users'/owner;folder.mkdir(parents=True)
