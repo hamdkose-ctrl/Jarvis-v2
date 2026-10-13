@@ -1,0 +1,57 @@
+# Yerel ortamlar ve araç önbellekleri
+.venv/
+.venv_install/
+.venv_backup/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.yeni
+.ruff_cache/
+.pytest_cache/
+JarvisAndroid/
+
+# Kullanıcıya özel veri ve geliştirme ayarları
+.jarvis/
+.claude/
+models/
+.env
+.env.*
+!.env.example
+!.env.sample
+settings.json
+gemini_key.txt
+groq_key.txt
+github_token.txt
+phone_token.txt
+chat_sessions.json
+requests.json
+.claude-mem/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Ses/dil modelleri ve imzalama anahtarları
+*.onnx
+*.tflite
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.keystore
+*.jks
+*.pem
+*.p12
+
+# Günlükler ve yerel yedekler
+*.log
+backups/
+.backups/
+
+# Android yerel derleme dosyaları
+.gradle/
+build/
+local.properties
