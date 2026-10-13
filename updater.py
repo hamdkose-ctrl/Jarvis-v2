@@ -20,11 +20,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-REPO = "hamdkose-ctrl/Jarvis"
+REPO = "hamdkose-ctrl/Jarvis-v2"
 BRANCH = "main"
 ROOT = Path(__file__).resolve().parent              # Jarvis klasörü
 DATA = Path(os.environ.get("JARVIS_DATA_DIR") or (Path.home() / ".jarvis"))
-STATE = DATA / "update.json"
+# Repository-specific state: never treat a commit from the old repository as
+# the installed base in this repository. Credentials remain independently stored.
+STATE = DATA / "update-Jarvis-v2.json"
 TOKEN_FILE = DATA / "github_token.txt"
 SKIP = {".venv", "__pycache__", ".git", ".github", ".gradle", "build", ".idea"}   # generated build trees are excluded
 TIMEOUT = 4

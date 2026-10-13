@@ -17,3 +17,7 @@ Eski Jarvis_Tam_Surum_20261013.zip yerine bu paket kullanılmalıdır.
 Son bakım: kayıtlı yerel commit'ten eski GitHub sürümünün kurulması yedek alınmış olsa da engellenir. Yeni sürüm bildirimi eski commit için gösterilmez. Kayıtlı commit yoksa ZIP tarihinden sürüm sırası çıkarılmaz.
 
 Son sürüm: hesap durumu komutu da DAHİL. Kurulum sonrası sohbete hesap durumu yazın. Bu yalnız yerel önkoşulları gösterir; canlı hesabı doğrulamaz.
+
+## Güncel depo: Jarvis-v2
+
+GitHub okuma/güncelleme ve kaynak yayınlama hedefi `hamdkose-ctrl/Jarvis-v2`, dal `main`. Yeni sürüm kaydı `~/.jarvis/update-Jarvis-v2.json`; eski `update.json` değiştirilmez ve yeni deponun commit tabanı sayılmaz. İlk kullanımda GitHub doğrulaması kaynakların eşitliğini kanıtlamadan taban commit kaydedilmez. Taban bilinmiyorsa normal kurulum güvenli biçimde durur. Açılış kontrolü kaynak kurmaz. Mevcut GitHub anahtarının yeni özel depoya erişimi ayrıca gerekir; token/hesap otomatik değiştirilmez. Kullanıcı daha yeni ZIP gönderirse kaynak farkları doğrulanır; eski depo taban alınmaz.
