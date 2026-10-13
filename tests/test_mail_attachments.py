@@ -65,3 +65,30 @@ class MailAttachmentTests(unittest.TestCase):
         with self.assertRaises(ValueError):mail_attachments.parts(deep)
         for index in (0,21,True):
             with self.assertRaises(ValueError):account_tools.validate_input({'service':'gmail','operation':'read_attachment','message_id':'M1','attachment_index':index})
+
+    def test_attachment_mail_index_requires_verified_owner_list(self):
+        import time
+        snap={'owner':'alice','service':'gmail','operation':'list_unread','fetched_at':time.time(),'query':'is:unread in:inbox',
+              'limit':5,'items':[{'id':'M1','from':'sender','subject':'subject'}],'has_more':False}
+        output=task_results.seal('account',{'state':'done','snapshot':snap,'sha256':account_tools.digest(snap),'text':account_tools.render_snapshot(snap)})
+        data={'service':'gmail','operation':'list_attachments','index':1}
+        result=account_tools.run('alice',data,{'list':output});self.assertEqual(result['snapshot']['message_id'],'M1')
+        self.service.reset_mock()
+        for dependencies in ({},{'a':output,'b':output}):
+            with self.assertRaises(ValueError):account_tools.run('alice',data,dependencies)
+        self.service.assert_not_called()
+
+    def test_bad_attachment_command_does_not_fall_through_to_mail_summary(self):
+        from modules import task_agents
+        result=task_agents.handle('alice','görev mail ek oku <person@example.com> 1')
+        self.assertIn('e-posta adresi değildir',result);self.service.assert_not_called()
+
+    def test_natural_first_mail_attachment_command_runs_without_model(self):
+        import tempfile
+        from pathlib import Path
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            result=task_agents.handle('alice','ilk mailin eklerini göster')
+            self.assertIn('note.txt',result)
+        self.messages.attachments.assert_not_called()
