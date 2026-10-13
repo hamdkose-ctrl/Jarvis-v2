@@ -136,3 +136,9 @@ Normal Windows kullanıcısında WinError 1314 nedeniyle iki test gerçek sembol
 ## Güncel depo: Jarvis-v2
 
 GitHub okuma/güncelleme ve kaynak yayınlama hedefi `hamdkose-ctrl/Jarvis-v2`, dal `main`. Yeni sürüm kaydı `~/.jarvis/update-Jarvis-v2.json`; eski `update.json` değiştirilmez ve yeni deponun commit tabanı sayılmaz. İlk kullanımda GitHub doğrulaması kaynakların eşitliğini kanıtlamadan taban commit kaydedilmez. Taban bilinmiyorsa normal kurulum güvenli biçimde durur. Açılış kontrolü kaynak kurmaz. Mevcut GitHub anahtarının yeni özel depoya erişimi ayrıca gerekir; token/hesap otomatik değiştirilmez. Kullanıcı daha yeni ZIP gönderirse kaynak farkları doğrulanır; eski depo taban alınmaz.
+
+## Video araçları kurulumu ve çalışma testi
+
+Windows'ta isteğe bağlı `scripts/video_kurulum.bat`, kullanıcı Evet seçerse yalnız `winget install --id Gyan.FFmpeg --exact --source winget --scope user` çalıştırır. Uygulama kendiliğinden kurulum/indirme yapmaz. WinGet eksikse App Installer veya FFmpeg'in Windows dağıtımı gerekir. WinGet sonucu başarısızsa başarı denmez; kurulumdan sonra Jarvis yeniden başlatılır (PATH yenilenmesi). Paket kaynağı: https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/Gyan/FFmpeg .
+
+`video araçlarını kontrol et` / `video kurulum kontrol` yerel FFmpeg ve FFprobe sürüm çağrılarını, 0,3 saniyelik geçici H.264 kodlamayı ve gerçek dosya/codec/boyut/süre doğrulamasını yapar. Sürüm 5 sn, kodlama 15 sn, doğrulama 5 sn sınırındadır. Geçici çıktı temizlenir, ham araç çıktısı/dosya yolu gösterilmez; model/ağ/hesap/ses çağrısı yoktur. Eksik/bozuk/zaman aşımı başarı sayılmaz. Windows BAT/WinGet kurulumu gerçek PC'de ayrıca denenmelidir.

@@ -541,6 +541,9 @@ def handle(owner, command, emit=None):
     request=requests_state._current.get()
     if request is not None and request[0]!=owner:raise PermissionError('Görev ve istek kullanıcısı eşleşmiyor.')
     c=command.casefold().strip()
+    if c in ('video araçlarını kontrol et','video araçları kontrol','video kurulum kontrol'):
+        from modules import media_setup
+        return media_setup.check()['text']
     if c in ('hesap durumu','hesap kurulumu kontrol','servis durumu'):
         from modules import service_health
         token=llm._key_context.set(owner)
