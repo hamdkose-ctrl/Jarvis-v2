@@ -89,6 +89,28 @@ class MailAttachmentTests(unittest.TestCase):
         from modules import task_agents
         self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
-            result=task_agents.handle('alice','ilk mailin eklerini göster')
+            result=task_agents.handle('alice','İlk mailin eklerini göster')
             self.assertIn('note.txt',result)
         self.messages.attachments.assert_not_called()
+
+    def test_capital_turkish_i_first_attachment_read_avoids_model(self):
+        import tempfile
+        from pathlib import Path
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            result=task_agents.handle('alice','İlk mailin ilk ekini oku')
+            self.assertIn('hello attachment',result)
+
+    def test_engine_dispatch_claims_capital_attachment_command_before_legacy_mail(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from modules.command_manager import CommandContext,dispatch
+        from modules.session_state import SessionState
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        context=CommandContext(SimpleNamespace(slug='alice'),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(),Mock())
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            result=dispatch(context,'İlk mailin eklerini göster','ilk mailin eklerini göster')
+            self.assertIsNotNone(result);self.assertIn('note.txt',result)

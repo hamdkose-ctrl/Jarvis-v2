@@ -172,3 +172,7 @@ Mevcut `görev mail ek oku <mail_kimliği> <sıra>` artık en fazla 4 MiB PDF/DO
 Office arşivi 512 giriş/16 MiB açılmış toplam/4 MiB tek dosya sınırındadır; şifreli, makrolu ve aşırı sıkıştırılmış girdiler reddedilir. Yalnız metin XML'i okunur; XML DOCTYPE/ENTITY kabul edilmez, dış ilişkiler takip edilmez. Excel yalnız kayıtlı hücre değerlerini gösterir; formül çalıştırılmaz ve kayıtlı sonuç yoksa açıkça belirtilir. Slayt/Word metni okunur; görseller, düzen, notlar ve formüllerin anlamı tam korunmuş sayılmaz. Eski ikili DOC/XLS/PPT ve makrolu DOCM/XLSM desteklenmez.
 
 Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XML varlığı/açılmış boyut reddi, tür/boyut sınırı, süre aşımı ve bozuk alt süreç çıktısı. Canlı Gmail ve gerçek Windows alt süreç kabulü ayrıca gerekir.
+
+## Türkçe büyük İ ile ek komut yönlendirmesi
+
+“İlk mailin eklerini göster” ve “İlk mailin ilk ekini oku” casefold sonrasında birleşik nokta nedeniyle tanınmıyordu; karşılaştırmada bu nokta normalize edilir. Mail kimlikleri ve dosya metinleri değiştirilmez. Gerçek komut yönlendirici üzerinden büyük İ ile listelenen/okunan ek komutlarının modele veya eski posta yoluna düşmediği sınanır. Yeni kod uygulanınca Jarvis kapatılıp yeniden başlatılmalıdır; çalışan eski süreç kodu bellekte tutar.
