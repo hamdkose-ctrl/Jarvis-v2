@@ -27,6 +27,28 @@ class MailAttachmentTests(unittest.TestCase):
         self.assertEqual(result['snapshot']['items'][0]['filename'],'note.txt')
         self.assertTrue(task_results.verify(result,owner='alice'))
 
+    def test_read_without_attachments_returns_verified_empty_list(self):
+        self.messages.get.return_value.execute.side_effect=lambda:{'id':'M1','payload':{'mimeType':'text/plain','body':{'data':'aGVsbG8='}}}
+        result=self.read()
+        self.assertEqual(result['state'],'done')
+        self.assertEqual(result['snapshot']['items'],[])
+        self.assertIn('Ek yok.',result['text'])
+        self.assertTrue(task_results.verify(result,owner='alice'))
+        self.messages.attachments.assert_not_called()
+
+    def test_empty_attachment_followup_finishes_without_resume_prompt(self):
+        import tempfile
+        from pathlib import Path
+        from modules import task_agents
+        self.messages.get.return_value.execute.side_effect=lambda:{'id':'M1','payload':{'mimeType':'text/plain','body':{'data':'aGVsbG8='}}}
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            task_agents.handle('alice','İlk mailin eklerini göster')
+            result=task_agents.handle('alice','İlk ekini oku')
+            self.assertEqual('Bu mailde ek yok.',result)
+            self.assertNotIn('Sürdürmek için',result)
+            self.assertEqual(task_agents.recent('alice')['state'],'done')
+
     def test_remote_and_inline_text_reads_are_verified(self):
         for inline in (False,True):
             if inline:self.part['body']['data']=base64.urlsafe_b64encode(self.raw).decode()
@@ -91,6 +113,9 @@ class MailAttachmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
             result=task_agents.handle('alice','İlk mailin eklerini göster')
             self.assertIn('note.txt',result)
+            self.assertEqual(result,'Mailin ekleri:\n1. note.txt')
+            for technical in ('Görev ','Dosya bütünlük özeti','M1','account'):
+                self.assertNotIn(technical,result)
         self.messages.attachments.assert_not_called()
 
     def test_capital_turkish_i_first_attachment_read_avoids_model(self):
@@ -101,6 +126,7 @@ class MailAttachmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
             result=task_agents.handle('alice','İlk mailin ilk ekini oku')
             self.assertIn('hello attachment',result)
+            self.assertEqual(result,'note.txt\n\nhello attachment')
 
     def test_engine_dispatch_claims_capital_attachment_command_before_legacy_mail(self):
         import tempfile

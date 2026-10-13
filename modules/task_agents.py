@@ -474,6 +474,29 @@ def memory_context(owner,query):
     return json.dumps([x[1] for x in matches[:3]],ensure_ascii=False)[:8000] if matches else ''
 
 
+def render_mail_attachment(job):
+    """Show the requested mail result while retaining technical evidence in the job."""
+    for task in reversed(job['tasks']):
+        output=job['outputs'].get(task['id'],{})
+        snapshot=output.get('snapshot',{})
+        if output.get('state')=='done' and snapshot.get('operation')=='list_attachments':
+            items=snapshot['items']
+            if not items:return 'Bu mailde ek yok.'
+            lines=['Mailin ekleri:']
+            for item in items:
+                lines.append(str(item['index'])+'. '+item['filename']+
+                             ('' if item['supported'] else ' (bu dosya türü veya boyutu okunamıyor)'))
+            if snapshot['has_more']:lines.append('İlk 20 ek gösteriliyor.')
+            return '\n'.join(lines)
+        if output.get('state')=='done' and snapshot.get('operation')=='read_attachment':
+            item=snapshot['attachment']
+            return (item['filename']+'\n\n'+item['body']+
+                    ('\n[Dosya uzun olduğu için yalnız bir kısmı okundu.]' if item['truncated'] else ''))
+        if output.get('state') in ('failed','blocked','unavailable'):
+            return output.get('text') or 'Mail eki şu an okunamadı.'
+    return 'Okunabilecek mail eki bulunamadı.'
+
+
 def render(job):
     lines=['Görev '+job['id']+': '+job['state']]
     if job.get('instruction'):lines.append('İstek: '+privacy.redact(job['instruction']))
@@ -544,6 +567,7 @@ def handle(owner, command, emit=None):
     # deterministic aliases and falls through to the model/legacy mail routes.
     c=' '.join(command.casefold().replace('\u0307','').split()).strip(' .!?')
     if c in ('ilk mailin eklerini göster','ilk e-postanın eklerini göster','görev ilk mail ekleri','ilk mailin ilk ekini oku','ilk mailin ekini oku','ilk ekini oku','ilk eki oku','görev ilk mail ek oku'):
+        display=render if c.startswith('görev ') else render_mail_attachment
         read=c in ('ilk mailin ilk ekini oku','ilk mailin ekini oku','ilk ekini oku','ilk eki oku','görev ilk mail ek oku')
         data={'service':'gmail','operation':'read_attachment' if read else 'list_attachments','index':1}
         if read:data['attachment_index']=1
@@ -558,7 +582,7 @@ def handle(owner, command, emit=None):
             items=lists[0]['snapshot']['items']
             if not items:return 'Gösterilen listede okunmamış Gmail maili yok.'
             data.pop('index');data['message_id']=items[0]['id']
-            return render(execute(owner,[{'id':'list','agent':'account','input':data}],
+            return display(execute(owner,[{'id':'list','agent':'account','input':data}],
                                   'Gmail ilk ekini oku' if read else 'Gmail eklerini göster',emit))
         attachments=[out for out in (previous or {}).get('outputs',{}).values()
                      if isinstance(out,dict) and isinstance(out.get('snapshot'),dict)
@@ -568,11 +592,11 @@ def handle(owner, command, emit=None):
         if len(attachments)==1:
             task_results.verify(attachments[0],owner=owner)
             data.pop('index');data['message_id']=attachments[0]['snapshot']['message_id']
-            return render(execute(owner,[{'id':'attachment','agent':'account','input':data}],
+            return display(execute(owner,[{'id':'attachment','agent':'account','input':data}],
                                   'Gmail ilk ekini oku' if read else 'Gmail eklerini göster',emit))
         tasks=[{'id':'list','agent':'account','input':{'service':'gmail','operation':'list_unread','limit':5}},
                {'id':'attachment','agent':'account','depends':['list'],'input':data}]
-        return render(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))
+        return display(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))
     attachment=re.fullmatch(r'görev mail (ekleri|ek oku) ([a-zA-Z0-9_-]{1,200})(?: ([0-9]{1,2}))?',command.strip(),re.I)
     if attachment:
         read=attachment[1].casefold()=='ek oku'
