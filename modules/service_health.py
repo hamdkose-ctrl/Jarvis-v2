@@ -1,5 +1,6 @@
 """Read-only local prerequisites; no network, OAuth refresh or setting changes."""
 from pathlib import Path
+import json
 import shutil
 import sys
 from config import DATA_DIR
@@ -13,10 +14,20 @@ def _file(path):
 def report(owner):
     service_store.identity(owner)
     lines=['Yerel kurulum kontrolü; canlı bağlantı ve izin geçerliliği doğrulanmadı.']
+    legacy_owner=None
+    settings=DATA_DIR/'settings.json'
+    try:
+        if _file(settings) and settings.stat().st_size<=64000:
+            saved=json.loads(settings.read_text(encoding='utf-8'))
+            if isinstance(saved,dict):legacy_owner=saved.get('google_legacy_owner')
+    except (OSError,ValueError):pass
     for label,name in [('Gmail okuma','google_token.json'),('Gmail gönderim','google_gmail_write_token.json'),
                        ('YouTube okuma','google_youtube_read_token.json'),('YouTube yayın','google_youtube_write_token.json'),
                        ('YouTube yorum','google_youtube_reply_write_token.json')]:
-        lines.append(label+': '+('kullanıcı OAuth dosyası mevcut; süre/kapsam doğrulanmadı.' if _file(DATA_DIR/'google_users'/owner/name) else 'kullanıcı OAuth dosyası yok; bağlantı izni gerekli.'))
+        state=('kullanıcı OAuth dosyası mevcut; süre/kapsam doğrulanmadı.' if _file(DATA_DIR/'google_users'/owner/name) else
+               'bu kullanıcıya atanmış eski OAuth dosyası mevcut; Google bağlantısı açıldığında kullanıcı alanına taşınabilir. Süre/kapsam doğrulanmadı.' if legacy_owner==owner and _file(DATA_DIR/name) else
+               'kullanıcı OAuth dosyası yok; bağlantı izni gerekli.')
+        lines.append(label+': '+state)
     configs={}
     for service,label,fields in [('telegram','Telegram',('bot_token','read_chat_id')),('whatsapp','WhatsApp',('access_token','api_version','phone_number_id')),
                                  ('instagram','Instagram',('access_token','api_version','ig_user_id')),('media_voice','Yerel anlatım',())]:

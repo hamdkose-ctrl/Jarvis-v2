@@ -69,10 +69,15 @@ def check(kind, output):
             if not isinstance(items,list) or len(items)>20 or any(not isinstance(item,dict) or not isinstance(item.get('id'),str) or not item['id'] or not isinstance(item.get('text'),str) for item in items):raise ValueError('Sosyal okuma kanıtı geçersiz.')
             if output.get('sha256')!=account_tools.digest(snapshot) or output.get('text')!=social_reads.render(snapshot):raise ValueError('Sosyal okuma kaydı değişmiş.')
             return True
-        if not isinstance(snapshot, dict) or snapshot.get('service') != 'gmail' or snapshot.get('operation') not in ('list_unread', 'read_message'):
+        if not isinstance(snapshot, dict) or snapshot.get('service') != 'gmail' or snapshot.get('operation') not in ('list_unread', 'read_message','list_attachments','read_attachment'):
             raise ValueError('Hesap sonucu desteklenen okumaya ait değil.')
         if not isinstance(snapshot.get('owner'), str) or not snapshot['owner']:
             raise ValueError('Hesap sonucu kullanıcı kaydı eksik.')
+        if snapshot['operation'] in ('list_attachments','read_attachment'):
+            from modules import mail_attachments
+            mail_attachments.verify(snapshot)
+            if output.get('sha256')!=account_tools.digest(snapshot) or output.get('text')!=account_tools.render_snapshot(snapshot):raise ValueError('Ek okuma kaydı değişmiş.')
+            return True
         if snapshot['operation'] == 'read_message':
             from modules import mail_content
             item = snapshot.get('message')
