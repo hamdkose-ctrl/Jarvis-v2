@@ -400,3 +400,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Test: `tests/test_mail_charset.py` (UTF-8 ve windows-1254/iso-8859-9 örnekleri, yanlış etiketli UTF-8, HTML meta, bilinmeyen charset, iç içe alternative/related/mixed). Canlı Gmail ile Hamdi'nin PC'sinde ayrıca denenmelidir.
 
 MIME charset metin dışı codec (base64/hex/zlib_codec) bildirirse LookupError yakalanıp UTF-8 metne dönülür; binary dönüşüm çalıştırılmaz. Regresyon: test_non_text_codecs_fall_back_to_utf8.
+
+## Sade görev sonuçları
+Mail okuma/listeleme/taslak, hazır uzman akışları ve video üretiminin normal yanıtı render_summary kullanır. Ara adım/kimlik/hash gizlenir; mail konu/gönderen/gövde önizlemesi, çıktı dosyası ve gönderilmedi/yayınlanmadı bilgisi görünür. Görev durumu açık komutu tam günlüğü korur. 2000 karakter önizleme sınırı belirtilir; başarısız son doğrulama başarı sayılmaz. Yeni model çağrısı veya gönderim yoktur. Test: test_simple_task_results.
+Sade sunum command_manager üzerinden summary=True ile seçilir; dahili handle varsayılanı ve açık görev durumu tam günlüğü korur. Eski kabul testleri zayıflatılmaz.
