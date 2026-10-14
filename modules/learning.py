@@ -392,6 +392,19 @@ def short_summary(text: str) -> str:
 # ------------------------------------------------------------------ sesli/yazılı komutlar
 def handle(cmd_lower: str, command: str, profile) -> str | None:
     t = cmd_lower.strip(" .!?")
+    if t in ('hafızamı göster','hafızayı göster','hafızamdaki bilgileri listele'):
+        facts=profile.data.get('facts',[])
+        return '\n'.join(f'{i}. {f}' for i,f in enumerate(facts,1)) or 'Hafızada onaylı bilgi yok.'
+    memory=re.fullmatch(r'hafıza\s+(düzelt|unut)\s*:\s*(.+)',command.strip(),re.I|re.S)
+    if memory:
+        value=memory[2].strip();text=None
+        if _low(memory[1])=='düzelt':
+            if '|' not in value:return 'Kullanım: hafıza düzelt: eski bilginin tamamı | yeni bilgi'
+            value,text=(v.strip() for v in value.split('|',1))
+        matches=[i for i,f in enumerate(profile.data.get('facts',[])) if f==value]
+        if len(matches)!=1:return 'Kesin ve tek bir bilgi seçilemedi; önce “hafızamı göster” de ve kaydın tamamını yaz.'
+        profile.edit_fact(matches[0],value,text)
+        return 'Bilgiyi düzelttim.' if text is not None else 'Seçtiğin bilgiyi unuttum.'
     # gelişim raporu
     if re.search(r"gelişim raporu|kendini (?:değerlendir|geliştir|analiz)|neleri? yapamadın|nerede hata yaptın", t):
         return short_summary(report())

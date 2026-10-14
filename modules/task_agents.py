@@ -497,6 +497,35 @@ def render(job):
         if output.get('draft'): lines.append('Kod taslağı hazırlandı; kaynaklara uygulanmadı. Şifreli alanda inceleyip değişiklikleri uygula.')
     return '\n'.join(lines)
 
+def render_summary(job):
+    """Human-facing outcome; journals and hashes remain available in task details."""
+    outputs=job.get('outputs',{})
+    for output in outputs.values():
+        snap=output.get('snapshot',{})
+        if snap.get('operation')=='list_unread' and snap.get('items')==[]:
+            return 'Okunmamış gelen kutunda mail yok.'
+    consumed={dep for t in job['tasks'] if t['agent']!='verify' for dep in t.get('depends',[])}
+    selected=[t for t in job['tasks'] if t['id'] not in consumed and t['agent']!='verify']
+    lines=[]
+    for task in selected:
+        output=outputs.get(task['id'],{});snap=output.get('snapshot',{})
+        if snap.get('operation')=='list_attachments':
+            items=snap['items']
+            if not items:lines.append('Seçilen mailde ek yok.')
+            else:
+                lines.append('Mailin ekleri:\n'+'\n'.join(str(i['index'])+'. '+i['filename']+
+                    (' — okunabilir' if i['supported'] else ' — bu tür/boyut desteklenmiyor') for i in items))
+                if snap.get('has_more'):lines.append('İlk 20 ek gösterildi.')
+        elif snap.get('operation')=='read_attachment':
+            item=snap['attachment'];lines.append('Mail eki: '+item['filename']+'\n\n'+item['body'])
+            if item['truncated']:lines.append('Metin sınırda kesildi; tamamı okunmadı.')
+        elif output.get('text')=='Seçilen sırada ek yok.':lines.append('Bu mailde seçtiğin sırada ek yok; okuyabileceğim bir ek bulunamadı.')
+        elif output.get('text'):lines.append(output['text'])
+        if output.get('file'):lines.append('Dosya: '+output['file'])
+        if output.get('draft'):lines.append('Kod taslağı hazır; kaynaklara uygulanmadı.')
+    if not lines:lines.append({'done':'Görev tamamlandı.','cancelled':'Görev iptal edildi.'}.get(job['state'],'Görev henüz tamamlanmadı.'))
+    return '\n\n'.join(lines)
+
 
 def recent(owner):
     root=_root(owner); files=sorted(root.glob('*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
@@ -551,13 +580,20 @@ def handle(owner, command, emit=None):
     # Turkish capital İ casefolds to i + combining dot, which otherwise misses
     # deterministic aliases and falls through to the model/legacy mail routes.
     c=command.casefold().replace('\u0307','').strip()
+    if c=='görev akışları':
+        from modules.task_workflows import CATALOG
+        return '\n'.join(k+': '+v for k,v in CATALOG.items())
+    flow=re.fullmatch(r'görev akışı (rapor|mail|kod|video)\s*:\s*(.+)',command.strip(),re.I|re.S)
+    if flow:
+        from modules.task_workflows import build
+        return render(execute(owner,build(flow[1].casefold(),flow[2]),command,emit))
     if c in ('ilk mailin eklerini göster','ilk e-postanın eklerini göster','görev ilk mail ekleri','ilk mailin ilk ekini oku','görev ilk mail ek oku'):
         read=c in ('ilk mailin ilk ekini oku','görev ilk mail ek oku')
         data={'service':'gmail','operation':'read_attachment' if read else 'list_attachments','index':1}
         if read:data['attachment_index']=1
-        tasks=[{'id':'list','agent':'account','input':{'service':'gmail','operation':'list_unread','limit':5}},
+        tasks=[{'id':'list','agent':'account','input':{'service':'gmail','operation':'list_unread','limit':1}},
                {'id':'attachment','agent':'account','depends':['list'],'input':data}]
-        return render(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))
+        return render_summary(execute(owner,tasks,'İlk okunmamış mailin ekini oku' if read else 'İlk okunmamış mailin eklerini göster',emit))
     attachment=re.fullmatch(r'görev mail (ekleri|ek oku) ([a-zA-Z0-9_-]{1,200})(?: ([0-9]{1,2}))?',command.strip(),re.I)
     if attachment:
         read=attachment[1].casefold()=='ek oku'
@@ -587,7 +623,7 @@ def handle(owner, command, emit=None):
     if c=='görev kuyruğu':
         from modules import task_queue
         token=llm._key_context.set(owner)
-        try:return '\n'.join(r['id']+' · '+r['state']+' · görev '+r['job_id']+(' · son sonuç '+r['last_job_id'] if r['last_job_id'] else '') for r in task_queue.rows(owner)) or 'Kuyruk boş.'
+        try:return task_queue.render_rows(task_queue.rows(owner))
         finally:llm._key_context.reset(token)
     queue_cancel=re.fullmatch(r'kuyruk iptal ([a-f0-9]{16})',c)
     if queue_cancel:
@@ -605,7 +641,7 @@ def handle(owner, command, emit=None):
             interval=int(queue_match[2]);repeat=queue_match[1].casefold()=='tekrarla'
             qid=task_queue.enqueue(owner,tasks,queue_match[3],interval,repeat_seconds=interval if repeat else 0)
         finally:llm._key_context.reset(token)
-        return 'Kuyruğa kaydedildi: '+qid+'. Jarvis açıkken zamanı gelince çalışır; durum için görev kuyruğu.'
+        return f'İşi kaydettim: {queue_match[3]}\n{interval} saniye sonra, Jarvis açıkken başlayacak.'+(f' Her {interval} saniyede tekrar edecek.' if repeat else '')+'\nDurum: görev kuyruğu\nİptal: kuyruk iptal '+qid
     publish_match=re.fullmatch(r'işlem (onayla|iptal|takip) ([a-f0-9]{16})',c)
     if publish_match:
         from modules import outbox

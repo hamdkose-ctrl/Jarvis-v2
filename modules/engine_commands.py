@@ -118,7 +118,8 @@ def handle(runtime, command: str) -> str:
         approval = decision(cmd_lower)
         if approval is True:
             if action == "shutdown":
-                runtime.system_control.shutdown_pc()
+                if runtime.system_control.shutdown_pc() is False:
+                    return 'Bilgisayarı kapatma komutu kabul edilmedi; kapatma zamanlandı demiyorum.'
                 runtime.privacy.audit("bilgisayarı kapatma", "60 sn zamanlandı")
                 return "Bilgisayarı 60 saniye içinde kapatmak üzere zamanladım. İptal için kapatmayı iptal et de."
         if approval is False:
@@ -236,7 +237,8 @@ def handle(runtime, command: str) -> str:
 
     # Bilgisayarı kapatma: iptal komutu önce kontrol edilir, kapatma için onay istenir.
     if "kapatmayı iptal" in cmd_lower or "kapatma iptal" in cmd_lower:
-        runtime.system_control.cancel_shutdown()
+        if runtime.system_control.cancel_shutdown() is False:
+            return 'Kapatma iptal komutu kabul edilmedi; iptal edildi demiyorum.'
         return "Zamanlanmış bilgisayar kapatma işlemini iptal ettim."
     if "bilgisayarı kapat" in cmd_lower or "pc kapat" in cmd_lower:
         runtime._session().pending_confirm = "shutdown"

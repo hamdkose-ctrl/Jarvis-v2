@@ -177,7 +177,7 @@ def _user_command(runtime, command: str, cmd_lower: str) -> str | None:
         return f"Şu an {runtime.profile.name} ile konuşuyorum."
 
     # Ekran paylaşımı ve kamera
-    if runtime.re.search(r"ekran(ı|ımı)? paylaş|ekran paylaşımı", cmd_lower):
+    if runtime.re.search(r"ekran(?:ı|ımı|i|imi)?\s+payla[şs]", cmd_lower):
         stop = runtime.re.search(r"durdur|kapat|bitir|kes|dur\b", cmd_lower)
         return runtime.set_share(None if stop else "screen")
     if runtime.re.search(r"\bkamera(yı|mı)?\b", cmd_lower) and runtime.re.search(r"aç|başlat|kapat|durdur", cmd_lower):

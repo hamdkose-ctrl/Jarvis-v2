@@ -1,9 +1,15 @@
 # Güncel açık işler — 14 Ekim 2026
 
+14 Ekim kullanıcı PC sonuçları: 1045 test ve tüm JS/smoke grupları ile başlangıç bağımlılık kontrolü geçti (9 test atlandı). Kamera açıldı; Hesap Makinesi 12 + 7 = 19 ve SAPI WAV üretimi doğrulandı. Gmail canlı okunmamış liste ve boş ek listesi döndü; gerçek ek içeriği okumaya uygun mail yoktu. Ekran paylaşımı yazım yönlendirmesi ve mail/kuyruk metinleri düzeltildi. Hesap Makinesi yavaşlığı için tur süresi eklenmiştir; hız iyileşmesi gerçek PC'de henüz ölçülmedi. Bu PC'de FFmpeg/FFprobe bulunamadı. Kuyruk kaydedildi ve bekliyor görüldü; gerçekten çalıştığı/yeniden başlatma/iptal kabulü henüz kanıtlanmadı. Mail/hesap kişisel içeriği depoya eklenmez.
+
+Altyapı tamamlama kodu: ortak PC işlem sözleşmesi, kesin kayıtla hafıza düzeltme/unutma ve sabit uzman üretim akışları eklendi. PC kabul betiği otomatik kontrolleri ve elle bekleyen donanım/hesap kontrollerini ayrı kaydeder. Kapsam ve komutlar: [V2 tamamlama ve PC kabulü](V2_TAMAMLAMA_VE_PC_KABUL.md). Gerçek Windows, bağlantılar ve cihaz kalitesi bu kod değişikliğiyle tamamlanmış sayılmaz.
+
+Yeni paketin doğrulaması: 1060 Python testi (2 atlanan), 22 JavaScript grubu ve 6 smoke grubu. OS/model/hesap sınırlarında taklit kullanılır; canlı kabul ayrı kalır.
+
 Esas sürüm: son ZIP ile doğrulanmış Jarvis-v2. Aşağıdaki tarihli kayıtlar geçmiş aşamalardır; güncel durum bu listedir.
 
 - Gerçek Windows: mikrofon/Hey Jarvis, TTS, ekran/kamera, pencere işlemleri, masaüstü izinleri ve iptal; hologram akıcılığı.
-- Video araçları tamamlandı: kullanıcı PC'sinde gerçek H.264 üretimi ve FFprobe boyut/süre doğrulamasının geçtiği bildirildi (14 Ekim 2026). Ses ve hesap kontrolleri ayrı kalır.
+- Video araçları: önceki ortamda H.264/FFprobe kabulü bildirilmişti; son PC raporunda FFmpeg/FFprobe eksik. Bu PC'de kurulum ve gerçek üretim kontrolü bekliyor. Ses ve hesap kontrolleri ayrı kalır.
 - Anlatım: yerel anlatımı kontrol et; Windows SAPI veya kullanıcının mevcut Piper modeliyle dil/kalite.
 - Hesaplar: mevcut kullanıcı Gmail/YouTube OAuth kapsamları; Telegram bot/sohbet, Meta Business/profesyonel hesap ve HTTPS webhook. Gerçek izin/okuma/gönderim/yayın kabulü.
 - Yeni özel depoya kullanıcı GitHub anahtarının erişimi ve kaynak doğrulaması. Eski deponun sürüm kaydı taşınmaz.

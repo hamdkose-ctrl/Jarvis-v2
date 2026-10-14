@@ -925,7 +925,8 @@ class AppPermissionTests(unittest.TestCase):
         self.ask.side_effect = [json.dumps(action('19')), json.dumps({'op': 'finish', 'message': 'tamam', 'expect': action('19')['expect']})]
         with patch.object(agent.desktop_uia, 'DesktopUI', return_value=ui):
             reply = agent.handle('alice', 'PC izin ver', current=lambda: 'alice')
-        self.assertIn('done', reply)
+        self.assertIn('Tamamlandı', reply)
+        self.assertEqual(agent._load('alice')['status'], 'done')
         self.assertEqual(agent.allowed_apps('alice'), ['mspaint'])
         self.assertEqual(agent.allowed_apps('bob'), [])
         self.assertTrue(agent.app_permitted('alice', 'mspaint'))

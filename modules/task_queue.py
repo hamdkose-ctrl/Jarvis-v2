@@ -31,7 +31,21 @@ def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0):
 
 def rows(owner):
     with service_store.database(owner) as db:
-        return [dict(row) for row in db.execute('SELECT id,state,due,job_id,error,repeat_seconds,last_job_id FROM queue ORDER BY created DESC LIMIT 50')]
+        return [dict(row) for row in db.execute('SELECT id,state,due,job_id,error,repeat_seconds,last_job_id,instruction FROM queue ORDER BY created DESC LIMIT 50')]
+
+def render_rows(items):
+    from modules import privacy
+    if not items:return 'Zamanlanmış görevin yok.'
+    labels={'running':'Çalışıyor','done':'Tamamlandı','cancelled':'İptal edildi','blocked':'Durdu; görev sonucunu incele'}
+    lines=[]
+    for row in items:
+        remaining=max(0,math.ceil(row['due']-time.time()))
+        status=(f'{remaining} saniye sonra başlayacak' if remaining else 'Zamanı geldi; çalışma sırasını bekliyor') if row['state']=='queued' else labels.get(row['state'],'Durum bilinmiyor')
+        text=privacy.redact(row.get('instruction','')).strip() or 'Zamanlanmış görev'
+        result_id=row.get('last_job_id') if row['state']=='queued' else row['job_id']
+        lines.append(text+'\nDurum: '+status+(f"\nHer {row['repeat_seconds']} saniyede tekrar eder." if row['repeat_seconds'] else '')+
+                     ('\nSonuç: görev durumu '+result_id if result_id else '\nSonuç, iş çalıştıktan sonra oluşacak.')+'\nİptal: kuyruk iptal '+row['id'])
+    return '\n\n'.join(lines)
 
 
 def cancel(owner,qid):

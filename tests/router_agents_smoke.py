@@ -18,7 +18,8 @@ with tempfile.TemporaryDirectory() as folder:
     root=Path(folder)
     with patch.object(desktop_agent,'STORE',root/'desktop'), patch.object(desktop_uia,'DesktopUI',return_value=FakeUI()), patch.object(main._llm,'ask',side_effect=[__import__('json').dumps(action()),__import__('json').dumps({'op':'finish','expect':action()['expect'],'message':'19 doğrulandı'})]):
         answer=main.handle('PC görevi: Hesap Makinesi | 12 ile 7 topla')
-        assert 'done' in answer and '19 doğrulandı' in answer
+        assert 'Tamamlandı' in answer and '19 doğrulandı' in answer
+        assert desktop_agent._load(main.profile.slug)['status'] == 'done'
         assert desktop_agent._load(main.profile.slug)['history'][0]['verified']
         assert main._session().pending_desktop is None
     with patch.object(smart_router,'_STORE',root/'router'),patch.object(task_agents,'STORE',root/'tasks'),patch.object(nxapi,'FILES_DIR',root/'files'):
