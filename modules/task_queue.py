@@ -70,7 +70,7 @@ def tick(owner, notify=None):
         # The assigned job identity is saved before any execution. After restart,
         # reuse its journal instead of creating a second independent job.
         path=task_agents._job_path(task_agents._root(owner),row['job_id'])
-        if path.exists():job=task_agents.continue_job(owner,row['job_id'])
+        if path.exists():job=task_agents.continue_job(owner,row['job_id'],queue_id=row['id'],queue_tasks=tasks)
         else:job=task_agents.execute(owner,tasks,row['instruction'],job_id=row['job_id'],queue_id=row['id'])
         state='done' if job['state']=='done' else 'cancelled' if job['state']=='cancelled' else 'blocked'
         error=''
