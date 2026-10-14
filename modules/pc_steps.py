@@ -28,6 +28,7 @@ _ACTIONS = {
     'shutdown_pc': (lambda: 'Bilgisayar 60 saniye sonra kapanacak şekilde zamanlanıyor', lambda r: True),
     'cancel_shutdown': (lambda: 'Zamanlanmış kapatma iptal ediliyor', lambda r: True),
     'window_action': (lambda target, action: f'“{target}” penceresi: {action}', lambda r: bool(isinstance(r, dict) and r.get('ok'))),
+    'window_shortcut': (lambda target, shortcut: f'“{target}” penceresi: {shortcut}', lambda r: isinstance(r,dict) and r.get('ok') is True),
 }
 
 
@@ -60,6 +61,7 @@ class ReportedControl:
         label_of, ok_of = spec
 
         def reported(*args, **kwargs):
+            from modules import pc_contracts
             try:
                 label = label_of(*args, **kwargs)
             except Exception:  # noqa: BLE001 - unusual arguments still run the real action
@@ -69,12 +71,13 @@ class ReportedControl:
                 step_id = f's{next(_IDS)}'
             self._send(label, 'working', step_id, '')
             try:
-                result = target(*args, **kwargs)
+                result = target(*args, **kwargs) if getattr(target,'_pc_contract',False) is True else pc_contracts.call(name,target,args,kwargs)
             except Exception:
                 _record_failure('modules/pc_steps.py:action')
                 self._send(label, 'error', step_id, 'İşlem hata verdi.')
                 raise
-            self._send(label, 'done' if ok_of(result) else 'error', step_id, _detail(result)[:300])
+            contract=pc_contracts.last_result()
+            self._send(label, 'done' if contract['state']=='done' else 'error', step_id, _detail(result)[:300])
             return result
 
         return reported
