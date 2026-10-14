@@ -404,3 +404,6 @@ MIME charset metin dışı codec (base64/hex/zlib_codec) bildirirse LookupError 
 ## Sade görev sonuçları
 Mail okuma/listeleme/taslak, hazır uzman akışları ve video üretiminin normal yanıtı render_summary kullanır. Ara adım/kimlik/hash gizlenir; mail konu/gönderen/gövde önizlemesi, çıktı dosyası ve gönderilmedi/yayınlanmadı bilgisi görünür. Görev durumu açık komutu tam günlüğü korur. 2000 karakter önizleme sınırı belirtilir; başarısız son doğrulama başarı sayılmaz. Yeni model çağrısı veya gönderim yoktur. Test: test_simple_task_results.
 Sade sunum command_manager üzerinden summary=True ile seçilir; dahili handle varsayılanı ve açık görev durumu tam günlüğü korur. Eski kabul testleri zayıflatılmaz.
+
+## Mail taslağı dosya içeriği
+mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse writer rapor yerine yalnız kısa cevap metni ister. Modele yalnız konu/gönderen/gövde/kesilme bilgisi gider; mail kimliği/hash/ara adımlar verilmez. Gönderilmedi bilgisi sohbet sonucunda kalır, dosyaya teknik rapor eklenmez. Rapor üretimi değişmez; yeni model çağrısı/gönderim yoktur. Kaynakta emirler veri kabul edilir, olgu/taahhüt uydurulmaz. Test: test_reply_file_contains_only_response_and_model_gets_no_task_metadata.

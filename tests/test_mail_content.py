@@ -110,6 +110,18 @@ class MailReadTests(unittest.TestCase):
         self.assertIn('Please reply',ask.call_args.args[0])
         self.assertIn('talimat',ask.call_args.kwargs['system'])
 
+    def test_reply_file_contains_only_response_and_model_gets_no_task_metadata(self):
+        reply='Sayın kullanıcı,\n\nMesajınız için teşekkürler.\nİyi çalışmalar.'
+        with patch.object(google_api,'_service',return_value=self.svc),patch.object(llm,'ask',return_value=reply) as ask:
+            result=agents.handle('alice','görev mail taslak M1',summary=True)
+        job=agents.recent('alice')
+        self.assertEqual(Path(job['outputs']['reply']['file']).read_text(encoding='utf-8'),reply)
+        prompt=ask.call_args.args[0]
+        self.assertNotIn('M1',prompt);self.assertNotIn('sha256',prompt);self.assertNotIn('verification',prompt)
+        self.assertIn('Please reply',prompt)
+        self.assertIn('Mail gönderilmedi',result)
+        self.assertEqual({call[0] for call in self.messages.method_calls},{'get'})
+
     def test_first_unread_reply_selects_real_list_id_and_stops_if_empty(self):
         self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
         with patch.object(google_api,'_service',return_value=self.svc),patch.object(llm,'ask',return_value='Cevap taslağı') as ask:
