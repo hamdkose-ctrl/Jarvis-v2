@@ -346,3 +346,9 @@ Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XM
 ## Türkçe büyük İ ile ek komut yönlendirmesi
 
 “İlk mailin eklerini göster” ve “İlk mailin ilk ekini oku” casefold sonrasında birleşik nokta nedeniyle tanınmıyordu; karşılaştırmada bu nokta normalize edilir. Mail kimlikleri ve dosya metinleri değiştirilmez. Gerçek komut yönlendirici üzerinden büyük İ ile listelenen/okunan ek komutlarının modele veya eski posta yoluna düşmediği sınanır. Yeni kod uygulanınca Jarvis kapatılıp yeniden başlatılmalıdır; çalışan eski süreç kodu bellekte tutar.
+
+## Kuyrukta kullanıcı meşgul yarışı — 14 Ekim 2026
+
+`task_queue.tick` ilk kontrolünden sonra başka görev aynı kullanıcıyı alırsa `task_agents.Busy` kalıcı hata sayılmaz. Kuyruk aynı `job_id` ile beklemeye döner; sonraki tur mevcut görev günlüğünü sürdürür ve tamamlanmış adımları tekrarlamaz. Meşgul tur için bitiş kaydı veya sonuç bildirimi üretilmez. İptal edilmiş iş tekrar kuyruğa alınmaz; gerçek araç hatalarının bloke davranışı korunur. Testler yeni iş, mevcut görev günlüğü ve iptal yarışını sınar; canlı Windows kabulü ayrı kalır.
+
+Kuyruk kurtarması `continue_job` içindeki sahiplik kilidi altında kayıtlı `queue_id` ve adım kimliği/ajanı/girdileri/bağımlılıklarını zamanlanan planla karşılaştırır. Değişmiş plan veya başka kuyruğa ait günlük hiçbir worker çalışmadan bloke edilir; dış yayın/tarayıcı/kod kuyruğa bu yoldan sızamaz. Normal açık kullanıcı devam komutunun arayüzü korunur.

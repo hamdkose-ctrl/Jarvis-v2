@@ -14,6 +14,12 @@ Kodda uygulanmış: kalıcı görev/kanıt kurtarma, servis outbox/izin ve zaman
 
 ## Önceki durum kayıtları
 
+## Kuyruk meşgul yarışı düzeltmesi — 14 Ekim 2026
+
+- Aynı kullanıcı için görev sahipliği ilk kuyruk kontrolünden sonra değişirse iş bloke edilmek yerine aynı görev kimliğiyle bekler. Sonraki tur mevcut günlüğü kullanır; tamamlanmış adımlar ve iptal korunur.
+- Kurtarma, kayıtlı görev planını ve kuyruk kimliğini ilk zamanlanan planla karşılaştırır; farklı girdi/ajan/bağımlılık veya başka kuyruk kaydı çalıştırılmaz.
+- Doğrulama: 47 odaklı test ve tam sürüm kontrolü geçti (1045 Python testi, 2 atlanan; 22 JavaScript grubu, 6 smoke grubu). Meşgul yarışları, tekrar yürütmeme, iptal ve değişmiş plan/kuyruk kaydı reddi sınandı. Gerçek Windows kabulü ayrıca yapılmalıdır.
+
 # Bekleyen doğrulamalar
 
 ## Komut ve masaüstü entegrasyonu — 11 Ekim 2026
