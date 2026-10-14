@@ -79,6 +79,37 @@ class SmartRouterTests(unittest.TestCase):
         self.assertEqual(router.cooldown('ollama',llm.LocalModelError('Ollama çalışmıyor')),30)
         self.assertEqual(router.cooldown('gemini',ConnectionError('down')),60)
 
+    def test_failed_run_reports_safe_provider_reasons_without_reasking_confirmation(self):
+        router.configure('alice',True)
+        response=Mock(status_code=429)
+        errors=[router.requests.HTTPError('PRIVATE body gem-key',response=response),
+                router.requests.ReadTimeout('PRIVATE prompt'),ConnectionError('PRIVATE url')]
+        with self.assertRaises(RuntimeError) as caught:
+            router.run('alice','python',Mock(side_effect=errors))
+        message=str(caught.exception)
+        self.assertIn('gemini: kota veya hız sınırı (HTTPError, HTTP 429)',message)
+        self.assertIn('groq: zaman aşımı',message)
+        self.assertIn('ollama: bağlantı',message)
+        self.assertNotIn('kutusunu işaretle',message)
+        self.assertNotIn('PRIVATE',message)
+        self.assertNotIn('gem-key',json.dumps(router.status('alice')))
+        self.assertEqual(router.cooldown('gemini',errors[0]),300)
+
+    def test_no_candidates_is_distinct_from_failed_call_and_does_not_call_model(self):
+        call=Mock(side_effect=AssertionError('no call'))
+        with patch.object(router,'candidates',return_value=[]):
+            with self.assertRaisesRegex(RuntimeError,'denenecek sağlayıcı yok'):
+                router.run('alice','python',call)
+        call.assert_not_called()
+
+    def test_router_status_exposes_only_current_owner_safe_last_attempts(self):
+        with self.assertRaises(RuntimeError):
+            router.run('alice','python',Mock(side_effect=TimeoutError('PRIVATE')))
+        with patch.object(router.requests,'post',side_effect=AssertionError('no network')):
+            self.assertIn('ollama: zaman aşımı (TimeoutError)',router.handle('alice','router durumu'))
+            self.assertNotIn('Son çağrı denemeleri',router.handle('bob','router durumu'))
+        self.assertNotIn('PRIVATE',router.handle('alice','router durumu'))
+
     def test_gemini_mode_falls_back_to_own_groq_then_ollama_on_quota(self):
         quota=llm.errors.ClientError(429,{'error':{'message':'quota','status':'RESOURCE_EXHAUSTED'}})
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
