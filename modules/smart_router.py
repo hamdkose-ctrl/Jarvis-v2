@@ -92,11 +92,29 @@ def candidates(owner, task):
 
 def failure_kind(exc):
     """'key', 'quota' or 'other'; looks only at the status code and error wording, nothing is stored."""
-    code = getattr(exc, 'code', None)
+    code = failure_status(exc)
     text = str(exc)
     if code in (401, 403) or 'yetkisiz' in text or 'API_KEY_INVALID' in text: return 'key'
     if code == 429 or re.search(r'\b429\b|RESOURCE_EXHAUSTED|quota', text, re.I): return 'quota'
     return 'other'
+
+
+def failure_status(exc):
+    code = getattr(exc, 'code', None)
+    if not isinstance(code, int):
+        code = getattr(getattr(exc, 'response', None), 'status_code', None)
+    return code if type(code) is int and 100 <= code <= 599 else None
+
+
+def failure_detail(attempt):
+    reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı'}.get(attempt.get('kind'), 'çağrı başarısız')
+    error = attempt.get('error', '')
+    if error in ('Timeout', 'ReadTimeout', 'ConnectTimeout', 'TimeoutError'):
+        reason = 'zaman aşımı'
+    elif error in ('ConnectionError', 'ConnectionRefusedError', 'ConnectionAbortedError'):
+        reason = 'bağlantı kurulamadı veya kesildi'
+    code = attempt.get('status')
+    return attempt['provider'] + ': ' + reason + ' (' + error + (f', HTTP {code}' if code else '') + ')'
 
 
 def failure_text(exc):
@@ -126,7 +144,8 @@ def run(owner, prompt, callback, image=False):
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')
             # Store only exception types; never keys, prompts or server error bodies.
-            attempts.append({'provider':provider,'ok':False,'error':type(exc).__name__})
+            attempts.append({'provider':provider,'ok':False,'error':type(exc).__name__,
+                             'kind':failure_kind(exc),'status':failure_status(exc)})
             from modules import llm
             llm.note_route(llm.provider_label(provider) + ' ' + failure_text(exc) + ', sıradakine geçildi', False)
             if type(exc).__name__ != 'ImageCapabilityError':
@@ -138,7 +157,8 @@ def run(owner, prompt, callback, image=False):
             _HEALTH.pop((owner,provider),None)
         return answer
     with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts}
-    raise RuntimeError('Uygun ücretsiz model yanıt vermedi. Ayarlar > AI bölümünde Gemini/Groq ücretsiz hesap kutusunu işaretle veya Ollama çalıştır. Ücretli modele geçilmedi.')
+    detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar ve bekleme durumunu router durumu ile kontrol et.'
+    raise RuntimeError('Uygun ücretsiz model yanıt vermedi. ' + detail + ' Ücretli modele geçilmedi.')
 
 
 def openrouter(owner, messages, system, max_tokens, image_path=None):
@@ -203,5 +223,7 @@ def handle(owner, command):
         s = status(owner)
         rows = ['| Sağlayıcı | Model | Görevler | Politika |','|---|---|---|---|']
         for r in s['capabilities']: rows.append('| '+ ' | '.join([r['provider'],r['model'],', '.join(r['tasks']),r['policy']])+' |')
-        return '\n'.join(rows)+'\n\nSon seçim: '+str(s['last'].get('provider') or 'Henüz yok')
+        attempts = s['last'].get('attempts', [])
+        trace = '\n'.join(failure_detail(a) if not a['ok'] else a['provider'] + ': yanıt alındı' for a in attempts)
+        return '\n'.join(rows)+'\n\nSon seçim: '+str(s['last'].get('provider') or 'Henüz yok') + ('\nSon çağrı denemeleri:\n' + trace if trace else '')
     return None
