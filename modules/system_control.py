@@ -324,12 +324,12 @@ def mute_volume():
 
 def shutdown_pc():
     """Bilgisayarı 60 saniye içinde kapatmak üzere zamanlar."""
-    subprocess.run(["shutdown", "/s", "/t", "60"], check=False)
+    return subprocess.run(["shutdown", "/s", "/t", "60"], check=False).returncode==0
 
 
 def cancel_shutdown():
     """Zamanlanmış bilgisayar kapatma işlemini iptal eder."""
-    subprocess.run(["shutdown", "/a"], check=False)
+    return subprocess.run(["shutdown", "/a"], check=False).returncode==0
 
 
 def set_brightness(level: int) -> bool:
@@ -619,3 +619,9 @@ def window_shortcut(target: str, shortcut: str) -> dict:
         return {'ok':False,'message':'Odak değişti; klavye işlemi gönderilmedi.'}
     pyautogui.hotkey(*_SHORTCUTS[shortcut])
     return {'ok':True,'message':focused['title']+': klavye kısayolu gönderildi. Uygulamanın sonucunu ekrandan kontrol edebilirsin.'}
+
+# Keep all existing PC entry points on the same typed execution boundary.
+# The underlying functions retain their window, owner and approval guards.
+from modules.pc_contracts import CATALOG as _PC_CONTRACTS, instrument as _pc_instrument
+for _pc_name in _PC_CONTRACTS:
+    globals()[_pc_name]=_pc_instrument(_pc_name,globals()[_pc_name])
