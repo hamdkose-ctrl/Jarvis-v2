@@ -10,10 +10,31 @@ from xml.etree import ElementTree as ET
 
 MAX_BYTES=4*1024*1024
 MAX_TEXT=20000
+TIMEOUT=30
+_TAIL=' OCR ve dış bağlantı kullanılmadı.'
+# Alt süreç yalnız bu kodları döndürür; belge içeriği/hata metni hata iletisine girmez.
+REASONS={
+    'no_text':'Ek belgede okunabilir metin yok; görüntü/taranmış belge için OCR gerekir.',
+    'encrypted':'Ek belge şifreli; şifresiz bir kopya gerekli.',
+    'corrupt':'Ek belge bozuk veya okuyucu tarafından açılamadı.',
+    'limit':'Ek belge boyut/metin/arşiv sınırını aşıyor.',
+    'rejected':'Ek belge güvenlik nedeniyle reddedildi (şifreli/makrolu Office, XML varlığı veya aşırı sıkıştırma).',
+    'unsupported':'Ek belge türü desteklenmiyor.',
+    'reader_missing':'PDF/Office okuyucu paketi bu Python ortamında eksik (ör. pypdfium2); kurulum.bat ile onarın.',
+    'timeout':f'Ek belge {TIMEOUT} saniyelik süre sınırında okunamadı.',
+    'start':'Belge okuyucu alt süreci başlatılamadı.',
+    'crash':'Belge okuyucu alt süreci beklenmedik biçimde kapandı.',
+    'output':'Belge okuyucu geçersiz çıktı verdi.',
+}
+
+
+class Rejected(ValueError):
+    def __init__(self,code):
+        super().__init__(REASONS[code]);self.code=code
 
 
 def extract(raw,suffix):
-    if not raw or len(raw)>MAX_BYTES:raise ValueError('Belge boyutu geçersiz.')
+    if not raw or len(raw)>MAX_BYTES:raise Rejected('limit')
     chunks=[];length=0;truncated=False
     def add(text):
         nonlocal length,truncated
@@ -30,7 +51,7 @@ def extract(raw,suffix):
                 page=pdf[index];textpage=None
                 try:
                     textpage=page.get_textpage();count=textpage.count_chars()
-                    if count>1_000_000:raise ValueError('PDF metin sınırı aşılıyor.')
+                    if count>1_000_000:raise Rejected('limit')
                     add(textpage.get_text_range(0,min(count,max(0,MAX_TEXT+1-length))) if count else '')
                     if length>MAX_TEXT:truncated=True;break
                 finally:
@@ -39,11 +60,11 @@ def extract(raw,suffix):
     elif suffix in ('.docx','.xlsx','.pptx'):
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             rows=archive.infolist()
-            if len(rows)>512 or sum(r.file_size for r in rows)>16*1024*1024 or len({r.filename for r in rows})!=len(rows):raise ValueError('Office arşivi sınırı aşıyor.')
-            if any(r.flag_bits&1 or r.file_size>4*1024*1024 or r.file_size>max(1,r.compress_size)*1000 or 'vbaproject' in r.filename.lower() for r in rows):raise ValueError('Şifreli/makrolu veya aşırı sıkıştırılmış Office eki reddedildi.')
+            if len(rows)>512 or sum(r.file_size for r in rows)>16*1024*1024 or len({r.filename for r in rows})!=len(rows):raise Rejected('limit')
+            if any(r.flag_bits&1 or r.file_size>4*1024*1024 or r.file_size>max(1,r.compress_size)*1000 or 'vbaproject' in r.filename.lower() for r in rows):raise Rejected('rejected')
             def xml(name):
                 text=archive.read(name).decode('utf-8-sig')
-                if '<!DOCTYPE' in text.upper() or '<!ENTITY' in text.upper():raise ValueError('Office XML varlıkları reddedildi.')
+                if '<!DOCTYPE' in text.upper() or '<!ENTITY' in text.upper():raise Rejected('rejected')
                 return ET.fromstring(text)
             if suffix=='.docx':
                 root=xml('word/document.xml')
@@ -64,30 +85,61 @@ def extract(raw,suffix):
                         value=next((n.text for n in cell if n.tag.endswith('}v')),'') or ''
                         if cell.get('t')=='s':
                             index=int(value)
-                            if not 0<=index<len(shared):raise ValueError('Excel metin kimliği geçersiz.')
+                            if not 0<=index<len(shared):raise Rejected('corrupt')
                             value=shared[index]
                         elif cell.get('t')=='inlineStr':value=''.join(n.text or '' for n in cell.iter() if n.tag.endswith('}t'))
                         if any(n.tag.endswith('}f') for n in cell) and not value:value='[Formülün kayıtlı sonucu yok; hesaplanmadı.]'
                         add((cell.get('r','')+': '+value) if value else '')
-    else:raise ValueError('Belge türü desteklenmiyor.')
+    else:raise Rejected('unsupported')
     text='\n'.join(chunks)
-    if not text.strip():raise ValueError('Okunabilir metin yok; görüntü/taranmış belge için OCR gerekir.')
+    if not text.strip():raise Rejected('no_text')
     return {'body':text[:MAX_TEXT],'truncated':truncated or len(text)>MAX_TEXT}
+
+
+def _worker(raw,suffix):
+    """Alt süreçte çalışır: sonuç ya da yalnız hata kodu döner."""
+    try:
+        return extract(raw,suffix)
+    except Rejected as exc:code=exc.code
+    except ImportError:code='reader_missing'
+    except (ValueError,KeyError,IndexError,EOFError,OSError,RuntimeError,zipfile.BadZipFile,ET.ParseError) as exc:
+        # PdfReadError (ValueError) şifreyi PDFium hata kodu 4 ile bildirir; diğerleri bozuk belge sayılır.
+        # Beklenmeyen hatalar alt süreci düşürür ve ana süreçte "beklenmedik biçimde kapandı" olur.
+        code='encrypted' if getattr(exc.__cause__,'err_code',None)==4 else 'corrupt'
+    return {'error':code}
+
+
+def _fail(code):
+    raise ValueError(REASONS[code]+_TAIL) from None
+
+
+def _python():
+    # Jarvis'in kendi .venv yorumlayıcısı; pythonw.exe yerine yanındaki konsol python.exe kullanılır.
+    executable=Path(sys.executable)
+    console=executable.with_name('python.exe')
+    return str(console if executable.name.lower()=='pythonw.exe' and console.is_file() else executable)
 
 
 def read(raw,suffix):
     try:
-        result=subprocess.run([sys.executable,'-m','modules.attachment_documents',suffix],input=raw,capture_output=True,
-                              timeout=30,cwd=str(Path(__file__).resolve().parents[1]),check=True,
+        result=subprocess.run([_python(),'-m','modules.attachment_documents',suffix],input=raw,capture_output=True,
+                              timeout=TIMEOUT,cwd=str(Path(__file__).resolve().parents[1]),check=True,
                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        if len(result.stdout)>100000:raise ValueError('Belge çıktısı sınırı aşıyor.')
-        data=json.loads(result.stdout)
-        if not isinstance(data,dict) or not isinstance(data.get('body'),str) or not data['body'].strip() or len(data['body'])>MAX_TEXT or type(data.get('truncated')) is not bool:raise ValueError('Belge çıktısı geçersiz.')
-        return data
-    except (OSError,subprocess.SubprocessError,ValueError):
-        raise ValueError('Ek belge okunamadı: bozuk/şifreli/taranmış belge, eksik okuyucu veya süre/boyut sınırı. OCR ve dış bağlantı kullanılmadı.') from None
+    except subprocess.TimeoutExpired:_fail('timeout')
+    except subprocess.CalledProcessError:_fail('crash')
+    except (OSError,subprocess.SubprocessError):_fail('start')
+    if len(result.stdout)>100000:_fail('output')
+    try:
+        # Çıktı her zaman UTF-8 bayttır; Windows'un yerel kod sayfası (cp1254/cp857) araya girmez.
+        data=json.loads(result.stdout.decode('utf-8'))
+    except ValueError:_fail('output')
+    if isinstance(data,dict) and set(data)=={'error'} and data['error'] in REASONS:_fail(data['error'])
+    if not isinstance(data,dict) or not isinstance(data.get('body'),str) or not data['body'].strip() or len(data['body'])>MAX_TEXT or type(data.get('truncated')) is not bool:_fail('output')
+    return data
 
 
 if __name__=='__main__':
     data=sys.stdin.buffer.read(MAX_BYTES+1)
-    print(json.dumps(extract(data,sys.argv[1]),ensure_ascii=False))
+    # print() yerel kod sayfasıyla yazar ve Türkçe harflerde bozulur; baytları doğrudan UTF-8 yaz.
+    sys.stdout.buffer.write(json.dumps(_worker(data,sys.argv[1]),ensure_ascii=False).encode('utf-8'))
+    sys.stdout.buffer.flush()
