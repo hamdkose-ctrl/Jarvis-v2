@@ -163,6 +163,18 @@ def _off_notice(announce: bool) -> None:
         pass
 
 
+def _guarded(text: str | None) -> str | None:
+    """Yabancı/uydurma söz ya da Jarvis'in kendi sesinin yankısı ise None (işlem yapılmaz, tekrar istenir)."""
+    if not text:
+        return text
+    from modules import stt_guard
+    why = stt_guard.reject(text)
+    if why:
+        _log.info("Duyulan söz atıldı (%s): %d karakter", "yabancı/gürültü" if why == "foreign" else "yankı", len(text))
+        return None
+    return text
+
+
 def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate: bool = False,
               local: bool = False) -> str | None:
     """gate=True: "Hey Jarvis" denmeden dinlenen seslerde (sohbet devam ederken) önce gerçekten konuşma var mı diye bakılır;
@@ -175,7 +187,7 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
     if local:
         from modules import local_stt
         # A local error propagates to the button handler, never to cloud fallback.
-        text = local_stt.transcribe(raw)
+        text = _guarded(local_stt.transcribe(raw))
         if not text and announce_fail:
             speak("Anlayamadım, tekrar söyler misin?")
         return text
@@ -206,7 +218,7 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
                 if not heard:
                     _log.info("İşlem kaydı: %s", 'modules/voice.py:recognize')
                     return None
-            if text and not re.fullmatch(r"[\W_]*", text):
+            if text and not re.fullmatch(r"[\W_]*", text) and _guarded(text):
                 return text
             print("(ses anlaşılamadı)")
             if announce_fail:
@@ -218,6 +230,8 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
         t0 = time.time()
         text = _rec.recognize_google(audio, language=LANGUAGE)  # type: ignore[reportAttributeAccessIssue]
         _log.info("İşlem kaydı: %s", 'modules/voice.py:recognize')
+        if not _guarded(text):
+            raise sr.UnknownValueError()
         return text
     except sr.UnknownValueError:
         print("(ses anlaşılamadı)")
@@ -304,6 +318,8 @@ def speak(text: str, voice: str | None = None, rate: int | None = None) -> str |
     raw = (text or "").strip()
     if not _clean(raw):
         return
+    from modules import stt_guard
+    stt_guard.note_said(_clean(raw))     # mikrofona geri dönerse komut sanılmasın
     if privacy.mode() == "yerel":
         _local_say(_clean(raw))     # Edge sesleri çevrimiçi: yalnızca yerel modda doğrudan Windows sesi kullanılır
         return

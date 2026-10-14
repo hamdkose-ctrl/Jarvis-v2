@@ -258,8 +258,11 @@ def main(runtime, ui=None):
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
 
-                    if runtime._tr_lower(cmd).strip(" .!") in ("kapat", "çık") and source != "telefon":
-                        runtime.stop_event.set()      # telefondan Jarvis kapatılamaz
+                    bare = runtime._tr_lower(cmd).strip(" .!")
+                    # Telefondan Jarvis kapatılamaz. Sesle tek başına duyulan "kapat" belirsizdir (yanlış duyma,
+                    # uygulama/paylaşım kastı olabilir): Jarvis kapanmaz, komut "Neyi kapatmamı istiyorsun?" diye sorar.
+                    if bare in ("kapat", "çık") and source != "telefon" and not (bare == "kapat" and source == "ses"):
+                        runtime.stop_event.set()
                         break
 
                     # Yanıt sırasında mikrofonun Jarvis'in sesini komut sanmasını önle

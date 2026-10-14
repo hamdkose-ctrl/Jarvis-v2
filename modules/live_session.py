@@ -57,11 +57,10 @@ async def converse(self, services) -> None:
             except Exception as exc:
                 _record_failure('modules/live.py:_converse')
                 msg = str(exc).lower()
-                if self._stt_hint and time.monotonic() - self._connect_t < 8 and any((k in msg for k in ('1007', 'invalid', 'unknown name', 'language', 'vocabulary', 'unsupported', 'not supported'))):
+                from modules.live_session_config import stt_rejected
+                if time.monotonic() - self._connect_t < 8 and stt_rejected(self, msg):
                     _record_failure('modules/live.py:_converse')
-                    from config import save_settings
-                    save_settings(live_stt_hint=False)
-                    self._stt_hint = False
+                    services.log.warning('Ses yazıya dökme alanı reddedildi; bu çalıştırmada %s olmadan bağlanılıyor', ', '.join(sorted(self._stt_drop)))
                     continue
                 retries += 1
                 _record_failure('modules/live.py:_converse')

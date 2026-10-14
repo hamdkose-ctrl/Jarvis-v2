@@ -56,6 +56,7 @@ def set_share(runtime, which: str | None) -> str:
     """Ekran paylaşımı / kamera: 'screen', 'camera' ya da None (kapat). Arayüze 'share' olayı gönderir."""
     if which and (msg := runtime.privacy.blocked("screen" if which == "screen" else "camera")):
         return msg
+    was = runtime.vision.mode()
     try:
         if which:
             runtime.vision.start(which)
@@ -64,14 +65,16 @@ def set_share(runtime, which: str | None) -> str:
     except Exception as exc:
         runtime._record_failure('main.py:set_share')
         runtime.emit("share", runtime.vision.mode() or "")
-        return f"Paylaşım başlatılamadı: {exc}"
+        return f"Paylaşım {'başlatılamadı' if which else 'kapatılamadı'}: {exc}"
     runtime.emit("share", which or "")
     runtime.privacy.audit("paylaşım", which or "kapatıldı")
     if which == "screen":
         return "Ekranını paylaşıyorsun. Sorularını ekrana bakarak yanıtlarım."
     if which == "camera":
         return "Kamera açık. Sorularını kameranın gördüğüne bakarak yanıtlarım."
-    return "Paylaşımı kapattım."
+    if runtime.vision.mode():
+        return "Paylaşımı kapatamadım; hâlâ açık görünüyor."
+    return "Paylaşımı kapattım." if was else "Açık bir ekran ya da kamera paylaşımı yoktu; paylaşım kapalı."
 
 def set_sleep(runtime, on: bool, announce: bool = True) -> str:
     """Hazırda bekle: Jarvis açık kalır (telefon/Siri, hatırlatmalar çalışır) ama yalnızca '<ad> uyan' sözünü dinler."""

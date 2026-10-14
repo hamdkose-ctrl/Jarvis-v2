@@ -187,6 +187,16 @@ def handle(runtime, command: str) -> str:
         saved = runtime.output.save_text_result(text, source, label)
         return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
 
+    # Nesnesi söylenmemiş işlem ("kapat", "aç", "sil"): tahmin edip yanlış şeyi kapatma, sor
+    verb = runtime.re.fullmatch(r"(?:lütfen\s+)?(kapat|kapa|kapatır mısın|kapatsana|aç|açar mısın|açsana|sil|siler misin|"
+                                r"gönder|gönderir misin|başlat)", cmd_lower.strip(" .!?"))
+    if verb:
+        what = next(v for k, v in (("kap", "kapatmamı"), ("aç", "açmamı"), ("sil", "silmemi"), ("gön", "göndermemi"),
+                                   ("baş", "başlatmamı")) if verb.group(1).startswith(k))
+        question = f"Neyi {what} istiyorsun?"
+        runtime._session().pending_request = {'command': command, 'question': question}
+        return question
+
     # Hedefi söylenmemiş sayı ("70 yap"): modele sormadan hemen netleştir
     bare = runtime.re.fullmatch(r"(yüzde\s*)?(\d{1,3})\s*(yap|olsun|ayarla|yapar mısın|yapsana)?", cmd_lower.strip(" .!"))
     if bare:
