@@ -74,6 +74,14 @@ def tick(owner, notify=None):
         else:job=task_agents.execute(owner,tasks,row['instruction'],job_id=row['job_id'],queue_id=row['id'])
         state='done' if job['state']=='done' else 'cancelled' if job['state']=='cancelled' else 'blocked'
         error=''
+    except task_agents.Busy:
+        # Another task claimed this owner after the initial check. Keep the
+        # assigned journal identity and retry later; cancellation remains final.
+        heartbeat_stop.set()
+        with service_store.database(owner) as db:
+            db.execute("UPDATE queue SET state='queued',lease=0 WHERE id=? AND job_id=? AND state='running'",
+                       (row['id'],row['job_id']))
+        return
     except Exception as exc:
         _record_failure('modules/task_queue.py:tick')
         state='blocked';error=type(exc).__name__
