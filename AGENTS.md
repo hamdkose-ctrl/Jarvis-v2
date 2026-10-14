@@ -413,3 +413,6 @@ Coder mevcut şifreli geliştiricide require_draft=True kullanır. Yalnız metin
 
 ## Router durum metni
 Gemini/Groq politika metni artık sabit onay eksik mesajı değildir: mevcut kullanıcının cloud_free_confirmed, anahtar varlığı ve kendi cooldown durumunu gösterir. Onay/anahtar varlığı canlı API başarısı değildir; bu açıkça belirtilir. Durum sorgusu ağ çağrısı yapmaz, sır göstermez, ayar veya kota değiştirmez. Test: kullanıcı onayı/anahtar eksikliği ve kullanıcıya özel bekleme durumu.
+
+## Açık görev akışı önceliği
+command_manager açık görev akışı komutunu bekleyen uygulama seçiminden önce yönlendirir. Geçersiz akış sözdizimi normal sohbet/uygulama açmaya düşmez. Eski seçim silinmez; yeni görev seçimin cevabı sayılmaz. Şifre, kullanıcı bağlamı, test ve uygulama kuralları aynı. Regresyon: pending DWG seçimi varken kod akışı ve geçersiz komut.
