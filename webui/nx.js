@@ -2092,7 +2092,7 @@ ACT.gksave=async el=>{const v=$('#gk').value.trim();if(!v){SX.gk='Anahtarı yaz.
   try{const r=await api('api_key_save',v,'','');const bad=Object.values(r||{}).filter(x=>!x.ok);SX.gk=bad.length?'✗ '+bad.map(x=>x.error).join(' | '):'✓ Kaydedildi. Model denemesi yapılmadı.'}catch(e){SX.gk='✗ '+e.message}sAfter(0)};
 ACT.ghsave=async el=>{const v=$('#ghk').value.trim();if(!v)return;el.disabled=true;SX.gh='Deneniyor…';try{SX.gh=msgOf(await api('update_token_save',v))}catch(e){SX.gh='✗ '+e.message}sAfter(0)};
 ACT.ghverify=async()=>{SX.gh='GitHub main ile gerçek dosya karşılaştırması yapılıyor…';drawSettings();const r=await tryApi('github_verify');SX.gh=msgOf(r)+ghFiles(r);await refresh();drawSettings()};
-const ghFiles=r=>{const f=(r&&r.local_changes)||[];return f.length?'\nGitHub’dan farklı dosyalar: '+f.join(', ')+(r.local_change_count>f.length?' …':''):''};
+const ghFiles=r=>{const f=(r&&r.local_changes)||[];if(String((r&&r.msg)||'').includes('Engelleyen dosyalar'))return '';return f.length?'\nGitHub’dan farklı dosyalar: '+f.join(', ')+(r.local_change_count>f.length?' …':''):''};
 ACT.ghresolve=async el=>{const v=await tryApi('github_verify');if(!v||v.sync_state!=='diverged'){SX.gh=msgOf(v);await refresh();if(settingsOpen())drawSettings();else toast(SX.gh);return}
   if(!await ask('Bu bilgisayarda GitHub’dan farklı '+(v.local_change_count||0)+' dosya var. Önce hepsini ~/.jarvis/yerel_yedek klasörüne yedekleyip sonra GitHub main sürümünü kurayım mı?'+ghFiles(v)))return;
   if(el)el.disabled=true;SX.gh='Farklı dosyalar yedekleniyor ve GitHub main testlerden geçirilerek kuruluyor…';if(settingsOpen())drawSettings();else toast(SX.gh);

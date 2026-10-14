@@ -167,6 +167,9 @@ def _publishable_files() -> dict[str, bytes]:
                 continue
             if any(part in _PUBLISH_SKIP_PARTS for part in rel.parts):
                 continue
+            import updater
+            if not updater._publishable_path(rel.as_posix()):   # kabul raporu gibi yerel çıktılar yayınlanmaz
+                continue
             try:
                 if p.stat().st_size > 20_000_000:
                     continue

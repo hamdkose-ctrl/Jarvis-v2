@@ -146,7 +146,16 @@ def _validate(files: dict[str, bytes]) -> str | None:
 
 
 
+# Jarvis'in kendi ürettiği, .gitignore'daki yerel çıktılar (kabul raporu, geçici kontrol klasörü vb.).
+# Kaynak sayılmaz: güncellemeyi engellemez ve "GitHub'a Yükle" ile yayınlanmaz.
+LOCAL_ONLY_PARTS = {".v2_kontrol_gecici", ".ruff_cache", ".claude-mem", "JarvisAndroid"}
+LOCAL_ONLY_NAMES = ("v2_kabul_sonucu*.json", "*.yeni")
+
+
 def _publishable_path(rel: str) -> bool:
+    import fnmatch
+    if any(fnmatch.fnmatch(Path(rel).name, pat) for pat in LOCAL_ONLY_NAMES) or any(x in LOCAL_ONLY_PARTS for x in Path(rel).parts):
+        return False
     allowed = {".py", ".js", ".html", ".css", ".md", ".txt", ".json", ".bat", ".toml", ".yaml", ".yml", ".java", ".gradle", ".properties", ".xml", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2", ".ico", ".jar"}
     skip_parts = {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"}
     skip_names = {".env", "settings.json", "gemini_key.txt", "groq_key.txt", "github_token.txt", "phone_token.txt", "local.properties", "chat_sessions.json", "requests.json"}
@@ -156,6 +165,33 @@ def _publishable_path(rel: str) -> bool:
             and not any(x in skip_parts for x in pp.parts))
 
 
+_remote_paths: dict[str, set[str]] = {}   # son karşılaştırılan commit'lerin yayınlanabilir dosya listesi (fark türü için)
+
+
+def describe_changes(changes: list[str], sha: str) -> list[dict]:
+    """Farklı dosyaların türünü söyler: yalnız bu PC'de, değişmiş, bu PC'de yok. Dosya içeriği okunmaz/gösterilmez."""
+    remote = _remote_paths.get(sha)
+    out = []
+    for rel in changes:
+        if not (ROOT / rel).exists():
+            kind = "bu PC'de yok"
+        elif remote is not None and rel not in remote:
+            kind = "yalnız bu PC'de"
+        else:
+            kind = "GitHub'dakinden farklı"
+        out.append({"path": rel, "kind": kind})
+    return out
+
+
+def _changes_text(details: list[dict], total: int, shown: int = 10) -> str:
+    if not details:
+        return ""
+    rows = [f"{d['path']} ({d['kind']})" for d in details[:shown]]
+    more = total - len(rows)
+    return "\nEngelleyen dosyalar: " + ", ".join(rows) + (f" ve {more} dosya daha" if more > 0 else "") + \
+        ".\nGerçek kod değişikliğiyse önce GitHub'a yükle; gereksiz bir dosyaysa Jarvis klasöründen kendin kaldır ya da taşı."
+
+
 def _source_changes_against(sha: str, limit: int = 120) -> list[str]:
     """Yerel yayınlanabilir kaynak ağacını belirli GitHub commit'iyle karşılaştırır; silinen dosyaları da görür."""
     tree = json.loads(_get(f"https://api.github.com/repos/{REPO}/git/trees/{sha}?recursive=1", timeout=12))
@@ -163,10 +199,13 @@ def _source_changes_against(sha: str, limit: int = 120) -> list[str]:
         raise RuntimeError("GitHub ağaç listesi eksik; yerel değişiklik güvenlik kontrolü yapılamadı")
     remote = {x.get("path"): x.get("sha") for x in tree.get("tree", [])
               if x.get("type") == "blob" and _publishable_path(str(x.get("path") or ""))}
+    _remote_paths[sha] = set(remote)
+    while len(_remote_paths) > 4:
+        _remote_paths.pop(next(iter(_remote_paths)))
     from modules.source_sync import blob_matches
     local: dict[str, bool] = {}
     for base_dir, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"}]
+        dirs[:] = [d for d in dirs if d not in {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"} | LOCAL_ONLY_PARTS]
         bp = Path(base_dir)
         for name in names:
             f = bp / name
@@ -260,10 +299,13 @@ def verify_sync() -> dict:
             else:
                 state, msg = "unknown", "GitHub commit ilişkisi güvenli biçimde doğrulanamadı; otomatik işlem durduruldu."
     local_count = len(changes_remote) if state in ("local_changes", "diverged") else 0
+    details = describe_changes(changes_remote[:20], remote_sha) if changes_remote else []
+    if state in ("local_changes", "diverged", "unknown") and details:
+        msg += _changes_text(details, len(changes_remote))
     _save_state(sync_state=state, sync_msg=msg, verified_remote_sha=remote_sha, verified_at=time.strftime("%Y-%m-%d %H:%M"),
                 local_change_count=local_count)
     return {**status(), "verified": True, "remote_sha": remote_sha[:7], "sync_state": state,
-            "sync_msg": msg, "local_changes": changes_remote[:20], "local_change_count": local_count}
+            "sync_msg": msg, "local_changes": changes_remote[:20], "local_change_details": details, "local_change_count": local_count}
 
 def apply(info: dict, backed_up: bool = False) -> str:
     """Belirtilen sürümü indirip kurar. Dönüş: kullanıcıya söylenecek kısa cümle.
