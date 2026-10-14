@@ -234,6 +234,29 @@ class Profile:
                 self.save()
 
     # ---- not defteri ve takvim (her kullanıcıya ayrı)
+    def edit_fact(self, idx: int, expected: str, text: str | None):
+        """Change only the exact selected fact; roll back memory on disk failure."""
+        if type(idx) is not int or not isinstance(expected,str) or not expected.strip():
+            raise ValueError('Kesin bilgi kaydı gerekli.')
+        if text is not None and (not isinstance(text,str) or not text.strip() or len(text)>4000):
+            raise ValueError('Yeni bilgi boş olamaz ve en çok 4000 karakter olabilir.')
+        with _LOCK:
+            facts=self.data.setdefault('facts',[])
+            if not 0<=idx<len(facts) or facts[idx]!=expected:
+                raise ValueError('Bilgi kaydı değişmiş; hafızayı yeniden listele.')
+            before=list(facts)
+            if text is None:facts.pop(idx)
+            else:
+                text=text.strip()
+                if any(i!=idx and str(f).casefold()==text.casefold() for i,f in enumerate(facts)):
+                    raise ValueError('Yeni bilgi başka bir kayıtla aynı.')
+                facts[idx]=text
+            try:self.save()
+            except BaseException:
+                facts[:]=before
+                raise
+        return True
+
     def _new_id(self) -> int:
         with _LOCK:
             n = int(self.data.get("next_id", 1))
