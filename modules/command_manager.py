@@ -39,6 +39,15 @@ def dispatch(context, command, normalized):
             session.pending_desktop = True if desktop_agent.awaiting(owner) else None
             session.speech_override = desktop_agent.spoken(owner)
             return result
+    # A new explicit workflow is not an answer to an older application choice.
+    # Invalid workflow syntax must stop here instead of becoming a chat/app request.
+    if re.match(r'^görev\s+akışı(?:\s|:|$)', normalized.strip()):
+        from modules import task_agents
+        result = task_agents.handle(owner, command, context.emit, summary=True)
+        if result is None:
+            raise ValueError('Kullanım: görev akışı kod: isteğin (veya rapor, mail, video).')
+        session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
+        return result
     if session.pending_action is not None:
         result = app_actions.continue_voice(command, session, context.profile, context.emit)
         if result is not None: return result
