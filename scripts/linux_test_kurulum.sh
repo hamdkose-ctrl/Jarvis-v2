@@ -8,6 +8,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_TESTS=0
 if [ "${1:-}" = "--test" ]; then RUN_TESTS=1; shift; fi
 VENV="${1:-$ROOT/.venv}"
+# Göreli yol çağrılan klasöre göre mutlak yapılır; [5/5] adımı $ROOT'a geçince de aynı ortam kullanılır.
+case "$VENV" in /*) ;; *) VENV="$PWD/$VENV" ;; esac
 PY="${PYTHON:-python3}"
 LOCK="$ROOT/requirements.lock.txt"
 # Yalnız Windows'ta bulunan paketler (Linux'ta pip'te yok ya da Windows API ister).
@@ -68,13 +70,23 @@ for line in open(lock, encoding='utf-8'):
     if got != ver:
         bad.append(f'{name}: {got} (kilit {ver})')
 # pip check: her paketin dolaylı bağımlılığı kurulu ve uyumlu mu?
-out = subprocess.run([sys.executable, '-m', 'pip', 'check'], capture_output=True, text=True).stdout
-for row in out.splitlines():
+cp = subprocess.run([sys.executable, '-m', 'pip', 'check'], capture_output=True, text=True)
+explained = 0
+for row in cp.stdout.splitlines():
     m = re.search(r'requires ([A-Za-z0-9_.-]+)', row) or re.search(r'has requirement ([A-Za-z0-9_.-]+)', row)
     if m and re.sub(r'[-_.]+', '-', m[1]).lower() in allowed:
+        explained += 1
         continue
     if row.strip() and not row.startswith('No broken'):
         bad.append('pip check: ' + row)
+for row in cp.stderr.splitlines():
+    if row.strip():
+        bad.append('pip check (stderr): ' + row)
+# Sıfır dışı çıkış yalnız bilinen eksiklerle açıklanıyorsa kabul edilir; açıklanamayan çıkış kodu hatadır.
+if cp.returncode and not explained:
+    bad.append(f'pip check çıkış kodu {cp.returncode}, açıklanamadı')
+elif cp.returncode == 0 and 'No broken' not in cp.stdout:
+    bad.append('pip check beklenen sonucu vermedi: ' + cp.stdout.strip()[:200])
 for mod in ('psutil', 'google.genai', 'speech_recognition', 'requests', 'pptx', 'docx', 'openpyxl', 'markitdown', 'faster_whisper', 'playwright'):
     try:
         importlib.import_module(mod)
