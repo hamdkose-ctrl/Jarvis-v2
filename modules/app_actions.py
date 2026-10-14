@@ -36,6 +36,7 @@ for name,label,params in [
     ('event_add_text','Doğal dille takvim etkinliği ekle',{'text':str}),
     ('goal_add','Hedef ekle',{'text':str}),('fact_add','Bilgi ekle',{'text':str}),
     ('rule_add','Kural ekle',{'text':str}),
+    ('fact_update','Kesin seçilen hafıza bilgisini düzelt',{'idx':int,'expected':str,'text':str}),
     ('pending_approve','Öğrenilen bilgiyi onayla',{'idx':int}),
     ('pending_reject','Öğrenilen bilgiyi reddet',{'idx':int}),
     ('learn_toggle','Konuşmalardan öğrenmeyi aç kapat',{'on':bool}),
@@ -153,7 +154,7 @@ def _check_reference(profile,action,values):
         if not any(x.get('id')==values[key] for x in profile.data.get(collection,[])):
             raise ValueError('Bu kullanıcıda seçilen kayıt bulunamadı.')
     for prefix,collection in [('goal_','goals'),('fact_','facts'),('rule_','rules')]:
-        if action==prefix+'delete' and not 0<=values['idx']<len(profile.data.get(collection,[])):
+        if action in (prefix+'delete',prefix+'update') and not 0<=values['idx']<len(profile.data.get(collection,[])):
             raise ValueError('Bu kullanıcıda seçilen kayıt bulunamadı.')
 
 def run(bridge,profile,action,args,*,confirmed=False):
@@ -176,11 +177,13 @@ def run(bridge,profile,action,args,*,confirmed=False):
         from modules import system_control
         result=system_control.list_windows()
     elif action=='pc_shortcut':
-        from modules import system_control
-        return system_control.window_shortcut(**values)
+        from modules import system_control,pc_contracts
+        target=getattr(system_control.window_shortcut,'__wrapped__',system_control.window_shortcut)
+        return pc_contracts.call('window_shortcut',target,(),values,profile.slug)
     elif action=='pc_window':
-        from modules import system_control
-        return system_control.window_action(**values)
+        from modules import system_control,pc_contracts
+        target=getattr(system_control.window_action,'__wrapped__',system_control.window_action)
+        return pc_contracts.call('window_action',target,(),values,profile.slug)
     else:
         result=getattr(bridge,spec['target'])(**values)
     if action=='learn_toggle':
