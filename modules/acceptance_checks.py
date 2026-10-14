@@ -22,7 +22,8 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False):
         def source():
             import updater
             status=updater.verify_sync();state=status.get('sync_state','unknown')
-            return ('passed' if state=='synced' else 'pending',state)
+            files=[f"{d['path']} ({d['kind']})" for d in status.get('local_change_details') or []]
+            return ('passed' if state=='synced' else 'pending',state+(': '+', '.join(files) if files else ''))
         check('github_source',source)
         if suite:
             def regression():
