@@ -26,6 +26,11 @@ def multi(kind, *parts):
 
 
 class CharsetTests(unittest.TestCase):
+    def test_non_text_codecs_fall_back_to_utf8(self):
+        for charset in ('base64', 'hex', 'zlib_codec'):
+            with self.subTest(charset=charset):
+                self.assertEqual(self.body(part(TR.encode('utf-8'), content_type=f'text/plain; charset={charset}')), TR)
+
     def body(self, payload):
         return content.extract(payload)['body']
 
