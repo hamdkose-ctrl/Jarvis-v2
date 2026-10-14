@@ -157,6 +157,45 @@ class WorkTests(unittest.TestCase):
             queue.tick('alice',notify);work.assert_not_called()
         self.assertEqual(queue.rows('alice')[0]['state'],'cancelled');notify.assert_not_called()
 
+    def test_queue_recovery_rejects_changed_plan_before_any_worker(self):
+        qid=queue.enqueue('alice',[{'id':'a','agent':'research','input':{'url':'https://example.com'}}])
+        assigned=queue.rows('alice')[0]['job_id']
+        for task in ({'id':'a','agent':'publish','input':self.payload},
+                     {'id':'a','agent':'research','input':{'url':'https://other.example.com'}},
+                     {'id':'other','agent':'research','input':{'url':'https://example.com'}}):
+            saved={'id':assigned,'state':'interrupted','queue_id':qid,
+                   'tasks':[{**task,'state':'queued'}],'outputs':{}}
+            agents._save(agents._root('alice'),saved)
+            with store.database('alice') as db:
+                db.execute("UPDATE queue SET state='running',lease=0 WHERE id=?",(qid,))
+            with patch.object(agents,'worker',return_value={'state':'done'}) as work:
+                queue.tick('alice');work.assert_not_called()
+            self.assertEqual(queue.rows('alice')[0]['state'],'blocked')
+
+    def test_queue_recovery_rejects_journal_from_another_queue(self):
+        qid=queue.enqueue('alice',[{'id':'a','agent':'verify'}])
+        other=queue.enqueue('alice',[{'id':'a','agent':'verify'}],delay=3600)
+        assigned=next(r['job_id'] for r in queue.rows('alice') if r['id']==qid)
+        agents._save(agents._root('alice'),{'id':assigned,'state':'interrupted','queue_id':other,
+                       'tasks':[{'id':'a','agent':'verify','state':'queued'}],'outputs':{}})
+        with patch.object(agents,'worker',return_value={'state':'done'}) as work:
+            queue.tick('alice');work.assert_not_called()
+        self.assertEqual(next(r['state'] for r in queue.rows('alice') if r['id']==qid),'blocked')
+
+    def test_queue_recovery_rejects_changed_dependency_before_completed_or_new_steps(self):
+        tasks=[{'id':'a','agent':'research','input':{'url':'https://example.com'}},
+               {'id':'b','agent':'writer','input':{'instruction':'report'},'depends':['a']}]
+        qid=queue.enqueue('alice',tasks);assigned=queue.rows('alice')[0]['job_id']
+        changed=[dict(tasks[0],state='queued'),dict(tasks[1],state='queued',depends=[])]
+        for state in ('interrupted','done'):
+            agents._save(agents._root('alice'),{'id':assigned,'state':state,'queue_id':qid,
+                                              'tasks':changed,'outputs':{}})
+            with store.database('alice') as db:
+                db.execute("UPDATE queue SET state='running',lease=0 WHERE id=?",(qid,))
+            with patch.object(agents,'worker',return_value={'state':'done'}) as work:
+                queue.tick('alice');work.assert_not_called()
+            self.assertEqual(queue.rows('alice')[0]['state'],'blocked')
+
     def test_adapter_gmail_mime_and_telegram_remote_identity(self):
         svc=Mock();svc.users.return_value.messages.return_value.send.return_value.execute.return_value={'id':'mail-id'}
         with patch.object(services,'google_service',return_value=svc),patch.object(services.privacy,'blocked',return_value=None):
