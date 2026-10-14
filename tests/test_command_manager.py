@@ -81,3 +81,21 @@ class EngineControlTests(unittest.TestCase):
             return original(name, globals, locals, fromlist, level)
         with patch.object(app_actions, 'continue_voice', return_value='onay'), patch('builtins.__import__', side_effect=import_checked):
             self.assertEqual(dispatch(context, 'evet', 'evet'), 'onay')
+class ExplicitWorkflowPriorityTests(unittest.TestCase):
+    def test_workflow_does_not_answer_pending_application_selection(self):
+        session=SimpleNamespace(pending_action={'choices':['DWG']},speech_override=None)
+        context=SimpleNamespace(profile=SimpleNamespace(slug='alice'),session=session,emit=Mock())
+        command='görev akışı kod: toplama fonksiyonu üret'
+        with patch('modules.task_agents.handle',return_value='Kod görevi sonucu') as task,patch('modules.app_actions.continue_voice') as app:
+            self.assertEqual(dispatch(context,command,command),'Kod görevi sonucu')
+        app.assert_not_called()
+        task.assert_called_once_with('alice',command,context.emit,summary=True)
+        self.assertEqual(session.pending_action,{'choices':['DWG']})
+
+    def test_invalid_workflow_never_falls_through_to_application_or_chat(self):
+        context=SimpleNamespace(profile=SimpleNamespace(slug='alice'),session=SimpleNamespace(pending_action={},speech_override=None),emit=Mock())
+        with patch('modules.task_agents.handle',return_value=None),patch('modules.app_actions.continue_voice') as app:
+            with self.assertRaisesRegex(ValueError,'Kullanım'):
+                dispatch(context,'görev akışı kod','görev akışı kod')
+        app.assert_not_called()
+
