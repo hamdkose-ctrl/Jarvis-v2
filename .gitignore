@@ -55,3 +55,5 @@ backups/
 .gradle/
 build/
 local.properties
+.v2_kontrol_gecici/
+v2_kabul_sonucu*.json
