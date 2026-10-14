@@ -67,7 +67,11 @@ def decode(raw, declared, mime='text/plain'):
             return raw.decode('utf-8')
         except UnicodeDecodeError:
             pass
-    return raw.decode(codec or 'utf-8', errors='replace')
+    try:
+        return raw.decode(codec or 'utf-8', errors='replace')
+    except LookupError:
+        # Codec kayıtları binary dönüşümleri de içerir; bunlar MIME metin kodlaması değildir.
+        return raw.decode('utf-8', errors='replace')
 
 
 def extract(payload):
