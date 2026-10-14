@@ -21,6 +21,9 @@ class WebMemory:
         runtime = self._runtime
         return self._del('facts', idx)
 
+    def fact_update(self, idx: int, expected: str, text: str) -> bool:
+        return self._runtime._p().edit_fact(idx,expected,text)
+
     def rule_add(self, text: str) -> str:
         runtime = self._runtime
         from modules import learning
