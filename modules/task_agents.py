@@ -198,14 +198,14 @@ def _worker(owner, task, dependencies):
         from modules import developer
         state=developer.status(owner)
         if not state.get('enabled') or not state.get('unlocked'): raise ValueError('Önce sohbetten parolalı geliştirme modunu aç.')
-        answer=developer.handle(owner,data['request'],raise_errors=True)
+        answer=developer.handle(owner,data['request'],raise_errors=True,require_draft=True)
         after=developer.status(owner)
         if not answer or not after.get('enabled') or not after.get('unlocked'):
             raise ValueError('Geliştirme ajanı işi tamamlamadı veya alan kilitlendi.')
         if after.get('draft_files') and after.get('draft_test_ok') is False:
             raise ValueError('Kod taslağının testleri başarısız; geliştirme alanında hata günlüğü ve taslak saklandı.')
         if not after.get('draft_files') or after.get('draft_test_ok') is not True:
-            raise ValueError('Kod taslağı ve geçerli başarılı test sonucu gerekli; görev tamamlanmadı.')
+            raise ValueError('Kod görevi tamamlanmadı; dosya taslağı veya geçerli test sonucu yok. '+privacy.redact(str(answer),force=True)[:1200])
         return {'state':'done','text':answer,'draft':True,'test_ok':True}
     if kind=='writer':
         from modules import nxapi
