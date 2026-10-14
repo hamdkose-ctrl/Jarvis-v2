@@ -167,7 +167,8 @@ def main(runtime, ui=None):
                 runtime.pause_listening.set()
                 try:
                     with runtime.audio_lock:
-                        voice_session.speak(event[1], slow=(kind == "say_slow"))
+                        # Sahibi belirtilmiş "say" olayı arka plandan gelir ve metni `_emit_for` ile sohbete zaten yazmıştır.
+                        voice_session.speak(event[1], slow=(kind == "say_slow"), shown=len(event) > 2)
                 finally:
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()

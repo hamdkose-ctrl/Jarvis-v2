@@ -100,8 +100,8 @@ def check_google() -> dict:
     from modules import google_api as g
     if not g.token_path().exists():
         if g.CRED.exists():
-            return _item("Gmail ve Takvim", "warn", "izin bekliyor", "Entegrasyonlar sayfasından Google'a bağlan.")
-        return _item("Gmail ve Takvim", "warn", "kurulmadı", "İstersen Entegrasyonlar sayfasından Google'ı bağlayabilirsin.")
+            return _item("Gmail ve Takvim", "warn", "izin bekliyor", "Menü › Yapay zekâ › Gmail ve Takvim bölümünde “Bağlan” düğmesine bas.")
+        return _item("Gmail ve Takvim", "warn", "kurulmadı", "İstersen Menü › Yapay zekâ › Gmail ve Takvim bölümünden Google'ı bağlayabilirsin.")
     try:
         problem = g._ready()
         if problem:
@@ -113,7 +113,7 @@ def check_google() -> dict:
         msg = str(e).lower()
         if "invalid_grant" in msg or "expired" in msg or "revoked" in msg:
             return _item("Gmail ve Takvim", "bad", "izin süresi dolmuş",
-                         "Entegrasyonlar sayfasından Google'a yeniden bağlan (Google test uygulamalarında izin 7 günde bir yenilenir).")
+                         "Menü › Yapay zekâ › Gmail ve Takvim bölümünde “Bağlan” düğmesiyle yeniden bağlan (Testing modundaki Google uygulamalarında izin bir süre sonra düşebilir).")
         return _item("Gmail ve Takvim", "bad", "ulaşılamıyor", explain(e))
 
 

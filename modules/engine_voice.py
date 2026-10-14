@@ -295,14 +295,15 @@ class VoiceSession:
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS   # şimdi söyleneni ad beklemeden dinle
             runtime.log.info("Konuşma kesildi: Hey Jarvis")
 
-    def speak(self, text: str, slow: bool = False) -> None:
+    def speak(self, text: str, slow: bool = False, shown: bool = False) -> None:
         runtime = self.runtime
         if self.speak_enabled and runtime.flags["speak"]:
             # Canlı mod açıksa TÜM PC sesli yanıtlarını aynı Gemini Live sesiyle okut.
             # Yazı/web cevabı zaten arayüze bir kez yazıldığı için Live transkriptinin ikinci kez
             # sohbet geçmişine düşmesini `suppress_ui=True` ile engelliyoruz.
+            # shown=True: arka plan iletisi (sabah özeti, hatırlatma, Google izni) `_emit_for` ile zaten yazıldı.
             if self.live_on and runtime.live.get() is not None and runtime.live.enabled():
-                runtime.live.get().say(text, suppress_ui=(runtime._cur_source in ("yazı", "web")) or slow, exact=True, slow=slow)
+                runtime.live.get().say(text, suppress_ui=shown or (runtime._cur_source in ("yazı", "web")) or slow, exact=True, slow=slow)
                 return
             runtime.emit("state", "speaking")
             done = runtime.threading.Event()

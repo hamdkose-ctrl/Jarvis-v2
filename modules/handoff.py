@@ -52,11 +52,11 @@ def _svc(interactive: bool = False):
 def _explain(exc: Exception) -> str:
     t = f"{type(exc).__name__}: {exc}"
     if isinstance(exc, PermissionError) or "invalid_grant" in t:
-        return "Google Görevler izni yok. Entegrasyonlar → Gmail ve Google Takvim → “Görevler iznini ver”e bas."
+        return "Google Görevler izni yok ya da çalışmıyor. Menü › Yapay zekâ › Gmail ve Takvim bölümünde “Görevler iznini ver” düğmesine bas."
     if "accessNotConfigured" in t or "has not been used" in t or "disabled" in t.lower():
         return f"Google Cloud'da “Google Tasks API” kapalı. Şu adresten bir kez “Etkinleştir”e bas: {ENABLE_URL}"
     if "google_credentials" in t or "No such file" in t:
-        return "Önce Entegrasyonlar'dan Google bağlantısını kur."
+        return "Önce Menü › Yapay zekâ › Gmail ve Takvim bölümünden Google bağlantısını kur."
     return "Google Görevler'e ulaşılamadı: " + t[:160]
 
 
