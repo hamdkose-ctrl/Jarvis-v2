@@ -416,3 +416,6 @@ Gemini/Groq politika metni artık sabit onay eksik mesajı değildir: mevcut kul
 
 ## Açık görev akışı önceliği
 command_manager açık görev akışı komutunu bekleyen uygulama seçiminden önce yönlendirir. Geçersiz akış sözdizimi normal sohbet/uygulama açmaya düşmez. Eski seçim silinmez; yeni görev seçimin cevabı sayılmaz. Şifre, kullanıcı bağlamı, test ve uygulama kuralları aynı. Regresyon: pending DWG seçimi varken kod akışı ve geçersiz komut.
+
+## Güvenli model hata ayrıntısı
+Otomatik router tüm çağrılar başarısızsa sağlayıcı, hata sınıfı, kontrollü neden ve varsa sayısal HTTP durumunu görev hatasında gösterir. HTTPError response.status_code kota/erişim sınıflandırmasına katılır. Onaylı hesaba yeniden kutu işaretleme tavsiyesi verilmez; hiç aday yoksa çağrı başarısızlığından ayrı söylenir. router durumu mevcut kullanıcının son çağrı denemelerini gösterir; yalnız süreç içi kayıt, yeni API çağrısı veya hata gövdesi/prompt/anahtar kaydı yoktur. Ücretli havuz ve otomatik uygulama kuralları değişmez. Test: test_smart_router içindeki güvenli hata, boş aday ve kullanıcıya özel durum senaryoları. Gerçek PC bağlantı nedenini bu testler doğrulamaz.
