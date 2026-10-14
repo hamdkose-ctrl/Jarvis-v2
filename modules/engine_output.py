@@ -66,14 +66,18 @@ def set_share(runtime, which: str | None) -> str:
         runtime._record_failure('main.py:set_share')
         runtime.emit("share", runtime.vision.mode() or "")
         return f"Paylaşım {'başlatılamadı' if which else 'kapatılamadı'}: {exc}"
-    runtime.emit("share", which or "")
-    runtime.privacy.audit("paylaşım", which or "kapatıldı")
-    if which == "screen":
-        return "Ekranını paylaşıyorsun. Sorularını ekrana bakarak yanıtlarım."
-    if which == "camera":
-        return "Kamera açık. Sorularını kameranın gördüğüne bakarak yanıtlarım."
-    if runtime.vision.mode():
+    # Arayüz olayı ve denetim kaydı istenen durumdan değil, işlem sonrası gerçek durumdan üretilir.
+    now = runtime.vision.mode()
+    runtime.emit("share", now or "")
+    if which and now != which:
+        return "Paylaşım başlatılamadı."
+    if not which and now:
         return "Paylaşımı kapatamadım; hâlâ açık görünüyor."
+    runtime.privacy.audit("paylaşım", now or "kapatıldı")
+    if now == "screen":
+        return "Ekranını paylaşıyorsun. Sorularını ekrana bakarak yanıtlarım."
+    if now == "camera":
+        return "Kamera açık. Sorularını kameranın gördüğüne bakarak yanıtlarım."
     return "Paylaşımı kapattım." if was else "Açık bir ekran ya da kamera paylaşımı yoktu; paylaşım kapalı."
 
 def set_sleep(runtime, on: bool, announce: bool = True) -> str:

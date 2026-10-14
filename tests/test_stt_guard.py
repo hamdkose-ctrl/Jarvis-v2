@@ -188,6 +188,13 @@ class ShareAndClarifyTests(unittest.TestCase):
         self.assertIn('yoktu', engine_output.set_share(runtime(None), None))
         stuck = runtime('camera'); stuck.vision.stop = lambda: None
         self.assertIn('kapatamadım', engine_output.set_share(stuck, None))
+        # Durdurma başarısız: arayüze "kapalı" olayı gitmez, gerçek durum (kamera) gider; "kapatıldı" kaydı oluşmaz.
+        stuck.emit.assert_called_once_with('share', 'camera')
+        stuck.privacy.audit.assert_not_called()
+        done = runtime('screen')
+        engine_output.set_share(done, None)
+        done.emit.assert_called_once_with('share', '')
+        done.privacy.audit.assert_called_once_with('paylaşım', 'kapatıldı')
         broken = runtime('camera')
         def fail(): raise RuntimeError('aygıt meşgul')
         broken.vision.stop = fail
