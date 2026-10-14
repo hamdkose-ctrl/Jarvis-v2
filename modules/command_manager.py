@@ -49,7 +49,7 @@ def dispatch(context, command, normalized):
     result = system_doctor.handle(owner, command)
     if result is not None: return result
     from modules import task_agents
-    result = task_agents.handle(owner, command, context.emit)
+    result = task_agents.handle(owner, command, context.emit, summary=True)
     if result is not None:
         session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
         return result
