@@ -524,14 +524,49 @@ class PhoneServer:
                     self.send_header("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()")
                     self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 
+                def _read_body(self, size):
+                    data = self.rfile.read(size)
+                    self._unread = max(0, getattr(self, "_unread", 0) - len(data))
+                    return data
+
+                def _drain_body(self) -> None:
+                    # Yanıt gövde okunmadan gidip soket kapanırsa alıcı tamponda veri kalır; Windows FIN yerine RST
+                    # gönderir ve istemci 429/400 yanıtını okuyamaz. Yalnız küçük gövde (≤64 KiB) en çok 1 sn
+                    # beklenerek tüketilir; büyük/eksik gövde sunucuyu bekletmez. Bağlantı her durumda kapanır.
+                    size, self._unread = getattr(self, "_unread", 0), 0
+                    self.close_connection = True
+                    if not 0 < size <= 65536 or self.headers.get("Transfer-Encoding"):
+                        return
+                    previous = self.connection.gettimeout()
+                    deadline = time.monotonic() + 1.0
+                    try:
+                        while size:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                break
+                            self.connection.settimeout(remaining)
+                            chunk = self.rfile.read1(min(size, 8192))
+                            if not chunk:
+                                break
+                            size -= len(chunk)
+                    except (OSError, ValueError):
+                        pass
+                    finally:
+                        self.connection.settimeout(previous)
+
                 def _json(self, obj, code=200, headers=None):
                     body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+                    unread = getattr(self, "_unread", 0) > 0
+                    if unread:
+                        self._drain_body()
                     self.send_response(code)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self._common_headers()
                     for key, value in (headers or {}).items():
                         self.send_header(key, value)
+                    if unread:
+                        self.send_header("Connection", "close")
                     self.end_headers()
                     self.wfile.write(body)
 
@@ -620,6 +655,10 @@ class PhoneServer:
                         self._json({"error": "yok"}, 404)
 
                 def do_POST(self):
+                    try:
+                        self._unread = max(0, int(self.headers.get("Content-Length") or 0))
+                    except ValueError:
+                        self._unread = 0
                     if not allowed_peer(self.client_address[0], outer.scope()):
                         self._json({"error": "Telefon erişimi yalnız yerel ağ/Tailscale üzerinden kullanılabilir"}, 403)
                         return
@@ -639,7 +678,7 @@ class PhoneServer:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 1024:
                                 raise ValueError('boyut')
-                            body = json.loads(self.rfile.read(size))
+                            body = json.loads(self._read_body(size))
                             if not isinstance(body, dict) or not isinstance(body.get('code'), str):
                                 raise ValueError('kod')
                             def key_for(owner):
@@ -662,7 +701,7 @@ class PhoneServer:
                         try:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 2_000_000: raise ValueError("boyut")
-                            payload = json.loads(self.rfile.read(size))
+                            payload = json.loads(self._read_body(size))
                             from modules import fieldnotes
                             owner = outer.engine._get_profile(self.who)
                             result = fieldnotes.sync(owner, payload.get("notes"))
@@ -678,7 +717,7 @@ class PhoneServer:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 1024:
                                 raise ValueError("boyut")
-                            payload = json.loads(self.rfile.read(size))
+                            payload = json.loads(self._read_body(size))
                             if not isinstance(payload, dict) or not isinstance(payload.get("code"), str):
                                 raise ValueError("kod")
                             token = outer.redeem_pairing(payload["code"])
@@ -698,7 +737,7 @@ class PhoneServer:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 8_000_000:
                                 raise ValueError("boyut")
-                            data = self.rfile.read(size)
+                            data = self._read_body(size)
                             jpeg = data[:2] == b"\xff\xd8"
                             if not jpeg and data[:4] != b"\x89PNG":
                                 raise ValueError("tür")
@@ -723,7 +762,7 @@ class PhoneServer:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 4_000_000:
                                 raise ValueError("boyut")
-                            data = self.rfile.read(size)
+                            data = self._read_body(size)
                             if data[:4] != b"RIFF":
                                 raise ValueError("tür")
                             fn = getattr(outer.engine, "submit_audio", None)
@@ -755,7 +794,7 @@ class PhoneServer:
                             size = int(self.headers.get("Content-Length", 0))
                             if not 0 < size <= 4000:
                                 raise ValueError("boyut")
-                            payload = json.loads(self.rfile.read(size) or b"{}")
+                            payload = json.loads(self._read_body(size) or b"{}")
                             if not isinstance(payload, dict):
                                 raise ValueError("JSON nesnesi bekleniyordu")
                             text = str(payload.get("text", ""))[:500]
@@ -772,7 +811,7 @@ class PhoneServer:
                         size = int(self.headers.get("Content-Length", 0))
                         if not 0 < size <= 2000:
                             raise ValueError("boyut")
-                        payload = json.loads(self.rfile.read(size) or b"{}")
+                        payload = json.loads(self._read_body(size) or b"{}")
                         if not isinstance(payload, dict):
                             raise ValueError("JSON nesnesi bekleniyordu")
                         text = str(payload.get("text", ""))[:500]

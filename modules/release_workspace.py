@@ -58,13 +58,16 @@ def validate(root, project, python=None):
     root, project = Path(root), Path(project)
     def run(target):
         return run_checks(target, python=python) if python else run_checks(target)
-    # Test edits cannot silently remove the current regression coverage.
+    # Test edits cannot silently remove the current regression coverage: installed tests overwrite the
+    # candidate's copies and deleted ones come back. Test files that exist only in the candidate stay, because
+    # the candidate's validation.py may require them (JS_GROUPS/SMOKE_GROUPS); replacing the whole folder made
+    # every update from an older install fail with "Zorunlu test dosyaları eksik".
     with guard.temporary_workspace('jarvis-trusted-tests-') as temporary:
         baseline = Path(temporary) / 'project'
         guard.copy_source(root, baseline)
-        shutil.rmtree(baseline / 'tests', ignore_errors=True)
         if (project / 'tests').is_dir():
-            shutil.copytree(project / 'tests', baseline / 'tests', ignore=shutil.ignore_patterns('__pycache__'))
+            shutil.copytree(project / 'tests', baseline / 'tests', ignore=shutil.ignore_patterns('__pycache__'),
+                            dirs_exist_ok=True)
         ok, log = run(baseline)
         if not ok: return False, log
     def manifest(folder):
