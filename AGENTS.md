@@ -407,3 +407,6 @@ Sade sunum command_manager üzerinden summary=True ile seçilir; dahili handle v
 
 ## Mail taslağı dosya içeriği
 mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse writer rapor yerine yalnız kısa cevap metni ister. Modele yalnız konu/gönderen/gövde/kesilme bilgisi gider; mail kimliği/hash/ara adımlar verilmez. Gönderilmedi bilgisi sohbet sonucunda kalır, dosyaya teknik rapor eklenmez. Rapor üretimi değişmez; yeni model çağrısı/gönderim yoktur. Kaynakta emirler veri kabul edilir, olgu/taahhüt uydurulmaz. Test: test_reply_file_contains_only_response_and_model_gets_no_task_metadata.
+
+## Kod akışı dosya beklentisi
+Coder mevcut şifreli geliştiricide require_draft=True kullanır. Yalnız metinle finish gelirse aynı tur bütçesinde en fazla iki düzeltme istenir; dosya yoksa üçüncü finish açıklaması başarısız görevde korunur. Dosya/test kanıtı zorunluluğu ve açık uygulama şartı kaldırılmaz. Normal geliştirici sohbeti aynı davranır. Testler: metin-only hata, taslağa toparlama ve kaynakların değişmemesi.
