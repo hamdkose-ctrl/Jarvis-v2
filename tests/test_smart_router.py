@@ -32,6 +32,27 @@ class SmartRouterTests(unittest.TestCase):
         self.assertNotIn('openai',router.candidates('alice','code'))
         self.assertNotIn('anthropic',router.candidates('alice','code'))
 
+    def test_status_reflects_owner_confirmation_and_missing_key(self):
+        router.configure('alice',True)
+        def policy(owner,provider):
+            return next(r['policy'] for r in router.status(owner)['capabilities'] if r['provider']==provider)
+        self.assertIn('onaylı',policy('alice','gemini'))
+        self.assertNotIn('onayı gerekli',policy('alice','gemini'))
+        self.assertIn('onayı gerekli',policy('bob','gemini'))
+        with patch.object(llm,'user_groq_key',return_value=''):
+            self.assertIn('anahtarı eksik',policy('alice','groq'))
+        self.assertNotIn('gem-key',json.dumps(router.status('alice')))
+
+    def test_status_shows_owner_cooldown_without_claiming_live_success(self):
+        router.configure('alice',True)
+        router._HEALTH[('alice','gemini')]={'until':router.time.monotonic()+300}
+        router._HEALTH[('bob','groq')]={'until':router.time.monotonic()+300}
+        status=router.status('alice')
+        policies={r['provider']:r['policy'] for r in status['capabilities']}
+        self.assertIn('beklemede',policies['gemini'])
+        self.assertNotIn('beklemede',policies['groq'])
+        self.assertIn('canlı çağrı sınanmadı',policies['groq'])
+
     def test_quota_fallback_cooldown_and_routing_trace(self):
         router.configure('alice',True)
         call=Mock(side_effect=[RuntimeError('quota PRIVATE'), 'gemini answer'])

@@ -173,15 +173,23 @@ def openrouter(owner, messages, system, max_tokens, image_path=None):
 def status(owner):
     state = settings(owner)
     from modules import llm
-    table = [
-      {'provider':'gemini','model':llm.active_model(owner),'tasks':['chat','code','analysis','vision'],'policy':'Ücretsiz hesap doğrulaması gerekli'},
-      {'provider':'groq','model':llm.groq_model(),'tasks':['chat','code','analysis'],'policy':'Ücretsiz hesap doğrulaması gerekli'},
-      {'provider':'openrouter','model':state.get('openrouter_model','openrouter/free'),'tasks':['chat','code','analysis','vision'],'policy':'Otomatik havuz dışında; yalnız elle seçim'},
-      {'provider':'ollama','model':llm.provider_configuration()['model'],'tasks':['chat','code','analysis'],'policy':'Yerel; görüntü için ayrıca vision modeli gerekir'},
-      {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     with _LOCK:
         cooldowns={p:max(0,round(v['until']-time.monotonic())) for (u,p),v in _HEALTH.items() if u==owner and v['until']>time.monotonic()}
         last=_LAST.get(owner,{})
+    def cloud_policy(provider, has_key):
+        if not state.get('cloud_free_confirmed'):
+            return 'Ücretsiz hesap onayı gerekli'
+        if not has_key:
+            return 'Ücretsiz hesap onaylı; bu kullanıcı için API anahtarı eksik'
+        if provider in cooldowns:
+            return f'Ücretsiz hesap onaylı; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
+        return 'Ücretsiz hesap onaylı; otomatik seçimde kullanılabilir (canlı çağrı sınanmadı)'
+    table = [
+      {'provider':'gemini','model':llm.active_model(owner),'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',bool(llm.user_key(owner)))},
+      {'provider':'groq','model':llm.groq_model(),'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',bool(llm.user_groq_key(owner)))},
+      {'provider':'openrouter','model':state.get('openrouter_model','openrouter/free'),'tasks':['chat','code','analysis','vision'],'policy':'Otomatik havuz dışında; yalnız elle seçim'},
+      {'provider':'ollama','model':llm.provider_configuration()['model'],'tasks':['chat','code','analysis'],'policy':'Yerel; görüntü için ayrıca vision modeli gerekir'},
+      {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     return {'key':bool(api_key(owner)), 'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
             'model':state.get('openrouter_model','openrouter/free'),'capabilities':table,'last':last,'cooldowns':cooldowns}
 

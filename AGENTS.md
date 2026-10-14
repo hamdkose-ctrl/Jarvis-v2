@@ -410,3 +410,6 @@ mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse write
 
 ## Kod akışı dosya beklentisi
 Coder mevcut şifreli geliştiricide require_draft=True kullanır. Yalnız metinle finish gelirse aynı tur bütçesinde en fazla iki düzeltme istenir; dosya yoksa üçüncü finish açıklaması başarısız görevde korunur. Dosya/test kanıtı zorunluluğu ve açık uygulama şartı kaldırılmaz. Normal geliştirici sohbeti aynı davranır. Testler: metin-only hata, taslağa toparlama ve kaynakların değişmemesi.
+
+## Router durum metni
+Gemini/Groq politika metni artık sabit onay eksik mesajı değildir: mevcut kullanıcının cloud_free_confirmed, anahtar varlığı ve kendi cooldown durumunu gösterir. Onay/anahtar varlığı canlı API başarısı değildir; bu açıkça belirtilir. Durum sorgusu ağ çağrısı yapmaz, sır göstermez, ayar veya kota değiştirmez. Test: kullanıcı onayı/anahtar eksikliği ve kullanıcıya özel bekleme durumu.
