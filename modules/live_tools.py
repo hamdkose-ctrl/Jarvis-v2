@@ -11,7 +11,7 @@ VOICES = tuple(VOICE_INFO)
 TOOL_DESCRIPTION = (
     "Bilgisayarda ya da kullanıcının verilerinde bir iş yapar ve sonucunu metin olarak döndürür. Aşağıdaki özel "
     "araçların kapsamadığı her iş için çağır: e-posta (Gmail/Outlook) okuma, takvim, dosya/PDF bulma-açma-özetleme-"
-    "çevirme-telefona gönderme, WhatsApp mesajı, hava durumu, ekranı analiz etme, güncel fiyat/döviz/haber/internet "
+    "çevirme-telefona gönderme, WhatsApp mesajı, hava durumu, ekranı analiz etme, ekran/kamera paylaşımını açma-kapatma ('paylaşımı kapat'), güncel fiyat/döviz/haber/internet "
     "araması, iş ve proje takibi, Jarvis'in KENDİ işleri (sayfalarını açma: 'hafıza sayfasını aç'; ayarları: uyanma "
     "hassasiyeti, cevap hızı, uyanma sesi, küçük Jarvis, tam ekran, açık kalma süresi; 'kendini yeniden başlat'; "
     "sistem taraması; log klasörü), görev listesini okuma/tamamlama, ev-iş devir listesini okuma, kullanıcı değiştirme, uyku moduna geçme, bilgisayarı kapatma, "

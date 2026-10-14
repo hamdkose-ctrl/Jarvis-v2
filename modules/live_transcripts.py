@@ -10,6 +10,12 @@ def flush_user(self, services) -> None:
         text = ' '.join((t.strip() for t in self._in_buf if t.strip())).strip()
         self._in_buf = []
         if text:
+            from modules import stt_guard
+            why = stt_guard.reject(text)
+            if why:
+                # Gürültüden uydurulan yabancı söz ya da Jarvis'in kendi sesinin yankısı: sohbete/işleme geçmez.
+                services.log.info('Duyulan söz atıldı (%s): %d karakter', 'yabancı/gürültü' if why == 'foreign' else 'yankı', len(text))
+                return
             fixed = services.apply_fixes(text)
             services.log.info('İşlem kaydı: %s', 'modules/live.py:_flush_user')
             self._recent_user.append(text)
@@ -24,6 +30,8 @@ def flush_transcripts(self, services) -> str:
         text = ''.join(self._out_buf).strip()
         self._out_buf = []
         if text:
+            from modules import stt_guard
+            stt_guard.note_said(text)
             services.log.info('İşlem kaydı: %s', 'modules/live.py:_flush_transcripts')
             if self._suppress_output_turns > 0:
                 self._suppress_output_turns -= 1

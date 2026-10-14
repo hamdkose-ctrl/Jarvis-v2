@@ -51,7 +51,7 @@ TOOL_RESULT_MAX = 3000
 # Jarvis'in bir işi yaptığını söylediği sözler: bu konuşma turunda hiç araç çağrılmadıysa iş yapılmamıştır
 _CLAIM = re.compile(r"\b(?:açıyorum|açtım|oynatıyorum|oynattım|çalıyorum|başlatıyorum|başlattım|ekledim|ekliyorum|"
                     r"kaydettim|kaydediyorum|gönderdim|gönderiyorum|ayarladım|ayarlıyorum|kapattım|kapatıyorum|"
-                    r"hallettim|not aldım|not ettim)\b")
+                    r"hallettim|not aldım|not ettim|durdurdum|durduruyorum|sildim|siliyorum|yaptım|yapıyorum)\b")
 NOSPEECH_CLOSE = 12             # uyandıktan sonra bu kadar sn hiç konuşma duyulmazsa oturum kapanır (yanlış uyanma)
 SILENCE_DEFAULT = 1100          # bu kadar sessizlik (ms) olunca kullanıcının sözü bitti sayılır
 AGC_TARGET = 1250               # uzak/kısık mikrofonda dijital hedef; Windows mikrofon seviyesine dokunulmaz
@@ -248,6 +248,12 @@ def build_prompt(assistant: str, user: str, context: str = "") -> str:
         "'o gün hatırlatacağım' diye söz verme. Bu konuşmada o iş için araç çağırıp başarılı sonuç "
         "almadıysan 'ekledim', 'açtım', 'kaydettim', 'hallettim' DEME; önce aracı çağır. Kullanıcı 'eklememişsin' derse "
         "tartışma, aracı şimdi çağır.",
+        "Bir işi araç sonucu gelmeden 'kapatıyorum', 'açıyorum', 'yapıyorum' ya da 'yaptım' diye anlatma; araçtan "
+        "önce yalnız 'Bakıyorum.' ya da 'Hemen.' de, işin olduğunu araç sonucuna göre söyle. Hangi işin istendiği "
+        "belli değilse ('kapat', 'şunu aç' gibi nesnesiz sözler ya da yarım duyulan cümleler) tahmin edip araç "
+        "çağırma; 'Neyi kapatmamı istiyorsun?' gibi kısa bir soruyla açıklama iste.",
+        "Ekran ya da kamera paylaşımını kapatma isteği ('paylaşımı kapat', 'paylaşımı durdur', 'ekran paylaşımını "
+        "bitir', 'kamerayı kapat') için `komut` aracına 'paylaşımı kapat' gönder; bunu uygulama kapatma sanma.",
         "Telefona dosya gönderme, mesaj, silme gibi işlerde NE yapılacağı belli değilse aracı ÇAĞIRMADAN önce sor "
         "('Hangi dosyayı göndereyim?'). `komut` aracına belirsiz istek yazma: dosyanın adını ya da tarifini ekle "
         "('LGS programı PDF'ini telefona gönder'). Kullanıcı açıkça 'son indirdiğim dosya' demedikçe rastgele dosya gönderme.",
@@ -336,6 +342,7 @@ class Live:
         self._low_hits = 0
         self._low_warned = False
         self._stt_hint = False
+        self._stt_drop: set[str] = set()   # sunucunun bu çalıştırmada reddettiği transkripsiyon alanları
         self._connect_t = 0.0
         self._levels: collections.deque = collections.deque(maxlen=250)   # son ~20 sn'nin kare seviyeleri
         self._gain_tick = 0
@@ -608,8 +615,9 @@ class Live:
                     log.warning("İşlem kaydı: %s", 'modules/live.py:_watch')
                     self._pending_text.append(
                         "[Sistem notu — bunu kullanıcıya okuma]: Az önce bir işi yaptığını/yapacağını söyledin ama HİÇBİR "
-                        "araç çağırmadın; yani iş YAPILMADI. Şimdi gerekli aracı çağır (müzik için muzik_cal). Yapamıyorsan "
-                        "kullanıcıya kısaca yapamadığını söyle.")
+                        "araç çağırmadın; yani iş YAPILMADI. İstek açıksa şimdi gerekli aracı çağır (müzik için muzik_cal). İstek "
+                        "belirsizse ya da yanlış duymuş olabilirsen araç çağırma; kullanıcıya yapmadığını söyle ve ne "
+                        "istediğini kısaca sor. Yapamıyorsan kullanıcıya kısaca yapamadığını söyle.")
             if self._reload and time.monotonic() >= self._reload_at and not self.player.busy() and not self._tools_running:
                 self._reload = False
                 self._resume = None
