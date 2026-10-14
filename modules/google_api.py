@@ -3,7 +3,7 @@
 Kurulum (bir kez):
   1) https://console.cloud.google.com adresinde bir proje aç; "Gmail API" ve "Google Calendar API"yi etkinleştir.
   2) "OAuth izin ekranı"nı kur. Kalıcı kullanım için Google Auth Platform > Audience bölümünde In production yap.
-     (Testing durumunda refresh token 7 gün sonra düşebilir.)
+     (Testing durumunda Google refresh token'ı bir süre sonra iptal edebilir; Jarvis kesin süre söylemez.)
   3) "Kimlik bilgileri > OAuth istemci kimliği > Masaüstü uygulaması" oluştur, JSON'u indir.
   4) İndirdiğin dosyayı  ~/.jarvis/google_credentials.json  adıyla kaydet.
   5) python -m pip install google-api-python-client google-auth-oauthlib
@@ -85,15 +85,27 @@ def _creds(token=None, scopes=None, interactive: bool = True):
     return creds
 
 
+# Uyarılarda gösterilecek yer ve her iznin KENDİ düğmesi (Gmail/Takvim ile Görevler ayrı izin dosyasıdır).
+PLACE = "Menü › Yapay zekâ › Gmail ve Takvim"
+BUTTONS = {"google_token": "Bağlan", "google_tasks_token": "Görevler iznini ver"}
+
+
+def _grant_key(token) -> str:
+    """İzin zamanı kullanıcıya özeldir (google_users/<kullanıcı>/...); eski ortak anahtar başka kullanıcıya taşınmaz."""
+    return f"granted_{token.parent.name}_{token.stem}"
+
+
 def _mark_granted(token) -> None:
-    """İzin ne zaman verildi? (Test modundaki Google uygulamalarında izin 7 gün sonra düşer; önceden uyarmak için.)"""
+    """İzin ne zaman verildi? Yalnız bilgi içindir: Google gerçek bitiş zamanını bildirmez."""
     import time
     from config import save_settings
-    save_settings(**{f"granted_{token.stem}": int(time.time())})
+    save_settings(**{_grant_key(token): int(time.time())})
 
 
 def health() -> list[str]:
-    """Google izinlerinin durumu: düşmüş ya da 1 gün içinde düşecek izinler için kullanıcıya söylenecek cümleler."""
+    """Google izinlerinin durumu: çalışmayan ya da Testing modunda eskiyen izinler için kullanıcıya söylenecek cümleler.
+
+    Kesin süre sözü verilmez: izin yalnız şu an yenilenip yenilenemediğiyle sınanır; Google bitiş zamanını bildirmez."""
     import time
     from config import load_settings
     out = []
@@ -101,6 +113,7 @@ def health() -> list[str]:
     production = bool(s.get("google_oauth_production", False))
     for legacy, scopes, label in ((TOKEN, SCOPES, "Gmail ve Takvim"), (TASKS_TOKEN, TASKS_SCOPES, "Görevler (devir listesi)")):
         token = token_path(legacy)
+        button = BUTTONS[legacy.stem]       # kullanıcıya özel yol eski TOKEN ile eşit değildir; izni adından seç
         if not token.exists():
             continue
         try:
@@ -108,18 +121,22 @@ def health() -> list[str]:
         except Exception as exc:          # noqa: BLE001
             _record_failure('modules/google_api.py:health')
             if "invalid_grant" in str(exc) or isinstance(exc, PermissionError):
-                out.append(f"Google {label} izninin süresi doldu. Entegrasyonlar sayfasında "
-                           + ("“Bağlan / dene”" if token == TOKEN else "“Görevler iznini ver”") + " düğmesine basıp yenile.")
+                out.append(f"Google {label} izni artık çalışmıyor (süresi dolmuş ya da geri alınmış). "
+                           f"{PLACE} bölümünde “{button}” düğmesine basıp izni yenile.")
             continue                      # internet yok vb.: sessiz geç
         if production:
-            continue                      # Production yayın durumunda 7 günlük Testing uyarısı geçerli değildir.
-        granted = s.get(f"granted_{token.stem}")
+            continue                      # Production yayın durumunda Testing uyarısı geçerli değildir.
+        key = _grant_key(token)
+        granted = s.get(key)
         if not granted:                   # bu özellikten önce verilmiş izin: bugün verilmiş say
             _mark_granted(token)
             continue
-        if time.time() - granted > 6 * 86400:
-            out.append(f"Google {label} izni yarın bitiyor. Şimdi Entegrasyonlar'dan "
-                       + ("“Bağlan / dene”" if token == TOKEN else "“Görevler iznini ver”") + " düğmesine basarsan bir hafta daha sorun çıkmaz.")
+        days = int((time.time() - granted) // 86400)
+        if days >= 6:
+            out.append(f"Google {label} izni şu an çalışıyor; {days} gün önce verildi. Google uygulaman Testing "
+                       "modundaysa Google bu izni bir süre sonra kaldırabilir, ne zaman kaldıracağı buradan "
+                       f"doğrulanamıyor. İzin düşerse {PLACE} bölümündeki “{button}” düğmesiyle yeniden bağlanırsın; "
+                       "kalıcı çözüm Google Cloud'da uygulamayı In production yapmaktır.")
     return out
 
 
@@ -169,8 +186,8 @@ def connect() -> tuple[bool, str]:
 def _friendly(exc: Exception, what: str) -> str:
     t = f"{type(exc).__name__}: {exc}"
     if "invalid_grant" in t or isinstance(exc, PermissionError) or "expired" in t.lower():
-        return (f"{what}: Google izninin süresi dolmuş. Entegrasyonlar → Gmail ve Google Takvim → "
-                "“Bağlan / dene”ye basıp izni yenile.")
+        return (f"{what}: Google izni çalışmıyor (süresi dolmuş ya da geri alınmış). {PLACE} bölümünde "
+                "“Bağlan” düğmesine basıp izni yenile.")
     return f"{what}: {t}"
 
 

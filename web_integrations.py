@@ -29,7 +29,7 @@ class WebIntegrations:
         if not isinstance(data, dict) or not {'installed', 'web'} & set(data):
             raise ValueError('Bu bir Google OAuth istemci dosyası gibi görünmüyor (client_secret…json).')
         runtime.google_api.CRED.write_text(runtime.json.dumps(data), encoding='utf-8')
-        return 'Kimlik dosyası kaydedildi. Şimdi “Bağlan / dene”ye bas.'
+        return 'Kimlik dosyası kaydedildi. Şimdi “Bağlan” düğmesine bas.'
 
     def google_connect(self) -> dict:
         runtime = self._runtime
@@ -56,7 +56,7 @@ class WebIntegrations:
     def google_oauth_production(self, on: bool=True) -> dict:
         runtime = self._runtime
         runtime.config.save_settings(google_oauth_production=bool(on))
-        return {'ok': True, 'production': bool(on), 'msg': 'Google OAuth durumu Production olarak işaretlendi; 7 günlük test uyarısı kapatıldı.' if on else 'Google OAuth Testing olarak işaretlendi; 6. günde yenileme uyarısı verilecek.'}
+        return {'ok': True, 'production': bool(on), 'msg': 'Google OAuth durumu Production olarak işaretlendi; Testing izin uyarısı kapatıldı.' if on else 'Google OAuth Testing olarak işaretlendi; izin eskiyince Jarvis hatırlatır (Google kesin bitiş zamanını bildirmez).'}
 
     def ntfy(self, action: str) -> dict:
         runtime = self._runtime

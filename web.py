@@ -1406,6 +1406,9 @@ def _shutdown(close_windows: bool = True, reason: str = "kapatıldı") -> None:
     except Exception:       # noqa: BLE001
         _record_failure('web.py:_shutdown')
         pass
+    # Arka plan iş parçacıkları (sabah özeti, Google izin uyarısı...) süreç kilidi bırakılmadan önce dursun:
+    # yeniden başlatmada yeni süreç kilidi alınca eski süreç artık ileti üretmemeli.
+    engine.stop_event.set()
     try:
         import instance
         instance.release()
@@ -1472,7 +1475,7 @@ def _capabilities() -> list:
     add(G, "Araç çağırma ve çok adımlı yürütme", "Tool calling and multi-step execution", "ready", "“Önce X, sonra Y” komutları sırayla çalışır")
     add(G, "İş akışı otomasyonu", "Workflow automation", "ready", f"{len(prof.data.get('macros') or {})} kısayol/rutin")
     add(G, "Takvim ve e-posta desteği", "Calendar and email assistance", "ready" if google_ok else "setup",
-        "Gmail ve Google Takvim (salt okuma)" if google_ok else "Entegrasyonlar sayfasından Google'ı bağla")
+        "Gmail ve Google Takvim (salt okuma)" if google_ok else "Menü › Yapay zekâ › Gmail ve Takvim bölümünden Google'ı bağla")
     add(G, "Ollama aracılığıyla yerel yapay zekâ", "Local AI through Ollama", "ready" if ollama else "setup",
         f"Model: {st['ollama_model']}" if ollama else "Ollama kurulu/çalışır değil (ollama.com)")
     cloud_names=(["Gemini"] if st["gemini_key"] else []) + (["Groq ("+st["groq_model"]+")"] if st["groq_key"] else [])

@@ -2,6 +2,9 @@
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
+import json
+import threading
+
 def _plain(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', text).strip(' .,:;!-')
 
@@ -322,19 +325,45 @@ def _daily_briefing(runtime) -> str:
     hello = f'Günaydın {runtime.profile.name}.' if now.hour < 12 else f'Merhaba {runtime.profile.name}.'
     return hello + ' ' + plain
 
+_BRIEF_LOCK = threading.Lock()
+_BRIEF_RUNNING: set = set()      # (kullanıcı, gün): bu süreçte hazırlanmakta olan özet
+
+
+def _brief_done(owner, today: str) -> bool:
+    """Bugünün özeti verildi mi? Bellekteki profil yanında diskteki kayda da bakar: yeniden başlatma
+    örtüşmesinde önceki süreç yazmış olabilir (profil süreç içinde önbelleklidir, diskten yeniden okunmaz)."""
+    if owner.data['prefs'].get('last_brief') == today:
+        return True
+    path = getattr(owner, 'path', None)
+    try:
+        disk = json.loads(path.read_text(encoding='utf-8')).get('prefs', {}).get('last_brief') if path else None
+    except (OSError, ValueError, AttributeError):
+        return False
+    if disk == today:
+        owner.data['prefs']['last_brief'] = today     # sonraki kayıt bu bilgiyi silmesin
+        return True
+    return False
+
+
 def _morning_brief(runtime) -> None:
     """Prepare the PC owner's briefing without borrowing a phone guest's profile."""
     if runtime.stop_event.wait(8):
         return
+    claim = None
     try:
         from types import SimpleNamespace
         owner = runtime.pc_profile()
         now = runtime.datetime.now()
         today = now.strftime('%Y-%m-%d')
-        if not 5 <= now.hour < 12 or owner.data['prefs'].get('last_brief') == today or runtime.flags.get('sleep'):
+        if not 5 <= now.hour < 12 or runtime.flags.get('sleep'):
             return
         if owner.data['prefs'].get('morning_brief') is False:
             return
+        with _BRIEF_LOCK:                 # aynı gün aynı kullanıcıya ikinci özet hazırlanmasın
+            if _brief_done(owner, today) or (owner.slug, today) in _BRIEF_RUNNING:
+                return
+            claim = (owner.slug, today)
+            _BRIEF_RUNNING.add(claim)
         # A captured runtime view avoids holding the command lock during network calls.
         owned = SimpleNamespace(**vars(runtime))
         owned.profile = owner
@@ -350,8 +379,15 @@ def _morning_brief(runtime) -> None:
                 _record_failure('main.py:_morning_brief')
         if runtime.stop_event.is_set() or runtime.pc_profile().slug != owner.slug or runtime.flags.get('sleep'):
             return
-        owner.set_pref('last_brief', today)
+        with _BRIEF_LOCK:
+            if _brief_done(owner, today):
+                return
+            owner.set_pref('last_brief', today)
         runtime._emit_for(owner, 'assistant', text)
         runtime.events.put(('say', text, owner.slug))
     except Exception:
         _record_failure('main.py:_morning_brief')
+    finally:
+        if claim:
+            with _BRIEF_LOCK:
+                _BRIEF_RUNNING.discard(claim)
