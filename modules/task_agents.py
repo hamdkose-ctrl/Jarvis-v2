@@ -373,11 +373,19 @@ def _run_parallel(owner,job,emit=None):
         _transition(job,None,'cancelled');_save(root,job);raise
 
 
-def continue_job(owner,job_id=None,emit=None):
+def continue_job(owner,job_id=None,emit=None,*,queue_id=None,queue_tasks=None):
     """Resume saved, replay-safe steps. Unknown external effects never replay."""
     with _active(owner):
         job=_load(owner,job_id) if job_id else recent(owner)
         if not job: raise ValueError('Sürdürülecek görev yok.')
+        if queue_id is not None:
+            from modules import service_store
+            validate(queue_tasks);validate(job['tasks'])
+            def plan(items):
+                return service_store.encode([{'id':t['id'],'agent':t['agent'],
+                    'depends':t.get('depends',[]),'input':t.get('input',{})} for t in items])
+            if job.get('queue_id')!=queue_id or plan(job['tasks'])!=plan(queue_tasks):
+                raise ValueError('Kayıtlı görev zamanlanan kuyruk planıyla eşleşmiyor; otomatik sürdürülmedi.')
         if job['state']=='cancelled': return job
         for completed in job['tasks']:
             output=job['outputs'].get(completed['id'],{})
