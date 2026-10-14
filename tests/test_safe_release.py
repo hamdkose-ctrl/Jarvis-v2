@@ -225,6 +225,27 @@ class SafeReleaseTests(unittest.TestCase):
             with patch('modules.validation.run_checks',side_effect=check):
                 self.assertFalse(workspace.validate(candidate,self.root)[0])
 
+    def test_trusted_suite_keeps_installed_tests_and_adds_new_required_files(self):
+        # Eski kurulumdan güncelleme: adayın validation.py'si yeni test dosyalarını zorunlu tutar (JS_GROUPS).
+        # Kurulu testler korunur/üstün gelir, silinenler geri gelir; yalnız adayda olan yeni dosyalar da bulunur.
+        (self.root/'tests').mkdir()
+        for name,value in {'test_original.py':'old test','test_removed.py':'kept coverage','helper.py':'old helper'}.items():
+            (self.root/'tests'/name).write_text(value)
+        changes={'tests/test_original.py':b'weakened test','tests/test_removed.py':None,'tests/helper.py':b'new helper',
+                 'tests/menu_new_behavior.js':b'new required test'}
+        seen=[]
+        with workspace.candidate(self.root,changes,allow_protected=True) as candidate:
+            def check(root):
+                files={p.name:p.read_text() for p in (root/'tests').iterdir()}
+                seen.append(files)
+                return True,'ok'
+            with patch('modules.validation.run_checks',side_effect=check):
+                self.assertTrue(workspace.validate(candidate,self.root)[0])
+        baseline,own=seen
+        self.assertEqual(baseline,{'test_original.py':'old test','test_removed.py':'kept coverage','helper.py':'old helper',
+                                   'menu_new_behavior.js':'new required test'})
+        self.assertEqual(own['test_original.py'],'weakened test');self.assertNotIn('test_removed.py',own)
+
 
 class CandidateDeveloperTests(unittest.TestCase):
     def test_failed_candidate_tests_never_touch_installed_sources_even_temporarily(self):
