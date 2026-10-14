@@ -6,7 +6,6 @@ yapılmadan atılır; kullanıcıdan tekrar istenir. Ayarlar: `stt_guard` (varsa
 """
 from __future__ import annotations
 
-import difflib
 import re
 import threading
 import time
@@ -24,7 +23,7 @@ HALLUCINATIONS = frozenset({
 _FOREIGN_LATIN = set('ñ¿¡áíóúéèàêëìòùœæßãõøå')
 _TURKISH = set('çğışöüÇĞİŞÖÜ')
 _ECHO_WINDOW = 20.0          # Jarvis'in son sözleri bu kadar saniye yankı adayıdır
-_ECHO_RATIO = .8
+_ECHO_MIN_PART = 4          # yankı sayılacak en kısa kelime parçası
 
 _clock = time.monotonic   # yankı penceresi için kendi saat kaynağı (başka modüllerin zamanlamasına karışmaz)
 _said: list[tuple[float, str]] = []
@@ -47,6 +46,9 @@ def _norm(text: str) -> str:
 
 def foreign(text: str) -> bool:
     """Türkçe konuşmadan çıkması beklenmeyen, gürültü/yanlış dil kokan sonuç mu?"""
+    # Sayısal cevaplar ve hesap ifadeleri ("19", "12 + 7", "%50", "3,5 x 2") harf içermese de geçerlidir.
+    if re.search(r'\d', str(text or '')):
+        return False
     norm = _norm(text)
     if not norm:
         return True
@@ -79,9 +81,13 @@ def note_said(text: str, now: float | None = None) -> None:
 
 
 def echo(text: str, now: float | None = None) -> bool:
-    """Duyulan söz Jarvis'in az önce söylediğinin tekrarı mı (hoparlörden mikrofona yankı)?"""
-    norm = _norm(text)
-    if len(norm) < 8:
+    """Duyulan söz Jarvis'in az önce söylediğinin tekrarı mı (hoparlörden mikrofona yankı)?
+
+    Kelime düzeyinde karşılaştırılır: tek harf farkı anlam değiştirebilir ("Paylaşımı kapattım" yankısı ile
+    "Paylaşımı kapat" komutu), bu yüzden yaklaşık benzerlik kullanılmaz. 3 kelimeden kısa söz yankı sayılmaz;
+    yalnız Jarvis'in sözüyle kelimesi kelimesine aynı söz ya da ondan en az 4 kelimelik birebir parça yankıdır."""
+    words = _norm(text).split()
+    if len(words) < 3:
         return False
     now = _clock() if now is None else now
     with _lock:
@@ -89,9 +95,10 @@ def echo(text: str, now: float | None = None) -> bool:
     for t, said in recent:
         if now - t > _ECHO_WINDOW:
             continue
-        if len(norm.split()) >= 3 and norm in said:
+        spoken = said.split()
+        if words == spoken:
             return True
-        if difflib.SequenceMatcher(None, norm, said).ratio() >= _ECHO_RATIO:
+        if len(words) >= _ECHO_MIN_PART and any(spoken[i:i + len(words)] == words for i in range(len(spoken) - len(words) + 1)):
             return True
     return False
 

@@ -55,6 +55,26 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(stt_guard.echo('Hava durumu nasıl', now=105.0))
         self.assertFalse(stt_guard.echo('kapattım', now=105.0))    # çok kısa: kullanıcı da söyleyebilir
 
+    def test_numeric_answers_and_arithmetic_pass(self):
+        # Regresyon: harf içermeyen sayısal cevaplar "yabancı/gürültü" sayılıp atılıyordu.
+        for text in ('19', '12 + 7', '12+7', '6 x 7', '6 × 7', '15 - 5', '100 / 4', '%50', '3,5', '-12', '1.250',
+                     '12 + 7 = ?', '2026', '19.', 'Yüzde 70', '12 ile 7 topla', "15'ten 5 çıkar", 'kaç eder 8 x 9'):
+            self.assertIsNone(stt_guard.reject(text), text)
+        stt_guard.note_said('Sonuç 19. Başka bir işlem yapayım mı?', now=stt_guard._clock())
+        self.assertIsNone(stt_guard.reject('19'))
+
+    def test_similar_command_with_different_meaning_is_not_echo(self):
+        # Regresyon: "Paylaşımı kapattım" yankısı ile gerçek "Paylaşımı kapat" komutu harf benzerliğiyle karışıyordu.
+        now = stt_guard._clock()
+        stt_guard.note_said('Paylaşımı kapattım.', now=now)
+        for text in ('Paylaşımı kapat', 'paylaşımı kapat lütfen', 'Paylaşımı kapatır mısın'):
+            self.assertIsNone(stt_guard.reject(text), text)
+        stt_guard.note_said('Ekran paylaşımını kapattım, başka bir şey ister misin?', now=now)
+        for text in ('Ekran paylaşımını kapat', 'ekran paylaşımını kapat başka bir şey yok', 'Kamerayı da kapat lütfen hemen'):
+            self.assertIsNone(stt_guard.reject(text), text)
+        self.assertEqual(stt_guard.reject('Ekran paylaşımını kapattım, başka bir şey ister misin?'), 'echo')
+        self.assertEqual(stt_guard.reject('başka bir şey ister misin'), 'echo')
+
     def test_setting_off_disables_filter(self):
         with patch.object(stt_guard, 'enabled', return_value=False):
             self.assertIsNone(stt_guard.reject('Sí'))
