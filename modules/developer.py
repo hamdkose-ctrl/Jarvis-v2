@@ -602,7 +602,7 @@ def _recover(owner):
     _atomic(path, json.dumps(transaction).encode())
 
 
-def _turn(owner, state, command, emit):
+def _turn(owner, state, command, emit, *, require_draft=False):
     requests_state.allow_long_operation(600)
     conversation = state['turns'][-16:] + [{'role': 'user', 'text': command}]
     state['turns'] = conversation[-24:]; _save(owner, state)
@@ -618,17 +618,30 @@ def _turn(owner, state, command, emit):
                     'Kullanıcı bu referans üzerinden proje geliştirecek. Görseldeki arayüzü, metni, hata mesajlarını ve yerleşimi ayrıntılı tarif et. Son istek: ' + command,
                     'Görseli gerçekten incele; görünmeyen ayrıntı uydurma.', max_tokens=3000)
         references.append({'id': ref['id'], 'name': ref['name'], 'description': detail})
-    tools = []; images = []; read_paths = set(); test_runs = 0
+    tools = []; images = []; read_paths = set(); test_runs = 0; missing_finishes = 0
+    system = _SYSTEM
+    if require_draft:
+        system += ('\nBu bir kod üretim görevidir. Yalnız açıklama veya kod bloğu başarı değildir: stage/edit ile '
+                   'dosya taslağı oluştur ve test aracını kullan. Mevcut kaynakları değiştirmeme isteği varsa '
+                   'mevcut dosyalara dokunmadan yeni örnek dosya ve örnekleri sınayan test taslağı hazırla. '
+                   'Taslaklar ayrı kopyada test edilir, uygulanmaz. Kullanıcının kapsamını genişletme.')
     for _ in range(24):
         requests_state.check()
         prompt = json.dumps({'conversation': conversation, 'project_memory': state['memory'], 'draft_files': list(state['draft']), 'last_visuals': state['visuals'][-2:], 'reference_files': references, 'tool_results': tools}, ensure_ascii=False)
-        answer = llm.ask(prompt, _SYSTEM, max_tokens=8000).strip()
+        answer = llm.ask(prompt, system, max_tokens=8000).strip()
         if answer.startswith('```'):
             answer = re.sub(r'^```(?:json)?\s*|\s*```$', '', answer)
         try:
             call = json.loads(answer)
             tool = call['tool']
             if tool == 'finish':
+                if require_draft and not state['draft']:
+                    missing_finishes += 1
+                    if missing_finishes < 3:
+                        tools.append({'error':'Henüz dosya taslağı yok. Kod görevi için stage ile dosyayı hazırla; sonra test et. Uygulama yapma.'})
+                        continue
+                    message = 'Kod üreticisi dosya taslağı oluşturmadı. '+str(call.get('message') or 'Yalnız metin yanıtı verdi.')
+                    break
                 check = state.get('draft_test', {})
                 if state['draft'] and test_runs < 3 and (check.get('signature') != _draft_signature(state) or not check.get('ok')):
                     emit('activity', 'Geliştirme: taslak test ediliyor', 'working|Geliştirme|')
@@ -715,7 +728,7 @@ def _turn(owner, state, command, emit):
     return response
 
 
-def handle(owner, command, emit=lambda *args: None, *, raise_errors=False):
+def handle(owner, command, emit=lambda *args: None, *, raise_errors=False, require_draft=False):
     c = command.translate(str.maketrans('İI', 'iı')).lower().strip(' .!?')
     with _LOCK:
         state = _load(owner)
@@ -797,7 +810,7 @@ def handle(owner, command, emit=lambda *args: None, *, raise_errors=False):
                     if item.get('preview'):
                         preview += '\n\n![' + item['name'].replace('[', '').replace(']', '').replace('\n', ' ') + '](' + item['preview'] + ')'
                 command = attachment[2].strip() or 'Bu referansı incele ve birlikte geliştirmek için değerlendir.'
-            return _turn(owner, state, command, emit) + preview
+            return _turn(owner, state, command, emit, require_draft=require_draft) + preview
         except requests_state.Cancelled:
             raise
         except Exception:
