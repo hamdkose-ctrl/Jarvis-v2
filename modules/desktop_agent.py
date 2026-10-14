@@ -97,17 +97,25 @@ def _load(owner):
 
 
 def _save(job):
+    started=getattr(_ctx,'started',None)
+    if started is not None and getattr(_ctx,'owner',None)==job['owner']:
+        job['elapsed_seconds']=round(time.perf_counter()-started,2)
     path = _path(job['owner']); path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(job, ensure_ascii=False), encoding='utf-8')
     temporary.replace(path)
 
 
-def render(job):
+def render(job,*,details=False):
     if not job:
         return 'Kayıtlı masaüstü görevi yok.'
-    return privacy.redact('Masaüstü görevi: ' + job['status'] + '\nHedef: ' + job['goal'] +
-        '\n' + str(job.get('message', '')) + '\nDoğrulanan adım: ' + str(sum(h.get('verified') is True for h in job['history'])), force=True)
+    state={'done':'Tamamlandı','running':'Çalışıyor','cancelled':'İptal edildi','blocked':'Durdu','waiting':'Sonuç bekleniyor','paused':'Duraklatıldı','approval':'Onay bekliyor','consent':'Uygulama izni bekliyor'}.get(job['status'],job['status'])
+    message=str(job.get('message',''))
+    if not details:message=message.split('\nEkran kanıtı:',1)[0]
+    text=state+'\nHedef: '+job['goal']+'\n'+message
+    if job.get('elapsed_seconds') is not None:text+='\nBu çalışma turu: '+str(job['elapsed_seconds'])+' saniye.'
+    if details:text+='\nDoğrulanan adım: '+str(sum(h.get('verified') is True for h in job['history']))
+    return privacy.redact(text,force=True)
 
 
 def _control(snapshot, ident):
@@ -477,6 +485,7 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
     if not _BUSY.acquire(blocking=False):
         return 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
     ui = ui or desktop_uia.DesktopUI()
+    _ctx.started=time.perf_counter()
     _ctx.owner = job['owner']
     try:
         requests_state.allow_long_operation(600)
@@ -610,6 +619,7 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
         emit('step', 'Masaüstü görevi durdu', 'error|desktop|' + job['message'])
         return render(job)
     finally:
+        _ctx.started=None
         _ctx.owner = None
         _BUSY.release()
 
@@ -629,6 +639,8 @@ def handle(owner, command, emit=lambda *args: None, *, current=None, source='yaz
     job = _load(owner)
     if low in ('pc görevi durumu', 'pc görevi durum'):
         return render(job)
+    if low in ('pc görevi ayrıntı','pc görevi ayrıntıları'):
+        return render(job,details=True)
     if low == 'pc görevi iptal':
         if job:
             job['status'] = 'cancelled'; job['approval'] = None; job['message'] = 'Görev iptal edildi.'; _save(job)
@@ -652,7 +664,7 @@ def handle(owner, command, emit=lambda *args: None, *, current=None, source='yaz
     if _BUSY.locked():
         return 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
     # Yeni açık görev, yarım kalmış (durmuş, bekleyen, onay/soru bekleyen) eski görevin yerine geçer; elle iptal gerekmez.
-    job = {'owner': owner, 'target': parts[0].strip()[:200], 'goal': parts[1].strip()[:2000],
+    job = {'id':uuid.uuid4().hex,'owner': owner, 'target': parts[0].strip()[:200], 'goal': parts[1].strip()[:2000],
            'status': 'running', 'history': [], 'hwnd': None, 'approval': None, 'pending_effect': None}
     _save(job)
     return run(job, emit=emit, current=current)
