@@ -140,6 +140,27 @@ class DeveloperTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):dev.handle('alice','hatayı düzelt',raise_errors=True)
         self.assertTrue(dev.status('alice')['enabled'])
 
+    def test_code_job_retries_text_only_finish_and_explains_missing_file(self):
+        self.enable()
+        self.ask.side_effect=[json.dumps({'tool':'finish','message':'Yalnız açıklama verdim.'})]*3
+        result=dev.handle('alice','Kod örneği üret',raise_errors=True,require_draft=True)
+        self.assertEqual(self.ask.call_count,3)
+        self.assertIn('dosya taslağı oluşturmadı',result)
+        self.assertFalse(dev.status('alice')['draft_files'])
+        self.assertEqual(self.source.read_text(),'value = 1\n')
+
+    def test_code_job_can_recover_from_text_only_finish_and_stage_without_apply(self):
+        self.enable()
+        calls=[{'tool':'finish','message':'Metin açıklaması'}, {'tool':'read','path':'example.py'},
+               {'tool':'stage','path':'example.py','content':'value = 2\n'},
+               {'tool':'test'}, {'tool':'finish','message':'Taslak hazır.'}]
+        self.ask.side_effect=[json.dumps(c) for c in calls]
+        with patch.object(dev,'_test',return_value=(True,'test passed')):
+            result=dev.handle('alice','Kod taslağı üret',require_draft=True,raise_errors=True)
+        self.assertIn('Taslak hazır',result)
+        self.assertTrue(dev.status('alice')['draft_test_ok'])
+        self.assertEqual(self.source.read_text(),'value = 1\n')
+
     def test_normal_chat_is_untouched_and_enable_does_not_call_model(self):
         self.assertIsNone(dev.handle('alice', 'merhaba'))
         self.enable(); self.ask.assert_not_called()
