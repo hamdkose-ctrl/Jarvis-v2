@@ -27,6 +27,22 @@ class MailAttachmentTests(unittest.TestCase):
         self.assertEqual(result['snapshot']['items'][0]['filename'],'note.txt')
         self.assertTrue(task_results.verify(result,owner='alice'))
 
+    def test_natural_empty_attachment_answers_are_plain_and_first_mail_only(self):
+        import tempfile
+        from pathlib import Path
+        from modules import task_agents
+        self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
+        self.messages.get.return_value.execute.side_effect=lambda:{'id':'M1','payload':{'parts':[]}}
+        with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
+            listed=task_agents.handle('alice','İlk mailin eklerini göster')
+            read=task_agents.handle('alice','İlk mailin ilk ekini oku')
+        self.assertEqual(listed,'Seçilen mailde ek yok.')
+        self.assertIn('ek yok',read)
+        for text in (listed,read):
+            self.assertNotIn('sha256',text);self.assertNotIn('İlerleme:',text);self.assertNotIn('list ·',text)
+        self.assertEqual(self.messages.list.call_args.kwargs['maxResults'],1)
+        self.messages.attachments.assert_not_called()
+
     def test_remote_and_inline_text_reads_are_verified(self):
         for inline in (False,True):
             if inline:self.part['body']['data']=base64.urlsafe_b64encode(self.raw).decode()
