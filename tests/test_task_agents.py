@@ -68,6 +68,14 @@ class TaskTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'testleri başarısız'):
                 agents.worker('alice', {'agent': 'coder', 'input': {'request': 'düzelt'}}, {})
 
+    def test_missing_coder_draft_keeps_underlying_explanation(self):
+        from modules import developer
+        status={'enabled':True,'unlocked':True,'draft_files':[],'draft_test_ok':None}
+        with patch.object(developer,'status',return_value=status),patch.object(developer,'handle',return_value='Dosya üretilemedi; yalnız açıklama hazır.') as handle:
+            with self.assertRaisesRegex(ValueError,'yalnız açıklama'):
+                agents.worker('alice',{'agent':'coder','input':{'request':'örnek'}},{})
+        self.assertTrue(handle.call_args.kwargs['require_draft'])
+
     def test_browser_failure_after_consumed_approval_releases_job_and_blocks_dependents(self):
         tasks=[{'id':'a','agent':'browser'},{'id':'b','agent':'verify','depends':['a']}]
         with patch.object(agents,'worker',return_value={'state':'approval','id':'123'}):agents.execute('alice',tasks)
