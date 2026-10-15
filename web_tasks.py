@@ -3,6 +3,96 @@ from __future__ import annotations
 
 class WebTasks:
 
+    def team_snapshot(self) -> dict:
+        from modules import team_center
+        return team_center.snapshot(self._runtime._p().slug)
+
+    def team_save(self, members: list, revision=None) -> list:
+        from modules import team_center
+        return team_center.save_members(self._runtime._p().slug, members, revision)
+
+    def team_schedule(self, tasks: list, instruction: str, seconds: int=0, repeat_seconds: int=0) -> str:
+        from modules import task_queue
+        return task_queue.enqueue(self._runtime._p().slug, tasks, instruction, seconds, repeat_seconds)
+
+    def team_queue_cancel(self, identity: str) -> bool:
+        from modules import task_queue
+        task_queue.cancel(self._runtime._p().slug, identity)
+        return True
+
+    def team_queue_edit(self, identity: str, operation: str, repeat_seconds=None) -> bool:
+        from modules import task_queue
+        return task_queue.configure(self._runtime._p().slug,identity,operation=operation,repeat_seconds=repeat_seconds)
+
+    def team_control(self, kind: str, identity: str, action: str, control: str='', answer: str='', approval_id: str='') -> str:
+        from modules import goal_executor, task_agents, service_store
+        runtime=self._runtime;profile=runtime._p();owner=profile.slug
+        service_store.identity(owner)
+        if not isinstance(identity,str) or not runtime.re.fullmatch('[a-f0-9]{12,32}',identity):raise ValueError('Görev kimliği geçersiz.')
+        if action not in {'cancel','resume','approve','answer'}:raise ValueError('Görev işlemi geçersiz.')
+        if not isinstance(answer,str) or len(answer)>2000:raise ValueError('Yanıt fazla uzun.')
+        if kind=='goal':
+            job=goal_executor.latest(owner)
+            if not job or job['id']!=identity:raise ValueError('Seçilen hedef son hedef değil; başka hedefe işlem uygulanmadı.')
+            if action=='cancel':return goal_executor.cancel_job(owner,identity)
+            if not isinstance(control,str) or goal_executor.control_key(job)!=control:raise ValueError('Görev değişmiş; önce yenile.')
+            if action=='approve' and job['state']!='approval':raise ValueError('Hedef onay beklemiyor.')
+            if action=='answer' and (job['state']!='question' or not answer.strip()):raise ValueError('Hedef yanıt beklemiyor veya yanıt boş.')
+            if action=='resume' and job['state'] not in {'paused','question','running'}:raise ValueError('Bu hedef bu düğmeyle sürdürülemez.')
+            verb={'resume':'devam','approve':'onayla','answer':'yanıtla'}[action]
+            command=f'hedef {verb} {identity} {control}'+(': '+answer.strip() if action=='answer' else '')
+        elif kind=='task':
+            job=task_agents._load(owner,identity)
+            if action=='cancel':
+                task_agents.cancel_job(owner,identity)
+                return 'Seçilen görev için iptal kaydedildi.'
+            if goal_executor.control_key(job)!=control:raise ValueError('Görev veya bekleyen işlem değişmiş; önce yenile.')
+            if action=='resume':command='görev devam '+identity
+            elif action=='approve':
+                step=next((s for s in job['tasks'] if s['state']=='approval'),None)
+                receipt=job['outputs'].get(step['id'],{}) if step else {}
+                if not step or receipt.get('id')!=approval_id or not runtime.re.fullmatch('[a-f0-9]{16}',approval_id or ''):
+                    raise ValueError('Onay seçilen görevin bekleyen işlemiyle eşleşmiyor.')
+                if step['agent'] not in {'publish','browser'}:raise ValueError('Bu işlem sohbetten yönetilmeli.')
+                command=('işlem onayla ' if step['agent']=='publish' else 'tarayıcı onayla ')+approval_id
+            else:raise ValueError('Bu görev türü serbest yanıt kabul etmiyor.')
+        else:raise ValueError('Görev türü geçersiz.')
+        import uuid
+        if runtime.engine.submit(command,'yazı',profile.name,rid=uuid.uuid4().hex) is False:raise ValueError('Kontrol isteği kuyruğa alınamadı.')
+        return 'Kontrol isteği seçilen görev için Jarvis’e iletildi.'
+
+    def team_verify(self, kind: str, identity: str) -> dict:
+        from modules import goal_executor, goal_tools, task_agents, task_results, service_store
+        owner = self._runtime._p().slug
+        service_store.identity(owner)
+        if not isinstance(identity,str) or not self._runtime.re.fullmatch('[a-f0-9]{12,32}',identity):
+            raise ValueError('Görev kimliği geçersiz.')
+        if kind == 'task':
+            job = task_agents._load(owner,identity)
+            verify = lambda output: task_results.verify(output,owner=owner)
+        elif kind == 'goal':
+            import json
+            path = goal_executor._root(owner)/(identity+'.json')
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>16_000_000:
+                raise ValueError('Görev kaydı geçersiz.')
+            job = json.loads(path.read_text(encoding='utf-8'))
+            if job.get('owner')!=owner or job.get('id')!=identity:
+                raise ValueError('Görev sahibi eşleşmiyor.')
+            verify = lambda output: goal_tools.verify(output,owner)
+        else:
+            raise ValueError('Görev türü geçersiz.')
+        outputs = {key:value for key,value in job.get('outputs',{}).items() if value.get('state')=='done'}
+        if not outputs:
+            return {'ok':False,'message':'Doğrulanacak tamamlanmış çıktı yok.'}
+        failed = []
+        for key,value in outputs.items():
+            try:
+                verify(value)
+            except (ValueError,PermissionError,OSError,KeyError,TypeError):
+                failed.append(key)
+        return {'ok':not failed,'checked':len(outputs),'failed':failed,
+                'message':'Yerel kanıtlar denetlendi. İçerik doğruluğu ve hesapların güncel durumu bu kontrolün kapsamında değil.'}
+
     def task_add(self, text: str, when: str='') -> dict:
         runtime = self._runtime
         return runtime.tasks.add(runtime._p(), text, when)
@@ -59,3 +149,4 @@ class WebTasks:
     def event_delete(self, eid: int) -> bool:
         runtime = self._runtime
         return runtime._p().delete_event(int(eid))
+

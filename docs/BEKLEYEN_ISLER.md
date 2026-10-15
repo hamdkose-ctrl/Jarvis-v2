@@ -209,3 +209,13 @@ Doğrulama tamamlandı: PC kaydındaki iki hata aynı eski test dosyalarıyla bi
 ## Rapor/video hedefinin geliştirme kilidinde durması — 15 Ekim 2026
 PC kabulünde rapor+3 saniyelik yazılı video için coder seçildi; geliştirme kilidi işlem belirsizliği sanılıp hedef review durumuna düştü. Worker öncesi kesin kilit kontrolü, writer/media kullanım talimatı ve yalnız bu eski kesin ret kaydını sürdürebilme eklendi. Gerçek FFmpeg video ve rapor dosyası ile yanlış araçtan toparlanma sınanır. Geliştirme kilidi veya kaynak uygulama sınırı gevşetilmez. Gerçek modelin PC'deki araç seçimi ayrıca kabul gerektirir.
 Son kontrol: 1195 Python testi OK (2 platform atlaması), 23 Node/6 smoke başarılı. Ortak yürütücü odaklı 37 test geçti; rapor ve tam 3 saniyelik FFmpeg dosyası gerçek üretildi. Salt okunur son denetim geçti. Mevcut hedef güncelleme ve yeniden başlatma sonrası `hedef devam` ile sürdürülebilir.
+
+
+## Ekip merkezi kapsamı — 15 Ekim 2026
+- Kullanıcıya özel uzman dizini, gerçek hedef/görev/kuyruk görünümü ve açık kaynak takip formu bu dalda uygulanmıştır. Roller mevcut araçları kullanır; yeni finans veri sağlayıcısı, mağaza API'si, otomatik MCP/API servis keşfi veya her role ayrı model kurulmuş değildir.
+- Gerçek servisler için kullanılacak mağaza platformu ve hesap/veri bağlantıları henüz seçilmedi. Anahtarlar sohbetten veya depodan alınmaz, mevcut yerel bağlantı akışları kullanılır.
+- Kesintisiz sunucu/PC kapalı çalışma, piksel ofis sahnesi ve içerik düzeyinde finans/medya kalite doğrulaması tamamlanmış değildir. Mevcut doğrulama dosya/araç kanıtını denetler.
+- Windows kabulü en sonda tek listedir: Menü → Ekip merkezi; bir hedefin adımlarını izle; yeni uzman ekleyip yeniden açılışta kaldığını doğrula; kaynak takibini kaydet/iptal et; rapor dosyasını değiştirip Kanıtları kontrol et; kullanıcı değiştirince önceki kullanıcının kayıtlarının görünmediğini doğrula. Canlı model/hesap ve cihaz testi burada yapılmış sayılmaz.
+
+### Ekip merkezi ikinci teslim — 15 Ekim 2026
+Uzman düzenleme/devre dışı bırakma, çalışan ayrıntısı, kimlik ve içerik imzasıyla hedef yanıt/onay/iptal, görev sürdürme/iptal, takibi duraklatma/açma/sıklık değiştirme ve gerçek adımlara bağlı 2D ofis bu dalda eklenmiştir. Önceki ofis yapılmadı ve bu kontroller yok notları ilk teslimin tarihsel sınırlarıdır. Ofis sade yerel CSS çizimidir; AgentSpace görselinin veya varlıklarının kopyası değildir. Diğer tarafın yürütme/yetenek/servis bağlantısı çalışması devam eder; ortak kabul ve canlı Windows testleri henüz tamamlanmış değildir.

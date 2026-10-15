@@ -19,6 +19,7 @@ from modules.diagnostics import record_failure as _record_failure
 STORE = DATA_DIR / 'task_agents'
 _LOCK = threading.RLock()
 _ACTIVE = set()
+_ACTIVE_JOBS = {}
 
 
 class Busy(ValueError):
@@ -254,6 +255,7 @@ def _active(owner):
         llm._key_context.reset(token)
         with _LOCK:
             _ACTIVE.discard(owner)
+            _ACTIVE_JOBS.pop(owner,None)
             _CANCEL_REQUESTED.difference_update({k for k in _CANCEL_REQUESTED if k[0]==owner})
 
 
@@ -272,6 +274,9 @@ def _execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=N
     if _job_path(root,job_id).exists():raise ValueError('Görev kimliği zaten kaydedilmiş; yeni iş olarak tekrar başlatılmaz.')
     job={'id':job_id,'created':time.time(),'instruction':instruction,'state':'running',
          'tasks':[dict(copy.deepcopy(t),state='queued',attempts=0) for t in tasks],'outputs':{},'events':[],'schema':2}
+    from modules import team_center
+    for task in job['tasks']:
+        task['specialist']=team_center.assign(owner,task['agent'],instruction)
     if queue_id:job['queue_id']=queue_id
     if parallel:job['strategy']='parallel'
     requests_state.allow_long_operation(600)
@@ -290,6 +295,8 @@ def _check_job(owner,job):
 
 
 def _run_pending(owner,job,emit=None):
+    with _LOCK:
+        if owner in _ACTIVE:_ACTIVE_JOBS[owner]=job['id']
     if job.get('strategy')=='parallel':return _run_parallel(owner,job,emit)
     root=_root(owner)
     try:
@@ -810,3 +817,4 @@ def handle(owner, command, emit=None, *, summary=False):
         if not match: return 'Tarayıcı görevi için site adresini http/https olarak yaz.'
         return render(execute(owner,[{'id':'browser','agent':'browser','input':{'url':match.group(),'instruction':instruction},'depends':[]}],instruction,emit))
     return None
+

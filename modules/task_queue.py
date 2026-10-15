@@ -36,7 +36,7 @@ def rows(owner):
 def render_rows(items):
     from modules import privacy
     if not items:return 'Zamanlanmış görevin yok.'
-    labels={'running':'Çalışıyor','done':'Tamamlandı','cancelled':'İptal edildi','blocked':'Durdu; görev sonucunu incele'}
+    labels={'paused':'Duraklatıldı; yeniden açılana kadar çalışmaz','running':'Çalışıyor','done':'Tamamlandı','cancelled':'İptal edildi','blocked':'Durdu; görev sonucunu incele'}
     lines=[]
     for row in items:
         remaining=max(0,math.ceil(row['due']-time.time()))
@@ -52,11 +52,30 @@ def cancel(owner,qid):
     with service_store.database(owner) as db:
         row=db.execute('SELECT * FROM queue WHERE id=?',(qid,)).fetchone()
         if not row:raise ValueError('Bu kullanıcıya ait kuyruk işi yok.')
-        db.execute("UPDATE queue SET state='cancelled' WHERE id=? AND state IN ('queued','running','blocked')",(qid,))
+        db.execute("UPDATE queue SET state='cancelled' WHERE id=? AND state IN ('queued','running','blocked','paused')",(qid,))
     from modules import task_agents
     if row['state']=='running':
         try:task_agents.cancel_job(owner,row['job_id'])
         except ValueError:pass
+
+
+def configure(owner,qid,*,operation,repeat_seconds=None):
+    """Edit only idle queue entries under the existing transaction/lease boundary."""
+    if operation not in {'pause','resume','interval'}:raise ValueError('Takip işlemi geçersiz.')
+    if operation=='interval' and (type(repeat_seconds) is not int or repeat_seconds!=0 and not 300<=repeat_seconds<=30*86400):
+        raise ValueError('Tekrar aralığı en az 300 saniye olmalı; 0 tek seferdir.')
+    with service_store.database(owner) as db:
+        row=db.execute('SELECT * FROM queue WHERE id=?',(qid,)).fetchone()
+        if not row:raise ValueError('Bu kullanıcıya ait takip yok.')
+        if row['state'] not in {'queued','paused'}:raise ValueError('Yalnız bekleyen veya duraklatılmış takip düzenlenebilir; çalışan işi önce bitir veya iptal et.')
+        if operation=='pause':
+            db.execute("UPDATE queue SET state='paused',lease=0 WHERE id=?",(qid,))
+        elif operation=='resume':
+            if row['state']!='paused':raise ValueError('Takip zaten sırada.')
+            db.execute("UPDATE queue SET state='queued',due=?,lease=0 WHERE id=?",(time.time(),qid))
+        else:
+            db.execute('UPDATE queue SET repeat_seconds=? WHERE id=?',(repeat_seconds,qid))
+    return True
 
 
 def tick(owner, notify=None):
@@ -146,3 +165,4 @@ def start(stop_event, notify=None, allowed_owners=None):
                     finally:llm._key_context.reset(token)
         _THREAD=threading.Thread(target=loop,name='jarvis-task-queue',daemon=True)
         _THREAD.start()
+

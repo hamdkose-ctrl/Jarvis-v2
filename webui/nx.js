@@ -145,7 +145,7 @@ let bgT=0;
 let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
-const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid']];
+const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid']];
 function ic2(n){return ic(n)}
 function renderTop(){
   const sn=S.snap||{},n=needCount(),w=sn.weather,win=sn.winctl!==false;
@@ -1025,7 +1025,7 @@ PAGES.menu=pg=>{
    <div class="mn-hud"><div class="mn-glow"></div><small class="mn-lbl" data-act="mnlamp" role="button" tabindex="0" aria-label="Menü panelini aç/kapat">MENÜ</small>
     <div class="mn-clock"><div><b class="mn-time">${d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</b><small>${esc(date)}</small></div>${w?`<div><span class="mn-t">${Math.round(w.temp)}°C</span><small class="mn-wx">${esc(String(w.city||'').toUpperCase())}${w.desc?' · '+esc(String(w.desc).toUpperCase()):''}</small></div>`:''}</div>
     <button class="mn-bell" data-act="notif" aria-label="Bildirimler">${ic('bell')}${needCount()?`<i>${needCount()}</i>`:''}</button>
-    <div class="mn-tiles"><button class="mn-tile" data-go="home">Ana ekrana dön</button></div></div>
+    <div class="mn-tiles"><button class="mn-tile" data-go="home">Ana ekrana dön</button><button class="mn-tile" data-go="team">Ekip merkezi</button></div></div>
    <div id="mn-card"></div></div>`;
   {const sc=pg.querySelector('.hscene');sc.addEventListener('click',e=>menuOutsideClick(sc,e))}
   mountMenu(pg.querySelector('.hscene'));

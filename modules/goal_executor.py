@@ -17,6 +17,8 @@ from modules.diagnostics import record_failure as _record_failure
 STORE=DATA_DIR/'goals'
 _LOCK=threading.RLock()
 _ACTIVE=set()
+_ACTIVE_JOBS={}
+_CANCEL_REQUESTED=set()
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
 SYSTEM='''Kullanıcının HEDEFİNİ tamamlayan Jarvis yürütücüsüsün. Türkçe konuş.
@@ -76,7 +78,10 @@ def _owned(runtime):
     try:yield owner
     finally:
         _INSIDE.reset(inside);llm._key_context.reset(token)
-        with _LOCK:_ACTIVE.discard(owner)
+        with _LOCK:
+            _ACTIVE.discard(owner)
+            _ACTIVE_JOBS.pop(owner,None)
+            _CANCEL_REQUESTED.difference_update({key for key in _CANCEL_REQUESTED if key[0]==owner})
 
 
 def _parse(text):
@@ -108,6 +113,8 @@ def _identity(job,step):
 
 def _ensure(runtime,job):
     requests_state.check()
+    with _LOCK:
+        if (job['owner'],job['id']) in _CANCEL_REQUESTED:raise requests_state.Cancelled('Seçilen hedef için iptal istendi.')
     if runtime.profile.slug!=job['owner']:raise requests_state.Cancelled('Kullanıcı değişti; önceki hedef durduruldu.')
 
 
@@ -141,6 +148,10 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    with _LOCK:
+        if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
+    from modules import team_center
+    step.setdefault('specialist', team_center.assign(job['owner'],step['tool'],job['request']))
     step['state']='running';step['started']=False;job['state']='running';_save(job)
     runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text'])
     try:
@@ -187,6 +198,8 @@ def _record(runtime,job,step,approval=None):
 
 
 def _loop(runtime,job,answer=None):
+    with _LOCK:
+        if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
     started_steps=len(job['steps'])
     if answer:job.setdefault('answers',[]).append(answer[:2000])
@@ -220,7 +233,9 @@ def _loop(runtime,job,answer=None):
         _ensure(runtime,job)
         context=_context(job)
         prompt=json.dumps(context,ensure_ascii=False)
+        from modules import team_center
         system=SYSTEM+'\nGerçek araç kataloğu:\n'+json.dumps(goal_tools.catalog(),ensure_ascii=False,default=str)
+        system+='\nUzman ekipleri (tanım izin vermez; yalnız kayıtlı araçları kullan):\n'+json.dumps(team_center.members(job['owner']),ensure_ascii=False)
         try:
             call=_parse(llm.ask(prompt,system,max_tokens=4000,validator=_parse))
             _ensure(runtime,job)
@@ -309,10 +324,19 @@ def _loop(runtime,job,answer=None):
     return render(job)
 
 
-def run(runtime,request,*,resume=False,approve=False,initial_failure=None):
+def control_key(job):
+    view={key:job.get(key) for key in ('id','state','waiting','question','approval_at','steps','tasks','outputs')}
+    return hashlib.sha256(json.dumps(view,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
+def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     with _owned(runtime) as owner:
         job=latest(owner)
+        if expected_job_id is not None and (not job or job['id']!=expected_job_id):
+            raise ValueError('Seçilen hedef değişmiş; başka hedefe işlem uygulanmadı.')
+        if expected_control is not None and (not job or control_key(job)!=expected_control):
+            raise ValueError('Hedefin sorusu veya onay işlemi değişmiş; ekranı yenileyip tekrar seç.')
         # Migrate only the exact pre-execution refusal from older releases. No
         # general unknown-effect job is replayed or reclassified as safe.
         if job and job['state']=='review' and job['steps']:
@@ -369,8 +393,38 @@ def render(job):
     return '\n\n'.join(lines) or 'Hedef kaydedildi.'
 
 
+def cancel_job(owner,identity):
+    from modules import service_store
+    service_store.identity(owner)
+    with _LOCK:
+        job=latest(owner)
+        if not job or job['id']!=identity:raise ValueError('Yalnız son hedef bu kontrolle yönetilebilir; seçilen hedef değişmiş.')
+        if job['state'] in {'done','cancelled'}:return 'Hedef zaten kapanmış.'
+        if owner in _ACTIVE:
+            if _ACTIVE_JOBS.get(owner)!=identity:raise ValueError('Başka bir hedef çalışıyor.')
+            _CANCEL_REQUESTED.add((owner,identity))
+            return 'İptal istendi; devam eden araç döndüğünde sonraki adıma geçilmeyecek.'
+        if job['state']=='approval':
+            step=next(s for s in job['steps'] if s['id']==job['waiting'])
+            if step['tool']=='browser':
+                from modules import browser_agent
+                browser_agent.cancel(owner)
+            elif step['tool']=='publish':
+                from modules import outbox
+                outbox.cancel(owner,job['outputs'][step['id']]['id'])
+        job['state']='cancelled'
+        for step in job['steps']:
+            if step['state'] not in {'done','failed'}:step['state']='cancelled'
+        _save(job)
+        return render(job)
+
+
 def handle(runtime,command):
     low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
+    bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
+    if bound:
+        if bound[1].casefold()=='yanıtla' and not (bound[4] or '').strip():raise ValueError('Yanıt boş olamaz.')
+        return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',expected_job_id=bound[2],expected_control=bound[3])
     if job and job['state']=='approval' and low in {'evet','onaylıyorum','onayla'}:low='hedef onayla'
     if job and job['state'] not in {'done','cancelled'} and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
     if low in {'hedef durumu','işin durumu','hedef ayrıntıları'}:return render(job) if job else 'Kayıtlı hedef yok.'
@@ -392,3 +446,4 @@ def handle(runtime,command):
         if not _action_request(command):return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     return None
+
