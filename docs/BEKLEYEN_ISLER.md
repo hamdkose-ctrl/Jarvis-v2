@@ -236,3 +236,9 @@ Hedef durum sorgusu bekleme sırasında yanıt verdi. Araştırma–rapor teslim
 Kullanıcının sonraki canlı sonucu: Groq anahtarı eksikti, yeniden eklendi; ardından Groq üç farklı modelde HTTP429 döndürdü. Bu yeni sonuçta Groq'un havuza girdiği doğrulandı, başarılı model erişimi doğrulanmadı. Kota/hız sınırı ve yerel Ollama erişimi canlı kabulü bekliyor.
 
 429 açıklaması düzeltmesi: Bu yanıt günlük kotanın dolduğu kanıtı değildir; dakika/gün istek ve token sınırları ayrıdır. Yerel ölçümde planlayıcı sabit kural+katalog+varsayılan uzman bağlamı yaklaşık 19.141 karakterdi (görev metni hariç). Katalogdaki tekrar eden sütun adları kayıpsız sıkıştırıldı (14.871 → 11.171 karakter); planlayıcının çıktı bütçesi 4.000 → 1.200 token oldu. Gerçek Groq token sayımı ve PC'de hangi sınırın tetiklendiği doğrulanmadı. Resmî kaynak: https://console.groq.com/docs/rate-limits .
+
+
+## Ortak main bütünleştirmesi — 16 Ekim 2026
+- PR31 model seçim nedenleri/429 açıklaması ve planlama bağlamı güncellemesi, Selçuklu arka planı ve eski gmail-attachment-followups dalının eksik kısa komut/kimlik koruma/boş ek davranışı aynı adayda doğrulandı. Güncel UTF-8 belge protokolü ve sade sonuç gösterimi korundu.
+- Tam paket: 1256 Python testi, 1 Windows DPAPI atlaması; 25 Node ve 6 smoke başarılı. Chromium tam frontend + taklit API: ana ekran, mevcut hologram, yeni arka plan görünürlüğü, menü dönüşleri, tek katman, dar ekran ve reduced-motion geçti. Canlı model/hesap çağrısı yapılmadı.
+- Bekleyen gerçek PC: açılışta önce manzara, sonra aşağıdan hilal-yıldız, sonra kırmızı enerji; Gmail ek listesi → kısa ek okuma; mevcut hedefi sürdürerek kaynaklı rapor teslimi. Model servislerinin 429 yanıtı/kullanıcı kotası ve Ollama erişimi bu birleştirmeyle giderilmiş sayılmaz. Selçuklu karakteri henüz uygulamaya bağlanmadı; mevcut hologram korunur.

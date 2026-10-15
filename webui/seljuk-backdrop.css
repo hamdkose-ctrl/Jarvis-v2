@@ -1,0 +1,33 @@
+/* Local layered background. No input handlers, network services or model calls. */
+#seljuk-backdrop{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:#031521;isolation:isolate}
+#seljuk-backdrop .sj-land{position:absolute;inset:0;background:url('/seljuk-landscape.webp') center center/cover no-repeat}
+#seljuk-backdrop .sj-emblem{position:absolute;left:50%;top:1%;width:min(51vw,78vh);height:min(51vw,78vh);transform:translateX(-50%)}
+#seljuk-backdrop .sj-emblem img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#seljuk-backdrop .sj-blue{filter:grayscale(1) sepia(1) saturate(4) hue-rotate(140deg);opacity:.82}
+#seljuk-backdrop .sj-energy{opacity:1}
+#seljuk-backdrop .sj-shade{position:absolute;inset:0;background:linear-gradient(0deg,rgba(1,10,18,.18),transparent 45%)}
+#seljuk-backdrop.sj-enter .sj-land{animation:sj-land-in .9s ease-out both}
+#seljuk-backdrop.sj-enter .sj-emblem{animation:sj-rise 1.65s cubic-bezier(.18,.7,.24,1) .8s both}
+#seljuk-backdrop.sj-enter .sj-energy{animation:sj-red-in 1s ease-out 2.6s both,sj-energy-pulse 5s ease-in-out 3.6s infinite}
+@keyframes sj-land-in{from{opacity:0}to{opacity:1}}
+@keyframes sj-rise{from{opacity:0;transform:translate(-50%,65vh)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes sj-red-in{from{opacity:0}to{opacity:1}}
+@keyframes sj-energy-pulse{0%,100%{filter:brightness(.95)}50%{filter:brightness(1.2)}}
+#seljuk-backdrop.sj-paused *,#seljuk-backdrop.sj-paused .sj-emblem{animation-play-state:paused!important}
+#seljuk-backdrop.sj-still *,#seljuk-backdrop.sj-still .sj-emblem{animation:none!important}
+body.seljuk-theme #apexbg{display:none}
+body.seljuk-theme.home-full .hscene,body.seljuk-theme .jarvis-hologram{background:transparent}
+body.seljuk-theme .jarvis-hologram .landscape,body.seljuk-theme .jarvis-hologram .landscape-shade{display:none}
+/* Keep foreground UI interactive and readable; the decorative layer never captures clicks. */
+body.seljuk-theme .app{position:relative;z-index:1}
+@media(max-width:650px){#seljuk-backdrop .sj-emblem{width:88vw;height:88vw;top:10%}}
+@media(prefers-reduced-motion:reduce){#seljuk-backdrop *,#seljuk-backdrop .sj-emblem{animation:none!important}}
+
+body.seljuk-theme .mn-bg,body.seljuk-theme .mn-shader{display:none}
+body.seljuk-theme .page.p-home{background:transparent!important}
+
+#seljuk-backdrop .sj-flow{position:absolute;inset:0;mask:url('/seljuk-emblem.webp') center/contain no-repeat;-webkit-mask:url('/seljuk-emblem.webp') center/contain no-repeat;background:linear-gradient(115deg,transparent 35%,rgba(255,35,42,.55) 49%,transparent 62%);background-size:250% 100%;mix-blend-mode:screen;opacity:0}
+#seljuk-backdrop.sj-enter .sj-flow{animation:sj-red-in 1s ease-out 2.6s both,sj-flow 7s linear 3.6s infinite}
+@keyframes sj-flow{from{background-position:150% 0}to{background-position:-100% 0}}
+#seljuk-backdrop.sj-still .sj-flow{opacity:0!important}
+@media(prefers-reduced-motion:reduce){#seljuk-backdrop .sj-flow{opacity:0!important}}

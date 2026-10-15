@@ -142,7 +142,7 @@ function drawGlobe(st,dt){
 }
 let lastT=performance.now();
 let bgT=0;
-let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
+let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){window.JarvisBackdropController?.sync();bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
 const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid']];
@@ -655,7 +655,7 @@ const MENU_ASKS={chat:['Bugün ne var?','Dosyalarımı göster','Bana bir fikir 
 const MN_STATUS={online:['#34d399','Çevrimiçi · Jarvis işi buraya yönlendirir'],standby:['#c9a84c','Beklemede · yalnız sen isteyince'],integration:['#7f9bb3','Entegrasyon · çekirdeğe bağlı']};
 const MN_LEVEL={standby:.32,listening:.6,processing:.85,reasoning:.95,speaking:.78};
 ACT.bustskip=()=>{if(BUST.asm!=null&&BUST.asm<11000+2500)BUST.asm=11000+9000};
-ACT.bustreplay=()=>{BUST.holoElapsed=0;if(HOME_HOLOGRAM)HOME_HOLOGRAM.replay()};
+ACT.bustreplay=()=>{window.JarvisBackdropController?.replay();BUST.holoElapsed=0;if(HOME_HOLOGRAM)HOME_HOLOGRAM.replay()};
 function menuGo(id){const a=MENU_ACT[id];if(!a)return;if(a[0]==='go')return go(a[1]);S.sset=a[1];go('settings')}
 ACT.mnopen=el=>menuCard(MENU_ROSTER.find(r=>r[0]===el.dataset.k));
 // Yan sayfa düzeni: Ayarlar bölümü olan düğmeye basınca orb ve ağ sola kayar, içerik sağ tarafta tam boy açılır; düğümden panele bağlantı çizgisi çizilir.
@@ -986,7 +986,7 @@ function mnShader(cv,speaking){
 function mountMenu(scene){
   const svg=scene.querySelector('#mn-svg'),stage=scene.querySelector('.mn-stage'),box=scene.querySelector('.mn-orbbox'),cv=scene.querySelector('.mn-core'),bar=scene.querySelector('.mn-status'),wrap=scene.querySelector('.apex-orb-wrap'),clock=scene.querySelector('.mn-time'),wx=scene.querySelector('.mn-wx'),cast=scene.querySelector('.mn-cast');
   const ost=()=>{const o=S.orb||'idle';return ['listening','thinking','speaking'].includes(o)?o:'idle'},wst=()=>({thinking:'processing',speaking:'speaking',listening:'listening'}[ost()]||'standby');
-  const sc0=scene.querySelector('.mn-shader');if(sc0&&!matchMedia('(prefers-reduced-motion: reduce)').matches)mnShader(sc0,()=>ost()==='speaking');
+  const sc0=scene.querySelector('.mn-shader');if(sc0&&!document.body.classList.contains('seljuk-theme')&&!matchMedia('(prefers-reduced-motion: reduce)').matches)mnShader(sc0,()=>ost()==='speaking');
   const web=menuWeb(svg,wst,id=>menuCard(MENU_ROSTER.find(r=>r[0]===id)));scene._web=web;
   // ApexCore3D yerine 2B parçacık topu: 1200 camgöbeği parçacık, durumla büyür ve kaynar, bloom parlaması
   const N=1200,dir=[],ph=[],sp=[],br=[];for(let i=0;i<N;i++){const u=Math.random()*2-1,a=Math.random()*6.283,r=Math.sqrt(1-u*u);dir.push([Math.cos(a)*r,u,Math.sin(a)*r]);ph.push(Math.random()*6.283);sp.push(.7+Math.random()*1.7);br.push(.35+Math.pow(Math.random(),.45)*.65)}
@@ -2188,7 +2188,7 @@ new MutationObserver(ms=>{let topHit=false;for(const m of ms){if(!topHit){const 
 // ======================================================================= açılış
 
 // Tüm sayfaların arkasında APEX dalgaları (WebGL; yerel, ağ yok). Hareketi azalt açıksa çizilmez.
-function mountAppBg(){if(document.getElementById('apexbg')||matchMedia('(prefers-reduced-motion: reduce)').matches)return;const cv=document.createElement('canvas');cv.id='apexbg';cv.setAttribute('aria-hidden','true');document.body.insertBefore(cv,document.body.firstChild);mnShader(cv,()=>S.orb==='speaking')}
+function mountAppBg(){window.JarvisBackdropController=window.JarvisBackdrop.mount({isStill:()=>S.ui?.nx_bust===false})}
 (async function boot(){
   if(['vision','tools','settings'].includes(S.page))S.page='menu';
   mountAppBg();requestAnimationFrame(frame);try{document.fonts.ready.then(fitTop);document.fonts.addEventListener('loadingdone',fitTop)}catch(e){}setInterval(tick,5000);
