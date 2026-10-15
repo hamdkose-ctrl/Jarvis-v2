@@ -2202,4 +2202,3 @@ ACT.modelcheck=async()=>{try{const r=await api('llm_validate',true);SX.gk=r.mess
 function localSttText(s){return !s.installed?'Önce faster-whisper paketini kur (docs/YEREL_SES.md).':s.preparing?'Model indiriliyor; biraz sonra durumu yenile.':s.error|| (s.ready?'Model hazır. Gizli/Yerel modda ses buluta gitmez.':'Model henüz indirilmedi. İndirme internet kullanır; ses kaydı göndermez.')}
 ACT.lsttprepare=async()=>{const name=$('#lsttmodel').value;if(!await ask(name+' yerel ses modeli indirilsin mi? İnternet ve disk alanı kullanır.'))return;try{await api('settings_save',{local_stt_model:name});await api('local_stt_prepare',name);toast('Model hazırlanıyor; biraz sonra durumu yenile.');drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.lsttrefresh=()=>drawSettings();
-
