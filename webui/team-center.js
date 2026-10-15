@@ -31,6 +31,13 @@ if(!NAV.some(n=>n[0]==='team'))NAV.push(['team','Ekip merkezi','grid']);
     form.querySelectorAll('[name=tools] input').forEach(i=>i.checked=!!member?.tools.includes(i.value));
     form.closest('details').open=true;form.elements.name.focus();
   }
+  function capabilityStatus(data){
+    const watches=data.source_watches||[],events=data.source_events||[],refs=data.capability_candidates||[];
+    const contracts=data.specialist_contracts?.specialists||[];
+    return `<details class="team-config"><summary>Kaynak takipleri (${watches.length})</summary><p>İlk tarama mevcut içerikleri baz alır. Sonraki değişiklikler yalnız Jarvis açıkken bildirilir.</p>${watches.map(w=>`<article class="team-tool"><b>${esc(w.label)}</b><p>${esc(w.url)}</p><small>${w.paused?'Duraklatıldı':'Etkin'} · ${esc(w.terms.join(', '))} · ${esc(w.interval)} saniye</small>${w.error?`<p>Son kontrol: ${esc(w.error)}</p>`:''}</article>`).join('')||'<p>Kaynak takibi kaydedilmedi.</p>'}${events.slice(0,10).map(e=>`<article class="team-tool"><b>${esc(e.title||'Kaynak değişikliği')}</b><p>${esc(e.quote||'')}</p><small>${esc(e.url||'')} · Kaynak alıntısı; kapsamı ayrıca değerlendir.</small></article>`).join('')}</details>
+      <details class="team-config"><summary>Servis adayları (${refs.length})</summary><p>Keşfedilmesi bağlantı, ücretsiz kullanım veya hesap izni kanıtı değildir.</p>${refs.map(r=>`<article class="team-tool"><b>${esc(r.name)}</b><p>${esc(r.url)}</p><small>${r.binding?'Sabit GET adaptörü kaydedildi; çalışırlık işlemde denetlenir':'Bağlantı kurulmadı'}</small></article>`).join('')||'<p>Servis adayı kaydedilmedi.</p>'}</details>
+      <details class="team-config"><summary>Uzmanların gerçek teslim kapsamı</summary>${contracts.map(m=>`<article class="team-tool"><b>${esc(m.name)}</b>${m.tools.map(t=>`<p>${esc(t.tool)}: ${esc(t.deliverable)}</p><small>${esc(t.scope)}</small>`).join('')}</article>`).join('')}</details>`;
+  }
   function renderData(host, data){
     const previous=new Map([...host.querySelectorAll('.team-job')].map(e=>[e.dataset.job,{open:e.open,key:e.dataset.control,answer:e.querySelector('[name=answer]')?.value||'',approved:!!e.querySelector('[name=approve]')?.checked,focus:e.contains(document.activeElement)?document.activeElement.name:'',start:e.querySelector('[name=answer]')?.selectionStart,end:e.querySelector('[name=answer]')?.selectionEnd}]));
     const jobs=data.jobs||[], latestGoal=jobs.find(j=>j.kind==='goal'), steps=jobs.flatMap(j=>j.steps||[]), live=steps.filter(s=>s.state==='running');
@@ -44,7 +51,7 @@ if(!NAV.some(n=>n[0]==='team'))NAV.push(['team','Ekip merkezi','grid']);
     host.querySelectorAll('.team-job').forEach(e=>{const old=previous.get(e.dataset.job);if(!old)return;e.open=old.open;if(old.key===e.dataset.control){const answer=e.querySelector('[name=answer]'),approved=e.querySelector('[name=approve]');if(answer)answer.value=old.answer;if(approved)approved.checked=old.approved;if(old.focus==='answer'&&answer){answer.focus({preventScroll:true});answer.setSelectionRange(old.start,old.end)}if(old.focus==='approve'&&approved)approved.focus({preventScroll:true});}});
     paintOffice(host,data);
     const notice=host.querySelector('[data-team-notice]');notice.textContent=(data.warnings||[]).join(' ');
-    host.querySelector('[data-team-tools]').innerHTML=data.capabilities.map(t=>`<div class="team-tool"><b>${esc(t.id)}</b><p>${esc(t.description)}</p><small>${esc(t.scope)}</small></div>`).join('');
+    host.querySelector('[data-team-tools]').innerHTML=capabilityStatus(data)+data.capabilities.map(t=>`<div class="team-tool"><b>${esc(t.id)}</b><p>${esc(t.description)}</p><small>${esc(t.scope)}</small></div>`).join('');
     const tools=host.querySelector('[name=tools]');if(!tools.querySelector('input'))tools.innerHTML='<legend>Kullanacağı mevcut araçlar</legend>'+data.capabilities.map(t=>`<label><input type="checkbox" value="${safeId(t.id)}"> ${esc(t.id)}</label>`).join('');
     host.querySelector('[data-team-limits]').textContent=data.limits.join(' ');
   }
