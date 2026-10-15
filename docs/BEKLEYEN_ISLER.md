@@ -242,3 +242,7 @@ Kullanıcının sonraki canlı sonucu: Groq anahtarı eksikti, yeniden eklendi; 
 - PR31 model seçim nedenleri/429 açıklaması ve planlama bağlamı güncellemesi, Selçuklu arka planı ve eski gmail-attachment-followups dalının eksik kısa komut/kimlik koruma/boş ek davranışı aynı adayda doğrulandı. Güncel UTF-8 belge protokolü ve sade sonuç gösterimi korundu.
 - Tam paket: 1256 Python testi, 1 Windows DPAPI atlaması; 25 Node ve 6 smoke başarılı. Chromium tam frontend + taklit API: ana ekran, mevcut hologram, yeni arka plan görünürlüğü, menü dönüşleri, tek katman, dar ekran ve reduced-motion geçti. Canlı model/hesap çağrısı yapılmadı.
 - Bekleyen gerçek PC: açılışta önce manzara, sonra aşağıdan hilal-yıldız, sonra kırmızı enerji; Gmail ek listesi → kısa ek okuma; mevcut hedefi sürdürerek kaynaklı rapor teslimi. Model servislerinin 429 yanıtı/kullanıcı kotası ve Ollama erişimi bu birleştirmeyle giderilmiş sayılmaz. Selçuklu karakteri henüz uygulamaya bağlanmadı; mevcut hologram korunur.
+
+
+## Kayıtlı hedefi yeniden planlama döngüsü — 16 Ekim 2026
+Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin kayıtlı hedefte yeniden plan önermesi artık üç retle sınırlanır, plan korunduğu açık yazılır. Planlayıcıya bu çağrıda plan bulunduğu belirtilir. Gerçek sağlayıcıyla mevcut hedefin araç adımlarına geçip raporu tamamlaması hâlâ kullanıcı kabulü gerektirir.
