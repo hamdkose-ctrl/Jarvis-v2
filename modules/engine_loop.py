@@ -121,8 +121,14 @@ def main(runtime, ui=None):
                 label={'done':'Zamanlanan görevin tamamlandı.','blocked':'Zamanlanan görev durdu.','cancelled':'Zamanlanan görev iptal edildi.'}.get(state,'Zamanlanan görev güncellendi.')
                 runtime._emit_for(profile,'assistant',label+'\n'+(task_agents.render_summary(job) if job else 'Görev sonuç kaydı oluşmadı; görev kuyruğu ile durumu kontrol edebilirsin.'))
                 break
+    def source_notice(owner,event_id,message):
+        for name in runtime.list_users():
+            profile=runtime._get_profile(name)
+            if profile.slug==owner:
+                runtime._emit_for(profile,'assistant',message)
+                break
     task_queue.start(runtime.stop_event,queue_notice,
-                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()})
+                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},source_notify=source_notice)
     from modules import webhook_server
     def webhook_notice(owner,stored):
         for name in runtime.list_users():
