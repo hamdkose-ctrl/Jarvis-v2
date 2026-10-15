@@ -50,7 +50,10 @@ class ResultTests(unittest.TestCase):
 
     def test_successful_code_reports_tested_draft(self):
         state = {'enabled': True, 'unlocked': True, 'draft_files': ['a.py'], 'draft_test_ok': True}
-        with patch.object(developer, 'status', return_value=state), patch.object(developer, 'handle', return_value='tested'):
+        delivery={'owner':'alice','files':[{'file':str(self.path),'sha256':results.file_digest(self.path)}],
+                  'file':str(self.path),'test_log':str(self.path),'test_log_sha256':results.file_digest(self.path)}
+        with patch.object(developer, 'status', return_value=state), patch.object(developer, 'handle', return_value='tested'), \
+             patch.object(developer,'deliver_code',return_value=delivery):
             output = agents.worker('alice', {'agent': 'coder', 'input': {'request': 'fix'}}, {})
         self.assertTrue(results.verify(output))
 
