@@ -226,6 +226,24 @@ def _planner(runtime,job,prompt,system):
         job.pop('phase',None);job.pop('phase_started',None);_save(job)
 
 
+def _invalidate_outputs(job,ident,message):
+    invalid={ident}
+    while True:
+        dependants={s['id'] for s in job['steps'] if any(dep in invalid for dep in s.get('depends',[]))}
+        if dependants.issubset(invalid):break
+        invalid.update(dependants)
+    for step in job['steps']:
+        if step['id'] not in invalid:continue
+        output=job['outputs'].get(step['id'])
+        if output is not None:
+            output.update(state='failed',text=message if step['id']==ident else 'Bağımlı kaynak/çıktı geçersizleşti; bu teslim yeniden doğrulanmalı. Dosya silinmedi.')
+        if step['state']=='done' and not goal_tools.replay_safe(step['tool'],step['input']):
+            job['state']='review';job['blocker']='Önceki dış işlemin bağımlı kanıtı geçersizleşti; işlem otomatik tekrarlanmadı.'
+        step['state']='failed'
+    for goal in job['goals']:
+        if any(item in invalid for item in goal['evidence']):goal.update(state='pending',evidence=[])
+
+
 def _loop(runtime,job,answer=None):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
@@ -249,15 +267,20 @@ def _loop(runtime,job,answer=None):
             step['state']='failed';job['outputs'][step['id']]={'state':'failed','text':'İşlem kesildi; farklı yöntemle veya güvenli yeni denemeyle sürdür.'}
     for ident,output in job['outputs'].items():
         if output.get('state')!='done':continue
-        try:goal_tools.verify(output,job['owner'])
+        try:
+            step=next((s for s in job['steps'] if s['id']==ident),{})
+            if step.get('tool')=='research' and not output.get('source_quotes'):
+                from modules import research_evidence
+                if research_evidence.legacy_unsupported(output.get('text')):
+                    source=step.get('input',{}).get('url','')
+                    if source and source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
+                    raise ValueError('Eski kaynak yanıtı soruyu yanıtlamıyor; araştırma kanıtı olarak kullanılmadı.')
+            goal_tools.verify(output,job['owner'])
         except (ValueError,PermissionError,OSError) as exc:
-            output.update(state='failed',text='Önceki çıktı artık doğrulanamıyor: '+privacy.redact(str(exc),force=True)[:600])
-            for step in job['steps']:
-                if step['id']==ident:step['state']='failed'
-            for goal in job['goals']:
-                if ident in goal['evidence']:goal.update(state='pending',evidence=[])
+            _invalidate_outputs(job,ident,'Önceki çıktı artık doğrulanamıyor: '+privacy.redact(str(exc),force=True)[:600])
             job.setdefault('feedback',[]).append(output['text'])
             _save(job)
+    if job['state']=='review':return render(job)
     for _ in range(MAX_TURNS):
         _ensure(runtime,job)
         context=_context(job)
