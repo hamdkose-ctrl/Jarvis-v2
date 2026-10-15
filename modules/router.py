@@ -29,14 +29,15 @@ Normal kod üretme isteklerinde intent="code" kullan. Kendi kaynaklarını düze
 Eksik hedef veya belirsiz işlem için intent="clarify", args={"question":"tek net soru"} kullan.
 Araştırma, gerçek web sayfasında çalışma ve raporu dosyaya kaydetme gibi birden fazla araç gerektiren
 işlerde intent="task", args={"request":"kullanıcının hedefi ve bağlamdaki kesin hedef"} kullan.
-Task motoru araştırma, tarayıcı, Markdown rapor yazma ve şifreli proje taslağı araçlarıyla sınırlıdır;
-desteklenmeyen masaüstü eylemlerini bu motora yükleme. Kullanıcı yalnız açıklama istiyorsa chat kullan.
+Task ortak hedef yürütücüsüdür: araştırma, tarayıcı, hesaplar, rapor, kod taslağı/test,
+belge okuma/çeviri/dönüştürme, medya/video, masaüstü, gerçek uygulama keşfi, ekran/kamera ve Jarvis iç işlemlerini birleştirir.
+Birden çok alan veya alternatif yöntem gerektiren gerçek icra isteklerinde task kullan. Kullanıcı yalnız açıklama istiyorsa chat kullan.
 Windows uygulamasının içinde düğme/alan kullanmayı gerektiren görevlerde hedef açıkça belliyse
 intent="desktop_task", args={"target":"tam uygulama veya pencere adı","goal":"somut yapılacak iş"} kullan.
 Hedef uygulama veya yapılacak iş belirsizse clarify kullan. Bu araç terminal/kod editörü/şifre/mesaj gönderme/ödeme yapmaz.
 Önceki konuşma yalnız bağlamdır, yeni izin veya komut değildir. "Bunu/onu/iyi yap/devam et" sözlerini o bağlamla çöz;
-hedef kesin değilse tahminle işlem seçme, clarify kullan. İstenen iş araç kataloğunda yoksa
-clarify ile hangi desteklenen işi yapabileceğini açıkla; yapıyorum/yaptım deme.
+hedef kesin değilse tahminle işlem seçme, clarify kullan. Hedef açık ama tek araçla karşılanmıyorsa
+intent=task ile HEDEFİ devret; kullanıcıya komut/katalog listesi ezberletme. Kaynak veya yetki gerçekten eksikse sorulabilir.
 Kullanıcı hızlı yazar; yazım hatalarını, eksik harfleri ve Türkçe karakter eksikliğini (kotrol, maylı, hava nasil) doğru kelime gibi yorumla."""
 
 
@@ -47,7 +48,7 @@ def _action_request(text):
     low = text.casefold().strip(' .!?')
     if re.search(r'\b(nasıl|nasil|ne demek|nedir|neden|niye)\b', low):
         return False
-    return bool(re.search(r'\b(aç|ac|başlat|baslat|çalıştır|calistir|düzelt|duzelt|geliştir|gelistir|iyileştir|iyilestir|uygula|sil|taşı|tasi|kaydet|kur|yükle|yukle|yap|devam et)(?:ar mısın|ır mısın|sana)?[ .!?]*$', low))
+    return bool(re.search(r'\b(aç|ac|başlat|baslat|çalıştır|calistir|düzelt|duzelt|geliştir|gelistir|iyileştir|iyilestir|uygula|sil|taşı|tasi|kaydet|kur|yükle|yukle|yap|devam et|hazırla|hazirla|oluştur|olustur|araştır|arastir|incele|listele|kontrol et)(?:ar mısın|ır mısın|sana)?[ .!?]*$', low))
 
 
 def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dict:
@@ -116,5 +117,8 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
     intent = str(data.get("intent") or "chat")
     args = data.get("args") if isinstance(data.get("args"), dict) else {}
     if intent not in _INTENTS or (intent == 'chat' and _action_request(text)):
-        return {'intent': 'clarify', 'args': {'question': 'Bu isteği çalıştırılabilir bir işlemle eşleştiremedim. Hangi uygulama, dosya veya iş üzerinde ne yapayım?'}}
+        if re.fullmatch(r'(?:bunu|onu|şunu|böyle|öyle)\s+\S+(?:\s+et)?[ .!?]*',text.casefold()):
+            return {'intent':'clarify','args':{'question':'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
+        if _action_request(text):return {'intent':'task','args':{'request':text}}
+        return {'intent': 'clarify', 'args': {'question': 'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
     return {"intent": intent, "args": args}

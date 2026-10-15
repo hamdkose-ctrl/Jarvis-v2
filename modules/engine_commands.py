@@ -22,6 +22,10 @@ def handle(runtime, command: str) -> str:
                                     close=runtime._close_jarvis, set_sleep=runtime.set_sleep)
     if control_result is not None:
         return control_result
+    from modules import goal_executor
+    if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in ('devam','devam et','evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
+        goal_result=goal_executor.handle(runtime,command)
+        if goal_result is not None:return goal_result
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
         table_chat=runtime._table_chat, history_read=runtime.history.read, translate=lambda text, target: runtime.tr.translate(text, target),
         study_intent=lambda text: runtime._study_intent(text),
@@ -29,6 +33,9 @@ def handle(runtime, command: str) -> str:
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
+    if not goal_executor.active():
+        goal_result=goal_executor.handle(runtime,command)
+        if goal_result is not None:return goal_result
     from modules.command_execution import continue_app
     if not session.pending_action and not session.pending_confirm:
         selected = continue_app(runtime, command)
