@@ -461,11 +461,49 @@ def _draft_signature(state):
     return _hash(json.dumps(state['draft'], sort_keys=True, ensure_ascii=False).encode())
 
 
-def _test_draft(owner, state, emit=lambda *args: None):
+def _code_tests(root, paths):
+    tests = sorted(p for p in paths if Path(p).name.startswith('test_') and p.endswith('.py'))
+    if not tests:
+        return False, 'Bu görev için test_*.py dosyasında unittest testleri hazırla; eski proje testleri tek başına yeni kodun kanıtı değildir.'
+    logs = []
+    for name in tests:
+        requests_state.check()
+        command = [sys.executable, '-X', 'utf8', '-m', 'unittest', 'discover', '-s', str(Path(name).parent), '-p', Path(name).name, '-v']
+        env = os.environ.copy(); env['PYTHONIOENCODING'] = 'utf-8'; env['JARVIS_DATA_DIR'] = str(Path(root).parent / 'code-test-data')
+        result = subprocess.run(command, cwd=root, env=env, capture_output=True, encoding='utf-8', errors='replace', timeout=30)
+        output = result.stdout + result.stderr
+        logs.append(name + '\n' + output)
+        counts = re.findall(r'Ran (\d+) tests?', output)
+        if result.returncode or not counts or int(counts[-1]) == 0 or re.search(r'OK\s*\(', output):
+            return False, '\n'.join(logs)[-16000:] + '\nYeni kod testleri geçmedi veya çalıştırılan test yok; atlanan test kabul edilmedi.'
+    return True, '\n'.join(logs)[-16000:]
+
+
+def _mark_code_test(owner, state):
+    if isinstance(state.get('code_task'), dict):
+        state['code_task']['tested'] = True
+        _save(owner, state)
+
+
+def _candidate_manifest(root, changed):
+    files = {}
+    for path in Path(root).rglob('*'):
+        relative = path.relative_to(root)
+        if any(part in release_guard.EXCLUDED for part in relative.parts): continue
+        if path.is_symlink(): raise ValueError('Aday test kopyasında sembolik bağ oluştu.')
+        if path.is_file(): files[relative.as_posix()] = _hash(path.read_bytes())
+    # Explicit drafts are checked even inside normally excluded generated directories.
+    for name in changed:
+        files[('draft', name)] = _hash(_bytes(release_guard.safe_path(root, name)))
+    return files
+
+
+def _test_draft(owner, state, emit=lambda *args: None, *, code_paths=None):
     """Read-only candidate check; never installs a draft or changes dependencies."""
     signature = _draft_signature(state)
     if not state['draft']:
         return {'ok': False, 'log': 'Test edilecek kod taslağı yok.'}
+    _mark_code_test(owner, state)
     emit('step', 'Kod taslağı ayrı kopyada test ediliyor', 'working|devtest|')
     changes = {}
     try:
@@ -477,7 +515,15 @@ def _test_draft(owner, state, emit=lambda *args: None):
             changes[name] = _draft_bytes(change)
         with release_workspace.candidate(PROJECT, changes) as candidate:
             requests_state.check()
-            ok, log = _test(candidate)
+            manifest = _candidate_manifest(candidate, changes)
+            ok, log = _code_tests(candidate, code_paths) if code_paths is not None else (True, '')
+            if _candidate_manifest(candidate, changes) != manifest:
+                raise ValueError('Test aday kaynak dosyalarını değiştirdi; teslim kanıtı geçersiz.')
+            if ok:
+                passed, suite_log = _test(candidate)
+                ok, log = passed, suite_log + '\nYeni kod testleri:\n' + log
+                if _candidate_manifest(candidate, changes) != manifest:
+                    raise ValueError('Proje testleri aday kaynak dosyalarını değiştirdi; teslim kanıtı geçersiz.')
             requests_state.check()
         # A source changed during the check invalidates the evidence.
         for name, change in state['draft'].items():
@@ -523,6 +569,7 @@ def _apply(owner, state):
         return 'Uygulanacak değişiklik yok.'
     if release_guard.pending(PROJECT):
         return 'Önce bekleyen geliştirmeyi yeniden başlat veya geri al.'
+    _mark_code_test(owner, state)
     records = {}; changes = {}; new_python = None; transaction = None
     seen = set()
     for name, change in state['draft'].items():
@@ -602,6 +649,23 @@ def _recover(owner):
     _atomic(path, json.dumps(transaction).encode())
 
 
+def _tool_call(answer):
+    if not isinstance(answer, str):
+        raise ValueError('Model araç komutu metin olmalı.')
+    answer = answer.strip()
+    if answer.startswith('```'):
+        answer = re.sub(r'^```(?:json)?\s*|\s*```$', '', answer)
+    try:
+        call = json.loads(answer)
+    except ValueError:
+        raise ValueError('Model geçerli JSON araç komutu üretmedi.') from None
+    if not isinstance(call, dict) or call.get('tool') not in {
+        'read','list','search','history','stage','edit','delete','test','finish',
+        'asset','visual','visuals','show_visual'}:
+        raise ValueError('Model bilinen bir araç komutu üretmedi.')
+    return call
+
+
 def _turn(owner, state, command, emit, *, require_draft=False):
     requests_state.allow_long_operation(600)
     conversation = state['turns'][-16:] + [{'role': 'user', 'text': command}]
@@ -618,24 +682,33 @@ def _turn(owner, state, command, emit, *, require_draft=False):
                     'Kullanıcı bu referans üzerinden proje geliştirecek. Görseldeki arayüzü, metni, hata mesajlarını ve yerleşimi ayrıntılı tarif et. Son istek: ' + command,
                     'Görseli gerçekten incele; görünmeyen ayrıntı uydurma.', max_tokens=3000)
         references.append({'id': ref['id'], 'name': ref['name'], 'description': detail})
-    tools = []; images = []; read_paths = set(); test_runs = 0; missing_finishes = 0
+    tools = []; images = []; read_paths = set(); staged_paths = set(); test_runs = 0; missing_finishes = 0
+    if require_draft:
+        state['code_task'] = {'request': _hash(command.encode('utf-8')), 'tested': False, 'complete': False}
+        _save(owner, state)
     system = _SYSTEM
     if require_draft:
         system += ('\nBu bir kod üretim görevidir. Yalnız açıklama veya kod bloğu başarı değildir: stage/edit ile '
                    'dosya taslağı oluştur ve test aracını kullan. Mevcut kaynakları değiştirmeme isteği varsa '
-                   'mevcut dosyalara dokunmadan yeni örnek dosya ve örnekleri sınayan test taslağı hazırla. '
+                   'mevcut dosyalara dokunmadan yeni örnek dosya ve test_*.py içinde unittest.TestCase testleri hazırla. '
+                   'Test dosyasında kodunu import edip örnekleri assertEqual ile doğrula; sıfır test veya atlama kabul edilmez. '
                    'Taslaklar ayrı kopyada test edilir, uygulanmaz. Kullanıcının kapsamını genişletme.')
     for _ in range(24):
         requests_state.check()
         prompt = json.dumps({'conversation': conversation, 'project_memory': state['memory'], 'draft_files': list(state['draft']), 'last_visuals': state['visuals'][-2:], 'reference_files': references, 'tool_results': tools}, ensure_ascii=False)
-        answer = llm.ask(prompt, system, max_tokens=8000).strip()
+        def validate_answer(answer):
+            call = _tool_call(answer)
+            if require_draft and call['tool'] == 'finish' and not staged_paths:
+                raise ValueError('Kod görevi için açıklama yerine read, stage ve test araçlarıyla dosya üret.')
+        # Invalid JSON/prose is a failed provider attempt in automatic mode, not a completed answer.
+        answer = llm.ask(prompt, system, max_tokens=8000, validator=validate_answer).strip()
         if answer.startswith('```'):
             answer = re.sub(r'^```(?:json)?\s*|\s*```$', '', answer)
         try:
-            call = json.loads(answer)
+            call = _tool_call(answer)
             tool = call['tool']
             if tool == 'finish':
-                if require_draft and not state['draft']:
+                if require_draft and not staged_paths:
                     missing_finishes += 1
                     if missing_finishes < 3:
                         tools.append({'error':'Henüz dosya taslağı yok. Kod görevi için stage ile dosyayı hazırla; sonra test et. Uygulama yapma.'})
@@ -643,10 +716,13 @@ def _turn(owner, state, command, emit, *, require_draft=False):
                     message = 'Kod üreticisi dosya taslağı oluşturmadı. '+str(call.get('message') or 'Yalnız metin yanıtı verdi.')
                     break
                 check = state.get('draft_test', {})
-                if state['draft'] and test_runs < 3 and (check.get('signature') != _draft_signature(state) or not check.get('ok')):
+                if state['draft'] and test_runs < 3 and ((require_draft and not test_runs) or check.get('signature') != _draft_signature(state) or not check.get('ok')):
                     emit('activity', 'Geliştirme: taslak test ediliyor', 'working|Geliştirme|')
-                    result = _test_draft(owner, state, emit); test_runs += 1
+                    result = _test_draft(owner, state, emit, code_paths=staged_paths if require_draft else None); test_runs += 1
                     tools.append({'tool': 'test', 'result': result})
+                    if require_draft and staged_paths and result['ok']:
+                        message = 'Taslak hazır; yeni kod testleri ve proje kontrolleri geçti.'
+                        break
                     continue
                 message = str(call.get('message') or 'Taslak hazır.')
                 message = re.sub(r'!\[([^\]\n]*)\]\([^\s)]+\)', r'\1', message)
@@ -660,7 +736,10 @@ def _turn(owner, state, command, emit, *, require_draft=False):
             elif tool == 'test':
                 if test_runs >= 3:
                     raise ValueError('Bu turdaki üç test denemesi tamamlandı; sonucu açıkça bildir.')
-                result = _test_draft(owner, state, emit); test_runs += 1
+                result = _test_draft(owner, state, emit, code_paths=staged_paths if require_draft else None); test_runs += 1
+                if require_draft and staged_paths and result['ok']:
+                    message = 'Taslak hazır; yeni kod testleri ve proje kontrolleri geçti.'
+                    break
             elif tool == 'read':
                 name = str(call['path']); source = _read(state, name); read_paths.add(name)
                 lines = source.splitlines(keepends=True)
@@ -696,6 +775,8 @@ def _turn(owner, state, command, emit, *, require_draft=False):
                 else:
                     content = call['content'] if tool == 'stage' else None
                 _stage(state, name, content)
+                if content is not None:
+                    staged_paths.add(_path(name).relative_to(PROJECT).as_posix())
                 _save(owner, state); result = 'Taslak kaydedildi; uygulanmadı.'
             elif tool == 'visuals':
                 result = _all_visuals(owner)
@@ -714,6 +795,10 @@ def _turn(owner, state, command, emit, *, require_draft=False):
             tools.append({'error': str(exc)[:600]})
     else:
         message = 'Bu turda araç sınırına ulaştım; hazırladığım taslaklar saklandı. Devam et diyebilirsin.'
+    if require_draft:
+        check = state.get('draft_test', {})
+        state['code_task'].update(complete=bool(staged_paths and test_runs and check.get('ok') is True and
+            check.get('signature') == _draft_signature(state)), paths=sorted(staged_paths), signature=_draft_signature(state))
     # Completion is grounded in persisted draft/test evidence, not model prose.
     message += '\n\n' + _draft_status(state)
     state['turns'] = (conversation + [{'role': 'assistant', 'text': message}])[-24:]
@@ -726,6 +811,49 @@ def _turn(owner, state, command, emit, *, require_draft=False):
     if state['draft']:
         response += '\n\n' + _preview(state)
     return response
+
+
+def code_retry_safe(owner, request):
+    """Only a failed pre-test draft turn is replayable; executed model tests may have effects."""
+    with _LOCK:
+        try:
+            checkpoint = _load(owner).get('code_task', {})
+        except ValueError:
+            return False
+        if not isinstance(checkpoint, dict): return False
+        return checkpoint.get('request') == _hash(request.encode('utf-8')) and checkpoint.get('tested') is False and checkpoint.get('complete') is False
+
+
+def deliver_code(owner, request):
+    """Deliver the current tested draft snapshot only with this request's fresh completion proof."""
+    from modules import nxapi, task_results
+    with _LOCK:
+        if owner not in _AUTH:
+            raise PermissionError('Geliştirme alanı kilitli.')
+        state = _load(owner); receipt = state.get('code_task', {})
+        signature = _draft_signature(state); check = state.get('draft_test', {})
+        if (not state['enabled'] or receipt.get('request') != _hash(request.encode('utf-8')) or
+            receipt.get('complete') is not True or receipt.get('signature') != signature or
+            check.get('ok') is not True or check.get('signature') != signature):
+            raise ValueError('Bu kod görevinin yeni dosya ve test kanıtı tamamlanmadı.')
+        root = Path(nxapi.FILES_DIR) / 'Jarvis Görevler' / owner / (uuid.uuid4().hex[:12] + '-kod')
+        for parent in (root, *root.parents):
+            if parent.is_symlink(): raise ValueError('Teslim klasörü sembolik bağ olamaz.')
+        files = []
+        # Include all tested draft dependencies, not only the last edited file.
+        for name, change in state['draft'].items():
+            if _hash(_bytes(_path(name))) != change['base']:
+                raise ValueError('Kaynak testten sonra değişmiş: ' + name)
+            if change['content'] is not None:
+                path = root / 'Taslak' / name
+                _atomic(path, _draft_bytes(change))
+                files.append({'file':str(path), 'sha256':task_results.file_digest(path)})
+        if not files:
+            raise ValueError('Teslim edilecek kod dosyası yok.')
+        log = root / 'test-sonucu.txt'
+        _atomic(log, ('Taslak ayrı kopyada test edildi. Kaynaklara uygulanmadı.\n\n' + check['log']).encode('utf-8'))
+        return {'owner':owner, 'files':files, 'file':files[0]['file'], 'signature':signature,
+                'test_log':str(log), 'test_log_sha256':task_results.file_digest(log)}
 
 
 def handle(owner, command, emit=lambda *args: None, *, raise_errors=False, require_draft=False):
