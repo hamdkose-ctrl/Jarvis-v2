@@ -1,5 +1,6 @@
 """Build/test a candidate without mutating the installed sources or environment."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 import os
 import shutil
@@ -10,6 +11,30 @@ import uuid
 import release_guard as guard
 
 DEPENDENCY_FILES = {'requirements.txt', 'requirements.lock.txt', 'requirements-browser.txt', 'requirements-bundle.txt'}
+_OFFICIAL_RELEASE = ContextVar('jarvis_official_release_validation', default=False)
+
+
+@contextmanager
+def official_release_validation():
+    """Only authenticated official updates may migrate their versioned test suite."""
+    token = _OFFICIAL_RELEASE.set(True)
+    try: yield
+    finally: _OFFICIAL_RELEASE.reset(token)
+
+
+def _version_checks(root, python=None):
+    """Load each release's own required JS/smoke manifest, not the caller's globals."""
+    with guard.temporary_workspace('jarvis-version-validation-') as temporary:
+        env=os.environ.copy()
+        env.pop('JARVIS_BOOT_MARKERS',None);env.pop('JARVIS_BOOT_ID',None)
+        if python:env.pop('PYTHONPATH',None)
+        env.update(JARVIS_DATA_DIR=str(temporary),PYTHONUTF8='1',PYTHONIOENCODING='utf-8')
+        try:
+            result=subprocess.run([str(python or sys.executable),'-X','utf8','-m','modules.validation'],
+                cwd=root,env=env,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=600)
+            return result.returncode==0,result.stdout+result.stderr
+        except (OSError,subprocess.TimeoutExpired) as exc:
+            return False,'Sürüm kontrolleri tamamlanmadı: '+str(exc)
 
 
 def changed_environment(root, changed, project):
@@ -58,6 +83,16 @@ def validate(root, project, python=None):
     root, project = Path(root), Path(project)
     def run(target):
         return run_checks(target, python=python) if python else run_checks(target)
+    if _OFFICIAL_RELEASE.get():
+        # Test each version with its own contracts. Mixing old mocks/assertions with
+        # new APIs can reject a correct release before its own tests ever run.
+        with guard.temporary_workspace('jarvis-installed-tests-') as temporary:
+            baseline = Path(temporary) / 'project'
+            guard.copy_source(project, baseline)
+            ok, log = _version_checks(baseline)
+            if not ok: return False, 'Kurulu sürümün kendi kontrolleri başarısız:\n' + log
+        ok, candidate_log = _version_checks(root,python)
+        return ok, 'Kurulu sürümün kendi kontrolleri geçti.\nAday sürümün kendi kontrolleri:\n' + candidate_log
     # Test edits cannot silently remove the current regression coverage: installed tests overwrite the
     # candidate's copies and deleted ones come back. Test files that exist only in the candidate stay, because
     # the candidate's validation.py may require them (JS_GROUPS/SMOKE_GROUPS); replacing the whole folder made

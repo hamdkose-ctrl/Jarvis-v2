@@ -377,9 +377,14 @@ def apply(info: dict, backed_up: bool = False) -> str:
         # development drafts keep candidate()'s protected-file rejection.
         with release_workspace.candidate(ROOT, mutations, allow_protected=True) as candidate:
             new_python = release_workspace.changed_environment(candidate, mutations, ROOT)
-            ok, log = release_workspace.validate(candidate, ROOT, new_python)
+            with release_workspace.official_release_validation():
+                ok, log = release_workspace.validate(candidate, ROOT, new_python)
             if not ok:
-                raise RuntimeError("Aday güncelleme testleri başarısız; kaynaklar değiştirilmedi. " + log[-4000:])
+                log_path = DATA / 'guncelleme-testleri.log'
+                release_guard.atomic(log_path, log.encode('utf-8'))
+                failures = [line for line in log.splitlines() if line.startswith(('ERROR:', 'FAIL:', 'FAILED', 'Doğrulama tamamlanmadı:', 'Kurulu sürümün kendi kontrolleri başarısız:'))]
+                summary = '\n'.join(failures) or log[-1500:]
+                raise RuntimeError("Aday güncelleme testleri başarısız; kaynaklar değiştirilmedi. " + summary + '\nUTF-8 test günlüğü: ' + str(log_path))
         requests_state.check()
         for name, original in originals.items():
             if release_guard.contents(release_guard.safe_path(ROOT, name)) != original:
