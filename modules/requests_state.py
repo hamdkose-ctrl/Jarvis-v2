@@ -63,14 +63,18 @@ def _save_terminal_state():
         logging.getLogger(__name__).exception('İstek günlüğü yazılamadı; tamamlanan/iptal edilen kimlik bellekte korundu.')
 _current = ContextVar('jarvis_request', default=None)
 _budget_deadline = ContextVar('jarvis_budget_deadline', default=None)
+_budget_cancel = ContextVar('jarvis_budget_cancel', default=None)
 
 @contextmanager
-def budget(seconds):
+def budget(seconds, *, cancel=None):
     previous=_budget_deadline.get()
     deadline=time.monotonic()+seconds
     token=_budget_deadline.set(min(previous,deadline) if previous is not None else deadline)
+    cancelled=_budget_cancel.set(cancel or _budget_cancel.get())
     try:yield
-    finally:_budget_deadline.reset(token)
+    finally:
+        _budget_cancel.reset(cancelled)
+        _budget_deadline.reset(token)
 
 
 class Cancelled(RuntimeError):
@@ -129,6 +133,8 @@ def activate(user, rid, *, complete=True):
             _current.reset(token)
 
 def check():
+    cancelled=_budget_cancel.get()
+    if cancelled is not None and cancelled.is_set():raise Cancelled('Model beklemesi bitti; yeni deneme başlatılmadı.')
     deadline=_budget_deadline.get()
     if deadline is not None and time.monotonic()>=deadline:
         raise TimeoutError('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
