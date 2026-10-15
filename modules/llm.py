@@ -335,34 +335,43 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
         raise CloudError("Bu kullanıcının Groq API anahtarı yok. Bağlantılar sayfasından ekle.")
     msgs = ([{"role": "system", "content": system}] if system else []) + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    body = {"model": groq_model(), "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
-    last = ""
-    for attempt in range(1, 3):
-        requests_state.check()
-        try:
-            r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=(5, 30))
-        except requests.RequestException as e:
-            last = type(e).__name__; time.sleep(attempt); continue
-        if r.status_code == 200:
+    from modules import smart_router
+    alternatives = GROQ_MODELS if smart_router.settings(current_user()).get('cloud_free_confirmed') else []
+    models = list(dict.fromkeys([groq_model(), *alternatives]))[:3]
+    identity = ('groq', current_user(), tuple(models))
+    with _fallback_lock:
+        active, since = _fallback_states.get(identity, (0, 0))
+    if time.time() - since > 600: active = 0
+    last = ''
+    for offset in range(len(models)):
+        index = (active + offset) % len(models); model = models[index]
+        body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
+        for attempt in range(1, 3):
+            requests_state.check()
             try:
-                text = r.json()["choices"][0]["message"]["content"] or ""
-                _route.model = groq_model()
+                r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=(5, 30))
+            except requests.RequestException as e:
+                if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
+                time.sleep(attempt); continue
+            if r.status_code == 200:
+                try:
+                    text = r.json()["choices"][0]["message"]["content"]
+                    if not isinstance(text, str) or not text.strip(): raise ValueError('empty answer')
+                except (KeyError, IndexError, TypeError, ValueError) as e:
+                    last = 'boş/geçersiz yanıt'; break
+                _route.model = model
+                with _fallback_lock: _fallback_states[identity] = (index, time.time())
                 return text
-            except (KeyError, IndexError, TypeError, ValueError) as e:
-                raise CloudError("Groq beklenmeyen bir yanıt döndürdü.") from e
-        try:
-            msg = (r.json().get("error") or {}).get("message", "")
-        except ValueError:
-            msg = ""
-        if r.status_code in (401, 403):
-            raise CloudError("Groq API anahtarı geçersiz ya da yetkisiz.")
-        if r.status_code == 404:
-            raise CloudError(f"Groq modeli bu hesapta kullanılamıyor/bulunamadı: {groq_model()}. Ayarlar > Groq modelinden güncel bir model seç.")
-        last = f"{r.status_code} {msg[:100]}"
-        if r.status_code in (429, 500, 502, 503, 504):
-            time.sleep(attempt); continue
-        break
-    raise CloudError("Groq yanıt vermedi (" + last + ")")
+            if r.status_code in (401, 403):
+                raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+            last = 'HTTP ' + str(r.status_code)
+            if r.status_code in (404, 429): break
+            if r.status_code not in (500, 502, 503, 504):
+                raise CloudError('Groq yanıt vermedi (' + last + ')')
+            if attempt < 2: time.sleep(attempt)
+        note_route('Groq · ' + model + ' yanıt vermedi (' + last + ')' +
+                   (', diğer model deneniyor' if offset + 1 < len(models) else ''), False)
+    raise CloudError('Groq yanıt vermedi (' + last + ')')
 
 
 def _need_cloud(prompt: str) -> str:
@@ -656,8 +665,27 @@ def _ohist_msgs(history) -> list[dict]:
     return out
 
 
-def ask(prompt: str, system: str = "", max_tokens: int = 2000) -> str:
+def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
     """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için)."""
+    if validator is not None:
+        def checked(selected):
+            for attempt in range(2):
+                notes = len(getattr(_route, 'notes', None) or [])
+                instruction = prompt if not attempt else prompt + '\nSon yanıt araç sözleşmesini karşılamadı. Sistem şemasına uygun tek JSON araç komutu üret; açıklama/kod bloğu ile bitirme.'
+                answer = _send(instruction, system, max_tokens, None, selected, True)
+                try:
+                    validator(answer)
+                except (ValueError, TypeError, KeyError):
+                    # A fluent answer is not a successful tool call. Keep failure notes only.
+                    current = getattr(_route, 'notes', None) or []
+                    _route.notes = current[:notes] + [n for n in current[notes:] if not n[1]]
+                    if attempt: raise
+                    continue
+                return answer
+        if provider() == 'auto':
+            from modules import smart_router
+            return smart_router.run(current_user(), prompt + '\n' + system, checked)
+        return checked(provider())
     return _send(prompt, system, max_tokens, None)
 
 
