@@ -157,7 +157,7 @@ class SmartRouterTests(unittest.TestCase):
             return llm._timed('gemini',lambda:'cevap')
         self.assertEqual(router.run('alice','merhaba',answer),'cevap')
         route=llm.take_route()
-        self.assertEqual(route,[('Groq kotası dolu, sıradakine geçildi',False),('Cevap: Gemini',True)])
+        self.assertEqual(route,[('Groq istek/token sınırına takıldı, sıradakine geçildi',False),('Cevap: Gemini',True)])
         self.assertNotIn('secret',str(route));self.assertEqual(llm.take_route(),[])
         llm._timed('groq',lambda:'a');llm._timed('ollama',lambda:'b')
         self.assertEqual(llm.take_route(),[('Cevap: Ollama (yerel)',True)])
@@ -239,5 +239,11 @@ class SmartRouterTests(unittest.TestCase):
         self.assertIn('beklemede',row['reason']);self.assertGreater(row['seconds'],0)
         router._HEALTH[('alice','groq')]['until']=router.time.monotonic()-1
         self.assertIn('groq',router.candidates('alice','analysis'))
+
+    def test_429_label_does_not_claim_daily_quota_was_exhausted(self):
+        error=router.requests.HTTPError(response=Mock(status_code=429))
+        self.assertEqual(router.failure_kind(error),'quota')
+        self.assertIn('istek/token sınır',router.failure_text(error))
+        self.assertNotIn('dol',router.failure_text(error))
 
 if __name__=='__main__':unittest.main()
