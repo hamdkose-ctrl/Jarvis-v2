@@ -475,5 +475,31 @@ class GoalTests(unittest.TestCase):
             self.assertIn(url,report)
         self.assertTrue(goal_tools.verify(job['outputs']['s4'],'alice'))
 
+    def test_resuming_old_no_information_receipt_keeps_id_and_invalidates_its_evidence(self):
+        output=task_results.seal('research',{'state':'done','text':'Kaynakta desteklenen bir yanıt verilememektedir.','source':'https://example.org/','source_chars':100})
+        job={'id':'b'*16,'owner':'alice','request':'Kaynaklı rapor','created':0,'state':'paused',
+             'goals':[{'text':'Rapor','state':'done','evidence':['s1']}],
+             'steps':[{'id':'s1','goal':0,'tool':'research','input':{'url':'https://example.org/'},'depends':[],'signature':'old','state':'done'}],
+             'outputs':{'s1':output}}
+        goals._save(job);self.ask.side_effect=RuntimeError('model unavailable')
+        goals.run(self.runtime,'hedef devam',resume=True)
+        after=goals.latest('alice')
+        self.assertEqual(after['id'],job['id']);self.assertEqual(len(after['steps']),1)
+        self.assertEqual(after['steps'][0]['state'],'failed')
+        self.assertEqual(after['goals'][0]['evidence'],[])
+        self.assertIn('https://example.org/',after['unavailable_sources'])
+
+    def test_invalid_research_invalidates_transitive_reports_without_deleting_files(self):
+        report=self.root/'saved-report.md';report.write_text('Önceki rapor')
+        job={'state':'running','goals':[{'state':'done','evidence':['s3']}],
+             'steps':[{'id':'s1','tool':'research','input':{'url':'https://example.org'},'depends':[],'state':'done'},
+                      {'id':'s2','tool':'writer','input':{'instruction':'Rapor'},'depends':['s1'],'state':'done'},
+                      {'id':'s3','tool':'writer','input':{'instruction':'Özet'},'depends':['s2'],'state':'done'}],
+             'outputs':{'s1':{'state':'done'},'s2':{'state':'done','file':str(report)},'s3':{'state':'done'}}}
+        goals._invalidate_outputs(job,'s1','Kaynak geçersiz')
+        self.assertTrue(all(s['state']=='failed' for s in job['steps']))
+        self.assertEqual(job['goals'][0],{'state':'pending','evidence':[]})
+        self.assertEqual(report.read_text(),'Önceki rapor')
+
 
 if __name__=='__main__':unittest.main()
