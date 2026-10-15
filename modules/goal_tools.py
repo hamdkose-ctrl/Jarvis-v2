@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import copy
 from modules import app_actions, llm, privacy, requests_state, task_agents, task_results, task_tools
+from modules import goal_extensions
 
 
 class NotStarted(PermissionError):
@@ -21,16 +22,20 @@ LOCAL = {
     'schedule': 'Kuyruğa gerçek iş kaydet: tasks (mevcut worker DAG), request, seconds; repeat_seconds isteğe bağlı. Dış gönderim/code/browser zamanlanamaz.',
     'system': 'PC ses/parlaklık/medya: operation=status|volume|mute|brightness|media; level/on/action gerektiğinde.',
 }
+LOCAL.update(goal_extensions.TOOLS)
 
 
 def catalog():
     from modules import account_tools
+    from modules.source_watch import KNOWN_SOURCES
     return {'workers':task_agents.WORKER_CATALOG, 'inputs':task_tools.CATALOG,
             'local_tools':LOCAL, 'actions':app_actions.catalog(),'account_services':account_tools.SERVICES,
-            'media_example':{'scenes':[{'caption':'Sahne yazısı','duration':3}],'layout':'landscape'}}
+            'media_example':{'scenes':[{'caption':'Sahne yazısı','duration':3}],'layout':'landscape'},
+            'known_watch_sources':KNOWN_SOURCES}
 
 
 def validate(kind, data):
+    if kind in goal_extensions.TOOLS:return goal_extensions.validate(kind,data)
     if kind in task_tools.CATALOG:
         return task_tools.validate_input(kind,data)
     if kind not in LOCAL or not isinstance(data,dict): raise ValueError('Araç girdisi geçersiz.')
@@ -74,6 +79,7 @@ def validate(kind, data):
 
 
 def replay_safe(kind,data):
+    if kind in goal_extensions.TOOLS:return goal_extensions.replay_safe(kind,data)
     if kind in task_tools.CATALOG:return task_tools.CATALOG[kind]['replay_safe']
     if kind=='action':
         return data['action'] in {'settings','nx_settings','voice_options','input_devices','llm_status',
@@ -121,6 +127,7 @@ def verify(output,owner):
         raise ValueError('Üretilen dosya değişmiş veya eksik.')
     if output.get('source_file') and task_results.file_digest(output['source_file'])!=output.get('source_sha256'):
         raise ValueError('Okunan dosya testten sonra değişmiş.')
+    if output.get('source_receipt'):task_results.verify(output['source_receipt'],owner=owner)
     return True
 
 
@@ -130,6 +137,7 @@ def _pc_owner(runtime,owner):
 
 
 def checkpoint(runtime,kind,data):
+    if kind in goal_extensions.TOOLS:return goal_extensions.checkpoint(runtime,kind,data)
     if kind!='action':return None
     field={'note_add':'items','note_delete':'items','task_add':'tasks','task_delete':'tasks',
            'goal_add':'goals','goal_delete':'goals','fact_add':'facts','fact_delete':'facts',
@@ -141,6 +149,7 @@ def checkpoint(runtime,kind,data):
 def reconcile(runtime,kind,data,identity,check):
     """Read back durable state after a lost adapter response; never repeat the write."""
     owner=runtime.profile.slug
+    if kind in goal_extensions.TOOLS:return goal_extensions.reconcile(runtime,kind,data,identity,check)
     if kind=='publish':
         from modules import outbox
         output=outbox.recover(owner,identity['job_id']+':'+identity['task_id'])
@@ -168,6 +177,7 @@ def reconcile(runtime,kind,data,identity,check):
 
 def execute(runtime,kind,data,dependencies,identity,*,approval=None):
     owner=runtime.profile.slug;validate(kind,data);requests_state.check()
+    if kind in goal_extensions.TOOLS:return goal_extensions.execute(runtime,kind,data,identity,approval)
     if kind in task_tools.CATALOG:
         if kind=='coder':
             from modules import developer

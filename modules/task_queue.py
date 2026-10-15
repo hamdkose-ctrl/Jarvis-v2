@@ -135,7 +135,7 @@ def is_cancelled(owner,qid):
         return not row or row['state']=='cancelled'
 
 
-def start(stop_event, notify=None, allowed_owners=None):
+def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
     """One engine-owned worker; no boot-time model/network call without queued work."""
     global _THREAD
     with _START_LOCK:
@@ -150,6 +150,8 @@ def start(stop_event, notify=None, allowed_owners=None):
                     from modules import outbox,task_agents,privacy
                     try:
                         tick(path.stem,notify)
+                        from modules import source_watch
+                        source_watch.poll(path.stem,source_notify)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):
                             with task_agents._active(path.stem):results=outbox.poll(path.stem)
                             for result in results:

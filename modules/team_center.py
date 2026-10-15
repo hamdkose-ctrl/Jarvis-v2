@@ -20,10 +20,10 @@ from modules import privacy, service_store
 ROOT = DATA_DIR / 'teams'
 _LOCK = threading.RLock()
 DEFAULTS = [
-    {'id':'research','name':'Araştırma ve gündem','tags':['haber','gündem','araştır','kaynak'], 'tools':['research','browser','writer','verify']},
-    {'id':'finance','name':'Finans ve raporlama','tags':['finans','fatura','bütçe','maliyet','gelir'], 'tools':['research','document','writer','verify']},
-    {'id':'social','name':'Sosyal medya','tags':['sosyal medya','instagram','youtube','telegram','yorum'], 'tools':['account','research','writer','media','publish','verify']},
-    {'id':'store','name':'Mağaza ve müşteri işleri','tags':['mağaza','stok','sipariş','müşteri','satış'], 'tools':['research','document','account','writer','verify']},
+    {'id':'research','name':'Araştırma ve gündem','tags':['haber','gündem','araştır','kaynak'], 'tools':['research','browser','writer','data','monitor','capability','verify']},
+    {'id':'finance','name':'Finans ve raporlama','tags':['finans','fatura','bütçe','maliyet','gelir'], 'tools':['research','document','writer','data','capability','verify']},
+    {'id':'social','name':'Sosyal medya','tags':['sosyal medya','instagram','youtube','telegram','yorum'], 'tools':['account','research','writer','media','publish','data','monitor','capability','verify']},
+    {'id':'store','name':'Mağaza ve müşteri işleri','tags':['mağaza','stok','sipariş','müşteri','satış'], 'tools':['research','document','account','writer','data','capability','verify']},
     {'id':'development','name':'Yazılım ve test','tags':['kod','python','javascript','yazılım','test'], 'tools':['coder','verify']},
     {'id':'production','name':'Belge ve medya üretimi','tags':['belge','rapor','video','görsel','ses'], 'tools':['document','writer','media','verify']},
     {'id':'operations','name':'Bilgisayar ve operasyon','tags':['bilgisayar','uygulama','ekran','kamera','sistem'], 'tools':['action','application','desktop','observe','sharing','system','diagnose','schedule','verify']},
@@ -140,7 +140,7 @@ def _job(owner, job, kind):
             artifacts.append(Path(output['file']).name)
         result.append({'id':step['id'],'tool':tool,'specialist':specialist,
                        'state':step.get('state','unknown'),'depends':step.get('depends',[]),
-                       'text':_public(output.get('text',output.get('message','')),1200),
+                       'text':_public(('Denenen kaynak: '+step.get('input',{}).get('url','')) if tool=='research' and step.get('state')=='running' else output.get('text',output.get('message','')),1200),
                        'artifacts':list(dict.fromkeys(artifacts)),
                        'has_receipt':bool(output.get('verification')),
                        'attempts':step.get('attempts',1)})
@@ -154,7 +154,7 @@ def _job(owner, job, kind):
             'approval_id':pending.get('id','') if job.get('state')=='approval' else '',
             'request':_public(job.get('request',job.get('instruction','')),1500),
             'created':job.get('created',0),'steps':result,
-            'question':_public(job.get('question',job.get('blocker',''))),
+            'question':_public(('Model planı bekleniyor · '+str(max(0,int(time.time()-job.get('phase_started',time.time()))))+' saniye · çağrı sınırı '+str(goal_executor.PLANNER_SECONDS)+' saniye') if job.get('phase')=='planning' and job.get('state')=='running' else job.get('question',job.get('blocker',''))),
             'goals':[{'text':_public(g.get('text')),'state':g.get('state')} for g in job.get('goals',[])]}
 
 
@@ -194,10 +194,14 @@ def snapshot(owner):
                     step['state']='cancelled' if job['state']=='cancelled' else 'interrupted'
             if job['state']=='interrupted':job['question']='Çalışan yürütücü yok; kayıtlı iş kesilmiş olabilir. Sonucu inceleyerek sürdür.'
     scheduled = [{**row,'instruction':_public(row.get('instruction'))} for row in task_queue.rows(owner)]
+    from modules import specialist_contracts,source_watch,capability_hub
     directory=members(owner)
     return {'owner':owner,'now':time.time(),'members':directory,'revision':revision(directory),'capabilities':capabilities(),
+            'specialist_contracts':specialist_contracts.describe(owner),
+            'source_watches':source_watch.rows(owner),'source_events':source_watch.events(owner),
+            'capability_candidates':capability_hub.rows(owner),
             'jobs':jobs,'queue':scheduled,'warnings':list(dict.fromkeys(warnings)),
-            'limits':['Finans verisi ve mağaza bağlantıları ayrıca adaptör gerektirir.',
+            'limits':['Finans günlük kur/CSV, mağaza CSV ve mevcut sosyal hesap okumaları desteklenir; canlı banka/mağaza yazma bağlantısı yoktur.',
                       'Uzman tanımı bağlantı veya işlem izni sağlamaz.',
                       'Tamamlandı kaydı içerik doğruluğunu garanti etmez.',
                       'Düzenli işler yalnız Jarvis açıkken çalışır.']}
