@@ -131,7 +131,7 @@ def failure_detail(attempt):
 
 
 def failure_text(exc):
-    return {'key':'anahtarı geçersiz','quota':'kotası dolu'}.get(failure_kind(exc), 'yanıt vermedi')
+    return {'key':'anahtarı geçersiz','quota':'istek/token sınırına takıldı'}.get(failure_kind(exc), 'yanıt vermedi')
 
 
 def cooldown(provider, exc):
