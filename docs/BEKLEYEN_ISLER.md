@@ -229,3 +229,8 @@ Bekleyenler: gerçek Windows bildirim/yeniden başlatma kabulü; dış HTTP kayn
 
 ## Canlı araştırma–rapor testi — 15 Ekim 2026
 Windows testi başarısız: model beklemesi, siberrecete.com DNS hatası, bilgi vermeyen yanıtın başarı sayılması ve eski yıl varsayımı görüldü. Kaynak değiştirildiği hâlde rapor teslimi tamamlanmadı. Bu geliştirme model beklemesini sınırlama, durum sorgusunu ayırma, kanıtlı araştırma ve aynı hedefte dosya teslimi regresyonlarını içerir; gerçek Windows tekrarı yapılmadan bu canlı test geçmiş sayılmaz.
+
+
+## Model erişimi canlı sonucu — 15 Ekim 2026 akşam
+Hedef durum sorgusu bekleme sırasında yanıt verdi. Araştırma–rapor teslimi geçmedi: Gemini HTTP429, Ollama LocalModelError; Groq deneme listesinde yoktu. Groq'un PC'deki kesin atlama nedeni henüz doğrulanmadı. Yeni düzeltme atlama nedenini ve kalan süreyi görünür kılar; tamamlanmayan hedefin eski yeşil model izini kaldırır. Hesap onayı/kota/anahtar otomatik değiştirilmez.
+Kullanıcının sonraki canlı sonucu: Groq anahtarı eksikti, yeniden eklendi; ardından Groq üç farklı modelde HTTP429 döndürdü. Bu yeni sonuçta Groq'un havuza girdiği doğrulandı, başarılı model erişimi doğrulanmadı. Kota/hız sınırı ve yerel Ollama erişimi canlı kabulü bekliyor.
