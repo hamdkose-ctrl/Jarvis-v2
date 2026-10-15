@@ -223,7 +223,7 @@ Uzman düzenleme/devre dışı bırakma, çalışan ayrıntısı, kimlik ve içe
 
 ## Bağlantı çalışması — PR #28 üzerinde entegrasyon
 
-Taban: `81f8536ab792980c2bf48c4f5a2225dd021e2fdc`. Kaynak takibi, servis referansı değerlendirmesi, sabit genel GET bağlama ve CSV alan araçları geliştirme aşamasındadır; yayımlanmış sürümün özelliği sayılmaz.
+Taban: `81f8536ab792980c2bf48c4f5a2225dd021e2fdc`. Kaynak takibi, servis referansı değerlendirmesi, sabit genel GET bağlama ve CSV alan araçları bu PR kapsamındadır. Gerçek hesap bağlantıları ve Windows canlı kabulü ayrıca doğrulanır.
 
 Bekleyenler: gerçek Windows bildirim/yeniden başlatma kabulü; dış HTTP kaynaklarına canlı erişim; yeni banka/mağaza hesap adaptörleri ve MCP sunucusu çalıştırma (bu çalışmada tamamlanmış değildir). API listesinde bulunmak hesap bağlantısı veya ücretsiz kullanım doğrulaması değildir. Ortak kontroller bitmeden main'e birleştirilmez.
 
