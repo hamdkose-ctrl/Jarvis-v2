@@ -35,17 +35,19 @@ def _start_hang_watch(runtime) -> None:
 
     runtime.threading.Thread(target=loop, daemon=True, name="donma-izleyici").start()
 
-def _emit_for(runtime, owner, kind, text, source=""):
+def _emit_for(runtime, owner, kind, text, source="", rid=None):
     """Background events keep the captured user's identity, never the mutable active profile."""
     pass  # Shared fields are held by the explicit engine context.
     with runtime._event_lock:
         runtime._log_id += 1
         runtime.event_log.append({"id": runtime._log_id, "kind": kind, "text": text, "source": source,
-                          "user": owner.name, "rid": None})
+                          "user": owner.name, "rid": rid})
         del runtime.event_log[:-200]
         row = runtime.history.append(owner.slug, kind, text, source)
         runtime.event_log[-1]["hid"] = (row or {}).get("id")
-        metadata = {'user': owner.slug, 'mid': (row or {}).get('id'), 'rid': None}
+        metadata = {'user': owner.slug, 'mid': (row or {}).get('id'), 'rid': rid}
+        if kind=='assistant' and rid and getattr(runtime,'response_waiters',None) is not None:
+            runtime.response_waiters.publish(owner.slug,rid,text)
     if owner.slug == runtime.pc_profile().slug and runtime._ui is not None:
         try:
             if getattr(runtime._ui, 'event_metadata', False) is True:
