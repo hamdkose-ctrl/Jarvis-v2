@@ -8,7 +8,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
-from modules import llm,model_wait,nxapi,task_agents,research_evidence
+from modules import llm,model_wait,nxapi,task_agents,research_evidence,requests_state
 
 class ModelWaitTests(unittest.TestCase):
     def setUp(self):
@@ -64,3 +64,10 @@ class ModelWaitTests(unittest.TestCase):
                        json.dumps({'supported':False,'answer':'','quotes':[]}),
                        json.dumps({'supported':True,'answer':'Uydurma','quotes':['This quote does not appear in the source.']})]:
             with self.subTest(answer=answer),self.assertRaises(ValueError):research_evidence.parse(answer,source)
+
+    def test_cancelled_model_budget_blocks_fallback_without_cancelling_another_request(self):
+        stop=threading.Event()
+        with requests_state.budget(5,cancel=stop):
+            requests_state.check();stop.set()
+            with self.assertRaises(requests_state.Cancelled):requests_state.check()
+        requests_state.check()
