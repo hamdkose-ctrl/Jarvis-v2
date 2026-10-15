@@ -487,3 +487,11 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Research yanıtı JSON `supported,answer,quotes` sözleşmesindedir. Başarı için sayfada gerçekten geçen 20–800 karakterlik 1–5 alıntı gerekir; desteklenmeyen veya alıntısız yanıt başarı sayılmaz. Alıntı eşleşmesi anlamsal doğruluk garantisi değildir.
 - Erişilemeyen/cevaplamayan kaynaklar aynı hedefte korunur; başka kaynak/araçla toparlanılabilir. Writer raporuna erişilemeyen kaynaklar deterministik eklenir; mail cevap taslağına bu ek yapılmaz. Ekip görünümünde denenen adres ve plan beklemesi görünür.
 - Eski açıkça içeriksiz research makbuzu sürdürmede yeniden kanıt sayılamaz. Geçersiz adımın bağımlı teslimleri ve hedef kanıtları transitif geçersizleştirilir; dosyalar silinmez. Bağımlı dış etkili işlem varsa inceleme beklenir, otomatik tekrar yoktur. Model beklemesi bittikten sonra kopyalanan bütçe iptali sonraki sağlayıcı denemesini de engeller.
+
+
+## Model seçimi nedenleri ve hedef sonucu — 15 Ekim 2026
+- Smart Router seçim kaydı artık denenen sağlayıcılarla birlikte atlanan sağlayıcıların sabit/gizlilik güvenli nedenlerini içerir: kullanıcı anahtarı eksik, ücretsiz hesap onayı yok, görev türü desteklenmiyor veya önceki hatadan kalan süre. Ayar/anahtar otomatik değiştirilmez; ücretli sağlayıcılar havuza girmez. Yerel modun yalnız Ollama politikası korunur.
+- Başarısız hedef sonucu, önceki sınıflandırma/planlama çağrısının yeşil cevap izini temizler; hata/geçiş izleri korunur. Başarılı model çağrısı kullanıcı hedefinin tamamlandığı anlamına gelmez.
+- PC'de Groq'un neden atlandığı hesap ayarı görülmeden doğrulanmış sayılmaz. Yeni seçim kaydı bu nedeni sonraki denemede açıkça gösterir; geliştirmede canlı kullanıcı anahtarıyla çağrı yapılmaz.
+
+- HTTP429 günlük kullanımın bittiği kanıtı sayılmaz: kısa model izi “istek/token sınırı” der. Planlayıcı araç kataloğu aynı action/label/args/confirm değerlerini sütunlu JSON ile aktarır; hiçbir araç/parametre/onay alanı atılmaz. Planlayıcı tek JSON adımı için 1200 çıktı tokenı ister; rapor yazımı ayrı worker'dadır. Kaynak/görev/izin metinleri kesilmez. PC'deki sınırın kesin türü sunucu ayrıntısı olmadan bilinmez.

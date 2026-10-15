@@ -501,5 +501,30 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(job['goals'][0],{'state':'pending','evidence':[]})
         self.assertEqual(report.read_text(),'Önceki rapor')
 
+    def test_failed_goal_removes_prior_green_classification_and_keeps_failure_trace(self):
+        llm.take_route();self.addCleanup(llm.take_route)
+        llm.note_route('Cevap: Gemini · classification',True)
+        llm.note_route('Groq beklemede',False)
+        self.ask.side_effect=RuntimeError('No eligible model')
+        goals.run(self.runtime,'Kaynaklı rapor oluştur')
+        notes=llm.take_route()
+        self.assertFalse(any(ok for _,ok in notes))
+        self.assertIn(('Groq beklemede',False),notes)
+        self.assertEqual(goals.latest('alice')['state'],'paused')
+
+    def test_planner_catalog_compacts_repetition_without_removing_action_arguments_or_permissions(self):
+        full=goal_tools.catalog();compact=goal_tools.planner_catalog()
+        restored=[dict(zip(compact['action_columns'],row)) for row in compact['actions']]
+        self.assertEqual(restored,full['actions'])
+        for key in full:
+            if key!='actions':self.assertEqual(compact[key],full[key])
+        self.assertLess(len(json.dumps(compact,ensure_ascii=False,separators=(',',':'))),len(json.dumps(full,ensure_ascii=False))*.8)
+
+    def test_planner_asks_for_a_short_tool_reply_instead_of_a_full_report(self):
+        self.responses(self.plan('Rapor'),RuntimeError('stop'))
+        goals.run(self.runtime,'Rapor hazırla')
+        self.assertTrue(self.ask.call_args_list)
+        for call in self.ask.call_args_list:self.assertEqual(call.kwargs['max_tokens'],1200)
+
 
 if __name__=='__main__':unittest.main()

@@ -219,7 +219,7 @@ def _planner(runtime,job,prompt,system):
     from modules import model_wait
     job['phase']='planning';job['phase_started']=time.time();_save(job)
     try:
-        answer=model_wait.ask(prompt,system,max_tokens=4000,validator=_parse,seconds=PLANNER_SECONDS,
+        answer=model_wait.ask(prompt,system,max_tokens=1200,validator=_parse,seconds=PLANNER_SECONDS,
                               check=lambda:_ensure(runtime,job))
         return _parse(answer)
     finally:
@@ -286,8 +286,8 @@ def _loop(runtime,job,answer=None):
         context=_context(job)
         prompt=json.dumps(context,ensure_ascii=False)
         from modules import team_center
-        system=SYSTEM+'\nTek kaynağın erişim hatası bütün araştırmayı bitirmez. Başarısız kaynakları doğrulanmış sayma; izin verilen başka ilgili kaynak seç. Rapor erişilemeyen kaynakları belirtmeli.\nGerçek araç kataloğu:\n'+json.dumps(goal_tools.catalog(),ensure_ascii=False,default=str)
-        system+='\nUzman ekipleri (tanım izin vermez; yalnız kayıtlı araçları kullan):\n'+json.dumps(team_center.members(job['owner']),ensure_ascii=False)
+        system=SYSTEM+'\nTek kaynağın erişim hatası bütün araştırmayı bitirmez. Başarısız kaynakları doğrulanmış sayma; izin verilen başka ilgili kaynak seç. Rapor erişilemeyen kaynakları belirtmeli.\nGerçek araç kataloğu:\n'+json.dumps(goal_tools.planner_catalog(),ensure_ascii=False,default=str,separators=(',',':'))
+        system+='\nUzman ekipleri (tanım izin vermez; yalnız kayıtlı araçları kullan):\n'+json.dumps(team_center.members(job['owner']),ensure_ascii=False,separators=(',',':'))
         try:
             call=_planner(runtime,job,prompt,system)
             _ensure(runtime,job)
@@ -382,6 +382,19 @@ def control_key(job):
 
 
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
+    owner=runtime.profile.slug
+    try:
+        result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
+                    expected_job_id=expected_job_id,expected_control=expected_control)
+    except BaseException:
+        llm.discard_success_routes()
+        raise
+    job=latest(owner)
+    if not job or job['state']!='done':llm.discard_success_routes()
+    return result
+
+
+def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     with _owned(runtime) as owner:
         job=latest(owner)
