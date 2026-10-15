@@ -40,6 +40,13 @@ def check(kind, output):
     elif kind == 'coder':
         if output.get('draft') is not True or output.get('test_ok') is not True:
             raise ValueError('Kod taslağı ve geçerli başarılı test kanıtı gerekli.')
+        files=output.get('files')
+        if not isinstance(files,list) or not files or not isinstance(output.get('owner'),str) or not output['owner']:
+            raise ValueError('Kod teslim dosyaları ve sahibi eksik.')
+        if any(not isinstance(item,dict) or file_digest(item.get('file',''))!=item.get('sha256') for item in files):
+            raise ValueError('Kod teslim dosyası değişmiş veya eksik.')
+        if output.get('file')!=files[0]['file'] or file_digest(output.get('test_log',''))!=output.get('test_log_sha256'):
+            raise ValueError('Kod teslimi veya test günlüğü değişmiş.')
     elif kind == 'browser':
         steps = output.get('steps')
         if not isinstance(steps, list) or not steps or any(
@@ -147,6 +154,8 @@ def verify(output, owner=None):
     if not isinstance(metadata, dict) or metadata.get('version') != VERSION:
         raise ValueError('Sonucun doğrulama kaydı eksik; eski kayıt başarı kanıtı olarak kullanılamaz.')
     checked = check(metadata.get('agent'), output)
+    if owner is not None and metadata.get('agent') == 'coder' and output.get('owner') != owner:
+        raise PermissionError('Kod sonucu farklı kullanıcıya ait.')
     if owner is not None and metadata.get('agent') == 'account' and output.get('snapshot', {}).get('owner') != owner:
         raise PermissionError('Hesap sonucu farklı kullanıcıya ait.')
     if owner is not None and metadata.get('agent') == 'publish':

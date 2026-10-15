@@ -188,3 +188,9 @@ Doğrulama: gerçek PDF/Word/Excel/PowerPoint örnekleri, metinsiz PDF, makro/XM
 ## Türkçe büyük İ ile ek komut yönlendirmesi
 
 “İlk mailin eklerini göster” ve “İlk mailin ilk ekini oku” casefold sonrasında birleşik nokta nedeniyle tanınmıyordu; karşılaştırmada bu nokta normalize edilir. Mail kimlikleri ve dosya metinleri değiştirilmez. Gerçek komut yönlendirici üzerinden büyük İ ile listelenen/okunan ek komutlarının modele veya eski posta yoluna düşmediği sınanır. Yeni kod uygulanınca Jarvis kapatılıp yeniden başlatılmalıdır; çalışan eski süreç kodu bellekte tutar.
+
+## Otonom kod yürütme — 15 Ekim 2026
+Uygulandı: araç yanıtını doğrulama, sınırlı şema düzeltmesi ve otomatik modda başka onaylı ücretsiz sağlayıcı; yeni göreve ait gerçek unittest testi ve mevcut proje kontrolleri; başarısız testten düzeltme; dosya ve test günlüğü teslimi; test öncesi kesilmiş görevi güvenli checkpoint ile sürdürme. Kaynak uygulama/gönderim/ücretli havuz kuralları korunur.
+Açık: gerçek PC'de model hesabı ve kota ile üretim kabulü; Windows süreç/UTF-8 kabulü; eksik yerel modelin kurulması ve cihaz kapasitesi gibi ortam onarımları; kod dışındaki bütün görevlerin kendiliğinden yeni araç geliştirmesi. Bu değişiklik genel sınırsız otonom asistana ulaşıldığı iddiası değildir. Donanım değişimi fiziksel işlem ve kullanıcı kararı gerektirir.
+
+Groq seçili modeli bulunamaz/kotaya takılırsa mevcut listeden sınırlı alternatif model denemesi eklendi; başarısı kullanıcıya özel önbelleklenir. Modellerin gerçek hesaptaki erişimi/kotası canlı API ile doğrulanmadı.

@@ -153,6 +153,8 @@ class DeveloperTests(unittest.TestCase):
         self.enable()
         calls=[{'tool':'finish','message':'Metin açıklaması'}, {'tool':'read','path':'example.py'},
                {'tool':'stage','path':'example.py','content':'value = 2\n'},
+               {'tool':'read','path':'test_example.py'},
+               {'tool':'stage','path':'test_example.py','content':'import unittest\nfrom example import value\nclass Tests(unittest.TestCase):\n def test_value(self): self.assertEqual(value, 2)\n'},
                {'tool':'test'}, {'tool':'finish','message':'Taslak hazır.'}]
         self.ask.side_effect=[json.dumps(c) for c in calls]
         with patch.object(dev,'_test',return_value=(True,'test passed')):

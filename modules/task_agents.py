@@ -206,7 +206,9 @@ def _worker(owner, task, dependencies):
             raise ValueError('Kod taslağının testleri başarısız; geliştirme alanında hata günlüğü ve taslak saklandı.')
         if not after.get('draft_files') or after.get('draft_test_ok') is not True:
             raise ValueError('Kod görevi tamamlanmadı; dosya taslağı veya geçerli test sonucu yok. '+privacy.redact(str(answer),force=True)[:1200])
-        return {'state':'done','text':answer,'draft':True,'test_ok':True}
+        delivery=developer.deliver_code(owner,data['request'])
+        return {'state':'done','text':'Kod dosyalarını oluşturdum ve taslak testleri geçti. Kaynaklara uygulanmadı.',
+                'draft':True,'test_ok':True,**delivery}
     if kind=='writer':
         from modules import nxapi
         filename=data.get('filename','rapor.md')
@@ -312,6 +314,9 @@ def _run_pending(owner,job,emit=None):
             except Exception as exc:
                 _record_failure('modules/task_agents.py:execute')
                 output={'state':'failed','text':privacy.redact(str(exc))}
+                if task['agent']=='coder':
+                    from modules import developer
+                    output['retry_safe']=developer.code_retry_safe(owner,task['input']['request'])
             with _LOCK:
                 _check_job(owner,job)
                 task['execution']['outcome']=task_tools.outcome(task['agent'],output['state'])
@@ -430,7 +435,11 @@ def continue_job(owner,job_id=None,emit=None,*,queue_id=None,queue_tasks=None):
                         task_results.verify(output,owner=owner)
                         _transition(job,task,'done');job['outputs'][task['id']]=output
                         _save(_root(owner),job);continue
-                if task['agent'] not in _REPLAY_SAFE:
+                safe_code = task['agent']=='coder' and output.get('retry_safe') is True
+                if safe_code:
+                    from modules import developer
+                    safe_code=developer.code_retry_safe(owner,task['input']['request'])
+                if task['agent'] not in _REPLAY_SAFE and not safe_code:
                     raise ValueError('Bu adım dış işlem yapmış olabilir; otomatik tekrar uygulanmadı: '+task['id']+'. Sonucu kontrol et; gerekirse yeni bir görev başlat.')
                 _transition(job,task,'queued');job['outputs'].pop(task['id'],None)
             elif task['state']=='blocked':
@@ -551,6 +560,9 @@ def render_summary(job):
             lines.append(output['text'][:2000])
             if len(output['text'])>2000:lines.append('Metnin devamı dosyada veya görev ayrıntılarında.')
         if output.get('file'):lines.append('Dosya: '+output['file'])
+        if task['agent']=='coder' and output.get('files'):
+            lines.append('Teslim edilen dosyalar:\n'+'\n'.join(item['file'] for item in output['files'][1:])+
+                         '\nTest sonucu: '+output['test_log'])
         if output.get('draft'):lines.append('Kod taslağı hazır; kaynaklara uygulanmadı.')
     for task in job['tasks']:
         if task['agent']=='verify' and task['state']!='done':
