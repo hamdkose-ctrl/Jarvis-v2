@@ -110,7 +110,9 @@ def run(owner, data, dependencies=None):
             if not isinstance(msg,dict) or msg.get('id')!=data['message_id'] or not isinstance(msg.get('payload'),dict):raise ValueError('Ek mail yanıtı kimlikle eşleşmiyor.')
             parts=mail_attachments.parts(msg['payload'])
             snapshot={'owner':owner,'service':'gmail','operation':data['operation'],'message_id':data['message_id'],'fetched_at':time.time()}
-            if data['operation']=='list_attachments':snapshot.update(items=[i for i,p in parts[:20]],has_more=len(parts)>20)
+            if data['operation']=='list_attachments' or not parts:
+                # A verified empty attachment list is a normal result, including read requests.
+                snapshot.update(operation='list_attachments',items=[i for i,p in parts[:20]],has_more=len(parts)>20)
             else:
                 index=data['attachment_index']
                 if index>len(parts):raise ValueError('Seçilen sırada ek yok.')

@@ -488,7 +488,21 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Erişilemeyen/cevaplamayan kaynaklar aynı hedefte korunur; başka kaynak/araçla toparlanılabilir. Writer raporuna erişilemeyen kaynaklar deterministik eklenir; mail cevap taslağına bu ek yapılmaz. Ekip görünümünde denenen adres ve plan beklemesi görünür.
 - Eski açıkça içeriksiz research makbuzu sürdürmede yeniden kanıt sayılamaz. Geçersiz adımın bağımlı teslimleri ve hedef kanıtları transitif geçersizleştirilir; dosyalar silinmez. Bağımlı dış etkili işlem varsa inceleme beklenir, otomatik tekrar yoktur. Model beklemesi bittikten sonra kopyalanan bütçe iptali sonraki sağlayıcı denemesini de engeller.
 
+
 ## Selçuklu arka planı — 15 Ekim 2026
 - Hamdi’nin onayıyla APEX dalga zemininin yerine yerel seljuk-landscape.webp ve ayrı şeffaf seljuk-emblem.webp kullanılır. Yeni zemin üzerindeki hilal-yıldız 0,8 sn sonra aşağıdan yükselir, 2,6 sn sonra kırmızı enerji belirir ve hafif parlaklık ritmi sürer. Görsel sekiz köşeli Selçuklu yıldızıdır.
 - seljuk-backdrop.js sayfa başına tek dekoratif katman kurar; menü/sohbet dönüşünde yeniden başlamaz. Mevcut Tekrar oynat açılışı yeniden başlatır. Gizli belgede animasyonlar durur; reduced-motion veya nx_bust=false durağan son hâli gösterir. Katman pointer-events:none ve aria-hidden; mikrofon, model, hesap veya SSE eklenmez. Eski hologram figürü ve davranışı korunur, yalnız arkasındaki eski dağ katmanı gizlenir. Bu değişiklik Selçuklu karakterini uygulamaya bağlamaz.
 - Test: seljuk_backdrop_behavior.js; canlı Windows kabulü ve tam paket doğrulaması ayrıca gereklidir.
+
+## Main bütünleştirmesi ve Gmail takipleri — 15 Ekim 2026
+- Eski gmail-attachment-followups dalının henüz main'e girmemiş davranışı güncel görev motoruna taşındı: kısa ek komutları Türkçe İ, fazla boşluk ve son noktalama ile doğrudan Gmail yoluna gider. Son doğrulanmış listede gösterilen ilk mail veya ek sonucunun message_id değeri korunur; yeni mail gelince sıra değişse bile takip başka maile kaymaz. Kullanıcı ve kanıt doğrulaması korunur.
+- Hiç eki olmayan mailin ekini okumak doğrulanmış boş listeyle normal tamamlanır; başarısızlık/sürdürme önerisi oluşturmaz. Güncel render_summary ve ilk fallback'teki limit=1 korunur. Güncel UTF-8 baytlı belge alt süreç protokolü eski dalın koduyla ezilmez.
+- test_mail_followup_integration.py gerçek görev/kanıt akışında sabit mail kimliği, kısa komut yönlendirmesi ve boş ek durumunu model çağrısı olmadan sınar. Ekip revizyonu, imzalı onay/iptal, araştırma kanıt sözleşmesi, model bekleme sınırı ve kaynak izleme kodu değiştirilmez.
+
+
+## Model seçimi nedenleri ve hedef sonucu — 15 Ekim 2026
+- Smart Router seçim kaydı artık denenen sağlayıcılarla birlikte atlanan sağlayıcıların sabit/gizlilik güvenli nedenlerini içerir: kullanıcı anahtarı eksik, ücretsiz hesap onayı yok, görev türü desteklenmiyor veya önceki hatadan kalan süre. Ayar/anahtar otomatik değiştirilmez; ücretli sağlayıcılar havuza girmez. Yerel modun yalnız Ollama politikası korunur.
+- Başarısız hedef sonucu, önceki sınıflandırma/planlama çağrısının yeşil cevap izini temizler; hata/geçiş izleri korunur. Başarılı model çağrısı kullanıcı hedefinin tamamlandığı anlamına gelmez.
+- PC'de Groq'un neden atlandığı hesap ayarı görülmeden doğrulanmış sayılmaz. Yeni seçim kaydı bu nedeni sonraki denemede açıkça gösterir; geliştirmede canlı kullanıcı anahtarıyla çağrı yapılmaz.
+
+- HTTP429 günlük kullanımın bittiği kanıtı sayılmaz: kısa model izi “istek/token sınırı” der. Planlayıcı araç kataloğu aynı action/label/args/confirm değerlerini sütunlu JSON ile aktarır; hiçbir araç/parametre/onay alanı atılmaz. Planlayıcı tek JSON adımı için 1200 çıktı tokenı ister; rapor yazımı ayrı worker'dadır. Kaynak/görev/izin metinleri kesilmez. PC'deki sınırın kesin türü sunucu ayrıntısı olmadan bilinmez.

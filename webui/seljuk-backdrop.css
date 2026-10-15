@@ -24,6 +24,7 @@ body.seljuk-theme .app{position:relative;z-index:1}
 @media(prefers-reduced-motion:reduce){#seljuk-backdrop *,#seljuk-backdrop .sj-emblem{animation:none!important}}
 
 body.seljuk-theme .mn-bg,body.seljuk-theme .mn-shader{display:none}
+body.seljuk-theme .page.p-home{background:transparent!important}
 
 #seljuk-backdrop .sj-flow{position:absolute;inset:0;mask:url('/seljuk-emblem.webp') center/contain no-repeat;-webkit-mask:url('/seljuk-emblem.webp') center/contain no-repeat;background:linear-gradient(115deg,transparent 35%,rgba(255,35,42,.55) 49%,transparent 62%);background-size:250% 100%;mix-blend-mode:screen;opacity:0}
 #seljuk-backdrop.sj-enter .sj-flow{animation:sj-red-in 1s ease-out 2.6s both,sj-flow 7s linear 3.6s infinite}

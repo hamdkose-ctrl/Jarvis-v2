@@ -34,6 +34,15 @@ def catalog():
             'known_watch_sources':KNOWN_SOURCES}
 
 
+def planner_catalog():
+    """Same action contract values with repeated JSON column names removed."""
+    result=catalog()
+    columns=['action','label','args','confirm']
+    result['action_columns']=columns
+    result['actions']=[[row[key] for key in columns] for row in result['actions']]
+    return result
+
+
 def validate(kind, data):
     if kind in goal_extensions.TOOLS:return goal_extensions.validate(kind,data)
     if kind in task_tools.CATALOG:

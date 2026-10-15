@@ -556,6 +556,12 @@ def note_route(text: str, ok: bool) -> None:
     del notes[:-8]
 
 
+def discard_success_routes():
+    """A completed classification/model call is not a completed user goal."""
+    _route.notes=[row for row in (getattr(_route,'notes',None) or []) if not row[1]]
+    _route.model=None
+
+
 def take_route() -> list[tuple[str, bool]]:
     """İsteğin model izini verir ve temizler: geçiş/hata satırları ve en son cevap veren model."""
     notes = getattr(_route, "notes", None) or []
