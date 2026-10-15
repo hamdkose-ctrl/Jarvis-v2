@@ -219,3 +219,13 @@ Son kontrol: 1195 Python testi OK (2 platform atlaması), 23 Node/6 smoke başar
 
 ### Ekip merkezi ikinci teslim — 15 Ekim 2026
 Uzman düzenleme/devre dışı bırakma, çalışan ayrıntısı, kimlik ve içerik imzasıyla hedef yanıt/onay/iptal, görev sürdürme/iptal, takibi duraklatma/açma/sıklık değiştirme ve gerçek adımlara bağlı 2D ofis bu dalda eklenmiştir. Önceki ofis yapılmadı ve bu kontroller yok notları ilk teslimin tarihsel sınırlarıdır. Ofis sade yerel CSS çizimidir; AgentSpace görselinin veya varlıklarının kopyası değildir. Diğer tarafın yürütme/yetenek/servis bağlantısı çalışması devam eder; ortak kabul ve canlı Windows testleri henüz tamamlanmış değildir.
+
+
+## Bağlantı çalışması — PR #28 üzerinde entegrasyon
+
+Taban: `81f8536ab792980c2bf48c4f5a2225dd021e2fdc`. Kaynak takibi, servis referansı değerlendirmesi, sabit genel GET bağlama ve CSV alan araçları geliştirme aşamasındadır; yayımlanmış sürümün özelliği sayılmaz.
+
+Bekleyenler: gerçek Windows bildirim/yeniden başlatma kabulü; dış HTTP kaynaklarına canlı erişim; yeni banka/mağaza hesap adaptörleri ve MCP sunucusu çalıştırma (bu çalışmada tamamlanmış değildir). API listesinde bulunmak hesap bağlantısı veya ücretsiz kullanım doğrulaması değildir. Ortak kontroller bitmeden main'e birleştirilmez.
+
+## Canlı araştırma–rapor testi — 15 Ekim 2026
+Windows testi başarısız: model beklemesi, siberrecete.com DNS hatası, bilgi vermeyen yanıtın başarı sayılması ve eski yıl varsayımı görüldü. Kaynak değiştirildiği hâlde rapor teslimi tamamlanmadı. Bu geliştirme model beklemesini sınırlama, durum sorgusunu ayırma, kanıtlı araştırma ve aynı hedefte dosya teslimi regresyonlarını içerir; gerçek Windows tekrarı yapılmadan bu canlı test geçmiş sayılmaz.
