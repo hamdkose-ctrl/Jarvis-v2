@@ -19,3 +19,8 @@ def parse(answer,source,*,allow_unsupported=False):
     if any(not isinstance(q,str) or not 20<=len(q)<=800 or normalized(q) not in text for q in quotes):
         raise ValueError('Araştırma alıntısı okunan sayfada yok; başarı sayılmadı.')
     return data
+
+
+def legacy_unsupported(answer):
+    """Invalidate the known old no-answer receipt without deleting its journal."""
+    return bool(re.search(r'(kaynakta desteklenen bir yanıt verilemem|herhangi bir bilgi yer almamak|bu sayfa soruya yanıt vermiyor|no relevant information (?:was )?found)',str(answer),re.I))
