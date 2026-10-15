@@ -220,4 +220,24 @@ class SmartRouterTests(unittest.TestCase):
             nxapi.ui_set('ai_mode','auto');choose.assert_called_once_with('auto')
 
 
+    def test_missing_groq_key_is_reported_without_reading_or_exposing_a_key(self):
+        router.configure('alice',True)
+        with patch.object(llm,'user_groq_key',return_value=''):
+            with self.assertRaises(RuntimeError) as caught:
+                router.run('alice','araştırma raporu',Mock(side_effect=TimeoutError('PRIVATE')))
+            last=router.status('alice')['last']
+        self.assertIn('groq: Bu kullanıcı için API anahtarı eksik',str(caught.exception))
+        self.assertIn({'provider':'groq','reason':'Bu kullanıcı için API anahtarı eksik','seconds':0},last['skipped'])
+        self.assertNotIn('PRIVATE',json.dumps(last))
+
+    def test_groq_cooldown_is_visible_and_expiry_makes_it_eligible(self):
+        router.configure('alice',True)
+        router._HEALTH[('alice','groq')]={'until':router.time.monotonic()+300}
+        selected=router.selection('alice','analysis')
+        self.assertNotIn('groq',selected['candidates'])
+        row=next(r for r in selected['skipped'] if r['provider']=='groq')
+        self.assertIn('beklemede',row['reason']);self.assertGreater(row['seconds'],0)
+        router._HEALTH[('alice','groq')]['until']=router.time.monotonic()-1
+        self.assertIn('groq',router.candidates('alice','analysis'))
+
 if __name__=='__main__':unittest.main()
