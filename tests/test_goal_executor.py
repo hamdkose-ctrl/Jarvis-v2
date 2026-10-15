@@ -501,5 +501,16 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(job['goals'][0],{'state':'pending','evidence':[]})
         self.assertEqual(report.read_text(),'Önceki rapor')
 
+    def test_failed_goal_removes_prior_green_classification_and_keeps_failure_trace(self):
+        llm.take_route();self.addCleanup(llm.take_route)
+        llm.note_route('Cevap: Gemini · classification',True)
+        llm.note_route('Groq beklemede',False)
+        self.ask.side_effect=RuntimeError('No eligible model')
+        goals.run(self.runtime,'Kaynaklı rapor oluştur')
+        notes=llm.take_route()
+        self.assertFalse(any(ok for _,ok in notes))
+        self.assertIn(('Groq beklemede',False),notes)
+        self.assertEqual(goals.latest('alice')['state'],'paused')
+
 
 if __name__=='__main__':unittest.main()
