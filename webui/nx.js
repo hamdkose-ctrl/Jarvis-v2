@@ -145,7 +145,7 @@ let bgT=0;
 let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
-const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid']];
+const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid']];
 function ic2(n){return ic(n)}
 function renderTop(){
   const sn=S.snap||{},n=needCount(),w=sn.weather,win=sn.winctl!==false;

@@ -6,6 +6,7 @@ All work still goes through goal_tools/task_agents and their existing boundaries
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -53,7 +54,7 @@ def _validate(members):
     seen = set()
     result = []
     for item in members:
-        if not isinstance(item,dict) or set(item) != {'id','name','tags','tools'}:
+        if not isinstance(item,dict) or not {'id','name','tags','tools'}.issubset(item) or set(item)-{'id','name','tags','tools','enabled'}:
             raise ValueError('Uzman alanları id, name, tags ve tools olmalı.')
         ident = item['id']
         if not isinstance(ident,str) or not re.fullmatch('[a-z][a-z0-9_-]{0,39}',ident) or ident in seen:
@@ -66,7 +67,11 @@ def _validate(members):
         if not isinstance(tools,list) or not tools or any(not isinstance(t,str) or t not in allowed for t in tools) or len(set(tools))!=len(tools):
             raise ValueError('Uzman yalnız kayıtlı araçları kullanabilir.')
         seen.add(ident)
-        result.append({'id':ident,'name':item['name'].strip(),'tags':[t.strip() for t in tags],'tools':list(tools)})
+        entry={'id':ident,'name':item['name'].strip(),'tags':[t.strip() for t in tags],'tools':list(tools)}
+        if 'enabled' in item:
+            if type(item['enabled']) is not bool:raise ValueError('Uzman etkinliği boolean olmalı.')
+            entry['enabled']=item['enabled']
+        result.append(entry)
     return result
 
 
@@ -79,9 +84,15 @@ def members(owner):
     return _validate(json.loads(path.read_text(encoding='utf-8')))
 
 
-def save_members(owner, entries):
+def revision(entries):
+    return hashlib.sha256(json.dumps(entries,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
+def save_members(owner, entries, expected_revision=None):
     with _LOCK:
         path = _path(owner)
+        if expected_revision is not None and revision(members(owner))!=expected_revision:
+            raise ValueError('Uzman dizini başka işlemde değişmiş; yenileyip tekrar kaydet.')
         entries = _validate(entries)
         path.parent.mkdir(parents=True,exist_ok=True)
         release_guard.atomic(path,json.dumps(entries,ensure_ascii=False).encode('utf-8'))
@@ -91,7 +102,7 @@ def save_members(owner, entries):
 def assign(owner, tool, instruction='', preferred=None):
     """Choose a compatible specialist; the result is a label, not authorization."""
     entries = members(owner)
-    candidates = [m for m in entries if tool in m['tools']]
+    candidates = [m for m in entries if m.get('enabled',True) and tool in m['tools']]
     if preferred is not None:
         match = next((m for m in candidates if m['id']==preferred),None)
         if match is None:
@@ -133,7 +144,14 @@ def _job(owner, job, kind):
                        'artifacts':list(dict.fromkeys(artifacts)),
                        'has_receipt':bool(output.get('verification')),
                        'attempts':step.get('attempts',1)})
+    from modules import goal_executor
+    pending=outputs.get(job.get('waiting'),{}) if kind=='goal' else {}
+    if kind=='task':
+        pending=next((outputs.get(s['id'],{}) for s in steps if s.get('state')=='approval'),{})
     return {'id':job['id'],'kind':kind,'state':job.get('state','unknown'),
+            'control':goal_executor.control_key(job),
+            'approval':_public(pending.get('text',pending.get('message','')),4000) if job.get('state')=='approval' else '',
+            'approval_id':pending.get('id','') if job.get('state')=='approval' else '',
             'request':_public(job.get('request',job.get('instruction','')),1500),
             'created':job.get('created',0),'steps':result,
             'question':_public(job.get('question',job.get('blocker',''))),
@@ -169,14 +187,15 @@ def snapshot(owner):
         engine = goal_executor if job['kind']=='goal' else task_agents
         with engine._LOCK:
             active = owner in engine._ACTIVE and engine._ACTIVE_JOBS.get(owner)==job['id']
-        if job['state']=='running' and not active:
-            job['state']='interrupted'
+        if not active:
+            if job['state']=='running':job['state']='interrupted'
             for step in job['steps']:
                 if step['state']=='running':
-                    step['state']='interrupted'
-            job['question']='Çalışan yürütücü yok; kayıtlı iş kesilmiş olabilir. Sonucu inceleyerek sürdür.'
+                    step['state']='cancelled' if job['state']=='cancelled' else 'interrupted'
+            if job['state']=='interrupted':job['question']='Çalışan yürütücü yok; kayıtlı iş kesilmiş olabilir. Sonucu inceleyerek sürdür.'
     scheduled = [{**row,'instruction':_public(row.get('instruction'))} for row in task_queue.rows(owner)]
-    return {'owner':owner,'now':time.time(),'members':members(owner),'capabilities':capabilities(),
+    directory=members(owner)
+    return {'owner':owner,'now':time.time(),'members':directory,'revision':revision(directory),'capabilities':capabilities(),
             'jobs':jobs,'queue':scheduled,'warnings':list(dict.fromkeys(warnings)),
             'limits':['Finans verisi ve mağaza bağlantıları ayrıca adaptör gerektirir.',
                       'Uzman tanımı bağlantı veya işlem izni sağlamaz.',
