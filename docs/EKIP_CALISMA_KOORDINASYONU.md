@@ -1,14 +1,15 @@
 # Ekip yönetimi çalışma koordinasyonu
 
-Durum: geliştirme başladı; henüz uygulanmış özellik veya başarılı test iddiası yok.
+Dal: `codex/team-orchestration-20261015`. Henüz main'e birleştirilmedi.
 
-- Sorumlu dal: codex/team-orchestration-20261015
-- Taban: 6513bef6da25cdb8f088af8fe7b458c8dd9b0958
-- Kapsam: mevcut hedef/görev motoruna bağlı uzman ve yetenek kaydı, görev/teslim/engel görünümü, mevcut kuyruk üzerinden düzenli takip, ekip ekranı ve testler.
-- updater.py, scripts/guncelleme_gecisi.py, Android, hologram ve ses motoru kapsam dışıdır.
-- Mevcut kullanıcı/izin/geliştirme kilidi ve ücretli sağlayıcı sınırları korunur.
-- Finans, mağaza ve yeni servisler bağlantı yokken hazır/bağlı gösterilmeyecek.
-- Diğer çalışma yeni commit üretirse birleştirmeden önce farklar yeniden kontrol edilecek.
-- Kullanıcı talimatı: tüm kontrolleri tamamla, birleştirmeden önce raporla; Windows kullanıcı testlerini en sonda tek listede ver.
+Başlangıç tabanı `6513bef6`; diğer çalışmanın `2cecfa93` rapor/video ve kilitli coder düzeltmeleri çalışma tabanına alınmıştır. Bunlar bu özelliğin yaptığı iş olarak sayılmaz.
 
-Bu not diğer sohbetin okuyabileceği ortak kayıttır; sohbetler arasında doğrudan mesaj kanalı yoktur.
+Değişen çalışma dosyaları: `modules/team_center.py`, `modules/goal_executor.py` (uzman bağlamı/etiketi), `modules/task_agents.py` (etiket), `web_tasks.py` (yerel köprü), `webui/team-center.js`, `webui/nx.js` (menü bağlantısı), `webui/nx.html` (yerel betik), `webui/nx.css` (yalnız ekip ekranı), test ve durum belgeleri.
+
+Güncelleyici, Android, hologram ve ses motoruna dokunulmadı. `goal_executor.py` diğer çalışmayla ortak dosyadır: son upstream düzeltmeleri korunarak yalnız uzman bağlamı/etiketi eklenir.
+
+Uygulananlar: uzman kaydı, mevcut görev ve teslim görünümü, mevcut kuyruk üzerinden kaynak takibi, kuyruk iptali ve yerel kanıt kontrolü. Yeni uzman bir hesap bağlantısı/model/adaptör kurmaz. Finans ve mağaza servisleri ayrıca bağlantı gerektirir. Gerçek sürekli çalışan ofis veya bütün dış servislerin hazır olduğu iddia edilmez.
+
+Test durumu: güncel 2cecfa93 tabanı ve son düzeltmeyle 1203 Python testi (2 mevcut atlama), 23 Node grubu ve 6 smoke grubu geçti. Tarayıcıda hedef gönderme, uzman ekleme, takip/iptal, XSS kaçırma, yeniden giriş ve 320/390/768/1280 taşma kontrolleri geçti. Salt okunur kural denetiminde bulunan eski running kaydının yanlış canlı görünmesi görev kimliği eşleştirmesiyle giderildi; yeniden denetim geçti. Canlı API, hesap ve Windows kabulü yapılmadı.
+
+Kullanıcı talimatı: birlikte kontrol et, birleştirmeden raporla; Windows testlerini en sonda tek listede ver. Bu not diğer sohbetin okuyabileceği ortak kayıttır, sohbetler arasında doğrudan mesaj kanalı yoktur.

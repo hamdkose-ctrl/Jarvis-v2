@@ -3,6 +3,55 @@ from __future__ import annotations
 
 class WebTasks:
 
+    def team_snapshot(self) -> dict:
+        from modules import team_center
+        return team_center.snapshot(self._runtime._p().slug)
+
+    def team_save(self, members: list) -> list:
+        from modules import team_center
+        return team_center.save_members(self._runtime._p().slug, members)
+
+    def team_schedule(self, tasks: list, instruction: str, seconds: int=0, repeat_seconds: int=0) -> str:
+        from modules import task_queue
+        return task_queue.enqueue(self._runtime._p().slug, tasks, instruction, seconds, repeat_seconds)
+
+    def team_queue_cancel(self, identity: str) -> bool:
+        from modules import task_queue
+        task_queue.cancel(self._runtime._p().slug, identity)
+        return True
+
+    def team_verify(self, kind: str, identity: str) -> dict:
+        from modules import goal_executor, goal_tools, task_agents, task_results, service_store
+        owner = self._runtime._p().slug
+        service_store.identity(owner)
+        if not isinstance(identity,str) or not self._runtime.re.fullmatch('[a-f0-9]{12,32}',identity):
+            raise ValueError('Görev kimliği geçersiz.')
+        if kind == 'task':
+            job = task_agents._load(owner,identity)
+            verify = lambda output: task_results.verify(output,owner=owner)
+        elif kind == 'goal':
+            import json
+            path = goal_executor._root(owner)/(identity+'.json')
+            if path.is_symlink() or not path.is_file() or path.stat().st_size>16_000_000:
+                raise ValueError('Görev kaydı geçersiz.')
+            job = json.loads(path.read_text(encoding='utf-8'))
+            if job.get('owner')!=owner or job.get('id')!=identity:
+                raise ValueError('Görev sahibi eşleşmiyor.')
+            verify = lambda output: goal_tools.verify(output,owner)
+        else:
+            raise ValueError('Görev türü geçersiz.')
+        outputs = {key:value for key,value in job.get('outputs',{}).items() if value.get('state')=='done'}
+        if not outputs:
+            return {'ok':False,'message':'Doğrulanacak tamamlanmış çıktı yok.'}
+        failed = []
+        for key,value in outputs.items():
+            try:
+                verify(value)
+            except (ValueError,PermissionError,OSError,KeyError,TypeError):
+                failed.append(key)
+        return {'ok':not failed,'checked':len(outputs),'failed':failed,
+                'message':'Yerel kanıtlar denetlendi. İçerik doğruluğu ve hesapların güncel durumu bu kontrolün kapsamında değil.'}
+
     def task_add(self, text: str, when: str='') -> dict:
         runtime = self._runtime
         return runtime.tasks.add(runtime._p(), text, when)
@@ -59,3 +108,4 @@ class WebTasks:
     def event_delete(self, eid: int) -> bool:
         runtime = self._runtime
         return runtime._p().delete_event(int(eid))
+

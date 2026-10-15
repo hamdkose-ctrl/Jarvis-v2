@@ -169,6 +169,11 @@ def reconcile(runtime,kind,data,identity,check):
 def execute(runtime,kind,data,dependencies,identity,*,approval=None):
     owner=runtime.profile.slug;validate(kind,data);requests_state.check()
     if kind in task_tools.CATALOG:
+        if kind=='coder':
+            from modules import developer
+            state=developer.status(owner)
+            if not state.get('enabled') or not state.get('unlocked'):
+                raise NotStarted('Kod geliştirme alanı kilitli; hiçbir kod işlemi başlatılmadı. Rapor için writer, sahne/video için media kullan. Yalnız gerçekten kod geliştirmek gerekiyorsa kullanıcıdan geliştirme alanını açmasını iste.')
         if kind=='publish':
             import re
             request=identity.get('request','').casefold()

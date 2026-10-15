@@ -1025,7 +1025,7 @@ PAGES.menu=pg=>{
    <div class="mn-hud"><div class="mn-glow"></div><small class="mn-lbl" data-act="mnlamp" role="button" tabindex="0" aria-label="Menü panelini aç/kapat">MENÜ</small>
     <div class="mn-clock"><div><b class="mn-time">${d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</b><small>${esc(date)}</small></div>${w?`<div><span class="mn-t">${Math.round(w.temp)}°C</span><small class="mn-wx">${esc(String(w.city||'').toUpperCase())}${w.desc?' · '+esc(String(w.desc).toUpperCase()):''}</small></div>`:''}</div>
     <button class="mn-bell" data-act="notif" aria-label="Bildirimler">${ic('bell')}${needCount()?`<i>${needCount()}</i>`:''}</button>
-    <div class="mn-tiles"><button class="mn-tile" data-go="home">Ana ekrana dön</button></div></div>
+    <div class="mn-tiles"><button class="mn-tile" data-go="home">Ana ekrana dön</button><button class="mn-tile" data-go="team">Ekip merkezi</button></div></div>
    <div id="mn-card"></div></div>`;
   {const sc=pg.querySelector('.hscene');sc.addEventListener('click',e=>menuOutsideClick(sc,e))}
   mountMenu(pg.querySelector('.hscene'));
@@ -2202,3 +2202,4 @@ ACT.modelcheck=async()=>{try{const r=await api('llm_validate',true);SX.gk=r.mess
 function localSttText(s){return !s.installed?'Önce faster-whisper paketini kur (docs/YEREL_SES.md).':s.preparing?'Model indiriliyor; biraz sonra durumu yenile.':s.error|| (s.ready?'Model hazır. Gizli/Yerel modda ses buluta gitmez.':'Model henüz indirilmedi. İndirme internet kullanır; ses kaydı göndermez.')}
 ACT.lsttprepare=async()=>{const name=$('#lsttmodel').value;if(!await ask(name+' yerel ses modeli indirilsin mi? İnternet ve disk alanı kullanır.'))return;try{await api('settings_save',{local_stt_model:name});await api('local_stt_prepare',name);toast('Model hazırlanıyor; biraz sonra durumu yenile.');drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.lsttrefresh=()=>drawSettings();
+

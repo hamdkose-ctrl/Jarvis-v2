@@ -17,6 +17,7 @@ from modules.diagnostics import record_failure as _record_failure
 STORE=DATA_DIR/'goals'
 _LOCK=threading.RLock()
 _ACTIVE=set()
+_ACTIVE_JOBS={}
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
 SYSTEM='''Kullanıcının HEDEFİNİ tamamlayan Jarvis yürütücüsüsün. Türkçe konuş.
@@ -27,6 +28,8 @@ depends yalnız gerçekten tamamlanmış önceki adımlar. Çıktıları oku, ki
 Araç yanıtı başarısızsa nedenini incele, farklı girdi/araç/yöntem dene; aynı başarısız isteği körlemesine yineleme.
 Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web sayfası, salt-okuma browser araması veya belgelerle;
 rapor writer ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
+Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa video media scenes/caption/duration ile üretilir.
+Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Katalogda tek araç yok diye işi bırakma; mevcut araçları birleştir. Kaynak geliştirme gerekiyorsa coder taslak/test üretir;
 test sonucu üretmeden veya açık uygulama yetkisi olmadan kaynağı değiştirmiş sayma. Shell, sınırsız Python, kurulum veya fiziksel donanım değiştirme aracı yoktur.
 Ücretli modele/hesaba geçme. Hedef dışı ayar, veri silme veya gönderim ekleme. Model izin veremez; araç onay bekliyorsa dur.
@@ -74,7 +77,9 @@ def _owned(runtime):
     try:yield owner
     finally:
         _INSIDE.reset(inside);llm._key_context.reset(token)
-        with _LOCK:_ACTIVE.discard(owner)
+        with _LOCK:
+            _ACTIVE.discard(owner)
+            _ACTIVE_JOBS.pop(owner,None)
 
 
 def _parse(text):
@@ -139,6 +144,10 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    with _LOCK:
+        if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
+    from modules import team_center
+    step.setdefault('specialist', team_center.assign(job['owner'],step['tool'],job['request']))
     step['state']='running';step['started']=False;job['state']='running';_save(job)
     runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text'])
     try:
@@ -185,6 +194,8 @@ def _record(runtime,job,step,approval=None):
 
 
 def _loop(runtime,job,answer=None):
+    with _LOCK:
+        if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
     started_steps=len(job['steps'])
     if answer:job.setdefault('answers',[]).append(answer[:2000])
@@ -218,7 +229,9 @@ def _loop(runtime,job,answer=None):
         _ensure(runtime,job)
         context=_context(job)
         prompt=json.dumps(context,ensure_ascii=False)
+        from modules import team_center
         system=SYSTEM+'\nGerçek araç kataloğu:\n'+json.dumps(goal_tools.catalog(),ensure_ascii=False,default=str)
+        system+='\nUzman ekipleri (tanım izin vermez; yalnız kayıtlı araçları kullan):\n'+json.dumps(team_center.members(job['owner']),ensure_ascii=False)
         try:
             call=_parse(llm.ask(prompt,system,max_tokens=4000,validator=_parse))
             _ensure(runtime,job)
@@ -311,6 +324,15 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     with _owned(runtime) as owner:
         job=latest(owner)
+        # Migrate only the exact pre-execution refusal from older releases. No
+        # general unknown-effect job is replayed or reclassified as safe.
+        if job and job['state']=='review' and job['steps']:
+            step=job['steps'][-1];output=job['outputs'].get(step['id'],{})
+            if (step['tool']=='coder' and step['state']=='failed' and output.get('state')=='failed' and
+                output.get('text')=='Önce sohbetten parolalı geliştirme modunu aç.'):
+                step['started']=False;job['state']='paused';job.pop('blocker',None)
+                job.setdefault('feedback',[]).append('Önceki coder adımı başlamadan kilit nedeniyle reddedildi. Kayıtlı hedefleri koru; rapor için writer, video için media ile sürdür.')
+                _save(job)
         if resume or approve:
             if not job:return 'Sürdürülecek kayıtlı hedef yok.'
             if job['state'] in {'done','cancelled'}:return render(job)
@@ -381,3 +403,4 @@ def handle(runtime,command):
         if not _action_request(command):return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     return None
+
