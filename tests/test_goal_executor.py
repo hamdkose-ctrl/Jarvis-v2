@@ -386,4 +386,34 @@ class GoalTests(unittest.TestCase):
                 bridge.assert_not_called()
 
 
+
+    def test_locked_coder_does_not_block_real_report_and_video_delivery(self):
+        import shutil
+        from modules import developer
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):self.skipTest('FFmpeg unavailable')
+        self.responses(self.plan('İstanbul raporu','İstanbul videosu'),
+            self.tool('coder',{'request':'Rapor ve video oluştur'}),
+            self.tool('writer',{'instruction':'İstanbul hakkında kısa rapor','filename':'istanbul.md'}),
+            'İstanbul iki kıtaya yayılan bir şehirdir.',self.done('s2'),
+            self.tool('media',{'scenes':[{'caption':'İstanbul','duration':3}],'layout':'landscape'},goal=1),self.done('s3',goal=1),self.finish())
+        with patch.object(developer,'status',return_value={'enabled':False,'unlocked':False}),patch.object(developer,'handle') as code:
+            result=goals.run(self.runtime,'İstanbul raporu dosyası ve İstanbul yazan 3 saniyelik video oluştur. Yayınlama.')
+        job=goals.latest('alice');self.assertEqual(job['state'],'done',result);code.assert_not_called()
+        self.assertFalse(job['steps'][0]['started'])
+        self.assertTrue(Path(job['outputs']['s2']['file']).is_file())
+        self.assertAlmostEqual(job['outputs']['s3']['media']['duration'],3,delta=.2)
+
+    def test_legacy_locked_coder_review_can_resume_without_repeating_code(self):
+        self.responses(self.plan('Rapor dosyası'),RuntimeError('offline'))
+        goals.run(self.runtime,'Rapor dosyası oluştur')
+        job=goals.latest('alice')
+        job['state']='review';job['steps']=[{'id':'s1','goal':0,'tool':'coder','input':{'request':'Rapor üret'},'state':'failed','started':True,'depends':[],'signature':'old'}]
+        job['outputs']={'s1':{'state':'failed','text':'Önce sohbetten parolalı geliştirme modunu aç.'}}
+        goals._save(job)
+        self.responses(self.tool('writer',{'instruction':'Rapor üret','filename':'rapor.md'}),'Rapor metni',self.done('s2'),self.finish())
+        result=goals.handle(self.runtime,'devam et')
+        self.assertEqual(goals.latest('alice')['state'],'done',result)
+        self.assertEqual(len(goals.latest('alice')['steps']),2)
+
+
 if __name__=='__main__':unittest.main()
