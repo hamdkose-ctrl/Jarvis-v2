@@ -76,18 +76,31 @@ def task_type(prompt, image=False):
     return 'chat'
 
 
-def candidates(owner, task):
+def selection(owner,task):
     from modules import llm
-    if privacy.mode() == 'yerel': return ['ollama']
-    state = settings(owner)
-    ready = {'ollama': True,
-             'gemini': bool(state.get('cloud_free_confirmed') and llm.user_key(owner)),
-             'groq': bool(state.get('cloud_free_confirmed') and llm.user_groq_key(owner))}
-    # OpenRouter stays a manual choice only: the automatic pool never sends prompts to a third-party gateway.
-    orders = {'vision': ['gemini','ollama'], 'code': ['gemini','groq','ollama'],
-              'analysis': ['gemini','groq','ollama'], 'chat': ['groq','gemini','ollama']}
-    with _LOCK:
-        return [p for p in orders[task] if ready[p] and _HEALTH.get((owner,p), {}).get('until',0) <= time.monotonic()]
+    if privacy.mode()=='yerel':
+        return {'candidates':['ollama'],'skipped':[{'provider':p,'reason':'Yerel modda bulut kapalı','seconds':0} for p in ('gemini','groq')]}
+    state=settings(owner)
+    orders={'vision':['gemini','ollama'],'code':['gemini','groq','ollama'],
+            'analysis':['gemini','groq','ollama'],'chat':['groq','gemini','ollama']}
+    selected=[];skipped=[];local=privacy.mode()=='yerel'
+    for provider in ('gemini','groq','ollama'):
+        reason=None;seconds=0
+        if local and provider!='ollama':reason='Yerel modda bulut kapalı'
+        elif provider not in orders[task]:reason='Bu görev türü desteklenmiyor'
+        elif provider!='ollama' and not state.get('cloud_free_confirmed'):reason='Ücretsiz hesap onayı yok'
+        elif provider=='gemini' and not llm.user_key(owner):reason='Bu kullanıcı için API anahtarı eksik'
+        elif provider=='groq' and not llm.user_groq_key(owner):reason='Bu kullanıcı için API anahtarı eksik'
+        else:
+            with _LOCK:seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
+            if seconds:reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede'
+        if reason:skipped.append({'provider':provider,'reason':reason,'seconds':seconds})
+        else:selected.append(provider)
+    return {'candidates':[p for p in orders[task] if p in selected],'skipped':skipped}
+
+
+def candidates(owner, task):
+    return selection(owner,task)['candidates']
 
 
 def failure_kind(exc):
@@ -133,7 +146,9 @@ def cooldown(provider, exc):
 def run(owner, prompt, callback, image=False):
     task = task_type(prompt, image)
     attempts = []
-    for provider in candidates(owner, task):
+    selected=candidates(owner,task)
+    skipped=[row for row in selection(owner,task)['skipped'] if row['provider'] not in selected]
+    for provider in selected:
         requests_state.check(); start = time.monotonic()
         try:
             answer = callback(provider)
@@ -153,12 +168,13 @@ def run(owner, prompt, callback, image=False):
             continue
         attempts.append({'provider':provider,'ok':True,'seconds':round(time.monotonic()-start,2)})
         with _LOCK:
-            _LAST[owner] = {'task':task,'provider':provider,'attempts':attempts}
+            _LAST[owner] = {'task':task,'provider':provider,'attempts':attempts,'skipped':skipped}
             _HEALTH.pop((owner,provider),None)
         return answer
-    with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts}
+    with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts,'skipped':skipped}
     detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar ve bekleme durumunu router durumu ile kontrol et.'
-    raise RuntimeError('Uygun ücretsiz model yanıt vermedi. ' + detail + ' Ücretli modele geçilmedi.')
+    omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
+    raise RuntimeError('Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.')
 
 
 def openrouter(owner, messages, system, max_tokens, image_path=None):
@@ -225,5 +241,6 @@ def handle(owner, command):
         for r in s['capabilities']: rows.append('| '+ ' | '.join([r['provider'],r['model'],', '.join(r['tasks']),r['policy']])+' |')
         attempts = s['last'].get('attempts', [])
         trace = '\n'.join(failure_detail(a) if not a['ok'] else a['provider'] + ': yanıt alındı' for a in attempts)
-        return '\n'.join(rows)+'\n\nSon seçim: '+str(s['last'].get('provider') or 'Henüz yok') + ('\nSon çağrı denemeleri:\n' + trace if trace else '')
+        skipped='; '.join(row['provider']+': '+row['reason'] for row in s['last'].get('skipped',[]))
+        return '\n'.join(rows)+('\n\nAtlanan sağlayıcılar: '+skipped if skipped else '')+'\n\nSon seçim: '+str(s['last'].get('provider') or 'Henüz yok') + ('\nSon çağrı denemeleri:\n' + trace if trace else '')
     return None
