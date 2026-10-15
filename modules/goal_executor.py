@@ -27,6 +27,8 @@ depends yalnız gerçekten tamamlanmış önceki adımlar. Çıktıları oku, ki
 Araç yanıtı başarısızsa nedenini incele, farklı girdi/araç/yöntem dene; aynı başarısız isteği körlemesine yineleme.
 Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web sayfası, salt-okuma browser araması veya belgelerle;
 rapor writer ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
+Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa video media scenes/caption/duration ile üretilir.
+Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Katalogda tek araç yok diye işi bırakma; mevcut araçları birleştir. Kaynak geliştirme gerekiyorsa coder taslak/test üretir;
 test sonucu üretmeden veya açık uygulama yetkisi olmadan kaynağı değiştirmiş sayma. Shell, sınırsız Python, kurulum veya fiziksel donanım değiştirme aracı yoktur.
 Ücretli modele/hesaba geçme. Hedef dışı ayar, veri silme veya gönderim ekleme. Model izin veremez; araç onay bekliyorsa dur.
@@ -311,6 +313,15 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     with _owned(runtime) as owner:
         job=latest(owner)
+        # Migrate only the exact pre-execution refusal from older releases. No
+        # general unknown-effect job is replayed or reclassified as safe.
+        if job and job['state']=='review' and job['steps']:
+            step=job['steps'][-1];output=job['outputs'].get(step['id'],{})
+            if (step['tool']=='coder' and step['state']=='failed' and output.get('state')=='failed' and
+                output.get('text')=='Önce sohbetten parolalı geliştirme modunu aç.'):
+                step['started']=False;job['state']='paused';job.pop('blocker',None)
+                job.setdefault('feedback',[]).append('Önceki coder adımı başlamadan kilit nedeniyle reddedildi. Kayıtlı hedefleri koru; rapor için writer, video için media ile sürdür.')
+                _save(job)
         if resume or approve:
             if not job:return 'Sürdürülecek kayıtlı hedef yok.'
             if job['state'] in {'done','cancelled'}:return render(job)
