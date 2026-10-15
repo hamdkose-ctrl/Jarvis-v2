@@ -506,3 +506,7 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - PC'de Groq'un neden atlandığı hesap ayarı görülmeden doğrulanmış sayılmaz. Yeni seçim kaydı bu nedeni sonraki denemede açıkça gösterir; geliştirmede canlı kullanıcı anahtarıyla çağrı yapılmaz.
 
 - HTTP429 günlük kullanımın bittiği kanıtı sayılmaz: kısa model izi “istek/token sınırı” der. Planlayıcı araç kataloğu aynı action/label/args/confirm değerlerini sütunlu JSON ile aktarır; hiçbir araç/parametre/onay alanı atılmaz. Planlayıcı tek JSON adımı için 1200 çıktı tokenı ister; rapor yazımı ayrı worker'dadır. Kaynak/görev/izin metinleri kesilmez. PC'deki sınırın kesin türü sunucu ayrıntısı olmadan bilinmez.
+
+## Yinelenen hedef planı — 16 Ekim 2026
+- Planlayıcı ilk planı yalnız goals boşken oluşturur; kayıtlı hedefte mevcut goal kimliğiyle araç/kanıt/soru/bitiş seçmesi açıkça istenir. Mevcut plan yine değiştirilemez. Aynı çalışma turunda üç yeniden plan önerisi reddedilirse başka araç başlatmadan açık gerekçeyle duraklar; 48 tur boyunca aynı plan ret yanıtını tekrarlamaz. Önceki hedefler/kanıtlar korunur ve izin kapıları değişmez.
+- test_goal_executor.py planın korunması, sınırlı model çağrısı ve yanlış plan sonrası geçerli adıma toparlanmayı sınar; canlı sağlayıcı çağrısı yoktur.

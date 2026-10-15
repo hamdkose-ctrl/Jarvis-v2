@@ -527,4 +527,29 @@ class GoalTests(unittest.TestCase):
         for call in self.ask.call_args_list:self.assertEqual(call.kwargs['max_tokens'],1200)
 
 
+
+    def test_repeated_replanning_stops_without_overwriting_saved_goals_or_running_tools(self):
+        self.responses(self.plan('Özgün hedef'),self.plan('Yanlış yeni hedef'),
+                       self.plan('Yanlış yeni hedef'),self.plan('Yanlış yeni hedef'))
+        with patch.object(goals,'_record',side_effect=AssertionError('no tool should run')):
+            text=goals.run(self.runtime,'Kaynaklı rapor hazırla')
+        job=goals.latest('alice')
+        self.assertEqual(self.ask.call_count,4)
+        self.assertEqual(job['goals'][0]['text'],'Özgün hedef')
+        self.assertEqual(job['steps'],[])
+        self.assertEqual(job['state'],'paused')
+        self.assertIn('tekrar planlamaya',job['blocker'])
+        self.assertIn('3 kez',text)
+        self.assertIn('kayıtlı plan VAR',self.ask.call_args_list[1].kwargs['system'])
+
+    def test_replanning_rejection_can_recover_to_a_valid_next_action(self):
+        self.responses(self.plan('Özgün hedef'),self.plan('Yanlış yeni hedef'),
+                       {'action':'ask','question':'Hangi tarih aralığı?'})
+        goals.run(self.runtime,'Kaynaklı rapor hazırla')
+        job=goals.latest('alice')
+        self.assertEqual(job['goals'][0]['text'],'Özgün hedef')
+        self.assertEqual(job['state'],'question')
+        self.assertEqual(self.ask.call_count,3)
+
+
 if __name__=='__main__':unittest.main()
