@@ -382,6 +382,19 @@ def control_key(job):
 
 
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
+    owner=runtime.profile.slug
+    try:
+        result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
+                    expected_job_id=expected_job_id,expected_control=expected_control)
+    except BaseException:
+        llm.discard_success_routes()
+        raise
+    job=latest(owner)
+    if not job or job['state']!='done':llm.discard_success_routes()
+    return result
+
+
+def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     with _owned(runtime) as owner:
         job=latest(owner)
