@@ -727,12 +727,14 @@ def commit_chat(prompt: str, text: str, user: str = "default") -> None:
         del history[:-2 * _MAX_TURNS]
 
 
-def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 2000) -> str:
-    if privacy.mode() == 'gizli': return 'Gizli modda görüntü analizi kapalı.'
+def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 2000, *, strict: bool = False) -> str:
+    if privacy.mode() == 'gizli':
+        if strict:raise PermissionError('Gizli modda görüntü analizi kapalı.')
+        return 'Gizli modda görüntü analizi kapalı.'
     if provider() == 'auto':
         from modules import smart_router
         return smart_router.run(current_user(), prompt, lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True)
-    return _ask_image(image_path,prompt,system,max_tokens)
+    return _ask_image(image_path,prompt,system,max_tokens,strict=strict)
 
 
 def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
