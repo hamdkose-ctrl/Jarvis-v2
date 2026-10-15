@@ -46,7 +46,9 @@ class GoalTests(unittest.TestCase):
             result=goals.run(self.runtime,'Araştırıp raporu dosyaya kaydet ve not ekle')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual([s['tool'] for s in job['steps']],['research','browser','writer','action'])
-        self.assertEqual(Path(job['outputs']['s3']['file']).read_text(),'Gerçek kaynaklı rapor metni')
+        self.assertIn('Gerçek kaynaklı rapor metni',Path(job['outputs']['s3']['file']).read_text())
+        self.assertIn('https://example.com',Path(job['outputs']['s3']['file']).read_text())
+        self.assertIn('Erişilemeyen kaynaklar',Path(job['outputs']['s3']['file']).read_text())
         bridge.note_add.assert_called_once_with(text='Tamamlandı',title='')
         self.assertIsNone(goals.latest('bob'))
 
@@ -414,6 +416,64 @@ class GoalTests(unittest.TestCase):
         result=goals.handle(self.runtime,'devam et')
         self.assertEqual(goals.latest('alice')['state'],'done',result)
         self.assertEqual(len(goals.latest('alice')['steps']),2)
+
+    def test_planner_timeout_preserves_job_and_late_tool_is_never_executed(self):
+        import threading
+        release=threading.Event();exited=threading.Event()
+        def slow(*args,**kwargs):
+            try:
+                release.wait(2)
+                return json.dumps(self.tool('action',{'action':'note_add','params':{'text':'late'}}))
+            finally:exited.set()
+        self.ask.side_effect=slow
+        with patch.object(goals,'PLANNER_SECONDS',.03),patch.object(goal_tools,'execute') as execute:
+            result=goals.run(self.runtime,'Bir not oluştur')
+            job=goals.latest('alice');ident=job['id']
+            self.assertEqual(job['state'],'paused');self.assertIn('Geç yanıt',result)
+            self.assertEqual(job['steps'],[])
+            release.set();self.assertTrue(exited.wait(1))
+            execute.assert_not_called()
+            self.assertEqual(goals.latest('alice')['id'],ident)
+            self.assertEqual(goals.latest('alice')['steps'],[])
+
+    def test_context_has_today_in_istanbul_and_source_wait_is_visible(self):
+        from datetime import datetime, timezone, timedelta
+        job={'id':'a'*16,'owner':'alice','request':'son gelişmeler','state':'running','goals':[],
+             'steps':[{'id':'s1','goal':0,'tool':'research','state':'running','depends':[],
+                       'input':{'url':'https://example.org/source'}}],'outputs':{}}
+        context=goals._context(job)
+        self.assertEqual(context['current_date'],datetime.now(timezone(timedelta(hours=3))).date().isoformat())
+        self.assertIn('Denenen kaynak: https://example.org/source',goals.render(job))
+
+    def test_explicit_no_information_research_is_not_sealed_as_success(self):
+        self.ask.return_value='Verilen kaynakta herhangi bir bilgi yer almamaktadır. Kaynakta desteklenen bir yanıt verilememektedir.'
+        with patch('modules.browser.page_text',return_value='Bu sayfa yalnız arama menüsü ve genel gezinme metninden oluşur. '*8):
+            with self.assertRaisesRegex(ValueError,'başarı sayılmadı'):
+                task_agents.worker('alice',{'agent':'research','input':{'url':'https://example.org/'}},{})
+
+    def test_empty_source_then_dns_failure_then_new_source_delivers_same_goal_report(self):
+        import requests
+        def page(url):
+            if 'unreachable.example' in url:raise requests.ConnectionError('NameResolutionError: getaddrinfo failed')
+            return 'Gerçek kaynak metni. Türkiye yapay zekâ araştırması 15 Ekim tarihinde duyuruldu. '*3
+        self.responses(self.plan('Kaynaklı güncel rapor dosyası'),
+            self.tool('research',{'url':'https://empty.example/'}),
+            'Verilen kaynakta herhangi bir bilgi yer almamaktadır.',
+            self.tool('research',{'url':'https://unreachable.example/'}),
+            self.tool('research',{'url':'https://working.example/news'}),
+            json.dumps({'supported':True,'answer':'15 Ekim tarihli araştırma duyuruldu.','quotes':['Türkiye yapay zekâ araştırması 15 Ekim tarihinde duyuruldu.']}),
+            self.tool('writer',{'instruction':'Kaynakla sınırlı rapor','filename':'rapor.md'},depends=['s3']),
+            '# Araştırma\n15 Ekim tarihli duyuru. Kaynak: https://working.example/news',
+            self.done('s4'),self.finish())
+        with patch('modules.browser.page_text',side_effect=page):
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve kaynaklı rapor dosyası oluştur')
+        job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
+        self.assertEqual([step['state'] for step in job['steps']],['failed','failed','done','done'])
+        self.assertEqual(len(job['goals']),1)
+        path=Path(job['outputs']['s4']['file']);report=path.read_text()
+        for url in ('https://empty.example/','https://unreachable.example/','https://working.example/news'):
+            self.assertIn(url,report)
+        self.assertTrue(goal_tools.verify(job['outputs']['s4'],'alice'))
 
 
 if __name__=='__main__':unittest.main()
