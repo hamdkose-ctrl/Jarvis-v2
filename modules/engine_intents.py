@@ -11,8 +11,16 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
     requests_state.check()
     match intent:
         case "app_action":
-            return app_actions.voice(a, runtime._session(), runtime.profile, runtime.emit, command)
+            result=app_actions.voice(a, runtime._session(), runtime.profile, runtime.emit, command)
+            if 'bu işlem kayıtlı değil' in str(result).casefold():
+                from modules import goal_executor
+                if not goal_executor.active():return goal_executor.run(runtime,command,initial_failure=str(result))
+            return result
         case "code":
+            import re
+            if re.search(r'\b(?:test|dosya|kaydet|çalıştır|calistir|doğrula|dogrula)\w*',command.casefold()):
+                from modules import goal_executor
+                return goal_executor.run(runtime,command)
             return runtime.codegen.generate(a.get("task") or command, a.get("language", "python"))
         case "doc_summary":
             path, folder_reply = runtime._resolve_doc(a.get("path"), command)
@@ -116,9 +124,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime._session().pending_request = {'command': command, 'question': question}
             return question
         case "task":
-            from modules import task_agents
-            request = str(a.get('request') or command).strip()
-            return task_agents.handle(runtime.profile.slug, 'görev: ' + request, runtime.emit)
+            from modules import goal_executor
+            # Classifier prose is context, never a source of new execution consent.
+            return goal_executor.run(runtime,command)
         case "desktop_task":
             from modules import desktop_agent
             target, goal = str(a.get('target') or '').strip(), str(a.get('goal') or '').strip()
