@@ -25,6 +25,7 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
     check=check or _CHECK.get() or requests_state.check
     check();done=threading.Event();box={};context=copy_context()
     deadline=time.monotonic()+seconds
+    cancelled=threading.Event()
     entry={'done':done,'abandoned':False}
     while True:
         check()
@@ -38,7 +39,7 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
         pending['done'].wait(min(.1,max(0,deadline-time.monotonic())))
     def work():
         try:
-            with requests_state.budget(max(.001,deadline-time.monotonic())):
+            with requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
                 box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
                 requests_state.check()
         except BaseException as exc:box['error']=exc
@@ -54,6 +55,7 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
             if time.monotonic()>=deadline:
                 raise RuntimeError('Model '+str(seconds)+' saniyede yanıt vermedi; işlem duraklatıldı. Geç yanıt araç çalıştıramaz veya teslim dosyası yazamaz.')
     except BaseException:
+        cancelled.set()
         with _LOCK:entry['abandoned']=True
         raise
     check()
