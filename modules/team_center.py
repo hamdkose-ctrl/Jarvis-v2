@@ -201,7 +201,7 @@ def snapshot(owner):
             'source_watches':source_watch.rows(owner),'source_events':source_watch.events(owner),
             'capability_candidates':capability_hub.rows(owner),
             'jobs':jobs,'queue':scheduled,'warnings':list(dict.fromkeys(warnings)),
-            'limits':['Finans günlük kur/CSV, mağaza CSV ve mevcut sosyal hesap okumaları bağlıdır; canlı banka/mağaza yazma bağlantısı yoktur.',
+            'limits':['Finans günlük kur/CSV, mağaza CSV ve mevcut sosyal hesap okumaları desteklenir; canlı banka/mağaza yazma bağlantısı yoktur.',
                       'Uzman tanımı bağlantı veya işlem izni sağlamaz.',
                       'Tamamlandı kaydı içerik doğruluğunu garanti etmez.',
                       'Düzenli işler yalnız Jarvis açıkken çalışır.']}
