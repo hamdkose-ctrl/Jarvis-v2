@@ -4,7 +4,7 @@ const source=fs.readFileSync(path.join(__dirname,'../webui/team-center.js'),'utf
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const context={NAV:[],PAGES:{},S:{},esc,document:{addEventListener(){}},setTimeout,clearTimeout};
 vm.createContext(context);
-vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.teamTest={controls,paintOffice,select:id=>selectedPerson=id};})();'),context);
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.teamTest={controls,paintOffice,capabilityStatus,select:id=>selectedPerson=id};})();'),context);
 const {controls,paintOffice,select}=context.teamTest;
 const job={id:'a'.repeat(16),kind:'goal',state:'approval',control:'c'.repeat(64),approval:'Send <img src=x onerror=alert(1)>',steps:[]};
 let html=controls(job,job);
@@ -31,3 +31,6 @@ assert.equal(slots['[data-team-person]'].hidden,false);
 assert(!slots['[data-team-person]'].innerHTML.includes('<script>'),'worker output escaped');
 assert(slots['[data-team-person]'].innerHTML.includes('rapor.md'),'real delivery filename shown');
 console.log('team center behavior ok');
+
+const cap=context.teamTest.capabilityStatus({source_watches:[{label:'<img>',url:'https://example.org',terms:['tatil'],interval:600,paused:true}],capability_candidates:[{name:'<svg>',url:'https://example.org'}],source_events:[],specialist_contracts:{specialists:[]}});
+assert(!cap.includes('<img>'));assert(!cap.includes('<svg>'));assert(cap.includes('Duraklatıldı'));assert(cap.includes('Bağlantı kurulmadı'));
