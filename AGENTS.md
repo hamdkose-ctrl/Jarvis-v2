@@ -517,3 +517,12 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Kanıt alınamayan sayfalarda erişim ve içerik sorunları aynı şeymiş gibi sunulmaz. Rapor eki bu sınırı açıklar.
 - Ekip/sohbet/çalışma panellerinde Selçuklu zemini karartılır; ana ekran ve düz menü görünümü korunur. Yeni API/model çağrısı veya bağlantı eklenmez.
 - Regresyon: başarısız kaynak → gerçek bağlantı keşfi → alıntılı araştırma → gerçek rapor dosyası → verify zinciri model/ağ sınırları taklit edilerek sınanır. Canlı kaynak kapsamı, yayın tarihi doğruluğu ve Windows model davranışı ayrıca kullanıcı kabulünde doğrulanmalıdır.
+
+
+## Tekil haber kanıtı ve son tamamlanma — 16 Ekim 2026
+- Haber/gelişme/duyuru/tarihli araştırmalarda mevcut HTTPS kaynak okuyucusu üzerinden tekil haber gövdesi, başlık ve makaleye ait datePublished/article:published_time/yayın etiketli time aranır. Kategori sayfası, menü metni, yalnız dateModified ve belirsiz tarih başarı sayılmaz. Gelecek veya istenen gün aralığı dışındaki haber reddedilir. Bu kontrol tarih metaverisinin yayıncı tarafından doğru girildiğini garanti etmez.
+- Haber çıktısı modelin serbest özetini değil, tarih ve gerçek kaynak alıntılarını taşır. Haber raporu bu makbuzlardan deterministik Markdown olarak oluşturulur; ek writer model çağrısı, uydurma tarih veya iç içe bağlantı üretilemez. Dosya denetimi bu raporun içerik kaydıyla eşleşmesini de denetler. Genel raporlar ve mail taslakları mevcut model yolunda kalır. Haber raporu birebir kaynak alıntısı sunar; anlamsal doğruluk ve tüm kurumların kapsanması garantisi vermez.
+- Sürdürmede eski haber/makale tarih kanıtı olmayan research ve writer çıktıları, bağımlı teslim ve hedef kanıtları geçersizleşir; hedef kimliği ve eski dosyalar silinmez. Belirsiz dış etkide mevcut review kapısı korunur.
+- Bütün alt hedefler açık complete adımıyla tamamlanıp mevcut kanıtları doğrulandıysa son finish için yeni model çağrısı yapılmaz. Sadece dosya veya verify sonucu görülmesi, bekleyen hedefleri otomatik tamamlamaz.
+- tests/test_news_research.py ve hedef regresyonları: kategori/yanlış tarih/menü reddi, gerçek rapor dosyası, içerik-bağlı doğrulama, eski kayıt sürdürme ve son çağrıda 429 gerekmemesi. Ağ/model taklit edilir. Canlı Windows kaynak erişimi, gerçek modelin kaynak seçimi ve yayıncı metaverisi kabulü ayrıca doğrulanmalıdır.
+- Son doğrulama: 1.276 Python testi (Windows DPAPI 1 skip), 25 JavaScript grubu ve 6 smoke grubu başarılı. 109 ilgili regresyon başarılı; son salt okunur kural denetimi geçti. Canlı model/Windows kabulü yapılmadı.

@@ -31,12 +31,21 @@ def check(kind, output):
         chars = output.get('source_chars')
         if type(chars) is not int or chars < 80:
             raise ValueError('Araştırmanın kaynak okuma kanıtı eksik.')
+        if output.get('news_article'):
+            from modules import research_evidence
+            research_evidence.news_receipt(output)
     elif kind == 'writer':
         digest = output.get('sha256', '')
         if not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
             raise ValueError('Raporun içerik özeti eksik.')
         if file_digest(output.get('file', '')) != digest:
             raise ValueError('Rapor dosyası değişmiş veya eksik.')
+        if 'news_report_evidence' in output:
+            from modules import research_evidence
+            evidence=output['news_report_evidence']
+            expected=research_evidence.news_report(evidence['sources'])+research_evidence.unavailable_footer(evidence['unavailable'])
+            if output['text']!=expected or Path(output['file']).read_text(encoding='utf-8')!=expected:
+                raise ValueError('Haber raporu tarih, kaynak ve alıntı kaydıyla eşleşmiyor.')
     elif kind == 'coder':
         if output.get('draft') is not True or output.get('test_ok') is not True:
             raise ValueError('Kod taslağı ve geçerli başarılı test kanıtı gerekli.')
