@@ -33,6 +33,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines':
             url=step['input'].get('url')
             if url and url not in seeds:seeds.append(url)
+    had_normal_news_step=bool(seeds)
     from modules import publisher_news
     seeds=publisher_news.recovery_indexes(request,seeds[-2:])
     if not seeds and not existing_only:return
@@ -71,15 +72,16 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if previous_report and explicit_urls and source_urls() and source_urls().issubset(explicit_urls):return
     if previous_report and existing_only and source_urls()==previous_urls:return
     broad=publisher_news.broad_research(request)
+    continue_catalog=broad and had_normal_news_step
     def publisher_keys():return {publisher_news.publisher_key(url) for url in source_urls()}
     def sufficient():return len(publisher_keys())>=2 if broad else len(sources)>=2
     candidates=[];attempted=set()
     for seed in ([] if existing_only else seeds):
-        # Two publishers are enough to write a verified partial report, but they are
-        # not proof that a broad Turkey scan is complete. Keep scanning the registered
-        # catalog within the bounded recovery budget. Narrow requests retain the old
-        # early-stop behavior.
-        if not broad and sufficient():break
+        # Vague-question recovery starts before any normal news step and preserves the
+        # long-standing two-publisher bounded contract. Once the durable planner has
+        # actually attempted a news source, broad recovery may continue scanning the
+        # registered catalog within the same bounded budget.
+        if sufficient() and not continue_catalog:break
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
@@ -89,8 +91,8 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             attempted.add(row['url'])
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
             if result.get('state')=='done':sources[ident]=result
-            if result.get('state')=='done' or not broad and sufficient():break
-        if not broad and sufficient():break
+            if result.get('state')=='done' or sufficient() and not continue_catalog:break
+        if sufficient() and not continue_catalog:break
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
     for url in candidates[:2] if not sources and not existing_only else []:
