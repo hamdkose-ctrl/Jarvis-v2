@@ -1,3 +1,8 @@
+## Devam komutunun kesin yönlendirilmesi — 16 Ekim 2026
+- Bütün RESUME_COMMANDS, hedef yok/kapalı dâhil mevcut goal yürütücüsünde yanıtlanır; genel sohbete düşmez. Kayıt yoksa açık mesaj, kapanmışsa mevcut sonuç; yeni hedef/model oluşturulmaz.
+- Açık hedef sürdürülürken doğrulanmış tarihli AI haberleri varsa mevcut writer/verify ile kısmi dosya önce teslim edilir; yeniden kaynak/model istenmez. Aynı hedef/izinler ve 10/24/96 bütçesi korunur; onay/review geçilmez ve eksik kapsam otomatik done olmaz. Dosya tesliminde sıradan hata kayda eklenip normal planlayıcıya döner; iptal/izin hatası yutulmaz.
+- Kullanıcının son çıktısı talimat tekrarından ibaretti; istemci günlükleri olmadan bunun kesin üretim yolu bilinmez. Regresyon hem kayıt yok/kapalı komut düşüşünü hem question durumundaki tarihli haberden model/ağ çağrısız gerçek dosya teslimini kapsar.
+
 ## Erken bitişte mevcut haberin teslimi — 16 Ekim 2026
 - Planlayıcı pending hedef varken finish seçerse, açık yapay zekâ haber raporu/dosya isteğinde mevcut doğrulanmış haber çıktılarıyla writer/verify denenir. Bu yol yeni kaynak/model çağırmaz; partial_report kaydıyla aynı günlükte kısmi dosya teslim eder. Açık kapsam hedefleri otomatik done yapılmaz; onay/review/iptal, kullanıcı ve 10/24/96 bütçeleri korunur.
 - Doğrulanmış teslim sürdürmede yeniden yazılmaz. Haber yoksa boş rapor üretilmez. Aynı turda üç eksik finish önerisinden sonra duraklar; planlayıcıya tekrar tekrar aynı ret döngüsü yapılmaz. Bu davranış sağlayıcı gecikmesinin tamamını gidermez.

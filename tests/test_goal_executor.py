@@ -800,5 +800,43 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(goals.latest('alice')['state'],'paused')
         self.assertIn('3 kez',result)
 
+    def test_bare_resume_without_goal_never_falls_through_to_chat(self):
+        self.assertEqual(goals.handle(self.runtime,'devam'),'Sürdürülecek kayıtlı hedef yok.')
+        self.ask.assert_not_called()
+
+    def test_bare_resume_closed_goal_returns_saved_result_without_model(self):
+        self.responses(self.plan('İş'),RuntimeError('models unavailable'))
+        goals.run(self.runtime,'İş yap');job=goals.latest('alice')
+        job['state']='cancelled';goals._save(job);self.ask.reset_mock()
+        self.assertIn('iptal',goals.handle(self.runtime,'devam'))
+        self.ask.assert_not_called()
+
+    def test_resume_question_delivers_saved_news_without_asking_planner_again(self):
+        from modules import public_sources
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        url='https://example.org/haber/ai'
+        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        body=('<article><h1>Yeni proje</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Araştırmanın ayrıntıları kamuoyuyla paylaşıldı.</p></article>').encode()
+        self.responses(self.plan('Araştır','Rapor dosyası oluştur'),self.tool('research',{'url':url}),
+            {'supported':True,'answer':quote,'quotes':[quote]},self.done('s1'),
+            {'action':'ask','question':'Türkiye yapay zekâ gelişmelerini araştır ve rapor dosyası oluştur.'})
+        with patch.object(public_sources,'fetch',return_value={'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None):
+            goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur')
+        original=goals.latest('alice');self.assertEqual(original['state'],'question')
+        self.ask.reset_mock()
+        with patch.object(public_sources,'fetch',side_effect=AssertionError('No fetch')):
+            result=goals.handle(self.runtime,'devam')
+        job=goals.latest('alice');self.assertEqual(job['id'],original['id']);self.ask.assert_not_called()
+        self.assertTrue(goal_tools.verify(job['outputs'][job['partial_report']],'alice'))
+        self.assertIn('Kısmi rapor dosyası:',result)
+        self.assertEqual(job['goals'][1]['state'],'pending')
+        self.responses({'action':'ask','question':'Hangi ek kurum incelensin?'})
+        goals.handle(self.runtime,'devam')
+        self.assertEqual(goals.latest('alice')['state'],'question')
+        self.responses({'action':'ask','question':'Ek kurum kapsamı kaydedildi.'})
+        goals.handle(self.runtime,'Boğaziçi Üniversitesi')
+        self.assertIn('Boğaziçi Üniversitesi',goals.latest('alice')['answers'])
+
 
 if __name__=='__main__':unittest.main()
