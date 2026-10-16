@@ -51,7 +51,7 @@ def _domains(domains):
     return result
 
 
-def search_input(query,days=30,domains=None,limit=10):
+def search_input(query,days=7,domains=None,limit=10):
     if not isinstance(query,str) or not 2<=len(query.strip())<=200 or not re.fullmatch(r'[\w\s-]+',query) or any(ord(c)<32 for c in query):
         raise ValueError('Haber sorgusu 2–200 karakterlik düz konu metni olmalı; URL, anahtar veya arama operatörü içeremez.')
     if any(word.upper() in {'OR','AND','NOT'} for word in query.split()):raise ValueError('Haber sorgusunda arama operatörü kullanılamaz.')
@@ -60,7 +60,7 @@ def search_input(query,days=30,domains=None,limit=10):
     return ' '.join(query.split()),_domains(domains)
 
 
-def news_search(owner,query,days=30,domains=None,limit=10,*,fetcher=None):
+def news_search(owner,query,days=7,domains=None,limit=10,*,fetcher=None):
     service_store.identity(owner);requests_state.check()
     query,domains=search_input(query,days,domains,limit)
     # Quote words so the external service cannot treat a topic as query syntax.

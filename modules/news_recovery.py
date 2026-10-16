@@ -63,7 +63,7 @@ def deliver(runtime,job,*,max_new_steps=0):
         from modules.public_data import _domains
         domains=_domains(list(dict.fromkeys(urlsplit(url).hostname for url in seeds)))
         ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
-        days=min(90,max(ranges)) if ranges else 30
+        days=min(90,max(ranges)) if ranges else 7
         ident,out=tool('data',{'operation':'news_search','query':'artificial intelligence',
                               'days':max(1,days),'domains':domains,'limit':4})
         for row in out.get('structured',{}).get('items',[]):

@@ -6,7 +6,7 @@ import re
 def news_requested(text):
     """Use the runtime request, not a model-supplied exemption, for dated news."""
     text=re.sub(r'\bhaber\s+ver\w*','',str(text),flags=re.I)
-    return bool(re.search(r'\bhaber(?!leş)|\bgelişme|\bgelisme|\bduyuru|yayın tarih|yayin tarih|son\s+\d+\s+gün|\bnews\b',text,re.I))
+    return bool(re.search(r'\bhaber(?!leş)|\bgelişme|\bgelisme|\bduyuru|gündem|gundem|haftal[ıi]k\s+olay|yayın tarih|yayin tarih|son\s+\d+\s+gün|\bnews\b',text,re.I))
 
 
 def news_report_requested(request,instruction,dependencies):
@@ -106,14 +106,22 @@ def news_receipt(output):
     return source
 
 
+def news_window(request):
+    ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
+    recent=bool(re.search(r'güncel|guncel|\bson\b.*(?:geliş|haber)|haftalık|haftalik|bu hafta|weekly|latest|recent',request,re.I))
+    if ranges:return max(ranges)
+    if recent:return 7
+    # An explicit historical year is a user-selected historical request.
+    historical=bool(re.search(r'\b(?:19|20)\d{2}\b',request))
+    return 7 if not historical and (news_requested(request) or re.search(r'gündem|gundem',request,re.I)) else None
+
+
 def news_date(published,request):
     from datetime import datetime, timezone, timedelta, date
     today=datetime.now(timezone(timedelta(hours=3))).date()
     day=date.fromisoformat(published)
     if day>today:raise ValueError('Haberin yayın tarihi gelecekte; güncel gelişme olarak kullanılmadı.')
-    ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
-    recent=bool(re.search(r'güncel|guncel|\bson\b.*(?:geliş|haber)|latest|recent',request,re.I))
-    maximum=max(ranges) if ranges else 90 if recent else None
+    maximum=news_window(request)
     if maximum is not None and (today-day).days>maximum:raise ValueError('Haber istenen tarih aralığının dışında; daha yeni kaynak seç.')
 
 

@@ -103,6 +103,31 @@ class NewsTests(unittest.TestCase):
             with self.assertRaises(ValueError):evidence.news_date(day.isoformat(),'Son 30 gün; yetmezse son 90 güne genişlet')
         evidence.news_date((today-timedelta(days=60)).isoformat(),'Son 30 gün; yetmezse son 90 güne genişlet')
 
+    def test_weekly_default_keeps_seven_days_and_longer_ranges_require_explicit_request(self):
+        today=datetime.fromisoformat(self.day).date()
+        for request in ['Son haberleri araştır','Güncel yapay zekâ gelişmeleri','Haftalık gündem','Bu hafta haberler','Yapay zekâ haberlerini araştır ve rapor dosyası oluştur','Gündemi araştır']:
+            evidence.news_date((today-timedelta(days=7)).isoformat(),request)
+            with self.subTest(request=request),self.assertRaises(ValueError):evidence.news_date((today-timedelta(days=8)).isoformat(),request)
+        evidence.news_date((today-timedelta(days=29)).isoformat(),'Son 30 gün haberleri')
+        self.assertIsNone(evidence.news_window('2020 haberlerini araştır'))
+
+    def test_model_question_cannot_expand_user_weekly_date_window(self):
+        old=(datetime.fromisoformat(self.day).date()-timedelta(days=8)).isoformat()
+        task={'agent':'research','input':{'url':self.url,'question':'Son 90 gün haberlerinden alıntı ver'},'execution':{'request':'Son 7 gün haberlerini araştır','source_only':True}}
+        with patch('modules.public_sources.fetch',return_value=self.response(self.html.replace(self.day,old))),patch('modules.privacy.blocked',return_value=None),patch('modules.model_wait.ask') as model:
+            with self.assertRaises(ValueError):task_agents.worker('alice',task,{})
+        model.assert_not_called()
+
+    def test_weekly_completion_rechecks_previously_verified_article_age(self):
+        from modules import goal_executor
+        output=self.research()
+        job={'request':'Haftalık yapay zekâ haberlerini araştır','steps':[{'id':'s1','tool':'research','depends':[]}],'outputs':{'s1':output}}
+        goal={'text':'Haberleri araştır'}
+        future=datetime.now(timezone(timedelta(hours=3)))+timedelta(days=8)
+        with patch('datetime.datetime') as clock:
+            clock.now.return_value=future
+            with self.assertRaises(ValueError):goal_executor._check_news_completion(job,goal,['s1'])
+
     def test_report_uses_only_article_date_links_and_quotes_without_writer_model(self):
         source=self.research()
         self.assertNotIn('1999',source['text']);self.assertNotIn('uçan araba',source['text'])

@@ -8,7 +8,7 @@ API hesabı, kart, abonelik veya ikinci görev kuyruğu kurmaz.
 | İhtiyaç | Mevcut araç | Sınır |
 | --- | --- | --- |
 | Kaynak seçenekleri | `data {"operation":"sources"}` | Yerel liste; canlı erişim kanıtı değildir. |
-| Haber bağlantıları | `data {"operation":"news_search","query":"artificial intelligence","days":30,"domains":["tubitak.gov.tr","sanayi.gov.tr","edu.tr"],"limit":10}` | GDELT DOC; keşif sonucu, doğrulanmış haber değildir. |
+| Haber bağlantıları | `data {"operation":"news_search","query":"artificial intelligence","days":7,"domains":["tubitak.gov.tr","sanayi.gov.tr","edu.tr"],"limit":10}` | GDELT DOC; keşif sonucu, doğrulanmış haber değildir. |
 | Yayıncının dizini | `data {"operation":"headlines","url":"https://tubitak.gov.tr/tr/haberler","query":"yapay zeka"}` | Gerçek HTML/RSS/Atom bağlantıları. |
 | Döviz | `data {"operation":"exchange","base":"USD","quote":"TRY"}` | Frankfurter günlük kaynak kuru; anlık alış/satış değildir. |
 | Finans ve mağaza | `finance_csv` / `store_csv` | İzinli CSV ve açık sütun eşleştirmesi; hesap/model çağrısı gerekmez. |
@@ -26,15 +26,16 @@ Gelen URL'ler ayrıca alan adı ve HTTPS denetiminden geçer. Arama sonucunun
    `news_search` ile gerçek bağlantı bul.
 2. Her seçilen tekil sayfayı `research` ile oku; makaleye ait yayın tarihini
    ve gövde alıntılarını mevcut kurallarla doğrula.
-3. Kullanıcı istediyse önce 30 gün, yetersizse 90 gün ara. Arama zaman
-   aralığı makalenin yayın tarihi denetiminin yerine geçmez.
+3. Varsayılan son 7 gündür. Sonuç yoksa sınırlı kaynaklarda doğrulanmış
+   haftalık gelişme bulunamadığını belirt; eski haberle doldurma. 30–90 günlük
+   tarih aralığı yalnız açık kullanıcı isteğiyle kullanılabilir.
 4. `writer` yalnız doğrulanmış haber adımlarına bağlı rapor oluşturur;
    `verify` gerçek dosyayı ve içerik kanıtını kontrol eder.
 
 Planlayıcı erişilemezken mevcut dar yapay zekâ raporu kurtarması korunur.
 Önceden denenmiş en fazla iki yayıncı dizini bağlantı vermiyorsa, yalnız
 aynı alan adlarında tek GDELT araması denenir. Önceden izin verilen gün
-aralığı kullanılır (en fazla 90). Mevcut 10 kurtarma/24 tur/96 toplam adım
+aralığı kullanılır (varsayılan 7, açık istekle en fazla 90). Mevcut 10 kurtarma/24 tur/96 toplam adım
 sınırları uygulanır. Kısmi rapor hedefi tamamlandı saymaz; hedef kimliği ve
 eski dosyalar korunur. Gönderim/onay/iptal kapıları değişmez.
 
@@ -62,7 +63,7 @@ veya Windows üzerinde baştan sona güncel rapor tesliminin doğrulanması değ
 Ağ/model sınırları taklit edilerek gerçek görev kaydı ve rapor dosyasıyla
 regresyonlar çalıştırılır; canlı kullanıcı anahtarı/model çağrısı yapılmaz.
 
-Son kontrol: 1.305 Python testi başarılı (Windows DPAPI için 1 skip),
+Son kontrol: 1.309 Python testi başarılı (Windows DPAPI için 1 skip),
 25 JavaScript grubu ve 6 smoke grubu başarılı. Son salt okunur kural
 incelemesi geçti. İncelemede bulunan yalnız başlıkla haber hedefi tamamlama
 açığı kapatıldı; verify bağımlılığına sarma ve eski tamamlanma kaydından
@@ -72,7 +73,7 @@ sürdürme regresyonları da geçti.
 
 Önce tek komut: `scripts\v2_kontrol.bat --public-data --skip-suite`.
 Yeni seçenek yalnız açıkça verildiğinde canlı, anahtarsız web okuması yapar:
-günlük kur, resmî alanlarda son 30 günlük haber araması, en fazla iki tekil
+günlük kur, resmî alanlarda son 7 günlük haber araması, en fazla iki tekil
 haberin yayın tarihi/alıntısı ve kısmi raporun gerçek dosya doğrulaması.
 Model çağrısı veya hesap bağlantısı yoktur. Aktif hedef değiştirilmez.
 GDELT zaman aşımı, boş sonuç veya doğrulanamayan haber durumunda TÜBİTAK ve
@@ -80,10 +81,9 @@ Boğaziçi'nin resmî dizinleri mevcut headlines okuyucusuyla birer kez denenir.
 Her dizinden en fazla bir ilgili aday (toplam iki ek makale) doğrulanır.
 TÜBİTAK'ın bilinen tekil haber şablonunda gövde dışında kardeş bloktaki
 başlık ve gövde içindeki Türkçe tarih, eşleşen canonical ve tek haber koşuluyla
-okunur. İlgili haber kartlarının tarihi makaleye taşınmaz. Önce doğrulanmış
-30 günlük adaylar kullanılır; sınırlı adaylarda yoksa önceki isteğe uygun
-olarak 90 güne genişlenir. Bu durumda `public_news_window` kaydı oluşur ve
-dosyanın adı `90-gun-raporu.md` ile biter; tarih kaynakta olduğu gibi korunur.
+okunur. İlgili haber kartlarının tarihi makaleye taşınmaz. Yalnız son
+7 günlük doğrulanmış adaylar kullanılır; otomatik genişleme yoktur. Eski
+haberler haftalık rapora eklenmez. Dosya adı `haftalik-rapor.md` ile biter.
 GDELT hatası pending kalabilirken yayıncıdan alınan gerçek rapor ayrıca passed
 olabilir. Uygun tarihli makale yoksa rapor yine pending kalır; süre artırılarak
 veya tarih koşulları gevşetilerek sahte başarı oluşturulmaz.
