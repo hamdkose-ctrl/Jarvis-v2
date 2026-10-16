@@ -130,7 +130,41 @@ def news_date(published,request):
 
 def unavailable_footer(urls):
     if not urls:return ''
-    return '\n\n## Erişilemeyen kaynaklar ve kanıt alınamayan sayfalar\n\nBu adreslerden erişim veya içerik sorunu nedeniyle doğrulanmış yanıt alınamadı; raporun kanıtı olarak kullanılmadı:\n'+''.join('\n- '+url for url in urls)
+    from modules.public_sources import address
+    from urllib.parse import urlsplit
+    clean=[];rejected=0
+    for url in urls:
+        try:
+            normalized=address(url)
+            host=urlsplit(normalized).hostname or ''
+            if len(host.split('.'))<2 or len(host.split('.')[-1])<2 or host.startswith('www.') and len(host.split('.'))<3:
+                raise ValueError('Eksik alan adı')
+            if normalized not in clean:clean.append(normalized)
+        except (ValueError,TypeError):rejected+=1
+    return ('\n\n## Erişilemeyen kaynaklar ve kanıt alınamayan sayfalar\n\nBu adreslerden erişim veya içerik sorunu nedeniyle doğrulanmış yanıt alınamadı; raporun kanıtı olarak kullanılmadı:\n'+
+            ''.join('\n- '+url for url in clean)+(f'\n\nAyrıca {rejected} geçersiz/eksik adres kaynak olarak kullanılmadı.' if rejected else ''))
+
+
+def vague_question(question,request):
+    def fold(text):return re.sub(r'[^\w]+',' ',text.casefold()).strip()
+    value=fold(question)
+    return value in {'eksik somut bilgi','eksik bilgi','daha fazla bilgi','detay ver','bilgi gerekli'} or value==fold(request)
+
+
+def preview(output):
+    """Chat shows complete source references; the full, uncut report stays in its file."""
+    from modules.publisher_news import publisher_key
+    sources=([output['news_article']] if output.get('news_article') else
+             [row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')])
+    unique={source['url']:source for source in sources}
+    publishers={publisher_key(url) for url in unique}
+    lines=[f'{len(unique)} haber, {len(publishers)} farklı yayıncı doğrulandı. Tam alıntılar rapor dosyasında.']
+    for source in list(unique.values())[:4]:
+        title=re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',source['title']))
+        url=source['url'].replace('<','%3C').replace('>','%3E')
+        lines.append(title+' · '+source['published']+'\nKaynak: <'+url+'>')
+    if len(unique)>4:lines.append('Diğer kaynaklar rapor dosyasında.')
+    return '\n\n'.join(lines)
 
 
 def news_report(dependencies):
