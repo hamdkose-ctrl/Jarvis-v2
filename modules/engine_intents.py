@@ -124,17 +124,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime._session().pending_request = {'command': command, 'question': question}
             return question
         case "task":
-            from modules import brain_delegate, goal_executor
-            # The specialist bridge is currently non-durable. Only replay-safe plans may enter it
-            # automatically; effectful/approval work stays in the durable goal journal.
-            try:
-                delegated=brain_delegate.try_run(runtime,command)
-            except requests_state.Cancelled:
-                raise
-            except Exception:
-                runtime._record_failure('modules/engine_intents.py:brain_delegate')
-                delegated=None
-            if delegated is not None:return delegated
+            from modules import goal_executor
+            # Classifier prose is context, never a source of new execution consent.
             return goal_executor.run(runtime,command)
         case "desktop_task":
             from modules import desktop_agent
@@ -273,3 +264,4 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         except OSError:
                             pass
             return runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
+
