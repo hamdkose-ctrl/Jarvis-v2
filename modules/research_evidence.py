@@ -152,33 +152,45 @@ def vague_question(question,request):
 
 
 def preview(output):
-    """Chat shows complete source references; the full, uncut report stays in its file."""
+    """Keep chat concise; full quotes and evidence stay in the report file."""
+    if output.get('news_article') and not output.get('news_report_evidence'):return ''
     from modules.publisher_news import publisher_key
-    sources=([output['news_article']] if output.get('news_article') else
-             [row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')])
+    sources=[row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')]
     unique={source['url']:source for source in sources}
     publishers={publisher_key(url) for url in unique}
-    lines=[f'{len(unique)} haber, {len(publishers)} farklı yayıncı doğrulandı. Tam alıntılar rapor dosyasında.']
-    for source in list(unique.values())[:4]:
-        title=re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',source['title']))
-        url=source['url'].replace('<','%3C').replace('>','%3E')
-        lines.append(title+' · '+source['published']+'\nKaynak: <'+url+'>')
-    if len(unique)>4:lines.append('Diğer kaynaklar rapor dosyasında.')
-    return '\n\n'.join(lines)
+    lines=['Özet',f'- {len(unique)} doğrulanmış gelişme bulundu.',f'- {len(publishers)} farklı yayıncıdan kanıt alındı.',
+           '- Ayrıntılı alıntılar ve teknik kanıtlar rapor dosyasında.']
+    if unique:
+        lines+=['','Öne çıkan gelişmeler']
+        for index,source in enumerate(list(unique.values())[:6],1):
+            title=re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',source['title']))
+            url=source['url'].replace('<','%3C').replace('>','%3E')
+            lines.append(f'{index}. {title} — {source["published"]}')
+            lines.append('   Kaynak: <'+url+'>')
+    if len(unique)>6:lines+=['','Diğer doğrulanmış gelişmeler rapor dosyasında.']
+    return '\n'.join(lines)
 
 
 def news_report(dependencies):
     """Render only dated source quotes. No model can add dates or malformed nested links."""
     def escape(text):return re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',text))
-    lines=['# Kaynaklı haber raporu','','Bu rapor yalnız aşağıdaki tekil haberlerden doğrulanan yayın tarihlerini ve birebir alıntıları içerir. Kapsamın eksiksiz olduğu veya tüm istenen kurumların tarandığı anlamına gelmez.']
     if not dependencies:raise ValueError('Haber raporu için doğrulanmış tekil kaynak gerekli.')
-    seen=set()
+    rows=[];seen=set();publishers=set()
+    from modules.publisher_news import publisher_key
     for output in dependencies.values():
         source=news_receipt(output)
         if source['url'] in seen:continue
-        seen.add(source['url'])
-        lines+=['','## '+escape(source['title']),'','Yayın tarihi: '+source['published'],'','Kaynak: <'+source['url'].replace('>','%3E').replace('<','%3C')+'>','', 'Kaynak alıntıları:']
+        seen.add(source['url']);publishers.add(publisher_key(source['url']));rows.append((source,output))
+    lines=['# Kaynaklı haber raporu','','## Özet','',f'- {len(rows)} doğrulanmış gelişme bulundu.',
+           f'- {len(publishers)} farklı yayıncıdan kanıt alındı.',
+           '- Yalnız tekil haber sayfasında doğrulanan yayın tarihleri ve birebir kaynak alıntıları kullanıldı.',
+           '','## Öne çıkan gelişmeler']
+    for index,(source,output) in enumerate(rows,1):
+        lines+=['',f'### {index}. '+escape(source['title']),'','Yayın tarihi: '+source['published'],
+                '','Kaynak: <'+source['url'].replace('>','%3E').replace('<','%3C')+'>','','Kaynak alıntıları:']
         lines+=['\n> '+escape(re.sub(r'\s+',' ',q)) for q in output['source_quotes']]
+    lines+=['','## Kapsam ve yöntem','',
+            'Bu rapor doğrulanmış bulguları gösterir. Bir kaynağın taranmış olması o kaynakta mutlaka ilgili haber bulunduğu anlamına gelmez; erişilemeyen veya kanıt alınamayan sayfalar aşağıda ayrıca belirtilir.']
     return '\n'.join(lines)+'\n'
 
 

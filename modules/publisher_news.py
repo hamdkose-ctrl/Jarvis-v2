@@ -28,14 +28,46 @@ def recovery_indexes(request,seeds):
     return list(dict.fromkeys(defaults+seeds))[:4]
 
 
-def broad_research(request):
-    return bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
-                not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|bakanlığı|bakanligi|ofisi|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
-
-
 def publisher_key(url):
     labels=(urlsplit(url).hostname or '').removeprefix('www.').split('.')
     return '.'.join(labels[-3:] if '.'.join(labels[-2:]) in {'edu.tr','gov.tr','com.tr','org.tr'} else labels[-2:])
+
+
+def catalog_keys():
+    return {publisher_key(row['url']) for row in SOURCES}
+
+
+def catalog_attempted(job):
+    keys=set(job.get('news_catalog_attempted',[]))
+    known=catalog_keys()
+    for step in job.get('steps',[]):
+        data=step.get('input',{})
+        if step.get('tool')=='data' and data.get('operation')=='headlines' and data.get('url'):
+            key=publisher_key(data['url'])
+            if key in known:keys.add(key)
+    return keys
+
+
+def broad_research(request):
+    broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
+               not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|bakanlığı|bakanligi|ofisi|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
+    if not broad:return False
+    # The two-publisher rule is a minimum evidence threshold, not proof that a broad
+    # Turkey scan is complete. At final completion require the registered catalog to
+    # have been attempted through headlines discovery; sources without a matching
+    # article still count as scanned, not as verified evidence.
+    try:
+        from modules import goal_executor, llm
+        owner=llm._key_context.get()
+        job=goal_executor.latest(owner) if owner else None
+    except (AttributeError,ValueError,PermissionError,OSError):
+        job=None
+    if (job and job.get('request')==request and job.get('goals') and
+            all(goal.get('state')=='done' for goal in job['goals'])):
+        attempted=catalog_attempted(job);known=catalog_keys()
+        if not known.issubset(attempted):
+            raise ValueError(f'Genel Türkiye araştırması henüz tamamlanmadı: kayıtlı haber kataloğunun {len(attempted)}/{len(known)} kaynağı tarandı. İki doğrulanmış yayıncı minimum kanıttır; kalan kayıtlı kaynakları da headlines ile tara.')
+    return True
 
 
 def candidate_url(url,request,outputs):
@@ -44,7 +76,7 @@ def candidate_url(url,request,outputs):
     candidate=address(url)
     allowed={address(s['url']) for s in SOURCES}
     for raw in re.findall(r'https://[^\s<>"\]]+',request):
-        try:allowed.add(address(raw.rstrip('.,;)')))
+        try:allowed.add(address(raw.rstrip('.,;)'))
         except ValueError:pass
     for output in outputs.values():
         if output.get('state')!='done':continue
