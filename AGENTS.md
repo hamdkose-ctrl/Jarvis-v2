@@ -1,5 +1,10 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## TÜBİTAK tekil haber şablonu — 16 Ekim 2026
+- Canlı kabulde seçilen TÜBİTAK haberinde h1, article'ın kardeş Drupal bloğundadır; tarih article içindeki .node-date alanında Türkçe kısadır. Yalnız tubitak.gov.tr/tr/haber/ + eşleşen canonical + aynı region-content içinde tek article ve bilinen başlık/gövde blokları birlikteyse bu başlık bağlanır; yalnız o gövdenin node-date değeri okunur. Genel liste/foreign host/başka canonical veya ilgili haber tarihi istisna kazanmaz.
+- Kabul araştırması önce 30 gün içindeki doğrulanmış kaynakları seçer. Sınırlı adaylarda yoksa, kullanıcının önceki 30→90 tercihiyle en fazla 90 günlük doğrulanmış kaynağa kısmi genişler; public_news_window kaydı ve 90-gun-raporu dosya adıyla ayrılır. Gelecek/90 gün dışı veya tarihsiz kaynak kabul edilmez. Ek fetch veya model çağrısı yoktur.
+- Gerçek makale 21 Ağu 2026 tarihlidir; Ekim tarihiyle veya son 30 güne ait diye sunulamaz. Genel tarih/alıntı/dosya doğrulaması korunur; gerçek Windows yeni kabulü ayrıca bekler.
+
 ## Veri kabulünde arama zaman aşımı — 16 Ekim 2026
 - Kullanıcının Windows kabulünde kur passed; GDELT ReadTimeoutError nedeniyle arama/rapor pending görüldü. --public-data artık arama hata/boş/alıntısız sonuçtan sonra TÜBİTAK ve Boğaziçi resmî dizinlerini birer kez mevcut headlines ile okur; her dizinden en fazla bir AI başlığı adayı, toplam en fazla iki ek research denenir. Gerçek yayın tarihi ve birebir gövde kanıtı koşulu değişmez; başarısız GDELT satırı pending kalır.
 - Model çağrısı, kör retry, TLS/DNS doğrulamasını atlama, tarih gevşetme veya hedef değişikliği yoktur. İptal/sahiplik/gizlilik kapıları korunur. Tüm kaynaklar erişilemez veya uygun haber yoksa rapor yine pending kalır; Windows'ta başarılı teslim henüz doğrulanmadı.

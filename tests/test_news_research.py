@@ -60,6 +60,36 @@ class NewsTests(unittest.TestCase):
         result=evidence.article(self.response(undated+'<script type="application/ld+json">'+json.dumps(schema)+'</script>'))
         self.assertEqual(result['published'],self.day)
 
+    def tubitak_page(self):
+        url='https://tubitak.gov.tr/tr/haber/yapay-zeka-projesi'
+        html=('<html><head><link rel="canonical" href="'+url+'"></head><body><div class="region-content">'
+              '<div id="block-feza-gursey-page-title"><h1>Yapay zekâ projesi</h1></div>'
+              '<div id="block-feza-gursey-content"><article><div class="node-date">21 Ağu 2026</div><p>'+self.quote+
+              ' Araştırmanın bilimsel ayrıntıları kamuoyuyla paylaşıldı.</p></article></div></div>'
+              '<aside><time itemprop="datePublished" datetime="2026-10-14"></time></aside></body></html>')
+        return url,html
+
+    def test_tubitak_sibling_title_and_own_turkish_date_are_bound_to_canonical_article(self):
+        url,html=self.tubitak_page();result=evidence.article(self.response(html,url))
+        self.assertEqual(result['published'],'2026-08-21');self.assertEqual(result['title'],'Yapay zekâ projesi')
+        self.assertIn(self.quote,result['text']);self.assertNotIn('2026-10-14',result['text'])
+
+    def test_tubitak_layout_does_not_exempt_foreign_canonical_or_multiple_articles(self):
+        url,html=self.tubitak_page()
+        variants=[(url,html.replace('href="'+url+'"','href="https://tubitak.gov.tr/tr/haber/other"')),
+                  ('https://example.org/tr/haber/yapay-zeka-projesi',html),
+                  (url,html.replace('</article>','</article><article><p>Other card</p></article>')),
+                  (url,html.replace('class="region-content"','class="listing"'))]
+        for target,page in variants:
+            with self.subTest(target=target,page=page),self.assertRaises(ValueError):evidence.article(self.response(page,target))
+
+    def test_tubitak_related_date_does_not_replace_missing_or_ambiguous_own_date(self):
+        url,html=self.tubitak_page()
+        for page in [html.replace('class="node-date"','class="unlabelled"'),
+                     html.replace('21 Ağu 2026','31 Şub 2026'),
+                     html.replace('</article>','<div class="node-date">22 Ağu 2026</div></article>')]:
+            with self.subTest(page=page),self.assertRaises(ValueError):evidence.article(self.response(page,url))
+
     def test_notify_phrase_and_mail_or_finance_dependencies_do_not_become_news_reports(self):
         self.assertFalse(evidence.news_requested('Rapor hazır olunca haber ver'))
         self.assertFalse(evidence.news_requested('Haberleşme uygulamasını incele'))
