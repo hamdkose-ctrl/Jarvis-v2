@@ -54,7 +54,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         ident='s'+str(len(job['steps'])+1)
         while any(s['id']==ident for s in job['steps']):ident+='x'
         step={'id':ident,'goal':goal,'tool':kind,'input':data,'depends':list(depends),'signature':signature,
-              'state':'queued','recovery':True,'recovery_version':'publishers_v1','source_only':True}
+              'state':'queued','recovery':True,'recovery_version':'publishers_v2','source_only':True}
         job['steps'].append(step);count+=1;new_steps+=1
         goals._record(runtime,job,step)
         return ident,job['outputs'][ident]
@@ -71,24 +71,29 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if previous_report and explicit_urls and source_urls() and source_urls().issubset(explicit_urls):return
     if previous_report and existing_only and source_urls()==previous_urls:return
     broad=publisher_news.broad_research(request)
+    catalog=publisher_news.catalog_keys()
+    attempted_publishers=publisher_news.catalog_attempted(job)
     def publisher_keys():return {publisher_news.publisher_key(url) for url in source_urls()}
-    def sufficient():return len(publisher_keys())>=2 if broad else len(sources)>=2
+    def sufficient():
+        return catalog.issubset(attempted_publishers) and len(publisher_keys())>=2 if broad else len(sources)>=2
     candidates=[];attempted=set()
     for seed in ([] if existing_only else seeds):
         if sufficient():break
-        if broad and publisher_news.publisher_key(seed) in publisher_keys():continue
+        key=publisher_news.publisher_key(seed)
+        if broad and key in attempted_publishers:continue
+        if broad:
+            attempted_publishers.add(key)
+            job['news_catalog_attempted']=sorted(attempted_publishers);goals._save(job)
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
-        for row in (related or rows)[:2]:
+        limit=1 if broad else 2
+        for row in (related or rows)[:limit]:
             if row['url'] in attempted:continue
             attempted.add(row['url'])
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
-            if result.get('state')=='done':
-                sources[ident]=result
-                if broad:break
+            if result.get('state')=='done':sources[ident]=result
             if sufficient():break
-        if sufficient():break
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
     for url in candidates[:2] if not sources and not existing_only else []:
