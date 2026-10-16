@@ -76,7 +76,7 @@ def candidate_url(url,request,outputs):
     candidate=address(url)
     allowed={address(s['url']) for s in SOURCES}
     for raw in re.findall(r'https://[^\s<>"\]]+',request):
-        try:allowed.add(address(raw.rstrip('.,;)'))
+        try:allowed.add(address(raw.rstrip('.,;)')))
         except ValueError:pass
     for output in outputs.values():
         if output.get('state')!='done':continue
