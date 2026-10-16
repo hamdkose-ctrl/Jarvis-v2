@@ -1,3 +1,7 @@
+## 16 Ekim 2026 — sürdürmede talimat tekrarı
+- Devam komutunun kayıt yok/kapalı durumda genel sohbete düşmesi kapatıldı. Doğrulanmış kayıtlı AI haberlerinde sürdürme, planlayıcıdan önce mevcut dosya teslimini yapar. Genel kapsam eksikliği açık kalır.
+- Kullanıcının talimat tekrarı çıktısı doğrulandı; istemci günlüğü olmadan kesin eski yol bilinmiyor. 19:58 kullanıcı çıktısında normal hedef yolu kısmi dosya ve doğrulama bildirdi; dosya içeriği burada görülmedi. Araştırma kapsamı açık, TÜBİTAK adayından kanıt alınamamış. Kısa devam komutunun bu yeni yönlendirme sürümü Windows kabulünü ayrıca bekliyor.
+
 ## 16 Ekim 2026 — erken haber bitişi
 - Windows public-data kabulü: iki makale ve gerçek rapor passed; eski adayın pending olması beklenen elemedir. Normal hedefte yalnız araştırma çıktısı ve eksik finish görüldü.
 - Erken finish sonrası doğrulanmış mevcut haberden modelsiz writer/verify teslimi eklendi; kapsam hedefleri açık kalır. Eksik finish döngüsü üç denemeyle sınırlıdır. Son Windows normal hedef sürdürme kabulü bekliyor; yedi dakikalık gecikmenin tamamının giderildiği iddia edilmez.
@@ -11,7 +15,7 @@
 - Gerçek hesap yazma/yayın izinleri, genel üçüncü taraf masaüstü görevleri, yeniden başlatmada kuyruk kurtarma ve kaynak araştırmasının uçtan uca canlı kabulü açık kalır. Kısmi kaynak raporu tam hedef başarısı sayılmaz.
 - Açık yerel OCR ve `--video` kabulü eklendi; kullanıcı tarafından bildirilen donanım kabulü `reported_passed` olarak ayrı saklanır. Türkçe OCR dil dosyaları ve gerçek PC kalitesi ayrıca doğrulanmalı.
 - Ayrıntı, sınırlar ve tek Windows test listesi: [Uyarı incelemesi](UYARI_INCELEMESI_20261016.md).
-- Son ortak kontrol (main #43 + bu değişiklik): 1328 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı. Yerel taranmış PDF İngilizce OCR ve gerçek H.264 üretimi geçti; Türkçe OCR ve Windows kabulü bu sonuçtan çıkarılamaz. Salt okunur kural denetimi geçti.
+- Son ortak kontrol (main #44 + bu değişiklik): 1331 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı. Yerel taranmış PDF İngilizce OCR ve gerçek H.264 üretimi geçti; Türkçe OCR ve Windows kabulü bu sonuçtan çıkarılamaz. Salt okunur kural denetimi geçti.
 
 ## Geçmiş durum — 14 Ekim 2026
 

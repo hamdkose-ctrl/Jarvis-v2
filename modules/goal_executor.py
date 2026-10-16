@@ -335,6 +335,19 @@ def _loop(runtime,job,answer=None):
             _save(job)
     if job['state']=='review':return render(job)
     if _finish_completed(job):return render(job)
+    # On resume, deliver already verified news before asking a planner again.
+    if answer is None and not job.get('partial_report') and job['steps'] and any(o.get('state')=='done' and o.get('news_article') for o in job['outputs'].values()):
+        from modules import news_recovery
+        try:news_recovery.deliver(runtime,job,existing_only=True,max_new_steps=24)
+        except (requests_state.Cancelled,PermissionError):raise
+        except Exception as exc:
+            _record_failure('modules/goal_executor.py:resume_news_delivery')
+            job.setdefault('feedback',[]).append('Kayıtlı haber dosyası teslim edilemedi: '+privacy.redact(str(exc),force=True)[:600])
+            _save(job)
+        if job.get('partial_report'):
+            job['state']='paused'
+            job['blocker']='Kayıtlı haberlerden kısmi rapor oluşturuldu ve dosyası doğrulandı; eksik kapsam hedefleri açık tutuldu.'
+            _save(job);return render(job)
     for _ in range(MAX_TURNS):
         _ensure(runtime,job)
         context=_context(job)
@@ -598,7 +611,7 @@ def handle(runtime,command):
                 outbox.cancel(job['owner'],job['outputs'][step['id']]['id'])
         job['state']='cancelled';_save(job);return render(job)
     if low in {'hedef onayla'}:return run(runtime,command,resume=True,approve=True)
-    if job and job['state'] in {'paused','question','approval','review'} and low in RESUME_COMMANDS:
+    if low in RESUME_COMMANDS:
         return run(runtime,command,resume=True)
     if job and job['state']=='question':
         from modules.router import _action_request

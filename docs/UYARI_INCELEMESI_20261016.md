@@ -1,6 +1,6 @@
 # Uyarı incelemesi ve ortak PC kabulü — 16 Ekim 2026
 
-İnceleme tabanı: Jarvis-v2 main `43480527` (PR #43). Erken haber bitişindeki rapor teslimi düzeltmesi korundu. Drive taslakları koda aktarılmadı; kullanıcı tarafından paylaşılan uyarı metni güncel kod ve bu sohbetteki PC sonuçlarıyla karşılaştırıldı.
+İnceleme tabanı: Jarvis-v2 main `0ac1c5a4` (PR #44). Haber teslimi ve kısa devam komutu düzeltmeleri korundu. Drive taslakları koda aktarılmadı; kullanıcı tarafından paylaşılan uyarı metni güncel kod ve bu sohbetteki PC sonuçlarıyla karşılaştırıldı.
 
 | Uyarı | Karar ve kapsam |
 |---|---|
@@ -44,4 +44,4 @@ Canlı hesap izinleri, gerçek Windows donanımı ve Türkçe OCR kalitesi geli�
 
 ## Doğrulama sonucu
 
-Güncel main #43 ile 1328 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı. 14 odaklı kontrol geçti. Seçilebilir metni olmayan üretilmiş PDF, gerçek Tesseract İngilizce motoruyla okundu; Türkçe dil dosyası eksikliği sessiz İngilizce geri düşüşü yapmadan reddedildi. Gerçek FFmpeg/libx264 üretimi ve FFprobe boyut/süre doğrulaması geçti. Son salt okunur kural denetimi geçti. Bu sonuçlar Windows Türkçe OCR, mikrofon/kamera veya canlı hesap başarısı olarak sunulmaz.
+Güncel main #44 ile 1331 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı. 14 odaklı kontrol geçti. Seçilebilir metni olmayan üretilmiş PDF, gerçek Tesseract İngilizce motoruyla okundu; Türkçe dil dosyası eksikliği sessiz İngilizce geri düşüşü yapmadan reddedildi. Gerçek FFmpeg/libx264 üretimi ve FFprobe boyut/süre doğrulaması geçti. Son salt okunur kural denetimi geçti. Bu sonuçlar Windows Türkçe OCR, mikrofon/kamera veya canlı hesap başarısı olarak sunulmaz.
