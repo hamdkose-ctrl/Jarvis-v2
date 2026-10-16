@@ -27,11 +27,12 @@ LOCAL.update(goal_extensions.TOOLS)
 
 def catalog():
     from modules import account_tools
+    from modules.publisher_news import SOURCES
     from modules.source_watch import KNOWN_SOURCES
     return {'workers':task_agents.WORKER_CATALOG, 'inputs':task_tools.CATALOG,
             'local_tools':LOCAL, 'actions':app_actions.catalog(),'account_services':account_tools.SERVICES,
             'media_example':{'scenes':[{'caption':'Sahne yazısı','duration':3}],'layout':'landscape'},
-            'known_watch_sources':KNOWN_SOURCES}
+            'known_watch_sources':KNOWN_SOURCES,'known_news_sources':list(SOURCES)}
 
 
 def planner_catalog():

@@ -7,7 +7,7 @@ from modules import service_store
 TOOLS={
  'monitor':'Proaktif kaynak takibi. operation=add(url,terms:list,interval?:300..86400,label?)|list|events(limit?)|pause/resume/remove(id)|check(id). Yalnız açık takip isteğiyle kaydet; ilk tarama eski haberleri yeni saymaz.',
  'capability':'Yeni API/MCP referansı. operation=discover(query)|list|assess(id)|specialists|bind(id,endpoint,parameters:{ad:tür})|read(id,parameters)|unbind(id). bind yalnız açık istek ve somut onayla sabit, anahtarsız GET bağlar; MCP kodu/ücretli hesap kurmaz.',
- 'data':'Alan verileri. operation=sources anahtarsız mevcut kaynakları listeler; news_search(query,days?:1..90,domains?:[alan_adı],limit?:1..20) GDELT ile gerçek haber bağlantıları bulur, query düz konu metnidir (İngilizce önerilir); exchange(base,quote,date?)|headlines(url,query?) haber/duyuru dizinindeki GERÇEK bağlantıları keşfeder; başlık/indeks tarihi makale kanıtı değildir. |finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
+ 'data':'Alan verileri. operation=sources anahtarsız mevcut kaynakları listeler; exchange(base,quote,date?)|headlines(url,query?) haber/duyuru dizinindeki GERÇEK bağlantıları keşfeder; başlık/indeks tarihi makale kanıtı değildir. |finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
 }
 
 

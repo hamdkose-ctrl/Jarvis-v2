@@ -1,3 +1,19 @@
+# Güncel karar: doğrudan resmî kaynaklar
+
+16 Ekim 2026: GDELT kullanıcı kararıyla kaldırıldı. Haber keşfi yayıncının HTML dizini ve açıkça ilan ettiği aynı-host RSS/Atom akışlarıyla yürür. Yeni hesap, ücret veya model yoktur. Kayıtlı eski news_search işlemleri dış servise çağrı yapmaz; hedefler silinmez.
+
+Kayıtlı dizinler: Kütahya Dumlupınar Üniversitesi, Yıldız Teknik Üniversitesi, TÜBİTAK ve Boğaziçi Üniversitesi. Bu liste tüm kurumları kapsamaz. Kabul en fazla dört dizin/altı makale/iki doğrulanmış kaynakla sınırlıdır. Güncel haber penceresi son yedi gündür; sonuç yoksa eski haber kullanılmaz. Başlık keşfi başarı kanıtı değildir: tekil gövde, makalenin yayın tarihi, birebir yapay zekâ alıntısı ve gerçek rapor dosyası doğrulanır.
+
+Windows son kontrolü: güncel main alındıktan sonra `scripts\v2_kontrol.bat --public-data --skip-suite`. GDELT timeout beklenmez. Erişilemeyen/eskimiş aday pending olabilir; `public_news_report: passed` gerçek kısmi dosya doğrulamasını belirtir. Canlı Windows kabulü geliştirme testlerinden ayrıdır.
+
+Geliştirme doğrulaması: 1.311 Python testi (bir Windows DPAPI atlandı), 25 JavaScript grubu ve altı smoke grubu başarılı. Son kapsam düzeltmesi ayrıca odaklı regresyonlarla sınandı. Salt okunur son kural incelemesinde engel kalmadı.
+
+Canlı kaynak denemesi: dizinlerden bulunan DPÜ Edebiyat ve Yapay Zekâ Konferansı ile YTÜ Dijital Üniversite Platformu haberleri 14 Ekim 2026 yayın tarihleriyle, birebir AI gövde alıntılarıyla writer/verify zincirinde gerçek kısmi Markdown dosyasına dönüştü. 8 Ekim tarihli aday reddedildi. Ortamın doğrudan IP/DNS okuyucu kısıtı nedeniyle bu yoklamada yalnız HTTP taşıması sertifika doğrulamalı requests ile değiştirildi; üretim okuyucusu değiştirilmedi. Bu, Windows üretim ağ kabulü değildir. Kur çağrısı bu haber yoklamasından ayrı tutuldu.
+
+Önceki kararların tarihî kaydı aşağıdadır; GDELT kurulumu veya kullanımı için güncel talimat değildir.
+
+---
+
 # Anahtarsız veri kaynakları — 16 Ekim 2026
 
 Bu değişiklik mevcut `data` aracını genişletir. Yeni ajan çatısı, model,
