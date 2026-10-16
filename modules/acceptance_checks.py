@@ -7,7 +7,7 @@ import re
 from datetime import datetime,timezone
 from modules.diagnostics import record_failure as _record_failure
 
-def run(*,suite=True,gmail=False,desktop=False,narration=False):
+def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False):
     from modules import llm,personalization,service_health,validation
     owner=personalization.slugify(personalization.get_active())
     token=llm._key_context.set(owner)
@@ -32,6 +32,9 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False):
                 return ('passed' if ok else 'failed',('Python tests: '+match[1]) if match else 'release suite result')
             check('release_suite',regression)
         check('local_configuration',lambda:('informational',service_health.report(owner)))
+        if public_data:
+            from modules import public_data_acceptance
+            report['checks'].extend(public_data_acceptance.run(owner))
         if gmail:
             def mail():
                 from modules import account_tools
@@ -80,8 +83,9 @@ def main():
     parser=argparse.ArgumentParser(description='Jarvis V2 acceptance checks; no external sends or automatic source update')
     parser.add_argument('--gmail',action='store_true');parser.add_argument('--desktop',action='store_true')
     parser.add_argument('--narration',action='store_true');parser.add_argument('--skip-suite',action='store_true')
+    parser.add_argument('--public-data',action='store_true',help='Live keyless data reads and partial report verification; no models/accounts')
     parser.add_argument('--output',default='v2_kabul_sonucu.json')
-    args=parser.parse_args();report=run(suite=not args.skip_suite,gmail=args.gmail,desktop=args.desktop,narration=args.narration)
+    args=parser.parse_args();report=run(suite=not args.skip_suite,gmail=args.gmail,desktop=args.desktop,narration=args.narration,public_data=args.public_data)
     Path(args.output).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     for row in report['checks']:print(row['check']+': '+row['state'])
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0

@@ -1,5 +1,9 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## Anahtarsız verinin tek komutla kabulü — 16 Ekim 2026
+- Mevcut acceptance_checks açık --public-data bayrağıyla aktif kullanıcı bağlamında public_data_acceptance çalıştırır; varsayılan çalışmada yeni web okuması yoktur. Kur ve sabit AI/30 gün/resmî alan araması; en fazla iki gerçek tekil haber, model-free birebir alıntı, writer ve verify ile kısmi yerel dosya denenir. Aktif hedef/hesap/anahtar/ayar değiştirilmez; gönderim yoktur.
+- Erişim/tarih/kapsam bulunamazsa pending; boş keşif gerçek rapor sayılmaz. İptal ve kullanıcı uyuşmazlığı yutulmaz. Bu kontrol kapsamın tamamını veya normal model planlayıcısını doğrulamaz. Windows'ta scripts/v2_kontrol.bat --public-data --skip-suite yeterlidir; sonuç mevcut kabul JSON'undadır.
+
 ## Anahtarsız haber keşfi — 16 Ekim 2026
 - `public_data` mevcut data aracına sources/news_search ekler; GDELT DOC sabit HTTPS GET, anahtarsız JSON keşfi sağlar. Yeni model/hesap/ücret/bağımlılık veya görev sistemi yoktur. Frankfurter/CSV/sosyal adaptörler korunur. Kaynak listesi canlı bağlantı kanıtı değildir.
 - Arama en fazla 90 gün/20 sonuç; ayrı 1–5 alan adı filtresi ve sonuç URL'lerinde gerçek host/HTTPS denetimi vardır. seen_at yayın tarihi değildir; arama sonucu research/writer haber kanıtı sayılamaz. Mevcut tekil gövde/tarih/alıntı ve gerçek dosya doğrulaması zorunludur.
