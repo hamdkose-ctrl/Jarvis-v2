@@ -1,6 +1,9 @@
 """Opt-in, model-free live public-data acceptance. No goals or accounts changed."""
 from modules import service_store, public_data, domain_tools, task_agents, task_results, requests_state
 from modules.diagnostics import record_failure as _record_failure
+import re
+
+PUBLISHER_INDEXES=('https://tubitak.gov.tr/tr/haberler','https://haberler.bogazici.edu.tr/')
 
 
 def run(owner):
@@ -20,10 +23,7 @@ def run(owner):
     rate=attempt('public_exchange',lambda:domain_tools.exchange(owner,'USD','TRY'))
     if rate:add('public_exchange','passed','Daily USD/TRY source date: '+rate['data']['date'])
     found=attempt('public_news_search',lambda:public_data.news_search(owner,'artificial intelligence',30,['gov.tr','edu.tr'],5))
-    if found is None:
-        add('public_news_report','pending','Search unavailable; no report claimed')
-        return checks
-    add('public_news_search','passed','Search response validated; eligible links: '+str(len(found['items'])))
+    if found is not None:add('public_news_search','passed','Search response validated; eligible links: '+str(len(found['items'])))
     sources={}
     request='Son 30 gün yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur'
     def worker(kind,ident,data,deps):
@@ -32,12 +32,28 @@ def run(owner):
         output=task_agents.worker(owner,task,deps)
         task_results.verify(output,owner=owner)
         return output
-    for i,row in enumerate(found['items'][:2]):
-        ident='article'+str(i+1)
-        result=attempt('public_news_'+ident,lambda:worker('research',ident,{'url':row['url'],'question':'Tarihli haberden yapay zekâ hakkında birebir alıntılar'},{}))
-        if result:
-            sources[ident]=result
-            add('public_news_'+ident,'passed','Published date and literal article quotes verified')
+    seen=set()
+    def articles(rows,prefix):
+        for i,row in enumerate(rows[:2]):
+            if row['url'] in seen:continue
+            seen.add(row['url']);ident=prefix+str(i+1)
+            result=attempt('public_news_'+ident,lambda:worker('research',ident,{'url':row['url'],'question':'Tarihli haberden yapay zekâ hakkında birebir alıntılar'},{}))
+            if result:
+                sources[ident]=result
+                add('public_news_'+ident,'passed','Published date and literal article quotes verified')
+    articles(found['items'] if found is not None else [],'article')
+    if not sources:
+        # Independent publisher reads; no repeated call to the slow search service.
+        candidates=[]
+        for i,url in enumerate(PUBLISHER_INDEXES):
+            name='public_publisher_'+str(i+1)
+            result=attempt(name,lambda:domain_tools.headlines(owner,url,query='yapay zeka'))
+            if result is None:continue
+            add(name,'passed','Publisher links read; article evidence still required')
+            for row in result['items']:
+                if re.search(r'yapay\s+zek|artificial\s+intelligence',row['title'],re.I) and row['url'] not in seen and not any(r['url']==row['url'] for r in candidates):
+                    candidates.append(row);break
+        articles(candidates,'publisher_article')
     if not sources:
         add('public_news_report','pending','No dated AI article verified; no report created')
         return checks

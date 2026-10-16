@@ -1,5 +1,9 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## Veri kabulünde arama zaman aşımı — 16 Ekim 2026
+- Kullanıcının Windows kabulünde kur passed; GDELT ReadTimeoutError nedeniyle arama/rapor pending görüldü. --public-data artık arama hata/boş/alıntısız sonuçtan sonra TÜBİTAK ve Boğaziçi resmî dizinlerini birer kez mevcut headlines ile okur; her dizinden en fazla bir AI başlığı adayı, toplam en fazla iki ek research denenir. Gerçek yayın tarihi ve birebir gövde kanıtı koşulu değişmez; başarısız GDELT satırı pending kalır.
+- Model çağrısı, kör retry, TLS/DNS doğrulamasını atlama, tarih gevşetme veya hedef değişikliği yoktur. İptal/sahiplik/gizlilik kapıları korunur. Tüm kaynaklar erişilemez veya uygun haber yoksa rapor yine pending kalır; Windows'ta başarılı teslim henüz doğrulanmadı.
+
 ## Anahtarsız verinin tek komutla kabulü — 16 Ekim 2026
 - Mevcut acceptance_checks açık --public-data bayrağıyla aktif kullanıcı bağlamında public_data_acceptance çalıştırır; varsayılan çalışmada yeni web okuması yoktur. Kur ve sabit AI/30 gün/resmî alan araması; en fazla iki gerçek tekil haber, model-free birebir alıntı, writer ve verify ile kısmi yerel dosya denenir. Aktif hedef/hesap/anahtar/ayar değiştirilmez; gönderim yoktur.
 - Erişim/tarih/kapsam bulunamazsa pending; boş keşif gerçek rapor sayılmaz. İptal ve kullanıcı uyuşmazlığı yutulmaz. Bu kontrol kapsamın tamamını veya normal model planlayıcısını doğrulamaz. Windows'ta scripts/v2_kontrol.bat --public-data --skip-suite yeterlidir; sonuç mevcut kabul JSON'undadır.
