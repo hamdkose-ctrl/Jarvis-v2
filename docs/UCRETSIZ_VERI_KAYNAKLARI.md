@@ -62,13 +62,22 @@ veya Windows üzerinde baştan sona güncel rapor tesliminin doğrulanması değ
 Ağ/model sınırları taklit edilerek gerçek görev kaydı ve rapor dosyasıyla
 regresyonlar çalıştırılır; canlı kullanıcı anahtarı/model çağrısı yapılmaz.
 
-Son kontrol: 1.294 Python testi başarılı (Windows DPAPI için 1 skip),
+Son kontrol: 1.299 Python testi başarılı (Windows DPAPI için 1 skip),
 25 JavaScript grubu ve 6 smoke grubu başarılı. Son salt okunur kural
 incelemesi geçti. İncelemede bulunan yalnız başlıkla haber hedefi tamamlama
 açığı kapatıldı; verify bağımlılığına sarma ve eski tamamlanma kaydından
 sürdürme regresyonları da geçti.
 
 ## Hamdi'nin en son yapacağı kontroller
+
+Önce tek komut: `scripts\v2_kontrol.bat --public-data --skip-suite`.
+Yeni seçenek yalnız açıkça verildiğinde canlı, anahtarsız web okuması yapar:
+günlük kur, resmî alanlarda son 30 günlük haber araması, en fazla iki tekil
+haberin yayın tarihi/alıntısı ve kısmi raporun gerçek dosya doğrulaması.
+Model çağrısı veya hesap bağlantısı yoktur. Aktif hedef değiştirilmez.
+Sonuç mevcut `v2_kabul_sonucu.json` dosyasına kaydedilir. Erişilemeyen
+servis veya doğrulanamayan haber `pending` kalır; sahte başarı yazılmaz.
+Bu kontrol normal planlayıcı veya tüm kurumların araştırılması yerine geçmez.
 
 1. Güncel sürümde “Anahtarsız veri kaynaklarını listele” isteğinde GDELT,
    Frankfurter ve yayıncı dizini seçeneklerinin görünmesini kontrol et.
