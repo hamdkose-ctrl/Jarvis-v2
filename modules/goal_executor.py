@@ -119,7 +119,7 @@ def _identity(job,step):
     if tool in task_tools.CATALOG:
         result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':1})
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
-    return {**result,'request':job['request'],'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
+    return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
 
 
@@ -311,8 +311,10 @@ def _loop(runtime,job,answer=None):
         system+='\nUzman ekipleri (tanım izin vermez; yalnız kayıtlı araçları kullan):\n'+json.dumps(team_center.members(job['owner']),ensure_ascii=False,separators=(',',':'))
         if job['goals']:
             system+='\nBu çağrıda kayıtlı plan VAR. action:plan verme; mevcut hedef numarasıyla tool/complete, gerekirse ask veya bütün kanıtlar hazırsa finish seç. Hedefleri yeniden oluşturma.'
+        planner_pending=True
         try:
             call=_planner(runtime,job,prompt,system)
+            planner_pending=False
             _ensure(runtime,job)
             action=call['action']
             if action=='legacy_plan':
@@ -399,9 +401,19 @@ def _loop(runtime,job,answer=None):
             _record_failure('modules/goal_executor.py:turn')
             job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600]);_save(job)
             # An unavailable planner cannot invent the next action. Preserve exact progress.
-            if isinstance(exc,RuntimeError):break
+            if isinstance(exc,RuntimeError):
+                if planner_pending:
+                    from modules import news_recovery
+                    try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    except requests_state.Cancelled:raise
+                    except Exception as recovery_error:
+                        _record_failure('modules/goal_executor.py:news_recovery')
+                        job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
+                break
     job['state']='paused'
     job['blocker']=('Planlayıcı kayıtlı hedefleri tekrar planlamaya çalıştığı için duraklatıldı; mevcut plan ve sonuçlar korundu.' if rejected_plans>=3 else 'Hedef tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
+    if job.get('partial_report'):
+        job['blocker']='Modelsiz kısmi kaynak raporu oluşturuldu ve dosyası doğrulandı. İstenen araştırmanın tamamı doğrulanmadığı için hedef açık tutuldu.'
     _save(job)
     return render(job)
 
@@ -483,6 +495,9 @@ def render(job):
     elif job['state']=='question':lines.append(job['question'])
     elif job['state'] not in {'done','cancelled'}:
         lines.append(job.get('blocker','Hedef sürüyor.'))
+        partial=job['outputs'].get(job.get('partial_report'),{})
+        if partial.get('state')=='done' and partial.get('file'):
+            lines.append('Kısmi rapor dosyası: '+partial['file'])
         for current in job['steps']:
             if current['state']=='running' and current['tool']=='research':lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
         for step in job['steps'][-3:]:

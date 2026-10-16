@@ -94,3 +94,8 @@ class NewsTests(unittest.TestCase):
         answer=json.dumps({'supported':True,'answer':'Destek programı var.','quotes':['Yapay Zeka Destek Akademik Ulusal destek programları']})
         with patch('modules.public_sources.fetch',return_value=self.response()),patch('modules.model_wait.ask',return_value=answer),patch('modules.privacy.blocked',return_value=None):
             with self.assertRaises(ValueError):task_agents.worker('alice',{'agent':'research','input':{'url':self.url,'question':'Son gelişmeler?'}},{})
+
+    def test_model_free_ai_quote_must_be_in_body_and_other_topics_are_not_inferred(self):
+        article={'title':'Yapay zekâ haberleri','text':'Yapay zekâ haberleri Bu yazı yalnız futbol sonuçlarını içermektedir.'}
+        with self.assertRaises(ValueError):evidence.literal_ai_quotes(article,'Yapay zekâ son gelişmeleri')
+        with self.assertRaises(ValueError):evidence.literal_ai_quotes(article,'Son finans haberleri')
