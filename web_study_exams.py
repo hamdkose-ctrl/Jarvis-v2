@@ -4,6 +4,30 @@ import re
 
 class WebStudyExams:
 
+    @staticmethod
+    def _study_state(profile) -> dict:
+        data = getattr(profile, 'data', None)
+        if not isinstance(data, dict):
+            return {}
+        state = data.get('study')
+        return state if isinstance(state, dict) else {}
+
+    @staticmethod
+    def _course_keys(keys) -> list[str]:
+        """Tek seçim/string dâhil farklı istemci biçimlerini güvenli listeye çevirir."""
+        if isinstance(keys, str):
+            raw = [keys]
+        elif isinstance(keys, (list, tuple, set)):
+            raw = list(keys)
+        else:
+            raw = []
+        out = []
+        for key in raw:
+            value = str(key or '').strip()
+            if value and value not in out:
+                out.append(value)
+        return out
+
     def study_exam_analysis(self, force: bool=True) -> dict:
         """En yeni üç yılın çıkmış sorularından konu/soru tipi istatistiği çıkarır."""
         services = self._study_dependencies
@@ -17,7 +41,7 @@ class WebStudyExams:
     def study_set_courses(self, keys: list) -> list:
         services = self._study_dependencies
         studyexam = services.exams
-        return studyexam.set_courses(services.current_profile(), [str(k) for k in keys or []])
+        return studyexam.set_courses(services.current_profile(), self._course_keys(keys))
 
     def study_overview(self) -> dict:
         """Derslerim + konu başarıları + öncelikli konular + haftalık program (hepsi yapay zekâsız, anında)."""
@@ -36,7 +60,16 @@ class WebStudyExams:
     def study_quiz_answer(self, qid: str, choice: str, attempt_id: str='') -> dict:
         services = self._study_dependencies
         studyexam = services.exams
-        return studyexam.quiz_answer(services.current_profile(), str(qid), str(choice), str(attempt_id))
+        p = services.current_profile()
+        qid = str(qid)
+        attempt_id = str(attempt_id)
+        active = self._study_state(p).get('quiz_attempt') or {}
+        if isinstance(active, dict) and active.get('qid'):
+            if str(active.get('qid')) != qid:
+                raise ValueError('Bu soru denemesi artık aktif değil; yeni soruyu cevapla.')
+            if not attempt_id and active.get('id'):
+                attempt_id = str(active['id'])
+        return studyexam.quiz_answer(p, qid, str(choice), attempt_id)
 
     def study_explain(self, qid: str, choice: str='') -> str:
         services = self._study_dependencies
@@ -61,7 +94,12 @@ class WebStudyExams:
     def study_mock_answer(self, qid: str, choice: str, session_id: str='') -> dict:
         services = self._study_dependencies
         studyexam = services.exams
-        return studyexam.mock_answer(services.current_profile(), str(qid), str(choice), str(session_id))
+        p = services.current_profile()
+        session_id = str(session_id)
+        active = self._study_state(p).get('mock_session') or {}
+        if not session_id and isinstance(active, dict) and active.get('id'):
+            session_id = str(active['id'])
+        return studyexam.mock_answer(p, str(qid), str(choice), session_id)
 
     def study_plan_set(self, cfg: dict) -> dict:
         services = self._study_dependencies
