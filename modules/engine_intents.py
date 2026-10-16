@@ -132,6 +132,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             except requests_state.Cancelled:
                 raise
             except Exception:
+                runtime._record_failure('modules/engine_intents.py:brain_delegate')
                 delegated=None
             if delegated is not None:return delegated
             return goal_executor.run(runtime,command)
@@ -272,4 +273,3 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         except OSError:
                             pass
             return runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
-
