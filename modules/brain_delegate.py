@@ -63,3 +63,13 @@ def try_run(runtime, request):
 def run(runtime, request):
     tasks=plan(runtime.profile.slug,request)
     return specialist_orchestrator.run(runtime,request,tasks)
+
+
+def catalog(owner):
+    """Expose choices to the existing durable planner, without an extra model call."""
+    return [{'id':m['id'],'name':m['name'],'tools':m['tools'],'tags':m['tags']}
+            for m in team_center.members(owner) if m.get('enabled',True)]
+
+
+def assign(owner,tool,request,preferred=None):
+    return team_center.assign(owner,tool,request,preferred)

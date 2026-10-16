@@ -38,36 +38,27 @@ def catalog_keys():
 
 
 def catalog_attempted(job):
-    keys=set(job.get('news_catalog_attempted',[]))
-    known=catalog_keys()
+    """Only a completed or failed execution counts as an attempted catalog read."""
+    keys=set();known={row['url']:publisher_key(row['url']) for row in SOURCES}
     for step in job.get('steps',[]):
-        data=step.get('input',{})
-        if step.get('tool')=='data' and data.get('operation')=='headlines' and data.get('url'):
-            key=publisher_key(data['url'])
-            if key in known:keys.add(key)
+        data=step.get('input',{});output=job.get('outputs',{}).get(step.get('id'),{})
+        if (step.get('tool')=='data' and data.get('operation')=='headlines' and
+                data.get('url') in known and step.get('started') is True and
+                step.get('state') in {'done','failed'} and output.get('state')==step['state']):
+            keys.add(known[data['url']])
     return keys
 
 
 def broad_research(request):
-    broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
+    return bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
                not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|bakanlığı|bakanligi|ofisi|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
-    if not broad:return False
-    # The two-publisher rule is a minimum evidence threshold, not proof that a broad
-    # Turkey scan is complete. At final completion require the registered catalog to
-    # have been attempted through headlines discovery; sources without a matching
-    # article still count as scanned, not as verified evidence.
-    try:
-        from modules import goal_executor, llm
-        owner=llm._key_context.get()
-        job=goal_executor.latest(owner) if owner else None
-    except (AttributeError,ValueError,PermissionError,OSError):
-        job=None
-    if (job and job.get('request')==request and job.get('goals') and
-            all(goal.get('state')=='done' for goal in job['goals'])):
-        attempted=catalog_attempted(job);known=catalog_keys()
-        if not known.issubset(attempted):
-            raise ValueError(f'Genel Türkiye araştırması henüz tamamlanmadı: kayıtlı haber kataloğunun {len(attempted)}/{len(known)} kaynağı tarandı. İki doğrulanmış yayıncı minimum kanıttır; kalan kayıtlı kaynakları da headlines ile tara.')
-    return True
+
+
+def require_catalog(job):
+    if not broad_research(job['request']):return
+    attempted=catalog_attempted(job);known=catalog_keys()
+    if not known.issubset(attempted):
+        raise ValueError(f'Genel Türkiye araştırması henüz tamamlanmadı: kayıtlı haber kataloğunun {len(attempted)}/{len(known)} kaynağı denendi. Kalan kayıtlı kaynakları tara; erişilemeyenleri raporda belirt.')
 
 
 def candidate_url(url,request,outputs):
