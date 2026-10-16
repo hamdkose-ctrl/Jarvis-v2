@@ -143,12 +143,23 @@ def cooldown(provider, exc):
     return 60
 
 
+def _free_emergency(owner, attempted):
+    """Optional last-resort free route. It never enables paid models or bypasses local privacy mode."""
+    if privacy.mode()=='yerel' or 'openrouter' in attempted:return False
+    state=settings(owner)
+    if not state.get('cloud_free_confirmed') or not api_key(owner):return False
+    model=state.get('openrouter_model') or 'openrouter/free'
+    return model=='openrouter/free' or model.endswith(':free')
+
+
 def run(owner, prompt, callback, image=False):
     task = task_type(prompt, image)
     attempts = []
     selected=candidates(owner,task)
     skipped=[row for row in selection(owner,task)['skipped'] if row['provider'] not in selected]
-    for provider in selected:
+    providers=list(selected)
+    if _free_emergency(owner,providers):providers.append('openrouter')
+    for provider in providers:
         requests_state.check(); start = time.monotonic()
         try:
             answer = callback(provider)
@@ -158,7 +169,6 @@ def run(owner, prompt, callback, image=False):
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')
-            # Store only exception types; never keys, prompts or server error bodies.
             attempts.append({'provider':provider,'ok':False,'error':type(exc).__name__,
                              'kind':failure_kind(exc),'status':failure_status(exc)})
             from modules import llm
@@ -220,10 +230,12 @@ def status(owner):
         if provider in cooldowns:
             return f'Ücretsiz hesap onaylı; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
         return 'Ücretsiz hesap onaylı; otomatik seçimde kullanılabilir (canlı çağrı sınanmadı)'
+    openrouter_policy=('Yerel modda kullanılmaz' if privacy.mode()=='yerel' else
+        cloud_policy('openrouter',bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
     table = [
       {'provider':'gemini','model':llm.active_model(owner),'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',bool(llm.user_key(owner)))},
       {'provider':'groq','model':llm.groq_model(),'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',bool(llm.user_groq_key(owner)))},
-      {'provider':'openrouter','model':state.get('openrouter_model','openrouter/free'),'tasks':['chat','code','analysis','vision'],'policy':'Otomatik havuz dışında; yalnız elle seçim'},
+      {'provider':'openrouter','model':state.get('openrouter_model','openrouter/free'),'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
       {'provider':'ollama','model':llm.provider_configuration()['model'],'tasks':['chat','code','analysis'],'policy':'Yerel; görüntü için ayrıca vision modeli gerekir'},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     return {'key':bool(api_key(owner)), 'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
