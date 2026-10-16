@@ -81,10 +81,10 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         if sufficient():break
         key=publisher_news.publisher_key(seed)
         if broad and key in attempted_publishers:continue
-        if broad:
+        ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
+        if broad and ident is not None:
             attempted_publishers.add(key)
             job['news_catalog_attempted']=sorted(attempted_publishers);goals._save(job)
-        ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
         limit=1 if broad else 2
