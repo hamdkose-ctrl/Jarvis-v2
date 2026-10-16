@@ -50,10 +50,28 @@ def article(response):
         if isinstance(page,dict):page=page.get('@id')
         return schema.get('headline')==title and (not page or page.rstrip('/')==url.rstrip('/'))
     schemas=[s for s in schemas if matching_schema(s)]
-    if not node.find('h1') and not schemas:
+    # TÜBİTAK's single-news template renders the page title as a sibling block.
+    # Bind only that exact publisher layout and canonical URL, not arbitrary lists.
+    canonical=soup.find('link',rel='canonical')
+    publisher_title=soup.select_one('#block-feza-gursey-page-title h1')
+    publisher_body=soup.select_one('#block-feza-gursey-content > article')
+    region=node.find_parent(class_='region-content')
+    tubitak=(urlsplit(url).hostname=='tubitak.gov.tr' and urlsplit(url).path.startswith('/tr/haber/') and
+             canonical is not None and canonical.get('href','').rstrip('/')==url.rstrip('/') and
+             publisher_title is titles[0] and publisher_body is node and region is not None and
+             publisher_title.find_parent(class_='region-content') is region and len(region.find_all('article'))==1)
+    if not node.find('h1') and not schemas and not tubitak:
         raise ValueError('Başlık haber gövdesine ait değil; liste kartı haber kanıtı sayılmadı.')
     # Only published metadata tied to this page; dateModified and dates in other cards are excluded.
     dates=[s.get('datePublished') for s in schemas if s.get('datePublished')]
+    if tubitak:
+        months={'oca':1,'şub':2,'mar':3,'nis':4,'may':5,'haz':6,'tem':7,'ağu':8,'eyl':9,'eki':10,'kas':11,'ara':12}
+        for label in node.select('.node-date'):
+            if label.find_parent('aside'):continue
+            match=re.fullmatch(r'(\d{1,2})\s+([\wÇĞİÖŞÜçğıöşü]+)\s+(\d{4})',label.get_text(' ',strip=True))
+            if match and match[2].casefold() in months:
+                try:dates.append(date(int(match[3]),months[match[2].casefold()],int(match[1])).isoformat())
+                except ValueError:pass
     scope=node.find_parent('article') or node
     def belongs(element):
         return bool(element.find_parent('head') or

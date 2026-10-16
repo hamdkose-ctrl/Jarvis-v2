@@ -62,7 +62,7 @@ veya Windows üzerinde baştan sona güncel rapor tesliminin doğrulanması değ
 Ağ/model sınırları taklit edilerek gerçek görev kaydı ve rapor dosyasıyla
 regresyonlar çalıştırılır; canlı kullanıcı anahtarı/model çağrısı yapılmaz.
 
-Son kontrol: 1.301 Python testi başarılı (Windows DPAPI için 1 skip),
+Son kontrol: 1.305 Python testi başarılı (Windows DPAPI için 1 skip),
 25 JavaScript grubu ve 6 smoke grubu başarılı. Son salt okunur kural
 incelemesi geçti. İncelemede bulunan yalnız başlıkla haber hedefi tamamlama
 açığı kapatıldı; verify bağımlılığına sarma ve eski tamamlanma kaydından
@@ -78,6 +78,12 @@ Model çağrısı veya hesap bağlantısı yoktur. Aktif hedef değiştirilmez.
 GDELT zaman aşımı, boş sonuç veya doğrulanamayan haber durumunda TÜBİTAK ve
 Boğaziçi'nin resmî dizinleri mevcut headlines okuyucusuyla birer kez denenir.
 Her dizinden en fazla bir ilgili aday (toplam iki ek makale) doğrulanır.
+TÜBİTAK'ın bilinen tekil haber şablonunda gövde dışında kardeş bloktaki
+başlık ve gövde içindeki Türkçe tarih, eşleşen canonical ve tek haber koşuluyla
+okunur. İlgili haber kartlarının tarihi makaleye taşınmaz. Önce doğrulanmış
+30 günlük adaylar kullanılır; sınırlı adaylarda yoksa önceki isteğe uygun
+olarak 90 güne genişlenir. Bu durumda `public_news_window` kaydı oluşur ve
+dosyanın adı `90-gun-raporu.md` ile biter; tarih kaynakta olduğu gibi korunur.
 GDELT hatası pending kalabilirken yayıncıdan alınan gerçek rapor ayrıca passed
 olabilir. Uygun tarihli makale yoksa rapor yine pending kalır; süre artırılarak
 veya tarih koşulları gevşetilerek sahte başarı oluşturulmaz.
