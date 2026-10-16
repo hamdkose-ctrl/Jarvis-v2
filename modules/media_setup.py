@@ -1,5 +1,6 @@
 """Bounded local FFmpeg/FFprobe smoke check; never installs or downloads."""
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,7 +29,9 @@ def check():
                                   capture_output=True,text=True,timeout=5,check=True)
             data=json.loads(result.stdout)
             video=next((s for s in data.get('streams',[]) if s.get('codec_type')=='video'),{})
-            if video.get('codec_name')!='h264' or video.get('width')!=64 or video.get('height')!=64 or float(data.get('format',{}).get('duration',0))<=0:
+            duration=float(data.get('format',{}).get('duration',0))
+            if (video.get('codec_name')!='h264' or video.get('width')!=64 or video.get('height')!=64
+                    or not math.isfinite(duration) or not 0.1<=duration<=0.5):
                 raise ValueError('Test videosu doğrulanamadı.')
     except (OSError,subprocess.SubprocessError,ValueError,TypeError):
         return {'ok':False,'text':'Video araçları bulundu ancak çalışma testi başarısız. FFmpeg/FFprobe ve libx264 desteğini kontrol edin; dosya yolları veya araç çıktısı gösterilmedi.'}

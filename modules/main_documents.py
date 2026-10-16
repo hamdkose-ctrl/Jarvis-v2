@@ -16,6 +16,19 @@ def _file_command(runtime, command: str) -> str | None:
     if any(p is None or not p.is_file() for p in paths):
         return 'Bu dosyaya erişemiyorum: yalnızca İndirilenler, Masaüstü, Belgeler, Resimler ve Jarvis Dosyaları klasörlerindeki dosyalarla çalışırım.'
     act = runtime._tr_lower(m.group(2))
+    if runtime.re.fullmatch(r'(?:yerel\s+)?ocr(?:\s+ile)?\s+(?:oku|metni\s+çıkar)[.! ]*', act.strip()):
+        if len(paths) != 1 or paths[0].suffix.lower() != '.pdf':
+            return 'Yerel OCR için tek bir PDF dosyası seç.'
+        from modules import local_ocr
+        try:
+            with paths[0].open('rb') as stream:
+                result = local_ocr.read(stream.read(local_ocr.MAX_BYTES + 1))
+        except ValueError as exc:
+            return str(exc)
+        runtime._session().last_doc = (result['body'], str(paths[0]), 'yerel_ocr')
+        return (result['body'] + '\n\nYerel OCR çıktısıdır; harf ve sayıları asıl belgeyle kontrol et.' +
+                (' İlk sayfa/metin sınırında kesildi.' if result['truncated'] else '') +
+                '\nDosya olarak almak istersen çıktı al de.')
     as_files = [str(p) for p in paths]
     images = [x for x in as_files if x.lower().endswith(runtime._IMG_EXT)]
     if not images and 'dönüştür' not in act and 'donustur' not in act and workbench.wants(act, as_files):

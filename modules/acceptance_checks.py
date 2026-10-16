@@ -7,7 +7,8 @@ import re
 from datetime import datetime,timezone
 from modules.diagnostics import record_failure as _record_failure
 
-def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False):
+def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,
+        manual_confirm=(),manual_reset=()):
     from modules import llm,personalization,service_health,validation
     owner=personalization.slugify(personalization.get_active())
     token=llm._key_context.set(owner)
@@ -19,6 +20,8 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
             state,detail='failed',type(exc).__name__
         report['checks'].append({'check':name,'state':state,'detail':detail})
     try:
+        from modules import manual_acceptance
+        manual=manual_acceptance.update(owner,confirm=manual_confirm,reset=manual_reset)
         def source():
             import updater
             status=updater.verify_sync();state=status.get('sync_state','unknown')
@@ -32,6 +35,13 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
                 return ('passed' if ok else 'failed',('Python tests: '+match[1]) if match else 'release suite result')
             check('release_suite',regression)
         check('local_configuration',lambda:('informational',service_health.report(owner)))
+        if video:
+            def movie():
+                from modules import media_setup
+                result=media_setup.check()
+                return ('passed' if result.get('ok') is True else 'failed',result['text'])
+            check('video_runtime',movie)
+        else:report['checks'].append({'check':'video_runtime','state':'pending','detail':'Run with --video for real local H.264/FFprobe check'})
         if public_data:
             from modules import public_data_acceptance
             report['checks'].extend(public_data_acceptance.run(owner))
@@ -74,8 +84,11 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
                 result=local_narration.check(owner)
                 return ('passed' if result.get('ok') is True else 'pending','Local WAV generation; listening quality requires manual acceptance')
             check('local_narration',voice)
-        for name in ('wake_word_microphone','screen_camera','speaker_voice_quality','other_live_accounts','restart_and_queue'):
-            report['checks'].append({'check':name,'state':'pending','detail':'Manual acceptance required; not claimed by regression tests'})
+        for name in manual_acceptance.CHECKS:
+            recorded=manual.get(name)
+            report['checks'].append({'check':name,'state':'reported_passed' if recorded else 'pending',
+                'detail':('User-reported on this computer at '+recorded+'; not an automated test; repeat after relevant changes') if recorded
+                else 'Manual acceptance required; not claimed by regression tests'})
     finally:llm._key_context.reset(token)
     return report
 
@@ -84,8 +97,13 @@ def main():
     parser.add_argument('--gmail',action='store_true');parser.add_argument('--desktop',action='store_true')
     parser.add_argument('--narration',action='store_true');parser.add_argument('--skip-suite',action='store_true')
     parser.add_argument('--public-data',action='store_true',help='Live keyless data reads and partial report verification; no models/accounts')
+    parser.add_argument('--video',action='store_true',help='Generate and probe a short temporary local H.264 video')
+    from modules.manual_acceptance import CHECKS
+    parser.add_argument('--confirm-manual',nargs='+',choices=CHECKS,default=[],help='Record only checks you personally completed on this PC')
+    parser.add_argument('--reset-manual',nargs='+',choices=CHECKS,default=[],help='Forget previous manual declarations on this PC')
     parser.add_argument('--output',default='v2_kabul_sonucu.json')
-    args=parser.parse_args();report=run(suite=not args.skip_suite,gmail=args.gmail,desktop=args.desktop,narration=args.narration,public_data=args.public_data)
+    args=parser.parse_args();report=run(suite=not args.skip_suite,gmail=args.gmail,desktop=args.desktop,narration=args.narration,
+        public_data=args.public_data,video=args.video,manual_confirm=args.confirm_manual,manual_reset=args.reset_manual)
     Path(args.output).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     for row in report['checks']:print(row['check']+': '+row['state'])
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0
