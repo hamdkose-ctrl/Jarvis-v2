@@ -1,3 +1,9 @@
+## Doğrudan haftalık haber kaynakları — 16 Ekim 2026, son karar
+- Hamdi’nin onayıyla GDELT kaldırıldı. Ağ uç noktası/kota/retry kodu ve katalog girdisi yoktur. Eski kayıtlı news_search girdileri hedef silinmeden, ağ çağrısı yapmadan kaldırıldı hatası alır; yeni planlayıcıya yalnız sources/headlines önerilir.
+- Mevcut güvenli HTTPS okuyucusu, resmî HTML ve sayfanın ilan ettiği aynı-host RSS/Atom akışlarını kullanır. DPÜ/YTÜ şablonları yalnız kendi host/yol/gövde/başlık/yayın tarihi ve canonical veya paylaşım URL eşleşmesiyle tanınır. İlgili kart tarihi ve etkinlik tarihi yayın tarihi yapılmaz.
+- Kabulde en fazla dört dizin, altı tekil aday, iki doğrulanmış kaynak denenir. Varsayılan yedi gün; eski haberle doldurma veya otomatik tarih genişletme yoktur. Kaynak alıntılı kısmi rapor writer/verify ile gerçek dosyada doğrulanır; bütün kurumlar kapsandı anlamına gelmez.
+- Model-yok kurtarma aynı hedef/günlük/izin ve toplam 10 kurtarma, turda 24, görevde 96 adım sınırlarını korur. Genel Türkiye/üniversite araştırmasında kayıtlı resmî kaynaklar kullanılabilir; yalnız belirli kaynak veya açık URL isteyen kapsam genişletilmez. İptal/sahiplik hataları yutulmaz. Aşağıdaki tarihî GDELT ve 30/90 kabul açıklamaları bu son kararın öncesine aittir.
+
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
 ## Haftalık haber tercihi — 16 Ekim 2026, güncel karar

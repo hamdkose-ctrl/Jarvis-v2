@@ -103,7 +103,8 @@ def headlines(owner,url,*,query=None,fetcher=None):
     service_store.identity(owner)
     if query is not None and (not isinstance(query,str) or not query.strip() or len(query)>300):raise ValueError('Kaynak sorgusu 1–300 karakter olmalı.')
     response=(fetcher or public_sources.fetch)(url)
-    items=public_sources.entries(response)
+    from modules import publisher_news
+    items=public_sources.entries(publisher_news.listing(response))
     discovered_from=None
     if not items:
         for feed in public_sources.feeds(response):

@@ -17,6 +17,9 @@ def news_report_requested(request,instruction,dependencies):
 
 def article(response):
     """Conservative single-article extraction; listing dates are never article dates."""
+    from modules import publisher_news
+    direct=publisher_news.article(response)
+    if direct is not None:return direct
     from bs4 import BeautifulSoup
     from datetime import date
     from urllib.parse import urlsplit

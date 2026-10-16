@@ -732,7 +732,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(job['id'],ident);self.assertEqual(job['state'],'paused')
         self.assertEqual(job['goals'][0]['state'],'pending');self.assertEqual(job['goals'][0]['evidence'],[])
 
-    def test_failed_index_uses_keyless_search_in_same_domain_then_verifies_partial_file(self):
+    def test_direct_publisher_recovery_verifies_partial_file_without_search(self):
         from modules import public_sources,service_store,public_data
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
@@ -740,27 +740,22 @@ class GoalTests(unittest.TestCase):
         calls=[]
         def fetch(url):
             calls.append(url)
-            if url.startswith('https://api.gdeltproject.org/'):
-                body=json.dumps({'articles':[{'title':'AI update','url':article,'seendate':'20991231T000000Z'},
-                                            {'title':'Foreign result','url':'https://foreign.org/article'}]}).encode()
-            elif url==index:body=b'<html><body>No readable links.</body></html>'
+            if url==index:body=('<html><a href="'+article+'">Yapay zekâ haberi</a></html>').encode()
             elif url==article:body=('<article><h1>Bilimsel proje</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Yeni yapay zekâ araştırma projesi üniversite tarafından kamuoyuna duyuruldu. Projenin ayrıntıları bu sayfada açıklandı.</p></article>').encode()
             else:raise AssertionError('Unexpected URL: '+url)
             return {'url':url,'body':body,'content_type':'text/html'}
         self.responses(self.plan('Kaynak araştır','Rapor dosyası oluştur ve doğrula'),
                        self.tool('research',{'url':index}),RuntimeError('HTTP 429'))
-        with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch.object(public_data,'_SEARCH_NEXT',0),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son 30 gün gelişmelerini araştır ve rapor dosyası oluştur')
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Sadece https://example.org/haberler yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur')
             job=goals.latest('alice');out=job['outputs'][job['partial_report']]
             self.assertTrue(goal_tools.verify(out,'alice'));self.assertIn('Kısmi rapor dosyası:',result)
             text=Path(out['file']).read_text(encoding='utf-8')
             self.assertIn(day,text);self.assertNotIn('2099',text);self.assertNotIn('foreign.org',text)
             self.assertEqual(self.ask.call_count,3);self.assertEqual(job['state'],'paused')
-            search=next(s for s in job['steps'] if s['input'].get('operation')=='news_search')
-            self.assertEqual(search['input']['domains'],['example.org'])
-            self.assertEqual(search['input']['days'],30)
+            self.assertFalse(any(s['input'].get('operation')=='news_search' for s in job['steps']))
             self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
-            self.assertEqual(sum(url.startswith('https://api.gdeltproject.org/') for url in calls),1)
+            self.assertTrue(all(url.startswith('https://example.org/') for url in calls))
 
     def test_model_free_recovery_honors_remaining_turn_budget(self):
         from modules import news_recovery
