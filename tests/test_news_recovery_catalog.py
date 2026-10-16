@@ -11,7 +11,10 @@ class NewsRecoveryCatalogTests(unittest.TestCase):
         job={
             'id':'a'*16,'owner':'alice','state':'running',
             'request':'Türkiye yapay zekâ son 7 gündeki gelişmelerini araştır, rapor oluştur ve dosyaya kaydet',
-            'goals':[{'state':'pending'}],'steps':[],'outputs':{}
+            'goals':[{'state':'pending'}],
+            'steps':[{'id':'s0','goal':0,'tool':'research','input':{'url':seeds[0]},'depends':[],
+                      'signature':'normal-attempt','state':'failed'}],
+            'outputs':{'s0':{'state':'failed','text':'Kaynak doğrulanamadı'}}
         }
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'))
 
