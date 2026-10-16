@@ -579,7 +579,7 @@ class GoalTests(unittest.TestCase):
             self.done('s3'),self.tool('writer',{'instruction':'Kaynaklı haber raporu','filename':'rapor.md'},goal=1,depends=['s3']),
             self.tool('verify',{},goal=1,depends=['s4']),self.done('s4','s5',goal=1),RuntimeError('HTTP 429'))
         with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır, rapor oluştur ve dosyayı doğrula')
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır, rapor oluştur ve dosyayı doğrula. Kaynak: '+index)
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual(self.ask.call_count,9)
         self.assertEqual([s['state'] for s in job['steps']],['failed','done','done','done','done'])
@@ -687,7 +687,7 @@ class GoalTests(unittest.TestCase):
         self.responses(self.plan('Kaynakları araştır','Rapor dosyası oluştur ve doğrula'),
                        self.tool('research',{'url':index}),RuntimeError('HTTP 429; no model available'))
         with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve rapor dosyası oluştur')
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+index)
             job=goals.latest('alice');ident=job['id']
             self.assertEqual(self.ask.call_count,3)
             self.assertEqual(job['state'],'paused');self.assertTrue(all(g['state']=='pending' for g in job['goals']))
@@ -778,7 +778,7 @@ class GoalTests(unittest.TestCase):
             self.tool('research',{'url':url}),{'supported':True,'answer':quote,'quotes':[quote]},
             self.done('s1'),self.finish())
         with patch.object(public_sources,'fetch',return_value={'url':url,'body':html}) as fetch,patch('modules.privacy.blocked',return_value=None):
-            result=goals.run(self.runtime,'Son 7 gün Türkiye yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur')
+            result=goals.run(self.runtime,'Son 7 gün Türkiye yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur. Kaynak: '+url)
         job=goals.latest('alice')
         self.assertEqual(self.ask.call_count,5);fetch.assert_called_once()
         self.assertEqual(job['state'],'paused');self.assertEqual(job['goals'][0]['state'],'done')
@@ -822,7 +822,7 @@ class GoalTests(unittest.TestCase):
             {'supported':True,'answer':quote,'quotes':[quote]},self.done('s1'),
             {'action':'ask','question':'Türkiye yapay zekâ gelişmelerini araştır ve rapor dosyası oluştur.'})
         with patch.object(public_sources,'fetch',return_value={'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None):
-            goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur')
+            goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün gelişmelerini araştır ve rapor dosyası oluştur. Kaynak: '+url)
         original=goals.latest('alice');self.assertEqual(original['state'],'question')
         self.ask.reset_mock()
         with patch.object(public_sources,'fetch',side_effect=AssertionError('No fetch')):
@@ -838,5 +838,116 @@ class GoalTests(unittest.TestCase):
         goals.handle(self.runtime,'Boğaziçi Üniversitesi')
         self.assertIn('Boğaziçi Üniversitesi',goals.latest('alice')['answers'])
 
+
+    def test_three_guessed_news_urls_are_rejected_without_fetch_or_unbounded_plans(self):
+        from modules import public_sources, news_recovery
+        self.responses(self.plan('Türkiye haberlerini araştır'),
+            self.tool('research',{'url':'https://www.veri'}),
+            self.tool('research',{'url':'https://tubitak.gov.tr/tr/bilim-kalkinimi/yapay-zeka'}),
+            self.tool('research',{'url':'https://turkiye.gov.tr/uydurulan/yapay-zeka'}))
+        with patch.object(public_sources,'fetch') as fetch,patch.object(news_recovery,'deliver') as recovery:
+            result=goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+        fetch.assert_not_called();recovery.assert_called_once()
+        self.assertEqual(self.ask.call_count,4)
+        self.assertEqual(goals.latest('alice')['steps'],[])
+        self.assertIn('3 kez',result)
+
+    def test_vague_news_question_recovers_without_asking_user_or_another_model(self):
+        from modules import news_recovery
+        self.responses(self.plan('Araştır ve rapor oluştur'),{'action':'ask','question':'Eksik somut bilgi.'})
+        with patch.object(news_recovery,'deliver') as recovery:
+            result=goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+        recovery.assert_called_once();self.assertEqual(self.ask.call_count,2)
+        self.assertEqual(goals.latest('alice')['state'],'paused')
+        self.assertIn('Yeni bilgi vermen gerekmiyor',result)
+        self.assertNotIn('Eksik somut bilgi',result)
+
+    def test_vague_question_real_file_recovers_two_publishers_with_no_more_models(self):
+        from modules import public_sources,publisher_news
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        index_urls=[s['url'] for s in publisher_news.SOURCES[:2]]
+        domains=['https://publisher-one.org','https://publisher-two.net']
+        fetched=[]
+        def fetch(url):
+            fetched.append(url)
+            if url in index_urls:
+                # A publisher can redirect to its current site; use its returned URL.
+                base=domains[index_urls.index(url)]
+                return {'url':base+'/','body':b'<a href="/news/ai">Yapay zeka projesi</a><a href="/news/ai2">Yapay zeka ikinci haber</a>'}
+            body=('<article><h1>Yeni yapay zekâ projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time>'
+                '<p>Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu. Araştırmacılar yeni projenin kapsamını açıkladı.</p></article>')
+            return {'url':url,'body':body.encode()}
+        self.responses(self.plan('Türkiye güncel haberlerini araştır','Rapor dosyası oluştur'),{'action':'ask','question':'Eksik somut bilgi'})
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün haberlerini araştır ve rapor dosyası oluştur')
+        job=goals.latest('alice');self.assertEqual(self.ask.call_count,2)
+        self.assertIn('Kısmi rapor dosyası:',result)
+        output=job['outputs'][job['partial_report']]
+        self.assertTrue(goal_tools.verify(output,'alice'))
+        text=Path(output['file']).read_text(encoding='utf-8')
+        for domain in domains:self.assertIn(domain+'/news/ai',text)
+        self.assertEqual(job['state'],'paused')
+        self.assertTrue(all(goal['state']=='pending' for goal in job['goals']))
+        self.assertLessEqual(len(fetched),4)
+        self.assertFalse(any('/ai2' in url for url in fetched))
+        # A later verified source can extend a partial report, preserving its old file.
+        from modules import news_recovery
+        old_path=Path(output['file']);old_bytes=old_path.read_bytes();old_id=job['partial_report']
+        new_id='s'+str(len(job['steps'])+1)
+        step={'id':new_id,'tool':'research','goal':0,'input':{'url':'https://publisher-three.edu.tr/news/ai'},
+              'depends':[],'signature':'third-source','state':'queued','source_only':True}
+        job['steps'].append(step)
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
+            goals._record(self.runtime,job,step)
+        with patch.object(public_sources,'fetch',side_effect=AssertionError('No network on report refresh')):
+            news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
+            refreshed=job['partial_report'];count=len(job['steps'])
+            news_recovery.deliver(self.runtime,job,existing_only=True,max_new_steps=2)
+        self.assertNotEqual(old_id,refreshed);self.assertEqual(count,len(job['steps']))
+        self.assertEqual(old_bytes,old_path.read_bytes())
+        self.assertIn('publisher-three.edu.tr',Path(job['outputs'][refreshed]['file']).read_text())
+        self.assertTrue(goal_tools.verify(job['outputs'][refreshed],'alice'))
+
+    def test_recovery_permission_refusal_is_not_swallowed_into_more_planning(self):
+        from modules import news_recovery
+        self.responses(self.plan('Araştır'),{'action':'ask','question':'Eksik somut bilgi'})
+        with patch.object(news_recovery,'deliver',side_effect=PermissionError('owner mismatch')):
+            with self.assertRaises(PermissionError):
+                goals.run(self.runtime,'Türkiye yapay zekâ haberlerini araştır ve rapor dosyası oluştur')
+        self.assertEqual(self.ask.call_count,2)
+
+    def test_broad_news_requires_two_publishers_not_two_subdomains(self):
+        from modules import public_sources
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        body=('<article><h1>Yapay zekâ projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Projenin ayrıntıları araştırmacılarla paylaşıldı.</p></article>').encode()
+        outputs={};steps=[]
+        for i,url in enumerate(['https://haber.ornek.edu.tr/news/ai','https://www.ornek.edu.tr/news/ai','https://baska.edu.tr/news/ai']):
+            ident='s'+str(i+1)
+            with patch.object(public_sources,'fetch',return_value={'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None):
+                outputs[ident]=task_agents.worker('alice',{'agent':'research','input':{'url':url},'execution':{
+                    'request':'Türkiye yapay zekâ haberleri','source_only':True}}, {})
+            steps.append({'id':ident,'tool':'research','input':{'url':url},'depends':[],'state':'done'})
+        job={'request':'Türkiye yapay zekâ son gelişmelerini araştır','steps':steps,'outputs':outputs}
+        goal={'text':'Türkiye güncel haberlerini araştır'}
+        for evidence in [['s1'],['s1','s2']]:
+            with self.assertRaisesRegex(ValueError,'Araştırma kısmi'):
+                goals._check_news_completion(job,goal,evidence)
+        goals._check_news_completion(job,goal,['s1','s3'])
+        self.ask.assert_not_called()
+
+    def test_news_preview_never_cuts_a_url_or_marks_old_single_source_complete(self):
+        from modules import research_evidence
+        url='https://example.org/'+('x'*1300)
+        source={'url':url,'title':'Yeni haber','published':'2026-10-16','text':'source'}
+        output={'state':'done','text':'x'*1300+'\n'+url,'news_report_evidence':{'sources':{'s1':{'news_article':source}}}}
+        preview=research_evidence.preview(output)
+        self.assertIn(url,preview);self.assertIn('1 haber, 1 farklı yayıncı',preview)
+        with patch.object(goals,'_check_news_completion',side_effect=ValueError('Partial')):
+            text=goals.render({'state':'question','request':'Türkiye haberleri','goals':[{'text':'Araştır','state':'done','evidence':['s1']}],
+                'outputs':{'s1':output},'question':'Eksik somut bilgi'})
+        self.assertNotIn('✓',text);self.assertIn('Kısmi:',text);self.assertNotIn('Eksik somut bilgi',text)
 
 if __name__=='__main__':unittest.main()

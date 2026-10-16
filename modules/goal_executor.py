@@ -39,6 +39,7 @@ Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlant�
 Kaynak adresi bilinmiyorsa veya research soruyu yanıtlamıyorsa kurumun haber/duyuru dizinindeki gerçek bağlantıları bu araçla bul; makale adresi uydurma. Başlık listesi içerik kanıtı değildir: ilgili bağlantıyı research ile okuyup doğrula.
 Anahtarsız kaynak seçenekleri data operation=sources ile okunur. Haber araştırmasında known_news_sources içindeki resmî yayıncı dizinlerini data.headlines ile doğrudan oku; yalnız gerçek sayfanın ilan ettiği RSS/Atom akışları kullanılır. Bir kaynak sonuç vermiyorsa kullanıcı kapsamındaki sıradaki kaynağı dene. Yalnız belirli kurum istenmişse kapsamı genişletme. Varsayılan haber/gündem aralığı son 7 gündür; kullanıcı istemedikçe 30/90 güne genişletme. Başlık ve indeks tarihi makale kanıtı değildir; tekil sayfada research doğrulaması şarttır. Başlıkta AI geçmese de sınırlı dijital dönüşüm adayları gövdede konu içerebilir. Kaynak seçimi/veri toplama için yeni model veya API anahtarı gerekmez. Eski news_search işlemi kaldırıldı; kullanma.
 Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
+AI haber adresi kullanıcıdan, known_news_sources dizininden veya başarılı headlines keşfinden gelmeli; modelin tahmin ettiği yeni URL yolu kullanılmaz. Genel Türkiye haber araştırmasında en az iki farklı yayıncıdan tarihli kanıt gerekir; aynı kurumun alt alanları ayrı kaynak sayılmaz. Tek kaynak/kurum isteyen açık kapsamı genişletme. İki yayıncı bütün kurumların eksiksiz tarandığı anlamına gelmez; gerçek kapsamı raporda belirt.
 Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
 Servis adayı bulunması çalışan hesap/izin veya ücretsiz kullanım değildir. Genel GET bağlantısı somut kullanıcı onayı gerektirir.
@@ -48,7 +49,7 @@ Katalogda tek araç yok diye işi bırakma; mevcut araçları birleştir. Kaynak
 test sonucu üretmeden veya açık uygulama yetkisi olmadan kaynağı değiştirmiş sayma. Shell, sınırsız Python, kurulum veya fiziksel donanım değiştirme aracı yoktur.
 Ücretli modele/hesaba geçme. Hedef dışı ayar, veri silme veya gönderim ekleme. Model izin veremez; araç onay bekliyorsa dur.
 Bir sonuç gerçek kanıtla tamamlanınca {"action":"complete","goal":0,"evidence":["s1",...]}.
-Gerekli bilgi yalnız kullanıcıdaysa {"action":"ask","question":"eksik somut bilgi"}; erişilebilir bilgiyi önce araçlarla bul. Şifre/anahtar isteme; bağlantı gerekiyorsa mevcut ayar sayfasını belirt.
+Gerekli bilgi yalnız kullanıcıdaysa action=ask ve question alanında gerçek, somut soruyu yaz; "Eksik somut bilgi" gibi yer tutucu yazma veya kullanıcı isteğini geri tekrarlama. Erişilebilir bilgiyi önce araçlarla bul. Şifre/anahtar isteme; bağlantı gerekiyorsa mevcut ayar sayfasını belirt.
 Bütün sonuçlar tamamlanınca {"action":"finish"}. Araç çalıştırmadan yaptım deme; açıklama veya hazırlanmış plan icra değildir.
 Dosya teslimi gerekiyorsa gerçek çıktı dosyası oluştur. Ayrı iş türlerinde ayrı ayrı durma; hedefin bütün bölümlerini tamamla.'''
 
@@ -167,7 +168,7 @@ def _record(runtime,job,step,approval=None):
     from modules import team_center
     step.setdefault('specialist', team_center.assign(job['owner'],step['tool'],job['request']))
     step['state']='running';step['started']=False;job['state']='running';_save(job)
-    runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text']+(' · '+goal_tools.public_request(step['input']['url']) if step['tool']=='research' else ''))
+    runtime.emit('activity','Hedef: '+step['tool'],'working|Hedef|'+job['goals'][step['goal']]['text']+(' · '+goal_tools.public_request(step['input']['url']) if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines' else ''))
     try:
         for dep in step['depends']:goal_tools.verify(job['outputs'][dep],job['owner'])
         step['checkpoint']=goal_tools.checkpoint(runtime,step['tool'],step['input']);_save(job)
@@ -254,7 +255,7 @@ def _check_news_completion(job,goal,evidence):
     from modules import research_evidence
     if not research_evidence.news_requested(job['request']):return
     steps={s['id']:s for s in job['steps']};pending=list(evidence);seen=set()
-    discovery=False;article=False
+    discovery=False;article=False;publishers=set()
     while pending:
         ident=pending.pop()
         if ident in seen:continue
@@ -264,6 +265,8 @@ def _check_news_completion(job,goal,evidence):
         if output.get('news_article'):
             source=research_evidence.news_receipt(output)
             research_evidence.news_date(source['published'],job['request']);article=True
+            from modules import publisher_news
+            publishers.add(publisher_news.publisher_key(source['url']))
         if step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:discovery=True
         pending.extend(step.get('depends',[]))
     text=goal['text'].casefold()
@@ -272,6 +275,10 @@ def _check_news_completion(job,goal,evidence):
                     not re.search(r'araştır|arastir|incele|analiz|doğrula|dogrula|rapor|özet|ozet|değerlendir|degerlendir',text))
     if discovery and not article and not discovery_goal:
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
+    from modules import publisher_news
+    if (not discovery_goal and re.search(r'araştır|arastir|haber|gelişme|rapor|incele|analiz|özet|ozet',text)
+            and publisher_news.broad_research(job['request']) and len(publishers)<2):
+        raise ValueError(f'Araştırma kısmi: {len(publishers)} bağımsız yayıncı doğrulandı. Genel Türkiye araştırmasını tamamlamak için en az iki yayıncıdan tarihli haber kanıtı gerekli; tek haber bütün kapsam sayılmaz.')
 
 
 def _finish_completed(job):
@@ -295,6 +302,7 @@ def _loop(runtime,job,answer=None):
     started_steps=len(job['steps'])
     rejected_plans=0
     rejected_finishes=0
+    rejected_sources=0
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     # Interrupted external steps are reconciled, never blindly replayed.
     for step in job['steps']:
@@ -334,6 +342,12 @@ def _loop(runtime,job,answer=None):
             job.setdefault('feedback',[]).append(output['text'])
             _save(job)
     if job['state']=='review':return render(job)
+    for goal in job['goals']:
+        if goal['state']=='done':
+            try:_check_news_completion(job,goal,goal['evidence'])
+            except ValueError as exc:
+                goal.update(state='pending',evidence=[])
+                job.setdefault('feedback',[]).append(str(exc));_save(job)
     if _finish_completed(job):return render(job)
     # On resume, deliver already verified news before asking a planner again.
     if answer is None and not job.get('partial_report') and job['steps'] and any(o.get('state')=='done' and o.get('news_article') for o in job['outputs'].values()):
@@ -396,6 +410,13 @@ def _loop(runtime,job,answer=None):
             elif action=='ask':
                 question=call.get('question')
                 if not isinstance(question,str) or not question.strip():raise ValueError('Eksik somut bilgiyi belirt.')
+                from modules import research_evidence
+                if research_evidence.news_requested(job['request']) and research_evidence.vague_question(question,job['request']):
+                    from modules import news_recovery
+                    news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    job['state']='paused'
+                    job['blocker']='Araştırma henüz tamamlanmadı. Doğrulanan haberler varsa kısmi dosyada korundu; diğer yayıncılardan aynı tarih aralığında kanıt eksik. Yeni bilgi vermen gerekmiyor; mevcut hedef sürdürülmeli.'
+                    _save(job);return render(job)
                 job['question']=question[:600];job['state']='question';_save(job);return render(job)
             elif action=='finish':
                 if not job['goals'] or any(g['state']!='done' for g in job['goals']):
@@ -430,6 +451,17 @@ def _loop(runtime,job,answer=None):
                     job['goals'][goal].update(state='done',evidence=evidence)
                 else:
                     kind=call.get('tool');data=goal_tools.validate(kind,call.get('input'))
+                    from modules import research_evidence,publisher_news
+                    if research_evidence.news_requested(job['request']) and re.search(r'yapay\s+zek[aâ]',job['request'],re.I) and (kind=='research' or kind=='data' and data.get('operation')=='headlines'):
+                        try:publisher_news.candidate_url(data['url'],job['request'],job['outputs'])
+                        except ValueError:
+                            rejected_sources+=1
+                            if rejected_sources>=3:
+                                from modules import news_recovery
+                                news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                                job['state']='paused';job['blocker']='Planlayıcı 3 kez keşfedilmemiş haber adresi seçti. Bu adreslere istek gönderilmedi; kayıtlı gerçek yayıncılarla sınırlı kurtarma denendi. Mevcut hedef ve dosyalar korundu.'
+                                _save(job);return render(job)
+                            raise
                     deps=call.get('depends',[])
                     if not isinstance(deps,list) or any(not isinstance(d,str) or job['outputs'].get(d,{}).get('state')!='done' for d in deps):raise ValueError('Bağımlılık gerçek tamamlanmış adım olmalı.')
                     signature=hashlib.sha256(json.dumps([kind,data],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -453,7 +485,7 @@ def _loop(runtime,job,answer=None):
                     if job['state'] in {'approval','review'}:return render(job)
             _save(job)
             if _finish_completed(job):return render(job)
-        except requests_state.Cancelled:raise
+        except (requests_state.Cancelled,PermissionError):raise
         except Exception as exc:
             _record_failure('modules/goal_executor.py:turn')
             job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600]);_save(job)
@@ -462,7 +494,7 @@ def _loop(runtime,job,answer=None):
                 if planner_pending:
                     from modules import news_recovery
                     try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
-                    except requests_state.Cancelled:raise
+                    except (requests_state.Cancelled,PermissionError):raise
                     except Exception as recovery_error:
                         _record_failure('modules/goal_executor.py:news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
@@ -512,6 +544,12 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                 _save(job)
         if resume or approve:
             if not job:return 'Sürdürülecek kayıtlı hedef yok.'
+            if job['state']=='done':
+                for goal in job['goals']:
+                    try:_check_news_completion(job,goal,goal['evidence'])
+                    except ValueError as exc:
+                        goal.update(state='pending',evidence=[]);job['state']='paused'
+                        job.setdefault('feedback',[]).append(str(exc));_save(job)
             if job['state'] in {'done','cancelled'}:return render(job)
             if job['state']=='approval':
                 step=next(s for s in job['steps'] if s['id']==job['waiting'])
@@ -539,24 +577,32 @@ def render(job):
         lines.append(f'Model planı bekleniyor: {elapsed} saniye. Bu çağrının sınırı {PLANNER_SECONDS} saniye; henüz araç adımı başlamamış olabilir.')
     for goal in job['goals']:
         if goal['state']=='done':
-            lines.append('✓ '+goal['text'])
+            partial=False
+            try:_check_news_completion(job,goal,goal['evidence'])
+            except ValueError:partial=True
+            lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
             for ident in goal['evidence']:
                 output=job['outputs'][ident]
-                lines.append(output.get('text','')[:1200])
+                from modules import research_evidence
+                lines.append(research_evidence.preview(output) if output.get('news_article') or output.get('news_report_evidence') else output.get('text','')[:1200])
                 for item in output.get('files',[]):lines.append('Dosya: '+item['file'])
                 if output.get('file') and not output.get('files'):lines.append('Dosya: '+output['file'])
     if job['state']=='approval':
         output=job['outputs'][job['waiting']]
         lines.append(output.get('text') or output.get('message') or 'Somut işlem onay bekliyor.')
         lines.append('Bu işlemi onaylıyorsan “hedef onayla” diyebilirsin.')
-    elif job['state']=='question':lines.append(job['question'])
+    elif job['state']=='question':
+        from modules import research_evidence
+        lines.append('Araştırma kısmi; diğer kaynaklardan doğrulanmış haber kanıtı eksik. Yeni bilgi vermen gerekmiyor; mevcut hedef sürdürülebilir.'
+            if research_evidence.news_requested(job['request']) and research_evidence.vague_question(job['question'],job['request']) else job['question'])
     elif job['state'] not in {'done','cancelled'}:
         lines.append(job.get('blocker','Hedef sürüyor.'))
         partial=job['outputs'].get(job.get('partial_report'),{})
         if partial.get('state')=='done' and partial.get('file'):
             lines.append('Kısmi rapor dosyası: '+partial['file'])
         for current in job['steps']:
-            if current['state']=='running' and current['tool']=='research':lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
+            if current['state']=='running' and (current['tool']=='research' or current['tool']=='data' and current['input'].get('operation')=='headlines'):
+                lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
         for step in job['steps'][-3:]:
             output=job['outputs'].get(step['id'],{})
             if output.get('state')!='done':lines.append(step['tool']+': '+str(output.get('text') or output.get('message') or step['state'])[:500])

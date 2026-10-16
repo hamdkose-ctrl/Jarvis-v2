@@ -18,8 +18,42 @@ def recovery_indexes(request,seeds):
     # Existing source choices are authoritative; never replace one university with another.
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
     named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
-    defaults=[s['url'] for s in SOURCES[:2]] if broad and not scoped and not named and not seeds else []
+    if broad and not scoped and not named:
+        # Failed planner guesses are not a reason to abandon the real publisher catalog.
+        known=[s['url'] for s in SOURCES]
+        preferred=[url for url in known if any((urlsplit(seed).hostname or '').removeprefix('www.')==
+                    (urlsplit(url).hostname or '').removeprefix('www.') for seed in seeds)]
+        return list(dict.fromkeys(preferred+known))[:4]
+    defaults=[]
     return list(dict.fromkeys(defaults+seeds))[:4]
+
+
+def broad_research(request):
+    return bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
+                not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|bakanlığı|bakanligi|ofisi|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
+
+
+def publisher_key(url):
+    labels=(urlsplit(url).hostname or '').removeprefix('www.').split('.')
+    return '.'.join(labels[-3:] if '.'.join(labels[-2:]) in {'edu.tr','gov.tr','com.tr','org.tr'} else labels[-2:])
+
+
+def candidate_url(url,request,outputs):
+    """Model guesses are not news links: require user, catalog or actual discovery provenance."""
+    from modules.public_sources import address
+    candidate=address(url)
+    allowed={address(s['url']) for s in SOURCES}
+    for raw in re.findall(r'https://[^\s<>"\]]+',request):
+        try:allowed.add(address(raw.rstrip('.,;)')))
+        except ValueError:pass
+    for output in outputs.values():
+        if output.get('state')!='done':continue
+        if output.get('source'):allowed.add(output['source'])
+        for row in output.get('structured',{}).get('items',[]):
+            if isinstance(row,dict) and isinstance(row.get('url'),str):allowed.add(row['url'])
+    if candidate not in allowed:
+        raise ValueError('Bu haber adresi kullanıcıdan, kayıtlı yayıncı dizininden veya doğrulanmış bağlantı keşfinden gelmedi. data operation=sources ve kayıtlı known_news_sources adresleriyle headlines kullan; URL yolu uydurma.')
+    return candidate
 
 
 def listing(response):

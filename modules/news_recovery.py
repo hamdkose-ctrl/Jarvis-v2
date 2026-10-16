@@ -5,6 +5,7 @@ Uses the existing journal and adapters. Does not complete goals or grant approva
 import hashlib
 import json
 import re
+import time
 from modules import research_evidence, goal_tools
 
 
@@ -14,10 +15,12 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if (job['state'] in {'approval','review','cancelled'} or not job['goals'] or
         not research_evidence.news_requested(request) or not re.search(r'yapay\s+zek[aâ]',request,re.I) or
         not re.search(r'rapor',request,re.I) or not re.search(r'dosya|kaydet|markdown',request,re.I)):return
+    previous_report=None
     if job.get('partial_report'):
         if job['outputs'].get(job['partial_report'],{}).get('state')=='done':
-            goal_tools.verify(job['outputs'][job['partial_report']],job['owner']);return
-        job.pop('partial_report',None)
+            previous_report=job['outputs'][job['partial_report']]
+            goal_tools.verify(previous_report,job['owner'])
+        else:job.pop('partial_report',None)
     seeds=[]
     for step in job['steps']:
         if step.get('recovery'):continue
@@ -29,7 +32,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if not seeds and not existing_only:return
     goal=next((i for i,g in enumerate(job['goals']) if g['state']!='done'),None)
     if goal is None:return
-    count=sum(bool(s.get('recovery')) for s in job['steps']);new_steps=0
+    count=sum(bool(s.get('recovery')) for s in job['steps']);new_steps=0;deadline=time.monotonic()+45
     def tool(kind,data,depends=()):
         nonlocal count,new_steps
         goals._ensure(runtime,job)
@@ -39,6 +42,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             output=job['outputs'].get(previous['id'],{})
             if output.get('state')=='done':goal_tools.verify(output,job['owner'])
             return previous['id'],output
+        if kind in {'data','research'} and time.monotonic()>=deadline:return None,{}
         if count>=10 or new_steps>=max_new_steps or len(job['steps'])>=96:return None,{}
         if count>=8 and kind not in {'writer','verify'}:return None,{}
         ident='s'+str(len(job['steps'])+1)
@@ -53,8 +57,16 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         output=job['outputs'].get(step['id'],{})
         if output.get('state')=='done' and output.get('news_article') and any(re.search(r'yapay\s+zek[aâ]',q,re.I) for q in output.get('source_quotes',[])):
             goal_tools.verify(output,job['owner']);sources[step['id']]=output
+    previous_urls={o['news_article']['url'] for o in (previous_report or {}).get('news_report_evidence',{}).get('sources',{}).values() if o.get('news_article')}
+    def source_urls():return {o['news_article']['url'] for o in sources.values()}
+    if previous_report and existing_only and source_urls()==previous_urls:return
+    broad=publisher_news.broad_research(request)
+    def publisher_keys():return {publisher_news.publisher_key(url) for url in source_urls()}
+    def sufficient():return len(publisher_keys())>=2 if broad else len(sources)>=2
     candidates=[];attempted=set()
     for seed in ([] if existing_only else seeds):
+        if sufficient():break
+        if broad and publisher_news.publisher_key(seed) in publisher_keys():continue
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
@@ -62,9 +74,11 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             if row['url'] in attempted:continue
             attempted.add(row['url'])
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
-            if result.get('state')=='done':sources[ident]=result
-            if len(sources)>=2:break
-        if len(sources)>=2:break
+            if result.get('state')=='done':
+                sources[ident]=result
+                if broad:break  # Spend the next slot on a different publisher, not another same-site story.
+            if sufficient():break
+        if sufficient():break
     # Also retry an already attempted article through the strict, model-free reader.
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
@@ -74,7 +88,9 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         if out.get('state')=='done':sources[ident]=out
         if len(sources)>=3:break
     if not sources:return
-    ident,out=tool('writer',{'instruction':'Kısmi kaynak alıntıları raporu; kapsam tamamlandı deme.','filename':'kismi-yapay-zeka-kaynaklari.md'},sources)
+    if previous_report and source_urls()==previous_urls:return
+    version=hashlib.sha256(json.dumps(sorted(source_urls())).encode()).hexdigest()[:12]
+    ident,out=tool('writer',{'instruction':'Kısmi kaynak alıntıları raporu; kapsam tamamlandı deme. Kaynak sürümü: '+version,'filename':'kismi-yapay-zeka-kaynaklari.md'},sources)
     if out.get('state')!='done':return
     checked,verification=tool('verify',{},[ident])
     if verification.get('state')=='done':
