@@ -34,7 +34,10 @@ Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web
 rapor writer ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
 Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa video media scenes/caption/duration ile üretilir.
 Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
-Finans/store CSV hesapları ve günlük kaynak kuru data; haber başlıkları data.headlines ile okunur.
+Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
+Kaynak adresi bilinmiyorsa veya research soruyu yanıtlamıyorsa kurumun haber/duyuru dizinindeki gerçek bağlantıları bu araçla bul; makale adresi uydurma. Başlık listesi içerik kanıtı değildir: ilgili bağlantıyı research ile okuyup doğrula.
+Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
+Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
 Servis adayı bulunması çalışan hesap/izin veya ücretsiz kullanım değildir. Genel GET bağlantısı somut kullanıcı onayı gerektirir.
 Takip kaydı yalnız kullanıcının kesin URL ve açık izleme isteğiyle oluşturulur. Kaynak bildirimi, tarih/kapsamı yorumlanmış kesin karar değildir.
@@ -195,7 +198,7 @@ def _record(runtime,job,step,approval=None):
         parsed=urlsplit(step['input']['url'])
         source=urlunsplit((parsed.scheme,parsed.hostname or '',parsed.path,'',''))
         if source not in job.setdefault('unavailable_sources',[]):job['unavailable_sources'].append(source)
-        job.setdefault('feedback',[]).append('Kaynağa erişilemedi: '+source+'. Bu kaynakta bilgi doğrulanmadı. Mevcut hedefleri ve tamamlanan adımları koru; kullanıcı yalnız bu kaynağı şart koşmadıysa başka ilgili kaynakla sürdür. Aynı başarısız adresi tekrar deneme.')
+        job.setdefault('feedback',[]).append('Kaynak doğrulanamadı: '+source+'. Erişim veya içerik nedeniyle bu kaynaktan soruyu yanıtlayan kanıt alınamadı. Mevcut hedefleri ve tamamlanan adımları koru; kullanıcı yalnız bu kaynağı şart koşmadıysa başka ilgili kaynakla sürdür. Aynı başarısız adresi tekrar deneme.')
     if output['state']=='approval':job['state']='approval';job['waiting']=step['id'];job['approval_at']=time.time()
     elif output['state']!='done' and not goal_tools.replay_safe(step['tool'],step['input']):
         safe_initial_browser=step['tool']=='browser' and approval is None

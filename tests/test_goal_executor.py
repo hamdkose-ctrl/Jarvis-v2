@@ -552,4 +552,36 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(self.ask.call_count,3)
 
 
+
+    def test_unsupported_page_discovers_real_article_then_writes_and_verifies_report(self):
+        from modules import public_sources,service_store
+        index='https://example.org/news'
+        article='https://example.org/news/ai-project'
+        quote='16 Ekim 2026 tarihinde yeni yapay zeka projesi duyuruldu.'
+        bad='Bu sayfa yalnız kurumsal iletişim ve adres bilgilerini içerir. '*3
+        html=('<html><body><a href="/sports">Spor etkinliği</a><a href="/news/ai-project">Yapay zeka projesi duyurusu</a></body></html>').encode()
+        self.responses(self.plan('Kaynaklı rapor dosyası'),
+            self.tool('research',{'url':'https://example.org/irrelevant','question':'Yeni yapay zeka gelişmesi?'}),
+            {'supported':False,'answer':'','quotes':[]},
+            self.tool('data',{'operation':'headlines','url':index,'query':'yapay zeka'}),
+            self.tool('research',{'url':article,'question':'Yeni yapay zeka gelişmesi?'}),
+            {'supported':True,'answer':quote,'quotes':[quote]},
+            self.tool('writer',{'instruction':'Yayın tarihini ve kaynağı koruyarak rapor yaz.','filename':'rapor.md'},depends=['s3']),
+            '# Araştırma raporu\n'+quote+'\nKaynak: '+article,
+            self.tool('verify',{},depends=['s4']),self.done('s3','s4','s5'),self.finish())
+        with patch('modules.browser.page_text',side_effect=lambda url:(quote+' Projede üniversiteler ve araştırma kurumları birlikte çalışıyor.') if url==article else bad), \
+             patch.object(public_sources,'fetch',return_value={'url':index,'body':html,'content_type':'text/html'}), \
+             patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Güncel kaynakları kendin bul, kısa rapor dosyası oluştur ve doğrula.')
+            job=goals.latest('alice')
+            self.assertEqual(job['state'],'done',result)
+            self.assertEqual(job['steps'][0]['state'],'failed')
+            self.assertEqual(job['outputs']['s2']['structured']['items'][0]['url'],article)
+            content=Path(job['outputs']['s4']['file']).read_text()
+            self.assertIn(quote,content);self.assertIn(article,content)
+            self.assertIn('Erişilemeyen kaynaklar',content)
+            self.assertTrue(goal_tools.verify(job['outputs']['s4'],'alice'))
+            self.assertEqual(job['outputs']['s5']['state'],'done')
+
+
 if __name__=='__main__':unittest.main()

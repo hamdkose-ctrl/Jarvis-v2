@@ -98,10 +98,19 @@ def exchange(owner,base,quote,on_date=None,*,fetcher=None):
             'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Günlük kaynak kuru; anlık banka alış/satış fiyatı değildir.'}
 
 
-def headlines(owner,url,*,fetcher=None):
-    service_store.identity(owner);response=(fetcher or public_sources.fetch)(url)
+def headlines(owner,url,*,query=None,fetcher=None):
+    service_store.identity(owner)
+    if query is not None and (not isinstance(query,str) or not query.strip() or len(query)>300):raise ValueError('Kaynak sorgusu 1–300 karakter olmalı.')
+    response=(fetcher or public_sources.fetch)(url)
     items=public_sources.entries(response)
     if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok.')
+    if query is not None:
+        def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')
+        terms=set(re.findall(r'[\w]+',fold(query)))
+        def rank(row):
+            title=fold(row['title']);text=fold(row.get('summary','')+' '+row['url'])
+            return sum(3*(term in title)+(term in text) for term in terms if len(term)>2)
+        items=sorted(items,key=rank,reverse=True)
     return {'items':items[:20],'source':response['url'],'fetched_at':time.time(),
             'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Kaynak başlıkları; metin doğruluğu veya karar kapsamı ayrıca incelenmeli.'}
 

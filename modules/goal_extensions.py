@@ -7,7 +7,7 @@ from modules import service_store
 TOOLS={
  'monitor':'Proaktif kaynak takibi. operation=add(url,terms:list,interval?:300..86400,label?)|list|events(limit?)|pause/resume/remove(id)|check(id). Yalnız açık takip isteğiyle kaydet; ilk tarama eski haberleri yeni saymaz.',
  'capability':'Yeni API/MCP referansı. operation=discover(query)|list|assess(id)|specialists|bind(id,endpoint,parameters:{ad:tür})|read(id,parameters)|unbind(id). bind yalnız açık istek ve somut onayla sabit, anahtarsız GET bağlar; MCP kodu/ücretli hesap kurmaz.',
- 'data':'Alan verileri. operation=exchange(base,quote,date?)|headlines(url)|finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
+ 'data':'Alan verileri. operation=exchange(base,quote,date?)|headlines(url,query?) haber/duyuru dizinindeki GERÇEK bağlantıları keşfeder; başlık sonucu makale kanıtı değildir. |finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
 }
 
 
@@ -20,7 +20,7 @@ def validate(kind,data):
                  'pause':({'id'},set()),'resume':({'id'},set()),'remove':({'id'},set()),'check':({'id'},set())},
       'capability':{'discover':({'query'},set()),'list':(set(),set()),'assess':({'id'},set()),'specialists':(set(),set()),
                     'bind':({'id','endpoint','parameters'},set()),'read':({'id','parameters'},set()),'unbind':({'id'},set())},
-      'data':{'exchange':({'base','quote'},{'date'}),'headlines':({'url'},set()),
+      'data':{'exchange':({'base','quote'},{'date'}),'headlines':({'url'},{'query'}),
               'finance_csv':({'path','columns'},{'decimal'}),'store_csv':({'path','columns'},{'decimal'}),
               'social':({'service','account_operation'},{'resource_id','limit'})}}
     if op not in schemas[kind]:raise ValueError('Alan aracı işlemi kayıtlı değil.')
@@ -182,7 +182,7 @@ def execute(runtime,kind,data,identity,approval=None):
         capability_hub.unbind(owner,data['id']);return result('Genel okuma bağlantısı kaldırıldı.')
     from modules import domain_tools
     if op=='exchange':return result(domain_tools.exchange(owner,data['base'],data['quote'],data.get('date')))
-    if op=='headlines':return result(domain_tools.headlines(owner,data['url']))
+    if op=='headlines':return result(domain_tools.headlines(owner,data['url'],query=data.get('query')))
     if op in ('finance_csv','store_csv'):
         value=domain_tools.csv_analysis(owner,op.split('_')[0],data['path'],data['columns'],data.get('decimal','.'))
         return result(value,source_file=value['source_file'],source_sha256=value['source_sha256'])

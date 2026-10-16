@@ -31,3 +31,9 @@ body.seljuk-theme .page.p-home{background:transparent!important}
 @keyframes sj-flow{from{background-position:150% 0}to{background-position:-100% 0}}
 #seljuk-backdrop.sj-still .sj-flow{opacity:0!important}
 @media(prefers-reduced-motion:reduce){#seljuk-backdrop .sj-flow{opacity:0!important}}
+
+/* Keep the approved opening vivid; reading and task panels get a calm backdrop. */
+#seljuk-backdrop .sj-shade{transition:background .35s ease}
+#seljuk-backdrop.sj-workspace .sj-shade{background:rgba(1,9,17,.82)}
+body.seljuk-theme .p-team .team-jobbody{background:rgba(3,15,26,.82);padding:14px;border-radius:8px}
+@media(prefers-reduced-motion:reduce){#seljuk-backdrop .sj-shade{transition:none}}
