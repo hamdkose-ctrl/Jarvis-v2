@@ -152,17 +152,22 @@ def vague_question(question,request):
 
 
 def preview(output):
-    """Chat shows complete source references; the full, uncut report stays in its file."""
-    from modules.publisher_news import publisher_key
+    """Keep user-facing news readable while retaining legacy preview compatibility."""
     sources=([output['news_article']] if output.get('news_article') else
              [row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')])
     unique={source['url']:source for source in sources}
-    publishers={publisher_key(url) for url in unique}
-    lines=[f'{len(unique)} haber, {len(publishers)} farklı yayıncı doğrulandı. Tam alıntılar rapor dosyasında.']
+    report=bool(output.get('news_report_evidence'))
+    if report and output.get('file'):
+        return ''
+    lines=[]
+    if report:
+        from modules.publisher_news import publisher_key
+        publishers={publisher_key(url) for url in unique}
+        lines.append(f'{len(unique)} haber, {len(publishers)} farklı yayıncı doğrulandı. Tam alıntılar rapor dosyasında.')
     for source in list(unique.values())[:4]:
         title=re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',source['title']))
         url=source['url'].replace('<','%3C').replace('>','%3E')
-        lines.append(title+' · '+source['published']+'\nKaynak: <'+url+'>')
+        lines.append(title+' · '+source['published']+'\nKaynak: '+url)
     if len(unique)>4:lines.append('Diğer kaynaklar rapor dosyasında.')
     return '\n\n'.join(lines)
 
