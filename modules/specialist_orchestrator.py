@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from modules import goal_tools, requests_state, team_center
+from modules.diagnostics import record_failure as _record_failure
 
 
 def validate(owner, request, tasks):
@@ -50,6 +51,7 @@ def run(runtime, request, tasks):
             output=goal_tools.execute(runtime,task['tool'],task['input'],deps,identity)
         except requests_state.Cancelled:raise
         except Exception:
+            _record_failure('modules/specialist_orchestrator.py:execute')
             recovered=goal_tools.reconcile(runtime,task['tool'],task['input'],identity,checkpoint)
             if recovered is None:raise
             output=recovered
