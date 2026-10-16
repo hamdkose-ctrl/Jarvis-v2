@@ -2,7 +2,18 @@
 - Windows public-data kabulü: iki makale ve gerçek rapor passed; eski adayın pending olması beklenen elemedir. Normal hedefte yalnız araştırma çıktısı ve eksik finish görüldü.
 - Erken finish sonrası doğrulanmış mevcut haberden modelsiz writer/verify teslimi eklendi; kapsam hedefleri açık kalır. Eksik finish döngüsü üç denemeyle sınırlıdır. Son Windows normal hedef sürdürme kabulü bekliyor; yedi dakikalık gecikmenin tamamının giderildiği iddia edilmez.
 
-# Güncel açık işler — 14 Ekim 2026
+# Güncel açık işler — 16 Ekim 2026
+
+Önce bu bölüm okunur; aşağıdaki 14 Ekim ve diğer tarihli kayıtlar geçmiş ortamların durumudur. Eski `FFmpeg yok` veya `ses pending` satırları daha sonraki kullanıcı kabulünü geçersiz kılmaz. Ev ve iş bilgisayarları ayrı kabul gerektirir.
+
+- Kullanıcı bu sohbette Gmail ek okuma, Türkçe mail metni, Hesap Makinesi, hafıza işlemleri, ses kontrolleri ve gerçek kısa video üretiminin başarılı olduğunu bildirdi. Bunlar her PC ve her yeni sürüm için otomatik test kanıtı değildir.
+- Onaylı hologram/menü/dock ve son Selçuklu arka planı korunur. Drive'daki genel HUD taslağı uygulanmaz.
+- Gerçek hesap yazma/yayın izinleri, genel üçüncü taraf masaüstü görevleri, yeniden başlatmada kuyruk kurtarma ve kaynak araştırmasının uçtan uca canlı kabulü açık kalır. Kısmi kaynak raporu tam hedef başarısı sayılmaz.
+- Açık yerel OCR ve `--video` kabulü eklendi; kullanıcı tarafından bildirilen donanım kabulü `reported_passed` olarak ayrı saklanır. Türkçe OCR dil dosyaları ve gerçek PC kalitesi ayrıca doğrulanmalı.
+- Ayrıntı, sınırlar ve tek Windows test listesi: [Uyarı incelemesi](UYARI_INCELEMESI_20261016.md).
+- Son ortak kontrol (main #43 + bu değişiklik): 1328 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı. Yerel taranmış PDF İngilizce OCR ve gerçek H.264 üretimi geçti; Türkçe OCR ve Windows kabulü bu sonuçtan çıkarılamaz. Salt okunur kural denetimi geçti.
+
+## Geçmiş durum — 14 Ekim 2026
 
 14 Ekim kullanıcı PC sonuçları: 1045 test ve tüm JS/smoke grupları ile başlangıç bağımlılık kontrolü geçti (9 test atlandı). Kamera açıldı; Hesap Makinesi 12 + 7 = 19 ve SAPI WAV üretimi doğrulandı. Gmail canlı okunmamış liste ve boş ek listesi döndü; gerçek ek içeriği okumaya uygun mail yoktu. Ekran paylaşımı yazım yönlendirmesi ve mail/kuyruk metinleri düzeltildi. Hesap Makinesi yavaşlığı için tur süresi eklenmiştir; hız iyileşmesi gerçek PC'de henüz ölçülmedi. Bu PC'de FFmpeg/FFprobe bulunamadı. Kuyruk kaydedildi ve bekliyor görüldü; gerçekten çalıştığı/yeniden başlatma/iptal kabulü henüz kanıtlanmadı. Mail/hesap kişisel içeriği depoya eklenmez.
 
