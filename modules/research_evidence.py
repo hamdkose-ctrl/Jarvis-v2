@@ -119,6 +119,22 @@ def news_report(dependencies):
     return '\n'.join(lines)+'\n'
 
 
+def literal_ai_quotes(article,request):
+    """Narrow model-free fallback: literal AI excerpts, never an inferred answer."""
+    if not re.search(r'yapay\s+zek[aâ]',request,re.I):raise ValueError('Bu konu için modelsiz alıntı seçimi desteklenmiyor.')
+    text=article['text'];quotes=[]
+    if text.startswith(article['title']):text=text[len(article['title']):].lstrip()
+    for match in re.finditer(r'yapay\s+zek[aâ]',text,re.I):
+        boundary=text.rfind('. ',0,match.start());start=0 if boundary<0 else boundary+2
+        end=text.find('. ',match.end())
+        end=len(text) if end<0 else end+1
+        excerpt=text[start:min(end,start+700)].strip()
+        if re.search(r'yapay\s+zek[aâ]',excerpt,re.I) and 20<=len(excerpt)<=800 and excerpt not in quotes:quotes.append(excerpt)
+        if len(quotes)>=3:break
+    if not quotes:raise ValueError('Haber gövdesinde yapay zekâ hakkında yeterli birebir alıntı bulunamadı.')
+    return {'supported':True,'answer':'Modelsiz kaynak alıntıları; kapsam ve yorum doğrulanmadı.','quotes':quotes}
+
+
 def parse(answer,source,*,allow_unsupported=False):
     try:
         data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))

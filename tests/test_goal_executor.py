@@ -673,5 +673,51 @@ class GoalTests(unittest.TestCase):
             self.assertEqual(engine_commands.handle(runtime,'sürdür'),'Kayıtlı hedef sürüyor')
         handle.assert_called_once_with(runtime,'sürdür');dispatch.assert_not_called()
 
+    def test_unavailable_planner_delivers_bounded_literal_news_report_without_more_models(self):
+        from modules import public_sources,service_store
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        index='https://example.org/haberler';article='https://example.org/haber/ai-project'
+        html='<article><h1>Yapay zekâ araştırması</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Üniversite yapay zekâ araştırma projesini duyurdu. Araştırmacılar bilimsel çalışmanın ayrıntılarını kamuoyuyla paylaştı.</p></article>'
+        calls=[]
+        def fetch(url):
+            calls.append(url)
+            body='<a href="/haber/ai-project">Yapay zeka araştırması</a>' if url==index else html
+            return {'url':url,'body':body.encode(),'content_type':'text/html'}
+        self.responses(self.plan('Kaynakları araştır','Rapor dosyası oluştur ve doğrula'),
+                       self.tool('research',{'url':index}),RuntimeError('HTTP 429; no model available'))
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve rapor dosyası oluştur')
+            job=goals.latest('alice');ident=job['id']
+            self.assertEqual(self.ask.call_count,3)
+            self.assertEqual(job['state'],'paused');self.assertTrue(all(g['state']=='pending' for g in job['goals']))
+            self.assertIn('Kısmi rapor dosyası:',result)
+            output=job['outputs'][job['partial_report']]
+            self.assertTrue(goal_tools.verify(output,'alice'));text=Path(output['file']).read_text(encoding='utf-8')
+            self.assertIn('Yapay zekâ',text);self.assertIn(day,text);self.assertIn('<'+article+'>',text)
+            self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
+            previous_steps=len(job['steps']);previous_calls=len(calls)
+            self.ask.side_effect=RuntimeError('Still no model')
+            goals.handle(self.runtime,'sürdür')
+            self.assertEqual(goals.latest('alice')['id'],ident)
+            self.assertEqual(len(goals.latest('alice')['steps']),previous_steps);self.assertEqual(len(calls),previous_calls)
+
+    def test_model_free_recovery_does_not_grant_or_attempt_external_operations(self):
+        from modules import news_recovery
+        job={'state':'approval','request':'Yapay zekâ haberlerini araştır, rapor dosyası oluştur ve gönder','goals':[{'state':'pending'}]}
+        with patch.object(goals,'_record') as run:
+            news_recovery.deliver(self.runtime,job)
+        run.assert_not_called()
+
+    def test_model_free_recovery_honors_remaining_turn_budget(self):
+        from modules import news_recovery
+        job={'id':'d'*16,'state':'running','owner':'alice','request':'Yapay zekâ haberlerini araştır ve rapor dosyası oluştur',
+             'goals':[{'state':'pending'}],'steps':[{'id':'s1','tool':'research','input':{'url':'https://example.org/haberler'}}],'outputs':{}}
+        def record(runtime,job,step):
+            step['state']='failed';job['outputs'][step['id']]={'state':'failed'}
+        with patch.object(goals,'_record',side_effect=record) as run:
+            news_recovery.deliver(self.runtime,job,max_new_steps=1)
+        self.assertEqual(run.call_count,1);self.assertEqual(len(job['steps']),2)
+
 
 if __name__=='__main__':unittest.main()
