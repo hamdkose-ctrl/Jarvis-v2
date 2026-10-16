@@ -11,16 +11,22 @@ from modules import research_evidence, goal_tools
 
 def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     from modules import goal_executor as goals
-    request=job['request']
+    request=job['request'];state_at_start=job['state']
     if (job['state'] in {'approval','review','cancelled'} or not job['goals'] or
         not research_evidence.news_requested(request) or not re.search(r'yapay\s+zek[aâ]',request,re.I) or
         not re.search(r'rapor',request,re.I) or not re.search(r'dosya|kaydet|markdown',request,re.I)):return
     previous_report=None
-    if job.get('partial_report'):
-        if job['outputs'].get(job['partial_report'],{}).get('state')=='done':
-            previous_report=job['outputs'][job['partial_report']]
+    previous_id=job.get('partial_report') or job.get('resume_partial_report')
+    if previous_id:
+        if job['outputs'].get(previous_id,{}).get('state')=='done':
+            previous_report=job['outputs'][previous_id]
             goal_tools.verify(previous_report,job['owner'])
-        else:job.pop('partial_report',None)
+        else:
+            job.pop('partial_report',None);job.pop('resume_partial_report',None)
+    # A question-state resume may deliver the already verified partial once without a model.
+    # On the next bare resume, release that one-shot gate so the durable planner can continue.
+    if job.get('partial_report') and job.get('resume_partial_report')==job.get('partial_report'):
+        job.pop('partial_report',None);goals._save(job);return
     seeds=[]
     for step in job['steps']:
         if step.get('recovery'):continue
@@ -97,4 +103,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if out.get('state')!='done':return
     checked,verification=tool('verify',{},[ident])
     if verification.get('state')=='done':
-        job['partial_report']=ident;goals._save(job)
+        job['partial_report']=ident
+        if state_at_start=='question':job['resume_partial_report']=ident
+        else:job.pop('resume_partial_report',None)
+        goals._save(job)
