@@ -54,16 +54,16 @@ class PublicDataAcceptanceTests(unittest.TestCase):
         with patch.object(domain_tools,'exchange',return_value={'data':{'date':'2026-10-16'}}),patch.object(public_data,'news_search',return_value={'items':[]}):
             with self.assertRaises(PermissionError):acceptance.run('alice')
 
-    def test_older_publisher_article_is_explicitly_partial_90_day_report(self):
-        day=(datetime.now(timezone(timedelta(hours=3))).date()-timedelta(days=56)).isoformat()
+    def test_older_publisher_article_does_not_fill_weekly_report(self):
+        day=(datetime.now(timezone(timedelta(hours=3))).date()-timedelta(days=8)).isoformat()
         url='https://tubitak.gov.tr/tr/haber/yapay-zeka'
         body=('<article><h1>Yapay zekâ projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Yeni yapay zekâ araştırması bilimsel sonuçlarıyla kamuoyuna duyuruldu. Çalışmanın ayrıntıları açıklandı.</p></article>').encode()
         self.headlines.return_value={'items':[{'title':'Yapay zekâ projesi','url':url}]}
         with patch.object(domain_tools,'exchange',return_value={'data':{'date':day}}),patch.object(public_data,'news_search',return_value={'items':[]}),patch.object(public_sources,'fetch',return_value={'url':url,'body':body}),patch('modules.privacy.blocked',return_value=None),patch.object(llm,'ask',side_effect=AssertionError('No model')):
             checks=acceptance.run('alice')
-        self.assertTrue(any(c['check']=='public_news_window' and '90' in c['detail'] for c in checks))
-        files=list(self.root.rglob('*90-gun-raporu.md'));self.assertEqual(len(files),1)
-        self.assertIn(day,files[0].read_text(encoding='utf-8'))
+        self.assertFalse(any(c['check']=='public_news_window' for c in checks))
+        self.assertEqual(next(c['state'] for c in checks if c['check']=='public_news_report'),'pending')
+        self.assertFalse(list(self.root.rglob('*.md')))
 
     def test_cancellation_and_owner_mismatch_propagate(self):
         with self.assertRaises(PermissionError):acceptance.run('bob')

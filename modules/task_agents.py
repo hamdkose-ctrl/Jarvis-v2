@@ -195,7 +195,7 @@ def _worker(owner, task, dependencies):
         if news:
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
-            research_evidence.news_date(article['published'],task.get('execution',{}).get('request','')+' '+data.get('question',''))
+            research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
         else:text=page_text(url)
         if len(text)<80: raise ValueError('Sayfada yeterli metin bulunamadı.')
         from modules import model_wait,research_evidence

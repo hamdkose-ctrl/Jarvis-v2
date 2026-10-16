@@ -39,7 +39,7 @@ def validate(kind,data):
     if 'limit' in data and (type(data['limit']) is not int or not 1<=data['limit']<=20):raise ValueError('Sonuç sınırı 1–20 olmalı.')
     if kind=='data' and op=='news_search':
         from modules.public_data import search_input
-        search_input(data['query'],data.get('days',30),data.get('domains'),data.get('limit',10))
+        search_input(data['query'],data.get('days',7),data.get('domains'),data.get('limit',10))
     return data
 
 
@@ -191,7 +191,11 @@ def execute(runtime,kind,data,identity,approval=None):
     if op in ('sources','news_search'):
         from modules import public_data
         if op=='sources':return result(public_data.catalog(owner))
-        return result(public_data.news_search(owner,data['query'],data.get('days',30),data.get('domains'),data.get('limit',10)))
+        from modules.research_evidence import news_window
+        maximum=news_window(identity.get('request',''))
+        if maximum is not None and data.get('days',7)>maximum:
+            raise NotStarted('Haber araması kullanıcı tarih aralığını genişletemez; son '+str(maximum)+' gün korunmalı.')
+        return result(public_data.news_search(owner,data['query'],data.get('days',7),data.get('domains'),data.get('limit',10)))
     if op=='exchange':return result(domain_tools.exchange(owner,data['base'],data['quote'],data.get('date')))
     if op=='headlines':return result(domain_tools.headlines(owner,data['url'],query=data.get('query')))
     if op in ('finance_csv','store_csv'):

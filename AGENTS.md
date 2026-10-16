@@ -1,5 +1,10 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## Haftalık haber tercihi — 16 Ekim 2026, güncel karar
+- Hamdi'nin onayıyla varsayılan haber keşfi ve güncel/haftalık yayın tarihi penceresi 7 gündür. public-data kabulü ve model-yok kurtarma varsayılanı da 7 gün; yetersiz sonuçta otomatik 30/90 genişlemesi yoktur. Eski haberle rapor doldurulmaz, sınırlı kaynaklarda kanıt bulunamadığı pending olarak belirtilir. Önceki 30→90 kabul davranışı bu kararla kaldırılmıştır.
+- Açık kullanıcı tarih aralıkları korunur; eski kayıtlı hedefler silinmez veya metinleri otomatik değiştirilmez. Planlayıcının news_search days veya research question alanı kullanıcının 7 günlük penceresini genişletemez. Varsayılan değişikliği yeni zamanlanmış takip oluşturmaz; aynı araç/bütçe/izin/alıntı/gerçek dosya kontrolleri sürer.
+- Sürdürme ve tamamlanmada mevcut makale tarihi yeniden kontrol edilir; geçmişte doğrulanan ama artık pencere dışında kalan kaynak ve bağımlı teslim aynı kimlikte yeniden ele alınır. Windows'ta önceki 30→90 kabulünde yayıncı makalesi/rapor passed kullanıcı tarafından bildirildi; GDELT timeout sürüyordu. Bu sonuç yeni 7 günlük sürümün kabulü sayılmaz.
+
 ## TÜBİTAK tekil haber şablonu — 16 Ekim 2026
 - Canlı kabulde seçilen TÜBİTAK haberinde h1, article'ın kardeş Drupal bloğundadır; tarih article içindeki .node-date alanında Türkçe kısadır. Yalnız tubitak.gov.tr/tr/haber/ + eşleşen canonical + aynı region-content içinde tek article ve bilinen başlık/gövde blokları birlikteyse bu başlık bağlanır; yalnız o gövdenin node-date değeri okunur. Genel liste/foreign host/başka canonical veya ilgili haber tarihi istisna kazanmaz.
 - Kabul araştırması önce 30 gün içindeki doğrulanmış kaynakları seçer. Sınırlı adaylarda yoksa, kullanıcının önceki 30→90 tercihiyle en fazla 90 günlük doğrulanmış kaynağa kısmi genişler; public_news_window kaydı ve 90-gun-raporu dosya adıyla ayrılır. Gelecek/90 gün dışı veya tarihsiz kaynak kabul edilmez. Ek fetch veya model çağrısı yoktur.

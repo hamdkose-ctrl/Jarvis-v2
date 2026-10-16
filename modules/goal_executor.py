@@ -37,7 +37,7 @@ Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa v
 Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
 Kaynak adresi bilinmiyorsa veya research soruyu yanıtlamıyorsa kurumun haber/duyuru dizinindeki gerçek bağlantıları bu araçla bul; makale adresi uydurma. Başlık listesi içerik kanıtı değildir: ilgili bağlantıyı research ile okuyup doğrula.
-Anahtarsız kaynak seçenekleri data operation=sources ile okunur. Dizin başarısızsa data operation=news_search, query="artificial intelligence", days=30, domains=["tubitak.gov.tr","sanayi.gov.tr","gov.tr","edu.tr"] ile haber bağlantıları keşfedilebilir. Alan adlarını kullanıcının istediği kaynak kapsamına göre daralt; yalnız belirli kurum istenmişse başka kurum ekleme. GDELT çok dilli haberleri İngilizce dizinler; tüm kurumları kapsamaz. Kullanıcı izin verdiyse yetersiz 30 günlük aramayı 90 güne genişlet. seen_at yayın tarihi değildir; tekil sayfada research doğrulaması şarttır. Kota/servis hatasında aynı API'yi körlemesine yineleme; headlines ile yayıncının kendi dizinine dön. Kaynak seçimi/veri toplama için yeni model veya API anahtarı gerekmez.
+Anahtarsız kaynak seçenekleri data operation=sources ile okunur. Dizin başarısızsa data operation=news_search, query="artificial intelligence", days=7, domains=["tubitak.gov.tr","sanayi.gov.tr","gov.tr","edu.tr"] ile haber bağlantıları keşfedilebilir. Alan adlarını kullanıcının istediği kaynak kapsamına göre daralt; yalnız belirli kurum istenmişse başka kurum ekleme. GDELT çok dilli haberleri İngilizce dizinler; tüm kurumları kapsamaz. Varsayılan haber/gündem aralığı son 7 gündür; sonuç yoksa yalnız sınırlı kaynaklarda doğrulanmış haftalık gelişme bulunamadığını söyle. Kullanıcı açıkça istemedikçe 30/90 güne genişletme; eski haberle doldurma. seen_at yayın tarihi değildir; tekil sayfada research doğrulaması şarttır. Kota/servis hatasında aynı API'yi körlemesine yineleme; headlines ile yayıncının kendi dizinine dön. Kaynak seçimi/veri toplama için yeni model veya API anahtarı gerekmez.
 Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
 Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
@@ -262,7 +262,8 @@ def _check_news_completion(job,goal,evidence):
         output=job['outputs'].get(ident,{})
         if output.get('state')!='done':continue
         if output.get('news_article'):
-            research_evidence.news_receipt(output);article=True
+            source=research_evidence.news_receipt(output)
+            research_evidence.news_date(source['published'],job['request']);article=True
         if step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:discovery=True
         pending.extend(step.get('depends',[]))
     text=goal['text'].casefold()
@@ -318,6 +319,8 @@ def _loop(runtime,job,answer=None):
                 raise ValueError('Eski haber raporunun tarih ve tekil kaynak kanıtı yok; dosya silinmeden yeniden hazırlanmalı.')
             if step.get('tool')=='research' and research_evidence.news_requested(job['request']) and not output.get('news_article'):
                 raise ValueError('Eski haber çıktısında tekil haber ve yayın tarihi kanıtı yok; aynı hedefte yeniden araştırılmalı.')
+            if step.get('tool')=='research' and research_evidence.news_requested(job['request']) and output.get('news_article'):
+                research_evidence.news_date(output['news_article']['published'],job['request'])
             if step.get('tool')=='research' and not output.get('source_quotes'):
                 from modules import research_evidence
                 if research_evidence.legacy_unsupported(output.get('text')):

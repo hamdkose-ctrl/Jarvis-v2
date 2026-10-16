@@ -46,6 +46,16 @@ class PublicDataTests(unittest.TestCase):
                 public_data.news_search('alice',**{'query':'artificial intelligence',**values},fetcher=fetch)
         fetch.assert_not_called()
 
+    def test_default_search_is_weekly_and_planner_cannot_expand_it(self):
+        fetch,_=self.fetch([])
+        public_data.news_search('alice','science',fetcher=fetch)
+        self.assertEqual(parse_qs(urlsplit(fetch.call_args.args[0]).query)['timespan'],['7d'])
+        runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'))
+        identity={'owner':'alice','job_id':'job','task_id':'s1','request':'Haftalık haberleri araştır'}
+        with patch.object(public_data,'news_search') as network:
+            with self.assertRaises(goal_tools.NotStarted):goal_tools.execute(runtime,'data',{'operation':'news_search','query':'science','days':90},{},identity)
+        network.assert_not_called()
+
     def test_owner_and_privacy_boundaries_are_preserved(self):
         fetch=Mock()
         with self.assertRaises(PermissionError):public_data.news_search('bob','science',fetcher=fetch)
@@ -73,7 +83,7 @@ class PublicDataTests(unittest.TestCase):
 
     def test_catalog_and_real_goal_adapter_need_no_model_account_or_binding(self):
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'))
-        identity={'owner':'alice','job_id':'job','task_id':'s1','request':'Haber kaynaklarını listele'}
+        identity={'owner':'alice','job_id':'job','task_id':'s1','request':'Son 30 gün için haber kaynaklarını listele'}
         with patch.object(llm,'ask',side_effect=AssertionError('No model')):
             out=goal_tools.execute(runtime,'data',{'operation':'sources'},{},identity)
         self.assertTrue(goal_tools.verify(out,'alice'))
