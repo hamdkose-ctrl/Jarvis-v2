@@ -59,6 +59,10 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             goal_tools.verify(output,job['owner']);sources[step['id']]=output
     previous_urls={o['news_article']['url'] for o in (previous_report or {}).get('news_report_evidence',{}).get('sources',{}).values() if o.get('news_article')}
     def source_urls():return {o['news_article']['url'] for o in sources.values()}
+    # Kullanıcı hedefinde açık bir haber URL'si verdiyse, doğrulanmış kısmi dosya o
+    # kaynak kapsamını temsil eder. Sırf "devam" dendi diye başka yayıncılara genişletme.
+    explicit_urls={u.rstrip('.,!?)\"\'”') for u in re.findall(r'https?://[^\s<>|]+',request)}
+    if previous_report and explicit_urls and source_urls() and source_urls().issubset(explicit_urls):return
     if previous_report and existing_only and source_urls()==previous_urls:return
     broad=publisher_news.broad_research(request)
     def publisher_keys():return {publisher_news.publisher_key(url) for url in source_urls()}
@@ -76,10 +80,9 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
             if result.get('state')=='done':
                 sources[ident]=result
-                if broad:break  # Spend the next slot on a different publisher, not another same-site story.
+                if broad:break
             if sufficient():break
         if sufficient():break
-    # Also retry an already attempted article through the strict, model-free reader.
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
     for url in candidates[:2] if not sources and not existing_only else []:
