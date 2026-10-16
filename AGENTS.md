@@ -526,3 +526,9 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Bütün alt hedefler açık complete adımıyla tamamlanıp mevcut kanıtları doğrulandıysa son finish için yeni model çağrısı yapılmaz. Sadece dosya veya verify sonucu görülmesi, bekleyen hedefleri otomatik tamamlamaz.
 - tests/test_news_research.py ve hedef regresyonları: kategori/yanlış tarih/menü reddi, gerçek rapor dosyası, içerik-bağlı doğrulama, eski kayıt sürdürme ve son çağrıda 429 gerekmemesi. Ağ/model taklit edilir. Canlı Windows kaynak erişimi, gerçek modelin kaynak seçimi ve yayıncı metaverisi kabulü ayrıca doğrulanmalıdır.
 - Son doğrulama: 1.276 Python testi (Windows DPAPI 1 skip), 25 JavaScript grubu ve 6 smoke grubu başarılı. 109 ilgili regresyon başarılı; son salt okunur kural denetimi geçti. Canlı model/Windows kabulü yapılmadı.
+
+
+## Kısa sürdür komutu ve kaynak dizini — 16 Ekim 2026
+- sürdür/surdur/hedef sürdür/hedef surdur mevcut devam komutlarıyla aynı kayıtlı hedef yoluna, genel dispatch ve model sınıflandırmasından önce gider. Hedef kimliği korunur; komut kullanıcı yanıtı olarak kayda eklenmez. Sürdür bir onay değildir; approval/review kapıları korunur.
+- Haber dizinindeki resimli/aria-label/title bağlantıları metin boşsa bu gerçek etiketlerle keşfedilir. Sayfada okunabilir bağlantı yoksa yalnız sayfanın açıkça ilan ettiği aynı-host RSS/Atom adreslerinden en çok ikisi mevcut güvenli HTTPS okuyucusuyla denenir. Adres tahmini veya yeni servis yoktur; bulunan akışın URL/hash kaydı tutulur. İzin/iptal hatası yutulmaz. Kaynak erişimi veya tam haber kapsamı garantisi değildir.
+- İlgili regresyonlar kısa komutun erken yönlendirilmesi, aynı hedef/yanıt kaydı, onayın korunması, gerçek etiket bağlantıları, yabancı feed reddi, sınırlı fallback ve feed içerik özeti eşleşmesini sınar. Model/ağ taklit edilir; gerçek sağlayıcı kotası ve PC Ollama yapılandırması bu değişiklikle düzeltilmiş sayılmaz.

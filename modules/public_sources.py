@@ -87,13 +87,14 @@ class Page(HTMLParser):
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
         if tag in ('script','style','noscript','nav','footer','header'):self.hidden+=1
-        if tag=='a' and not self.hidden:self.current={'url':attrs.get('href',''),'title':''}
+        if tag=='a' and not self.hidden:self.current={'url':attrs.get('href',''),'title':'','label':attrs.get('aria-label') or attrs.get('title',''),'alt':''}
+        if tag=='img' and self.current and not self.hidden:self.current['alt']+=attrs.get('alt','')+' '
         if tag=='link' and attrs.get('type') in ('application/rss+xml','application/atom+xml'):
             self.feeds.append(attrs.get('href',''))
 
     def handle_endtag(self,tag):
         if tag=='a' and self.current:
-            self.links.append(self.current);self.current=None
+            self.links.append({'url':self.current['url'],'title':self.current['title'].strip() or self.current['label'] or self.current['alt']});self.current=None
         if tag in ('script','style','noscript','nav','footer','header') and self.hidden:self.hidden-=1
 
     def handle_data(self,data):
@@ -105,6 +106,19 @@ class Page(HTMLParser):
 def text(body):
     page=Page();page.feed(body.decode('utf-8',errors='replace'))
     return re.sub(r'\s+',' ',' '.join(page.parts)).strip()[:20000]
+
+
+def feeds(response):
+    """Only same-host RSS/Atom endpoints explicitly advertised by the fetched page."""
+    url=address(response['url']);host=urlsplit(url).hostname
+    page=Page();page.feed(response['body'].decode('utf-8',errors='replace'))
+    result=[]
+    for link in page.feeds:
+        try:target=address(urljoin(url,link))
+        except ValueError:continue
+        if urlsplit(target).hostname==host and target!=url and target not in result:result.append(target)
+        if len(result)>=2:break
+    return result
 
 
 def entries(response):
