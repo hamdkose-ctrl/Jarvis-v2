@@ -443,11 +443,18 @@ def _loop(runtime,job,answer=None):
                 question=call.get('question')
                 if not isinstance(question,str) or not question.strip():raise ValueError('Eksik somut bilgiyi belirt.')
                 from modules import research_evidence
-                if research_evidence.vague_question(question,job['request']) or _self_resolvable_question(question,job['request']):
+                vague=research_evidence.vague_question(question,job['request'])
+                self_resolvable=_self_resolvable_question(question,job['request'])
+                if vague or self_resolvable:
                     rejected_questions+=1
-                    if research_evidence.news_requested(job['request']):
+                    news=research_evidence.news_requested(job['request'])
+                    if news:
                         from modules import news_recovery
                         news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    if news and vague:
+                        job['state']='paused'
+                        job['blocker']='Araştırma kısmi; diğer kaynaklardan doğrulanmış haber kanıtı eksik. Yeni bilgi vermen gerekmiyor; mevcut hedef sürdürülebilir.'
+                        _save(job);return render(job)
                     if job.get('partial_report') or rejected_questions>=2:
                         job['state']='paused'
                         job['blocker']='Jarvis kullanıcıya devredilmemesi gereken kamuya açık bilgi/kaynak seçimini kendi araçlarıyla denedi. Mevcut sonuçlar korundu; gerçekten kullanıcıya özel bilgi gerekmiyor.'
