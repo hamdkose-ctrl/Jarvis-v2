@@ -5,6 +5,7 @@ Uses the existing journal and adapters. Does not complete goals or grant approva
 import hashlib
 import json
 import re
+from urllib.parse import urlsplit
 from modules import research_evidence, goal_tools
 
 
@@ -55,6 +56,17 @@ def deliver(runtime,job,*,max_new_steps=0):
     for seed in seeds:
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka'})
         for row in out.get('structured',{}).get('items',[])[:3]:
+            if row['url'] not in candidates:candidates.append(row['url'])
+    # A failed publisher index can still have indexed articles. Keep the same
+    # attempted domains; do not turn an official-source request into general news.
+    if not candidates:
+        from modules.public_data import _domains
+        domains=_domains(list(dict.fromkeys(urlsplit(url).hostname for url in seeds)))
+        ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
+        days=min(90,max(ranges)) if ranges else 30
+        ident,out=tool('data',{'operation':'news_search','query':'artificial intelligence',
+                              'days':max(1,days),'domains':domains,'limit':4})
+        for row in out.get('structured',{}).get('items',[]):
             if row['url'] not in candidates:candidates.append(row['url'])
     # Also retry an already attempted article through the strict, model-free reader.
     for seed in seeds:

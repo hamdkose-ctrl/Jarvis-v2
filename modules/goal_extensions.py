@@ -7,7 +7,7 @@ from modules import service_store
 TOOLS={
  'monitor':'Proaktif kaynak takibi. operation=add(url,terms:list,interval?:300..86400,label?)|list|events(limit?)|pause/resume/remove(id)|check(id). Yalnız açık takip isteğiyle kaydet; ilk tarama eski haberleri yeni saymaz.',
  'capability':'Yeni API/MCP referansı. operation=discover(query)|list|assess(id)|specialists|bind(id,endpoint,parameters:{ad:tür})|read(id,parameters)|unbind(id). bind yalnız açık istek ve somut onayla sabit, anahtarsız GET bağlar; MCP kodu/ücretli hesap kurmaz.',
- 'data':'Alan verileri. operation=exchange(base,quote,date?)|headlines(url,query?) haber/duyuru dizinindeki GERÇEK bağlantıları keşfeder; başlık sonucu makale kanıtı değildir. |finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
+ 'data':'Alan verileri. operation=sources anahtarsız mevcut kaynakları listeler; news_search(query,days?:1..90,domains?:[alan_adı],limit?:1..20) GDELT ile gerçek haber bağlantıları bulur, query düz konu metnidir (İngilizce önerilir); exchange(base,quote,date?)|headlines(url,query?) haber/duyuru dizinindeki GERÇEK bağlantıları keşfeder; başlık/indeks tarihi makale kanıtı değildir. |finance_csv/store_csv(path,columns,decimal?:"."|",")|social(service,account_operation,resource_id?,limit?). finance columns={amount,kind,date?}; store={sku,quantity,minimum?,price?}; değerler gerçek CSV sütun adlarıdır. Mağaza/banka kaynağı değiştirilmez.',
 }
 
 
@@ -20,14 +20,15 @@ def validate(kind,data):
                  'pause':({'id'},set()),'resume':({'id'},set()),'remove':({'id'},set()),'check':({'id'},set())},
       'capability':{'discover':({'query'},set()),'list':(set(),set()),'assess':({'id'},set()),'specialists':(set(),set()),
                     'bind':({'id','endpoint','parameters'},set()),'read':({'id','parameters'},set()),'unbind':({'id'},set())},
-      'data':{'exchange':({'base','quote'},{'date'}),'headlines':({'url'},{'query'}),
+      'data':{'sources':(set(),set()),'news_search':({'query'},{'days','domains','limit'}),
+              'exchange':({'base','quote'},{'date'}),'headlines':({'url'},{'query'}),
               'finance_csv':({'path','columns'},{'decimal'}),'store_csv':({'path','columns'},{'decimal'}),
               'social':({'service','account_operation'},{'resource_id','limit'})}}
     if op not in schemas[kind]:raise ValueError('Alan aracı işlemi kayıtlı değil.')
     required,optional=schemas[kind][op]
     if not required.issubset(data) or set(data)-required-optional-{'operation'}:raise ValueError('Alan aracında eksik/bilinmeyen alan var.')
     for key,value in data.items():
-        if key in {'operation','terms','parameters','columns','interval','limit'}:continue
+        if key in {'operation','terms','parameters','columns','interval','limit','days','domains'}:continue
         if not isinstance(value,str) or not value.strip() or len(value)>2048 or '\x00' in value:raise ValueError('Alan aracı metin girdisi geçersiz.')
     if 'parameters' in data and not isinstance(data['parameters'],dict):raise ValueError('Parametre nesnesi gerekli.')
     if 'columns' in data and not isinstance(data['columns'],dict):raise ValueError('Sütun eşleştirmesi gerekli.')
@@ -36,6 +37,9 @@ def validate(kind,data):
         _terms(data['terms'])
     if 'interval' in data and (type(data['interval']) is not int or not 300<=data['interval']<=86400):raise ValueError('Takip aralığı geçersiz.')
     if 'limit' in data and (type(data['limit']) is not int or not 1<=data['limit']<=20):raise ValueError('Sonuç sınırı 1–20 olmalı.')
+    if kind=='data' and op=='news_search':
+        from modules.public_data import search_input
+        search_input(data['query'],data.get('days',30),data.get('domains'),data.get('limit',10))
     return data
 
 
@@ -104,7 +108,10 @@ def _human(kind,op,value):
         if op=='finance_csv':text='Gelir: '+row['income']+'\nGider: '+row['expense']+'\nNet: '+row['net']
         else:text='Ürün: '+str(row['products'])+'\nToplam stok: '+row['units']+'\nMinimum altında: '+str(row['below_minimum_count'])+' ürün'
         return str(value['rows'])+' veri satırını analiz ettim.\n'+text+'\n'+value['scope']
-    if op=='headlines':return '\n\n'.join(row['title']+(' · '+row['published'] if row['published'] else '')+'\n'+row['url'] for row in value['items'][:10])
+    if op=='sources':return '\n\n'.join(r['name']+' — data.'+r['operation']+'\n'+r['scope'] for r in value['sources'])
+    if op in ('headlines','news_search'):
+        rows='\n\n'.join(row['title']+(' · '+row['published'] if row['published'] else '')+'\n'+row['url'] for row in value['items'][:10])
+        return (rows or 'Bu aramada uygun bağlantı bulunamadı; bu, haber olmadığı anlamına gelmez.')+('\n\n'+value['scope'] if op=='news_search' else '')
     return json.dumps(value,ensure_ascii=False,default=str)
 
 
@@ -181,6 +188,10 @@ def execute(runtime,kind,data,identity,approval=None):
         if not approval:return {'state':'approval','text':'Genel GET bağlantısı kaldırılacak: '+data['id'],'id':data['id']}
         capability_hub.unbind(owner,data['id']);return result('Genel okuma bağlantısı kaldırıldı.')
     from modules import domain_tools
+    if op in ('sources','news_search'):
+        from modules import public_data
+        if op=='sources':return result(public_data.catalog(owner))
+        return result(public_data.news_search(owner,data['query'],data.get('days',30),data.get('domains'),data.get('limit',10)))
     if op=='exchange':return result(domain_tools.exchange(owner,data['base'],data['quote'],data.get('date')))
     if op=='headlines':return result(domain_tools.headlines(owner,data['url'],query=data.get('query')))
     if op in ('finance_csv','store_csv'):
