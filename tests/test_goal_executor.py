@@ -709,6 +709,59 @@ class GoalTests(unittest.TestCase):
             news_recovery.deliver(self.runtime,job)
         run.assert_not_called()
 
+    def test_news_search_can_complete_discovery_but_not_news_research_even_through_verify(self):
+        from modules import public_data
+        for label,expected in [('Haber bağlantılarını bul','done'),('Son gelişmeleri araştır','paused')]:
+            with self.subTest(label=label):
+                self.responses(self.plan(label),self.tool('data',{'operation':'news_search','query':'science'}),
+                               self.tool('verify',{},depends=['s1']),self.done('s2'),RuntimeError('HTTP 429'))
+                value={'items':[{'title':'Article','url':'https://example.org/a','published':''}],
+                       'scope':'İndeks tarihi yayın tarihi değildir.'}
+                with patch.object(public_data,'news_search',return_value=value):
+                    result=goals.run(self.runtime,'Son bilim haberlerini araştır')
+                job=goals.latest('alice');self.assertEqual(job['state'],expected,result)
+                if expected=='paused':self.assertTrue(any('keşfiyle tamamlanamaz' in f for f in job['feedback']))
+
+    def test_resume_reopens_old_news_goal_completed_with_only_search_evidence(self):
+        from modules import public_data
+        self.responses(self.plan('Haber bağlantılarını bul'),self.tool('data',{'operation':'sources'}),self.done('s1'))
+        goals.run(self.runtime,'Son bilim haberlerini araştır');job=goals.latest('alice');ident=job['id']
+        job['goals'][0]['text']='Son haberleri araştır';job['state']='paused';goals._save(job)
+        self.responses(RuntimeError('HTTP 429'))
+        goals.handle(self.runtime,'sürdür');job=goals.latest('alice')
+        self.assertEqual(job['id'],ident);self.assertEqual(job['state'],'paused')
+        self.assertEqual(job['goals'][0]['state'],'pending');self.assertEqual(job['goals'][0]['evidence'],[])
+
+    def test_failed_index_uses_keyless_search_in_same_domain_then_verifies_partial_file(self):
+        from modules import public_sources,service_store,public_data
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        index='https://example.org/haberler';article='https://example.org/news/ai'
+        calls=[]
+        def fetch(url):
+            calls.append(url)
+            if url.startswith('https://api.gdeltproject.org/'):
+                body=json.dumps({'articles':[{'title':'AI update','url':article,'seendate':'20991231T000000Z'},
+                                            {'title':'Foreign result','url':'https://foreign.org/article'}]}).encode()
+            elif url==index:body=b'<html><body>No readable links.</body></html>'
+            elif url==article:body=('<article><h1>Bilimsel proje</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Yeni yapay zekâ araştırma projesi üniversite tarafından kamuoyuna duyuruldu. Projenin ayrıntıları bu sayfada açıklandı.</p></article>').encode()
+            else:raise AssertionError('Unexpected URL: '+url)
+            return {'url':url,'body':body,'content_type':'text/html'}
+        self.responses(self.plan('Kaynak araştır','Rapor dosyası oluştur ve doğrula'),
+                       self.tool('research',{'url':index}),RuntimeError('HTTP 429'))
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch.object(public_data,'_SEARCH_NEXT',0),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son 30 gün gelişmelerini araştır ve rapor dosyası oluştur')
+            job=goals.latest('alice');out=job['outputs'][job['partial_report']]
+            self.assertTrue(goal_tools.verify(out,'alice'));self.assertIn('Kısmi rapor dosyası:',result)
+            text=Path(out['file']).read_text(encoding='utf-8')
+            self.assertIn(day,text);self.assertNotIn('2099',text);self.assertNotIn('foreign.org',text)
+            self.assertEqual(self.ask.call_count,3);self.assertEqual(job['state'],'paused')
+            search=next(s for s in job['steps'] if s['input'].get('operation')=='news_search')
+            self.assertEqual(search['input']['domains'],['example.org'])
+            self.assertEqual(search['input']['days'],30)
+            self.assertLessEqual(sum(s.get('recovery',False) for s in job['steps']),10)
+            self.assertEqual(sum(url.startswith('https://api.gdeltproject.org/') for url in calls),1)
+
     def test_model_free_recovery_honors_remaining_turn_budget(self):
         from modules import news_recovery
         job={'id':'d'*16,'state':'running','owner':'alice','request':'Yapay zekâ haberlerini araştır ve rapor dosyası oluştur',

@@ -1,5 +1,11 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+## Anahtarsız haber keşfi — 16 Ekim 2026
+- `public_data` mevcut data aracına sources/news_search ekler; GDELT DOC sabit HTTPS GET, anahtarsız JSON keşfi sağlar. Yeni model/hesap/ücret/bağımlılık veya görev sistemi yoktur. Frankfurter/CSV/sosyal adaptörler korunur. Kaynak listesi canlı bağlantı kanıtı değildir.
+- Arama en fazla 90 gün/20 sonuç; ayrı 1–5 alan adı filtresi ve sonuç URL'lerinde gerçek host/HTTPS denetimi vardır. seen_at yayın tarihi değildir; arama sonucu research/writer haber kanıtı sayılamaz. Mevcut tekil gövde/tarih/alıntı ve gerçek dosya doğrulaması zorunludur.
+- Süreç genelinde 5 saniye istek aralığı, HTTP429 sonrası 60 saniye geri çekilme; uyku/otomatik retry/ücretli fallback yoktur. Planlayıcı kurtarması yalnız boş yayıncı keşfinden sonra önceden denenmiş aynı alan adlarında bir arama yapabilir; aynı hedef ve 10/24/96 bütçeleri, onay/iptal kapıları korunur.
+- Canlı geliştirme yoklamasında kur JSON'u ve sonraki HTTP yoklamasında GDELT haber JSON'u erişildi. Öncesinde GDELT HTTP429; doğrudan IP doğrulayan okuyucuda bu ortamın DNS hatası görüldü. Bu yoklama Windows/üretim okuyucusuyla tam rapor kabulü değildir. Ayrıntı ve tek son kullanıcı test listesi docs/UCRETSIZ_VERI_KAYNAKLARI.md içindedir.
+
 Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex vb.) içindir. Kod değiştiğinde bu dosya da aynı PR'da güncellenir.
 
 ## Çalışma kuralları

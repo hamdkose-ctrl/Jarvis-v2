@@ -37,6 +37,7 @@ Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa v
 Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
 Kaynak adresi bilinmiyorsa veya research soruyu yanıtlamıyorsa kurumun haber/duyuru dizinindeki gerçek bağlantıları bu araçla bul; makale adresi uydurma. Başlık listesi içerik kanıtı değildir: ilgili bağlantıyı research ile okuyup doğrula.
+Anahtarsız kaynak seçenekleri data operation=sources ile okunur. Dizin başarısızsa data operation=news_search, query="artificial intelligence", days=30, domains=["tubitak.gov.tr","sanayi.gov.tr","gov.tr","edu.tr"] ile haber bağlantıları keşfedilebilir. Alan adlarını kullanıcının istediği kaynak kapsamına göre daralt; yalnız belirli kurum istenmişse başka kurum ekleme. GDELT çok dilli haberleri İngilizce dizinler; tüm kurumları kapsamaz. Kullanıcı izin verdiyse yetersiz 30 günlük aramayı 90 güne genişlet. seen_at yayın tarihi değildir; tekil sayfada research doğrulaması şarttır. Kota/servis hatasında aynı API'yi körlemesine yineleme; headlines ile yayıncının kendi dizinine dön. Kaynak seçimi/veri toplama için yeni model veya API anahtarı gerekmez.
 Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
 Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
@@ -248,12 +249,40 @@ def _invalidate_outputs(job,ident,message):
         if any(item in invalid for item in goal['evidence']):goal.update(state='pending',evidence=[])
 
 
+def _check_news_completion(job,goal,evidence):
+    """Discovery can finish a discovery subgoal, not the actual news research."""
+    from modules import research_evidence
+    if not research_evidence.news_requested(job['request']):return
+    steps={s['id']:s for s in job['steps']};pending=list(evidence);seen=set()
+    discovery=False;article=False
+    while pending:
+        ident=pending.pop()
+        if ident in seen:continue
+        seen.add(ident);step=steps.get(ident,{})
+        output=job['outputs'].get(ident,{})
+        if output.get('state')!='done':continue
+        if output.get('news_article'):
+            research_evidence.news_receipt(output);article=True
+        if step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:discovery=True
+        pending.extend(step.get('depends',[]))
+    text=goal['text'].casefold()
+    discovery_goal=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',text) and
+                    re.search(r'bul|listele|keşfet|kesfet|seç|sec|belirle',text) and
+                    not re.search(r'araştır|arastir|incele|analiz|doğrula|dogrula|rapor|özet|ozet|değerlendir|degerlendir',text))
+    if discovery and not article and not discovery_goal:
+        raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
+
+
 def _finish_completed(job):
     """All explicit goal completions already exist; finishing needs no new model call."""
     if not job['goals'] or any(g['state']!='done' for g in job['goals']):return False
     for goal in job['goals']:
         if not goal.get('evidence'):return False
         for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
+        try:_check_news_completion(job,goal,goal['evidence'])
+        except ValueError as exc:
+            goal.update(state='pending',evidence=[])
+            job.setdefault('feedback',[]).append(str(exc));_save(job);return False
     job['state']='done';job.pop('blocker',None);_save(job)
     return True
 
@@ -370,6 +399,7 @@ def _loop(runtime,job,answer=None):
                         step=next((s for s in job['steps'] if s['id']==ident),None)
                         if not step or step['goal']!=goal or step['state']!='done':raise ValueError('Bu hedefin başarılı adımı değil.')
                         goal_tools.verify(job['outputs'][ident],job['owner'])
+                    _check_news_completion(job,job['goals'][goal],evidence)
                     job['goals'][goal].update(state='done',evidence=evidence)
                 else:
                     kind=call.get('tool');data=goal_tools.validate(kind,call.get('input'))

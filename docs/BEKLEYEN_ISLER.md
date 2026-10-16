@@ -275,3 +275,9 @@ Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin k
 - Kaynak-only research runtime kimliğinden gelir, model aracı girdisi değildir. Tekil makale/yayın tarihi sınırları aynıdır; gövdede gerçek yapay zekâ ifadesi içeren en çok üç birebir alıntı seçilir. Model çağrısı ve anlamsal yorum yoktur. Writer/verify mevcut araçlarla kısmi rapor oluşturur; sonuç URL, tarih ve alıntı kaydıyla eşleşir.
 - Kısmi rapor dosyası render edilir; kapsam/tüm kurumlar doğrulanmadığından hedefler otomatik tamamlanmaz. Sürdürmede doğrulanmış aynı teslim yeniden yazılmaz veya kaynaklar körlemesine tekrarlanmaz. İptal, sahiplik, approval/review ve gizlilik sınırları korunur. Ağ erişimi/dizin/tarih yoksa dosya teslimi garanti edilmez; bulut kotası ve iş PC'sinde olmayan Ollama bu kodla kullanılabilir hâle gelmez.
 - Kurtarma yalnız planlayıcı erişilemezliğinde tetiklenir; normal araç/tur bütçesi hatasında tetiklenmez. Kalan 24 araçlık tur bütçesi aktarılır ve diğer sınırlarla birlikte uygulanır. Gerçek dosyalı quota regresyonu ve tekrarın yeni dosya/ağ çağrısı üretmemesi doğrulandı; son salt okunur denetim geçti.
+# Anahtarsız veri bağlantıları — 16 Ekim 2026
+
+- Hazır: mevcut data aracında kaynak listesi ve GDELT haber keşfi; ayrı alan adı/HTTPS süzgeci, indeks tarihini yayın tarihi saymama, model gerektirmeyen sınırlı kurtarmaya aynı kaynak alanında bağlantı araması. Mevcut kur/CSV/sosyal yolları korunur; yeni hesap/model/ücretli servis eklenmedi.
+- Doğrulanmayan: Windows üzerinde doğrudan okuyucuyla GDELT erişimi ve gerçek haber raporu (geliştirme HTTP yoklaması 429 ardından JSON200; doğrudan okuyucuda DNS hatası), tüm istenen kurumların kapsamı. Mağaza yazma ve sosyal hesap kurulumu eklenmedi; mevcut hesap/CSV önkoşulları sürer. Bağımsız ajan/model kotası mimarisi bu değişikliğin kapsamı değildir.
+- Kullanıcının son testleri ve kaynak belgeleri: [Ücretsiz veri kaynakları](UCRETSIZ_VERI_KAYNAKLARI.md).
+
