@@ -76,6 +76,7 @@ def _self_resolvable_question(question,request):
     q=_fold(question);req=_fold(request)
     if not q:return False
     if q==req or q in {'eksik somut bilgi','eksik bilgi','daha fazla bilgi','detay ver','bilgi gerekli'}:return True
+    if re.search(r'\b(hangi ek|hangilerini|kapsama|kapsamda)\b',q):return False
     user_only=re.search(r'\b(onay|izin|yetki|hesap bağla|hesap bagla|şifre|sifre|parola|token|api key|kişisel|kisisel|tercih|hangi dosya|dosya yolu|kime|alıcı|alici|hedef kişi|hedef kisi)\b',q)
     public=re.search(r'\b(kaynak|url|adres|site|web sitesi|yayıncı|yayinci|haber|akademik|resm[iî]|kurum|makale|veri kaynağı|veri kaynagi)\b',q)
     return bool(public and not user_only)
@@ -157,7 +158,6 @@ def _ensure(runtime,job):
 
 
 def _context(job):
-    # Tool execution keeps full receipts locally; the planner does not need repeated full documents.
     recent=set(list(job['outputs'])[-6:]);outputs={}
     for key,value in job['outputs'].items():
         view={k:value[k] for k in ('state','file','files','id','source','desktop_id') if k in value}
@@ -170,8 +170,6 @@ def _context(job):
     for s,view in zip(job['steps'][-3:],steps[-3:]):view['input']=copy.deepcopy(s['input'])
     context={'current_date':datetime.now(timezone(timedelta(hours=3))).date().isoformat(),'timezone':'Europe/Istanbul','request':job['request'],'goals':job['goals'],'steps':steps,'outputs':outputs,
              'unavailable_sources':job.get('unavailable_sources',[]),'feedback':job.get('feedback',[])[-4:],'answers':job.get('answers',[])[-3:]}
-    # Apply the same secret redaction to follow-up answers and tool inputs, not just
-    # the first request. Preserve JSON shape so the planner can still use receipts.
     def clean(value):
         if isinstance(value,dict):
             return {key:('[gizlendi]' if any(word in str(key).casefold() for word in
@@ -245,7 +243,6 @@ def _record(runtime,job,step,approval=None):
 
 
 def _planner(runtime,job,prompt,system):
-    """Only propose JSON in a bounded worker. Tool execution stays on the owner thread."""
     from modules import model_wait
     job['phase']='planning';job['phase_started']=time.time();_save(job)
     try:
@@ -275,7 +272,6 @@ def _invalidate_outputs(job,ident,message):
 
 
 def _check_news_completion(job,goal,evidence):
-    """Discovery can finish a discovery subgoal, not the actual news research."""
     from modules import research_evidence
     if not research_evidence.news_requested(job['request']):return
     steps={s['id']:s for s in job['steps']};pending=list(evidence);seen=set()
@@ -306,7 +302,6 @@ def _check_news_completion(job,goal,evidence):
 
 
 def _finish_completed(job):
-    """All explicit goal completions already exist; finishing needs no new model call."""
     if not job['goals'] or any(g['state']!='done' for g in job['goals']):return False
     for goal in job['goals']:
         if not goal.get('evidence'):return False
@@ -320,7 +315,6 @@ def _finish_completed(job):
 
 
 def _resume_news_recovery(runtime,job,started_steps):
-    """A short resume first advances deterministic news recovery; it does not spend another planner call."""
     from modules import research_evidence
     if not job['steps'] or not research_evidence.news_requested(job['request']):return False
     has_article=any(o.get('state')=='done' and o.get('news_article') for o in job['outputs'].values())
@@ -357,7 +351,6 @@ def _loop(runtime,job,answer=None):
     rejected_sources=0
     rejected_questions=0
     if answer:job.setdefault('answers',[]).append(answer[:2000])
-    # Interrupted external steps are reconciled, never blindly replayed.
     for step in job['steps']:
         if step['state']=='running':
             if step.get('started',True) and not goal_tools.replay_safe(step['tool'],step['input']):
@@ -419,8 +412,6 @@ def _loop(runtime,job,answer=None):
             _ensure(runtime,job)
             action=call['action']
             if action=='legacy_plan':
-                # Older installed clients/tests still use DAG replies. Keep their journals,
-                # but never route external-effect tools around the common permission gate.
                 if job['steps'] or job['goals']:raise ValueError('Eski plan yalnız hedefin ilk adımı olabilir.')
                 from modules import task_agents
                 legacy=task_agents.execute(job['owner'],call['tasks'],job['request'],runtime.emit)
@@ -466,8 +457,6 @@ def _loop(runtime,job,answer=None):
             elif action=='finish':
                 if not job['goals'] or any(g['state']!='done' for g in job['goals']):
                     rejected_finishes+=1
-                    # Deliver already verified news without another planner/provider call.
-                    # This is partial delivery, never permission to complete pending goals.
                     from modules import news_recovery
                     news_recovery.deliver(runtime,job,existing_only=True,
                         max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
@@ -504,7 +493,7 @@ def _loop(runtime,job,answer=None):
                             if rejected_sources>=3:
                                 from modules import news_recovery
                                 news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
-                                job['state']='paused';job['blocker']='Jarvis geçersiz/keşfedilmemiş haber adreslerini kullanıcıya göstermeden bıraktı ve kayıtlı gerçek yayıncılarla sınırlı kurtarma denedi. Mevcut hedef ve dosyalar korundu.'
+                                job['state']='paused';job['blocker']='Jarvis 3 kez geçersiz/keşfedilmemiş haber adresi denemesini kullanıcıya yansıtmadan durdurdu ve kayıtlı gerçek yayıncılarla sınırlı kurtarma denedi. Mevcut hedef ve dosyalar korundu.'
                                 _save(job);return render(job)
                             raise
                     deps=call.get('depends',[])
@@ -526,7 +515,7 @@ def _loop(runtime,job,answer=None):
                     step={'id':ident,'goal':goal,'tool':kind,'input':copy.deepcopy(data),
                           'depends':deps,'signature':signature,'state':'queued'}
                     job['steps'].append(step)
-                    result=_record(runtime,job,step)
+                    _record(runtime,job,step)
                     if job['state'] in {'approval','review'}:return render(job)
             _save(job)
             if _finish_completed(job):return render(job)
@@ -534,7 +523,6 @@ def _loop(runtime,job,answer=None):
         except Exception as exc:
             _record_failure('modules/goal_executor.py:turn')
             job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600]);_save(job)
-            # An unavailable planner cannot invent the next action. Preserve exact progress.
             if isinstance(exc,RuntimeError):
                 if planner_pending:
                     from modules import news_recovery
@@ -578,8 +566,6 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             raise ValueError('Seçilen hedef değişmiş; başka hedefe işlem uygulanmadı.')
         if expected_control is not None and (not job or control_key(job)!=expected_control):
             raise ValueError('Hedefin sorusu veya onay işlemi değişmiş; ekranı yenileyip tekrar seç.')
-        # Migrate only the exact pre-execution refusal from older releases. No
-        # general unknown-effect job is replayed or reclassified as safe.
         if job and job['state']=='review' and job['steps']:
             step=job['steps'][-1];output=job['outputs'].get(step['id'],{})
             if (step['tool']=='coder' and step['state']=='failed' and output.get('state')=='failed' and
