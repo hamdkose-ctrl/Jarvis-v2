@@ -39,6 +39,7 @@ def article(response):
     for node in soup.select('script[type="application/ld+json"]'):
         try:walk(json.loads(node.string or node.get_text()))
         except (ValueError,TypeError):pass
+    # Multiple article objects are a collection, not a dated article receipt.
     if len(schemas)>1:raise ValueError('Sayfa birden fazla haber içeriyor; tekil haber sayfası gerekli.')
     og=soup.find('meta',attrs={'property':'og:type'})
     node=soup.select_one('[itemprop="articleBody"]') or soup.find('article')
@@ -52,6 +53,8 @@ def article(response):
         if isinstance(page,dict):page=page.get('@id')
         return schema.get('headline')==title and (not page or page.rstrip('/')==url.rstrip('/'))
     schemas=[s for s in schemas if matching_schema(s)]
+    # TÜBİTAK's single-news template renders the page title as a sibling block.
+    # Bind only that exact publisher layout and canonical URL, not arbitrary lists.
     canonical=soup.find('link',rel='canonical')
     publisher_title=soup.select_one('#block-feza-gursey-page-title h1')
     publisher_body=soup.select_one('#block-feza-gursey-content > article')
@@ -62,6 +65,7 @@ def article(response):
              publisher_title.find_parent(class_='region-content') is region and len(region.find_all('article'))==1)
     if not node.find('h1') and not schemas and not tubitak:
         raise ValueError('Başlık haber gövdesine ait değil; liste kartı haber kanıtı sayılmadı.')
+    # Only published metadata tied to this page; dateModified and dates in other cards are excluded.
     dates=[s.get('datePublished') for s in schemas if s.get('datePublished')]
     if tubitak:
         months={'oca':1,'şub':2,'mar':3,'nis':4,'may':5,'haz':6,'tem':7,'ağu':8,'eyl':9,'eki':10,'kas':11,'ara':12}
@@ -110,6 +114,7 @@ def news_window(request):
     recent=bool(re.search(r'güncel|guncel|\bson\b.*(?:geliş|haber)|haftalık|haftalik|bu hafta|weekly|latest|recent',request,re.I))
     if ranges:return max(ranges)
     if recent:return 7
+    # An explicit historical year is a user-selected historical request.
     historical=bool(re.search(r'\b(?:19|20)\d{2}\b',request))
     return 7 if not historical and (news_requested(request) or re.search(r'gündem|gundem',request,re.I)) else None
 
