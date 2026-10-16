@@ -23,7 +23,7 @@ def handle(runtime, command: str) -> str:
     if control_result is not None:
         return control_result
     from modules import goal_executor
-    if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in ('devam','devam et','evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
+    if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in goal_executor.RESUME_COMMANDS or cmd_lower.strip(' .!?') in ('evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
         goal_result=goal_executor.handle(runtime,command)
         if goal_result is not None:return goal_result
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,

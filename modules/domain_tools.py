@@ -99,11 +99,22 @@ def exchange(owner,base,quote,on_date=None,*,fetcher=None):
 
 
 def headlines(owner,url,*,query=None,fetcher=None):
+    from urllib3.exceptions import HTTPError
     service_store.identity(owner)
     if query is not None and (not isinstance(query,str) or not query.strip() or len(query)>300):raise ValueError('Kaynak sorgusu 1–300 karakter olmalı.')
     response=(fetcher or public_sources.fetch)(url)
     items=public_sources.entries(response)
-    if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok.')
+    discovered_from=None
+    if not items:
+        for feed in public_sources.feeds(response):
+            try:
+                candidate=(fetcher or public_sources.fetch)(feed)
+                rows=public_sources.entries(candidate)
+            except PermissionError:raise
+            except (ValueError,OSError,HTTPError):continue
+            if rows:
+                discovered_from=response['url'];response=candidate;items=rows;break
+    if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok; varsa sayfanın ilan ettiği RSS/Atom bağlantıları da sonuç vermedi. Başka gerçek duyuru dizini seç.')
     if query is not None:
         def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')
         terms=set(re.findall(r'[\w]+',fold(query)))
@@ -111,7 +122,7 @@ def headlines(owner,url,*,query=None,fetcher=None):
             title=fold(row['title']);text=fold(row.get('summary','')+' '+row['url'])
             return sum(3*(term in title)+(term in text) for term in terms if len(term)>2)
         items=sorted(items,key=rank,reverse=True)
-    return {'items':items[:20],'source':response['url'],'fetched_at':time.time(),
+    return {'items':items[:20],'source':response['url'],'discovered_from':discovered_from,'fetched_at':time.time(),
             'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Kaynak başlıkları; metin doğruluğu veya karar kapsamı ayrıca incelenmeli.'}
 
 

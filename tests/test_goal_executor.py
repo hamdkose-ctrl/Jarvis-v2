@@ -67,6 +67,8 @@ class GoalTests(unittest.TestCase):
             result=goals.run(self.runtime,'7 kimlikli notu sil')
         self.assertEqual(goals.latest('alice')['state'],'approval');bridge.note_delete.assert_not_called()
         self.assertIn('onay',result.casefold())
+        goals.handle(self.runtime,'sürdür')
+        self.assertEqual(goals.latest('alice')['state'],'approval');bridge.note_delete.assert_not_called()
         self.responses(self.done('s1'),self.finish())
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
             goals.handle(self.runtime,'hedef onayla')
@@ -652,6 +654,24 @@ class GoalTests(unittest.TestCase):
             self.assertIn('Erişilemeyen kaynaklar',content)
             self.assertTrue(goal_tools.verify(job['outputs']['s4'],'alice'))
             self.assertEqual(job['outputs']['s5']['state'],'done')
+
+    def test_short_resume_aliases_keep_goal_and_are_not_saved_as_answers(self):
+        for command in ('sürdür','SÜRDÜR!','surdur','hedef sürdür','hedef surdur'):
+            with self.subTest(command=command):
+                self.responses(self.plan('Dosya'),RuntimeError('HTTP 429'))
+                goals.run(self.runtime,'Rapor dosyası oluştur');ident=goals.latest('alice')['id']
+                self.responses(self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Yerel rapor',self.done('s1'))
+                result=goals.handle(self.runtime,command);job=goals.latest('alice')
+                self.assertEqual(job['id'],ident);self.assertEqual(job['state'],'done',result)
+                self.assertEqual(job.get('answers',[]),[])
+
+    def test_short_resume_reaches_goal_before_dispatch_or_model_classification(self):
+        from modules import engine_commands,command_manager
+        runtime=SimpleNamespace(_tr_lower=str.casefold,_llm=SimpleNamespace(set_user_context=Mock()),profile=self.profile,
+             _session=lambda:SimpleNamespace(speech_override=None),_cur_source='yazı',flags={},_close_jarvis=Mock(),set_sleep=Mock())
+        with patch.object(command_manager,'engine_control',return_value=None),patch.object(goals,'handle',return_value='Kayıtlı hedef sürüyor') as handle,patch.object(command_manager,'dispatch') as dispatch:
+            self.assertEqual(engine_commands.handle(runtime,'sürdür'),'Kayıtlı hedef sürüyor')
+        handle.assert_called_once_with(runtime,'sürdür');dispatch.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

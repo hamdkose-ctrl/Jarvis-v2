@@ -87,6 +87,31 @@ class HeadlineDiscoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):domain_tools.headlines('alice','https://example.org',query='x'*301,fetcher=fetch)
         fetch.assert_not_called()
 
+    def test_image_or_accessible_label_links_are_real_discovery_candidates(self):
+        response={'url':'https://example.org/haberler','body':b'<a href="/a"><img alt="Research project announced"></a><a href="/b" aria-label="Science announcement"></a>'}
+        self.assertEqual([x['url'] for x in public_sources.entries(response)],['https://example.org/a','https://example.org/b'])
+
+    def test_advertised_same_host_feed_is_used_when_index_has_no_entries(self):
+        index='https://example.org/haberler';feed='https://example.org/rss.xml'
+        html=b'<link type="application/rss+xml" href="https://foreign.org/rss"><link type="application/rss+xml" href="/rss.xml">'
+        rss=b'<rss><channel><item><title>Research project announced</title><link>https://example.org/article</link></item></channel></rss>'
+        fetch=Mock(side_effect=[{'url':index,'body':html},{'url':feed,'body':rss}])
+        result=domain_tools.headlines('alice',index,fetcher=fetch)
+        self.assertEqual([call.args[0] for call in fetch.call_args_list],[index,feed])
+        self.assertEqual(result['source'],feed);self.assertEqual(result['discovered_from'],index)
+        self.assertEqual(result['items'][0]['url'],'https://example.org/article')
+        self.assertEqual(result['sha256'],hashlib.sha256(rss).hexdigest())
+
+    def test_feed_fallback_is_bounded_and_permission_failure_is_not_swallowed(self):
+        index='https://example.org/haberler'
+        html=(''.join('<link type="application/rss+xml" href="/rss'+str(i)+'">' for i in range(5))).encode()
+        fetch=Mock(side_effect=[{'url':index,'body':html},OSError('offline'),OSError('offline')])
+        with self.assertRaises(ValueError):domain_tools.headlines('alice',index,fetcher=fetch)
+        self.assertEqual(fetch.call_count,3)
+        fetch=Mock(side_effect=[{'url':index,'body':html},PermissionError('Web disabled')])
+        with self.assertRaises(PermissionError):domain_tools.headlines('alice',index,fetcher=fetch)
+        self.assertEqual(fetch.call_count,2)
+
 
 class WatchTests(SourceFixture):
     def test_initial_scan_is_silent_then_new_matching_article_notifies_once(self):
