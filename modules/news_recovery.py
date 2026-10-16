@@ -8,7 +8,7 @@ import re
 from modules import research_evidence, goal_tools
 
 
-def deliver(runtime,job,*,max_new_steps=0):
+def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     from modules import goal_executor as goals
     request=job['request']
     if (job['state'] in {'approval','review','cancelled'} or not job['goals'] or
@@ -26,7 +26,7 @@ def deliver(runtime,job,*,max_new_steps=0):
             if url and url not in seeds:seeds.append(url)
     from modules import publisher_news
     seeds=publisher_news.recovery_indexes(request,seeds[-2:])
-    if not seeds:return
+    if not seeds and not existing_only:return
     goal=next((i for i,g in enumerate(job['goals']) if g['state']!='done'),None)
     if goal is None:return
     count=sum(bool(s.get('recovery')) for s in job['steps']);new_steps=0
@@ -54,7 +54,7 @@ def deliver(runtime,job,*,max_new_steps=0):
         if output.get('state')=='done' and output.get('news_article') and any(re.search(r'yapay\s+zek[aâ]',q,re.I) for q in output.get('source_quotes',[])):
             goal_tools.verify(output,job['owner']);sources[step['id']]=output
     candidates=[];attempted=set()
-    for seed in seeds:
+    for seed in ([] if existing_only else seeds):
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
@@ -68,7 +68,7 @@ def deliver(runtime,job,*,max_new_steps=0):
     # Also retry an already attempted article through the strict, model-free reader.
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
-    for url in candidates[:2] if not sources else []:
+    for url in candidates[:2] if not sources and not existing_only else []:
         if url in attempted:continue
         ident,out=tool('research',{'url':url,'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
         if out.get('state')=='done':sources[ident]=out

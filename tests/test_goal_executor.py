@@ -767,5 +767,38 @@ class GoalTests(unittest.TestCase):
             news_recovery.deliver(self.runtime,job,max_new_steps=1)
         self.assertEqual(run.call_count,1);self.assertEqual(len(job['steps']),2)
 
+    def test_premature_finish_delivers_existing_news_file_without_model_or_fetch(self):
+        from modules import public_sources
+        from datetime import datetime,timezone,timedelta
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        url='https://example.org/haber/ai'
+        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        html=('<article><h1>Yeni araştırma</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Çalışmanın ayrıntıları kamuoyuyla paylaşıldı.</p></article>').encode()
+        self.responses(self.plan('Son haberleri araştır','Türkçe raporu kaydet ve doğrula'),
+            self.tool('research',{'url':url}),{'supported':True,'answer':quote,'quotes':[quote]},
+            self.done('s1'),self.finish())
+        with patch.object(public_sources,'fetch',return_value={'url':url,'body':html}) as fetch,patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Son 7 gün Türkiye yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur')
+        job=goals.latest('alice')
+        self.assertEqual(self.ask.call_count,5);fetch.assert_called_once()
+        self.assertEqual(job['state'],'paused');self.assertEqual(job['goals'][0]['state'],'done')
+        self.assertEqual(job['goals'][1]['state'],'pending')
+        report=job['outputs'][job['partial_report']]
+        self.assertTrue(goal_tools.verify(report,'alice'));self.assertIn(day,Path(report['file']).read_text())
+        self.assertEqual([s['tool'] for s in job['steps']],['research','writer','verify'])
+        self.assertIn('Kısmi rapor dosyası:',result)
+        self.responses(self.finish())
+        with patch.object(public_sources,'fetch',side_effect=AssertionError('No new fetch')):
+            goals.handle(self.runtime,'hedef devam')
+        resumed=goals.latest('alice');self.assertEqual(resumed['id'],job['id'])
+        self.assertEqual(len(resumed['steps']),3)
+
+    def test_repeated_incomplete_finish_stops_after_three_rejections(self):
+        self.responses(self.plan('Bir iş'),self.finish(),self.finish(),self.finish())
+        result=goals.run(self.runtime,'Bir iş yap')
+        self.assertEqual(self.ask.call_count,4)
+        self.assertEqual(goals.latest('alice')['state'],'paused')
+        self.assertIn('3 kez',result)
+
 
 if __name__=='__main__':unittest.main()
