@@ -72,27 +72,32 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     if previous_report and explicit_urls and source_urls() and source_urls().issubset(explicit_urls):return
     if previous_report and existing_only and source_urls()==previous_urls:return
     broad=publisher_news.broad_research(request)
-    continue_catalog=broad and had_normal_news_step
+    continue_catalog=broad and (had_normal_news_step or previous_report is not None)
     def publisher_keys():return {publisher_news.publisher_key(url) for url in source_urls()}
     def sufficient():return len(publisher_keys())>=2 if broad else len(sources)>=2
-    candidates=[];attempted=set()
+    candidates=[];attempted=set();queues=[]
     for seed in ([] if existing_only else seeds):
-        # Vague-question recovery starts before any normal news step and preserves the
-        # long-standing two-publisher bounded contract. Once the durable planner has
-        # actually attempted a news source, broad recovery may continue scanning the
-        # registered catalog within the same bounded budget.
         if sufficient() and not continue_catalog:break
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
-        limit=1 if broad else 2
-        for row in (related or rows)[:limit]:
+        rows=(related or rows)[:2]
+        if continue_catalog:
+            queues.append(rows)
+            continue
+        for row in rows:
             if row['url'] in attempted:continue
             attempted.add(row['url'])
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
-            if result.get('state')=='done':sources[ident]=result
-            if result.get('state')=='done' or sufficient() and not continue_catalog:break
-        if sufficient() and not continue_catalog:break
+            if result.get('state')=='done':sources[ident]=result;break
+        if sufficient():break
+    # Directory discovery comes first; a failed first article may use the next real link.
+    for rows in queues:
+        for row in rows:
+            if row['url'] in attempted:continue
+            attempted.add(row['url'])
+            ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
+            if result.get('state')=='done':sources[ident]=result;break
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
     for url in candidates[:2] if not sources and not existing_only else []:

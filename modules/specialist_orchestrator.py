@@ -63,3 +63,10 @@ def run(runtime, request, tasks):
         journal.append({**task,'state':'done'})
     return {'state':'done','request':request,'tasks':journal,'outputs':outputs,
             'summary':json.dumps([{'id':t['id'],'specialist':t['specialist'],'tool':t['tool']} for t in journal],ensure_ascii=False)}
+
+
+def execute_step(runtime,job,step,identity,*,approval=None):
+    """A specialist executes inside the existing durable journal and permission gates."""
+    if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
+    deps={key:job['outputs'][key] for key in step['depends']}
+    return goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
