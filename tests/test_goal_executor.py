@@ -466,7 +466,7 @@ class GoalTests(unittest.TestCase):
             '# Araştırma\n15 Ekim tarihli duyuru. Kaynak: https://working.example/news',
             self.done('s4'),self.finish())
         with patch('modules.browser.page_text',side_effect=page):
-            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır ve kaynaklı rapor dosyası oluştur')
+            result=goals.run(self.runtime,'Türkiye yapay zekâ araştırmasını incele ve kaynaklı rapor dosyası oluştur')
         job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
         self.assertEqual([step['state'] for step in job['steps']],['failed','failed','done','done'])
         self.assertEqual(len(job['goals']),1)
@@ -553,6 +553,76 @@ class GoalTests(unittest.TestCase):
 
 
 
+    def test_last_explicit_completion_finishes_without_another_model_call(self):
+        self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),
+                       'Doğrulanmış dosya',self.done('s1'),RuntimeError('HTTP 429'))
+        result=goals.run(self.runtime,'Rapor dosyası oluştur')
+        job=goals.latest('alice')
+        self.assertEqual(job['state'],'done',result)
+        self.assertEqual(self.ask.call_count,4)
+
+    def test_dated_news_discovery_report_verify_and_two_completions_do_not_need_final_model(self):
+        from datetime import datetime,timezone,timedelta
+        from modules import public_sources,service_store
+        day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        index='https://example.org/haberler';url='https://example.org/haber/yapay-zeka-projesi'
+        quote='Üniversite yeni yapay zekâ araştırma projesini kamuoyuna duyurdu.'
+        def fetch(address):
+            html=('<h1>Haberler</h1><a href="/haber/yapay-zeka-projesi">Yapay zeka projesi</a>') if address==index else ('<article><h1>Yapay zeka projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Bilimsel çalışma araştırmacılarla birlikte yürütülüyor.</p></article>')
+            return {'url':address,'body':html.encode(),'content_type':'text/html'}
+        self.responses(self.plan('Haberleri araştır','Rapor dosyası ve doğrulama'),
+            self.tool('research',{'url':index}),
+            self.tool('data',{'operation':'headlines','url':index,'query':'yapay zeka'}),
+            self.tool('research',{'url':url}),{'supported':True,'answer':'Yanlış tarih: 1999','quotes':[quote]},
+            self.done('s3'),self.tool('writer',{'instruction':'Kaynaklı haber raporu','filename':'rapor.md'},goal=1,depends=['s3']),
+            self.tool('verify',{},goal=1,depends=['s4']),self.done('s4','s5',goal=1),RuntimeError('HTTP 429'))
+        with patch.object(public_sources,'fetch',side_effect=fetch),patch.object(service_store,'ROOT',self.root/'services'),patch('modules.privacy.blocked',return_value=None):
+            result=goals.run(self.runtime,'Türkiye yapay zekâ son gelişmelerini araştır, rapor oluştur ve dosyayı doğrula')
+        job=goals.latest('alice');self.assertEqual(job['state'],'done',result)
+        self.assertEqual(self.ask.call_count,9)
+        self.assertEqual([s['state'] for s in job['steps']],['failed','done','done','done','done'])
+        report=Path(job['outputs']['s4']['file']).read_text(encoding='utf-8')
+        self.assertIn('Yayın tarihi: '+day,report);self.assertNotIn('1999',report)
+        self.assertIn('<'+url+'>',report);self.assertTrue(goal_tools.verify(job['outputs']['s4'],'alice'))
+
+    def test_already_completed_goals_resume_without_model_and_recheck_actual_file(self):
+        self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Doğrulanmış dosya',self.done('s1'))
+        goals.run(self.runtime,'Rapor dosyası oluştur')
+        job=goals.latest('alice');job['state']='paused';goals._save(job)
+        self.ask.reset_mock();self.ask.side_effect=AssertionError('No extra model call')
+        result=goals.run(self.runtime,'hedef devam',resume=True)
+        self.assertEqual(goals.latest('alice')['state'],'done',result);self.ask.assert_not_called()
+
+    def test_legacy_category_news_and_report_are_invalidated_without_deleting_file_or_goal(self):
+        self.responses(self.plan('Rapor'),self.tool('writer',{'instruction':'Yaz','filename':'rapor.md'}),'Eski kategori raporu',self.done('s1'))
+        goals.run(self.runtime,'Rapor dosyası oluştur')
+        job=goals.latest('alice');path=Path(job['outputs']['s1']['file'])
+        job['request']='Türkiye yapay zekâ son gelişmeleri ve haberleri';job['state']='paused';goals._save(job)
+        ident=job['id'];self.ask.side_effect=RuntimeError('HTTP 429')
+        goals.run(self.runtime,'hedef devam',resume=True)
+        job=goals.latest('alice')
+        self.assertEqual(job['id'],ident);self.assertEqual(len(job['goals']),1)
+        self.assertEqual(job['goals'][0]['state'],'pending');self.assertEqual(job['steps'][0]['state'],'failed')
+        self.assertTrue(path.is_file());self.assertEqual(path.read_text(),'Eski kategori raporu')
+
+    def test_news_and_mail_goal_resume_preserves_verified_mail_draft(self):
+        from modules import account_tools
+        snapshot={'owner':'alice','service':'gmail','operation':'read_message','fetched_at':1,
+                  'message':{'id':'M1','from':'sender@example.com','subject':'Merhaba','body':'Yarın görüşelim.','format':'plain','truncated':False}}
+        mail=task_results.seal('account',{'state':'done','text':account_tools.render_snapshot(snapshot),'snapshot':snapshot,'sha256':account_tools.digest(snapshot)})
+        with patch('modules.model_wait.ask',return_value='Merhaba, görüşmek üzere.'):
+            draft=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Mail cevabı yaz','filename':'mail-cevap.md'},'execution':{'request':'Son haberleri araştır ve mailime cevap taslağı yaz'}},{'s1':mail})
+        job={'id':'c'*16,'owner':'alice','created':0,'request':'Son haberleri araştır ve mailime cevap taslağı yaz','state':'paused',
+             'goals':[{'text':'Haber araştırması','state':'pending','evidence':[]},{'text':'Mail taslağı','state':'done','evidence':['s2']}],
+             'steps':[{'id':'s1','goal':1,'tool':'account','input':{'service':'gmail','operation':'read_message','message_id':'M1'},'depends':[],'signature':'mail','state':'done'},
+                      {'id':'s2','goal':1,'tool':'writer','input':{'instruction':'Mail cevabı yaz','filename':'mail-cevap.md'},'depends':['s1'],'signature':'draft','state':'done'}],
+             'outputs':{'s1':mail,'s2':draft}}
+        goals._save(job);self.ask.side_effect=RuntimeError('HTTP 429')
+        goals.run(self.runtime,'hedef devam',resume=True)
+        after=goals.latest('alice')
+        self.assertEqual(after['steps'][1]['state'],'done');self.assertEqual(after['goals'][1]['state'],'done')
+        self.assertTrue(goal_tools.verify(after['outputs']['s2'],'alice'))
+
     def test_unsupported_page_discovers_real_article_then_writes_and_verifies_report(self):
         from modules import public_sources,service_store
         index='https://example.org/news'
@@ -561,12 +631,12 @@ class GoalTests(unittest.TestCase):
         bad='Bu sayfa yalnız kurumsal iletişim ve adres bilgilerini içerir. '*3
         html=('<html><body><a href="/sports">Spor etkinliği</a><a href="/news/ai-project">Yapay zeka projesi duyurusu</a></body></html>').encode()
         self.responses(self.plan('Kaynaklı rapor dosyası'),
-            self.tool('research',{'url':'https://example.org/irrelevant','question':'Yeni yapay zeka gelişmesi?'}),
+            self.tool('research',{'url':'https://example.org/irrelevant','question':'Yapay zeka projesi?'}),
             {'supported':False,'answer':'','quotes':[]},
             self.tool('data',{'operation':'headlines','url':index,'query':'yapay zeka'}),
-            self.tool('research',{'url':article,'question':'Yeni yapay zeka gelişmesi?'}),
+            self.tool('research',{'url':article,'question':'Yapay zeka projesi?'}),
             {'supported':True,'answer':quote,'quotes':[quote]},
-            self.tool('writer',{'instruction':'Yayın tarihini ve kaynağı koruyarak rapor yaz.','filename':'rapor.md'},depends=['s3']),
+            self.tool('writer',{'instruction':'Kaynağı koruyarak rapor yaz.','filename':'rapor.md'},depends=['s3']),
             '# Araştırma raporu\n'+quote+'\nKaynak: '+article,
             self.tool('verify',{},depends=['s4']),self.done('s3','s4','s5'),self.finish())
         with patch('modules.browser.page_text',side_effect=lambda url:(quote+' Projede üniversiteler ve araştırma kurumları birlikte çalışıyor.') if url==article else bad), \

@@ -37,7 +37,7 @@ Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: me
 Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
 Kaynak adresi bilinmiyorsa veya research soruyu yanıtlamıyorsa kurumun haber/duyuru dizinindeki gerçek bağlantıları bu araçla bul; makale adresi uydurma. Başlık listesi içerik kanıtı değildir: ilgili bağlantıyı research ile okuyup doğrula.
 Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
-Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
+Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
 Servis adayı bulunması çalışan hesap/izin veya ücretsiz kullanım değildir. Genel GET bağlantısı somut kullanıcı onayı gerektirir.
 Takip kaydı yalnız kullanıcının kesin URL ve açık izleme isteğiyle oluşturulur. Kaynak bildirimi, tarih/kapsamı yorumlanmış kesin karar değildir.
@@ -247,6 +247,16 @@ def _invalidate_outputs(job,ident,message):
         if any(item in invalid for item in goal['evidence']):goal.update(state='pending',evidence=[])
 
 
+def _finish_completed(job):
+    """All explicit goal completions already exist; finishing needs no new model call."""
+    if not job['goals'] or any(g['state']!='done' for g in job['goals']):return False
+    for goal in job['goals']:
+        if not goal.get('evidence'):return False
+        for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
+    job['state']='done';job.pop('blocker',None);_save(job)
+    return True
+
+
 def _loop(runtime,job,answer=None):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
@@ -273,6 +283,11 @@ def _loop(runtime,job,answer=None):
         if output.get('state')!='done':continue
         try:
             step=next((s for s in job['steps'] if s['id']==ident),{})
+            from modules import research_evidence
+            if step.get('tool')=='writer' and research_evidence.news_report_requested(job['request'],step.get('input',{}).get('instruction',''),{d:job['outputs'][d] for d in step.get('depends',[])}) and not output.get('news_report_evidence'):
+                raise ValueError('Eski haber raporunun tarih ve tekil kaynak kanıtı yok; dosya silinmeden yeniden hazırlanmalı.')
+            if step.get('tool')=='research' and research_evidence.news_requested(job['request']) and not output.get('news_article'):
+                raise ValueError('Eski haber çıktısında tekil haber ve yayın tarihi kanıtı yok; aynı hedefte yeniden araştırılmalı.')
             if step.get('tool')=='research' and not output.get('source_quotes'):
                 from modules import research_evidence
                 if research_evidence.legacy_unsupported(output.get('text')):
@@ -285,6 +300,7 @@ def _loop(runtime,job,answer=None):
             job.setdefault('feedback',[]).append(output['text'])
             _save(job)
     if job['state']=='review':return render(job)
+    if _finish_completed(job):return render(job)
     for _ in range(MAX_TURNS):
         _ensure(runtime,job)
         context=_context(job)
@@ -376,6 +392,7 @@ def _loop(runtime,job,answer=None):
                     result=_record(runtime,job,step)
                     if job['state'] in {'approval','review'}:return render(job)
             _save(job)
+            if _finish_completed(job):return render(job)
         except requests_state.Cancelled:raise
         except Exception as exc:
             _record_failure('modules/goal_executor.py:turn')
