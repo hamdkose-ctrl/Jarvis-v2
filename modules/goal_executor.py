@@ -294,6 +294,7 @@ def _loop(runtime,job,answer=None):
     requests_state.allow_long_operation(600)
     started_steps=len(job['steps'])
     rejected_plans=0
+    rejected_finishes=0
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     # Interrupted external steps are reconciled, never blindly replayed.
     for step in job['steps']:
@@ -384,7 +385,17 @@ def _loop(runtime,job,answer=None):
                 if not isinstance(question,str) or not question.strip():raise ValueError('Eksik somut bilgiyi belirt.')
                 job['question']=question[:600];job['state']='question';_save(job);return render(job)
             elif action=='finish':
-                if not job['goals'] or any(g['state']!='done' for g in job['goals']):raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı.')
+                if not job['goals'] or any(g['state']!='done' for g in job['goals']):
+                    rejected_finishes+=1
+                    # Deliver already verified news without another planner/provider call.
+                    # This is partial delivery, never permission to complete pending goals.
+                    from modules import news_recovery
+                    news_recovery.deliver(runtime,job,existing_only=True,
+                        max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    if job.get('partial_report'):break
+                    if rejected_finishes>=3:
+                        raise RuntimeError('Planlayıcı eksik hedefleri 3 kez bitirmeye çalıştı; mevcut sonuçlar korundu.')
+                    raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı. Eksik rapor için writer ve dosya kontrolü için verify çalıştır.')
                 for goal in job['goals']:
                     try:
                         for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])

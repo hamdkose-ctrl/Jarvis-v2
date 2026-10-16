@@ -1,3 +1,8 @@
+## Erken bitişte mevcut haberin teslimi — 16 Ekim 2026
+- Planlayıcı pending hedef varken finish seçerse, açık yapay zekâ haber raporu/dosya isteğinde mevcut doğrulanmış haber çıktılarıyla writer/verify denenir. Bu yol yeni kaynak/model çağırmaz; partial_report kaydıyla aynı günlükte kısmi dosya teslim eder. Açık kapsam hedefleri otomatik done yapılmaz; onay/review/iptal, kullanıcı ve 10/24/96 bütçeleri korunur.
+- Doğrulanmış teslim sürdürmede yeniden yazılmaz. Haber yoksa boş rapor üretilmez. Aynı turda üç eksik finish önerisinden sonra duraklar; planlayıcıya tekrar tekrar aynı ret döngüsü yapılmaz. Bu davranış sağlayıcı gecikmesinin tamamını gidermez.
+- 64 hedef regresyonu geçti: araştırma complete → erken finish → gerçek dosya/verify, ek model/ağ olmaması ve tekrar sürdürmede kimlik/dosya korunması. Kullanıcının Windows public-data kabulünde iki güncel makale ve rapor passed doğrulandı; normal hedef akışının bu yeni düzeltmesi Windows'ta henüz doğrulanmadı.
+
 ## Doğrudan haftalık haber kaynakları — 16 Ekim 2026, son karar
 - Hamdi’nin onayıyla GDELT kaldırıldı. Ağ uç noktası/kota/retry kodu ve katalog girdisi yoktur. Eski kayıtlı news_search girdileri hedef silinmeden, ağ çağrısı yapmadan kaldırıldı hatası alır; yeni planlayıcıya yalnız sources/headlines önerilir.
 - Mevcut güvenli HTTPS okuyucusu, resmî HTML ve sayfanın ilan ettiği aynı-host RSS/Atom akışlarını kullanır. DPÜ/YTÜ şablonları yalnız kendi host/yol/gövde/başlık/yayın tarihi ve canonical veya paylaşım URL eşleşmesiyle tanınır. İlgili kart tarihi ve etkinlik tarihi yayın tarihi yapılmaz.

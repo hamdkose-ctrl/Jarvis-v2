@@ -1,3 +1,7 @@
+## 16 Ekim 2026 — erken haber bitişi
+- Windows public-data kabulü: iki makale ve gerçek rapor passed; eski adayın pending olması beklenen elemedir. Normal hedefte yalnız araştırma çıktısı ve eksik finish görüldü.
+- Erken finish sonrası doğrulanmış mevcut haberden modelsiz writer/verify teslimi eklendi; kapsam hedefleri açık kalır. Eksik finish döngüsü üç denemeyle sınırlıdır. Son Windows normal hedef sürdürme kabulü bekliyor; yedi dakikalık gecikmenin tamamının giderildiği iddia edilmez.
+
 # Güncel açık işler — 14 Ekim 2026
 
 14 Ekim kullanıcı PC sonuçları: 1045 test ve tüm JS/smoke grupları ile başlangıç bağımlılık kontrolü geçti (9 test atlandı). Kamera açıldı; Hesap Makinesi 12 + 7 = 19 ve SAPI WAV üretimi doğrulandı. Gmail canlı okunmamış liste ve boş ek listesi döndü; gerçek ek içeriği okumaya uygun mail yoktu. Ekran paylaşımı yazım yönlendirmesi ve mail/kuyruk metinleri düzeltildi. Hesap Makinesi yavaşlığı için tur süresi eklenmiştir; hız iyileşmesi gerçek PC'de henüz ölçülmedi. Bu PC'de FFmpeg/FFprobe bulunamadı. Kuyruk kaydedildi ve bekliyor görüldü; gerçekten çalıştığı/yeniden başlatma/iptal kabulü henüz kanıtlanmadı. Mail/hesap kişisel içeriği depoya eklenmez.
