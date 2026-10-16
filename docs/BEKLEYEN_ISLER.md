@@ -1,3 +1,8 @@
+## 16 Ekim 2026 — Gmail kabulünde ilk mail sınırı
+- Kullanıcı --gmail denemesinde ilk okunmamış mailde desteklenen ek olmadığı için pending gördü. Kabul kontrolü en fazla 10 okunmamış mail içinde ilk desteklenen eki arayacak şekilde düzeltildi. Mail sırasını veya okunma durumunu elle değiştirmek gerekmez; bütün gelen kutusu tarandı iddiası yoktur.
+- Canlı PC'de güncelleme sonrası aynı `scripts\v2_kontrol.bat --gmail --skip-suite` komutu denenmeli. Ek yoksa sınırlı listede bakılan sayı, okunamayan desteklenen ekte ise gerçek hata görülmeli. Yeni model çağrısı, gönderim veya okunmuş işareti yoktur.
+- Kontrol: 1347 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı; 8 odaklı test ve son salt okunur kural incelemesi geçti. Ek listesi okumadan önce kaybolursa pending; yanlış kullanıcı/mail/ek makbuzu veya okuma/doğrulama hatası başarılı sayılmaz. Canlı Gmail kabulü bekliyor.
+
 ## 16 Ekim 2026 — tek kaynak kapsamı ve kesilmiş bağlantı
 - Kullanıcı canlı hedefte DPÜ haberinden rapor dosyası teslimi gördü; geniş Türkiye araştırmasının tamamı doğrulanmadı. Sohbetin eski 1200 karakter kesimi bir kaynak URL'sinin ortasında bitebilir; ekrandaki her eksik adresin uydurulduğu sonucuna varılamaz. Yeni haber önizlemesi tam URL/sayı/tarih verir, alıntılar dosyada kalır.
 - AI haber aracı için URL kökeni kontrolü, genel Türkiye haber hedefinde iki farklı yayıncı alt sınırı ve eski tek kaynaklı tamamlanmanın yeniden açılması eklendi. Mevcut hedef, kanıtlar ve dosyalar korunur. Gerçek dizinlerden keşif şarttır; doğrudan model yol tahmini ağ çağrısına gitmez.

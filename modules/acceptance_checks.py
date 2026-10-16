@@ -7,6 +7,35 @@ import re
 from datetime import datetime,timezone
 from modules.diagnostics import record_failure as _record_failure
 
+def _gmail_attachment(owner):
+    from modules import account_tools,task_results
+    result=account_tools.run(owner,{'service':'gmail','operation':'list_unread','limit':10})
+    if result['state']!='done':return 'pending','Gmail okuma kullanılamıyor; bağlantı/izin kontrolü gerekli.'
+    items=result['snapshot']['items'][:10]
+    if not items:return 'pending','Ek kabulü için okunmamış mail bulunamadı.'
+    for count,item in enumerate(items,1):
+        message_id=item['id']
+        listed=account_tools.run(owner,{'service':'gmail','operation':'list_attachments','message_id':message_id})
+        if listed['state']!='done':return 'pending',f'{count}. mailin ek listesi alınamadı; kontrol tamamlanmadı.'
+        supported=[row for row in listed['snapshot']['items'] if row['supported']]
+        if not supported:continue
+        result=account_tools.run(owner,{'service':'gmail','operation':'read_attachment','message_id':message_id,
+                                       'attachment_index':supported[0]['index']})
+        if result.get('state')!='done':raise ValueError('Seçilen ek okunamadı; ek kabulü başarılı sayılmadı.')
+        snapshot=result.get('snapshot',{})
+        if snapshot.get('operation')=='list_attachments':
+            return 'pending','Seçilen mailin eki listeleme sonrası değişti veya artık yok; ek okuması doğrulanmadı.'
+        attachment=snapshot.get('attachment',{})
+        if (snapshot.get('operation')!='read_attachment' or snapshot.get('service')!='gmail' or
+                snapshot.get('owner')!=owner or snapshot.get('message_id')!=message_id or
+                attachment.get('index')!=supported[0]['index'] or
+                not isinstance(attachment.get('body'),str) or not attachment['body'].strip()):
+            raise ValueError('Ek okuma makbuzu seçilen kullanıcı/mail/ek veya okunabilir metinle eşleşmiyor.')
+        # Do not skip an unreadable supported attachment to manufacture a successful result.
+        sealed=task_results.seal('account',result);task_results.verify(sealed,owner=owner)
+        return 'passed',f'Ek okundu ve doğrulandı; incelenen mail sayısı: {count}. Mail/ek içeriği rapora yazılmadı.'
+    return 'pending',f'İlk {len(items)} okunmamış mailde desteklenen ek bulunamadı; yalnız bu sınırlı liste kontrol edildi.'
+
 def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,
         manual_confirm=(),manual_reset=()):
     from modules import llm,personalization,service_health,validation
@@ -46,22 +75,7 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
             from modules import public_data_acceptance
             report['checks'].extend(public_data_acceptance.run(owner))
         if gmail:
-            def mail():
-                from modules import account_tools
-                result=account_tools.run(owner,{'service':'gmail','operation':'list_unread','limit':1})
-                if result['state']!='done':return 'pending','Gmail read not available'
-                items=result['snapshot']['items']
-                if not items:return 'pending','No unread mail for attachment acceptance'
-                result=account_tools.run(owner,{'service':'gmail','operation':'list_attachments','message_id':items[0]['id']})
-                if result['state']!='done':return 'pending','Attachment list not available'
-                supported=[r for r in result['snapshot']['items'] if r['supported']]
-                if not supported:return 'pending','No supported attachment in the first unread mail'
-                result=account_tools.run(owner,{'service':'gmail','operation':'read_attachment','message_id':items[0]['id'],
-                                               'attachment_index':supported[0]['index']})
-                from modules import task_results
-                sealed=task_results.seal('account',result);task_results.verify(sealed,owner=owner)
-                return 'passed','Read and verified; mail identity/body/attachment contents omitted'
-            check('gmail_attachment',mail)
+            check('gmail_attachment',lambda:_gmail_attachment(owner))
         else:report['checks'].append({'check':'gmail_attachment','state':'pending','detail':'Run with --gmail after connecting the account'})
         if desktop:
             def calc():
