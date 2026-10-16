@@ -75,20 +75,22 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     def sufficient():return len(publisher_keys())>=2 if broad else len(sources)>=2
     candidates=[];attempted=set()
     for seed in ([] if existing_only else seeds):
-        if sufficient():break
-        if broad and publisher_news.publisher_key(seed) in publisher_keys():continue
+        # Two publishers are enough to write a verified partial report, but they are
+        # not proof that a broad Turkey scan is complete. Keep scanning the registered
+        # catalog within the bounded recovery budget. Narrow requests retain the old
+        # early-stop behavior.
+        if not broad and sufficient():break
         ident,out=tool('data',{'operation':'headlines','url':seed,'query':'yapay zeka dijital'})
         rows=out.get('structured',{}).get('items',[])
         related=[r for r in rows if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
-        for row in (related or rows)[:2]:
+        limit=1 if broad else 2
+        for row in (related or rows)[:limit]:
             if row['url'] in attempted:continue
             attempted.add(row['url'])
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
-            if result.get('state')=='done':
-                sources[ident]=result
-                if broad:break
-            if sufficient():break
-        if sufficient():break
+            if result.get('state')=='done':sources[ident]=result
+            if result.get('state')=='done' or not broad and sufficient():break
+        if not broad and sufficient():break
     for seed in seeds:
         if seed not in candidates:candidates.append(seed)
     for url in candidates[:2] if not sources and not existing_only else []:
