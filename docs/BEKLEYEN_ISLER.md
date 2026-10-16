@@ -246,3 +246,10 @@ Kullanıcının sonraki canlı sonucu: Groq anahtarı eksikti, yeniden eklendi; 
 
 ## Kayıtlı hedefi yeniden planlama döngüsü — 16 Ekim 2026
 Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin kayıtlı hedefte yeniden plan önermesi artık üç retle sınırlanır, plan korunduğu açık yazılır. Planlayıcıya bu çağrıda plan bulunduğu belirtilir. Gerçek sağlayıcıyla mevcut hedefin araç adımlarına geçip raporu tamamlaması hâlâ kullanıcı kabulü gerektirir.
+
+
+## Kaynak keşfi ve çalışma ekranı — 16 Ekim 2026
+- Mevcut data/headlines aracı isteğe bağlı query ile gerçek dizin/RSS bağlantılarını konuya göre sıralar; tarih veya makale adresi üretmez. Başlık listesi içerik kanıtı değildir. Planlayıcı başarısız sayfadan sonra dizin keşfi, research, writer ve verify araçlarına yönlendirilir; aynı hedef korunur.
+- Kanıt alınamayan sayfalarda erişim ve içerik sorunları aynı şeymiş gibi sunulmaz. Rapor eki bu sınırı açıklar.
+- Ekip/sohbet/çalışma panellerinde Selçuklu zemini karartılır; ana ekran ve düz menü görünümü korunur. Yeni API/model çağrısı veya bağlantı eklenmez.
+- Regresyon: başarısız kaynak → gerçek bağlantı keşfi → alıntılı araştırma → gerçek rapor dosyası → verify zinciri model/ağ sınırları taklit edilerek sınanır. Canlı kaynak kapsamı, yayın tarihi doğruluğu ve Windows model davranışı ayrıca kullanıcı kabulünde doğrulanmalıdır.

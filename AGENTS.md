@@ -510,3 +510,10 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 ## Yinelenen hedef planı — 16 Ekim 2026
 - Planlayıcı ilk planı yalnız goals boşken oluşturur; kayıtlı hedefte mevcut goal kimliğiyle araç/kanıt/soru/bitiş seçmesi açıkça istenir. Mevcut plan yine değiştirilemez. Aynı çalışma turunda üç yeniden plan önerisi reddedilirse başka araç başlatmadan açık gerekçeyle duraklar; 48 tur boyunca aynı plan ret yanıtını tekrarlamaz. Önceki hedefler/kanıtlar korunur ve izin kapıları değişmez.
 - test_goal_executor.py planın korunması, sınırlı model çağrısı ve yanlış plan sonrası geçerli adıma toparlanmayı sınar; canlı sağlayıcı çağrısı yoktur.
+
+
+## Kaynak keşfi ve çalışma ekranı — 16 Ekim 2026
+- Mevcut data/headlines aracı isteğe bağlı query ile gerçek dizin/RSS bağlantılarını konuya göre sıralar; tarih veya makale adresi üretmez. Başlık listesi içerik kanıtı değildir. Planlayıcı başarısız sayfadan sonra dizin keşfi, research, writer ve verify araçlarına yönlendirilir; aynı hedef korunur.
+- Kanıt alınamayan sayfalarda erişim ve içerik sorunları aynı şeymiş gibi sunulmaz. Rapor eki bu sınırı açıklar.
+- Ekip/sohbet/çalışma panellerinde Selçuklu zemini karartılır; ana ekran ve düz menü görünümü korunur. Yeni API/model çağrısı veya bağlantı eklenmez.
+- Regresyon: başarısız kaynak → gerçek bağlantı keşfi → alıntılı araştırma → gerçek rapor dosyası → verify zinciri model/ağ sınırları taklit edilerek sınanır. Canlı kaynak kapsamı, yayın tarihi doğruluğu ve Windows model davranışı ayrıca kullanıcı kabulünde doğrulanmalıdır.

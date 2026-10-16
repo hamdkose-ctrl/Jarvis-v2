@@ -2188,7 +2188,7 @@ new MutationObserver(ms=>{let topHit=false;for(const m of ms){if(!topHit){const 
 // ======================================================================= açılış
 
 // Tüm sayfaların arkasında APEX dalgaları (WebGL; yerel, ağ yok). Hareketi azalt açıksa çizilmez.
-function mountAppBg(){window.JarvisBackdropController=window.JarvisBackdrop.mount({isStill:()=>S.ui?.nx_bust===false})}
+function mountAppBg(){window.JarvisBackdropController=window.JarvisBackdrop.mount({isStill:()=>S.ui?.nx_bust===false,isWorkspace:()=>S.page!=='home'&&(S.page!=='menu'||!!document.querySelector('.mnscene.docked'))})}
 (async function boot(){
   if(['vision','tools','settings'].includes(S.page))S.page='menu';
   mountAppBg();requestAnimationFrame(frame);try{document.fonts.ready.then(fitTop);document.fonts.addEventListener('loadingdone',fitTop)}catch(e){}setInterval(tick,5000);

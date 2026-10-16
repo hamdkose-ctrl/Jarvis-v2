@@ -68,6 +68,26 @@ class PublicReadTests(unittest.TestCase):
 
 
 
+class HeadlineDiscoveryTests(unittest.TestCase):
+    def setUp(self):
+        token=llm._key_context.set("alice")
+        self.addCleanup(llm._key_context.reset,token)
+
+    def test_query_ranks_real_links_before_truncating_without_inventing_dates(self):
+        html=('<html><body>'+''.join('<a href="/other'+str(i)+'">Diğer etkinlik duyurusu</a>' for i in range(25))+'<a href="/ai">Yapay zeka araştırma duyurusu</a></body></html>').encode()
+        response={'url':'https://example.org/news','body':html}
+        result=domain_tools.headlines('alice',response['url'],query='yapay zeka',fetcher=lambda _:response)
+        self.assertEqual(result['items'][0]['url'],'https://example.org/ai')
+        self.assertEqual(result['items'][0]['published'],'')
+        self.assertEqual(len(result['items']),20)
+        self.assertEqual(goal_extensions.validate('data',{'operation':'headlines','url':response['url'],'query':'yapay zeka'})['query'],'yapay zeka')
+
+    def test_invalid_query_does_not_fetch(self):
+        fetch=Mock()
+        with self.assertRaises(ValueError):domain_tools.headlines('alice','https://example.org',query='x'*301,fetcher=fetch)
+        fetch.assert_not_called()
+
+
 class WatchTests(SourceFixture):
     def test_initial_scan_is_silent_then_new_matching_article_notifies_once(self):
         ident=self.add(['tatil']);notify=Mock()
