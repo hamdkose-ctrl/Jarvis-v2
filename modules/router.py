@@ -53,12 +53,12 @@ def _action_request(text):
 
 
 def _fresh_research_request(text):
-    low=' '.join(str(text or '').casefold().replace('ı','i').split())
-    if re.search(r'\b(?:nedir|ne demek|tarihçe|tarihce)\b',low):return False
+    low=' '.join(str(text or '').casefold().translate(str.maketrans('çğıöşü','cgiosu')).split())
+    if re.search(r'\b(?:nedir|ne demek|tarihce)\b',low):return False
     topic=bool(re.search(r'\b(?:haber(?:ler)?|gelisme(?:ler)?|fiyat(?:i|lar)?|kur|dolar|euro|altin|borsa|piyasa|skor|mac sonucu)\b',low))
     fresh=bool(re.search(r'\b(?:guncel|son|bugun|su an|latest|recent|yeni)\b',low))
     implicit_news=bool(re.search(r'\b(?:haberler|gelismeler)\b',low) and re.search(r'\b(?:neler|nelerdir|ne var|ozet|anlat|goster|arastir)\b',low))
-    market_now=bool(re.search(r'\b(?:dolar|euro|altin|borsa|skor)\b',low) and re.search(r'\b(?:kac|ne kadar|nedir|durum|sonuc)\b',low))
+    market_now=bool(re.search(r'\b(?:dolar|euro|altin|borsa|skor)\b',low) and re.search(r'\b(?:kac|ne kadar|durum|sonuc)\b',low))
     return topic and (fresh or implicit_news or market_now)
 
 
