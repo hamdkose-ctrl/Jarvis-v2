@@ -287,8 +287,10 @@ class Profile:
         self.data["items"] = []
         self.save()
 
-    def _add_event(self, title: str, when: str) -> dict:
+    def _add_event(self, title: str, when: str, repeat: str | None = None) -> dict:
         ev = {"id": self._new_id(), "title": title.strip() or "Etkinlik", "when": when, "notified": False}
+        if repeat:                        # "daily" / "weekdays" / "weekly:N" / "monthly:N" (when.parse_repeat)
+            ev["repeat"] = repeat
         self.data["events"].append(ev)
         self.save()
         return ev
@@ -315,10 +317,25 @@ class Profile:
         """
         due = []
         marked = []
+        moved = []                        # tekrarlayan kayıt: (kayıt, eski zaman); bir sonraki zamana kurulur
         for e in self.data["events"]:
             if e.get("notified"):
                 continue
             raw = str(e.get("when") or "")
+            if e.get("repeat") and len(raw) == 16:
+                try:
+                    from modules import when as whenmod
+                    t = datetime.strptime(raw, "%Y-%m-%dT%H:%M")
+                    if t > now:
+                        continue
+                    nxt = whenmod.next_occurrence(e["repeat"], now, t.hour, t.minute)
+                except ValueError:
+                    continue
+                if (now - t).total_seconds() < 6 * 3600:
+                    due.append(e)         # Jarvis kapalıyken kaçan eski tekrarlar okunmaz, yalnız ileri kurulur
+                moved.append((e, raw))
+                e["when"] = nxt.strftime("%Y-%m-%dT%H:%M")
+                continue
             try:
                 if len(raw) == 10:
                     day = datetime.strptime(raw, "%Y-%m-%d")
@@ -335,11 +352,12 @@ class Profile:
                 if (now - t).total_seconds() < 6 * 3600:
                     due.append(e)
                     marked.append(e)
-        if due:
+        if due or moved:
             for e in marked: e["notified"] = True
             try: self.save()
             except BaseException:
                 for e in marked: e.pop("notified", None)
+                for e, raw in moved: e["when"] = raw
                 # Preserve an already-notified event's original value.
                 for e in self.data["events"]:
                     if e in marked and e.get("id") in {x.get("id") for x in marked}:

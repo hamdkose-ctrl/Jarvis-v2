@@ -49,7 +49,7 @@ def state(key: str, profile) -> tuple[str, str]:
         m = vision.mode()
         return (("Açık · " + ("kamera" if m == "camera" else "ekran")), "good") if m else ("Hazır", "cyan")
     if key == "google":
-        if google_api.TOKEN.exists():
+        if google_api.connected():
             return "Bağlı", "good"
         return ("İzin bekliyor", "warn") if google_api.CRED.exists() else ("Kurulmadı", "muted")
     if key == "mesaj":

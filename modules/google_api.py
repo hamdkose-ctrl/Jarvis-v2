@@ -151,6 +151,15 @@ def tasks_service(interactive: bool = False):
     return build("tasks", "v1", credentials=_creds(TASKS_TOKEN, TASKS_SCOPES, interactive), cache_discovery=False)
 
 
+def connected() -> bool:
+    """Bu kullanıcının Gmail/Takvim izni kayıtlı mı? Eski ortak TOKEN bağlanınca kullanıcı klasörüne taşınıp
+    silinir; ona bakan kod bağlıyken bile "bağlı değil" sanıyordu (sabah özeti maili/takvimi atlıyordu)."""
+    try:
+        return token_path().exists()
+    except PermissionError:               # kullanıcı seçilmemiş
+        return False
+
+
 def _ready() -> str | None:
     """Kullanıma hazırsa None, değilse kullanıcıya söylenecek açıklama."""
     if not CRED.exists() and not token_path().exists():
@@ -240,13 +249,39 @@ def agenda(day_offset: int = 0, label: str = "Bugün") -> str:
         return _friendly(exc, "Takvime bakamadım")
 
 
+def busy_between(start: datetime, end: datetime) -> list[tuple[datetime, datetime, str]]:
+    """Google Takvim'de [start, end) aralığıyla kesişen saatli etkinlikler (salt okuma, çakışma uyarısı için).
+
+    Bağlı değilse ya da okunamazsa boş liste: çakışma sorusu yalnız bir uyarıdır, kaydı engellemez."""
+    if not connected() or _ready() is not None:
+        return []
+    try:
+        start, end = start.astimezone(), end.astimezone()
+        items = _service("calendar", "v3").events().list(
+            calendarId="primary", timeMin=start.isoformat(), timeMax=end.isoformat(), singleEvents=True,
+            orderBy="startTime", maxResults=10).execute().get("items", [])
+    except Exception:
+        _record_failure('modules/google_api.py:busy_between')
+        return []
+    out = []
+    for e in items:
+        a, b = e.get("start", {}).get("dateTime"), e.get("end", {}).get("dateTime")
+        if not a or not b:                # tüm gün etkinlik: saat çakışması sayılmaz
+            continue
+        a, b = datetime.fromisoformat(a), datetime.fromisoformat(b)
+        if a < end and b > start:
+            out.append((a, b, e.get("summary") or "(adsız)"))
+    return out
+
+
 _MAIL = r"(?:g?mail|e-?posta|eposta|ileti)['’]?\w*"
 # "maili kontrol et", "maillerime bak", "mail geldi mi", "gmail'e bak", "okunmamış e-postalar" ...
 _MAIL_CHECK = re.compile(
     rf"okunmamış|gelen kutu|yeni {_MAIL}|"
     rf"{_MAIL}\s+(?:\w+\s+)?(?:k\w{{0,2}}t\w{{0,2}}r\w{{0,2}}l|bak|oku|var\s*mı|geldi|gelmiş|neler|ne var|kaç)|"
+    rf"{_MAIL}\s+(?:göz at|göster|listele)|"
     rf"(?:kontrol et|bak|oku)\w*\s+{_MAIL}")
-_MAIL_SEND = re.compile(r"\b(?:gönder|yaz|at|ilet)\w*\b(?!.*\b(?:kontrol|bak)\w*)")
+_MAIL_SEND = re.compile(r"\b(?:gönder|yaz|(?<!göz )at|ilet)\w*\b(?!.*\b(?:kontrol|bak)\w*)")
 
 
 def handle(cmd_lower: str) -> str | None:
