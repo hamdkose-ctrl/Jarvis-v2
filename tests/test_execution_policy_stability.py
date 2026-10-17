@@ -61,6 +61,11 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(routed['intent'], 'task')
 
     def test_rules_are_scoped_by_query(self):
+        self.assertEqual(learning.rule_scope('Haber araştırırken gerçek kaynağı doğrula.'), 'research')
+        self.assertEqual(learning.rule_scope('Excel görevlerinde hücredeki sonucu doğrula.'), 'pc')
+        self.assertEqual(learning.rule_scope('Mail gönderirken alıcıyı iki kez kontrol et.'), 'communication')
+        self.assertEqual(learning.rule_scope('Beni otomatik onaylama; yanlışsam açıkça söyle.'), 'global')
+
         profile = FakeProfile()
         research = learning.rules_prompt(profile, 'İstanbul güncel haberlerini araştır')
         self.assertIn('otomatik onaylama', research)
