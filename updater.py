@@ -258,6 +258,11 @@ def verify_sync() -> dict:
 
     state: synced | local_changes | remote_ahead | diverged | unknown | offline
     """
+    try:
+        from modules import git_publish
+        git_publish.sync_merged_pr()   # GitHub'a Yükle ile açılan PR birleştiyse taban o commit'e taşınır
+    except (RuntimeError, OSError, ValueError):
+        pass
     st = status()
     info = latest()
     if not info:

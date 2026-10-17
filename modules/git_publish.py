@@ -1,6 +1,7 @@
-"""Yerel kaynak değişikliklerini güvenli biçimde ana GitHub dalına yayınlar.
+"""Yerel kaynak değişikliklerini güvenli biçimde GitHub'a PR olarak yayınlar.
 
-Akış: yerel değişiklik -> test -> uzak dalda çakışma kontrolü -> tek Git commit -> main.
+Akış: yerel değişiklik -> test -> uzak dalda çakışma kontrolü -> tek Git commit -> ayrı dal -> PR.
+main'e doğrudan yazılmaz: değişiklik ancak PR birleşince (CI ve gerçek cümle seti geçtikten sonra) main'e girer.
 GitHub erişilemezse çalışan yerel sürüm korunur ve sonraki güncelleme tarafından ezilmez.
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STATE = Path.home() / ".jarvis" / "selfcoder"
 LOCAL = STATE / "local_changes.json"
+PR_STATE = STATE / "github_pr.json"
 
 
 def _sha(data: bytes) -> str:
@@ -98,7 +100,7 @@ def _remote_paths(tree_sha: str) -> dict[str, str]:
 
 
 def publish(paths: list[str], before: dict[str, bytes | None], summary: str) -> str:
-    """Test edilmiş dosyaları main'e tek atomik commit olarak gönder; çakışmada asla zorla yazma."""
+    """Test edilmiş dosyaları tek atomik commit olarak ayrı dala gönderip PR aç; çakışmada asla zorla yazma."""
     import updater
     paths=sorted(set(str(x).replace("\\","/") for x in paths))
     if not paths:
@@ -133,18 +135,107 @@ def publish(paths: list[str], before: dict[str, bytes | None], summary: str) -> 
     if not entries:
         forget_local(paths)
         return "GitHub zaten güncel."
-    new_tree=_api("POST", "/git/trees", {"base_tree":base_tree,"tree":entries})["sha"]
     message="JARVIS: " + (summary.strip() or "otomatik geliştirme")[:180]
-    new_commit=_api("POST", "/git/commits", {"message":message,"tree":new_tree,"parents":[head]})["sha"]
-    # force=False: iki PC aynı anda ilerlerse GitHub fast-forward dışı yazmayı reddeder.
-    _api("PATCH", f"/git/refs/heads/{updater.BRANCH}", {"sha":new_commit,"force":False})
+    pr=_submit_pr(head, base_tree, entries, message, paths)
     forget_local(paths)
+    return _pr_text(pr, len(paths))
+
+
+def _load_pr() -> dict:
     try:
-        updater.mark_current(new_commit, message)
-    except Exception:
-        _record_failure('modules/git_publish.py:publish')
-        pass
-    return f"GitHub {updater.BRANCH} dalına gönderildi ({new_commit[:7]})."
+        value = json.loads(PR_STATE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _open_pr_branch() -> tuple[dict, str] | None:
+    """Bu kurulumun daha önce açtığı ve hâlâ açık olan PR'ı ve dalının son commit'ini döndürür."""
+    pr = _load_pr()
+    number, branch = pr.get("number"), str(pr.get("branch") or "")
+    if not isinstance(number, int) or not branch.startswith("jarvis/"):
+        return None
+    try:
+        info = _api("GET", f"/pulls/{number}")
+    except RuntimeError:          # PR silinmiş/erişilemiyor: yeni PR açılır, main'e yine dokunulmaz
+        return None
+    if info.get("state") != "open" or (info.get("head") or {}).get("ref") != branch:
+        return None
+    ref = _api("GET", f"/git/ref/heads/{branch}")
+    return pr, ref["object"]["sha"]
+
+
+def _submit_pr(head: str, base_tree: str, entries: list[dict], message: str, paths: list[str]) -> dict:
+    """Değişiklikleri main yerine ayrı bir jarvis/ dalına commit edip PR açar (açık PR varsa onu günceller).
+
+    Ağaç her zaman güncel main ağacı + bütün yerel farklardır; bu yüzden aynı PR'ın güncellenmesi önceki
+    farkları kaybetmez. Dal güncellemesi force=False ile yapılır, main'e hiç dokunulmaz.
+    """
+    import updater
+    new_tree = _api("POST", "/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
+    existing = _open_pr_branch()
+    parent = existing[1] if existing else head
+    new_commit = _api("POST", "/git/commits", {"message": message, "tree": new_tree, "parents": [parent]})["sha"]
+    if existing:
+        pr = existing[0]
+        _api("PATCH", f"/git/refs/heads/{pr['branch']}", {"sha": new_commit, "force": False})
+        pr = {**pr, "sha": new_commit, "tree": new_tree}
+        _save_pr(pr)
+        return {**pr, "updated": True}
+    branch = "jarvis/yukle-" + time.strftime("%Y%m%d-%H%M%S")
+    _api("POST", "/git/refs", {"ref": f"refs/heads/{branch}", "sha": new_commit})
+    listed = "\n".join(f"- `{rel}`" for rel in paths[:30]) + (f"\n- … ve {len(paths) - 30} dosya daha" if len(paths) > 30 else "")
+    body = ("Jarvis'in GitHub'a Yükle komutuyla bu bilgisayardan gönderildi. Yerel test paketi yayından önce bu "
+            "bilgisayarda geçti. main'e girmesi için CI (testler) yeşil olmalı ve PR birleştirilmeli.\n\n"
+            f"Değişen dosyalar ({len(paths)}):\n{listed}")
+    try:
+        created = _api("POST", "/pulls", {"title": message[:200], "head": branch, "base": updater.BRANCH, "body": body})
+    except RuntimeError as exc:
+        raise RuntimeError(f"Değişiklikler '{branch}' dalına yüklendi ama PR açılamadı ({exc}). GitHub'da bu dal için "
+                           "PR'ı elle aç; anahtarın Pull requests yazma izni olmalı. main değişmedi.") from None
+    if not isinstance(created.get("number"), int):
+        raise RuntimeError(f"Değişiklikler '{branch}' dalına yüklendi ama GitHub PR numarası dönmedi. GitHub'da bu dal "
+                           "için PR'ı kontrol et. main değişmedi.")
+    pr = {"number": created.get("number"), "branch": branch, "url": created.get("html_url", ""),
+          "sha": new_commit, "tree": new_tree}
+    _save_pr(pr)
+    return {**pr, "updated": False}
+
+
+def _save_pr(pr: dict) -> None:
+    STATE.mkdir(parents=True, exist_ok=True)
+    PR_STATE.write_text(json.dumps(pr, ensure_ascii=False), encoding="utf-8")
+
+
+def sync_merged_pr() -> bool:
+    """Açılan PR birleştiyse ve main'deki birleşme commit'inin ağacı gönderilen ağaçla aynıysa tabanı ona taşır.
+
+    Böylece PR birleştikten sonra bu bilgisayar "ayrışmış" görünmez. Ağaç farklıysa (main arada başka
+    değişiklik aldıysa) taban değiştirilmez; normal GitHub doğrulaması karar verir. PR kapandıysa kayıt silinir.
+    """
+    import updater
+    pr = _load_pr()
+    if not isinstance(pr.get("number"), int):
+        return False
+    info = _api("GET", f"/pulls/{pr['number']}")
+    if info.get("state") == "open":
+        return False
+    PR_STATE.unlink(missing_ok=True)
+    merged = str(info.get("merge_commit_sha") or "")
+    if not info.get("merged") or not merged:
+        return False
+    commit = _api("GET", f"/git/commits/{merged}")
+    if (commit.get("tree") or {}).get("sha") != pr.get("tree"):
+        return False
+    updater.mark_current(merged, str(commit.get("message") or ""))
+    return True
+
+
+def _pr_text(pr: dict, count: int) -> str:
+    where = f"PR #{pr.get('number')}" + (f" ({pr['url']})" if pr.get("url") else "")
+    verb = "güncellendi" if pr.get("updated") else "açıldı"
+    return (f"{count} dosya main'e değil '{pr.get('branch')}' dalına yüklendi, {where} {verb}. main'e girmesi için "
+            "GitHub'da testler (CI) yeşil olunca PR'ı birleştir. Birleşince GitHub durumunu doğrula; bu bilgisayar eşitlenir.")
 
 
 _PUBLISH_EXT = {".py", ".js", ".html", ".css", ".md", ".txt", ".json", ".bat", ".toml", ".yaml", ".yml", ".java", ".gradle", ".properties", ".xml", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2", ".ico", ".jar"}
@@ -188,7 +279,7 @@ def _release_tests() -> None:
 
 
 def publish_worktree(summary: str = "kullanıcı onaylı yerel değişiklikler") -> str:
-    """Bu PC'deki yerel kaynak farklarını açık kullanıcı komutuyla GitHub main'e yollar.
+    """Bu PC'deki yerel kaynak farklarını açık kullanıcı komutuyla ayrı dala yükleyip main'e PR açar.
 
     Ev/İş ayrımı yoktur. Uzak main bu kurulumun kayıtlı taban commit'inden ilerlemişse yayın durur.
     Yayın öncesi çalışan .venv paketleri requirements.lock.txt dosyasına sabitlenir; silinen kaynak dosyaları da
@@ -239,11 +330,9 @@ def publish_worktree(summary: str = "kullanıcı onaylı yerel değişiklikler")
             continue
         blob = _api("POST", "/git/blobs", {"content": base64.b64encode(local[rel]).decode("ascii"), "encoding": "base64"})
         entries.append({"path": rel, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-    new_tree = _api("POST", "/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
     message = "JARVIS: " + (summary.strip() or "kullanıcı onaylı yerel değişiklikler")[:180]
-    new_commit = _api("POST", "/git/commits", {"message": message, "tree": new_tree, "parents": [head]})["sha"]
-    _api("PATCH", f"/git/refs/heads/{updater.BRANCH}", {"sha": new_commit, "force": False})
+    # main'e yazılmaz; taban kaydı (mark_current) PR birleşip verify_sync kaynakları eşit görünce güncellenir.
+    pr = _submit_pr(head, base_tree, entries, message, changed)
     forget_local(changed)
-    updater.mark_current(new_commit, message)
-    return f"GitHub {updater.BRANCH} dalına {len(changed)} dosya gönderildi ({new_commit[:7]})."
+    return _pr_text(pr, len(changed))
 
