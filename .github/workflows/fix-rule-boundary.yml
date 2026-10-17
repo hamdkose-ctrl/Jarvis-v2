@@ -1,0 +1,32 @@
+name: Fix Rule Boundary
+
+on:
+  push:
+    branches: [codex/execution-policy-stability-20261017]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Replace accidental backspace escapes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('modules/learning.py')
+          text = path.read_text(encoding='utf-8')
+          count = text.count('\x08')
+          if count != 4:
+              raise SystemExit(f'expected 4 accidental backspace escapes, got {count}')
+          path.write_text(text.replace('\x08', r'\b'), encoding='utf-8')
+          PY
+          git config user.name "hamdkose-ctrl"
+          git config user.email "hamd.kose@gmail.com"
+          git add modules/learning.py
+          git commit -m "Scoped memory regex kelime sınırlarını düzelt"
+          git push origin HEAD:codex/execution-policy-stability-20261017
