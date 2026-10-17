@@ -17,6 +17,11 @@ class ChatFirstResearchTests(unittest.TestCase):
         source={'state':'done','news_article':{'url':'https://example.org/haber','title':'Haber','published':'2026-10-17','text':'Kaynak metni'}}
         self.assertTrue(research_evidence.news_report_requested(request,'Raporu yaz',{'s1':source}))
 
+    def test_news_context_does_not_block_unrelated_writer_deliverable(self):
+        request='Haberleri araştır ve finans raporu yaz'
+        deps={'s1':{'state':'done','local_evidence':'data'}}
+        self.assertFalse(research_evidence.news_report_requested(request,'Finans CSV raporu',deps))
+
     def test_single_news_preview_shows_finding_not_only_title_and_link(self):
         finding='Kadıköy ve Üsküdar için ulaşımda aksama bildirildi. Kaynak açıklaması güncel durumu doğruluyor.'
         output={
