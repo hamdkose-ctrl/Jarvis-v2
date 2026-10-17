@@ -1,3 +1,10 @@
+## Dosya okuma ve aramada kodlama, aynı ad ve çeviri sınırı — 17 Ekim 2026
+- `docs.decode_text`: TXT/MD/CSV/HTML baytları BOM'lu UTF-16, UTF-8, yoksa cp1254 olarak çözülür; Türkçe Windows metninde harfler artık sessizce silinmez. CSV MarkItDown'a gitmez (cp1254 ve ';' ayracını bozuyordu), kendi okuyucusuyla sütunlu okunur.
+- `kb.file_hits` sonucu dosya adına değil belge kimliğine bağlar; farklı klasörlerde aynı adlı dosyalar karışmaz. "hangi dosyadaydi", "hangi pdf'teydi", "dosyalarimda … geciyor mu" (ASCII) arama yoluna girer (`kb._FILE_QUESTION`); "hangi dosyadan/dosyayı" girmez.
+- Metinsiz PDF mesajı (`docs.no_text_message`) mevcut açık yerel OCR komutunu önerir; OCR kendiliğinden çalışmaz.
+- Çeviri: belge en çok `translate.MAX_TEXT_PARTS`=20 model çağrısı (~40-70 bin karakter); fazlası çevrilmez ve sonuçta açıkça yazılır. Excel `MAX_EXCEL_BATCHES`=30 çağrıyı aşarsa model/kayıt penceresi açılmadan durur (yarım çevrilmiş Excel üretilmez).
+- Test: `tests/test_file_reading_fixes.py` gerçek dosyalarla (model taklit). Windows'ta gerçek Not Defteri/Excel dosyası ve canlı model çevirisi denenmedi.
+
 ## Kalıcı CI ve gerçek cümle seti — 17 Ekim 2026
 - `.github/workflows/testler.yml` her PR'da ve main'e her birleştirmede sözdizimi kontrolü + `scripts/linux_test_kurulum.sh --test` çalıştırır. Geçici workflow ekleyip silmek gerekmez. main dal koruması (bu işin zorunlu tutulması) GitHub ayarlarından Hamdi tarafından açılır.
 - `tests/test_routing_sentences.py` + `tests/data/yonlendirme_cumleleri.json`: gerçek kullanım cümlelerinin (ASCII yazım, sesle hitap, nazik soru biçimi, eylem köküyle başlayan soru varyasyonları dahil) gitmesi gereken yol ve öğretilen kuralların hangi soruda yüklenmesi gerektiği. Model çağrılmaz. `bilinen_hata` satırları bugün yanlış gidiyor; düzeltilince test işaretin kaldırılmasını ister. Yönlendirme veya kural kapsamı değişikliği bu seti yeşil bırakmalı; yeni bir hata bulununca önce buraya satır eklenir. Var olan bir satırın beklentisi ancak PR açıklamasında gerekçesiyle değiştirilir.
@@ -206,7 +213,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 ## Belge okuma
 
 - Tüm belge okuma `docs.read_document` üzerinden geçer (sohbet ekleri, bilgi tabanı, çeviri, özet).
-- Word, Excel (.xlsx/.xlsm), PowerPoint, CSV ve HTML önce MarkItDown ile ayrı süreçte ve süre sınırıyla Markdown'a çevrilir (`read_markitdown_isolated`). MarkItDown kurulu değilse ya da çeviremezse mevcut okuyuculara düşülür.
+- Word, Excel (.xlsx/.xlsm), PowerPoint ve HTML önce MarkItDown ile ayrı süreçte ve süre sınırıyla Markdown'a çevrilir (`read_markitdown_isolated`). MarkItDown kurulu değilse ya da çeviremezse mevcut okuyuculara düşülür.
 - PDF bilerek mevcut `read_pdf_isolated` yolunda kalır.
 - MarkItDown kilit dosyasında değildir; kilit yalnız Hamdi'nin çalışan `.venv` ortamından üretilir (`modules/dependencies.py`). `kurulum.bat` onu `requirements-bundle.txt` ile kurar ve [7/8] doğrulamasında içe aktarır; elle kurmak gerekirse `.venv\Scripts\pip install "markitdown[docx,xlsx,pptx]"`. Ardından Ayarlar'dan paket sürümlerini sabitleme.
 - Office dosyaları okunmadan önce `check_office_file` ile denetlenir: şifreli (OLE) dosya, bozuk zip ve açılınca 500 MB'ı aşan içerik reddedilir. Eski .doc/.xls/.ppt için ".docx olarak kaydet" mesajı verilir. Makrolar asla çalıştırılmaz.
