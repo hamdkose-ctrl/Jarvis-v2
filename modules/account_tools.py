@@ -4,6 +4,7 @@ import json
 import re
 import time
 from modules import llm, privacy, requests_state
+from modules.diagnostics import record_failure as _record_failure
 
 SERVICES = {
     'gmail': {'operations': ('list_unread', 'read_message','list_attachments','read_attachment'), 'implementation': 'google_oauth_readonly'},
@@ -12,6 +13,15 @@ SERVICES = {
     'youtube': {'operations': ('channel_stats','list_comments'), 'implementation': 'google_oauth_readonly'},
     'instagram': {'operations': ('profile_stats','list_comments'), 'implementation': 'meta_professional'},
 }
+
+
+def _network_unavailable(exc):
+    if isinstance(exc,(ConnectionError,TimeoutError)):return True
+    name=type(exc).__name__.casefold();text=(name+' '+str(exc)).casefold()
+    if name in {'servernotfounderror','gaierror','connecttimeouterror','readtimeouterror'}:return True
+    return any(part in text for part in ('unable to find the server','name or service not known',
+        'temporary failure in name resolution','getaddrinfo failed','network is unreachable',
+        'connection refused','connection reset','connection aborted','timed out','timeout while connecting'))
 
 
 def validate_input(data):
@@ -131,7 +141,7 @@ def run(owner, data, dependencies=None):
                     **mail_content.extract(msg['payload'])}
             snapshot = {'owner': owner, 'service': 'gmail', 'operation': 'read_message',
                         'fetched_at': time.time(), 'message': item}
-            return {'state': 'done', 'text': render_snapshot(snapshot), 'snapshot': snapshot, 'sha256': digest(snapshot)}
+            return {'state': 'done', 'text': render_snapshot(snapshot),'snapshot': snapshot,'sha256': digest(snapshot)}
         result = messages.list(userId='me', q='is:unread in:inbox',
                                maxResults=data.get('limit', 5)).execute()
         if not isinstance(result, dict):
@@ -166,13 +176,20 @@ def run(owner, data, dependencies=None):
                     'fetched_at': time.time(), 'query': 'is:unread in:inbox',
                     'limit': data.get('limit', 5), 'items': items,
                     'has_more': bool(result.get('nextPageToken')), 'show_ids': True}
-        return {'state': 'done', 'text': render_snapshot(snapshot), 'snapshot': snapshot, 'sha256': digest(snapshot)}
+        return {'state': 'done','text': render_snapshot(snapshot),'snapshot': snapshot,'sha256': digest(snapshot)}
     except requests_state.Cancelled:
         raise
     except PermissionError:
         return {'state': 'unavailable', 'text': 'Gmail izni gerekli. Mevcut Gmail bağlantısından bağlan veya izni yenile.'}
     except ImportError:
         return {'state': 'unavailable', 'text': 'Mevcut Google bağlantısının paketleri eksik.'}
+    except Exception as exc:
+        _record_failure('modules/account_tools.py:run')
+        if _network_unavailable(exc):
+            return {'state':'unavailable','text':('Gmail şu anda Google sunucularına ağ/DNS üzerinden ulaşamıyor. '
+                    'Mevcut hesap izni korunuyor; bağlantı düzeldiğinde yeniden dene.'),
+                    'service':'gmail','operation':data['operation']}
+        raise
 
 
 def capabilities():
