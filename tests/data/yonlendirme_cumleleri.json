@@ -177,6 +177,16 @@
    "beklenen": "mail"
   },
   {
+   "metin": "önemli maillerim neler",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
+   "metin": "acil mail var mı",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
    "metin": "son mailleri göster",
    "model": "mail",
    "beklenen": "mail"

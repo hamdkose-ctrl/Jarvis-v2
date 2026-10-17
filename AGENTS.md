@@ -22,6 +22,11 @@
 - `kota durumu` / `kota raporu` / `kota sayacı` / `bugün ne kadar kota harcadım` (`command_manager.dispatch`, model çağrısı yok): bugünün toplamı, sağlayıcı başına çağrı ve 429/hata sayısı, en çok çağıran 8 yer. Karakter token değildir; sağlayıcının kalan kotası buradan bilinmez. Live yalnız bağlantı sayılır, konuşma süresi sayılmaz.
 - Test: `tests/test_usage_meter.py` (model/ağ taklit). PC'de gerçek kullanımla denenmedi.
 
+## Gmail önemli mailler — 17 Ekim 2026
+- `google_api.important()` / `important_text()`: "önemli maillerim", "öncelikli mailler", "acil mail var mı", "hangi mail önemli" okunmamış gelen kutusunda Gmail'in önemli veya yıldız işaretlediği kişi maillerini verir (yıldızlılar önce ★; robot gönderenler, promosyon/sosyal/forum kategorileri hariç; en çok 6). Yalnız zarf (`format=metadata`), model çağrısı yok, okunmuş işaretlenmez. Sıralama Gmail'in kendi işaretine dayanır; Jarvis kendi önem puanı hesaplamaz, tanıdık gönderen ayrımı yoktur.
+- `worktrack` öncelik soruları ("öncelikli ... ne") mail sözcüğüyle gelip Gmail uygunsa (`_gmail_reply` kuralı: "gmail" denmiş, ya da Outlook yok + Google bağlı + "iş/outlook" denmemiş) Gmail'e bırakılır; Outlook'lu iş PC'sinde eski Outlook önceliği aynen kalır.
+- Test: `tests/test_mail_important.py` (Gmail taklit; gerçek `EngineContext.handle`), cümle setine 2 satır. Gerçek Gmail'de denenmedi: önemli işaretinin yeterli isabeti, takma adlar.
+
 ## Gmail cevap takibi — 17 Ekim 2026
 - `google_api.awaiting("mine")`: son 7 günde doğrudan sana (To) yazılmış, kişi gönderen (no-reply/bildirim/bülten hariç; promosyon/sosyal/güncelleme/forum kategorileri hariç), son mesajı senden olmayan konuşmalar. `awaiting("theirs")`: son 30 günde gönderip en az 2 gündür son mesajı hâlâ senin olan konuşmalar. En çok 20 konuşma, `format=metadata` (gövde okunmaz), model çağrısı yok, okunmuş işaretlenmez.
 - Söyleyiş: "cevap vermediğim / cevaplamadığım / cevap bekleyen mailler", "kime cevap vermedim" → mine; "cevap gelmeyen maillerim", "kimden cevap bekliyorum", "dönüş beklediğim mailler" → theirs. Mail sözcüğü ya da kime/kimden gerekir.
