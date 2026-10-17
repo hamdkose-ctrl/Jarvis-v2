@@ -27,6 +27,8 @@ class _Profile:
 class RoutingSentenceTests(unittest.TestCase):
     def test_sentences_reach_expected_route(self):
         for row in DATA['cumleler']:
+            if row.get('bolum') == 'bekletilmis':
+                continue
             with self.subTest(metin=row['metin']):
                 got = _route(row)
                 if row.get('bilinen_hata'):
@@ -34,6 +36,13 @@ class RoutingSentenceTests(unittest.TestCase):
                                         'Bu bilinen hata düzelmiş; veri dosyasından bilinen_hata işaretini kaldır.')
                 else:
                     self.assertEqual(got, row['beklenen'])
+
+    def test_holdout_sentences_are_only_measured(self):
+        # Bekletilmiş satırlar kural yazarken bakılmayan settir: CI'ı kırmaz, yalnız ölçülür.
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        wrong = [row['metin'] for row in rows if _route(row) != row['beklenen']]
+        print(f"\nBekletilmiş cümle seti: {len(rows) - len(wrong)}/{len(rows)} doğru"
+              + (f"; yanlış: {wrong}" if wrong else ''))
 
     def test_taught_rules_reach_matching_questions(self):
         for row in DATA['kurallar']:
@@ -51,6 +60,9 @@ class RoutingSentenceTests(unittest.TestCase):
         for row in DATA['cumleler']:
             self.assertIn(row['beklenen'], router._INTENTS | {'chat'})
             self.assertIn(row['model'], router._INTENTS)
+            self.assertIn(row.get('bolum', 'ayarlama'), ('ayarlama', 'bekletilmis'))
+            if row.get('bolum') == 'bekletilmis':
+                self.assertNotIn('bilinen_hata', row, 'Bekletilmiş satır yalnız ölçülür, işaretlenmez.')
 
 
 if __name__ == '__main__':
