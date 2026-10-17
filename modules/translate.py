@@ -14,6 +14,10 @@ from . import requests_state
 from .translation_targets import target_from_command
 
 
+MAX_TEXT_PARTS = 20      # belge çevirisinde en çok model çağrısı (~40-70 bin karakter)
+MAX_EXCEL_BATCHES = 30   # Excel çevirisinde en çok model çağrısı (15'er hücre)
+
+
 def split_text(text: str, size: int = 3500) -> list[str]:
     chunks = []
     while text:
@@ -131,12 +135,17 @@ def translate_excel_document(path: str, target: str) -> str:
         if not cells:
             return "Excel dosyasında çevrilecek metin hücresi bulamadım."
 
+        batches = list(_cell_batches(cells))
+        if len(batches) > MAX_EXCEL_BATCHES:
+            # Yarısı çevrilmiş Excel karışık dilli olur; sınır aşılırsa model çağrılmadan durulur.
+            return (f"Excel dosyasında {len(cells)} metin hücresi var; çevirisi {len(batches)} model çağrısı tutar, "
+                    f"tek seferde en çok {MAX_EXCEL_BATCHES} çağrı yapıyorum (kota). Hiçbir şey çevrilmedi; "
+                    "sayfaları ayrı dosyalara bölüp tekrar dene.")
         output_path = output.choose_excel_translation_path(path, target)
         if not output_path:
             return "Kaydetme iptal edildi; Excel dosyası oluşturulmadı."
 
         completed = 0
-        batches = list(_cell_batches(cells))
         requests_state.allow_long_operation(len(batches) * 45 + 30)
         for batch in batches:
             records = [{"id": index, "text": cell.value} for index, (_, cell) in enumerate(batch)]
@@ -208,9 +217,13 @@ def translate_text_document(
     else:
         text = read_document(path).strip()
     if not text:
-        raise ValueError("Dosyadan okunabilir metin çıkaramadım. PDF taranmış görüntü olabilir.")
+        from .docs import no_text_message
+        raise ValueError(no_text_message(path))
 
     chunks = split_text(text)
+    # Kota: her parça bir model çağrısıdır; uzun belgede sessizce yüzlerce çağrı yapılmaz, ilk bölüm çevrilir.
+    skipped = chunks[MAX_TEXT_PARTS:]
+    chunks = chunks[:MAX_TEXT_PARTS]
     requests_state.allow_long_operation(len(chunks) * 45 + 30)
     bodies, notes = [], []
     for chunk in chunks:
@@ -219,6 +232,10 @@ def translate_text_document(
         if note:
             notes.append(note)
     result = "\n\n".join(bodies)
+    if skipped:
+        done, rest = (f"{n:,}".replace(",", ".") for n in (sum(map(len, chunks)), sum(map(len, skipped))))
+        result += (f"\n\n(Belge uzun: yalnız ilk {done} karakteri çevrildi, kalan {rest} karakter çevrilmedi. "
+                   "Kalan kısmı istersen belgeyi bölüp ayrı ayrı çevirebilirim.)")
     if notes:
         result += "\n\nÇevirmen notları:\n" + "\n".join(f"- {n}" for n in notes)
     return result

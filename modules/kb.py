@@ -20,6 +20,7 @@ from modules import llm
 from modules.llm import ask
 
 ROOT = DATA_DIR / "kb"
+_TEXT_EXT = {".txt", ".md", ".csv", ".html", ".htm"}
 _CHUNK = 1500
 
 
@@ -51,13 +52,14 @@ def add(profile, path: str) -> dict:
     sig = _signature(p)
     for d in list(_docs(profile)):
         if d.get("path") == str(p):
-            if d.get("sig") == sig:
+            # Kodlama düzeltmesinden önce eklenen metin dosyaları (cp1254 harfleri silinmiş olabilir) yeniden okunur.
+            if d.get("sig") == sig and (d.get("v") == 2 or p.suffix.lower() not in _TEXT_EXT):
                 return d
             remove(profile, d["id"])
     text = docs.read_document(path, keep_pages=True, cache=True).strip()
     if not text:
-        raise ValueError("Dosyadan okunabilir metin çıkaramadım (taranmış bir görüntü olabilir).")
-    entry = {"id": profile._new_id(), "title": p.name, "path": str(p), "chars": len(text), "sig": sig,
+        raise ValueError(docs.no_text_message(path))
+    entry = {"id": profile._new_id(), "title": p.name, "path": str(p), "chars": len(text), "sig": sig, "v": 2,
              "ts": datetime.now().strftime("%Y-%m-%d %H:%M")}
     (_dir(profile) / f"{entry['id']}.txt").write_text(text, encoding="utf-8")
     _docs(profile).append(entry)
@@ -174,7 +176,11 @@ def _sync_index(profile, con) -> None:
 _STOP = {"ne", "neydi", "nedir", "kadar", "kaç", "hangi", "nerede", "nerde", "geçiyor", "geçen", "geçti", "var",
          "mı", "mi", "mu", "mü", "bu", "şu", "bir", "ve", "ile", "için", "olan", "dosya", "dosyada", "dosyadaydı",
          "dosyalarımda", "dosyamda", "belge", "belgede", "belgelerimde", "belgedeydi", "yüklediğim", "yazıyor",
-         "yazıyordu", "bul", "ara", "bana", "söyle", "dosyalarda", "belgelerde"}
+         "yazıyordu", "bul", "ara", "bana", "söyle", "dosyalarda", "belgelerde",
+         # ASCII yazım ve dosya türü adları ("hangi dosyadaydi", "dosyalarimda geciyor mu", "hangi pdf'teydi")
+         "kac", "geciyor", "gecen", "gecti", "su", "icin", "dosyadaydi", "dosyalarimda", "belgedeydi",
+         "yukledigim", "yaziyor", "yaziyordu", "soyle", "pdf", "pdfte", "pdfteydi",
+         "excel", "excelde", "word", "wordde", "sunum", "sunumda", "tablo", "tabloda", "teydi", "tadir", "tedir"}
 
 
 def _match_query(question: str) -> str:
@@ -184,8 +190,8 @@ def _match_query(question: str) -> str:
     return " OR ".join(terms)
 
 
-def keyword_search(profile, question: str, top: int = 5) -> list[tuple[str, str]] | None:
-    """FTS5 araması: (dosya › konum, parça) listesi. Dizin yoksa None."""
+def _keyword_rows(profile, question: str, top: int) -> list[tuple[int, str, str, str]] | None:
+    """FTS5 araması: (belge kimliği, dosya adı, konum, parça). Dizin yoksa None."""
     import sqlite3
     query = _match_query(question)
     if not query:
@@ -195,14 +201,21 @@ def keyword_search(profile, question: str, top: int = 5) -> list[tuple[str, str]
         return None
     try:
         _sync_index(profile, con)
-        rows = con.execute("SELECT baslik, konum, ham FROM parca WHERE parca MATCH ? ORDER BY bm25(parca) LIMIT ?",
+        return con.execute("SELECT doc, baslik, konum, ham FROM parca WHERE parca MATCH ? ORDER BY bm25(parca) LIMIT ?",
                            (query, top)).fetchall()
     except sqlite3.Error:
         _record_failure('modules/kb.py:keyword_search')
         return None
     finally:
         con.close()
-    return [(t + (f" › {loc}" if loc else ""), chunk) for t, loc, chunk in rows]
+
+
+def keyword_search(profile, question: str, top: int = 5) -> list[tuple[str, str]] | None:
+    """FTS5 araması: (dosya › konum, parça) listesi. Dizin yoksa None."""
+    rows = _keyword_rows(profile, question, top)
+    if rows is None:
+        return None
+    return [(t + (f" › {loc}" if loc else ""), chunk) for _, t, loc, chunk in rows]
 
 
 # Dosyalar sayfasındaki arama kutusunun içerik araması için dizinlenen türler (Bilgi tabanı ekranındakiyle aynı).
@@ -211,12 +224,11 @@ INDEXABLE = {".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm"
 
 def file_hits(profile, question: str, top: int = 30) -> list[dict]:
     """Soruyla eşleşen belgeler: [{path, name, where, snippet}], aynı dosya bir kez, en iyi eşleşme önce."""
-    hits = keyword_search(profile, question, top) or []
-    by_title = {d.get("title"): d.get("path") for d in _docs(profile)}
+    # Belge kimliğiyle eşlenir: farklı klasörlerde aynı adlı iki dosya varsa doğru olanı döner.
+    by_id = {d.get("id"): d.get("path") for d in _docs(profile)}
     out, seen = [], set()
-    for label, chunk in hits:
-        title, _, where = label.partition(" › ")
-        path = by_title.get(title)
+    for doc_id, title, where, chunk in _keyword_rows(profile, question, top) or []:
+        path = by_id.get(doc_id)
         if not path or path in seen:
             continue
         seen.add(path)
@@ -323,6 +335,12 @@ def answer(profile, question: str) -> str:
     return reply + "\n\nKaynak: " + ", ".join(dict.fromkeys(t for t, _ in hits))
 
 
+_FILE_QUESTION = re.compile(
+    r"hang[iı]\s+(?:dosya|belge|pdf|excel|word|sunum|tablo)(?:lar|ler)?'?(?:da|de|ta|te)(?:yd[ıi]|d[ıi]r)?\b|"
+    r"(?:dosyalar[ıi]m|belgelerim|y[üu]kledi[ğg]im\s+(?:dosya|belge)\w*)\w*\s+(?:\w+\s+){0,4}"
+    r"(?:ge[çc]iyor|ge[çc]en|var\s*m)")
+
+
 def handle(cmd_lower: str, profile) -> str | None:
     m = re.match(r"^(?:anlamsal ara|belgelerimde anlamca ara)\s*[:,]?\s*(.{3,})$", cmd_lower.strip())
     if m:
@@ -335,8 +353,7 @@ def handle(cmd_lower: str, profile) -> str | None:
         return answer(profile, m.group(1))
     # "kira bedeli hangi dosyadaydı?", "yüklediğim dosyalarda vida geçiyor mu" gibi doğal sorular
     # Yalnız "hangi dosyaDA" ve "dosyalarımda … geçiyor mu" kalıpları: "yüklediğim dosyayı özetle" gibi komutlara karışmaz.
-    if _docs(profile) and re.search(r"hangi\s+(?:dosya|belge)(?:da|de|daydı|deydi|dadır|dedir|lerde|larda)\b|"
-                                    r"(?:dosyalarım|belgelerim|yüklediğim\s+(?:dosya|belge)\w*)\w*\s+(?:\w+\s+){0,4}"
-                                    r"(?:geçiyor|geçen|var\s*m)", cmd_lower):
+    # ASCII yazım da tanınır: "hangi dosyadaydi", "hangi pdf'teydi", "dosyalarimda kira geciyor mu".
+    if _docs(profile) and _FILE_QUESTION.search(cmd_lower):
         return answer(profile, cmd_lower)
     return None

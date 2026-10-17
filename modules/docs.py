@@ -5,7 +5,8 @@ from .llm import ask
 
 SUPPORTED = (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md")
 _LEGACY = {".doc": "Word", ".xls": "Excel", ".ppt": "PowerPoint"}
-_MARKITDOWN = {".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm"}   # PDF bilerek mevcut okuyucuda kalır
+# PDF ve CSV bilerek kendi okuyucularında kalır: MarkItDown CSV'de Türkçe kodlamayı (cp1254) ve ';' ayracını bozuyor.
+_MARKITDOWN = {".docx", ".xlsx", ".xlsm", ".pptx", ".html", ".htm"}
 _OOXML = {".docx", ".xlsx", ".xlsm", ".pptx"}
 _MAX_UNZIPPED = 500 * 1024 * 1024      # açılmış Office içeriği üst sınırı (zip bombası)
 _MAX_OUTPUT = 20_000_000               # alt süreçten alınan en fazla Markdown karakteri
@@ -85,13 +86,22 @@ def read_markitdown_isolated(path: str) -> str | None:
     return text if text.strip() else None
 
 
+def decode_text(raw: bytes) -> str:
+    """Metin dosyası baytlarını çözer: BOM'lu UTF-16 (Not Defteri "Unicode"), UTF-8, yoksa Türkçe Windows (cp1254).
+
+    Gerçek cp1254 Türkçe metin geçerli UTF-8 olmadığı için yanlış seçilmez; harfler sessizce silinmez.
+    """
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16", "replace")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1254", "replace")
+
+
 def _read_csv(p: Path) -> str:
     import csv
-    raw = p.read_bytes()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("cp1254", "replace")      # Türkçe Excel'in kaydettiği CSV
+    text = decode_text(p.read_bytes())               # Türkçe Excel'in kaydettiği CSV cp1254 olur
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=";,\t|")
     except csv.Error:
@@ -117,7 +127,7 @@ def _read_html(p: Path) -> str:
                 self.parts.append(data)
 
     parser = Text()
-    parser.feed(p.read_text(encoding="utf-8", errors="ignore"))
+    parser.feed(decode_text(p.read_bytes()))
     return "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
 
 
@@ -225,7 +235,7 @@ def _read_raw(p: Path) -> str:
         return _read_html(p)
 
     if ext in (".txt", ".md"):
-        return p.read_text(encoding="utf-8", errors="ignore")
+        return decode_text(p.read_bytes())
 
     raise ValueError("PDF, Word, Excel, PowerPoint, CSV, HTML, TXT veya MD dosyası seç.")
 
@@ -262,10 +272,19 @@ def _chunks(text: str, size: int = _CHUNK):
         yield text[i:i + size]
 
 
+def no_text_message(path: str) -> str:
+    """Boş metin çıkan dosya için mesaj; PDF'te mevcut yerel OCR komutunu önerir (kendiliğinden OCR çalıştırmaz)."""
+    p = Path(path)
+    if p.suffix.lower() == ".pdf":
+        return (f"{p.name} içinden okunabilir metin çıkaramadım; taranmış bir görüntü olabilir. Yerel OCR denemek için: "
+                f"“\"{p}\" yerel OCR ile oku”.")
+    return f"{p.name} içinden okunabilir metin çıkaramadım; dosya boş ya da yalnız görüntüden oluşuyor olabilir."
+
+
 def _read_text(path: str) -> str:
     text = read_document(path, cache=True).strip()
     if not text:
-        raise ValueError("Dosyadan okunabilir metin çıkaramadım (taranmış bir görüntü olabilir).")
+        raise ValueError(no_text_message(path))
     return text
 
 
