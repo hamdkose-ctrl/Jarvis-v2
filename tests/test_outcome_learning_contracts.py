@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from modules import goal_tools, learning, learning_feedback, router
+from modules import goal_tools, learning, learning_feedback, research_delivery, router, task_results
 
 
 class FakeProfile:
@@ -43,7 +43,7 @@ class OutcomeLearningContracts(unittest.TestCase):
         profile=SimpleNamespace(slug='alice')
         runtime=SimpleNamespace(profile=profile,_cur_source='yazı',pc_profile=lambda:profile)
         identity={'request':'Hesap Makinesini aç','job_id':'j1','task_id':'s1'}
-        opened=SimpleNamespace(ok=True,__str__=lambda self:'Hesap Makinesi açıldı')
+        opened=SimpleNamespace(ok=True)
         with patch('modules.system_control.open_application',return_value=opened):
             out=goal_tools.execute(runtime,'application',{'operation':'open','name':'Hesap Makinesi'},{},identity)
         self.assertEqual(out['state'],'done');self.assertEqual(out['local_evidence'],'application')
@@ -65,6 +65,33 @@ class OutcomeLearningContracts(unittest.TestCase):
     def test_one_off_task_is_not_mislearned_as_behaviour_rule(self):
         self.assertEqual(learning_feedback.rules_from_feedback('Ayarları aç ve Bluetooth’u kapat'),[])
         self.assertEqual(learning_feedback.rules_from_feedback('Bugün İstanbul sel durumuna bak'),[])
+
+    def research_receipt(self):
+        quote='İstanbul genelinde kuvvetli yağış nedeniyle bazı yollarda su birikintileri oluştu ve ekipler müdahale etti.'
+        article={'url':'https://example.org/istanbul-sel','title':'İstanbul’da kuvvetli yağış',
+                 'published':'2026-10-17','text':quote+' Ulaşım ekipleri saha çalışmalarını sürdürdü.'}
+        raw={'state':'done','text':'İstanbul’da kuvvetli yağış\nYayın tarihi: 2026-10-17\n'+quote+'\nKaynak: '+article['url'],
+             'source':article['url'],'source_chars':len(article['text']),'source_quotes':[quote],
+             'source_only':False,'news_article':article}
+        return task_results.seal('research',raw)
+
+    def test_research_delivery_synthesizes_and_reseals_verified_receipt(self):
+        receipt=self.research_receipt()
+        answer='Kuvvetli yağış bazı yollarda su birikintilerine yol açtı; ekipler sahada müdahaleyi sürdürüyor.'
+        with patch('modules.model_wait.ask',return_value=answer):
+            result=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
+        self.assertIn('su birikintilerine yol açtı',result['text'])
+        self.assertIn('Kaynak: https://example.org/istanbul-sel',result['text'])
+        self.assertTrue(task_results.verify(result))
+        self.assertEqual(result['source_quotes'],receipt['source_quotes'])
+        self.assertEqual(result['news_article'],receipt['news_article'])
+
+    def test_research_delivery_keeps_verified_result_when_models_fail(self):
+        receipt=self.research_receipt()
+        with patch('modules.model_wait.ask',side_effect=RuntimeError('quota')):
+            result=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
+        self.assertEqual(result,receipt)
+        self.assertTrue(task_results.verify(result))
 
 
 if __name__=='__main__':
