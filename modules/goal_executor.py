@@ -555,6 +555,7 @@ def _loop(runtime,job,answer=None):
                     except Exception as recovery_error:
                         _record_failure('modules/goal_executor.py:news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
+                    if _finish_completed(job):return render(job)
                 break
     job['state']='paused'
     job['blocker']=('Planlayıcı kayıtlı hedefleri tekrar planlamaya çalıştığı için duraklatıldı; mevcut plan ve sonuçlar korundu.' if rejected_plans>=3 else 'Hedef tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
