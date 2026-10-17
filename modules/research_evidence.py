@@ -16,10 +16,11 @@ def file_requested(text):
 
 def news_report_requested(request,instruction,dependencies):
     if any(o.get('snapshot',{}).get('operation')=='read_message' for o in dependencies.values()):return False
-    if news_requested(request) and not file_requested(request):
+    requested=(any(o.get('news_article') for o in dependencies.values()) or news_requested(instruction) or
+               news_requested(request) and (not dependencies or any(o.get('verification',{}).get('agent')=='research' for o in dependencies.values())))
+    if requested and news_requested(request) and not file_requested(request):
         raise ValueError('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
-    return (any(o.get('news_article') for o in dependencies.values()) or news_requested(instruction) or
-            news_requested(request) and (not dependencies or any(o.get('verification',{}).get('agent')=='research' for o in dependencies.values())))
+    return requested
 
 
 def article(response):
