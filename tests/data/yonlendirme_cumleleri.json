@@ -1,5 +1,5 @@
 {
- "aciklama": "Gerçek kullanım cümleleri ve gitmesi gereken yol. 'model' doğru çalışan bir sınıflandırıcı modelin vereceği cevaptır; test, Jarvis'in kendi kurallarının bu doğru cevabı bozmadığını sınar. Model çağrılmaz. 'bilinen_hata' işaretli satırlar bugün yanlış gidiyor; hata düzeltilince test bunu bildirir ve işaret kaldırılır.",
+ "aciklama": "Gerçek kullanım cümleleri ve gitmesi gereken yol. 'model' doğru çalışan bir sınıflandırıcı modelin vereceği cevaptır; test, Jarvis'in kendi kurallarının bu doğru cevabı bozmadığını sınar. Model çağrılmaz. 'bilinen_hata' işaretli satırlar bugün yanlış gidiyor; hata düzeltilince test bunu bildirir ve işaret kaldırılır. 'bolum': 'ayarlama' satırları kural yazarken bakılan settir; 'bekletilmis' satırlara bakarak kural yazılmaz, test onları yalnız ölçer ve sonucu yazdırır (aşırı uyumu görmek için). 'tartismali' satırların beklentisi Hamdi'ye sorulacak; 'onay_gerekli' yönlendirme sınıfı değil, yürütmede onay kuralıdır. 'kaynak': satırın nereden geldiği.",
  "cumleler": [
   {
    "metin": "yapay zeka nedir",
@@ -460,6 +460,1635 @@
    "metin": "bugünkü haberler neler",
    "model": "chat",
    "beklenen": "task"
+  },
+  {
+   "metin": "Selam Jarvis, naber?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Günaydın bugün nasıl gidiyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Kanka sen hiç yoruluyor musun?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Beni bi güldür ya.",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bugün kafa hiç çalışmıyor ne önerirsin?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Sence sabah mı akşam mı daha verimli çalışılır?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bir işi ertelemeden başlamak için ne yapabilirim?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "mail göndermek nasıl çalışır?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Takvimde etkinlik oluşturmak nasıl oluyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bir klasörü ZIP yapmak için ne yapmam lazım?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Windows'ta başlangıç programlarını nereden kapatıyorduk?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Chrome'da yer imlerini dışa aktarmak nasıl yapılıyordu?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "PDF'ten yazı çıkarmanın en kolay yolu ne?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bir klasörde aynı dosyadan iki tane varsa nasıl anlarsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Haberleri güvenilir kaynaktan nasıl ayıklarsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Borsa emri verince hemen gerçekleşir mi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Telegram'da zamanlanmış mesaj var mı?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "özellik sorusu mu, benim zamanlanmış mesajlarıma bak mı"
+  },
+  {
+   "metin": "WhatsApp Web telefonsuz çalışıyor mu?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "yarin 9da toplantim olsa bana nasil hatirlatirdin",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "varsayımsal soru; bazı kullanıcılar bunu hatırlatma kurma isteği olarak der"
+  },
+  {
+   "metin": "maili geri cagirmak mumkun mu",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "dosya adlarini topluca degistirmek nasil olur",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "internetten pdf indirmek guvenli mi",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "masaustu cok daginik olunca sen nasil toparlarsin",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "\"nasıl toparlarsın\" yöntem sorusu mu, dolaylı \"toparla\" isteği mi"
+  },
+  {
+   "metin": "bi mail yazarken konu basligi ne kadar onemli",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "sence altın mı döviz mi daha oynak olur",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şey bu dosya isimlerini düzenlemek için mantıklı bi kural ne olur",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bana göre bu haber biraz abartı mı sence?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Sence masaüstünü klasörlere ayırmak mantıklı mı?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bir klasörü tarih tarih ayırmak iyi fikir mi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Sence mailleri arşivlemek mi silmek mi daha iyi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Toplantıları 25 dakika yapmak saçma mı?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bugünkü piyasada volatilite ne demek?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "tartismali": "tanım sorusu ama \"bugünkü piyasa\" güncel veri isteği olabilir"
+  },
+  {
+   "metin": "Kur artınca ithal ürün niye pahalanıyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "bilinen_hata": true
+  },
+  {
+   "metin": "Bir haberi doğrularken ilk neye bakarsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "YouTube'da reklam atlama mantığı teknik olarak nasıl oluyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Tarayıcı çerezleri tam olarak ne tutuyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bir dosyanın bozuk olduğunu nasıl anlarsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Excel dosyası açılmıyorsa ilk ne denenir?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Klasördeki dosyaları isme göre sıralamak neyi değiştirir?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Görev çubuğunu gizlemek performansı etkiler mi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bilgisayarı uykuya almakla kapatmak arasında ne fark var?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "rica etsem bana iyi bir dosya adlandırma mantığı anlatır mısın",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem haberlerde kaynak güvenilirliği nasıl anlaşılır anlatır mısın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "bilinen_hata": true
+  },
+  {
+   "metin": "Mümkünse takvim bloklama yöntemini açıklar mısın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Zahmet olmazsa mailde CC ile BCC farkını söyler misin?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bir bakar mısın demiyorum da şu konu niye sürekli karışıyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "\"şu konu\" bağlamdaki bir şeye bakma isteği olabilir"
+  },
+  {
+   "metin": "Şu hisse mevzusu... temettü tam olarak neydi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Toplantı notu işi... iyi not nasıl tutulur?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Dosya versiyonlama... en basit mantığı ne?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Haber doğrulama... iki kaynak yeter mi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şimdi diyelim ki masaüstünü düzenleyeceğim nereden başlamak mantıklı",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "mail yazacağım ama kısa mı uzun mu olsun sence",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "yarın toplantı var diyelim hazırlık için neye bakayım",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bir haber çok hızlı yayılıyorsa ona güvenmek gerekir mi",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "webde bi şey ararken tam cümle mi yazmak daha iyi anahtar kelime mi",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bana iki seçenek sunsan, dosyaları tarihe göre mi konuya göre mi ayırırsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bir maili sert görünmeden kısa tutmak mümkün mü?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Sence bildirimleri tamamen kapatmak iyi fikir mi?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bir web sayfasını sonradan okumak için en mantıklı yöntem ne?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Ben “bunu ara” dersem sen neyi aradığımı nasıl anlarsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "tartismali": "Jarvis davranış sorusu; içinde komut kalıbı geçiyor"
+  },
+  {
+   "metin": "Bir şeyi silmeden önce benden onay istemen daha mı doğru?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Yanlış kişiye mail gitmesini nasıl önlersin?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Takvimde çakışma olursa ne yaparsın?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "İki dosya aynı isimdeyse hangisini seçersin?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bir klasörü silmeden önce neleri kontrol edersin?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Piyasa düşerken zarar kes ne demek?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "habrlerde son dakika etiketi ne kadar güvenilir",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bu mailli işlerde taslakla gonder arasındaki fark neydi",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "dosyayı kopyalayınca eski dosya etkileniyomu",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "taraycı gizli modda geçmiş tutuyomu",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Masaüstünü toparla, dosyaları türüne göre klasörle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Masaüstü çok dağınık, bi düzen versene.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "desktoptaki gereksizleri düzenle",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bluetooth'u kapat.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Sesi yüzde otuza indir.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "ekran parlakligini biraz dusur",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şu açık uygulamaları küçült, sonra Dosya Gezgini'ni aç.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "rica etsem gece ışığını açar mısın",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Wi-Fi'yi kapatıp tekrar aç.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "ekran görüntüsü al masaüstüne kaydet",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Görev Yönetcisi'ni açıp en çok RAM kullanan üç uygulamayı göster.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "indirmeler klasörünü aç",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "bildrimleri bir saatliğine sustur",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bilgisayarı kilitle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "masaüstündeki pdfyi aç",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "masaüstünde birden çok PDF varsa belirsiz"
+  },
+  {
+   "metin": "Bugün İstanbul'da yağışla ilgili son durumu bul.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Şu ürünün resmi sitesindeki teknik özelliklerini bulup özetle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "YouTube'da Türkçe anlatımı olan güncel bir eğitim videosu bul.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bunu internette ara benzerlerini de bul",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "\"Onu aç\" belirsiz sayılırken \"bunu\" burada görev; bağlam yoksa sormalı mı"
+  },
+  {
+   "metin": "rica etsem resmi kaynaktan doğrular mısın",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "tartismali": "neyin doğrulanacağı bağlamdan gelir; bağlam yoksa belirsiz"
+  },
+  {
+   "metin": "bu sayfadaki tabloyu bul ana rakamları çıkar",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "siteye gir son duyuruyu bul",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "yarin hava nasilmis bak",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şu linkte ne anlatılıyor, kısa özet çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bu konuyu iki güvenilir kaynaktan kontrol et.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Arama sonuçlarında reklamları geç, resmi sayfayı aç.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "en güncel sürümü bul indirme sayfasını aç",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şu makalenin yayın tarihini ve yazarını kontrol et",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bu sitenin iletişim sayfasını bul.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "son üç ayda bu konuda ne çıkmış tara",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem açık sekmeler arasında bu başlığı bulur musun?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bu PDF'yi aç, ilk iki sayfayı özetle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "rapordaki tabloyu excel dosyasına aktar",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şu belgeyi Türkçeye çevirip ayrı dosya olarak kaydet.",
+   "model": "task",
+   "beklenen": "doc_translate",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "bugün belge çeviri yoluna (doc_translate) gidiyor; ekli belge yoksa hangisi belirsiz"
+  },
+  {
+   "metin": "bu dosyada “bütçe” geçen yerleri bul",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem bu metindeki yazım hatalarını düzeltebilir misin?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "bu PDF'yi Word belgesine dönüştür",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bu iki dosyayı karşılaştır, farkları maddeler halinde çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şu pdfyi worde cevir",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şunu bi toparla, tekrar eden paragrafları da temizle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "tartismali": "\"şunu\" bağlam gerektirir; ekli dosya yoksa belirsiz"
+  },
+  {
+   "metin": "İndirilenler klasöründeki PDF'leri ayrı bir klasöre taşı.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bu klasördeki fotoları tarihe göre ayır",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "aynı isimli dosyaları bul ama silme",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem proje klasörünün boyutunu hesaplar mısın?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "klasörde son değişen 10 dosyayı göster",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şu klasörde yinelenen dosya adlarını listele, hiçbir şeyi silme.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "dosyaları uzantısına göre grupla klasör yap",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Arşiv klasörünü ZIP'le ve masaüstüne koy.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "İlk okunmamış maili açıp bana özetle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bugün gelen iş maillerinde acil olnları bul.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "cevap bekleyen mailleri listele",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bu maile kısa bi cevap taslağı hazırla",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Rica etsem son mailin eklerini gösterebilir misin?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "muhasebeden gelen son maili bul",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "okunmamis mailleri arsvile",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "toplu değişiklik; onay gerekmeli mi"
+  },
+  {
+   "metin": "Bu maili taslaklara kaydet, gönderme.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Dünkü toplantıyla ilgiil mailleri bulup sırala.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şu eki indir ve aç",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "hangi mailin hangi eki; bağlam yoksa belirsiz"
+  },
+  {
+   "metin": "Bu mail zincirindeki son kararı çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "En yeni okunmamış e-postayı bul, aç ve kısaca özetle.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Saat kaçta toplantım var?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Yarın boş olduğum saatleri çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "yarin 9da bana hatirlat raporu kontrol edeyim",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Cuma öğleden sonraya bir saat çalışma bloğu koy.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Rica etsem önümüzdeki hafta çakışan toplantıları bulur musun?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bugünkü ilk toplantıyı aç notlarını da getir",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "yarinki toplantiyi yarim saat ileri al",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "katılımcıları etkiler; onay gerekmeli mi"
+  },
+  {
+   "metin": "Bu akşamki etkinliğin yerini göster.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Haftaya üst üste binen takvim kayıtlarını listele.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Toplantıdan on dakika önce hatırlat.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "hangi toplantı; bağlam yoksa belirsiz"
+  },
+  {
+   "metin": "Son 24 saatte Türkiye'de yapay zekâ ile ilgili önemli haberleri tara.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bu haberi başka kaynaklar da vermiş mi kontrol et",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "son 24 saatte ne olmuş önemli olanları kısa kısa getir",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem bu gelişmenin resmi açıklamasını bulur musun?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "son 24 saatte Türkiye yapay zeka haberlerinde ne yenilik var getir",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Son haftadaki teknoloji haberlerini konu başlıklarına ayır.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "bu haber eski mi yeni mi yayın tarihini kontrol et",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "haber",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Portföyümdeki hisselerin bugünkü değişimini göster.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "izleme listemde en çok düşeni bul",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bu şirketin son bilancosundaki gelir ve kârı çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Rica etsem döviz kurlarındaki günlük değişimi karşılaştırır mısın?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Takip ettiklerim arasında bugün en sert düşeni göster.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Telegram'daki son okunmamış mesajı aç.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "WhatsApp'ta sabitlenmiş sohbetleri göster.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "bu mesaja kısa bi cevap yaz ama gönderme",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem gruptaki son on mesajı özetler misin?",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "telegamda dosya olarak gelen son şeyi indir",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bu konuyu öğrenmem için üç kaynak bul, sonra bana çalışma sırası çıkar.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "şu konuyu bana öğret önce temelden başla",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bugünkü notlarımdan beş soruluk mini test hazırla.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "öğrenme",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Onu aç.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şunu sil.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bunu gönder.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Oraya koy.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Onu kapat.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bunu değiştir.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şuradakileri taşı.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "İlkini yap.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Sonuncuyu iptal et.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bunu bi düzelt.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "orda bi tane vardı onu ac",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şey var ya onu indir",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "dünkünü geri al",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "şunu eski haline getir",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "hepsini temizle",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "bu klasörü sil",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "klasör",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "onay_gerekli": true,
+   "tartismali": "hedef bağlamdan biliniyorsa görev + onay; bilinmiyorsa soru"
+  },
+  {
+   "metin": "Çöp kutusunu boşalt.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "PC",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "onay_gerekli": true
+  },
+  {
+   "metin": "Bu maili gönder.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "onay_gerekli": true,
+   "tartismali": "açık mail bağlamdan biliniyorsa görev + onay"
+  },
+  {
+   "metin": "Taslağı yolla.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "tek taslak varsa görev + onay, birden çoksa soru"
+  },
+  {
+   "metin": "cevabi gonder",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Toplantıyı iptal et.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "tartismali": "o gün tek toplantı varsa görev + onay olabilir"
+  },
+  {
+   "metin": "Yarını komple boşalt.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "onay_gerekli": true
+  },
+  {
+   "metin": "Bu etkinliği herkesten kaldır.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama",
+   "onay_gerekli": true,
+   "tartismali": "açık etkinlik biliniyorsa görev + onay"
+  },
+  {
+   "metin": "Mesajı gönder.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "gruba yaz gonder",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bunu gruba at.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mesajlaşma",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Hepsine cevap ver.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Son maile evet de.",
+   "model": "task",
+   "beklenen": "task",
+   "alan": "mail",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis",
+   "onay_gerekli": true,
+   "tartismali": "hedef belli ama bağlayıcı cevap; görev + onay mı, soru mu"
+  },
+  {
+   "metin": "Şu işlemi onayla.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Al bunu.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "sat gitsin",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bunu satın al.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "finans",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Şu siteye gir hesabı kapat.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "üyeliği sil",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "web",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Rica etsem onu birine yollar mısın?",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şunu bi halletsen?",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Bunu yarına al.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "takvim",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "yarin yapalim",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "genel",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "dosyayı oraya at sonra gönder",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Şu ikisinden birini sil.",
+   "model": "clarify",
+   "beklenen": "clarify",
+   "alan": "dosya",
+   "kaynak": "gpt-2026-10-17",
+   "bolum": "bekletilmis"
   }
  ],
  "kurallar": [
