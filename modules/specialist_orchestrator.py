@@ -69,4 +69,9 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the existing durable journal and permission gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
+    if step['tool']=='research':
+        from modules import research_evidence
+        if research_evidence.news_requested(job['request']):
+            from modules import model_free_news
+            return model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
     return goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
