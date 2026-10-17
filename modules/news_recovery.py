@@ -25,7 +25,7 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             url=step['input'].get('url')
             if url and url not in seeds:seeds.append(url)
     for raw in re.findall(r'https://[^\s<>|]+',request):
-        url=raw.rstrip('.,!?)\"\'”')
+        url=raw.rstrip(".,!?)\"'”")
         if url not in seeds:seeds.append(url)
     sources={}
     for step in job['steps']:
@@ -99,8 +99,6 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             goal_tools.verify(previous_report,job['owner'])
         else:
             job.pop('partial_report',None);job.pop('resume_partial_report',None)
-    # A question-state resume may deliver the already verified partial once without a model.
-    # On the next bare resume, release that one-shot gate so the durable planner can continue.
     if job.get('partial_report') and job.get('resume_partial_report')==job.get('partial_report'):
         job.pop('partial_report',None);goals._save(job);return
     seeds=[]
@@ -142,9 +140,7 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             goal_tools.verify(output,job['owner']);sources[step['id']]=output
     previous_urls={o['news_article']['url'] for o in (previous_report or {}).get('news_report_evidence',{}).get('sources',{}).values() if o.get('news_article')}
     def source_urls():return {o['news_article']['url'] for o in sources.values()}
-    # Kullanıcı hedefinde açık bir haber URL'si verdiyse, doğrulanmış kısmi dosya o
-    # kaynak kapsamını temsil eder. Sırf "devam" dendi diye başka yayıncılara genişletme.
-    explicit_urls={u.rstrip('.,!?)\"\'”') for u in re.findall(r'https?://[^\s<>|]+',request)}
+    explicit_urls={u.rstrip(".,!?)\"'”") for u in re.findall(r'https?://[^\s<>|]+',request)}
     if previous_report and explicit_urls and source_urls() and source_urls().issubset(explicit_urls):return
     if previous_report and existing_only and source_urls()==previous_urls:return
     broad=publisher_news.broad_research(request)
@@ -167,7 +163,6 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             ident,result=tool('research',{'url':row['url'],'question':'Yapay zekâ hakkında tarihli tekil haberden birebir alıntılar'})
             if result.get('state')=='done':sources[ident]=result;break
         if sufficient():break
-    # Directory discovery comes first; a failed first article may use the next real link.
     for rows in queues:
         for row in rows:
             if row['url'] in attempted:continue
