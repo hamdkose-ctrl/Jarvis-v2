@@ -19,7 +19,7 @@ jobs:
           cache: pip
       - name: Install cross-platform dependencies
         run: |
-          grep -viE '^(pywin32|pypiwin32|comtypes|pycaw|wmi|PyGetWindow)==' requirements.lock.txt > /tmp/requirements-linux.txt
+          grep -viE '^(pywin32|pypiwin32|comtypes|pycaw|wmi|PyGetWindow|openwakeword)==' requirements.lock.txt > /tmp/requirements-linux.txt
           python -m pip install -r /tmp/requirements-linux.txt
       - name: Outcome, learning and chat-first regressions
         run: python -m unittest tests.test_outcome_learning_contracts tests.test_chat_first_research tests.test_durable_recovery_variations
