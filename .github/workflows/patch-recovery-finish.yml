@@ -1,0 +1,36 @@
+name: Patch Recovery Finish
+
+on:
+  push:
+    branches: [codex/model-free-news-fallback-20261017]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch goal recovery completion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('modules/goal_executor.py')
+          text=path.read_text(encoding='utf-8')
+          old="                    except Exception as recovery_error:\n                        _record_failure('modules/goal_executor.py:news_recovery')\n                        job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])\n                break\n"
+          new="                    except Exception as recovery_error:\n                        _record_failure('modules/goal_executor.py:news_recovery')\n                        job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])\n                    if _finish_completed(job):return render(job)\n                break\n"
+          if new in text:
+              raise SystemExit(0)
+          if old not in text:
+              raise SystemExit('expected recovery block not found')
+          path.write_text(text.replace(old,new,1),encoding='utf-8')
+          PY
+          git config user.name "hamdkose-ctrl"
+          git config user.email "hamd.kose@gmail.com"
+          git add modules/goal_executor.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Modelsiz recovery tamamlandıysa hedefi aynı turda kapat"
+          git push origin HEAD:codex/model-free-news-fallback-20261017
