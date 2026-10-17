@@ -16,13 +16,8 @@ SERVICES = {
 
 
 def _network_unavailable(exc):
-    if isinstance(exc,(ConnectionError,TimeoutError)):return True
-    name=type(exc).__name__.casefold();text=(name+' '+str(exc)).casefold()
-    if name in {'servernotfounderror','gaierror','connecttimeouterror','readtimeouterror'}:return True
-    return any(part in text for part in ('unable to find the server','name or service not known',
-        'temporary failure in name resolution','getaddrinfo failed','network is unreachable',
-        'connection refused','connection reset','connection aborted','timed out','timeout while connecting'))
-
+    from modules import failure_policy
+    return failure_policy.network_unavailable(exc)
 
 def validate_input(data):
     if not isinstance(data, dict) or set(data) - {'service', 'operation', 'limit', 'message_id', 'index','resource_id','attachment_index'}:

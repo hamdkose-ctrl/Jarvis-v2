@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import goal_tools, llm, privacy, requests_state, task_tools
+from modules import failure_policy, goal_tools, llm, privacy, requests_state, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
@@ -546,7 +546,8 @@ def _loop(runtime,job,answer=None):
         except (requests_state.Cancelled,PermissionError):raise
         except Exception as exc:
             _record_failure('modules/goal_executor.py:turn')
-            job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600]);_save(job)
+            job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600])
+            job.setdefault('failures',[]).append(failure_policy.snapshot(exc,context='planner'));job['failures']=job['failures'][-20:];_save(job)
             if isinstance(exc,RuntimeError):
                 if planner_pending:
                     from modules import news_recovery

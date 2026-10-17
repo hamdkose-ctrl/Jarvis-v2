@@ -1665,6 +1665,8 @@ def main() -> None:
     _close_windows()        # önceki çalışmadan kalan Jarvis penceresi varsa yeni ayarlar uygulanabilsin
     time.sleep(0.5)
     open_window(url)
+    from modules import startup_metrics
+    startup_metrics.ready('window_open')
     import release_guard
     release_guard.ready("web")
     threading.Thread(target=_watchdog, daemon=True).start()

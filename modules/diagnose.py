@@ -230,23 +230,6 @@ def summary(items: list[dict]) -> str:
 
 # ------------------------------------------------------------------ hata açıklama
 def explain(e: BaseException) -> str:
-    """Komut sırasında çıkan hatayı kullanıcıya söylenecek anlaşılır bir cümleye çevirir."""
-    name = type(e).__name__
-    msg = str(e)
-    low = msg.lower()
-    code = getattr(e, "code", None) or getattr(e, "status_code", None)
-    if name in ("LocalModelError", "CloudError"):
-        return msg
-    if code == 429 or "resource_exhausted" in low or "quota" in low or "429" in low:
-        return ("Yapay zekanın kullanım hakkı şimdilik doldu. Birkaç dakika sonra tekrar dene; günlük sınır dolduysa "
-                "gece yarısı sıfırlanır. İstersen Yetenekler sayfasından başka bir model seçebilirsin.")
-    if code in (401, 403) or "api key" in low or "api_key" in low or "permission_denied" in low or "unauthenticated" in low:
-        return "Gemini anahtarı çalışmıyor. Entegrasyonlar sayfasından anahtarı kontrol et ya da yenisini ekle."
-    if code in (500, 502, 503, 504) or "unavailable" in low or "overloaded" in low:
-        return "Yapay zeka servisi şu an yoğun. Birkaç saniye sonra tekrar dener misin?"
-    if "timeout" in low or "timed out" in low or name in ("Timeout", "TimeoutError", "ReadTimeout", "ConnectTimeout"):
-        return "Yanıt çok gecikti. İnternet yavaş olabilir; birazdan tekrar dene."
-    if (name in ("ConnectionError", "ConnectError", "gaierror", "ConnectionResetError", "ConnectionRefusedError")
-            or "getaddrinfo" in low or "name resolution" in low or "network" in low or "connection" in low):
-        return "İnternete ulaşamıyorum. Bağlantını kontrol eder misin?"
-    return ("Bu komutu yaparken bir sorun çıktı. “Sistemi kontrol et” dersen neyin bozuk olduğuna bakayım.")
+    """Komut sırasında çıkan hatayı ortak failure policy ile açıklar."""
+    from modules import failure_policy
+    return failure_policy.explain(e)
