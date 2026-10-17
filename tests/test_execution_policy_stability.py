@@ -1,6 +1,5 @@
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 from modules import account_tools, diagnose, failure_policy, goal_tools, learning, router, smart_router, work_modes
 
@@ -82,9 +81,11 @@ class ExecutionPolicyTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         gui = (root / 'gui.py').read_text(encoding='utf-8')
         web = (root / 'web.py').read_text(encoding='utf-8')
+        update_call = '\n    _start_update_check()\n'
         self.assertIn('def _start_update_check', gui)
         self.assertIn('threading.Thread(target=_check_updates_background', gui)
-        self.assertLess(gui.index('import web'), gui.index('_start_update_check()'))
+        self.assertIn(update_call, gui)
+        self.assertLess(gui.index('import web'), gui.index(update_call))
         self.assertIn("startup_metrics.mark('web_imported')", gui)
         self.assertIn("startup_metrics.ready('window_open')", web)
         self.assertLess(web.index('open_window(url)'), web.index("startup_metrics.ready('window_open')"))
