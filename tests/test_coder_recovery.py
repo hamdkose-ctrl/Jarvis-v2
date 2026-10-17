@@ -190,7 +190,7 @@ class CoderRecoveryTests(unittest.TestCase):
 class GroqModelRecoveryTests(unittest.TestCase):
     def setUp(self):
         p=patch.object(router,'settings',return_value={'cloud_free_confirmed':True});p.start();self.addCleanup(p.stop)
-        for name,value in [('GROQ_MODELS',['a','b','c']),('_fallback_states',{})]:
+        for name,value in [('GROQ_MODELS',['a','b','c']),('_fallback_states',{}),('_rate_limited',{})]:
             p=patch.object(llm,name,value);p.start();self.addCleanup(p.stop)
         for name,value in [('groq_model','a'),('current_user','alice'),('user_groq_key','alice-secret')]:
             p=patch.object(llm,name,return_value=value);p.start();self.addCleanup(p.stop)
