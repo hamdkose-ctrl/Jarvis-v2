@@ -9,8 +9,15 @@ def news_requested(text):
     return bool(re.search(r'\bhaber(?!leş)|\bgelişme|\bgelisme|\bduyuru|gündem|gundem|haftal[ıi]k\s+olay|yayın tarih|yayin tarih|son\s+\d+\s+gün|\bnews\b',text,re.I))
 
 
+def file_requested(text):
+    """A local report file is an explicit deliverable, never an implicit news side effect."""
+    return bool(re.search(r'\b(dosya|dosyaya|kaydet|kaydetmek|markdown|\.md\b|indirilebilir|çıktı dosyası|cikti dosyasi)\b',str(text),re.I))
+
+
 def news_report_requested(request,instruction,dependencies):
     if any(o.get('snapshot',{}).get('operation')=='read_message' for o in dependencies.values()):return False
+    if news_requested(request) and not file_requested(request):
+        raise ValueError('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
     return (any(o.get('news_article') for o in dependencies.values()) or news_requested(instruction) or
             news_requested(request) and (not dependencies or any(o.get('verification',{}).get('agent')=='research' for o in dependencies.values())))
 
@@ -152,13 +159,15 @@ def vague_question(question,request):
 
 
 def preview(output):
-    """Keep user-facing news readable while retaining legacy preview compatibility."""
+    """Show the researched finding in chat; links support the answer instead of replacing it."""
     sources=([output['news_article']] if output.get('news_article') else
              [row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')])
     unique={source['url']:source for source in sources}
     report=bool(output.get('news_report_evidence'))
     if report and output.get('file'):
         return ''
+    if not report and output.get('news_article') and str(output.get('text','')).strip():
+        return str(output['text']).strip()
     lines=[]
     if report:
         from modules.publisher_news import publisher_key
