@@ -11,7 +11,7 @@ import time
 from modules.diagnostics import record_failure as _record_failure
 
 async def converse(self, services) -> None:
-    from modules import llm
+    from modules import llm, usage_meter
     self._convo = []
     self._closing = False
     self._sleep_after = False
@@ -31,6 +31,7 @@ async def converse(self, services) -> None:
         while not self._closing and (not self.stop_event.is_set()):
             try:
                 self._connect_t = time.monotonic()
+                usage_meter.record('gemini-live', services.model_name(), 0, 0, 'baglanti_acildi')
                 async with contextlib.AsyncExitStack() as stack:
                     session = await asyncio.wait_for(stack.enter_async_context(cli.aio.live.connect(model=services.model_name(), config=self._config())), 20)
                     self._session = session

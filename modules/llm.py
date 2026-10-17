@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jarvis.llm")
 from contextvars import ContextVar
-from modules import requests_state
+from modules import requests_state, usage_meter
 
 from google import genai
 from google.genai import errors, types
@@ -280,7 +280,9 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
                           json={"model": model, "messages": msgs, "stream": False,
                                 "options": {"num_predict": max_tokens}})
     except requests.RequestException as e:
+        usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
         raise LocalModelError("Yerel model (Ollama) çalışmıyor. ollama.com'dan kurup `ollama serve` ile başlat.") from e
+    usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'ok' if r.status_code < 400 else str(r.status_code))
     if r.status_code == 404:
         raise LocalModelError(f"Ollama'da “{model}” modeli yok. Terminalde `ollama pull {model}` yaz.")
     if r.status_code >= 400:
@@ -354,14 +356,19 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             try:
                 r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=(5, 30))
             except requests.RequestException as e:
+                usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
                 time.sleep(attempt); continue
+            if r.status_code != 200:
+                usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
             if r.status_code == 200:
                 try:
                     text = r.json()["choices"][0]["message"]["content"]
                     if not isinstance(text, str) or not text.strip(): raise ValueError('empty answer')
                 except (KeyError, IndexError, TypeError, ValueError) as e:
+                    usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
                     last = 'boş/geçersiz yanıt'; break
+                usage_meter.record('groq', model, usage_meter.size(msgs), len(text))
                 _route.model = model
                 with _fallback_lock: _fallback_states[identity] = (index, time.time())
                 return text
@@ -409,7 +416,13 @@ def embed(texts: list[str]) -> list[list[float]]:
     try:
         for i in range(0, len(texts), 50):
             part = [privacy.redact(t) for t in texts[i:i + 50]]
-            resp = client.models.embed_content(model="gemini-embedding-001", contents=part)
+            try:
+                resp = client.models.embed_content(model="gemini-embedding-001", contents=part)
+            except Exception as e:
+                _record_failure('modules/llm.py:embed_call')
+                usage_meter.record('gemini-embed', 'gemini-embedding-001', usage_meter.size(part), 0, usage_meter.outcome(e))
+                raise
+            usage_meter.record('gemini-embed', 'gemini-embedding-001', usage_meter.size(part))
             out += [list(e.values) for e in resp.embeddings]
     except Exception as e:
         _record_failure('modules/llm.py:embed')
@@ -531,8 +544,17 @@ def model_settings(owner, model, fallbacks):
     return model_names(owner)
 
 
+def _metered(call, chars_in, kind='gemini'):
+    call.chars_in, call.kind = chars_in, kind
+    return call
+
+
 def _with_models(call):
-    """call(model) fonksiyonunu çalıştırır: geçici hatada bekleyip tekrar dener, olmazsa yedek modele geçer."""
+    """call(model) fonksiyonunu çalıştırır: geçici hatada bekleyip tekrar dener, olmazsa yedek modele geçer.
+
+    Kota sayacı için giden karakter ve tür call.chars_in / call.kind niteliklerinden okunur.
+    """
+    chars_in, kind = getattr(call, 'chars_in', 0), getattr(call, 'kind', 'gemini')
     owner=current_user()
     models=model_names(owner)
     identity=(owner,tuple(models))
@@ -551,6 +573,7 @@ def _with_models(call):
             requests_state.check()
             try:
                 result = call(model)
+                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0)
                 requests_state.check()
                 _route.model = model
                 if idx != active:
@@ -561,6 +584,7 @@ def _with_models(call):
             except (errors.ServerError, errors.ClientError) as e:
                 last = e
                 code = getattr(e, "code", None)
+                usage_meter.record(kind, model, chars_in, 0, usage_meter.outcome(e))
                 if code not in _SWITCH_CODES:
                     raise
                 if code == 429:
@@ -676,7 +700,7 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         return resp.text or ""
 
     try:
-        return _timed("gemini", lambda: _with_models(call))
+        return _timed("gemini", lambda: _with_models(_metered(call, usage_meter.size(prompt, system, history))))
     except (errors.ServerError, errors.ClientError) as e:
         if strict or getattr(e, "code", None) not in _SWITCH_CODES:
             raise
@@ -833,7 +857,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
             resp = _cli().models.generate_content(model=model, contents=[image_part, prompt], config=cfg)
             return resp.text or ""
 
-        return _with_models(call)
+        return _with_models(_metered(call, usage_meter.size(prompt, system)))
     except requests_state.Cancelled:
         raise
     except Exception as e:
@@ -869,7 +893,7 @@ def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: byt
     def call(model: str) -> str:
         return (_cli().models.generate_content(model=model, contents=[part, prompt], config=cfg).text or "").strip()
 
-    return _with_models(call).strip()
+    return _with_models(_metered(call, len(prompt) + len(data), 'gemini-ses')).strip()
 
 
 def gemini_client():
