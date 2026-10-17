@@ -4,6 +4,7 @@ import json
 import re
 import time
 from modules import llm, privacy, requests_state
+from modules.diagnostics import record_failure as _record_failure
 
 SERVICES = {
     'gmail': {'operations': ('list_unread', 'read_message','list_attachments','read_attachment'), 'implementation': 'google_oauth_readonly'},
@@ -12,6 +13,15 @@ SERVICES = {
     'youtube': {'operations': ('channel_stats','list_comments'), 'implementation': 'google_oauth_readonly'},
     'instagram': {'operations': ('profile_stats','list_comments'), 'implementation': 'meta_professional'},
 }
+
+
+def _network_unavailable(exc):
+    if isinstance(exc,(ConnectionError,TimeoutError)):return True
+    name=type(exc).__name__.casefold();text=(name+' '+str(exc)).casefold()
+    if name in {'servernotfounderror','gaierror','connecttimeouterror','readtimeouterror'}:return True
+    return any(part in text for part in ('unable to find the server','name or service not known',
+        'temporary failure in name resolution','getaddrinfo failed','network is unreachable',
+        'connection refused','connection reset','connection aborted','timed out','timeout while connecting'))
 
 
 def validate_input(data):
@@ -173,6 +183,13 @@ def run(owner, data, dependencies=None):
         return {'state': 'unavailable', 'text': 'Gmail izni gerekli. Mevcut Gmail bağlantısından bağlan veya izni yenile.'}
     except ImportError:
         return {'state': 'unavailable', 'text': 'Mevcut Google bağlantısının paketleri eksik.'}
+    except Exception as exc:
+        _record_failure('modules/account_tools.py:run')
+        if _network_unavailable(exc):
+            return {'state':'unavailable','text':('Gmail şu anda Google sunucularına ağ/DNS üzerinden ulaşamıyor. '
+                    'Mevcut hesap izni korunuyor; bağlantı düzeldiğinde yeniden dene.'),
+                    'service':'gmail','operation':data['operation']}
+        raise
 
 
 def capabilities():
