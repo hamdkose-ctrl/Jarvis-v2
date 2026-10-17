@@ -53,8 +53,8 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
                                            {'url':'https://news.example.org/b','title':'İstanbul ulaşım haberi','summary':''}]}}
             else:
                 url=step['input']['url']
-                text=('İstanbul genelinde güncel gelişme hakkında doğrulanmış açıklama yayımlandı.' if url.endswith('/a') else
-                      'İstanbul ulaşımında güncel değişiklikler resmi kaynak tarafından duyuruldu.')
+                text=('İstanbul genelinde güncel gelişme hakkında doğrulanmış açıklama yayımlandı ve ilgili kurum ayrıntıların gün içinde yeniden paylaşılacağını bildirdi.' if url.endswith('/a') else
+                      'İstanbul ulaşımında güncel değişiklikler resmi kaynak tarafından duyuruldu ve yolcuların sefer saatlerini çıkmadan önce kontrol etmesi istendi.')
                 current['outputs'][step['id']]=sealed(url,text)
             step['state']='done';step['started']=True
             return current['outputs'][step['id']]
