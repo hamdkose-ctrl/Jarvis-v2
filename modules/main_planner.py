@@ -113,16 +113,67 @@ def _add_event(runtime, title: str, when: str) -> str:
     runtime.profile.add_event(title, when)
     return f'Takvime ekledim: {title}, {runtime.whenmod.describe(when)}.'
 
+def _conflicts(runtime, when: str) -> list[str]:
+    """Aynı saatte (±30 dk) Jarvis kaydı ya da Google Takvim toplantısı. Tüm gün kayıtta çakışma sorulmaz."""
+    if len(when) <= 10:
+        return []
+    from datetime import datetime, timedelta
+    start = datetime.strptime(when, '%Y-%m-%dT%H:%M')
+    window = timedelta(minutes=30)
+    out = []
+    for e in runtime.profile.data.get('events', []):
+        raw = str(e.get('when') or '')
+        try:
+            t = datetime.strptime(raw, '%Y-%m-%dT%H:%M')
+        except ValueError:
+            continue
+        if abs(t - start) < window:
+            out.append(f"{raw[11:16]} {e.get('title', '')}".strip())
+    try:
+        for a, _b, name in runtime.google_api.busy_between(start - window + timedelta(minutes=1), start + window):
+            out.append(f"{a.strftime('%H:%M')} {name} (Google Takvim)")
+    except Exception:
+        _record_failure('main.py:_conflicts')
+    return out
+
+def _save_reminder(runtime, title: str, when: str, repeat: str | None) -> str:
+    if repeat:
+        runtime.profile.add_event(title, when, repeat=repeat)
+        hhmm = when[11:16]
+        rule = runtime.whenmod.describe_repeat(repeat, int(hhmm[:2]), int(hhmm[3:]))
+        return f'Tamam, {rule} hatırlatacağım: {title}. İlki {runtime.whenmod.describe(when)}.'
+    return runtime._add_event(title, when)
+
+def _reminder_or_confirm(runtime, title: str, when: str, repeat: str | None = None) -> str:
+    """Çakışma varsa eklemeden önce sorar; cevap pending_event_title üzerinden gelir."""
+    clash = _conflicts(runtime, when)
+    if clash:
+        runtime._session().pending_event_title = {'confirm': (title, when, repeat)}
+        return (f"{runtime.whenmod.describe(when)} saatinde zaten şu var: {'; '.join(clash[:3])}. "
+                f"'{title}' kaydını yine de ekleyeyim mi?")
+    return _save_reminder(runtime, title, when, repeat)
+
+_REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
+                "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
+
 def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     """Not defteri ve takvim komutları (kullanıcıya özel)."""
     now = runtime.datetime.now()
     if runtime._session().pending_event_title is not None:
         title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
-        if cmd_lower in ('iptal', 'vazgeç', 'boşver'):
+        if isinstance(title, dict):       # çakışma sorusunun cevabı
+            from modules.confirmation import decision
+            approval = decision(cmd_lower, extra=('ekle', 'yine de ekle', 'ekle gitsin'))
+            if approval is True:
+                return _save_reminder(runtime, *title['confirm'])
+            if approval is False:
+                return 'Tamam, eklemedim.'
+            title = None                  # başka bir komut geldi: soru düşer, normal akışa devam
+        elif cmd_lower in ('iptal', 'vazgeç', 'boşver'):
             return 'Tamam, eklemedim.'
-        when, rest = runtime.whenmod.parse_when(command, now)
+        when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
         if when:
-            return runtime._add_event(title, when)
+            return _reminder_or_confirm(runtime, title, when)
     if runtime.re.fullmatch('(notlarım(ı (oku|göster|say))?|notlarımı (oku|göster|say)|notları (oku|göster|say)|notlar)', cmd_lower.strip(' .!?')):
         return runtime._notes_text()
     m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)
@@ -144,16 +195,24 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     if text:
         runtime._add_note(text)
         return f'Not aldım: {text}'
-    m = runtime.re.search('\\btakvime\\s+(?:ekle|yaz|not et)\\w*\\s*$', cmd_lower) or runtime.re.match('^(?:takvime ekle|takvime not et|takvime yaz|hatırlat|bana hatırlat|bana .*hatırlat|randevu ekle|etkinlik ekle)\\b', cmd_lower) or (runtime.re.search('\\bhatırlat\\w*\\b', cmd_lower) and runtime.re.search("\\b(yarın|bugün|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|gün sonra|saat sonra|dakika sonra|\\d{1,2}[:.]\\d{2}|\\d{1,2}['’](?:da|de|ta|te))", cmd_lower))
+    tr = runtime.whenmod._turkish(cmd_lower)       # ASCII yazım: "yarin 9da ilac hatirlat"
+    m = runtime.re.search('\\btakvime\\s+(?:ekle|yaz|not et)\\w*\\s*$', tr) or runtime.re.match('^(?:takvime ekle|takvime not et|takvime yaz|hatırlat|bana hatırlat|bana .*hatırlat|randevu ekle|etkinlik ekle)\\b', tr) or (runtime.re.search('\\bhatırlat\\w*\\b', tr) and runtime.re.search("\\b(yarın|bugün|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|gün sonra|saat sonra|dakika sonra|her\\s|hergün|hafta\\s*içi|\\d{1,2}[:.]\\d{2}|\\d{1,2}['’]?(?:da|de|ta|te)\\b)", tr))
     if m:
-        body = runtime.re.sub('^(?:bana\\s+)?(?:takvime (?:ekle|not et|yaz)|hatırlat\\w*|randevu ekle|etkinlik ekle)\\s*[:,]?\\s*', '', command, flags=runtime.re.I)
-        body = runtime.re.sub('\\b(?:diye\\s+)?hatırlat\\w*\\b|\\b(?:için\\s+)?takvime\\s+(?:ekle|yaz|not et)\\w*', '', body, flags=runtime.re.I)
+        body = runtime.re.sub('^(?:bana\\s+)?(?:takvime (?:ekle|not et|yaz)|hat[ıi]rlat\\w*|randevu ekle|etkinlik ekle)\\s*[:,]?\\s*', '', command, flags=runtime.re.I)
+        body = runtime.re.sub('\\b(?:diye\\s+)?hat[ıi]rlat\\w*\\b|\\b(?:için\\s+)?takvime\\s+(?:ekle|yaz|not et)\\w*', '', body, flags=runtime.re.I)
+        repeat, body = runtime.whenmod.parse_repeat(body)
+        if repeat == 'unknown':
+            return _REPEAT_HELP
         when, title = runtime.whenmod.parse_when(body, now)
         title = runtime.re.sub('^(?:günü|gün|günleri)\\s+', '', runtime._plain(title))
         if not title:
             return 'Neyi eklememi istersin?'
+        if repeat:
+            hhmm = when[11:16] if when and len(when) > 10 else '09:00'   # saat yoksa tüm gün kaydı gibi 09:00
+            first = runtime.whenmod.next_occurrence(repeat, now, int(hhmm[:2]), int(hhmm[3:]))
+            return _reminder_or_confirm(runtime, title, first.strftime('%Y-%m-%dT%H:%M'), repeat)
         if when:
-            return runtime._add_event(title, when)
+            return _reminder_or_confirm(runtime, title, when)
         runtime._session().pending_event_title = title
         return f"'{title}' için ne zaman? Örneğin 'yarın 10'da'."
     if runtime.re.search('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*', cmd_lower) and (not runtime.re.search('\\b(ekle|yaz|sil|not et)\\b', cmd_lower)):
@@ -279,7 +338,7 @@ def _brief_facts(runtime) -> list[str]:
         evs = runtime.profile.events_on(day)
         facts.append(f'{label} Jarvis hatırlatmaları: ' + ('; '.join(((e['when'][11:16] + ' ' if len(e['when']) > 10 else '') + e['title'] for e in evs[:6])) if evs else 'yok'))
     try:
-        if runtime.google_api.TOKEN.exists():
+        if runtime.google_api.connected():
             facts.append('Google Takvim: ' + runtime.google_api.agenda(0, 'Bugün'))
             facts.append('Gmail: ' + runtime.google_api.unread_mail())
     except Exception:

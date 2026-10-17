@@ -172,6 +172,21 @@
    "beklenen": "mail"
   },
   {
+   "metin": "maillerime göz at",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
+   "metin": "son mailleri göster",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
+   "metin": "yeni mail var mi",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
    "metin": "yarın işte şu çizime bakayım",
    "model": "handoff",
    "beklenen": "handoff"

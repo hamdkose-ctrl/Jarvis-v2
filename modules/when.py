@@ -13,11 +13,25 @@ def _lower(text: str) -> str:
     return text.replace("İ", "i").replace("I", "ı").lower()
 
 
+# Türkçe harfsiz (ASCII) yazılan gün/saat sözcükleri: "yarin saat 9da toplanti" de anlaşılsın.
+# Yalnız zaman sözcükleri çevrilir; başlık metnindeki diğer sözcüklere dokunulmaz.
+_ASCII = {"yarin": "yarın", "bugun": "bugün", "obur": "öbür", "gun": "gün", "sali": "salı",
+          "carsamba": "çarşamba", "persembe": "perşembe", "subat": "şubat", "mayis": "mayıs",
+          "agustos": "ağustos", "eylul": "eylül", "kasim": "kasım", "aralik": "aralık",
+          "aksam": "akşam", "oglen": "öğlen", "ogle": "öğle", "ogleden": "öğleden", "bucuk": "buçuk",
+          "ceyrek": "çeyrek", "ici": "içi", "ayin": "ayın", "uc": "üç", "bes": "beş",
+          "icinde": "içinde", "hatirlat": "hatırlat"}
+
+
+def _turkish(s: str) -> str:
+    return re.sub(r"[a-z]+", lambda m: _ASCII.get(m.group(0), m.group(0)), s)
+
+
 def parse_when(text: str, now: datetime | None = None) -> tuple[str | None, str]:
     """(zaman, başlık) döndürür. Zaman 'YYYY-MM-DDTHH:MM' (saatli) ya da 'YYYY-MM-DD' (tüm gün);
     tarih/saat bulunamazsa None. Başlık, tarih ve saat ifadeleri çıkarılmış metindir."""
     now = now or datetime.now()
-    s = " " + _lower(text) + " "
+    s = " " + _turkish(_lower(text)) + " "
     day = None            # datetime.date
     hour = minute = None
     delta = None          # '2 saat sonra' gibi göreli süre
@@ -82,7 +96,7 @@ def parse_when(text: str, now: datetime | None = None) -> tuple[str | None, str]
     else:
         if m:
             s = s[:m.start()] + m.group(0) + s[m.start():]
-        m = cut(r"\b(\d{1,2})['’](?:da|de|ta|te)\b")      # "10'da"
+        m = cut(r"\b(?:saat\s+)?(\d{1,2})['’]?(?:da|de|ta|te)\b")    # "10'da", ASCII/sesle yazımda "10da"
         if m and int(m.group(1)) < 24:
             hour, minute = int(m.group(1)), 0
             m = None
@@ -137,3 +151,75 @@ def describe(when: str, now: datetime | None = None) -> str:
     else:
         label = f"{d.day} {MONTHS_TITLE[d.month - 1]}"
     return f"{label} {when[11:16]}" if len(when) > 10 else label
+
+
+# --- Tekrarlayan hatırlatma: "her gün 9'da", "her pazartesi 10'da", "hafta içi her gün 8'de", "her ayın 1'inde"
+# Kural metni: "daily", "weekdays", "weekly:<0-6>", "monthly:<1-31>". Tanınmayan bir "her ..." tekrar isteği
+# "unknown" döner; çağıran yanlış bir tek seferlik kayıt açmak yerine kullanıcıya sorar.
+_DAY_ALT = "|".join(WEEKDAYS)
+
+
+def parse_repeat(text: str) -> tuple[str | None, str]:
+    """(kural, kalan metin). Tekrar ifadesi yoksa (None, metin)."""
+    s = " " + _turkish(_lower(text)) + " "
+
+    def take(pattern):
+        nonlocal s
+        m = re.search(pattern, s)
+        if m:
+            s = s[:m.start()] + " " + s[m.end():]
+        return m
+
+    rule = None
+    if take(r"\bhafta\s*içi(?:\s+her\s*(?:gün|sabah|akşam))?\b|\bher\s+hafta\s*içi\b"):
+        rule = "weekdays"
+    elif m := take(r"\bher\s+ayın\s+(\d{1,2})\s*['’]?\s*(?:i|ı|u|ü|si|sı|sü|su)?(?:nde|nda|inde|ında|unda|ünde)?\b"):
+        if 1 <= int(m.group(1)) <= 31:
+            rule = f"monthly:{int(m.group(1))}"
+        else:
+            return "unknown", text
+    elif m := take(r"\bher\s+(?:hafta\s+)?(" + _DAY_ALT + r")(?:\s+günü)?\b|\b(" + _DAY_ALT + r")(?:ları|leri)\b"):
+        rule = f"weekly:{WEEKDAYS.index(m.group(1) or m.group(2))}"
+    elif take(r"\bher\s*gün\b|\bhergün\b|\bher\s+(?:sabah|akşam|gece|öğlen)\b"):
+        rule = "daily"
+        # "her sabah 8'de": sabah/akşam sözcüğü saati belirlesin diye geri bırakılır
+        for word in ("sabah", "akşam", "gece", "öğlen"):
+            if re.search(r"\bher\s+" + word + r"\b", " " + _turkish(_lower(text)) + " "):
+                s = f" {word} " + s
+    elif re.search(r"\bher\s+(?:\d+\s+)?(?:saat|dakika|hafta|ay|yıl|sene)\w*\b|\bher\s+ayın\b", s):
+        return "unknown", text
+    if rule is None:
+        return None, text
+    return rule, re.sub(r"\s+", " ", s).strip()
+
+
+def next_occurrence(rule: str, after: datetime, hour: int, minute: int) -> datetime:
+    """Kurala uyan, `after`dan sonraki ilk zaman (saniyesiz)."""
+    base = after.replace(second=0, microsecond=0)
+    for add in range(0, 400):
+        day = (base + timedelta(days=add)).replace(hour=hour, minute=minute)
+        if day <= after:
+            continue
+        if rule == "daily":
+            return day
+        if rule == "weekdays" and day.weekday() < 5:
+            return day
+        if rule.startswith("weekly:") and day.weekday() == int(rule[7:]):
+            return day
+        if rule.startswith("monthly:"):
+            want = int(rule[8:])
+            last = ((day.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day
+            if day.day == min(want, last):          # 31'i olmayan ayda ayın son günü
+                return day
+    raise ValueError(f"tekrar kuralı anlaşılmadı: {rule}")
+
+
+def describe_repeat(rule: str, hour: int, minute: int) -> str:
+    at = f"{hour:02d}:{minute:02d}"
+    if rule == "daily":
+        return f"her gün {at}"
+    if rule == "weekdays":
+        return f"hafta içi her gün {at}"
+    if rule.startswith("weekly:"):
+        return f"her {WEEKDAYS[int(rule[7:])]} {at}"
+    return f"her ayın {rule[8:]}. günü {at}"
