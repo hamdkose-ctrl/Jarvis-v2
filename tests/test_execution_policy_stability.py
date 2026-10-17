@@ -53,6 +53,7 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(work_modes.classify('Ayarları aç ve Bluetooth’u kapat'), 'do')
         self.assertEqual(work_modes.classify('İstanbul güncel haberler nelerdir'), 'do')
         self.assertEqual(work_modes.classify('HTTP nedir?'), 'chat')
+        self.assertEqual(work_modes.classify('Chrome nasıl açılır?'), 'chat')
         self.assertEqual(work_modes.classify('Bu özellik için formal spec oluştur'), 'spec')
 
         answer = '{"intent":"chat","args":{}}'
