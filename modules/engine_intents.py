@@ -116,7 +116,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 if runtime.re.search(r"\b(?:iş|şirket|ofis)\b", cmd_lower):
                     from modules import outlook
                     return outlook.unread_mail()
-                return runtime.google_api.unread_mail()   # "maili aç / kontrol et": uygulama değil, Gmail'e bak
+                return runtime.google_api.unread_mail()
             from modules.command_execution import open_app
             return open_app(runtime, name)
         case "clarify":
@@ -125,7 +125,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return question
         case "task":
             from modules import goal_executor
-            # Classifier prose is context, never a source of new execution consent.
             return goal_executor.run(runtime,command)
         case "desktop_task":
             from modules import desktop_agent
@@ -156,7 +155,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "brightness":
             try:
                 level = max(0, min(100, int(str(a.get("level")))))
-            except ValueError:   # None -> "None" -> ValueError
+            except ValueError:
                 return "Parlaklığı yüzde kaç yapayım?"
             if runtime.system_control.set_brightness(level):
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
@@ -177,11 +176,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "screen_analyze":
             if (msg := runtime.privacy.blocked("screen")):
                 return msg
-            # Analiz için geçici dosya kullanılır; kullanıcının kendi ekran görüntülerine dokunulmaz.
             image_path = runtime.os.path.join(runtime.tempfile.gettempdir(), "jarvis_screen.png")
             try:
                 if runtime.vision.mode() == "camera":
-                    image_path = runtime.vision.snapshot_path() or image_path   # kamera açıksa kameraya bak
+                    image_path = runtime.vision.snapshot_path() or image_path
                 else:
                     runtime.desktop.screenshot(image_path)
                 question = str(a.get("question") or "").strip() or (
@@ -200,6 +198,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 except OSError:
                     pass
         case "feedback":
+            try:
+                from modules import learning_feedback
+                learning_feedback.capture(runtime.profile,command)
+            except Exception:
+                runtime._record_failure('modules/engine_intents.py:learning_feedback')
             runtime.profile.feedback(a.get("positive", True), command)
             return "Teşekkürler, not aldım."
         case "work":
@@ -209,7 +212,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return worktrack.report(kind if kind in ("status", "reply", "dated", "priority", "weekly") else "status", proj)
         case "send_phone":
             from modules import filesend
-            what = str(a.get("file") or "").strip()      # dosya söylenmediyse SOR: en son indirileni kendiliğinden gönderme
+            what = str(a.get("file") or "").strip()
             if not what:
                 return filesend.ASK
             return filesend.handle(f"{what} telefonuma gönder") or filesend.ASK
@@ -248,7 +251,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
         case _:
-            if runtime.vision.mode():   # paylaşım açık: soruyu o anki görüntüyle birlikte sor
+            # Direct feedback about Jarvis' own response style is durable user intent,
+            # not just another chat sentence. Capture it before building the system prompt
+            # so the newly learned rule can affect this response and future responses.
+            try:
+                from modules import learning_feedback
+                learning_feedback.capture(runtime.profile,command)
+            except Exception:
+                runtime._record_failure('modules/engine_intents.py:learning_feedback')
+            if runtime.vision.mode():
                 shot = None
                 try:
                     shot = runtime.vision.snapshot_path()
@@ -264,4 +275,3 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         except OSError:
                             pass
             return runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
-

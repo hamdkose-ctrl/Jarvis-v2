@@ -114,7 +114,7 @@ class NewsTests(unittest.TestCase):
     def test_model_question_cannot_expand_user_weekly_date_window(self):
         old=(datetime.fromisoformat(self.day).date()-timedelta(days=8)).isoformat()
         task={'agent':'research','input':{'url':self.url,'question':'Son 90 gün haberlerinden alıntı ver'},'execution':{'request':'Son 7 gün haberlerini araştır','source_only':True}}
-        with patch('modules.public_sources.fetch',return_value=self.response(self.html.replace(self.day,old))),patch('modules.privacy.blocked',return_value=None),patch('modules.model_wait.ask') as model:
+        with patch('modules.public_sources.fetch',side_effect=lambda *_:self.response(self.html.replace(self.day,old))),patch('modules.privacy.blocked',return_value=None),patch('modules.model_wait.ask') as model:
             with self.assertRaises(ValueError):task_agents.worker('alice',task,{})
         model.assert_not_called()
 
@@ -132,7 +132,7 @@ class NewsTests(unittest.TestCase):
         source=self.research()
         self.assertNotIn('1999',source['text']);self.assertNotIn('uçan araba',source['text'])
         with patch('modules.model_wait.ask',side_effect=AssertionError('Writer must not call a model')):
-            result=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Tarihli haber raporu yaz','filename':'rapor.md'},'execution':{'request':'Son gelişmeleri araştır'}},{'s1':source})
+            result=task_agents.worker('alice',{'agent':'writer','input':{'instruction':'Tarihli haber raporu yaz','filename':'rapor.md'},'execution':{'request':'Son gelişmeleri araştır ve rapor dosyası oluştur'}},{'s1':source})
         text=Path(result['file']).read_text(encoding='utf-8')
         self.assertIn('Yayın tarihi: '+self.day,text);self.assertIn('<'+self.url+'>',text)
         self.assertIn(self.quote,text);self.assertNotIn('[[https',text);self.assertNotIn('1999',text)

@@ -16,7 +16,7 @@ LOCAL = {
     'desktop': 'Windows uygulamasında doğrulanan görev: target, goal. Yerel aktif kullanıcı gerekir. Durmuş/soru bekleyen kendi adımını resume_id=desktop_id ve gerekirse answer ile sürdür; yeni görev oluşturma.',
     'document': 'Kullanıcı dosyasında read/summarize/insights/translate/convert: operation,path; question,target,format isteğe bağlı.',
     'observe': 'Güncel ekran/kamera inceleme: kind=screen|camera, question. Kamera önceden açık olmalı.',
-    'application': 'Gerçek kurulu uygulamaları keşfet/aç: operation=list|open, name isteğe bağlı.',
+    'application': 'Gerçek kurulu uygulamaları keşfet/aç: operation=list|open, name isteğe bağlı. open yalnız uygulamayı açmanın kendisi kullanıcı hedefiyse başarıdır; uygulama içi işlem gerekiyorsa desktop/task kullan.',
     'diagnose': 'Gerçek yerel önkoşulları oku: kind=system|accounts|media|narration; kurulum yapmaz.',
     'sharing': 'Paylaşım durumunu değiştir: mode=screen|camera|off. Yalnız kullanıcı bunu istemişse.',
     'schedule': 'Kuyruğa gerçek iş kaydet: tasks (mevcut worker DAG), request, seconds; repeat_seconds isteğe bağlı. Dış gönderim/code/browser zamanlanamaz.',
@@ -223,7 +223,12 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if approval and kind=='publish':
             from modules import outbox
             return task_results.seal('publish',outbox.dispatch(owner,approval['id'],approve=True))
-        return task_agents.worker(owner,task,dependencies)
+        output=task_agents.worker(owner,task,dependencies)
+        if (kind=='research' and output.get('state')=='done' and output.get('news_article') and
+                identity.get('source_only') is not True):
+            from modules import research_delivery
+            output=research_delivery.synthesize(output,identity.get('request',''))
+        return output
     if kind=='action':
         if data['action'].startswith('pc_') or data['action'] in {
             'file_open','open_folder','win','widget_set','restart','sleep','set_flag',
@@ -238,6 +243,9 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         _pc_owner(runtime,owner)
         from modules import system_control
         if data['operation']=='list':return local_result(owner,kind,_text(sorted(system_control.installed_apps())))
+        from modules import router
+        if not router._open_only_request(identity.get('request','')):
+            raise NotStarted('Uygulamayı açmak bu hedefin yalnız ara adımı; kullanıcı uygulama içinde bir sonuç istiyor. desktop veya başka uygun araçla gerçek sonucu tamamla ve doğrula.')
         result=system_control.open_application(data['name'])
         if getattr(result,'ok',False) is not True:
             return {'state':'failed','text':_text({'message':str(result),'real_candidates':list(getattr(result,'candidates',()))}),'retry_safe':True}

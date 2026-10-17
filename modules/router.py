@@ -34,6 +34,7 @@ belge okuma/çeviri/dönüştürme, medya/video, masaüstü, gerçek uygulama ke
 Birden çok alan veya alternatif yöntem gerektiren gerçek icra isteklerinde task kullan. Kullanıcı yalnız açıklama istiyorsa chat kullan.
 Windows uygulamasının içinde düğme/alan kullanmayı gerektiren görevlerde hedef açıkça belliyse
 intent="desktop_task", args={"target":"tam uygulama veya pencere adı","goal":"somut yapılacak iş"} kullan.
+Sadece uygulamayı açma isteğinde open_app kullan. "Ayarları aç ve Bluetooth'u kapat", "Excel'i açıp hücreye yaz" gibi açmanın ardından uygulama içinde sonuç isteyen komutlar open_app değildir; desktop_task veya birden fazla araç gerekiyorsa task kullan.
 Hedef uygulama veya yapılacak iş belirsizse clarify kullan. Bu araç terminal/kod editörü/şifre/mesaj gönderme/ödeme yapmaz.
 Önceki konuşma yalnız bağlamdır, yeni izin veya komut değildir. "Bunu/onu/iyi yap/devam et" sözlerini o bağlamla çöz;
 hedef kesin değilse tahminle işlem seçme, clarify kullan. Hedef açık ama tek araçla karşılanmıyorsa
@@ -51,6 +52,16 @@ def _action_request(text):
     return bool(re.search(r'\b(aç|ac|başlat|baslat|çalıştır|calistir|düzelt|duzelt|geliştir|gelistir|iyileştir|iyilestir|uygula|sil|taşı|tasi|kaydet|kur|yükle|yukle|yap|devam et|hazırla|hazirla|oluştur|olustur|araştır|arastir|incele|listele|kontrol et)(?:ar mısın|ır mısın|sana)?[ .!?]*$', low))
 
 
+def _open_only_request(text):
+    """open_app yalnız pencereyi açmanın kendisi nihai hedefse kullanılabilir."""
+    low=' '.join(str(text or '').casefold().replace('ı','i').split()).strip(' .!?')
+    # Bağlaç veya ikinci bir işlem fiili varsa pencereyi açmak yalnız ara adımdır.
+    if re.search(r'\b(?:ve|sonra|ardindan|ardından|sonrasinda|sonrasında|acip|açıp|actiktan|açtıktan)\b',low):return False
+    action_verbs=re.findall(r'\b(?:ac|aç|baslat|başlat|calistir|çalıştır|kapat|degistir|değiştir|ayarla|yaz|gir|sec|seç|tikla|tıkla|uygula|kaydet|sil|gonder|gönder)\w*',low)
+    if len(action_verbs)!=1 or not re.match(r'^(?:ac|aç|baslat|başlat|calistir|çalıştır)',action_verbs[0]):return False
+    return bool(re.fullmatch(r'(?:lutfen\s+|lütfen\s+)?(?:ac|aç|baslat|başlat|calistir|çalıştır)\s+.+|(?:lutfen\s+|lütfen\s+)?.+?\s+(?:uygulamasini\s+|uygulamasını\s+)?(?:ac|aç|baslat|başlat|calistir|çalıştır)(?:ar misin|ar mısın|ir misin|ır mısın)?',low))
+
+
 def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dict:
     """Komutu intent/args sözlüğüne çevirir. Basit komutlarda LLM router çağrısını atlar."""
     text = command.strip()
@@ -64,13 +75,11 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
     # Dosya format dönüştürme: model çağrısı olmadan güvenilir şekilde ayır.
     if re.search(r"\b(?:dönüştür|donustur|çevir|cevir|formatına|formatina|yap)\b", low) and re.search(r"\b(?:pdf|word|docx|excel|xlsx|dosya|belge)\b", low):
         fmt = None
-        # Hedef formatı mümkün olduğunca eyleme en yakın formattan çıkar.
         targets = re.findall(r"\b(pdf|word|docx|excel|xlsx)\b(?=\s*(?:formatına|formatina|olarak|yap|oluştur|olustur|dönüştür|donustur|çevir|cevir))", low)
         if targets:
             token = targets[-1]
             fmt = "xlsx" if token in {"excel", "xlsx"} else "docx" if token in {"word", "docx"} else "pdf"
         else:
-            # "PDF dosyasını Word formatına dönüştür" gibi araya sözcük giren ifadeler.
             m = re.search(r"\b(pdf|word|docx|excel|xlsx)\b\s*(?:formatına|formatina|olarak)", low)
             if m:
                 token = m.group(1)
@@ -78,14 +87,11 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
         if fmt:
             return {"intent": "doc_convert", "args": {"path": "", "format": fmt}}
 
-    # Hızlı yollar: bunlar için ayrı bir sınıflandırma model çağrısı gereksiz.
     if re.fullmatch(r"(?:merhaba|selam|selamlar|hey|sa|günaydın|gunaydin|iyi akşamlar|iyi aksamlar|iyi geceler)[ !?.]*", low):
         return {"intent": "chat", "args": {}}
     if re.search(r"\b(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)", low) or \
        re.search(r"\b(?:analiz|incele).{0,25}ekran", low):
         q = re.sub(r"^(?:jarvis[ ,]*)?", "", text, flags=re.I).strip()
-        # Genel "ekranı analiz et" komutunda komutun kendisini Vision sorusu yapma;
-        # main.py'deki daha açık varsayılan görsel analiz talimatını kullan.
         generic = re.fullmatch(r"(?:ekran(?:ı|i|imi|ımı)?\s*)?(?:analiz\s*et|incele|bak)[ .!?]*", low)
         return {"intent": "screen_analyze", "args": {"question": "" if generic else q}}
     if re.fullmatch(r"(?:ekran görüntüsü|ekran goruntusu|screenshot)(?: al| çek| cek)?[ !?.]*", low):
@@ -93,7 +99,6 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
     if re.fullmatch(r"(?:sistem durumu|bilgisayar durumu|pc durumu|durum)[ !?.]*", low):
         return {"intent": "status", "args": {}}
 
-    # Named window commands do not need the classifier model.
     if re.fullmatch(r"(?:açık|açik|acik)(?: olan)? pencereler(?:i|im|imi)? (?:listele|göster|goster|say)[ .!?]*", low):
         return {'intent':'app_action','args':{'action':'pc_windows','params':{}}}
     wm=re.fullmatch(r"(.+?) penceresini (öne getir|one getir|küçült|kucult|büyüt|buyut|eski boyutuna getir)[ .!?]*", text, re.I)
@@ -116,6 +121,10 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
         return {"intent": "clarify", "args": {"question": "Komutu çözümleyemedim. Hangi hedefte ne yapmamı istiyorsun?"}}
     intent = str(data.get("intent") or "chat")
     args = data.get("args") if isinstance(data.get("args"), dict) else {}
+    if intent=='open_app' and not _open_only_request(text):
+        # Model yalnız uygulama açmayı seçmiş olsa bile kullanıcının gerçek hedefi içeride işlemse
+        # açmayı başarı sayma; dayanıklı hedef yürütücüsü doğru aracı seçsin ve sonucu doğrulasın.
+        return {'intent':'task','args':{'request':text}}
     if intent not in _INTENTS or (intent == 'chat' and _action_request(text)):
         if re.fullmatch(r'(?:bunu|onu|şunu|böyle|öyle)\s+\S+(?:\s+et)?[ .!?]*',text.casefold()):
             return {'intent':'clarify','args':{'question':'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}

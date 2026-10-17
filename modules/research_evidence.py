@@ -11,14 +11,15 @@ def news_requested(text):
 
 def file_requested(text):
     """A local report file is an explicit deliverable, never an implicit news side effect."""
-    return bool(re.search(r'\b(dosya|dosyaya|kaydet|kaydetmek|markdown|\.md\b|indirilebilir|çıktı dosyası|cikti dosyasi)\b',str(text),re.I))
+    return bool(re.search(r'\b(dosya\w*|kaydet\w*|markdown|\.md\b|indirilebilir|çıktı\s+dosya\w*|cikti\s+dosya\w*)\b',str(text),re.I))
 
 
 def news_report_requested(request,instruction,dependencies):
     if any(o.get('snapshot',{}).get('operation')=='read_message' for o in dependencies.values()):return False
     requested=(any(o.get('news_article') for o in dependencies.values()) or news_requested(instruction) or
                news_requested(request) and (not dependencies or any(o.get('verification',{}).get('agent')=='research' for o in dependencies.values())))
-    if requested and news_requested(request) and not file_requested(request):
+    source_only=bool(dependencies) and all(o.get('source_only') is True for o in dependencies.values())
+    if requested and news_requested(request) and not file_requested(request) and not source_only:
         raise ValueError('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
     return requested
 
