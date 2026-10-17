@@ -1,0 +1,34 @@
+name: Testler
+
+# Her PR'da ve main'e her birleştirmede tüm test takımı çalışır.
+# Geçici workflow ekleyip silmeye gerek yoktur; dal koruması bu işin adını zorunlu tutabilir.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sözdizimi kontrolü
+        run: python -m compileall -q -x '(^|/)(\.venv|\.ci-venv|android|tmp)/' .
+      - name: Linux kurulumu ve tüm testler
+        run: bash scripts/linux_test_kurulum.sh --test .ci-venv

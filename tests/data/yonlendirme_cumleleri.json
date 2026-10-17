@@ -1,0 +1,527 @@
+{
+ "aciklama": "Gerçek kullanım cümleleri ve gitmesi gereken yol. 'model' doğru çalışan bir sınıflandırıcı modelin vereceği cevaptır; test, Jarvis'in kendi kurallarının bu doğru cevabı bozmadığını sınar. Model çağrılmaz. 'bilinen_hata' işaretli satırlar bugün yanlış gidiyor; hata düzeltilince test bunu bildirir ve işaret kaldırılır.",
+ "cumleler": [
+  {
+   "metin": "yapay zeka nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yazılım nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "HTTP nedir?",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "fotosentez nasıl olur",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "açıklar mısın fotosentez nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kuralları anlat",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "acaba yarın yağmur yağar mı",
+   "model": "weather",
+   "beklenen": "weather"
+  },
+  {
+   "metin": "kurban bayramı ne zaman",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "merhaba nasılsın",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "merhaba",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "günaydın",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "bana bir fıkra anlat",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "Osmanlı Devleti ne zaman kuruldu",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kurşun kalem kim icat etti",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yapı ruhsatı nasıl alınır",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "kurumlar vergisi oranı yüzde kaç",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "açı nedir geometride",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yazın tatile nereye gidelim",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kahve mi çay mı daha sağlıklı",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "bugün kendimi yorgun hissediyorum",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "sence bu fikir mantıklı mı",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "Chrome nasıl açılır?",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "excel'de düşeyara nasıl yapılır",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "python ile asal sayı kodu yaz",
+   "model": "code",
+   "beklenen": "code"
+  },
+  {
+   "metin": "chrome'u aç",
+   "model": "open_app",
+   "beklenen": "open_app"
+  },
+  {
+   "metin": "hesap makinesini aç",
+   "model": "open_app",
+   "beklenen": "open_app"
+  },
+  {
+   "metin": "spotify'ı kapat",
+   "model": "close_app",
+   "beklenen": "close_app"
+  },
+  {
+   "metin": "sesi 30 yap",
+   "model": "volume",
+   "beklenen": "volume"
+  },
+  {
+   "metin": "parlaklığı 70 yap",
+   "model": "brightness",
+   "beklenen": "brightness"
+  },
+  {
+   "metin": "müziği durdur",
+   "model": "media",
+   "beklenen": "media"
+  },
+  {
+   "metin": "sonraki şarkı",
+   "model": "media",
+   "beklenen": "media"
+  },
+  {
+   "metin": "bilgisayarı kapat",
+   "model": "pc_control",
+   "beklenen": "pc_control"
+  },
+  {
+   "metin": "maillerime bak",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
+   "metin": "iş maillerini kontrol et",
+   "model": "mail",
+   "beklenen": "mail"
+  },
+  {
+   "metin": "yarın işte şu çizime bakayım",
+   "model": "handoff",
+   "beklenen": "handoff"
+  },
+  {
+   "metin": "unutmayayım pazartesi ekip gelecek",
+   "model": "note",
+   "beklenen": "note"
+  },
+  {
+   "metin": "istanbul'da hava nasıl",
+   "model": "weather",
+   "beklenen": "weather"
+  },
+  {
+   "metin": "bu metni ingilizceye çevir: günaydın",
+   "model": "translate",
+   "beklenen": "translate"
+  },
+  {
+   "metin": "ekranımı analiz et",
+   "model": "chat",
+   "beklenen": "screen_analyze"
+  },
+  {
+   "metin": "ekran görüntüsü al",
+   "model": "chat",
+   "beklenen": "screenshot"
+  },
+  {
+   "metin": "sistem durumu",
+   "model": "chat",
+   "beklenen": "status"
+  },
+  {
+   "metin": "açık pencereleri listele",
+   "model": "chat",
+   "beklenen": "app_action"
+  },
+  {
+   "metin": "chrome penceresini küçült",
+   "model": "chat",
+   "beklenen": "app_action"
+  },
+  {
+   "metin": "bu pdf'i word'e dönüştür",
+   "model": "doc_convert",
+   "beklenen": "doc_convert"
+  },
+  {
+   "metin": "dosyayı ingilizceye çevir",
+   "model": "chat",
+   "beklenen": "doc_translate"
+  },
+  {
+   "metin": "dolar kaç lira",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "güncel yapay zeka haberleri neler",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "son dakika haberlerini özetle",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "altın fiyatı ne kadar",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "türkiyedeki yapay zeka gelişmelerini araştır ve rapor hazırla",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "masaüstündeki raporu belgelere taşı",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "rapor hazırla",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "ayarları aç ve bluetooth'u kapat",
+   "model": "open_app",
+   "beklenen": "task"
+  },
+  {
+   "metin": "excel'i açıp a1 hücresine 5 yaz",
+   "model": "open_app",
+   "beklenen": "task"
+  },
+  {
+   "metin": "dönüştürür müsün",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "bunu düzelt",
+   "model": "chat",
+   "beklenen": "clarify"
+  },
+  {
+   "metin": "onu sil",
+   "model": "chat",
+   "beklenen": "clarify"
+  },
+  {
+   "metin": "yapay zeka nedir?",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yapay zekâ nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yapay zeka ne ise yarar",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yazilim nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kurallari anlat",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "acaba yarin yagmur yagar mi",
+   "model": "weather",
+   "beklenen": "weather"
+  },
+  {
+   "metin": "kurban bayrami ne zaman",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "merhaba nasilsin",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "jarvis yapay zeka nedir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "Jarvis, bana yazılımın tarihini anlat",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "jarvis chrome'u aç",
+   "model": "open_app",
+   "beklenen": "open_app"
+  },
+  {
+   "metin": "chrome'u açar mısın",
+   "model": "open_app",
+   "beklenen": "open_app"
+  },
+  {
+   "metin": "chromu acar misin",
+   "model": "open_app",
+   "beklenen": "open_app"
+  },
+  {
+   "metin": "raporu hazırlar mısın",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "bu klasörü düzenler misin",
+   "model": "chat",
+   "beklenen": "task",
+   "bilinen_hata": "bugün chat çıkıyor"
+  },
+  {
+   "metin": "şu dosyayı silebilir misin",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "açık kaynak ne demek",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yapımcısı kim bu filmin",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kurallar neden önemlidir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "yazar kimdir",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "silah nasıl çalışır",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "taşınma yaparken nelere dikkat etmeliyim",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "geliştirici olmak için ne öğrenmeliyim",
+   "model": "chat",
+   "beklenen": "chat",
+   "bilinen_hata": "bugün task çıkıyor"
+  },
+  {
+   "metin": "kayıt olmak zorunlu mu",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "indirilenlerdeki pdf'leri listele",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "masaüstünü düzenle",
+   "model": "chat",
+   "beklenen": "task",
+   "bilinen_hata": "bugün chat çıkıyor"
+  },
+  {
+   "metin": "bu raporu kaydet",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "yeni bir klasör oluştur",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "whatsapp'tan ahmet'e mesaj gönder",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "euro kaç tl",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "borsa bugün nasıl",
+   "model": "chat",
+   "beklenen": "task"
+  },
+  {
+   "metin": "bugünkü haberler neler",
+   "model": "chat",
+   "beklenen": "task"
+  }
+ ],
+ "kurallar": [
+  {
+   "kural": "Jarvis, bana otomatik haklısın deme",
+   "soru": "bugün hava nasıl",
+   "yuklenmeli": true,
+   "bilinen_hata": "bugün yüklenmiyor (kapsam: project)"
+  },
+  {
+   "kural": "Yanlışsam söyle, testten geçmeden tamam deme",
+   "soru": "yapay zeka nedir",
+   "yuklenmeli": true,
+   "bilinen_hata": "bugün yüklenmiyor (kapsam: project)"
+  },
+  {
+   "kural": "Sesli cevapta kısa konuş",
+   "soru": "merhaba nasılsın",
+   "yuklenmeli": true,
+   "bilinen_hata": "bugün yüklenmiyor (kapsam: pc)"
+  },
+  {
+   "kural": "Cevaplarında kaynak göster",
+   "soru": "Osmanlı Devleti ne zaman kuruldu",
+   "yuklenmeli": true,
+   "bilinen_hata": "bugün yüklenmiyor (kapsam: research)"
+  },
+  {
+   "kural": "Bana hep sen diye hitap et",
+   "soru": "bugün ne yapsam",
+   "yuklenmeli": true
+  },
+  {
+   "kural": "Cevapları kısa tut",
+   "soru": "kahve mi çay mı daha sağlıklı",
+   "yuklenmeli": true
+  },
+  {
+   "kural": "Haber araştırırken en az iki kaynak kullan",
+   "soru": "güncel yapay zeka haberleri neler",
+   "yuklenmeli": true
+  },
+  {
+   "kural": "Mail taslaklarında resmi dil kullan",
+   "soru": "iş maillerini kontrol et",
+   "yuklenmeli": true
+  },
+  {
+   "kural": "Excel işlerinde önce yedek al",
+   "soru": "excel'de toplama nasıl yapılır",
+   "yuklenmeli": true
+  }
+ ]
+}
