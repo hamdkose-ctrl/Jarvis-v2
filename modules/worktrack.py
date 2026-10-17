@@ -338,6 +338,18 @@ def add_dated_reminders(profile) -> str:
 
 
 # ------------------------------------------------------------------ sesli/yazılı komutlar
+def _gmail_reply(t: str) -> bool:
+    """Cevap takibi Gmail'e mi gitsin? Açıkça Gmail dendiyse, "cevap gelmeyen/beklediğim" (benim gönderdiğim; Outlook
+    takibinde yok) sorulduysa ya da bu bilgisayarda Outlook yokken iş maili denmediyse. Eskiden Outlook'suz evde
+    "cevap bekleyen maillerim" yalnız "Outlook kurulu değil" diyordu."""
+    from modules import google_api, outlook
+    if "gmail" in t or google_api._AWAIT_THEIRS.search(t):
+        return True
+    if re.search(r"\biş\b|\biş mail|outlook", t):
+        return False
+    return not outlook.installed() and google_api.connected()
+
+
 def handle(cmd_lower: str, profile=None) -> str | None:
     t = cmd_lower
     m = re.search(r"(?:proje(?:ler)?im[ei]?|takip listem[ei]?)\s+(.+?)\s*(?:'?[iıuü]?\s*)?ekle", t)
@@ -350,7 +362,7 @@ def handle(cmd_lower: str, profile=None) -> str | None:
         return add_dated_reminders(profile)
     if re.search(r"haftalık (?:iş )?özet|bu hafta (?:neler oldu|ne oldu|neler döndü)", t):
         return report("weekly")
-    if re.search(r"cevap\w* bekle|cevaplamadı\w*|yanıtlamadı\w*|dönmediğim|dönüş bekle", t):
+    if re.search(r"cevap\w* bekle|cevaplamadı\w*|yanıtlamadı\w*|dönmediğim|dönüş bekle", t) and not _gmail_reply(t):
         return report("reply")
     if re.search(r"öncelik\w*|önce ne yapmalı|ilk ne yapayım|acil (?:iş|ne)", t) and re.search(r"iş|ne|hangi", t):
         return report("priority")
