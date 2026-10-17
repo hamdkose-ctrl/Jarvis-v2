@@ -24,6 +24,20 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q modules tests
       - name: Full Python suite
+        id: full_suite
+        continue-on-error: true
         env:
           PYTHONPATH: .:tests
-        run: python -m unittest discover -s tests -p 'test_*.py'
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_*.py' 2>&1 | tee /tmp/full-suite.log
+      - name: Upload full-suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-suite-log
+          path: /tmp/full-suite.log
+          if-no-files-found: error
+      - name: Fail if full suite failed
+        if: steps.full_suite.outcome == 'failure'
+        run: exit 1
