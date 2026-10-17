@@ -194,9 +194,16 @@ def openrouter(owner, messages, system, max_tokens, image_path=None):
           {'type':'image_url','image_url':{'url':'data:image/png;base64,'+data}}]
     if system: messages.insert(0, {'role':'system','content':privacy.redact(system)})
     requests_state.check()
-    response = requests.post('https://openrouter.ai/api/v1/chat/completions',
-        headers={'Authorization':'Bearer '+key}, json={'model':model,'messages':messages,'max_tokens':max_tokens}, timeout=(5,45))
-    response.raise_for_status()
+    from modules import usage_meter
+    sent = usage_meter.size(messages)
+    try:
+        response = requests.post('https://openrouter.ai/api/v1/chat/completions',
+            headers={'Authorization':'Bearer '+key}, json={'model':model,'messages':messages,'max_tokens':max_tokens}, timeout=(5,45))
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        usage_meter.record('openrouter', model, sent, 0, usage_meter.outcome(exc))
+        raise
+    usage_meter.record('openrouter', model, sent)
     requests_state.check()
     try:
         content = response.json()['choices'][0]['message']['content']
