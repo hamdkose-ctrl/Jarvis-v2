@@ -3,6 +3,7 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 import json
+import re
 import threading
 
 def _plain(runtime, text: str) -> str:
@@ -108,6 +109,98 @@ def _agenda_text(runtime, day: str, label: str) -> str:
     if google and (not g_empty):
         out.append(google)
     return ' '.join(out)
+
+_MONTHS_TR = ('Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık')
+_DAYS_TR = ('Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar')
+# "bugünün planı", "bugün ne yapmalıyım", "günümü planla", "yarın planım ne" (ASCII yazım da)
+_PLAN_ASK = re.compile(r"\b(?:bugünün|yarının|günün|günümün)\s+plan\w*|\bgünümü\s+planla\w*|"
+                       r"^(?:bugün(?:kü)?\s+|yarın(?:ki)?\s+|günlük\s+)?plan[ıi]m(?:[ıi]\s+(?:söyle|göster|oku)\w*|\s+ne(?:dir)?)?\s*[?.!]*$|"
+                       r"\b(?:bugün|yarın)\s+ne(?:ler)?\s+(?:yapmal[ıi]y[ıi]m|yapaca[ğg][ıi]m|yapmam\s+laz[ıi]m)")
+
+
+def _ago(minutes: int) -> str:
+    h, m = divmod(max(minutes, 0), 60)
+    return ' '.join(x for x in (f'{h} saat' if h else '', f'{m} dakika' if m or not h else '') if x)
+
+
+def _day_plan(runtime, offset: int = 0) -> str:
+    """Modelsiz günlük plan: takvim (Jarvis + Google), sıradaki iş, gecikmiş/bugünkü görevler, okunmamış mail sayısı.
+
+    Model çağrılmaz (kota harcamaz); Google yalnız okunur. Okunamayan kaynak cevabın içinde açıkça söylenir."""
+    from datetime import timedelta
+    now = runtime.datetime.now()
+    day = (now + timedelta(days=offset)).date()
+    label = 'Bugünün' if offset == 0 else 'Yarının'
+    head = f'{label} planı ({day.day} {_MONTHS_TR[day.month - 1]} {_DAYS_TR[day.weekday()]}).'
+    items, problems = [], []
+    for e in runtime.profile.events_on(day.strftime('%Y-%m-%d')):
+        hhmm = e['when'][11:16] if len(e['when']) > 10 else ''
+        items.append((hhmm, e['title']))
+    try:
+        if runtime.google_api.connected():
+            for start, name in runtime.google_api.day_events(offset):
+                items.append((start.astimezone().strftime('%H:%M') if start else '', name))
+    except Exception:
+        _record_failure('main.py:_day_plan')
+        problems.append("Google Takvim'e bakamadım")
+    seen, timed, allday = set(), [], []
+    for hhmm, name in sorted(items, key=lambda x: (x[0] or '', x[1])):
+        key = (hhmm, name.strip().casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        (timed if hhmm else allday).append((hhmm, name))
+    parts = [head]
+    cur = now.strftime('%H:%M')
+    if timed or allday:
+        cal = [f"{h} {n}" + (' (geçti)' if offset == 0 and h < cur else '') for h, n in timed]
+        cal += [f'tüm gün {n}' for _, n in allday]
+        parts.append('Takvim: ' + '; '.join(cal) + '.')
+        nxt = next(((h, n) for h, n in timed if offset or h >= cur), None)
+        if nxt and offset == 0:
+            mins = int(nxt[0][:2]) * 60 + int(nxt[0][3:]) - (now.hour * 60 + now.minute)
+            parts.append(f'Sıradaki: {nxt[0]} {nxt[1]}, ' + (f'{_ago(mins)} sonra.' if mins > 0 else 'şimdi.'))
+    else:
+        parts.append('Takviminde bir şey yok.')
+    late, today, other = [], [], []
+    for t in runtime.profile.data.get('tasks', []):
+        if t.get('done'):
+            continue
+        d = str(t.get('when') or '')[:10]
+        if d and d < day.isoformat():
+            late.append(t['text'])
+        elif d == day.isoformat():
+            today.append(t['text'])
+        else:
+            other.append(t['text'])
+    task = []
+    if late:
+        task.append(f"{len(late)} gecikmiş ({', '.join(late[:3])})")
+    if today:
+        task.append(f"{'bugün' if offset == 0 else 'yarın'} {len(today)} ({', '.join(today[:3])})")
+    if other:
+        task.append(f'ayrıca {len(other)} açık görev')
+    if task:
+        parts.append('Görevler: ' + ', '.join(task) + '.')
+    if offset == 0:
+        try:
+            if runtime.google_api.connected():
+                n = runtime.google_api.unread_count()
+                parts.append(f"Gmail'de {n} okunmamış mail var." if n else "Gmail'de okunmamış mail yok.")
+        except Exception:
+            _record_failure('main.py:_day_plan')
+            problems.append("Gmail'e bakamadım")
+        try:
+            from modules import handoff
+            line = handoff.brief_line()
+            if line:
+                parts.append(line)
+        except Exception:
+            _record_failure('main.py:_day_plan')
+    if problems:
+        parts.append(' ve '.join(problems) + '.')
+    return ' '.join(parts)
+
 
 def _add_event(runtime, title: str, when: str) -> str:
     runtime.profile.add_event(title, when)
@@ -222,7 +315,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
             webbrowser.open('https://calendar.google.com')
             return "Google Takvim'i tarayıcıda açtım. " + day_txt
         return day_txt
-    if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|planım|randevum)\\b|\\b(programım|takvimim|planım|ajandam)\\b|\\bne işim var\\b', cmd_lower):
+    if _PLAN_ASK.search(runtime.whenmod._turkish(cmd_lower)):
+        return _day_plan(runtime, 1 if runtime.re.search('\\byar[ıi]n', cmd_lower) else 0)
+    if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|randevum)\\b|\\b(programım|takvimim|ajandam)\\b|\\bne işim var\\b', cmd_lower):
         if 'yarın' in cmd_lower:
             d = (now + __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d')
             return runtime._agenda_text(d, 'Yarın')
