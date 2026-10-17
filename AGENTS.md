@@ -22,6 +22,12 @@
 - `kota durumu` / `kota raporu` / `kota sayacı` / `bugün ne kadar kota harcadım` (`command_manager.dispatch`, model çağrısı yok): bugünün toplamı, sağlayıcı başına çağrı ve 429/hata sayısı, en çok çağıran 8 yer. Karakter token değildir; sağlayıcının kalan kotası buradan bilinmez. Live yalnız bağlantı sayılır, konuşma süresi sayılmaz.
 - Test: `tests/test_usage_meter.py` (model/ağ taklit). PC'de gerçek kullanımla denenmedi.
 
+## Gmail cevap takibi — 17 Ekim 2026
+- `google_api.awaiting("mine")`: son 7 günde doğrudan sana (To) yazılmış, kişi gönderen (no-reply/bildirim/bülten hariç; promosyon/sosyal/güncelleme/forum kategorileri hariç), son mesajı senden olmayan konuşmalar. `awaiting("theirs")`: son 30 günde gönderip en az 2 gündür son mesajı hâlâ senin olan konuşmalar. En çok 20 konuşma, `format=metadata` (gövde okunmaz), model çağrısı yok, okunmuş işaretlenmez.
+- Söyleyiş: "cevap vermediğim / cevaplamadığım / cevap bekleyen mailler", "kime cevap vermedim" → mine; "cevap gelmeyen maillerim", "kimden cevap bekliyorum", "dönüş beklediğim mailler" → theirs. Mail sözcüğü ya da kime/kimden gerekir.
+- `worktrack` (Outlook iş takibi) cevap sorusunu yalnız şu durumda Gmail'e bırakır: "gmail" dendiyse, soru "theirs" türündeyse (Outlook takibinde yok) ya da Outlook kurulu değilken Google bağlı ve "iş/outlook" denmediyse. Outlook'lu iş PC'sinde "cevap bekleyen maillerim" eskisi gibi Outlook raporudur.
+- Test: `tests/test_mail_awaiting.py` (Gmail servisi taklit; gerçek `EngineContext.handle` sırası). Gerçek Gmail'de denenmedi: konuşma etiketleri, kendi adresinin To'da farklı yazılması (takma ad), grup maillerinde doğru ayıklama.
+
 ## Modelsiz bugünün planı — 17 Ekim 2026
 - "bugünün planı", "planım ne", "planımı söyle", "bugün ne yapmalıyım", "günümü planla", "yarın planım" (ASCII yazım da) `main_planner._day_plan` ile model çağırmadan cevaplanır: Jarvis kayıtları + Google Takvim (`google_api.day_events`, salt okuma) saat sırasıyla, geçenler "(geçti)", sıradaki iş ve kalan süre, gecikmiş/o günkü/diğer açık görevler, bugün için Gmail okunmamış sayısı (`google_api.unread_count`, içerik okunmaz) ve devir notu. Aynı saat+ad Jarvis/Google kaydı bir kez gösterilir. Google okunamazsa cevap "Google Takvim'e bakamadım" der, gizlemez. Outlook bu cevapta yoktur (açmak yavaş, Outlook'u başlatır).
 - Tek başına "planım" artık takvim yerine bu planı verir; "çalışma planım", "proje planım" gibi başka planlar yakalanmaz. "bugün ne var", "takvimim", "programım" eski takvim cevabında kalır.

@@ -295,6 +295,81 @@ def busy_between(start: datetime, end: datetime) -> list[tuple[datetime, datetim
     return out
 
 
+_ROBOT = re.compile(r"no-?reply|noreply|do-?not-?reply|bildirim|notification|mailer-daemon|newsletter|bulten|bülten", re.I)
+
+
+def _addr(header: str) -> str:
+    m = re.search(r"<([^>]+)>", header or "")
+    return (m.group(1) if m else (header or "")).strip().lower()
+
+
+def _name(header: str) -> str:
+    return re.sub(r"\s*<.*?>", "", header or "").strip(' "') or _addr(header) or "Bilinmeyen"
+
+
+def awaiting(kind: str, limit: int = 8) -> list[dict]:
+    """Cevap takibi, yalnız zarf bilgisiyle (gövde okunmaz).
+
+    kind="mine": son 7 günde doğrudan sana (To) yazılmış, kişi gönderen, son mesajı senden olmayan konuşmalar.
+    kind="theirs": son 30 günde senin gönderip en az 2 gündür cevap gelmeyen konuşmalar (son mesaj senin).
+    Hata yukarı fırlatılır."""
+    svc = _service("gmail", "v1")
+    me = svc.users().getProfile(userId="me").execute().get("emailAddress", "").lower()
+    q = ("in:inbox newer_than:7d -category:promotions -category:social -category:updates -category:forums -from:me"
+         if kind == "mine" else "in:sent newer_than:30d older_than:2d")
+    threads = svc.users().threads().list(userId="me", q=q, maxResults=20).execute().get("threads", [])
+    out, now = [], datetime.now().astimezone()
+    for th in threads:
+        msgs = svc.users().threads().get(userId="me", id=th["id"], format="metadata",
+                                         metadataHeaders=["From", "To", "Subject"]).execute().get("messages", [])
+        if not msgs:
+            continue
+        last = msgs[-1]
+        h = {x["name"]: x["value"] for x in last.get("payload", {}).get("headers", [])}
+        mine_last = "SENT" in last.get("labelIds", []) or _addr(h.get("From", "")) == me
+        if kind == "mine":
+            if mine_last or _ROBOT.search(h.get("From", "")) or (me and me not in h.get("To", "").lower()):
+                continue
+            who = _name(h.get("From", ""))
+        else:
+            if not mine_last:
+                continue
+            who = _name(h.get("To", "").split(",")[0])
+        when = datetime.fromtimestamp(int(last.get("internalDate", 0)) / 1000).astimezone()
+        out.append({"who": who, "subject": h.get("Subject") or "(konusuz)", "days": max((now - when).days, 0)})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def awaiting_text(kind: str) -> str:
+    problem = _ready()
+    if problem:
+        return problem
+    try:
+        items = awaiting(kind)
+    except Exception as exc:
+        _record_failure('modules/google_api.py:awaiting_text')
+        return _friendly(exc, "Cevap bekleyen maillere bakamadım")
+    ago = lambda d: "bugün" if d == 0 else f"{d} gün önce"
+    if kind == "mine":
+        if not items:
+            return "Son bir haftada kişilerden gelip cevaplamadığın mail görmedim (Gmail)."
+        return (f"Cevap vermediğin {len(items)} mail var (Gmail, son 7 gün): "
+                + "; ".join(f"{x['who']} ({ago(x['days'])}): {x['subject']}" for x in items) + ".")
+    if not items:
+        return "Gönderip cevap bekleyen mailin yok (Gmail, son 30 gün)."
+    return (f"Cevap gelmeyen {len(items)} mailin var (Gmail): "
+            + "; ".join(f"{x['who']}, {ago(x['days'])}: {x['subject']}" for x in items) + ".")
+
+
+# "cevap vermediğim mailler", "cevaplamadığım mailler" (bana gelen) / "cevap gelmeyen maillerim" (benim gönderdiğim)
+_AWAIT_THEIRS = re.compile(r"cevap\w*\s+(?:gelmeyen|gelmedi|dönmeyen|dönmedi|bekledi[ğg]im|bekliyorum)|"
+                           r"(?:yanıt|dönüş)\w*\s+(?:gelmeyen|gelmedi|bekledi[ğg]im|bekliyorum)|dönüş yapmayan")
+_AWAIT_MINE = re.compile(r"cevap\w*\s+(?:vermedi\w*|bekleyen)|cevaplamadı\w*|yanıtlamadı\w*|yanıt\w*\s+vermedi\w*|"
+                         r"dönmediğim|dönüş yapmadığım")
+
+
 _MAIL = r"(?:g?mail|e-?posta|eposta|ileti)['’]?\w*"
 # "maili kontrol et", "maillerime bak", "mail geldi mi", "gmail'e bak", "okunmamış e-postalar" ...
 _MAIL_CHECK = re.compile(
@@ -307,6 +382,11 @@ _MAIL_SEND = re.compile(r"\b(?:gönder|yaz|(?<!göz )at|ilet)\w*\b(?!.*\b(?:kont
 
 def handle(cmd_lower: str) -> str | None:
     t = cmd_lower
+    if re.search(_MAIL, t) or re.search(r"\bkime\b|\bkimden\b|\bkimler\b", t):
+        if _AWAIT_THEIRS.search(t):
+            return awaiting_text("theirs")
+        if _AWAIT_MINE.search(t):
+            return awaiting_text("mine")
     if _MAIL_CHECK.search(t) and not _MAIL_SEND.search(t):
         return unread_mail()
     if re.search(r"toplantı|google takvim", t) and not re.search(r"ekle|hatırlat|sil\b", t):
