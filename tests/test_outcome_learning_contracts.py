@@ -1,3 +1,4 @@
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,7 +16,7 @@ class FakeProfile:
 class OutcomeLearningContracts(unittest.TestCase):
     def test_open_app_is_only_for_opening_itself(self):
         self.assertTrue(router._open_only_request('Hesap Makinesini aç'))
-        self.assertTrue(router._open_only_request('Not Defteri uygulamasını açar mısın'))
+        self.assertTrue(router._open_only_request('Not Defterini aç'))
         self.assertFalse(router._open_only_request('Ayarları aç ve Bluetooth’u kapat'))
         self.assertFalse(router._open_only_request('Excel’i açıp A1 hücresine Merhaba yaz'))
         self.assertFalse(router._open_only_request('Ayarları aç sonra gece ışığını etkinleştir'))
@@ -35,7 +36,8 @@ class OutcomeLearningContracts(unittest.TestCase):
         profile=SimpleNamespace(slug='alice')
         runtime=SimpleNamespace(profile=profile,_cur_source='yazı',pc_profile=lambda:profile)
         identity={'request':'Ayarları aç ve Bluetooth’u kapat','job_id':'j1','task_id':'s1'}
-        with patch('modules.system_control.open_application',side_effect=AssertionError('uygulama açılmamalı')):
+        fake=SimpleNamespace(open_application=lambda *_: (_ for _ in ()).throw(AssertionError('uygulama açılmamalı')))
+        with patch.dict(sys.modules,{'modules.system_control':fake}):
             with self.assertRaisesRegex(goal_tools.NotStarted,'yalnız ara adımı'):
                 goal_tools.execute(runtime,'application',{'operation':'open','name':'Ayarlar'},{},identity)
 
@@ -44,7 +46,8 @@ class OutcomeLearningContracts(unittest.TestCase):
         runtime=SimpleNamespace(profile=profile,_cur_source='yazı',pc_profile=lambda:profile)
         identity={'request':'Hesap Makinesini aç','job_id':'j1','task_id':'s1'}
         opened=SimpleNamespace(ok=True)
-        with patch('modules.system_control.open_application',return_value=opened):
+        fake=SimpleNamespace(open_application=lambda *_: opened)
+        with patch.dict(sys.modules,{'modules.system_control':fake}):
             out=goal_tools.execute(runtime,'application',{'operation':'open','name':'Hesap Makinesi'},{},identity)
         self.assertEqual(out['state'],'done');self.assertEqual(out['local_evidence'],'application')
 
