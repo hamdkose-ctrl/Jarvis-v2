@@ -223,7 +223,12 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if approval and kind=='publish':
             from modules import outbox
             return task_results.seal('publish',outbox.dispatch(owner,approval['id'],approve=True))
-        return task_agents.worker(owner,task,dependencies)
+        output=task_agents.worker(owner,task,dependencies)
+        if (kind=='research' and output.get('state')=='done' and output.get('news_article') and
+                identity.get('source_only') is not True):
+            from modules import research_delivery
+            output=research_delivery.synthesize(output,identity.get('request',''))
+        return output
     if kind=='action':
         if data['action'].startswith('pc_') or data['action'] in {
             'file_open','open_folder','win','widget_set','restart','sleep','set_flag',
