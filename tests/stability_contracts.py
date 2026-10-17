@@ -20,8 +20,9 @@ CONTRACTS = (
     'tests.test_goal_executor.GoalTests.test_vague_question_real_file_recovers_two_publishers_with_no_more_models',
     'tests.test_goal_executor.GoalTests.test_news_preview_never_cuts_a_url_or_marks_old_single_source_complete',
     'tests.test_news_recovery_catalog.NewsRecoveryCatalogTests.test_broad_recovery_scans_registered_catalog_after_two_publishers',
-    # Gmail: ilk mail sınırına geri dönmesin; bozuk ek başarı sayılmasın.
+    # Gmail: ilk mail sınırına geri dönmesin; bozuk ek başarı sayılmasın; DNS kesintisi kod hatası olmasın.
     'tests.test_gmail_acceptance_scan.GmailAcceptanceScanTests',
+    'tests.test_google_network_unavailable.GoogleNetworkUnavailableTests',
     # PC: uygulamayı açmak işi bitirmek sayılmasın; öğrenme ve araştırma teslim sözleşmesi korunsun.
     'tests.test_outcome_learning_contracts.OutcomeLearningContracts',
     # Kabul raporu/geçici çıktılar kaynak farkı üretip güncellemeyi tekrar kilitlemesin.
