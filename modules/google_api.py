@@ -310,7 +310,7 @@ def _name(header: str) -> str:
 def awaiting(kind: str, limit: int = 8) -> list[dict]:
     """Cevap takibi, yalnız zarf bilgisiyle (gövde okunmaz).
 
-    kind="mine": son 7 günde doğrudan sana (To) yazılmış, kişi gönderen, son mesajı senden olmayan konuşmalar.
+    kind="mine": son yedi günde doğrudan sana (To) yazılmış, kişi gönderen, son mesajı senden olmayan konuşmalar.
     kind="theirs": son 30 günde senin gönderip en az 2 gündür cevap gelmeyen konuşmalar (son mesaj senin).
     Hata yukarı fırlatılır."""
     svc = _service("gmail", "v1")
