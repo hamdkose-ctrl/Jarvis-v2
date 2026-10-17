@@ -1,3 +1,10 @@
+## Klasör analizi — 17 Ekim 2026
+- `modules/folder_analysis.py`: "İndirilenler klasörünü incele", "masaüstümde ne var", "belgeler klasörü ne hakkında", "indirilenlerdeki Proje klasörünü incele" (ASCII yazım dahil) ve tırnaklı klasör yolu (`main_documents._file_command`). Bağlantı `engine_tools._extra_commands` içinde tek satırdır, model yönlendirmesinden önce çalışır. Düzenle/aç/sil/taşı/izle, tek dosya ("… dosyasını özetle") ve "… geçiyor mu" aramaları bu yola girmez.
+- Yalnız `nxapi.allowed` klasörleri; en çok 2 alt klasör seviyesi, 60 belge / 50 MB okuma, 90 sn, 2000 dosya sayımı. Sembolik bağ ve kısayol izlenmez. Fazlası raporda "Sınırlar" satırında söylenir.
+- Modelsiz rapor: tür dağılımı, okunamayanlar ve `docs` hata nedeni, SHA-256 ile birebir aynı dosyalar, en az iki dosyada ortak geçen kelimelerle konu grupları. Model en çok bir kez ("ne hakkında", en çok 6000 karakter) çağrılır; hata/kota olursa rapor yine verilir.
+- Adında şifre/kimlik/banka/ekstre/bordro… geçen, anahtar uzantılı (.pem/.kdbx…) veya içinde IBAN/"şifre:" olan dosyalar okunmaz, modele gitmez, dizine eklenmez; raporda adıyla "açmadığım" denir. Okunan belgeler `kb.add` ile aramaya eklenir (açık kullanıcı isteğiyle).
+- Test: `tests/test_folder_analysis.py` gerçek dosyalarla (model taklit). Komut zinciri gerçek `main.handle` ile denendi (cihaz/model taklit). Windows'ta OneDrive yönlendirmeli Masaüstü/Belgeler, bulutta duran dosyalar ve büyük gerçek klasör denenmedi.
+
 ## Dosya okuma ve aramada kodlama, aynı ad ve çeviri sınırı — 17 Ekim 2026
 - `docs.decode_text`: TXT/MD/CSV/HTML baytları BOM'lu UTF-16, UTF-8, yoksa cp1254 olarak çözülür; Türkçe Windows metninde harfler artık sessizce silinmez. CSV MarkItDown'a gitmez (cp1254 ve ';' ayracını bozuyordu), kendi okuyucusuyla sütunlu okunur.
 - `kb.file_hits` sonucu dosya adına değil belge kimliğine bağlar; farklı klasörlerde aynı adlı dosyalar karışmaz. "hangi dosyadaydi", "hangi pdf'teydi", "dosyalarimda … geciyor mu" (ASCII) arama yoluna girer (`kb._FILE_QUESTION`); "hangi dosyadan/dosyayı" girmez.
@@ -238,7 +245,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 ## Yüklenen dosyalarda arama
 
-- Yalnız kullanıcının yüklediği dosyalar aranır: Bilgi tabanı sayfasına eklenenler ve sohbette özetlenen/analiz edilen/soru sorulan dosyalar (`kb.remember`). Masaüstü veya klasör taranmaz (Hamdi'nin kararı).
+- Yalnız kullanıcının yüklediği dosyalar aranır: Bilgi tabanı sayfasına eklenenler ve sohbette özetlenen/analiz edilen/soru sorulan dosyalar (`kb.remember`). Masaüstü veya klasör taranmaz (Hamdi'nin kararı); yalnız kullanıcı açıkça "… klasörünü incele" derse o klasörde okunan belgeler eklenir (`folder_analysis`).
 - `kb.add` metni `~/.jarvis/kb/<kullanıcı>/<id>.txt` olarak saklar ve `arama.sqlite` (SQLite FTS5) içinde dizinler. Parçalar konum taşır: `sayfa 3` (PDF, `\f`), `slayt 7`, `sayfa "Özet"` (Excel).
 - Arama kelime aramasıdır (kota harcamaz). Türkçe ekler için kelimenin ilk 5 harfiyle önek araması yapılır. Anlamsal (gömme) arama yalnız açık "anlamsal ara" komutunda çalışır.
 - Aynı dosya değişmeden tekrar eklenmez (yol + boyut + değişiklik zamanı); değişmişse eski kaydın yerine geçer. Eski sürümde eklenen belgeler ilk aramada dizinlenir.

@@ -13,6 +13,9 @@ def _file_command(runtime, command: str) -> str | None:
             return str(e)
     raw_paths = runtime.re.findall(r'"([^"]{4,400})"', m.group(1))
     paths = [nxapi.allowed(r) for r in raw_paths]
+    if len(paths) == 1 and paths[0] is not None and paths[0].is_dir() and not paths[0].is_file():   # '"…\\Proje" klasörünü incele'
+        from modules import folder_analysis
+        return folder_analysis.analyze(runtime.profile, paths[0])
     if any(p is None or not p.is_file() for p in paths):
         return 'Bu dosyaya erişemiyorum: yalnızca İndirilenler, Masaüstü, Belgeler, Resimler ve Jarvis Dosyaları klasörlerindeki dosyalarla çalışırım.'
     act = runtime._tr_lower(m.group(2))

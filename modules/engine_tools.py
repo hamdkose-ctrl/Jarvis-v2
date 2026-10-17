@@ -360,6 +360,10 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
             return hand
     except Exception:
         runtime._record_failure('main.py:_extra_commands')
+    from modules import folder_analysis              # "İndirilenler klasörünü incele", "masaüstünde ne var"
+    folder_reply = folder_analysis.handle(cmd_lower, runtime.profile)
+    if folder_reply is not None:
+        return folder_reply
     web = runtime.browser.handle(cmd_lower)
     if web:
         return web
