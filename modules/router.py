@@ -45,13 +45,6 @@ Kullanıcı hızlı yazar; yazım hatalarını, eksik harfleri ve Türkçe karak
 _INTENTS = set('app_action code doc_summary doc_insight doc_convert translate doc_translate open_app open_url status screenshot volume feedback weather chat brightness media pc_control screen_analyze mail close_app work send_phone handoff note clarify task desktop_task'.split())
 
 
-def _action_request(text):
-    low = text.casefold().strip(' .!?')
-    if re.search(r'\b(nasıl|nasil|ne demek|nedir|neden|niye)\b', low):
-        return False
-    return bool(re.search(r'\b(aç|ac|başlat|baslat|çalıştır|calistir|düzelt|duzelt|geliştir|gelistir|iyileştir|iyilestir|uygula|sil|taşı|tasi|kaydet|kur|yükle|yukle|yap|devam et|hazırla|hazirla|oluştur|olustur|araştır|arastir|incele|listele|kontrol et)(?:ar mısın|ır mısın|sana)?[ .!?]*$', low))
-
-
 def _fresh_research_request(text):
     low=' '.join(str(text or '').casefold().translate(str.maketrans('çğıöşü','cgiosu')).split())
     if re.search(r'\b(?:nedir|ne demek|tarihce)\b',low):return False
@@ -145,9 +138,9 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
         # Model yalnız uygulama açmayı seçmiş olsa bile kullanıcının gerçek hedefi içeride işlemse
         # açmayı başarı sayma; dayanıklı hedef yürütücüsü doğru aracı seçsin ve sonucu doğrulasın.
         return {'intent':'task','args':{'request':text}}
-    if intent not in _INTENTS or (intent == 'chat' and (_action_request(text) or mode == 'do')):
+    if intent not in _INTENTS or (intent == 'chat' and (work_modes.ends_with_action(text) or mode == 'do')):
         if work_modes.ambiguous_reference(text) or re.fullmatch(r'(?:bunu|onu|şunu|böyle|öyle)\s+\S+(?:\s+et)?[ .!?]*',text.casefold()):
             return {'intent':'clarify','args':{'question':'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
-        if _action_request(text) or mode == 'do':return {'intent':'task','args':{'request':text}}
+        if work_modes.ends_with_action(text) or mode == 'do':return {'intent':'task','args':{'request':text}}
         return {'intent': 'clarify', 'args': {'question': 'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
     return {"intent": intent, "args": args}

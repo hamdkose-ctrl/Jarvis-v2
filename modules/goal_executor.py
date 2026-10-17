@@ -720,7 +720,7 @@ def handle(runtime,command):
     if low in RESUME_COMMANDS:
         return run(runtime,command,resume=True)
     if job and job['state']=='question':
-        from modules.router import _action_request
-        if not _action_request(command):return run(runtime,command,resume=True)
+        from modules.work_modes import ends_with_action
+        if not ends_with_action(command):return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     return None

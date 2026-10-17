@@ -4,14 +4,12 @@
   {
    "metin": "yapay zeka nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yazılım nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "HTTP nedir?",
@@ -26,14 +24,12 @@
   {
    "metin": "açıklar mısın fotosentez nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kuralları anlat",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "acaba yarın yağmur yağar mı",
@@ -43,8 +39,7 @@
   {
    "metin": "kurban bayramı ne zaman",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "merhaba nasılsın",
@@ -69,14 +64,12 @@
   {
    "metin": "Osmanlı Devleti ne zaman kuruldu",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kurşun kalem kim icat etti",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yapı ruhsatı nasıl alınır",
@@ -86,20 +79,17 @@
   {
    "metin": "kurumlar vergisi oranı yüzde kaç",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "açı nedir geometride",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yazın tatile nereye gidelim",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kahve mi çay mı daha sağlıklı",
@@ -299,32 +289,27 @@
   {
    "metin": "yapay zeka nedir?",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yapay zekâ nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yapay zeka ne ise yarar",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yazilim nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kurallari anlat",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "acaba yarin yagmur yagar mi",
@@ -334,8 +319,7 @@
   {
    "metin": "kurban bayrami ne zaman",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "merhaba nasilsin",
@@ -345,14 +329,12 @@
   {
    "metin": "jarvis yapay zeka nedir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "Jarvis, bana yazılımın tarihini anlat",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "jarvis chrome'u aç",
@@ -377,8 +359,7 @@
   {
    "metin": "bu klasörü düzenler misin",
    "model": "chat",
-   "beklenen": "task",
-   "bilinen_hata": "bugün chat çıkıyor"
+   "beklenen": "task"
   },
   {
    "metin": "şu dosyayı silebilir misin",
@@ -388,26 +369,22 @@
   {
    "metin": "açık kaynak ne demek",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yapımcısı kim bu filmin",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kurallar neden önemlidir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "yazar kimdir",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "silah nasıl çalışır",
@@ -417,14 +394,12 @@
   {
    "metin": "taşınma yaparken nelere dikkat etmeliyim",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "geliştirici olmak için ne öğrenmeliyim",
    "model": "chat",
-   "beklenen": "chat",
-   "bilinen_hata": "bugün task çıkıyor"
+   "beklenen": "chat"
   },
   {
    "metin": "kayıt olmak zorunlu mu",
@@ -439,8 +414,7 @@
   {
    "metin": "masaüstünü düzenle",
    "model": "chat",
-   "beklenen": "task",
-   "bilinen_hata": "bugün chat çıkıyor"
+   "beklenen": "task"
   },
   {
    "metin": "bu raporu kaydet",
@@ -477,26 +451,22 @@
   {
    "kural": "Jarvis, bana otomatik haklısın deme",
    "soru": "bugün hava nasıl",
-   "yuklenmeli": true,
-   "bilinen_hata": "bugün yüklenmiyor (kapsam: project)"
+   "yuklenmeli": true
   },
   {
    "kural": "Yanlışsam söyle, testten geçmeden tamam deme",
    "soru": "yapay zeka nedir",
-   "yuklenmeli": true,
-   "bilinen_hata": "bugün yüklenmiyor (kapsam: project)"
+   "yuklenmeli": true
   },
   {
    "kural": "Sesli cevapta kısa konuş",
    "soru": "merhaba nasılsın",
-   "yuklenmeli": true,
-   "bilinen_hata": "bugün yüklenmiyor (kapsam: pc)"
+   "yuklenmeli": true
   },
   {
    "kural": "Cevaplarında kaynak göster",
    "soru": "Osmanlı Devleti ne zaman kuruldu",
-   "yuklenmeli": true,
-   "bilinen_hata": "bugün yüklenmiyor (kapsam: research)"
+   "yuklenmeli": true
   },
   {
    "kural": "Bana hep sen diye hitap et",
