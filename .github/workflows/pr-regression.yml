@@ -1,8 +1,8 @@
 name: PR Regression
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [codex/outcome-learning-pc-contract-20261017]
 
 permissions:
   contents: read
