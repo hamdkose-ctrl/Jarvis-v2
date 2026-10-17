@@ -10,34 +10,12 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
-      - name: Install cross-platform dependencies
-        run: |
-          grep -viE '^(pywin32|pypiwin32|comtypes|pycaw|wmi|PyGetWindow|openwakeword)==' requirements.lock.txt > /tmp/requirements-linux.txt
-          python -m pip install -r /tmp/requirements-linux.txt
-      - name: Compile Python sources
-        run: python -m compileall -q modules tests
-      - name: Full Python suite
-        id: full_suite
-        continue-on-error: true
-        env:
-          PYTHONPATH: .:tests
-        run: |
-          set -o pipefail
-          python -m unittest discover -s tests -p 'test_*.py' 2>&1 | tee /tmp/full-suite.log
-      - name: Upload full-suite log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-suite-log
-          path: /tmp/full-suite.log
-          if-no-files-found: error
-      - name: Fail if full suite failed
-        if: steps.full_suite.outcome == 'failure'
-        run: exit 1
+      - name: Project Linux validation
+        run: bash scripts/linux_test_kurulum.sh --test .ci-venv
