@@ -24,6 +24,12 @@ def ambiguous_reference(text: str) -> bool:
     return bool(re.fullmatch(r'(?:bunu|onu|sunu|boyle|oyle)(?:\s+\w+){0,2}', low))
 
 
+def instructional_question(text: str) -> bool:
+    """Questions asking how to do something are explanations, not execution requests."""
+    low = _fold(text)
+    return bool(re.search(r'\b(?:nasil|ne sekilde|hangi komutla|yolu nedir|yontemi nedir)\b', low))
+
+
 def fresh_external(text: str) -> bool:
     low = _fold(text)
     topic = bool(re.search(r'\b(?:haber\w*|gelisme\w*|fiyat\w*|kur|dolar|euro|altin|borsa|piyasa|skor\w*|hava)\b', low))
@@ -33,7 +39,7 @@ def fresh_external(text: str) -> bool:
 
 def action_request(text: str) -> bool:
     low = _fold(text)
-    if ambiguous_reference(text):
+    if ambiguous_reference(text) or instructional_question(text):
         return False
     if fresh_external(text):
         return True
