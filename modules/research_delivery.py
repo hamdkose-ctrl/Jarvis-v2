@@ -1,49 +1,31 @@
-"""Turn verified research receipts into a direct user-facing answer.
+"""Turn verified research receipts into a direct user-facing answer without another model call.
 
-The evidence receipt remains authoritative. Synthesis may explain and combine what the
-verified article supports, but it cannot create new source evidence. If every model route
-is unavailable, the already verified research output is returned unchanged.
+Research already spent its model/tool budget obtaining verified literal evidence. Delivery
+must not consume a second provider quota or steal planner responses; it promotes the
+verified findings to the user-facing text while preserving the sealed receipt.
 """
 from __future__ import annotations
 import copy
+import re
 
 from modules import task_results
-from modules.diagnostics import record_failure as _record_failure
-
-
-def _valid(value):
-    if not isinstance(value,str) or not value.strip():
-        raise ValueError('Araştırma sentezi boş.')
-    if len(value)>5000:raise ValueError('Araştırma sentezi gereksiz uzun.')
-    return value.strip()
 
 
 def synthesize(output,request):
-    """Re-seal a news research output with an answer-first text, preserving receipts."""
+    """Re-seal a news receipt with evidence-first chat text, preserving all proof fields."""
     task_results.verify(output)
     article=output.get('news_article')
-    if not isinstance(article,dict) or not output.get('source_quotes'):
+    quotes=output.get('source_quotes')
+    if not isinstance(article,dict) or not isinstance(quotes,list) or not quotes:
         return output
-    from modules import model_wait
-    prompt=(
-        'Kullanıcının sorusu/hedefi:\n'+str(request or '').strip()+'\n\n'
-        'DOĞRULANMIŞ HABER:\nBaşlık: '+article['title']+'\nYayın tarihi: '+article['published']+
-        '\nKaynak: '+article['url']+'\n\nHaber metni:\n'+article['text'][:16000]+
-        '\n\nDaha önce doğrulanan birebir alıntılar:\n- '+'\n- '.join(output['source_quotes'])
-    )
-    system=(
-        'Yalnız verilen doğrulanmış haber metnine dayanarak kullanıcıya doğrudan Türkçe cevap ver. '
-        'Başlık veya bağlantıyı cevap yerine koyma. Önce ne olduğunu söyle; kaynak destekliyorsa kim/ne yaptı, '
-        'etkilenen kapsam ve neden önemli olabileceğini açıkla. Kaynakta olmayan sebep, sonuç, sayı, yer veya önem '
-        'uydurma; yorum gerekiyorsa bunu açıkça sınırlı çıkarım olarak belirt. 2-6 kısa cümle yeterli. '
-        'Kaynak URL, Markdown kaynak listesi, dosya yolu veya meta açıklama ekleme; bunları uygulama ayrıca gösterir.'
-    )
-    try:
-        answer=model_wait.ask(prompt,system,max_tokens=700,validator=_valid)
-        answer=_valid(answer)
-    except Exception:
-        _record_failure('modules/research_delivery.py:synthesize')
-        return output
+    findings=[]
+    for quote in quotes:
+        text=re.sub(r'\s+',' ',str(quote)).strip()
+        if text and text not in findings:findings.append(text)
+        if len(findings)>=3:break
+    if not findings:return output
+    answer=' '.join(findings)
+    if len(answer)>1800:answer=answer[:1797].rstrip()+'...'
     refreshed=copy.deepcopy(output);refreshed.pop('verification',None)
-    refreshed['text']=(answer+'\nYayın tarihi: '+article['published']+'\nKaynak: '+article['url'])
+    refreshed['text']=answer+'\nYayın tarihi: '+article['published']+'\nKaynak: '+article['url']
     return task_results.seal('research',refreshed)
