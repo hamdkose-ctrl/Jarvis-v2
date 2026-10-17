@@ -10,7 +10,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,7 +21,9 @@ jobs:
         run: |
           grep -viE '^(pywin32|pypiwin32|comtypes|pycaw|wmi|PyGetWindow|openwakeword)==' requirements.lock.txt > /tmp/requirements-linux.txt
           python -m pip install -r /tmp/requirements-linux.txt
-      - name: Outcome, learning and chat-first regressions
+      - name: Compile Python sources
+        run: python -m compileall -q modules tests
+      - name: Full Python suite
         env:
           PYTHONPATH: .:tests
-        run: python -m unittest tests.test_outcome_learning_contracts tests.test_chat_first_research tests.test_durable_recovery_variations
+        run: python -m unittest discover -s tests -p 'test_*.py'
