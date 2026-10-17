@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import copy
-from modules import app_actions, llm, privacy, requests_state, task_agents, task_results, task_tools
+from modules import app_actions, llm, privacy, requests_state, task_agents, task_results, task_tools, outcome_contracts
 from modules import goal_extensions
 
 
@@ -125,7 +125,8 @@ def public_request(text):
 
 def local_result(owner,kind,text,**extra):
     if not isinstance(text,str) or not text.strip():raise ValueError('Araç boş sonuç döndürdü.')
-    return {'state':'done','text':_text(text),'owner':owner,'local_evidence':kind,**extra}
+    output={'state':'done','text':_text(text),'owner':owner,'local_evidence':kind,**extra}
+    return outcome_contracts.attach(kind,output,local=True)
 
 
 def verify(output,owner):
@@ -133,6 +134,7 @@ def verify(output,owner):
     if output.get('state')!='done' or output.get('owner')!=owner or output.get('local_evidence') not in LOCAL:
         raise ValueError('Yerel araç kanıtı veya sahibi geçersiz.')
     if not isinstance(output.get('text'),str) or not output['text'].strip():raise ValueError('Araç sonucu boş.')
+    outcome_contracts.validate_common(output['local_evidence'],output,local=True)
     if output.get('file') and task_results.file_digest(output['file'])!=output.get('sha256'):
         raise ValueError('Üretilen dosya değişmiş veya eksik.')
     if output.get('source_file') and task_results.file_digest(output['source_file'])!=output.get('source_sha256'):
@@ -243,8 +245,7 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         _pc_owner(runtime,owner)
         from modules import system_control
         if data['operation']=='list':return local_result(owner,kind,_text(sorted(system_control.installed_apps())))
-        from modules import router
-        if not router._open_only_request(identity.get('request','')):
+        if not outcome_contracts.open_only_request(identity.get('request','')):
             raise NotStarted('Uygulamayı açmak bu hedefin yalnız ara adımı; kullanıcı uygulama içinde bir sonuç istiyor. desktop veya başka uygun araçla gerçek sonucu tamamla ve doğrula.')
         result=system_control.open_application(data['name'])
         if getattr(result,'ok',False) is not True:

@@ -63,19 +63,17 @@ def _fresh_research_request(text):
 
 
 def _open_only_request(text):
-    """open_app yalnız pencereyi açmanın kendisi nihai hedefse kullanılabilir."""
-    low=' '.join(str(text or '').casefold().replace('ı','i').split()).strip(' .!?')
-    # Bağlaç veya ikinci bir işlem fiili varsa pencereyi açmak yalnız ara adımdır.
-    if re.search(r'\b(?:ve|sonra|ardindan|ardından|sonrasinda|sonrasında|acip|açıp|actiktan|açtıktan)\b',low):return False
-    action_verbs=re.findall(r'\b(?:ac|aç|baslat|başlat|calistir|çalıştır|kapat|degistir|değiştir|ayarla|yaz|gir|sec|seç|tikla|tıkla|uygula|kaydet|sil|gonder|gönder)\w*',low)
-    if len(action_verbs)!=1 or not re.match(r'^(?:ac|aç|baslat|başlat|calistir|çalıştır)',action_verbs[0]):return False
-    return bool(re.fullmatch(r'(?:lutfen\s+|lütfen\s+)?(?:ac|aç|baslat|başlat|calistir|çalıştır)\s+.+|(?:lutfen\s+|lütfen\s+)?.+?\s+(?:uygulamasini\s+|uygulamasını\s+)?(?:ac|aç|baslat|başlat|calistir|çalıştır)(?:ar misin|ar mısın|ir misin|ır mısın)?',low))
+    """Compatibility wrapper; user-outcome policy owns the actual rule."""
+    from . import outcome_contracts
+    return outcome_contracts.open_only_request(text)
 
 
 def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dict:
     """Komutu intent/args sözlüğüne çevirir. Basit komutlarda LLM router çağrısını atlar."""
     text = command.strip()
     low = text.casefold().replace("ı", "i")
+    from . import work_modes
+    mode = work_modes.classify(text)
 
     from .translation_targets import target_from_command
     target = target_from_command(text)
@@ -137,9 +135,9 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
         # Model yalnız uygulama açmayı seçmiş olsa bile kullanıcının gerçek hedefi içeride işlemse
         # açmayı başarı sayma; dayanıklı hedef yürütücüsü doğru aracı seçsin ve sonucu doğrulasın.
         return {'intent':'task','args':{'request':text}}
-    if intent not in _INTENTS or (intent == 'chat' and _action_request(text)):
-        if re.fullmatch(r'(?:bunu|onu|şunu|böyle|öyle)\s+\S+(?:\s+et)?[ .!?]*',text.casefold()):
+    if intent not in _INTENTS or (intent == 'chat' and (_action_request(text) or mode == 'do')):
+        if work_modes.ambiguous_reference(text) or re.fullmatch(r'(?:bunu|onu|şunu|böyle|öyle)\s+\S+(?:\s+et)?[ .!?]*',text.casefold()):
             return {'intent':'clarify','args':{'question':'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
-        if _action_request(text):return {'intent':'task','args':{'request':text}}
+        if _action_request(text) or mode == 'do':return {'intent':'task','args':{'request':text}}
         return {'intent': 'clarify', 'args': {'question': 'Hangi hedef üzerinde ne yapmamı istiyorsun?'}}
     return {"intent": intent, "args": args}

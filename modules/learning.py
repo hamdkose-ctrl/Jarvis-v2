@@ -117,13 +117,39 @@ def _find_rule(profile, words: str) -> int | None:
     return best
 
 
-def rules_prompt(profile) -> str:
-    # Eski sürümlerde yanlışlıkla "Pazartesi hatırlatacağım" gibi zamana bağlı vaatler kural olarak
-    # kaydedilmiş olabilir. Bunları silmeden prompttan çıkar; gerçek hatırlatma motoru kullanılmalı.
+_RULE_SCOPE_PATTERNS = {
+    'research': re.compile(r'(haber|araştır|arastir|kaynak|yayın|yayin|doğrula|dogrula|güncel|guncel|web)\w*', re.I),
+    'pc': re.compile(r'(excel|ayar|bluetooth|uygulama|windows|pc|masaüst|masaust|hücre|hucre|parlak|ses)\w*', re.I),
+    'communication': re.compile(r'(mail|e-posta|eposta|mesaj|gönder|gonder|alıcı|alici|whatsapp|telegram)\w*', re.I),
+    'project': re.compile(r'(jarvis|kod|github|git|test|proje|repo|branch|commit)\w*', re.I),
+}
+
+
+def rule_scope(text: str) -> str:
+    low = _low(_clean(text))
+    for scope, pattern in _RULE_SCOPE_PATTERNS.items():
+        if pattern.search(low):
+            return scope
+    return 'global'
+
+
+def query_scopes(query: str) -> set[str]:
+    low = _low(_clean(query))
+    scopes = {'global'}
+    for scope, pattern in _RULE_SCOPE_PATTERNS.items():
+        if pattern.search(low):
+            scopes.add(scope)
+    return scopes
+
+
+def rules_prompt(profile, query=None) -> str:
     rs = [r for r in rules(profile) if not is_time_reminder_rule(r)]
+    if query is not None:
+        scopes = query_scopes(query)
+        rs = [r for r in rs if rule_scope(r) in scopes]
     if not rs:
         return ""
-    return ("Kullanıcının sana öğrettiği kurallar (her zaman uy, diğer talimatlarla çelişirse bunlar geçerli): "
+    return ("Kullanıcının sana öğrettiği ilgili davranış kuralları (diğer talimatlarla çelişirse bunlar geçerli): "
             + " ".join(f"{i}) {r}" for i, r in enumerate(rs, 1)))
 
 

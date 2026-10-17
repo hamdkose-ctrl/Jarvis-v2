@@ -382,7 +382,7 @@ class Profile:
             "görünür) ve kod dışındaki açıklamayı kısa tut.",
             "Matematik ifadelerini LaTeX ile ($...$, \\pm, \\frac gibi) yazma; düz metin ve Unicode kullan "
             "(örn. 6k ± 1, x², √x, a/b, ≤).",
-            "İnternete erişimin yok: güncel fiyat, haber gibi konularda bilmediğini söyle, rakam uydurma.",
+            "Güncel fiyat, haber ve benzeri dış veriyi tahmin etme; bu istekler araçlı görev yoluna yönlendirilir.",
         ]
         if goals:
             parts.append(
@@ -395,7 +395,7 @@ class Profile:
             from modules import learning
             kp = learning.knowledge_prompt(self, query)
             if kp: parts.append(kp)
-            rp = learning.rules_prompt(self)
+            rp = learning.rules_prompt(self, query)
             if rp:
                 parts.append(rp)
         except Exception:                          # noqa: BLE001

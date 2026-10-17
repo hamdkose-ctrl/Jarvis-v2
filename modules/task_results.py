@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import re
 import math
+from modules import outcome_contracts
 
 VERSION = 1
 STATES = {'done', 'failed', 'blocked', 'approval', 'unavailable'}
@@ -153,8 +154,11 @@ def seal(kind, output):
     if output['state'] == 'done':
         if kind == 'browser':
             output['image_sha256'] = file_digest(output.get('image', ''))
+        output = outcome_contracts.attach(kind, output)
         check(kind, output)
-        output['verification'] = {'version': VERSION, 'agent': kind, 'scope': 'execution_evidence'}
+        outcome_contracts.validate_metadata(kind, output, legacy_ok=False)
+        output['verification'] = {'version': VERSION, 'agent': kind, 'scope': 'execution_evidence',
+                                  'outcome': output['outcome_contract']['id']}
     return output
 
 
@@ -163,6 +167,10 @@ def verify(output, owner=None):
     if not isinstance(metadata, dict) or metadata.get('version') != VERSION:
         raise ValueError('Sonucun doğrulama kaydı eksik; eski kayıt başarı kanıtı olarak kullanılamaz.')
     checked = check(metadata.get('agent'), output)
+    if metadata.get('outcome') is not None:
+        outcome_contracts.validate_metadata(metadata.get('agent'), output, legacy_ok=False)
+        if metadata['outcome'] != output['outcome_contract']['id']:
+            raise ValueError('Doğrulama kaydı sonuç sözleşmesiyle eşleşmiyor.')
     if owner is not None and metadata.get('agent') == 'coder' and output.get('owner') != owner:
         raise PermissionError('Kod sonucu farklı kullanıcıya ait.')
     if owner is not None and metadata.get('agent') == 'account' and output.get('snapshot', {}).get('owner') != owner:

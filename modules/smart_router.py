@@ -104,19 +104,13 @@ def candidates(owner, task):
 
 
 def failure_kind(exc):
-    """'key', 'quota' or 'other'; looks only at the status code and error wording, nothing is stored."""
-    code = failure_status(exc)
-    text = str(exc)
-    if code in (401, 403) or 'yetkisiz' in text or 'API_KEY_INVALID' in text: return 'key'
-    if code == 429 or re.search(r'\b429\b|RESOURCE_EXHAUSTED|quota', text, re.I): return 'quota'
-    return 'other'
+    from modules import failure_policy
+    return failure_policy.legacy_kind(exc)
 
 
 def failure_status(exc):
-    code = getattr(exc, 'code', None)
-    if not isinstance(code, int):
-        code = getattr(getattr(exc, 'response', None), 'status_code', None)
-    return code if type(code) is int and 100 <= code <= 599 else None
+    from modules import failure_policy
+    return failure_policy.status_code(exc)
 
 
 def failure_detail(attempt):
@@ -131,16 +125,13 @@ def failure_detail(attempt):
 
 
 def failure_text(exc):
-    return {'key':'anahtarı geçersiz','quota':'istek/token sınırına takıldı'}.get(failure_kind(exc), 'yanıt vermedi')
+    from modules import failure_policy
+    return failure_policy.short_text(exc)
 
 
 def cooldown(provider, exc):
-    """Seconds to skip a provider after a failure: long for a bad key, medium for quota, short for a local outage."""
-    kind = failure_kind(exc)
-    if kind == 'key': return 1800
-    if kind == 'quota': return 300
-    if provider == 'ollama': return 30
-    return 60
+    from modules import failure_policy
+    return failure_policy.cooldown_seconds(provider, exc)
 
 
 def _free_emergency(owner, attempted):
