@@ -877,7 +877,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             return {"ok": False, "msg": f"Yedekleyip GitHub'dan alamadım; kaynak dosyalar değiştirilmedi: {exc}"}
 
     def github_publish(self) -> dict:
-        """Açık kullanıcı onayıyla: gerçek GitHub durumunu doğrula, test et, paketleri kilitle ve main'e yayınla."""
+        """Açık kullanıcı onayıyla: gerçek GitHub durumunu doğrula, test et, paketleri kilitle ve ayrı dala yükleyip main için PR aç."""
         try:
             import updater
             verified = updater.verify_sync()

@@ -51,6 +51,9 @@ def dispatch(context, command, normalized):
     if session.pending_action is not None:
         result = app_actions.continue_voice(command, session, context.profile, context.emit)
         if result is not None: return result
+    from modules import usage_meter
+    result = usage_meter.handle(owner, command)
+    if result is not None: return result
     from modules import smart_router
     result = smart_router.handle(owner, command)
     if result is not None: return result

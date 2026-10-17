@@ -5,6 +5,16 @@
 - Çeviri: belge en çok `translate.MAX_TEXT_PARTS`=20 model çağrısı (~40-70 bin karakter); fazlası çevrilmez ve sonuçta açıkça yazılır. Excel `MAX_EXCEL_BATCHES`=30 çağrıyı aşarsa model/kayıt penceresi açılmadan durur (yarım çevrilmiş Excel üretilmez).
 - Test: `tests/test_file_reading_fixes.py` gerçek dosyalarla (model taklit). Windows'ta gerçek Not Defteri/Excel dosyası ve canlı model çevirisi denenmedi.
 
+## GitHub'a Yükle artık PR açar — 17 Ekim 2026
+- `git_publish.publish_worktree` ("GitHub'a Yükle" düğmesi, "git yükle" komutu) ve kullanılmayan `publish` main'e yazmaz: aynı test/çakışma/taban kontrollerinden sonra güncel main ağacı + bütün yerel farklar tek commit olarak `jarvis/yukle-<zaman>` dalına gider ve main için PR açılır. Açık PR varsa (`~/.jarvis/selfcoder/github_pr.json`) aynı dal force=False ile güncellenir, ikinci PR açılmaz. main ancak PR birleşince (CI + gerçek cümle seti) değişir.
+- Taban (`mark_current`) yayında değişmez. `updater.verify_sync` başında `sync_merged_pr` PR birleşmişse ve birleşme commit'inin ağacı gönderilen ağaçla aynıysa tabanı o commit'e taşır; ağaç farklıysa veya PR birleşmeden kapandıysa taban değişmez. PR açılamazsa (anahtarda Pull requests yazma izni yok) dal adı söylenir, main değişmez.
+- Test: `tests/test_git_publish_pr.py` (GitHub API taklit). Gerçek anahtar/depo ve PC'deki düğme denenmedi.
+
+## Kota sayacı — 17 Ekim 2026
+- `modules/usage_meter.py`: her gerçek sağlayıcı denemesi (Gemini sohbet/görüntü/ses çevirme/gömme, Gemini Live bağlantı açılışı, Groq, Ollama, OpenRouter, OpenAI/Claude) kullanıcıya özel `~/.jarvis/kota/<kullanıcı>.jsonl` dosyasına bir satır yazar: zaman (UTC+3), sağlayıcı, model, çağıran Jarvis fonksiyonu (yığından, ör. `router.classify`), giden/gelen karakter ve sonuç (`ok`, `429`, HTTP kodu, `baglanti`, `bos`). İstem/cevap metni yazılmaz. 2 MB'da `.jsonl.1` olarak döner. Sayaç hatası çağrıyı etkilemez. Yeni çağrı noktası eklenirse `usage_meter.record` ile kaydedilmeli.
+- `kota durumu` / `kota raporu` / `kota sayacı` / `bugün ne kadar kota harcadım` (`command_manager.dispatch`, model çağrısı yok): bugünün toplamı, sağlayıcı başına çağrı ve 429/hata sayısı, en çok çağıran 8 yer. Karakter token değildir; sağlayıcının kalan kotası buradan bilinmez. Live yalnız bağlantı sayılır, konuşma süresi sayılmaz.
+- Test: `tests/test_usage_meter.py` (model/ağ taklit). PC'de gerçek kullanımla denenmedi.
+
 ## Kalıcı CI ve gerçek cümle seti — 17 Ekim 2026
 - `.github/workflows/testler.yml` her PR'da ve main'e her birleştirmede sözdizimi kontrolü + `scripts/linux_test_kurulum.sh --test` çalıştırır. Geçici workflow ekleyip silmek gerekmez. main dal koruması (bu işin zorunlu tutulması) GitHub ayarlarından Hamdi tarafından açılır.
 - `tests/test_routing_sentences.py` + `tests/data/yonlendirme_cumleleri.json`: gerçek kullanım cümlelerinin (ASCII yazım, sesle hitap, nazik soru biçimi, eylem köküyle başlayan soru varyasyonları dahil) gitmesi gereken yol ve öğretilen kuralların hangi soruda yüklenmesi gerektiği. Model çağrılmaz. `bilinen_hata` satırları bugün yanlış gidiyor; düzeltilince test işaretin kaldırılmasını ister. Yönlendirme veya kural kapsamı değişikliği bu seti yeşil bırakmalı; yeni bir hata bulununca önce buraya satır eklenir. Var olan bir satırın beklentisi ancak PR açıklamasında gerekçesiyle değiştirilir.

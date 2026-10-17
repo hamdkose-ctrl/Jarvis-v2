@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+from modules.diagnostics import record_failure as _record_failure
 import re
 import sys
 import tempfile
@@ -114,6 +115,17 @@ def models(owner,provider):
     return rows
 
 def generate(owner,provider,messages,system,max_tokens,image_path=None):
+    from modules import usage_meter
+    sent=usage_meter.size(messages,system);model=settings(owner,provider)['model']
+    try:text=_generate(owner,provider,messages,system,max_tokens,image_path)
+    except Exception as exc:
+        _record_failure('modules/paid_providers.py:generate')
+        usage_meter.record(provider,model,sent,0,usage_meter.outcome(exc));raise
+    usage_meter.record(provider,model,sent,len(text) if isinstance(text,str) else 0)
+    return text
+
+
+def _generate(owner,provider,messages,system,max_tokens,image_path=None):
     model=settings(owner,provider)['model']
     if not model:raise ProviderError('Önce '+PROVIDERS[provider][0]+' modelini Bağlantılar bölümünden seç.')
     messages=[{'role':m['role'],'content':privacy.redact(str(m['content']))} for m in messages]
