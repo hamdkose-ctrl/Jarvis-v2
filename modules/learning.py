@@ -118,10 +118,10 @@ def _find_rule(profile, words: str) -> int | None:
 
 
 _RULE_SCOPE_PATTERNS = {
-    'research': re.compile(r'(haber|araştır|arastir|kaynak|yayın|yayin|güncel|guncel|web)\w*', re.I),
-    'pc': re.compile(r'(excel|ayar|bluetooth|uygulama|windows|pc|masaüst|masaust|hücre|hucre|parlak|ses)\w*', re.I),
-    'communication': re.compile(r'(mail|e-posta|eposta|mesaj|gönder|gonder|alıcı|alici|whatsapp|telegram)\w*', re.I),
-    'project': re.compile(r'(jarvis|kod|github|git|test|proje|repo|branch|commit)\w*', re.I),
+    'research': re.compile(r'\b(haber|araştır|arastir|kaynak|yayın|yayin|güncel|guncel|web)\w*', re.I),
+    'pc': re.compile(r'\b(excel|ayar|bluetooth|uygulama|windows|pc|masaüst|masaust|hücre|hucre|parlak|ses)\w*', re.I),
+    'communication': re.compile(r'\b(mail|e-posta|eposta|mesaj|gönder|gonder|alıcı|alici|whatsapp|telegram)\w*', re.I),
+    'project': re.compile(r'\b(jarvis|kod|github|git|test|proje|repo|branch|commit)\w*', re.I),
 }
 
 
