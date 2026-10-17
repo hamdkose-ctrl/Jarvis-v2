@@ -37,17 +37,40 @@ def fresh_external(text: str) -> bool:
     return topic and fresh
 
 
+# Fiil kökü tek başına yetmez: "yap" kökü "yapay", "kur" kökü "kurban/kural", "aç" kökü "acaba/açıklar"
+# sözcüklerinin de başıdır. İstek sayılmak için kökün ardından yalnız istek/emir/bağlaç ekleri gelebilir.
+_ROOTS = (r'(?:ac|baslat|calistir|duzelt|duzenle|gelistir|iyilestir|uygula|sil|tasi|kur|yukle|yap|hazirla|olustur|'
+          r'arastir|incele|listele|kapat|degistir|ayarla|yaz|gonder|cevir|donustur)')
+_REQUEST_SUFFIX = (r'(?:|sana|sene|y?[iu]n|y?[iu]niz|y?[iu]p|y?[ae]bilir m[iu]\w*|y?[aeiu]?r m[iu]\w*|'
+                   r'y?[ae]lim|m[ae]k? ist\w*|m[ae]n[iu] ist\w*|m[ae]l[iu]s[iu]n)')
+_ACTION = re.compile(r'\b(?:' + _ROOTS + _REQUEST_SUFFIX + r'|(?:kontrol |kayd|devam )(?:et|etsene|eder m[iu]\w*|edip|edin\w*|'
+                     r'edebilir m[iu]\w*|etmek ist\w*|etmeni ist\w*))(?=\s|$|[,;:.!?])')
+
+
+def informational_question(text: str) -> bool:
+    """Definition/date/yes-no questions ask for an answer, not for execution."""
+    low = _fold(text)
+    return bool(re.search(r'\b(?:nedir|nelerdir|ne demek\w*|ne zaman|kimdir|nerededir|nereye|nerede|nereden|ne anlama gel\w*|anlami ne)\b', low)
+                or re.search(r'\s(?:mi|mu)$', low))
+
+
 def action_request(text: str) -> bool:
     low = _fold(text)
     if ambiguous_reference(text) or instructional_question(text):
         return False
     if fresh_external(text):
         return True
-    return bool(re.search(
-        r'\b(?:ac|baslat|calistir|duzelt|gelistir|iyilestir|uygula|sil|tasi|kaydet|kur|yukle|yap|'
-        r'hazirla|olustur|arastir|incele|listele|kontrol et|kapat|degistir|ayarla|yaz|gonder|cevir|donustur)\w*\b',
-        low,
-    ))
+    if informational_question(text):
+        return False
+    return bool(_ACTION.search(low))
+
+
+def ends_with_action(text: str) -> bool:
+    """Soru bekleyen bir hedefe gelen cevap, sonu eylem fiiliyle biten yeni bir istek mi?"""
+    low = _fold(text)
+    if instructional_question(text) or informational_question(text):
+        return False
+    return any(m.end() == len(low) for m in _ACTION.finditer(low))
 
 
 def classify(text: str) -> str:

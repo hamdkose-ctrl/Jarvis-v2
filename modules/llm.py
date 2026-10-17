@@ -345,6 +345,9 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
     last = ''
     for offset in range(len(models)):
         index = (active + offset) % len(models); model = models[index]
+        if _limited('groq', model) is not None:
+            last = 'HTTP 429, bekleme süresi dolmadı'
+            continue
         body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
         for attempt in range(1, 3):
             requests_state.check()
@@ -365,7 +368,12 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             if r.status_code in (401, 403):
                 raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
             last = 'HTTP ' + str(r.status_code)
-            if r.status_code in (404, 429): break
+            if r.status_code == 429:
+                headers_in = getattr(r, 'headers', None) or {}
+                daily = 'per day' in str(getattr(r, 'text', '') or '').casefold()
+                _mark_limited('groq', model, last, _limit_seconds(daily, headers_in.get('retry-after')))
+                break
+            if r.status_code == 404: break
             if r.status_code not in (500, 502, 503, 504):
                 raise CloudError('Groq yanıt vermedi (' + last + ')')
             if attempt < 2: time.sleep(attempt)
@@ -469,6 +477,35 @@ def _daily_quota(e: Exception) -> bool:
 
 _fallback_lock = threading.Lock()
 _fallback_states = {}
+# 429 alan model bir süre hiç denenmez: dakikalık sınır 1-2 sn sonra açılmaz, her çağrıda yeniden
+# denemek yalnız boşa istek ve gecikmedir. Anahtar: (kullanıcı, sağlayıcı, model) -> (bitiş, hata).
+_rate_limited = {}
+
+
+def _limit_seconds(daily: bool, retry_after=None) -> int:
+    try:
+        wait = int(float(retry_after))
+    except (TypeError, ValueError):
+        wait = 0
+    if wait > 0:
+        return max(5, min(wait, 3600))
+    return 3600 if daily else 60
+
+
+def _mark_limited(provider_name: str, model: str, error, seconds: int) -> None:
+    with _fallback_lock:
+        _rate_limited[(current_user(), provider_name, model)] = (time.monotonic() + seconds, error)
+
+
+def _limited(provider_name: str, model: str):
+    """Model hâlâ 429 beklemesindeyse kayıtlı hatayı döndürür, değilse None."""
+    key = (current_user(), provider_name, model)
+    with _fallback_lock:
+        until, error = _rate_limited.get(key, (0, None))
+        if until <= time.monotonic():
+            _rate_limited.pop(key, None)
+            return None
+    return error
 
 
 def model_names(owner=None):
@@ -507,6 +544,9 @@ def _with_models(call):
     for step in range(len(models)):
         idx = (active + step) % len(models)
         model = models[idx]
+        if (waiting := _limited('gemini', model)) is not None:
+            last = waiting
+            continue
         for attempt in range(1, _MAX_TRIES + 1):
             requests_state.check()
             try:
@@ -523,10 +563,12 @@ def _with_models(call):
                 code = getattr(e, "code", None)
                 if code not in _SWITCH_CODES:
                     raise
+                if code == 429:
+                    # Kullanım sınırı: aynı modeli 1-2 sn sonra yeniden denemek sınırı açmaz.
+                    _mark_limited('gemini', model, e, _limit_seconds(_daily_quota(e)))
+                    break
                 if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
                     break   # bu modelde ısrar etme, sıradakine geç
-                if code == 429 and step < len(models) - 1:
-                    break   # kullanım sınırı: beklemek yerine hemen yedek modele geç (yedeğin sınırı ayrıdır)
                 wait = 2 ** (attempt - 1)   # 1, 2 saniye
                 print(f"(Gemini {code} verdi, {wait} sn sonra tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
                 time.sleep(wait)

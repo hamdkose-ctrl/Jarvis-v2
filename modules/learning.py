@@ -125,11 +125,22 @@ _RULE_SCOPE_PATTERNS = {
 }
 
 
+# Kural ancak açık bir kapsam kalıbı taşıyorsa ("haber araştırırken", "Excel görevlerinde",
+# "kod konusunda") o alana bağlanır. Kalıp yoksa kural geneldir: "Sesli cevapta kısa konuş"
+# veya "testten geçmeden tamam deme" her soruda yüklenmelidir.
+_SCOPE_MARK = re.compile(r'\w+(?:[ıiuü]rken|[ae]rken|l[ae]r[ıi]nd[ae])|konusunda', re.I)
+
+
 def rule_scope(text: str) -> str:
     low = _low(_clean(text))
-    for scope, pattern in _RULE_SCOPE_PATTERNS.items():
-        if pattern.search(low):
-            return scope
+    words = re.findall(r'\w+', low)
+    for i, word in enumerate(words):
+        if not _SCOPE_MARK.fullmatch(word):
+            continue
+        phrase = ' '.join(words[max(0, i - 1):i + 1])
+        for scope, pattern in _RULE_SCOPE_PATTERNS.items():
+            if pattern.search(phrase):
+                return scope
     return 'global'
 
 
