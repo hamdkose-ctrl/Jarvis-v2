@@ -62,6 +62,14 @@ def _fresh_research_request(text):
     return topic and (fresh or implicit_news or market_now)
 
 
+def _definition_question(text):
+    """Kısa tanım soruları ("yapay zeka nedir") doğrudan sohbettir: sınıflandırma için ayrı model çağrısı harcanmaz."""
+    low=' '.join(str(text or '').casefold().translate(str.maketrans('çğıöşü','cgiosu')).split()).strip(' .!?')
+    if len(low.split())>8 or not re.search(r'\s(?:nedir|ne demek(?:tir)?|kimdir|ne anlama gelir)$',low):return False
+    # Taze/dış veri isteyebilecek konular (kur, haber, hava...) modelli yönlendirmede kalır.
+    return not re.search(r'\b(?:haber\w*|gelisme\w*|fiyat\w*|kur\w*|dolar|euro|altin|borsa|piyasa|skor\w*|hava\w*|dosya\w*|ekran\w*)\b',low)
+
+
 def _open_only_request(text):
     """Compatibility wrapper; user-outcome policy owns the actual rule."""
     from . import outcome_contracts
@@ -99,6 +107,8 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
         return {"intent": "chat", "args": {}}
     if _fresh_research_request(text):
         return {'intent':'task','args':{'request':text}}
+    if _definition_question(text):
+        return {'intent':'chat','args':{}}
     if re.search(r"\b(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)", low) or \
        re.search(r"\b(?:analiz|incele).{0,25}ekran", low):
         q = re.sub(r"^(?:jarvis[ ,]*)?", "", text, flags=re.I).strip()
