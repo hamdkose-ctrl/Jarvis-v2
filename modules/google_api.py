@@ -249,6 +249,27 @@ def agenda(day_offset: int = 0, label: str = "Bugün") -> str:
         return _friendly(exc, "Takvime bakamadım")
 
 
+def day_events(day_offset: int = 0) -> list[tuple[datetime | None, str]]:
+    """O günün Google Takvim etkinlikleri, (başlangıç ya da tüm gün için None, ad). Hata yukarı fırlatılır."""
+    svc = _service("calendar", "v3")
+    start = (datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+             + timedelta(days=day_offset))
+    items = svc.events().list(calendarId="primary", timeMin=start.isoformat(),
+                              timeMax=(start + timedelta(days=1)).isoformat(), singleEvents=True,
+                              orderBy="startTime", maxResults=25).execute().get("items", [])
+    out = []
+    for e in items:
+        when = e.get("start", {}).get("dateTime")
+        out.append((datetime.fromisoformat(when) if when else None, e.get("summary") or "(adsız)"))
+    return out
+
+
+def unread_count() -> int:
+    """Gelen kutusundaki okunmamış mail sayısı (yalnız sayı; içerik okunmaz). Hata yukarı fırlatılır."""
+    svc = _service("gmail", "v1")
+    return int(svc.users().labels().get(userId="me", id="INBOX").execute().get("messagesUnread", 0))
+
+
 def busy_between(start: datetime, end: datetime) -> list[tuple[datetime, datetime, str]]:
     """Google Takvim'de [start, end) aralığıyla kesişen saatli etkinlikler (salt okuma, çakışma uyarısı için).
 
