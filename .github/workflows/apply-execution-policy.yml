@@ -15,7 +15,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply targeted integrations
-        run: python scripts/apply_execution_policy_patch.py
+        run: python scripts/apply_execution_policy_patch_v2.py
       - name: Commit branch changes
         run: |
           git config user.name "hamdkose-ctrl"
