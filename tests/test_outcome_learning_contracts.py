@@ -3,6 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import modules
 from modules import goal_tools, learning, learning_feedback, research_delivery, router, task_results
 
 
@@ -37,7 +38,7 @@ class OutcomeLearningContracts(unittest.TestCase):
         runtime=SimpleNamespace(profile=profile,_cur_source='yazı',pc_profile=lambda:profile)
         identity={'request':'Ayarları aç ve Bluetooth’u kapat','job_id':'j1','task_id':'s1'}
         fake=SimpleNamespace(open_application=lambda *_: (_ for _ in ()).throw(AssertionError('uygulama açılmamalı')))
-        with patch.dict(sys.modules,{'modules.system_control':fake}):
+        with patch.object(modules,'system_control',fake,create=True):
             with self.assertRaisesRegex(goal_tools.NotStarted,'yalnız ara adımı'):
                 goal_tools.execute(runtime,'application',{'operation':'open','name':'Ayarlar'},{},identity)
 
@@ -47,7 +48,7 @@ class OutcomeLearningContracts(unittest.TestCase):
         identity={'request':'Hesap Makinesini aç','job_id':'j1','task_id':'s1'}
         opened=SimpleNamespace(ok=True)
         fake=SimpleNamespace(open_application=lambda *_: opened)
-        with patch.dict(sys.modules,{'modules.system_control':fake}):
+        with patch.object(modules,'system_control',fake,create=True):
             out=goal_tools.execute(runtime,'application',{'operation':'open','name':'Hesap Makinesi'},{},identity)
         self.assertEqual(out['state'],'done');self.assertEqual(out['local_evidence'],'application')
 
@@ -78,23 +79,22 @@ class OutcomeLearningContracts(unittest.TestCase):
              'source_only':False,'news_article':article}
         return task_results.seal('research',raw)
 
-    def test_research_delivery_synthesizes_and_reseals_verified_receipt(self):
+    def test_research_delivery_promotes_verified_findings_without_new_model(self):
         receipt=self.research_receipt()
-        answer='Kuvvetli yağış bazı yollarda su birikintilerine yol açtı; ekipler sahada müdahaleyi sürdürüyor.'
-        with patch('modules.model_wait.ask',return_value=answer):
+        with patch('modules.model_wait.ask',side_effect=AssertionError('delivery must not call a model')):
             result=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
-        self.assertIn('su birikintilerine yol açtı',result['text'])
+        self.assertIn('bazı yollarda su birikintileri oluştu',result['text'])
         self.assertIn('Kaynak: https://example.org/istanbul-sel',result['text'])
         self.assertTrue(task_results.verify(result))
         self.assertEqual(result['source_quotes'],receipt['source_quotes'])
         self.assertEqual(result['news_article'],receipt['news_article'])
 
-    def test_research_delivery_keeps_verified_result_when_models_fail(self):
+    def test_research_delivery_is_deterministic_and_quota_independent(self):
         receipt=self.research_receipt()
-        with patch('modules.model_wait.ask',side_effect=RuntimeError('quota')):
-            result=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
-        self.assertEqual(result,receipt)
-        self.assertTrue(task_results.verify(result))
+        first=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
+        second=research_delivery.synthesize(receipt,'İstanbul’da sel oldu, son durum ne?')
+        self.assertEqual(first,second)
+        self.assertTrue(task_results.verify(first))
 
 
 if __name__=='__main__':
