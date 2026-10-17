@@ -342,6 +342,42 @@ def awaiting(kind: str, limit: int = 8) -> list[dict]:
     return out
 
 
+def important(limit: int = 6) -> list[dict]:
+    """Okunmamış gelen kutusunda Gmail'in "önemli" veya yıldız işaretlediği kişi mailleri (zarf; gövde okunmaz).
+
+    Yıldızlılar önce gelir. Robot/bildirim göndericiler ve promosyon/sosyal/forum kategorileri hariçtir.
+    Hata yukarı fırlatılır."""
+    svc = _service("gmail", "v1")
+    q = "is:unread in:inbox (is:important OR is:starred) -category:promotions -category:social -category:forums"
+    ids = svc.users().messages().list(userId="me", q=q, maxResults=20).execute().get("messages", [])
+    out = []
+    for m in ids:
+        msg = svc.users().messages().get(userId="me", id=m["id"], format="metadata",
+                                         metadataHeaders=["From", "Subject"]).execute()
+        h = {x["name"]: x["value"] for x in msg.get("payload", {}).get("headers", [])}
+        if _ROBOT.search(h.get("From", "")):
+            continue
+        out.append({"who": _name(h.get("From", "")), "subject": h.get("Subject") or "(konusuz)",
+                    "starred": "STARRED" in msg.get("labelIds", [])})
+    out.sort(key=lambda x: not x["starred"])
+    return out[:limit]
+
+
+def important_text() -> str:
+    problem = _ready()
+    if problem:
+        return problem
+    try:
+        items = important()
+    except Exception as exc:
+        _record_failure('modules/google_api.py:important_text')
+        return _friendly(exc, "Önemli maillere bakamadım")
+    if not items:
+        return "Okunmamış önemli mailin görünmüyor (Gmail'in önemli/yıldız işaretlerine göre)."
+    return (f"Okunmamış {len(items)} önemli mailin var (Gmail'in önemli/yıldız işaretine göre): "
+            + "; ".join(f"{x['who']}{' ★' if x['starred'] else ''}: {x['subject']}" for x in items) + ".")
+
+
 def awaiting_text(kind: str) -> str:
     problem = _ready()
     if problem:
@@ -370,6 +406,11 @@ _AWAIT_MINE = re.compile(r"cevap\w*\s+(?:vermedi\w*|bekleyen)|cevaplamadı\w*|ya
                          r"dönmediğim|dönüş yapmadığım")
 
 
+_IMPORTANT = re.compile(r"(?:önemli|öncelikli|acil)\w*\s+(?:\w+\s+)?(?:g?mail|e-?posta|eposta)\w*|"
+                        r"(?:g?mail|e-?posta|eposta)\w*\s+(?:\w+\s+)?(?:önemli|öncelikli|acil)\w*|"
+                        r"hangi (?:g?mail|e-?posta|eposta)\w*\s+(?:\w+\s+)?önemli")
+
+
 _MAIL = r"(?:g?mail|e-?posta|eposta|ileti)['’]?\w*"
 # "maili kontrol et", "maillerime bak", "mail geldi mi", "gmail'e bak", "okunmamış e-postalar" ...
 _MAIL_CHECK = re.compile(
@@ -387,6 +428,8 @@ def handle(cmd_lower: str) -> str | None:
             return awaiting_text("theirs")
         if _AWAIT_MINE.search(t):
             return awaiting_text("mine")
+    if _IMPORTANT.search(t) and not _MAIL_SEND.search(t):
+        return important_text()
     if _MAIL_CHECK.search(t) and not _MAIL_SEND.search(t):
         return unread_mail()
     if re.search(r"toplantı|google takvim", t) and not re.search(r"ekle|hatırlat|sil\b", t):
