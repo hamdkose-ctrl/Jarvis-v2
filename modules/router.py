@@ -16,7 +16,7 @@ Dosya çevirme isteğinde intent="doc_translate" kullan. Dosya formatı dönüş
 Dosya yolu belirtilmemişse path değerini boş bırak.
 Hava durumu sorulursa intent="weather" kullan.
 Şehir belirtilmediyse location değerini boş bırak.
-Döviz, dolar, euro, altın fiyatı sorguları veya genel güncel internet aramaları için intent="chat" kullan.
+Döviz, dolar, euro, altın fiyatı sorguları ve güncel haber/skor/piyasa gibi dış kaynaktan doğrulanması gereken taze bilgi için intent="task" kullan.
 Dosya analizi, özetleme veya çeviri isteğinde dosya yolu bilinmiyorsa ilgili doc intent'ini kullan ve path değerini boş bırak.
 Kullanıcıya dosyanın yolunu sorma; uygulama dosya seçme penceresini açar.
 work:{"kind","project"} iş/proje takibi; kind: status (projeler ne durumda), reply (cevap bekleyen mailler), dated (yaklaşan keşif/toplantı), priority (şu an öncelikli ne), weekly (haftalık özet); project boş ya da proje kısaltması.
@@ -50,6 +50,16 @@ def _action_request(text):
     if re.search(r'\b(nasıl|nasil|ne demek|nedir|neden|niye)\b', low):
         return False
     return bool(re.search(r'\b(aç|ac|başlat|baslat|çalıştır|calistir|düzelt|duzelt|geliştir|gelistir|iyileştir|iyilestir|uygula|sil|taşı|tasi|kaydet|kur|yükle|yukle|yap|devam et|hazırla|hazirla|oluştur|olustur|araştır|arastir|incele|listele|kontrol et)(?:ar mısın|ır mısın|sana)?[ .!?]*$', low))
+
+
+def _fresh_research_request(text):
+    low=' '.join(str(text or '').casefold().replace('ı','i').split())
+    if re.search(r'\b(?:nedir|ne demek|tarihçe|tarihce)\b',low):return False
+    topic=bool(re.search(r'\b(?:haber(?:ler)?|gelisme(?:ler)?|fiyat(?:i|lar)?|kur|dolar|euro|altin|borsa|piyasa|skor|mac sonucu)\b',low))
+    fresh=bool(re.search(r'\b(?:guncel|son|bugun|su an|latest|recent|yeni)\b',low))
+    implicit_news=bool(re.search(r'\b(?:haberler|gelismeler)\b',low) and re.search(r'\b(?:neler|nelerdir|ne var|ozet|anlat|goster|arastir)\b',low))
+    market_now=bool(re.search(r'\b(?:dolar|euro|altin|borsa|skor)\b',low) and re.search(r'\b(?:kac|ne kadar|nedir|durum|sonuc)\b',low))
+    return topic and (fresh or implicit_news or market_now)
 
 
 def _open_only_request(text):
@@ -89,6 +99,8 @@ def classify(command: str, ask: Callable[[str, str], str], *, context='') -> dic
 
     if re.fullmatch(r"(?:merhaba|selam|selamlar|hey|sa|günaydın|gunaydin|iyi akşamlar|iyi aksamlar|iyi geceler)[ !?.]*", low):
         return {"intent": "chat", "args": {}}
+    if _fresh_research_request(text):
+        return {'intent':'task','args':{'request':text}}
     if re.search(r"\b(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)", low) or \
        re.search(r"\b(?:analiz|incele).{0,25}ekran", low):
         q = re.sub(r"^(?:jarvis[ ,]*)?", "", text, flags=re.I).strip()
