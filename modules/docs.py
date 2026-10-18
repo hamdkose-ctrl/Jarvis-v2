@@ -5,7 +5,7 @@ from pathlib import Path
 from .diagnostics import record_failure as _record_failure
 from .llm import ask
 
-SUPPORTED = (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md")
+SUPPORTED = (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md", ".rtf", ".odt", ".json")
 _LEGACY = {".doc": "Word", ".xls": "Excel", ".ppt": "PowerPoint"}
 # PDF ve CSV bilerek kendi okuyucularında kalır: MarkItDown CSV'de Türkçe kodlamayı (cp1254) ve ';' ayracını bozuyor.
 _MARKITDOWN = {".docx", ".xlsx", ".xlsm", ".pptx", ".html", ".htm"}
@@ -214,6 +214,119 @@ def _clean_excel(text: str, p: Path) -> str:
     return text
 
 
+_RTF_SKIP = {"fonttbl", "colortbl", "stylesheet", "info", "pict", "object", "header", "footer", "themedata",
+             "datastore", "latentstyles", "listtable", "listoverridetable", "rsidtbl", "generator"}
+
+
+def _read_rtf(p: Path) -> str:
+    """RTF'yi ek paket olmadan düz metne çevirir (yazı tipi/renk tabloları atlanır, \\'hh ve \\uN çözülür)."""
+    import re
+    raw = p.read_bytes().decode("latin-1")
+    m = re.search(r"\\ansicpg(\d+)", raw)
+    codec = f"cp{m.group(1)}" if m else "cp1252"
+    out, stack, skip_depth, i, n, uc = [], [], None, 0, len(raw), 1
+    pending = bytearray()
+
+    def flush():
+        if pending:
+            out.append(bytes(pending).decode(codec, "replace")); pending.clear()
+
+    while i < n:
+        c = raw[i]
+        if c == "{":
+            stack.append(uc); i += 1
+        elif c == "}":
+            flush()
+            if stack:
+                uc = stack.pop()
+            if skip_depth is not None and len(stack) < skip_depth:
+                skip_depth = None
+            i += 1
+        elif c == "\\":
+            i += 1
+            if i >= n:
+                break
+            c = raw[i]
+            if c == "'":
+                if skip_depth is None and re.fullmatch(r"[0-9a-fA-F]{2}", raw[i + 1:i + 3]):
+                    pending.append(int(raw[i + 1:i + 3], 16))
+                i += 3
+                continue
+            flush()
+            if c in "\\{}":
+                if skip_depth is None:
+                    out.append(c)
+                i += 1
+            elif c == "*":
+                if skip_depth is None:
+                    skip_depth = len(stack)
+                i += 1
+            elif c.isalpha():
+                m = re.compile(r"([a-zA-Z]+)(-?\d+)? ?").match(raw, i)
+                word, arg = m.group(1), m.group(2)
+                i = m.end()
+                if word in _RTF_SKIP and skip_depth is None:
+                    skip_depth = len(stack)
+                elif skip_depth is not None:
+                    pass
+                elif word in ("par", "line", "sect", "page"):
+                    out.append("\n")
+                elif word == "tab":
+                    out.append("\t")
+                elif word == "uc" and arg:
+                    uc = int(arg)
+                elif word == "u" and arg:
+                    cp = int(arg)
+                    out.append(chr(cp + 65536 if cp < 0 else cp))
+                    i += uc if raw[i:i + 1] == "?" or uc > 1 else 0    # yedek karakteri atla
+            else:
+                i += 1
+        elif c in "\r\n":
+            i += 1
+        else:
+            if skip_depth is None:
+                pending.extend(c.encode("latin-1", "replace"))
+            i += 1
+    flush()
+    return re.sub(r"\n{3,}", "\n\n", "".join(out)).strip()
+
+
+def _read_odt(p: Path) -> str:
+    import zipfile
+    from xml.etree import ElementTree
+    check_office_file(p)
+    try:
+        with zipfile.ZipFile(p) as z:
+            data = z.read("content.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise ValueError("Dosya bozuk ya da gerçek bir ODT dosyası değil.") from exc
+    root = ElementTree.fromstring(data)
+    parts = []
+
+    def walk(node):
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag in ("p", "h"):
+            parts.append("".join(node.itertext()))
+            return
+        if tag == "table-row":
+            parts.append(" | ".join("".join(c.itertext()) for c in node if c.tag.rsplit("}", 1)[-1] == "table-cell"))
+            return
+        for child in node:
+            walk(child)
+
+    walk(root)
+    return "\n".join(x for x in parts if x.strip())
+
+
+def _read_json(p: Path) -> str:
+    import json
+    text = decode_text(p.read_bytes())
+    try:
+        return json.dumps(json.loads(text), ensure_ascii=False, indent=2)
+    except ValueError:
+        return text                                # bozuk JSON da düz metin olarak okunur
+
+
 def _read_raw(p: Path) -> str:
     ext = p.suffix.lower()
 
@@ -276,7 +389,16 @@ def _read_raw(p: Path) -> str:
     if ext in (".txt", ".md"):
         return decode_text(p.read_bytes())
 
-    raise ValueError("PDF, Word, Excel, PowerPoint, CSV, HTML, TXT veya MD dosyası seç.")
+    if ext == ".rtf":
+        return _read_rtf(p)
+
+    if ext == ".odt":
+        return _read_odt(p)
+
+    if ext == ".json":
+        return _read_json(p)
+
+    raise ValueError("PDF, Word, Excel, PowerPoint, CSV, HTML, TXT, MD, RTF, ODT veya JSON dosyası seç.")
 
 
 def choose_document() -> str | None:
@@ -292,7 +414,7 @@ def choose_document() -> str | None:
             parent=root,
             title="Jarvis için belge seç",
             filetypes=[
-                ("Desteklenen belgeler", "*.pdf *.docx *.xlsx *.xlsm *.pptx *.csv *.html *.htm *.txt *.md"),
+                ("Desteklenen belgeler", "*.pdf *.docx *.xlsx *.xlsm *.pptx *.csv *.html *.htm *.txt *.md *.rtf *.odt *.json"),
                 ("PDF dosyaları", "*.pdf"),
                 ("Word dosyaları", "*.docx"),
                 ("Excel dosyaları", "*.xlsx *.xlsm *.csv"),
