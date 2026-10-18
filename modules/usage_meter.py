@@ -97,6 +97,20 @@ def _atomic_write(path: Path, content: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+_KEEP_DAYS = 14                 # eski arşivler sonsuza dek birikmesin; kota durumu yalnız bugünü sorar
+
+
+def _prune_archives(path: Path) -> None:
+    """Rotasyon anında KEEP_DAYS'ten eski arşiv parçalarını siler (aktif dosya ve yeni arşivlere dokunmaz)."""
+    cutoff = datetime.now().timestamp() - _KEEP_DAYS * 86400
+    for old in path.parent.glob(path.name + '.archive-*'):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            _record_failure('modules/usage_meter.py:_prune_archives')
+
+
 def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0, result: str = 'ok',
            source: str | None = None, owner: str | None = None) -> None:
     try:
@@ -108,6 +122,7 @@ def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0
             if path.exists() and path.stat().st_size > _MAX_BYTES:
                 # Eski .1 yedeği de korunur. Arşiv sonrası kesinti olursa rows arşivi okuyabilir.
                 path.replace(path.with_name(path.name + '.archive-' + uuid.uuid4().hex))
+                _prune_archives(path)
             previous = path.read_bytes() if path.exists() else b''
             # Eski sürümden kalmış yarım satır yeni geçerli satırı yutmasın.
             separator = b'\n' if previous and not previous.endswith(b'\n') else b''

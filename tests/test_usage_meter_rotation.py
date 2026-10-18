@@ -84,6 +84,21 @@ class UsageMeterRotationTests(unittest.TestCase):
         self.record()
         self.assertIn('kısmi', meter.summary('hamdi').lower())
 
+    def test_old_archives_are_pruned_on_rotation_but_recent_ones_stay(self):
+        self.record()
+        old = self.root / 'hamdi.jsonl.archive-old'
+        fresh = self.root / 'hamdi.jsonl.archive-fresh'
+        other = self.root / 'ebru.jsonl.archive-old'
+        for item in (old, fresh, other):
+            item.write_text('{}\n', encoding='utf-8')
+        stale = datetime.now().timestamp() - 30 * 86400
+        os.utime(old, (stale, stale)); os.utime(other, (stale, stale))
+        with patch.object(meter, '_MAX_BYTES', 1):
+            self.record()                                  # rotasyon tetiklenir
+        self.assertFalse(old.exists())                     # eskiden sonsuza dek birikirdi
+        self.assertTrue(fresh.exists())
+        self.assertTrue(other.exists())                    # başka kullanıcının dosyasına dokunulmaz
+
     def test_rotated_records_are_filtered_by_day(self):
         today = datetime.now(meter._TR).date().isoformat()
         old = {'t': '2000-01-01T10:00:00+03:00', 'p': 'gemini', 'm': 'x',
