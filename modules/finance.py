@@ -26,6 +26,8 @@ TTL = 600
 MARKET_TTL = 60
 TROY_OUNCE_GRAMS = Decimal('31.1034768')
 _CACHE: dict = {}
+_BTCTURK_DOWN: dict = {}
+BTCTURK_PAUSE = 300
 TR = timezone(timedelta(hours=3))
 _LOCK = threading.Lock()
 
@@ -273,15 +275,17 @@ def _coingecko(pair: str):
 
 
 def _market(pair: str):
-    """BtcTurk önce; ulaşılamazsa ya da yanıt bozuksa CoinGecko (aynı TL fiyatı, ücretsiz)."""
+    """BtcTurk önce; ulaşılamazsa ya da yanıt bozuksa CoinGecko (aynı TL fiyatı, ücretsiz). BtcTurk bozulunca 5 dk atlanır."""
     from urllib3.exceptions import HTTPError
     from modules.diagnostics import record_failure
-    try:
-        return _btcturk(pair)
-    except PermissionError:
-        raise
-    except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
-        record_failure('modules/finance.py:btcturk')
+    if time.monotonic() >= _BTCTURK_DOWN.get('until', 0):
+        try:
+            return _btcturk(pair)
+        except PermissionError:
+            raise
+        except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
+            record_failure('modules/finance.py:btcturk')
+            _BTCTURK_DOWN['until'] = time.monotonic() + BTCTURK_PAUSE  # her soruda 5 sn beklememek için
     return _coingecko(pair)
 
 

@@ -53,7 +53,7 @@ def btcturk(pair):
 
 class FinanceTest(unittest.TestCase):
     def setUp(self):
-        finance._CACHE.clear()
+        finance._CACHE.clear();finance._BTCTURK_DOWN.clear()
         self.calls = []
 
     def fetch_ok(self, url, **_):
@@ -210,7 +210,7 @@ class FinanceTest(unittest.TestCase):
         def both(url, **_):
             if 'btcturk.com' in url or 'coingecko.com' in url:raise OSError('yok')
             return self.fetch_ok(url)
-        finance._CACHE.clear()
+        finance._CACHE.clear();finance._BTCTURK_DOWN.clear()
         self.assertIn('Fiyat kaynağına (BtcTurk ve CoinGecko) şu an ulaşamadım', self.ask('bitcoin kaç lira', both))
         def denied(url, **_):raise PermissionError('Gizlilik modu açık')
         finance._CACHE.clear()
@@ -223,6 +223,21 @@ class FinanceTest(unittest.TestCase):
             return {'url': url, 'body': btcturk('ETHTRY'), 'content_type': 'application/json'}
         finance._CACHE.clear()
         self.assertIn('ulaşamadım', self.ask('bitcoin kaç lira', wrong_pair))
+
+    def test_failed_btcturk_is_skipped_for_a_while(self):
+        def down(url, **_):
+            self.calls.append(url)
+            if 'btcturk.com' in url:raise OSError('yok')
+            return self.fetch_ok(url)
+        self.calls.clear()
+        self.assertIn('CoinGecko', self.ask('bitcoin kaç lira', down))
+        finance._CACHE.clear()
+        self.assertIn('CoinGecko', self.ask('btc ne kadar', down))
+        self.assertEqual(sum('btcturk.com' in u for u in self.calls), 1)
+        finance._BTCTURK_DOWN['until'] = 0  # bekleme süresi doldu
+        finance._CACHE.clear();self.calls.clear()
+        self.assertIn('Bitcoin 2.450.000,00 TL', self.ask('bitcoin kaç lira'))
+        self.assertTrue(any('btcturk.com' in u for u in self.calls))
 
     def test_market_cache_is_short(self):
         self.ask('bitcoin kaç lira');self.ask('btc ne kadar')
