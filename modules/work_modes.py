@@ -6,6 +6,8 @@ niyetini söyler; böylece eylem istekleri model tarafından yanlışlıkla sohb
 from __future__ import annotations
 import re
 
+from modules import freshness
+
 
 def _fold(text: str) -> str:
     return ' '.join(str(text or '').casefold().translate(str.maketrans('çğıöşü', 'cgiosu')).replace('ı', 'i').split()).strip(' .!?')
@@ -31,10 +33,7 @@ def instructional_question(text: str) -> bool:
 
 
 def fresh_external(text: str) -> bool:
-    low = _fold(text)
-    topic = bool(re.search(r'\b(?:haber\w*|gelisme\w*|fiyat\w*|kur|dolar|euro|altin|borsa|piyasa|skor\w*|hava)\b', low))
-    fresh = bool(re.search(r'\b(?:guncel|son|bugun|su an|simdi|latest|recent|yeni|ne kadar|kac)\b', low))
-    return topic and fresh
+    return freshness.fresh_request(text, weather=True)
 
 
 # Fiil kökü tek başına yetmez: "yap" kökü "yapay", "kur" kökü "kurban/kural", "aç" kökü "acaba/açıklar"

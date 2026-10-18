@@ -3,6 +3,8 @@ import json
 import re
 from typing import Callable
 
+from modules import freshness
+
 SYSTEM = r"""Kullanıcı komutunu şu JSON'a çevir (yalnızca JSON):
 {"intent": "app_action|code|doc_summary|doc_insight|doc_convert|translate|doc_translate|open_app|open_url|status|screenshot|volume|feedback|weather|chat|brightness|media|pc_control|screen_analyze|mail|close_app|work|send_phone|clarify|task|desktop_task|handoff|note",
  "args": {...}}
@@ -46,13 +48,7 @@ _INTENTS = set('app_action code doc_summary doc_insight doc_convert translate do
 
 
 def _fresh_research_request(text):
-    low=' '.join(str(text or '').casefold().translate(str.maketrans('çğıöşü','cgiosu')).split())
-    if re.search(r'\b(?:nedir|ne demek|tarihce)\b',low):return False
-    topic=bool(re.search(r'\b(?:haber\w*|gelisme\w*|fiyat\w*|kur|dolar|euro|altin|borsa|piyasa|skor\w*|mac sonucu\w*)\b',low))
-    fresh=bool(re.search(r'\b(?:guncel|son|bugun|su an|latest|recent|yeni)\b',low))
-    implicit_news=bool(re.search(r'\b(?:haber\w*|gelisme\w*)\b',low) and re.search(r'\b(?:neler|nelerdir|ne var|ozet\w*|anlat\w*|goster\w*|arastir\w*)\b',low))
-    market_now=bool(re.search(r'\b(?:dolar|euro|altin|borsa|skor\w*)\b',low) and re.search(r'\b(?:kac|ne kadar|durum\w*|sonuc\w*)\b',low))
-    return topic and (fresh or implicit_news or market_now)
+    return freshness.fresh_request(text)
 
 
 def _definition_question(text):
