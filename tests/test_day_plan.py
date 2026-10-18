@@ -84,6 +84,19 @@ class DayPlanTests(ProfileCase):
         self.assertIn('15:00 Dişçi', reply)
         self.assertIn("Google Takvim'e bakamadım ve Gmail'e bakamadım.", reply)
 
+    def test_expired_google_permission_says_reconnect_in_plain_turkish(self):
+        """Süresi dolan/geri alınan Google izni (invalid_grant): cevap ne yapılacağını söyler, tek cümlede."""
+        def boom(*a, **k):
+            raise Exception("('invalid_grant: Token has been expired or revoked.', {'error': 'invalid_grant'})")
+        rt = self.rt()
+        rt.google_api.day_events = boom
+        rt.google_api.unread_count = boom
+        reply = say(rt, 'bugünün planı')
+        self.assertIn('Google izni çalışmıyor', reply)
+        self.assertIn('“Bağlan” düğmesine basıp izni yenile', reply)
+        self.assertEqual(reply.count('Google izni çalışmıyor'), 1)       # Takvim ve Gmail aynı izin: bir kez söylenir
+        self.assertNotIn('invalid_grant', reply)
+
     def test_duplicate_jarvis_and_google_entry_shown_once(self):
         self.profile.add_event('Sunum', '2026-10-17T14:30')
         tz = datetime.now().astimezone().tzinfo

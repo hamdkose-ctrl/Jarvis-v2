@@ -129,11 +129,12 @@ def _day_plan(runtime, offset: int = 0) -> str:
 
     Model çağrılmaz (kota harcamaz); Google yalnız okunur. Okunamayan kaynak cevabın içinde açıkça söylenir."""
     from datetime import timedelta
+    from modules import google_api as _google_api
     now = runtime.datetime.now()
     day = (now + timedelta(days=offset)).date()
     label = 'Bugünün' if offset == 0 else 'Yarının'
     head = f'{label} planı ({day.day} {_MONTHS_TR[day.month - 1]} {_DAYS_TR[day.weekday()]}).'
-    items, problems = [], []
+    items, problems, reconnect = [], [], False
     for e in runtime.profile.events_on(day.strftime('%Y-%m-%d')):
         hhmm = e['when'][11:16] if len(e['when']) > 10 else ''
         items.append((hhmm, e['title']))
@@ -141,9 +142,10 @@ def _day_plan(runtime, offset: int = 0) -> str:
         if runtime.google_api.connected():
             for start, name in runtime.google_api.day_events(offset):
                 items.append((start.astimezone().strftime('%H:%M') if start else '', name))
-    except Exception:
+    except Exception as exc:
         _record_failure('main.py:_day_plan')
         problems.append("Google Takvim'e bakamadım")
+        reconnect = reconnect or _google_api.needs_reconnect(exc)
     seen, timed, allday = set(), [], []
     for hhmm, name in sorted(items, key=lambda x: (x[0] or '', x[1])):
         key = (hhmm, name.strip().casefold())
@@ -193,9 +195,10 @@ def _day_plan(runtime, offset: int = 0) -> str:
             if runtime.google_api.connected():
                 n = runtime.google_api.unread_count()
                 parts.append(f"Gmail'de {n} okunmamış mail var." if n else "Gmail'de okunmamış mail yok.")
-        except Exception:
+        except Exception as exc:
             _record_failure('main.py:_day_plan')
             problems.append("Gmail'e bakamadım")
+            reconnect = reconnect or _google_api.needs_reconnect(exc)
         try:
             from modules import handoff
             line = handoff.brief_line()
@@ -205,6 +208,8 @@ def _day_plan(runtime, offset: int = 0) -> str:
             _record_failure('main.py:_day_plan')
     if problems:
         parts.append(' ve '.join(problems) + '.')
+        if reconnect:                         # Takvim ve Gmail aynı izni kullanır: neden ve çare tek kez söylenir
+            parts.append(_google_api.reconnect_help())
     return ' '.join(parts)
 
 
@@ -262,31 +267,52 @@ def _fold(text: str) -> str:
     return text.replace('İ', 'i').replace('I', 'ı').lower().translate(_FOLD)
 
 
-_EDIT_ASK = re.compile(r"\b(?:sil|kaldir|iptal|ertele|otele)\w*")
+_EDIT_ASK = re.compile(r"\b(?:sil|kaldir|iptal|ertele|otele|kaydir)\w*|\batla\b|\batlar\s+misin|\batlayabilir")
 _EDIT_TOPIC = re.compile(r"\b(?:hatirlat|etkinli|randevu|takvim)\w*")
 _NUM = {"bir": 1, "iki": 2, "uc": 3, "dort": 4, "bes": 5, "on": 10, "yirmi": 20, "otuz": 30}
+_DAYS_FOLD = {"pazartesi": 0, "sali": 1, "carsamba": 2, "persembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
+_DAY_TO = r"\b(cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?\b"
 _EDIT_NOISE = (r"hatirlat\w*|etkinli\w*|randevu\w*|takvim\w*|sil\w*|kaldir\w*|iptal\w*|et|ertele\w*|otele\w*|bana|su|bu|"
                r"son|ekledigim|ekledi\w*|lutfen|ve|\d+|dakika\w*|dk|saat\w*|gun\w*|yarin\w*|haftaya|bir|iki|uc|bes|on|"
-               r"yarim|ceyrek|dort|yirmi|otuz")
+               r"yarim|ceyrek|dort|yirmi|otuz|bugun\w*|hafta\w*|seferlik|sadece|sonraki|atla\w*|kaydir\w*|"
+               r"(?:cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?")
 
 
-def _edit_target(runtime, tr: str, delete: bool):
+def _hint(runtime, tr: str) -> str:
+    hint = runtime.re.sub(r"\b(?:" + _EDIT_NOISE + r")\b", " ", tr)
+    return runtime.re.sub(r"\s+", " ", hint).strip(" ,.:-'’")
+
+
+def _word_in(w: str, title: str) -> bool:
+    """Başlık ipucu eşleşmesi: kelimenin ilk 5 harfi; "ilacı"/"ilaç" gibi tamlama ünlüsü de kabul."""
+    return w[:5] in title or (len(w) > 3 and w[-1] in "iuae" and w[:-1] in title)
+
+
+def _title_hits(runtime, tr: str) -> list:
+    hint = _hint(runtime, tr)
+    if not hint:
+        return []
+    return [e for e in runtime.profile.data['events'] if all(_word_in(w, _fold(e['title'])) for w in hint.split())]
+
+
+def _edit_target(runtime, tr: str, delete: bool, pool=None):
     """(kayıt, mesaj): komuttaki başlık ipucuna göre tek kayıt; belirsizse kayıt None ve soru mesajı."""
-    events = list(runtime.profile.data['events'])
+    events = list(pool if pool is not None else runtime.profile.data['events'])
     if not events:
         return None, 'Kayıtlı bir hatırlatman yok.'
-    hint = runtime.re.sub(r"\b(?:" + _EDIT_NOISE + r")\b", " ", tr)
-    hint = runtime.re.sub(r"\s+", " ", hint).strip(" ,.:-'’")
+    hint = _hint(runtime, tr)
     if hint:
-        words = [w[:5] for w in hint.split()]
-        hits = [e for e in events if all(w in _fold(e['title']) for w in words)]
+        hits = [e for e in events if all(_word_in(w, _fold(e['title'])) for w in hint.split())]
         if not hits:
             return None, f"'{hint}' adında bir kaydın yok."
+    elif pool is not None:
+        hits = events
     elif runtime.re.search(r"\bson\b", tr) and delete:
         hits = [max(events, key=lambda e: e['id'])]
     elif not delete:
         done = sorted((e for e in events if e.get('notified') and not e.get('repeat')), key=lambda e: e['when'], reverse=True)
-        hits = done[:1] or (events if len(events) == 1 else [])
+        single = [e for e in events if not e.get('repeat')]
+        hits = done[:1] or (single if len(single) == 1 else [])
     else:
         hits = events if len(events) == 1 else []
     if len(hits) == 1:
@@ -296,36 +322,89 @@ def _edit_target(runtime, tr: str, delete: bool):
     return None, f"Hangisini kastettin? Kayıtların: {shown}. Başlığını söyleyerek tekrar dene."
 
 
+def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
+    """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
+    from datetime import datetime
+    cur = datetime.strptime(str(ev['when'])[:16], '%Y-%m-%dT%H:%M')
+    base = ev.get('base') or cur.strftime('%H:%M')
+    out = new_when.strftime('%Y-%m-%dT%H:%M')
+    runtime.profile.reschedule_event(ev['id'], out, base=None if out[11:16] == base else base)
+    after = datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time())
+    following = runtime.whenmod.next_occurrence(ev['repeat'], after, int(base[:2]), int(base[3:]))
+    msg = f"{ev['title']} kaydının sıradaki tekrarını {said} {verb}: {runtime.whenmod.describe(out, now)}."
+    if out[11:16] != base:
+        msg += f" Sonraki tekrarlar eski saatinde ({base}) kalır."
+    if new_when.date() > following.date():
+        msg += ' Aradaki tekrarlar bu sefer çalmaz.'
+    return msg
+
+
 def _edit_reminder(runtime, text: str, now) -> str | None:
-    """Hatırlatma silme ve erteleme: "ilaç hatırlatmasını sil", "hatırlatmayı 10 dakika ertele", "toplantıyı yarına ertele"."""
+    """Hatırlatma silme, erteleme, kaydırma ve atlama: "ilaç hatırlatmasını sil", "toplantıyı yarına ertele",
+    "yarınki hatırlatmayı 1 saat ertele", "toplantıyı cumaya kaydır", "bugünkünü atla" (tekrarlayanda yalnız sıradaki oluşum)."""
     from datetime import datetime, timedelta
     tr = _fold(text)
     if not _EDIT_ASK.search(tr):
         return None
-    postpone = bool(runtime.re.search(r"\b(?:ertele|otele)\w*", tr))
-    if not postpone and not _EDIT_TOPIC.search(tr):
-        return None
+    skip = bool(runtime.re.search(r"\batla\b|\batlar\s+misin|\batlayabilir", tr))
+    move = bool(runtime.re.search(r"\bkaydir\w*", tr))
+    postpone = bool(runtime.re.search(r"\b(?:ertele|otele)\w*", tr)) or move
+    qual = 'today' if runtime.re.search(r"\bbugunku", tr) else 'tomorrow' if runtime.re.search(r"\byarinki", tr) else ''
+    if not (postpone and not move) and not _EDIT_TOPIC.search(tr):
+        # "kaydır"/"atla" günlük konuşmada başka şeyler için de geçer: kayıt başlığı ya da bugünkü/yarınki ipucu şart
+        if not ((move or skip) and ((qual and not _hint(runtime, tr)) or _title_hits(runtime, tr))):
+            return None
     if runtime.re.search(r"\b(?:ekle|yaz|not et)\b|\bnot(?:u|lar\w*)?\s+sil|\bnumarali\b|\b\d+\.?\s*notu?\b", tr):
         return None
-    ev, ask = _edit_target(runtime, tr, delete=not postpone)
+    pool = None
+    day = None
+    if qual:
+        day = (now if qual == 'today' else now + timedelta(days=1)).strftime('%Y-%m-%d')
+        if not _hint(runtime, tr):
+            pool = [e for e in runtime.profile.data['events'] if str(e['when'])[:10] == day]
+            if not pool:
+                return f"{'Bugün' if qual == 'today' else 'Yarın'} için bir hatırlatman görünmüyor."
+    ev, ask = _edit_target(runtime, tr, delete=not (postpone or skip), pool=pool)
     if ev is None:
         return ask
+    if skip:
+        if not ev.get('repeat'):
+            return f"{ev['title']} tek seferlik bir kayıt; atlamak yerine silmeyi ya da ertelemeyi söyleyebilirsin."
+        if day and str(ev['when'])[:10] != day:
+            return (f"{ev['title']} {'bugün' if qual == 'today' else 'yarın'} için görünmüyor; sıradaki tekrarı "
+                    f"{runtime.whenmod.describe(ev['when'], now)}. Hiçbir şeyi değiştirmedim.")
+        cur = datetime.strptime(str(ev['when'])[:16], '%Y-%m-%dT%H:%M')
+        base = ev.get('base') or cur.strftime('%H:%M')
+        nxt = runtime.whenmod.next_occurrence(ev['repeat'], datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time()),
+                                              int(base[:2]), int(base[3:]))
+        runtime.profile.reschedule_event(ev['id'], nxt.strftime('%Y-%m-%dT%H:%M'))
+        return (f"{ev['title']}: {runtime.whenmod.describe(ev['when'], now)} tekrarını atladım. "
+                f"Sıradaki: {runtime.whenmod.describe(nxt.strftime('%Y-%m-%dT%H:%M'), now)}.")
     if not postpone:
         runtime.profile.delete_event(ev['id'])
         extra = ' (tekrarlayan kaydın bütün tekrarlarını kaldırdım)' if ev.get('repeat') else ''
-        return (f"Sildim: {ev['title']}, {runtime.whenmod.describe(ev['when'])}{extra}. Yalnız Jarvis kaydıdır; "
+        return (f"Sildim: {ev['title']}, {runtime.whenmod.describe(ev['when'], now)}{extra}. Yalnız Jarvis kaydıdır; "
                 f"Google Takvim'e dokunmadım. Yanlışsa aynı kaydı yeniden ekleyebilirsin.")
-    if ev.get('repeat'):
-        return 'Tekrarlayan kaydı ertelemiyorum; istersen silip yeni saatle tekrar ekle.'
+    verb = 'kaydırdım' if move else 'erteledim'
     when = str(ev['when'])
     allday = len(when) == 10
+    if day and ev.get('repeat') and when[:10] != day:
+        return (f"{ev['title']} {'bugün' if qual == 'today' else 'yarın'} için görünmüyor; sıradaki tekrarı "
+                f"{runtime.whenmod.describe(when, now)}. Hiçbir şeyi değiştirmedim.")
     base = datetime.strptime(when[:16], '%Y-%m-%dT%H:%M') if not allday else datetime.strptime(when, '%Y-%m-%d')
+    dm = runtime.re.search(_DAY_TO, tr)
     if runtime.re.search(r"\bhaftaya\b", tr):
         new, said = base + timedelta(days=7), 'bir hafta'
     elif runtime.re.search(r"\byarina\b|\byarin\b", tr):
         new, said = base + timedelta(days=1), 'bir gün'
-        if not allday and new < now:
+        if not allday and new < now and not ev.get('repeat'):
             new = now.replace(hour=base.hour, minute=base.minute, second=0, microsecond=0) + timedelta(days=1)
+    elif dm:
+        ahead = (_DAYS_FOLD[dm.group(1)] - now.weekday()) % 7
+        new = base.replace(year=now.year, month=now.month, day=now.day) + timedelta(days=ahead)
+        if not allday and new <= now:
+            new += timedelta(days=7)
+        said = dm.group(0)
     else:
         mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
         if runtime.re.search(r"yarim saat", tr):
@@ -344,9 +423,11 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
             return 'Bu tüm gün kaydı; "yarına" ya da "2 gün" gibi gün olarak ertele.'
         new = (now if base <= now and unit != 'gün' else base) + delta
         said = f'{n} {unit}'
+    if ev.get('repeat'):
+        return _edit_repeating(runtime, ev, new, said, verb, now)
     out = new.strftime('%Y-%m-%d') if allday else new.strftime('%Y-%m-%dT%H:%M')
     runtime.profile.reschedule_event(ev['id'], out)
-    return f"{ev['title']} kaydını {said} erteledim: {runtime.whenmod.describe(out)}."
+    return f"{ev['title']} kaydını {said} {verb}: {runtime.whenmod.describe(out, now)}."
 
 
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
