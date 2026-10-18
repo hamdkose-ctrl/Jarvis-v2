@@ -19,7 +19,15 @@ class PdfReadTimeout(RuntimeError):
     """İzole PDF okuyucu süresi doldu; ana süreçte sınırsız tekrar okunmaz."""
 
 
-def read_pdf_isolated(path: str) -> str:
+def _budget(default: float, deadline: float | None) -> float:
+    """Alt süreç süre sınırı: çağıranın son anı (time.monotonic) varsa kalan süreyle kısaltılır, en az 5 sn."""
+    if deadline is None:
+        return default
+    import time
+    return max(5.0, min(default, deadline - time.monotonic()))
+
+
+def read_pdf_isolated(path: str, deadline: float | None = None) -> str:
     """PDF metnini AYRI bir Python sürecinde okur; tüm proje için tek PDF okuma yoludur.
 
     pypdf saf Python olduğu için büyük kitapta dakikalarca işlemciyi tutup Jarvis'in
@@ -32,7 +40,7 @@ def read_pdf_isolated(path: str) -> str:
             "sys.stdout.buffer.write(chr(12).join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages)"
             ".encode('utf-8'))")
     try:
-        cp = subprocess.run([sys.executable, "-c", code, str(path)], cwd=str(root), capture_output=True, timeout=900,
+        cp = subprocess.run([sys.executable, "-c", code, str(path)], cwd=str(root), capture_output=True, timeout=_budget(900, deadline),
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
                             | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
     except subprocess.TimeoutExpired as exc:
@@ -64,7 +72,7 @@ def markitdown_available() -> bool:
     return importlib.util.find_spec("markitdown") is not None
 
 
-def read_markitdown_isolated(path: str) -> str | None:
+def read_markitdown_isolated(path: str, deadline: float | None = None) -> str | None:
     """MarkItDown ile Markdown'a çevirir; AYRI süreçte, süre sınırıyla ve eklentiler kapalı çalışır.
 
     Kurulu değilse ya da dosyayı çeviremezse None döner ve çağıran mevcut okuyucuya düşer.
@@ -77,7 +85,7 @@ def read_markitdown_isolated(path: str) -> str | None:
             "r=MarkItDown(enable_plugins=False).convert_local(sys.argv[1]);"
             "sys.stdout.buffer.write((r.text_content or '').encode('utf-8'))")
     try:
-        cp = subprocess.run([sys.executable, "-c", code, str(Path(path).resolve())], cwd=str(root), capture_output=True, timeout=300,
+        cp = subprocess.run([sys.executable, "-c", code, str(Path(path).resolve())], cwd=str(root), capture_output=True, timeout=_budget(300, deadline),
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
                             | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
     except subprocess.TimeoutExpired as exc:
@@ -152,24 +160,25 @@ _CACHE: dict = {}
 _CACHE_LOCK = __import__("threading").Lock()
 
 
-def read_document(path: str, keep_pages: bool = False, cache: bool = False) -> str:
+def read_document(path: str, keep_pages: bool = False, cache: bool = False, deadline: float | None = None) -> str:
     """Belge metni. keep_pages=True PDF sayfalarını form-feed (\\f) ile ayrı tutar.
 
     cache=True aynı dosyanın (yol + boyut + değişiklik zamanı) art arda iki kez ayrı süreçte okunmasını önler;
     örn. sohbette özetlenen dosya hemen ardından aranabilir dosyalara eklenirken.
+    deadline (time.monotonic anı) verilirse PDF/MarkItDown alt süreçleri kalan süreden uzun beklemez (klasör analizi bütçesi).
     """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"Dosya bulunamadı: {path}")
     if not cache:
-        text = _read_raw(p)
+        text = _read_raw(p, deadline)
     else:
         st = p.stat()
         key = (str(p.resolve()), st.st_size, st.st_mtime_ns)
         with _CACHE_LOCK:
             text = _CACHE.get(key)
         if text is None:
-            text = _read_raw(p)
+            text = _read_raw(p, deadline)
             with _CACHE_LOCK:
                 if len(_CACHE) >= 4:
                     _CACHE.pop(next(iter(_CACHE)))
@@ -327,7 +336,7 @@ def _read_json(p: Path) -> str:
         return text                                # bozuk JSON da düz metin olarak okunur
 
 
-def _read_raw(p: Path) -> str:
+def _read_raw(p: Path, deadline: float | None = None) -> str:
     ext = p.suffix.lower()
 
     if ext in _LEGACY:
@@ -337,7 +346,7 @@ def _read_raw(p: Path) -> str:
     if ext == ".pdf":
         # Tüm projede tek PDF okuma yolu: ayrı süreçte okur (arayüzü kilitlemez).
         try:
-            return read_pdf_isolated(str(p))
+            return read_pdf_isolated(str(p), deadline)
         except RuntimeError as exc:
             if isinstance(exc, PdfReadTimeout) or not any(w in str(exc).casefold() for w in ("decrypt", "password", "encrypt")):
                 raise
@@ -347,7 +356,7 @@ def _read_raw(p: Path) -> str:
         check_office_file(p)
     if ext in _MARKITDOWN:
         # MarkItDown birincil okuyucu; kurulu değilse ya da çeviremezse aşağıdaki okuyuculara düşülür.
-        text = read_markitdown_isolated(str(p))
+        text = read_markitdown_isolated(str(p), deadline)
         if text is not None:
             return _clean_excel(text, p) if ext in (".xlsx", ".xlsm") else text
 
