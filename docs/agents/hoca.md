@@ -19,3 +19,8 @@ Plan: `raporlar/hoca-modu-plan-2026-10-18.md` (Hamdi 2026-10-18: seçenek B; ön
 - Adım başına en çok 2 model çağrısı: `teach` (anlatım + soru birlikte) ve `grade`. Hata `HocaError` mesajı olarak gösterilir, ilerletmez.
 - Bilinen eksik: dersle ilgili serbest sorular ("mitokondri ne işe yarar") normal sohbete gider, ders bağlamı modele verilmiyor; sonraki iş. Test: `tests/test_hoca.py` (`HocaChatTests`, `HocaEngineHookTests`: hoca kapalı/açık, alakasız cümle, aktif ders + komut; model taklit). `_study_intent` başka bir erken kural tarafından önce yakalanabilir mi, gerçek PC'de denenmedi.
 - Bilinen sınır: çıplak "devam"/"devam et" hedef motorunun `RESUME_COMMANDS` listesindedir (`engine_commands`, hoca'dan önce çalışır); bu yüzden derste "sonraki adım" ya da "geç" denir, "devam" hoca tarafından yakalanmaz.
+
+## Arayüz sekmesi — 18 Ekim 2026
+- Çalışma sayfasında "Hoca" sekmesi (`hocaHtml`, `webui/nx.js`): konu kutusu + Başla, aktif ders (adım listesi, anlatım, kontrol sorusu, cevap kutusu, Sonraki adım / Bilmiyorum / Dersi bırak), zayıf konular (tekrar zamanı rozeti), "Sohbet komutları" aç/kapat. Düğmeler yeni bir yol açmaz: `say()` ile aynı sohbet komutlarını gönderir ("hoca modu: X", "cevap: …", "sonraki adım"), yani ders sohbet ekranında ilerler; sekme durumu gösterir.
+- Veri `study_overview()['hoca']` (= `hoca.snapshot`, model çağırmaz). Ayar `hoca_enabled` (varsayılan açık) `settings()` ve `settings_save` içindedir; sekmedeki düğme onu yazar.
+- Test: `tests/hoca_behavior.js` (`JS_GROUPS`'ta), `tests/test_hoca.py` (`HocaSnapshotTests`, `HocaBridgeTests`). Ekranda görsel olarak ve gerçek PC'de denenmedi; ders cevabından sonra sekmenin kendiliğinden yenilenmesi yok (sekmeye yeniden girince/yenile ile güncellenir).

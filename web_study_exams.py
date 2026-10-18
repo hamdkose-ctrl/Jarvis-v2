@@ -26,7 +26,12 @@ class WebStudyExams:
         p = services.current_profile()
         st = studyexam.stats(p)
         ss = services.study.status(p)
-        return {'courses': studyexam.courses(p), 'selected': studyexam.selected(p), 'stats': st, 'focus': studyexam.focus(p, 3), 'focus_all': studyexam.focus(p, 40), 'plan': studyexam.plan(p), 'today': studyexam.today(p), 'wrong': studyexam.wrong_summary(p), 'mock': studyexam.mock_status(p), 'coverage': {'years': ss.get('recent_exam_years', []), 'year_count': len(ss.get('recent_exam_years', [])), 'exam_files': len(ss.get('exams', []))}}
+        return {'courses': studyexam.courses(p), 'selected': studyexam.selected(p), 'stats': st, 'focus': studyexam.focus(p, 3), 'focus_all': studyexam.focus(p, 40), 'plan': studyexam.plan(p), 'today': studyexam.today(p), 'wrong': studyexam.wrong_summary(p), 'mock': studyexam.mock_status(p), 'coverage': {'years': ss.get('recent_exam_years', []), 'year_count': len(ss.get('recent_exam_years', [])), 'exam_files': len(ss.get('exams', []))}, 'hoca': self._hoca_snapshot(p)}
+
+    def _hoca_snapshot(self, profile) -> dict:
+        from config import load_settings
+        from modules import hoca
+        return hoca.snapshot(profile, enabled=bool(load_settings().get('hoca_enabled', True)))
 
     def study_quiz_next(self, mk: str='', topic: str='') -> dict | None:
         services = self._study_dependencies
