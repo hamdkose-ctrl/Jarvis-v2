@@ -167,6 +167,55 @@ def fetch_unread(limit: int = 20) -> list[dict]:
     return out
 
 
+def search_recent(keywords: list[str], days: int = 30, limit: int = 5, scan: int = 200) -> list[dict]:
+    """Gelen kutusunun en yeni `scan` mailinde, son `days` günde konu ya da gönderende anahtar sözcüklerden biri geçenler:
+    {who, subject, days}. Yalnız okur (gövde, okundu durumu, klasör hiç değişmez); tarih filtresi Outlook'a değil Python'a bırakılır
+    (Outlook'un yerel ayara bağlı tarih biçimi sorunu olmasın)."""
+    from datetime import datetime
+    if not sys.platform.startswith("win") or not installed():
+        raise RuntimeError("Outlook bu bilgisayarda kullanılamıyor.")
+    words = [_fold(w) for w in keywords if w]
+    if not words:
+        return []
+    was_running = running()
+    if not was_running:
+        _launch()
+    inbox = None
+    for _ in range(15):
+        try:
+            inbox = _inbox()
+            break
+        except Exception:
+            _record_failure('modules/outlook.py:search_recent')
+            if not was_running:
+                time.sleep(2)
+                continue
+            raise
+    if inbox is None:
+        raise RuntimeError("Outlook henüz hazır değil.")
+    items = inbox.Items
+    items.Sort("[ReceivedTime]", True)
+    out, now = [], datetime.now()
+    for i in range(1, min(int(items.Count), scan) + 1):
+        if len(out) >= limit:
+            break
+        it = items.Item(i)
+        try:
+            got = it.ReceivedTime
+            age = (now - datetime(got.year, got.month, got.day, got.hour, got.minute)).days
+            if age > days:
+                break                     # en yeniden eskiye sıralı
+            sender = str(it.SenderName or "").strip() or "Bilinmeyen"
+            subject = re.sub(r"^(?:(?:re|fw|fwd|ynt|ilt)\s*:\s*)+", "", str(it.Subject or "").strip(), flags=re.I) or "(konusuz)"
+        except Exception:
+            _record_failure('modules/outlook.py:search_recent')
+            continue                      # toplantı daveti gibi farklı türler
+        hay = _fold(sender + " " + subject)
+        if any(w in hay for w in words):
+            out.append({"who": sender, "subject": subject, "days": max(age, 0)})
+    return out
+
+
 def _draft_target(f: str, mails: list[dict]):
     """(mail, mesaj): sözcük verildiyse gönderen/konuda eşleşen tek mail, yoksa sıra (varsayılan ilk). Belirsizse mail None."""
     kws = [w for w in re.findall(r"([a-z0-9]+)(?:'[a-z]+)?", f) if w not in _DRAFT_STOP and not w.isdigit()]
