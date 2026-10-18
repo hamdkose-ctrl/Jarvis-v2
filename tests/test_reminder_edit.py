@@ -1,6 +1,7 @@
 """Hatırlatma silme ve erteleme (18 Ekim 2026): modelsiz, gerçek profil JSON'u, gerçek EngineContext.handle."""
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime, say
 
@@ -191,6 +192,78 @@ class RepeatingEditTests(ProfileCase):
     def test_delete_still_removes_all_repeats(self):
         self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
         self.assertIn('bütün tekrarlarını', say(self.rt(), 'ilaç hatırlatmasını sil'))
+
+
+class RepeatSnoozeTests(ProfileCase):
+    """Az önce çalan tekrarlayan hatırlatmayı "10 dakika sonra tekrar çal" (snooze); sıradaki tekrar değişmez."""
+    now = datetime(2026, 10, 17, 10, 0)
+
+    def rt(self):
+        return _runtime(self, self.profile, self.now)
+
+    def fire(self):
+        self.profile.add_event('İlaç', '2026-10-17T09:30', repeat='daily')
+        self.assertEqual(len(self.profile.due_events(self.now)), 1)         # çaldı, sıradaki 18 Ekim'e kuruldu
+
+    def ev(self):
+        return self.reload().data['events'][0]
+
+    def test_bare_postpone_snoozes_without_moving_next_occurrence(self):
+        self.fire()
+        reply = say(self.rt(), 'ertele')
+        self.assertIn('10 dakika sonra yeniden', reply)
+        e = self.ev()
+        self.assertEqual((e['snooze'], e['when']), ('2026-10-17T10:10', '2026-10-18T09:30'))
+        p = self.reload()
+        self.assertEqual(p.due_events(datetime(2026, 10, 17, 10, 9)), [])
+        self.assertEqual(len(p.due_events(datetime(2026, 10, 17, 10, 11))), 1)
+        self.assertEqual(p.due_events(datetime(2026, 10, 17, 10, 12)), [])          # bir kez çalar
+        self.assertEqual(p.data['events'][0]['when'], '2026-10-18T09:30')
+        self.assertNotIn('snooze', p.data['events'][0])
+
+    def test_named_and_ascii_snooze(self):
+        for text, want in (('ilaç hatırlatmasını yarım saat ertele', '2026-10-17T10:30'),
+                           ('ilaci 1 saat otele', '2026-10-17T11:00')):
+            with self.subTest(text=text):
+                self.profile.data['events'].clear()
+                self.fire()
+                say(self.rt(), text)
+                self.assertEqual(self.ev()['snooze'], want)
+
+    def test_tomorrow_qualifier_days_and_stale_fire_move_next_occurrence_instead(self):
+        self.fire()
+        say(self.rt(), 'yarınki ilaç hatırlatmasını 1 saat ertele')
+        e = self.ev()
+        self.assertEqual((e['when'], e.get('snooze')), ('2026-10-18T10:30', None))
+        self.profile.data['events'].clear()
+        self.fire()
+        say(self.rt(), 'ilaç hatırlatmasını 1 gün ertele')
+        self.assertEqual(self.ev()['when'], '2026-10-19T09:30')
+        self.profile.data['events'].clear()
+        self.profile.add_event('İlaç', '2026-10-18T09:30', repeat='daily')          # hiç çalmadı: sıradaki kayar
+        say(self.rt(), 'ilaç hatırlatmasını 10 dakika ertele')
+        e = self.ev()
+        self.assertEqual((e['when'], e.get('snooze')), ('2026-10-18T09:40', None))
+
+    def test_bare_postpone_picks_latest_fired_among_one_off_and_repeating(self):
+        self.profile.add_event('Eski', '2026-10-17T08:00')
+        self.profile.data['events'][0]['notified'] = True
+        self.profile.save()
+        self.profile.add_event('İlaç', '2026-10-17T09:30', repeat='daily')
+        self.profile.due_events(self.now)
+        self.assertIn('İlaç', say(self.rt(), 'ertele'))
+        self.assertNotIn('snooze', [e for e in self.reload().data['events'] if e['title'] == 'Eski'][0])
+
+    def test_failed_save_leaves_no_snooze(self):
+        self.fire()
+        p = self.reload()
+        eid = p.data['events'][0]['id']
+        with patch.object(p, 'save', side_effect=OSError('disk dolu')):
+            with self.assertRaises(OSError):
+                p.snooze_event(eid, '2026-10-17T10:10')
+        self.assertNotIn('snooze', p.data['events'][0])
+        self.assertTrue(p.snooze_event(eid, '2026-10-17T10:10'))
+        self.assertEqual(self.reload().data['events'][0]['snooze'], '2026-10-17T10:10')
 
 
 if __name__ == '__main__':

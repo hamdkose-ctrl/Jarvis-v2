@@ -35,7 +35,7 @@ class DayPlanTests(ProfileCase):
 
     def setUp(self):
         super().setUp()
-        self.handoff = patch('modules.handoff.brief_line', return_value=None)
+        self.handoff = patch('modules.handoff.brief_status', return_value=(None, None))
         self.handoff.start()
         self.addCleanup(self.handoff.stop)
 
@@ -97,6 +97,17 @@ class DayPlanTests(ProfileCase):
         self.assertEqual(reply.count('Google izni çalışmıyor'), 1)       # Takvim ve Gmail aynı izin: bir kez söylenir
         self.assertNotIn('invalid_grant', reply)
 
+    def test_handoff_line_and_failure_are_both_said(self):
+        with patch('modules.handoff.brief_status', return_value=('Ev için bekleyen 2 devir notu var: çizim.', None)):
+            self.assertIn('2 devir notu', say(self.rt(), 'bugünün planı'))
+        problem = 'Google Görevler izni yok ya da çalışmıyor. Menü › Yapay zekâ › Gmail ve Takvim bölümünde “Görevler iznini ver” düğmesine bas.'
+        with patch('modules.handoff.brief_status', return_value=(None, problem)):
+            reply = say(self.rt(), 'bugünün planı')
+        self.assertIn('Devir notlarına bakamadım', reply)
+        self.assertIn('“Görevler iznini ver”', reply)
+        with patch('modules.handoff.brief_status', return_value=(None, problem)):
+            self.assertNotIn('Devir', say(self.rt(), 'yarın planım ne'))      # yalnız bugünün planında
+
     def test_duplicate_jarvis_and_google_entry_shown_once(self):
         self.profile.add_event('Sunum', '2026-10-17T14:30')
         tz = datetime.now().astimezone().tzinfo
@@ -114,6 +125,25 @@ class DayPlanTests(ProfileCase):
         reply = say(self.rt(), 'bugün ne var')
         self.assertNotIn('planı', reply)
         self.assertIn('Dişçi', reply)
+
+
+class HandoffStatusTests(unittest.TestCase):
+    def test_not_connected_is_silent_permission_and_other_errors_are_explained(self):
+        from modules import handoff
+        with patch.object(handoff, 'ready', return_value=False):
+            self.assertEqual(handoff.brief_status(), (None, None))
+        with patch.object(handoff, 'ready', return_value=True), \
+                patch.object(handoff, 'pending', side_effect=Exception("('invalid_grant: Token has been expired or revoked.')")):
+            line, problem = handoff.brief_status()
+            self.assertIsNone(line)
+            self.assertIn('“Görevler iznini ver”', problem)
+            self.assertIsNone(handoff.brief_line())                         # açılış duyurusu eskisi gibi sessiz
+        with patch.object(handoff, 'ready', return_value=True), \
+                patch.object(handoff, 'pending', side_effect=OSError('ağ yok')):
+            self.assertEqual(handoff.brief_status(), (None, 'Devir notlarına bakamadım (Google Görevler).'))
+        with patch.object(handoff, 'ready', return_value=True), patch.object(handoff, 'place', return_value='ev'), \
+                patch.object(handoff, 'pending', return_value=[{'id': '1', 'where': 'ev', 'text': 'çizim', 'due': ''}]):
+            self.assertIn('1 devir notu', handoff.brief_status()[0])
 
 
 if __name__ == '__main__':

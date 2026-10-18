@@ -201,9 +201,11 @@ def _day_plan(runtime, offset: int = 0) -> str:
             reconnect = reconnect or _google_api.needs_reconnect(exc)
         try:
             from modules import handoff
-            line = handoff.brief_line()
+            line, trouble = handoff.brief_status()
             if line:
                 parts.append(line)
+            elif trouble:
+                parts.append(trouble if trouble.startswith('Devir') else f'Devir notlarına bakamadım: {trouble}')
         except Exception:
             _record_failure('main.py:_day_plan')
     if problems:
@@ -310,7 +312,8 @@ def _edit_target(runtime, tr: str, delete: bool, pool=None):
     elif runtime.re.search(r"\bson\b", tr) and delete:
         hits = [max(events, key=lambda e: e['id'])]
     elif not delete:
-        done = sorted((e for e in events if e.get('notified') and not e.get('repeat')), key=lambda e: e['when'], reverse=True)
+        done = sorted((e for e in events if (e.get('notified') and not e.get('repeat')) or (e.get('repeat') and e.get('fired'))),
+                      key=lambda e: e['fired'] if e.get('repeat') else e['when'], reverse=True)
         single = [e for e in events if not e.get('repeat')]
         hits = done[:1] or (single if len(single) == 1 else [])
     else:
@@ -320,6 +323,39 @@ def _edit_target(runtime, tr: str, delete: bool, pool=None):
     pool = hits or events
     shown = '; '.join(f"{runtime.whenmod.describe(e['when'])} {e['title']}" for e in sorted(pool, key=lambda e: e['when'])[:5])
     return None, f"Hangisini kastettin? Kayıtların: {shown}. Başlığını söyleyerek tekrar dene."
+
+
+def _recently_fired(ev: dict, now) -> bool:
+    from datetime import datetime
+    try:
+        return 0 <= (now - datetime.strptime(str(ev.get('fired')), '%Y-%m-%dT%H:%M')).total_seconds() < 6 * 3600
+    except ValueError:
+        return False
+
+
+def _snooze_repeating(runtime, ev: dict, tr: str, now) -> str | None:
+    """Az önce çalan tekrarlayan hatırlatma: "10 dakika sonra tekrar çal". Gün/hafta/gün adı dendiyse None (sıradaki oluşum kayar)."""
+    from datetime import timedelta
+    if runtime.re.search(r"\bhaftaya\b|\byarin|" + _DAY_TO, tr):
+        return None
+    mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
+    if runtime.re.search(r"yarim saat", tr):
+        n, unit = 30, 'dakika'
+    elif runtime.re.search(r"ceyrek saat", tr):
+        n, unit = 15, 'dakika'
+    elif mm:
+        n = int(mm.group(1)) if mm.group(1).isdigit() else _NUM[mm.group(1)]
+        unit = {'dakika': 'dakika', 'dk': 'dakika', 'saat': 'saat', 'gun': 'gün'}[mm.group(2)]
+    else:
+        n, unit = 10, 'dakika'
+    if unit == 'gün':
+        return None
+    if not 1 <= n <= 1000:
+        return 'Bu süreyi anlayamadım; "10 dakika" ya da "1 saat" gibi söyle.'
+    at = now + (timedelta(minutes=n) if unit == 'dakika' else timedelta(hours=n))
+    runtime.profile.snooze_event(ev['id'], at.strftime('%Y-%m-%dT%H:%M'))
+    return (f"{ev['title']} için {n} {unit} sonra yeniden hatırlatacağım ({at.strftime('%H:%M')}). "
+            f"Sıradaki normal tekrar değişmedi: {runtime.whenmod.describe(ev['when'], now)}.")
 
 
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
@@ -387,6 +423,10 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
                 f"Google Takvim'e dokunmadım. Yanlışsa aynı kaydı yeniden ekleyebilirsin.")
     verb = 'kaydırdım' if move else 'erteledim'
     when = str(ev['when'])
+    if ev.get('repeat') and not qual and not move and _recently_fired(ev, now):
+        snooze = _snooze_repeating(runtime, ev, tr, now)
+        if snooze:
+            return snooze
     allday = len(when) == 10
     if day and ev.get('repeat') and when[:10] != day:
         return (f"{ev['title']} {'bugün' if qual == 'today' else 'yarın'} için görünmüyor; sıradaki tekrarı "
