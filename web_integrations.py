@@ -22,14 +22,31 @@ class WebIntegrations:
 
     def google_upload(self, text: str) -> str:
         runtime = self._runtime
+        from modules import google_setup
         try:
             data = runtime.json.loads(text)
         except ValueError:
             raise ValueError('Bu bir JSON dosyası değil.')
-        if not isinstance(data, dict) or not {'installed', 'web'} & set(data):
-            raise ValueError('Bu bir Google OAuth istemci dosyası gibi görünmüyor (client_secret…json).')
+        problem = google_setup.client_problem(data)
+        if problem and (not isinstance(data, dict) or 'installed' not in data):
+            raise ValueError(problem)
         runtime.google_api.CRED.write_text(runtime.json.dumps(data), encoding='utf-8')
+        if problem:
+            return 'Kimlik dosyası kaydedildi ama eksik olabilir: ' + problem
         return 'Kimlik dosyası kaydedildi. Şimdi “Bağlan” düğmesine bas.'
+
+    def google_setup_status(self) -> dict:
+        runtime = self._runtime
+        from modules import google_setup
+        production = bool(runtime.config.load_settings().get('google_oauth_production', False))
+        return dict(google_setup.status(runtime.google_api, production), steps=google_setup.steps())
+
+    def google_setup_open(self, step: str) -> dict:
+        """Sihirbaz adımının sabit Google Cloud sayfasını açar; yalnız bilinen adım kimlikleri kabul edilir."""
+        from modules import google_setup
+        import webbrowser
+        webbrowser.open(google_setup.step_url(str(step)))
+        return {'ok': True, 'msg': 'Google Cloud sayfası tarayıcıda açıldı.'}
 
     def google_connect(self) -> dict:
         runtime = self._runtime
