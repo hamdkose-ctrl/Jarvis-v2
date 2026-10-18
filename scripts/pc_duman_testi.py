@@ -396,6 +396,8 @@ def ollama_version():
 def check_ollama(ctx):
     try:
         valid = ollama_version()
+    except ConnectionRefusedError:
+        return WARN, 'İsteğe bağlı Ollama yerel 11434 portunda çalışmıyor; model çağrılmadı.'
     except (OSError, http.client.HTTPException, ValueError):
         return FAIL, 'Yerel 11434 portuna erişilemedi veya sürüm yanıtı okunamadı; model çağrılmadı.'
     if not valid:
@@ -514,13 +516,13 @@ def console_write(text, stream):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Jarvis PC salt okunur duman testi; model/kota tüketmez.')
-    parser.add_argument('--rapor-klasoru', type=Path, help='Varsayılan: depo/duman_raporlari')
+    parser.add_argument('--rapor-klasoru', type=Path, help='Varsayılan: veri klasörü/duman_raporlari (~/.jarvis altında)')
     parser.add_argument('--veri-klasoru', type=Path, help='Varsayılan: JARVIS_DATA_DIR veya ~/.jarvis')
     parser.add_argument('--profil', help='İsteğe bağlı profil dosyasının uzantısız adı')
     args = parser.parse_args(argv)
     repo = Path(__file__).resolve().parents[1]
     data = args.veri_klasoru or Path(os.getenv('JARVIS_DATA_DIR') or Path.home() / '.jarvis')
-    reports = args.rapor_klasoru or repo / 'duman_raporlari'
+    reports = args.rapor_klasoru or data / 'duman_raporlari'
     if args.profil and not re.fullmatch(r'[\w-]{1,64}', args.profil):
         parser.error('Profil adı yalnız harf, rakam, _ ve - içerebilir (en çok 64).')
     try:

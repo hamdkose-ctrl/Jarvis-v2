@@ -302,6 +302,38 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(self.checked(smoke.check_ollama)[0], smoke.FAIL)
         connection.close.assert_called_once()
 
+    def test_08_ollama_connection_refused_warns_and_cli_exits_zero(self):
+        connection = self.http()
+        connection.request.side_effect = ConnectionRefusedError(SECRET)
+        with patch.object(smoke.http.client, 'HTTPConnection', return_value=connection):
+            self.assertEqual(self.checked(smoke.check_ollama)[0], smoke.WARN)
+            with patch.object(smoke, 'CHECKS', (('Ollama', smoke.check_ollama),)), \
+                    patch.object(smoke.sys, 'stdout', io.StringIO()):
+                code = smoke.main(['--rapor-klasoru', str(self.reports), '--profil', 'hamdi'])
+        self.assertEqual(code, 0)
+        report = next(self.reports.glob('duman_raporu_*')).read_text(encoding='utf-8')
+        self.assertIn('UYARI', report)
+        self.assertNotIn(SECRET, report)
+
+    def test_default_reports_follow_data_directory_outside_repository(self):
+        home = self.root / 'home'
+        for mode in ('home', 'environment', 'argument'):
+            with self.subTest(mode=mode):
+                data = home / '.jarvis' if mode == 'home' else self.data / mode
+                args = ['--profil', 'hamdi']
+                if mode == 'argument':
+                    args += ['--veri-klasoru', str(data)]
+                with patch.object(smoke, '__file__', str(self.repo / 'scripts/pc_duman_testi.py')), \
+                        patch.object(smoke.Path, 'home', return_value=home), \
+                        patch.dict(os.environ, {'JARVIS_DATA_DIR': str(data) if mode == 'environment' else ''}), \
+                        patch.object(smoke, 'CHECKS', (('deneme', lambda ctx: (smoke.PASS, 'tamam')),)), \
+                        patch.object(smoke.sys, 'stdout', io.StringIO()):
+                    self.assertEqual(smoke.main(args), 0)
+                reports = list((data / 'duman_raporlari').glob('duman_raporu_*.txt'))
+                self.assertEqual(len(reports), 1)
+                self.assertFalse(reports[0].is_relative_to(self.repo))
+                self.assertEqual(list(self.repo.rglob('duman_raporu_*.txt')), [])
+
     def test_08_ollama_redirect_invalid_json_or_oversized_response_fails(self):
         for status, raw in ((302, b'{}'), (200, b'bad'), (200, b'x' * 4097), (200, b'{}')):
             with self.subTest(status=status, length=len(raw)):
