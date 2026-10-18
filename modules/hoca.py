@@ -108,3 +108,137 @@ def advance(profile) -> dict | None:
         lesson["done"] = True
     profile.save()
     return current_step(profile)
+
+
+# --- Konu kilidi: yalnız açık komutlar adım değiştirir, geri kalan her şey aktif adımda kalır ---
+
+_NEXT = re.compile(r"\b(?:sonraki|bir sonraki|ileri)\s+(?:konu\w*|adım\w*|bölüm\w*)\s*(?:a|e|ya|ye)?\s*(?:geç\w*|ilerle\w*|git\w*)?")
+_NEXT_BARE = re.compile(r"(?:tamam\s+)?(?:devam(?:\s+et\w*)?|geç(?:elim|ebiliriz)?|ilerle(?:yelim)?)")
+_CHANGE = re.compile(r"\bkonu(?:yu)?\s+değiştir\w*|\bbaşka\s+(?:bir\s+)?konu\w*|\bders(?:i)?\s+bitir\w*|\bdersten\s+çık\w*")
+
+
+def intent(text: str) -> str:
+    """'next' | 'change' | 'stay'. Konuya benzerlik tahmin edilmez; yalnız açık komutlar sayılır."""
+    from modules import turkish_text
+    t = turkish_text.lower(text).strip(" .!?")
+    if _CHANGE.search(t):
+        return "change"
+    if _NEXT.search(t) or _NEXT_BARE.fullmatch(t):
+        return "next"
+    return "stay"
+
+
+# --- Kontrol sorusu ve puanlama (adım başına en çok 2 model çağrısı) ---
+
+_DAY = 86400
+_INTERVALS = (1, 3, 7)
+
+
+def _json(text: str, what: str) -> dict:
+    m = re.search(r"\{.*\}", str(text or ""), re.S)
+    try:
+        data = json.loads(m.group(0)) if m else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise HocaError(f"{what} anlaşılamadı. Biraz sonra tekrar dene.")
+    return data
+
+
+def _ask(prompt: str, system: str, tokens: int, where: str, what: str) -> dict:
+    try:
+        answer = llm.ask(prompt, system, tokens)
+    except Exception as exc:
+        _record_failure(f'modules/hoca.py:{where}')
+        raise HocaError(f"{what} şu an hazırlanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
+    return _json(answer, what)
+
+
+def check_question(profile) -> str:
+    """Aktif adım için kontrol sorusu. Bekleyen soru varsa model çağrılmadan aynısı döner."""
+    lesson = active(profile)
+    step = current_step(profile)
+    if not lesson or not step:
+        raise HocaError("Şu an aktif bir ders yok.")
+    pending = lesson.get("pending")
+    if pending and pending.get("step") == lesson["active"]:
+        return pending["question"]
+    data = _ask(f"Konu: {lesson['topic']}\nAdım: {step['title']} ({step['goal']})",
+                "Bu adım için tek bir kısa kontrol sorusu sor. Yalnız JSON ver: "
+                "{\"question\":\"soru\",\"answer\":\"beklenen kısa cevap\"}.", 300, 'check_question', 'Kontrol sorusu')
+    question, answer = _clip(data.get("question"), 300), _clip(data.get("answer"), 300)
+    if not question:
+        raise HocaError("Kontrol sorusu anlaşılamadı. Biraz sonra tekrar dene.")
+    lesson["pending"] = {"step": lesson["active"], "question": question, "answer": answer}
+    profile.save()
+    return question
+
+
+def grade(profile, reply: str, now: float | None = None) -> dict:
+    """Bekleyen soruya verilen cevabı değerlendirir. Doğruysa sonraki adıma geçer, yanlışsa adımı zayıf konuya yazar."""
+    now = time.time() if now is None else now
+    lesson = active(profile)
+    pending = lesson.get("pending") if lesson else None
+    if not pending:
+        raise HocaError("Bekleyen bir kontrol sorusu yok.")
+    data = _ask(f"Soru: {pending['question']}\nBeklenen: {pending['answer']}\nÖğrencinin cevabı: {_clip(reply, 500)}",
+                "Öğrencinin cevabını beklenen cevapla karşılaştır; anlam doğruysa kabul et. Yalnız JSON ver: "
+                "{\"correct\":true|false,\"feedback\":\"tek cümle\"}.", 200, 'grade', 'Cevap değerlendirmesi')
+    if not isinstance(data.get("correct"), bool):
+        raise HocaError("Cevap değerlendirmesi anlaşılamadı. Biraz sonra tekrar dene.")
+    ok = data["correct"]
+    step = current_step(profile)
+    lesson["pending"] = None
+    if ok:
+        advance(profile)
+    else:
+        _mark_weak(profile, lesson["topic"], step, now)
+    profile.save()
+    return {"correct": ok, "feedback": _clip(data.get("feedback"), 300)}
+
+
+# --- Zayıf konular ve aralıklı tekrar (1/3/7 gün, iki doğru tekrar = öğrenildi; studyexam ile aynı kural) ---
+
+def _weak(profile) -> list:
+    s = _state(profile)
+    if not isinstance(s.get("weak"), list):
+        s["weak"] = []
+    return s["weak"]
+
+
+def _mark_weak(profile, topic, step, now) -> None:
+    wid = f"{_clip(topic, 60)}::{step['title']}"
+    for w in _weak(profile):
+        if w["id"] == wid:
+            w.update(stage=0, good=0, due=now + _DAY)
+            return
+    _weak(profile).append({"id": wid, "topic": topic, "title": step["title"], "goal": step["goal"],
+                           "stage": 0, "good": 0, "due": now + _DAY})
+
+
+def weak_topics(profile) -> list[dict]:
+    return list(_weak(profile))
+
+
+def due_reviews(profile, now: float | None = None) -> list[dict]:
+    now = time.time() if now is None else now
+    return [w for w in _weak(profile) if w["due"] <= now]
+
+
+def review_result(profile, wid: str, correct: bool, now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    weak = _weak(profile)
+    for w in weak:
+        if w["id"] != wid:
+            continue
+        if not correct:
+            w.update(stage=0, good=0, due=now + _DAY)
+        else:
+            w["good"] += 1
+            if w["good"] >= 2:
+                weak.remove(w)
+            else:
+                w["stage"] = min(w["stage"] + 1, len(_INTERVALS) - 1)
+                w["due"] = now + _INTERVALS[w["stage"]] * _DAY
+        profile.save()
+        return
