@@ -1,0 +1,108 @@
+# Haber araştırması ve kaynaklar (AGENTS.md alan notları)
+
+Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
+
+## Haber politikası ayrı modülde — 18 Ekim 2026
+- `modules/news_policy.py`: haber araştırmasının tamamlanma kuralları (tekil makale kanıtı, başlık listesi tamamlama sayılmaz, iki yayıncı, katalog denemesi) ve modelsiz kayıtlı kurtarma `goal_executor`'dan taşındı; davranış aynı. `goal_executor._check_news_completion` / `_resume_news_recovery` yalnız bunları çağıran ince sarmalayıcıdır (testler bu adları yamalar). Haber kuralı değişirse `news_policy`'de değişir. Test: `tests/test_news_policy_split.py`; PC'de denenmedi.
+
+## Haber kapsamı, adres kökeni ve kısa teslim — 16 Ekim 2026
+- AI haber araştırmasında planlayıcının research/headlines adresi kullanıcı isteğindeki açık URL, kayıtlı yayıncı dizini veya başarılı gerçek bağlantı keşfinden gelmelidir. Keşfedilmemiş yol için ağ çağrısı yapılmaz. Aynı turda üç ret sonrası mevcut kayıtla sınırlı gerçek kaynak kurtarması denenip açık gerekçeyle duraklanır; genel araştırma/hesap/tarayıcı izinleri genişletilmez.
+- Genel Türkiye haber araştırmasında araştırma/rapor hedefinin tamamlanması için en az iki ayrı yayıncı alanından tarihli haber gerekir. Aynı edu.tr/gov.tr/com.tr/org.tr kurumunun alt alanları tek yayıncı sayılır. Bu asgari çeşitlilik kapsamın eksiksizliği garantisi değildir; açık URL, tek kaynak ve adlandırılmış kurum kapsamı genişletilmez. Eski tek kaynaklı done işaretleri devamda kanıt/dosya silinmeden pending olur; iptal edilen hedef canlandırılmaz.
+- Genel Türkiye/üniversite AI haber kurtarmasında eski hatalı seed adresleri kayıtlı gerçek dizinlerin kullanılmasını engellemez. Var olan 10/24/96 adım sınırları korunur; 45 saniye sonrasında yeni data/research kurtarma adımı başlatılmaz. Başlamış HTTPS/dizin işleminin mevcut sınırlı süreleri korunur; bütün iş için kesin 45 saniye sözü verilmez. Dizin adresi mevcut activity ve hızlı durum sorgusunda görünür.
+- Geniş kurtarma ilk yayıncıdan ikinci haber yerine başka yayıncıya geçer. Mevcut kısmi dosyadan sonra yeni doğrulanmış kaynak varsa kalan aynı kurtarma bütçesiyle ayrı dosya sürümü oluşturulabilir; eski dosya ezilmez. Aynı kaynak kümesi yeniden yazılmaz; yeni kanıt yokken mevcut doğrulanmış dosya korunur. İzin/sahiplik reddi ve iptal yeni ask/ret/kurtarma yollarında genel model tekrarına çevrilmez.
+- Ask protokolünden literal "Eksik somut bilgi" şablonu çıkarıldı. Haberlerde bu tür yer tutucu/istek tekrarı gerçek kullanıcı sorusu sayılmaz: mevcut tools ile sınırlı kurtarma ve açık kısmi sonuç kullanılır. Kullanıcıdan yeniden kaynak listesi veya anahtar istenmez. Gerçek kapsam/izin soruları ve onay kapıları korunur.
+- Haber tesliminin sohbet önizlemesi tarih, yayıncı/haber sayısı ve tam kaynak URL'leri gösterir; 1200 karakter kesimiyle URL ortadan bölünmez. Birebir alıntılar ve erişim sorunları gerçek rapor dosyasında kalır; eksik/eski adresler kaynak kanıtı yapılmaz. Var olan dosyalar ezilmez, model/ücretli servis çağrısı eklenmez. tests/test_goal_executor.py ve test_publisher_news.py köken reddi, iki yayıncı, eski/kısmi görünüm, tam URL, yer tutucu toparlama ve gerçek dosyalı iki yayıncı zincirini sınar; model/ağ sınırları taklit edilir. Windows canlı kabulü ayrı kalır.
+- Son doğrulama: 1339 Python testi (1 Windows DPAPI atlaması), 25 Node ve 6 smoke grubu başarılı; 73 hedef + 8 yayıncı odaklı kontrol geçti. Son salt okunur kural denetimi geçti. Gerçek Windows sağlayıcı gecikmesi ve canlı kaynak kapsamı bu testlerle tamamlanmış sayılmaz.
+
+## Devam komutunun kesin yönlendirilmesi — 16 Ekim 2026
+- Bütün RESUME_COMMANDS, hedef yok/kapalı dâhil mevcut goal yürütücüsünde yanıtlanır; genel sohbete düşmez. Kayıt yoksa açık mesaj, kapanmışsa mevcut sonuç; yeni hedef/model oluşturulmaz.
+- Açık hedef sürdürülürken doğrulanmış tarihli AI haberleri varsa mevcut writer/verify ile kısmi dosya önce teslim edilir; yeniden kaynak/model istenmez. Aynı hedef/izinler ve 10/24/96 bütçesi korunur; onay/review geçilmez ve eksik kapsam otomatik done olmaz. Dosya tesliminde sıradan hata kayda eklenip normal planlayıcıya döner; iptal/izin hatası yutulmaz.
+- Kullanıcının son çıktısı talimat tekrarından ibaretti; istemci günlükleri olmadan bunun kesin üretim yolu bilinmez. Regresyon hem kayıt yok/kapalı komut düşüşünü hem question durumundaki tarihli haberden model/ağ çağrısız gerçek dosya teslimini kapsar.
+
+## Erken bitişte mevcut haberin teslimi — 16 Ekim 2026
+- Planlayıcı pending hedef varken finish seçerse, açık yapay zekâ haber raporu/dosya isteğinde mevcut doğrulanmış haber çıktılarıyla writer/verify denenir. Bu yol yeni kaynak/model çağırmaz; partial_report kaydıyla aynı günlükte kısmi dosya teslim eder. Açık kapsam hedefleri otomatik done yapılmaz; onay/review/iptal, kullanıcı ve 10/24/96 bütçeleri korunur.
+- Doğrulanmış teslim sürdürmede yeniden yazılmaz. Haber yoksa boş rapor üretilmez. Aynı turda üç eksik finish önerisinden sonra duraklar; planlayıcıya tekrar tekrar aynı ret döngüsü yapılmaz. Bu davranış sağlayıcı gecikmesinin tamamını gidermez.
+- 64 hedef regresyonu geçti: araştırma complete → erken finish → gerçek dosya/verify, ek model/ağ olmaması ve tekrar sürdürmede kimlik/dosya korunması. Kullanıcının Windows public-data kabulünde iki güncel makale ve rapor passed doğrulandı; normal hedef akışının bu yeni düzeltmesi Windows'ta henüz doğrulanmadı.
+
+## Doğrudan haftalık haber kaynakları — 16 Ekim 2026, son karar
+- Hamdi’nin onayıyla GDELT kaldırıldı. Ağ uç noktası/kota/retry kodu ve katalog girdisi yoktur. Eski kayıtlı news_search girdileri hedef silinmeden, ağ çağrısı yapmadan kaldırıldı hatası alır; yeni planlayıcıya yalnız sources/headlines önerilir.
+- Mevcut güvenli HTTPS okuyucusu, resmî HTML ve sayfanın ilan ettiği aynı-host RSS/Atom akışlarını kullanır. DPÜ/YTÜ şablonları yalnız kendi host/yol/gövde/başlık/yayın tarihi ve canonical veya paylaşım URL eşleşmesiyle tanınır. İlgili kart tarihi ve etkinlik tarihi yayın tarihi yapılmaz.
+- Kabulde en fazla dört dizin, altı tekil aday, iki doğrulanmış kaynak denenir. Varsayılan yedi gün; eski haberle doldurma veya otomatik tarih genişletme yoktur. Kaynak alıntılı kısmi rapor writer/verify ile gerçek dosyada doğrulanır; bütün kurumlar kapsandı anlamına gelmez.
+- Model-yok kurtarma aynı hedef/günlük/izin ve toplam 10 kurtarma, turda 24, görevde 96 adım sınırlarını korur. Genel Türkiye/üniversite araştırmasında kayıtlı resmî kaynaklar kullanılabilir; yalnız belirli kaynak veya açık URL isteyen kapsam genişletilmez. İptal/sahiplik hataları yutulmaz. Aşağıdaki tarihî GDELT ve 30/90 kabul açıklamaları bu son kararın öncesine aittir.
+
+## Haftalık haber tercihi — 16 Ekim 2026, güncel karar
+- Hamdi'nin onayıyla varsayılan haber keşfi ve güncel/haftalık yayın tarihi penceresi 7 gündür. public-data kabulü ve model-yok kurtarma varsayılanı da 7 gün; yetersiz sonuçta otomatik 30/90 genişlemesi yoktur. Eski haberle rapor doldurulmaz, sınırlı kaynaklarda kanıt bulunamadığı pending olarak belirtilir. Önceki 30→90 kabul davranışı bu kararla kaldırılmıştır.
+- Açık kullanıcı tarih aralıkları korunur; eski kayıtlı hedefler silinmez veya metinleri otomatik değiştirilmez. Planlayıcının news_search days veya research question alanı kullanıcının 7 günlük penceresini genişletemez. Varsayılan değişikliği yeni zamanlanmış takip oluşturmaz; aynı araç/bütçe/izin/alıntı/gerçek dosya kontrolleri sürer.
+- Sürdürme ve tamamlanmada mevcut makale tarihi yeniden kontrol edilir; geçmişte doğrulanan ama artık pencere dışında kalan kaynak ve bağımlı teslim aynı kimlikte yeniden ele alınır. Windows'ta önceki 30→90 kabulünde yayıncı makalesi/rapor passed kullanıcı tarafından bildirildi; GDELT timeout sürüyordu. Bu sonuç yeni 7 günlük sürümün kabulü sayılmaz.
+
+## TÜBİTAK tekil haber şablonu — 16 Ekim 2026
+- Canlı kabulde seçilen TÜBİTAK haberinde h1, article'ın kardeş Drupal bloğundadır; tarih article içindeki .node-date alanında Türkçe kısadır. Yalnız tubitak.gov.tr/tr/haber/ + eşleşen canonical + aynı region-content içinde tek article ve bilinen başlık/gövde blokları birlikteyse bu başlık bağlanır; yalnız o gövdenin node-date değeri okunur. Genel liste/foreign host/başka canonical veya ilgili haber tarihi istisna kazanmaz.
+- Kabul araştırması önce 30 gün içindeki doğrulanmış kaynakları seçer. Sınırlı adaylarda yoksa, kullanıcının önceki 30→90 tercihiyle en fazla 90 günlük doğrulanmış kaynağa kısmi genişler; public_news_window kaydı ve 90-gun-raporu dosya adıyla ayrılır. Gelecek/90 gün dışı veya tarihsiz kaynak kabul edilmez. Ek fetch veya model çağrısı yoktur.
+- Gerçek makale 21 Ağu 2026 tarihlidir; Ekim tarihiyle veya son 30 güne ait diye sunulamaz. Genel tarih/alıntı/dosya doğrulaması korunur; gerçek Windows yeni kabulü ayrıca bekler.
+
+## Veri kabulünde arama zaman aşımı — 16 Ekim 2026
+- Kullanıcının Windows kabulünde kur passed; GDELT ReadTimeoutError nedeniyle arama/rapor pending görüldü. --public-data artık arama hata/boş/alıntısız sonuçtan sonra TÜBİTAK ve Boğaziçi resmî dizinlerini birer kez mevcut headlines ile okur; her dizinden en fazla bir AI başlığı adayı, toplam en fazla iki ek research denenir. Gerçek yayın tarihi ve birebir gövde kanıtı koşulu değişmez; başarısız GDELT satırı pending kalır.
+- Model çağrısı, kör retry, TLS/DNS doğrulamasını atlama, tarih gevşetme veya hedef değişikliği yoktur. İptal/sahiplik/gizlilik kapıları korunur. Tüm kaynaklar erişilemez veya uygun haber yoksa rapor yine pending kalır; Windows'ta başarılı teslim henüz doğrulanmadı.
+
+## Anahtarsız verinin tek komutla kabulü — 16 Ekim 2026
+- Mevcut acceptance_checks açık --public-data bayrağıyla aktif kullanıcı bağlamında public_data_acceptance çalıştırır; varsayılan çalışmada yeni web okuması yoktur. Kur ve sabit AI/30 gün/resmî alan araması; en fazla iki gerçek tekil haber, model-free birebir alıntı, writer ve verify ile kısmi yerel dosya denenir. Aktif hedef/hesap/anahtar/ayar değiştirilmez; gönderim yoktur.
+- Erişim/tarih/kapsam bulunamazsa pending; boş keşif gerçek rapor sayılmaz. İptal ve kullanıcı uyuşmazlığı yutulmaz. Bu kontrol kapsamın tamamını veya normal model planlayıcısını doğrulamaz. Windows'ta scripts/v2_kontrol.bat --public-data --skip-suite yeterlidir; sonuç mevcut kabul JSON'undadır.
+
+## Anahtarsız haber keşfi — 16 Ekim 2026
+- `public_data` mevcut data aracına sources/news_search ekler; GDELT DOC sabit HTTPS GET, anahtarsız JSON keşfi sağlar. Yeni model/hesap/ücret/bağımlılık veya görev sistemi yoktur. Frankfurter/CSV/sosyal adaptörler korunur. Kaynak listesi canlı bağlantı kanıtı değildir.
+- Arama en fazla 90 gün/20 sonuç; ayrı 1–5 alan adı filtresi ve sonuç URL'lerinde gerçek host/HTTPS denetimi vardır. seen_at yayın tarihi değildir; arama sonucu research/writer haber kanıtı sayılamaz. Mevcut tekil gövde/tarih/alıntı ve gerçek dosya doğrulaması zorunludur.
+- Süreç genelinde 5 saniye istek aralığı, HTTP429 sonrası 60 saniye geri çekilme; uyku/otomatik retry/ücretli fallback yoktur. Planlayıcı kurtarması yalnız boş yayıncı keşfinden sonra önceden denenmiş aynı alan adlarında bir arama yapabilir; aynı hedef ve 10/24/96 bütçeleri, onay/iptal kapıları korunur.
+- Canlı geliştirme yoklamasında kur JSON'u ve sonraki HTTP yoklamasında GDELT haber JSON'u erişildi. Öncesinde GDELT HTTP429; doğrudan IP doğrulayan okuyucuda bu ortamın DNS hatası görüldü. Bu yoklama Windows/üretim okuyucusuyla tam rapor kabulü değildir. Ayrıntı ve tek son kullanıcı test listesi docs/UCRETSIZ_VERI_KAYNAKLARI.md içindedir.
+
+Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex vb.) içindir. Kod değiştiğinde bu dosya da aynı PR'da güncellenir.
+
+## Kaynak izleme ve bağlantı çalışması — 15 Ekim 2026
+
+- `public_sources` yalnız genel HTTPS GET okur; DNS sonuçları denetlenir ve bağlantı doğrulanan IP'ye sabitlenir, TLS özgün sunucu adına göre doğrulanır. Özel adresler, kimlik bilgili URL, otomatik yönlendirme ve sınırsız yanıt yoktur.
+- `source_watch` kullanıcıya ait SQLite kayıtlarıyla ilk taramayı sessiz baz alır; yeni içerik ve aynı adresteki ilgili metin düzeltmelerini kaynak alıntısıyla bildirir. İlk tarama geçmiş haberi yeni diye bildirmez. Jarvis kapalıyken çalışmaz. Bildirim teslimi süreç çökmesinde tam bir kez garantili değildir.
+- `capability_hub` API/MCP referansı keşfeder; keşif kurulum/ücretsiz hesap/canlı bağlantı kanıtı değildir. Yalnız açık hedef ve mevcut imzalı görev onayıyla sabit, anahtarsız GET adaptörü kaydedilir. MCP sunucusu veya üçüncü taraf kod çalıştırılmaz.
+- `domain_tools` açık CSV sütunlarıyla finans/mağaza hesabı, tarihli kur verisi ve mevcut sahipli sosyal hesap okumaları sağlar; banka/mağaza yazma bağlantısı kurulmaz. Dosya ve kaynak kanıtları mevcut doğrulayıcıdan geçer.
+- PR #28 uzman revizyonu, görev/içerik imzalı onay ve kuyruk kontrolleri korunur. Kaynak izleme mevcut kuyruk işçisi/profil bağlamında çalışır; ikinci görev kimliği sistemi kurulmaz.
+
+## Araştırma teslimi ve yanıt verebilirlik — 15 Ekim 2026
+- `model_wait` planlayıcı, research ve writer model çağrılarını kullanıcı başına sırayla, sıra beklemesi dahil 60 saniyeyle sınırlar. Geç yanıt yalnız bellekte kalır; araç veya teslim dosyası yazamaz. Takılı ağ iş parçacığı zorla öldürülmez; kapanana kadar aynı kullanıcı için yeni model çağrısı açılmaz. Browser/coder'ın mevcut kendi model çağrıları bu helper kapsamının dışındadır.
+- `requests_state.budget` yalnız kopyalanan bağlamdaki model denemelerini sınırlar; tamamlanmış/iptal edilmiş istekleri yeniden canlandırmaz. Hedef iptali parent beklemesini keser.
+- Yazılı `hedef durumu / işin durumu / hedef ayrıntıları` salt okunur kayıt sorgusu komut kuyruğunu beklemez. Aynı istek kimliği deduplikasyonu, owner ve yanıt kimliği korunur. Genel yürütme kilidi kaldırılmaz; başka komutlar eşzamanlı çalıştırılmaz.
+- Planlayıcı/research/writer güncel tarihi Türkiye UTC+3 ile alır; Windows'ta ek tzdata bağımlılığı gerekmez. Güncel tarih verilmesi kaynağın yayın tarihinin doğrulandığı anlamına gelmez.
+- Research yanıtı JSON `supported,answer,quotes` sözleşmesindedir. Başarı için sayfada gerçekten geçen 20–800 karakterlik 1–5 alıntı gerekir; desteklenmeyen veya alıntısız yanıt başarı sayılmaz. Alıntı eşleşmesi anlamsal doğruluk garantisi değildir.
+- Erişilemeyen/cevaplamayan kaynaklar aynı hedefte korunur; başka kaynak/araçla toparlanılabilir. Writer raporuna erişilemeyen kaynaklar deterministik eklenir; mail cevap taslağına bu ek yapılmaz. Ekip görünümünde denenen adres ve plan beklemesi görünür.
+- Eski açıkça içeriksiz research makbuzu sürdürmede yeniden kanıt sayılamaz. Geçersiz adımın bağımlı teslimleri ve hedef kanıtları transitif geçersizleştirilir; dosyalar silinmez. Bağımlı dış etkili işlem varsa inceleme beklenir, otomatik tekrar yoktur. Model beklemesi bittikten sonra kopyalanan bütçe iptali sonraki sağlayıcı denemesini de engeller.
+
+
+## Yinelenen hedef planı — 16 Ekim 2026
+- Planlayıcı ilk planı yalnız goals boşken oluşturur; kayıtlı hedefte mevcut goal kimliğiyle araç/kanıt/soru/bitiş seçmesi açıkça istenir. Mevcut plan yine değiştirilemez. Aynı çalışma turunda üç yeniden plan önerisi reddedilirse başka araç başlatmadan açık gerekçeyle duraklar; 48 tur boyunca aynı plan ret yanıtını tekrarlamaz. Önceki hedefler/kanıtlar korunur ve izin kapıları değişmez.
+- test_goal_executor.py planın korunması, sınırlı model çağrısı ve yanlış plan sonrası geçerli adıma toparlanmayı sınar; canlı sağlayıcı çağrısı yoktur.
+
+
+## Kaynak keşfi ve çalışma ekranı — 16 Ekim 2026
+- Mevcut data/headlines aracı isteğe bağlı query ile gerçek dizin/RSS bağlantılarını konuya göre sıralar; tarih veya makale adresi üretmez. Başlık listesi içerik kanıtı değildir. Planlayıcı başarısız sayfadan sonra dizin keşfi, research, writer ve verify araçlarına yönlendirilir; aynı hedef korunur.
+- Kanıt alınamayan sayfalarda erişim ve içerik sorunları aynı şeymiş gibi sunulmaz. Rapor eki bu sınırı açıklar.
+- Ekip/sohbet/çalışma panellerinde Selçuklu zemini karartılır; ana ekran ve düz menü görünümü korunur. Yeni API/model çağrısı veya bağlantı eklenmez.
+- Regresyon: başarısız kaynak → gerçek bağlantı keşfi → alıntılı araştırma → gerçek rapor dosyası → verify zinciri model/ağ sınırları taklit edilerek sınanır. Canlı kaynak kapsamı, yayın tarihi doğruluğu ve Windows model davranışı ayrıca kullanıcı kabulünde doğrulanmalıdır.
+
+
+## Tekil haber kanıtı ve son tamamlanma — 16 Ekim 2026
+- Haber/gelişme/duyuru/tarihli araştırmalarda mevcut HTTPS kaynak okuyucusu üzerinden tekil haber gövdesi, başlık ve makaleye ait datePublished/article:published_time/yayın etiketli time aranır. Kategori sayfası, menü metni, yalnız dateModified ve belirsiz tarih başarı sayılmaz. Gelecek veya istenen gün aralığı dışındaki haber reddedilir. Bu kontrol tarih metaverisinin yayıncı tarafından doğru girildiğini garanti etmez.
+- Haber çıktısı modelin serbest özetini değil, tarih ve gerçek kaynak alıntılarını taşır. Haber raporu bu makbuzlardan deterministik Markdown olarak oluşturulur; ek writer model çağrısı, uydurma tarih veya iç içe bağlantı üretilemez. Dosya denetimi bu raporun içerik kaydıyla eşleşmesini de denetler. Genel raporlar ve mail taslakları mevcut model yolunda kalır. Haber raporu birebir kaynak alıntısı sunar; anlamsal doğruluk ve tüm kurumların kapsanması garantisi vermez.
+- Sürdürmede eski haber/makale tarih kanıtı olmayan research ve writer çıktıları, bağımlı teslim ve hedef kanıtları geçersizleşir; hedef kimliği ve eski dosyalar silinmez. Belirsiz dış etkide mevcut review kapısı korunur.
+- Bütün alt hedefler açık complete adımıyla tamamlanıp mevcut kanıtları doğrulandıysa son finish için yeni model çağrısı yapılmaz. Sadece dosya veya verify sonucu görülmesi, bekleyen hedefleri otomatik tamamlamaz.
+- tests/test_news_research.py ve hedef regresyonları: kategori/yanlış tarih/menü reddi, gerçek rapor dosyası, içerik-bağlı doğrulama, eski kayıt sürdürme ve son çağrıda 429 gerekmemesi. Ağ/model taklit edilir. Canlı Windows kaynak erişimi, gerçek modelin kaynak seçimi ve yayıncı metaverisi kabulü ayrıca doğrulanmalıdır.
+- Son doğrulama: 1.276 Python testi (Windows DPAPI 1 skip), 25 JavaScript grubu ve 6 smoke grubu başarılı. 109 ilgili regresyon başarılı; son salt okunur kural denetimi geçti. Canlı model/Windows kabulü yapılmadı.
+
+
+## Kısa sürdür komutu ve kaynak dizini — 16 Ekim 2026
+- sürdür/surdur/hedef sürdür/hedef surdur mevcut devam komutlarıyla aynı kayıtlı hedef yoluna, genel dispatch ve model sınıflandırmasından önce gider. Hedef kimliği korunur; komut kullanıcı yanıtı olarak kayda eklenmez. Sürdür bir onay değildir; approval/review kapıları korunur.
+- Haber dizinindeki resimli/aria-label/title bağlantıları metin boşsa bu gerçek etiketlerle keşfedilir. Sayfada okunabilir bağlantı yoksa yalnız sayfanın açıkça ilan ettiği aynı-host RSS/Atom adreslerinden en çok ikisi mevcut güvenli HTTPS okuyucusuyla denenir. Adres tahmini veya yeni servis yoktur; bulunan akışın URL/hash kaydı tutulur. İzin/iptal hatası yutulmaz. Kaynak erişimi veya tam haber kapsamı garantisi değildir.
+- İlgili regresyonlar kısa komutun erken yönlendirilmesi, aynı hedef/yanıt kaydı, onayın korunması, gerçek etiket bağlantıları, yabancı feed reddi, sınırlı fallback ve feed içerik özeti eşleşmesini sınar. Model/ağ taklit edilir; gerçek sağlayıcı kotası ve PC Ollama yapılandırması bu değişiklikle düzeltilmiş sayılmaz.
+
+
+## Model yokken sınırlı yapay zekâ kaynak raporu — 16 Ekim 2026
+- Planlayıcı RuntimeError ile durduğunda yalnız kullanıcının açık yapay zekâ haber araştırması + rapor dosyası isteği için news_recovery çalışabilir. Mevcut görevde daha önce denenmiş en çok iki kaynak adresinden mevcut data/headlines ile bağlantı keşfeder; en çok dört adayı mevcut research okuyucusuyla dener. Adres uydurmaz, yeni hedef/kuyruk/model oluşturmaz. Toplam 10 kurtarma adımı ve mevcut 96 adım sınırı korunur.
+- Kaynak-only research runtime kimliğinden gelir, model aracı girdisi değildir. Tekil makale/yayın tarihi sınırları aynıdır; gövdede gerçek yapay zekâ ifadesi içeren en çok üç birebir alıntı seçilir. Model çağrısı ve anlamsal yorum yoktur. Writer/verify mevcut araçlarla kısmi rapor oluşturur; sonuç URL, tarih ve alıntı kaydıyla eşleşir.
+- Kısmi rapor dosyası render edilir; kapsam/tüm kurumlar doğrulanmadığından hedefler otomatik tamamlanmaz. Sürdürmede doğrulanmış aynı teslim yeniden yazılmaz veya kaynaklar körlemesine tekrarlanmaz. İptal, sahiplik, approval/review ve gizlilik sınırları korunur. Ağ erişimi/dizin/tarih yoksa dosya teslimi garanti edilmez; bulut kotası ve iş PC'sinde olmayan Ollama bu kodla kullanılabilir hâle gelmez.
+- Kurtarma yalnız planlayıcı erişilemezliğinde tetiklenir; normal araç/tur bütçesi hatasında tetiklenmez. Kalan 24 araçlık tur bütçesi aktarılır ve diğer sınırlarla birlikte uygulanır. Gerçek dosyalı quota regresyonu ve tekrarın yeni dosya/ağ çağrısı üretmemesi doğrulandı; son salt okunur denetim geçti.
