@@ -10,10 +10,22 @@ Kurulum (bir kez):
 İlk komutta tarayıcı açılır, izni sen onaylarsın; şifren Jarvis'e hiç verilmez. İzin dosyası ~/.jarvis/google_token.json.
 """
 from __future__ import annotations
-from modules.diagnostics import record_failure as _record_failure
+from modules.diagnostics import record_failure as _diagnostic_failure
 
 import re
 from datetime import datetime, timedelta
+
+
+def _record_failure(context, *, credential_error=False):
+    if not credential_error:
+        return _diagnostic_failure(context)
+    # Never let diagnostics inspect credential parser/refresh messages or URLs.
+    import sys
+    kind = sys.exc_info()[0]
+    try:
+        raise RuntimeError('Google kimlik işlemi başarısız: ' + (kind.__name__ if kind else 'Exception')) from None
+    except RuntimeError:
+        _diagnostic_failure(context)
 
 from config import DATA_DIR
 
@@ -61,6 +73,7 @@ def token_path(token=None):
                     data, original = _read_private_json(legacy, migrate=False, with_snapshot=True)
                     _write_private_json(dest, data, expected=None)
                 except Exception:
+                    _record_failure('modules/google_api.py:token_migration', credential_error=True)
                     return legacy  # Includes malformed legacy data: never delete it.
                 try:
                     if legacy.read_bytes() == original:
@@ -82,6 +95,7 @@ def _creds(token=None, scopes=None, interactive: bool = True):
     try:
         creds = Credentials.from_authorized_user_info(info, scopes) if info is not None else None
     except Exception:
+        _record_failure('modules/google_api.py:credential_parse', credential_error=True)
         raise PermissionError(_LOGIN_REQUIRED) from None
     if creds and creds.valid:
         return creds
@@ -90,18 +104,21 @@ def _creds(token=None, scopes=None, interactive: bool = True):
         try:
             creds.refresh(Request())
         except Exception as exc:          # noqa: BLE001 - izin süresi dolmuş/geri alınmış: yeniden izin iste
+            _record_failure('modules/google_api.py:credential_refresh', credential_error=True)
             if not interactive or "invalid_grant" not in str(exc):
                 raise PermissionError(_LOGIN_REQUIRED) from None
             # Failed re-login must not remove the user's existing credential.
             try:
                 creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
             except Exception:
+                _record_failure('modules/google_api.py:credential_reconnect', credential_error=True)
                 raise PermissionError(_LOGIN_REQUIRED) from None
             granted = True
     elif interactive:
         try:
             creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
         except Exception:
+            _record_failure('modules/google_api.py:credential_connect', credential_error=True)
             raise PermissionError(_LOGIN_REQUIRED) from None
         granted = True
     else:
@@ -110,10 +127,13 @@ def _creds(token=None, scopes=None, interactive: bool = True):
         import json
         _write_private_json(token, json.loads(creds.to_json()), expected=expected)
     except Exception:
+        _record_failure('modules/google_api.py:credential_save', credential_error=True)
         return creds  # Keep working with refreshed in-memory credentials; old disk bytes survive.
     if granted:
         try: _mark_granted(token)
-        except Exception: pass  # Grant-age bookkeeping must not lose a successful login.
+        except Exception:
+            _record_failure('modules/google_api.py:credential_grant_age', credential_error=True)
+            pass  # Grant-age bookkeeping must not lose a successful login.
     return creds
 
 
