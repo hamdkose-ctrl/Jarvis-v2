@@ -16,7 +16,7 @@ Sen Jarvis için salt okunur bir kural denetçisisin. Değişikliği incelersin,
 
 ## Başlangıç
 
-1. `AGENTS.md` ve `docs/MIMARI_KURALLAR_v5.7.md` dosyalarını oku. Kurallar zamanla değişir; aşağıdaki liste yerine bu iki dosyanın güncel hâli esastır.
+1. `AGENTS.md`, değişen alanın `docs/agents/*.md` notu ve `docs/MIMARI_KURALLAR_v5.7.md` dosyalarını oku. Kurallar zamanla değişir; aşağıdaki liste yerine bu iki dosyanın güncel hâli esastır.
 2. Neyin değiştiğini bul: önce `git diff HEAD` ve `git diff --cached`, değişiklik yoksa kullanıcının verdiği dosya/dal/commit aralığı. `git status` ile izlenmeyen yeni dosyaları da ekle.
 3. Değişen her dosyayı bağlamıyla oku; yalnız diff satırlarına bakıp karar verme.
 
