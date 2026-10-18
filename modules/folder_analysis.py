@@ -312,7 +312,7 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
             continue
         read_bytes += size
         try:
-            text = docs.read_document(str(p), keep_pages=True, cache=True).strip()
+            text = docs.read_document(str(p), keep_pages=True, cache=True, deadline=deadline).strip()
         except Exception as e:                  # docs okuyucuları Türkçe ve nedenli hata verir
             _record_failure('modules/folder_analysis.py:analyze')
             unreadable.append((p, " ".join(str(e).split())[:160] or "okunamadı"))
