@@ -177,6 +177,10 @@ def read_document(path: str, keep_pages: bool = False, cache: bool = False) -> s
     return text if keep_pages else text.replace("\f", "\n")
 
 
+_FORMULA_SCAN_ROWS = 5000
+_FORMULA_SCAN_COLS = 100
+
+
 def _clean_excel(text: str, p: Path) -> str:
     """MarkItDown (pandas) boş hücreyi ve kayıtlı sonucu olmayan formülü "NaN" yazar: boş bırakır, formülleri not düşer."""
     text = re.sub(r"(?m)(?<=\| )NaN(?= \|)", "", text)
@@ -189,7 +193,9 @@ def _clean_excel(text: str, p: Path) -> str:
         try:
             for sheet in formulas.worksheets:
                 cached = values[sheet.title]
-                for frow, vrow in zip(sheet.iter_rows(), cached.iter_rows()):
+                # sınırlı tarama: boyutu yanlış yazılmış çalışma kitabı (milyon satır) süreyi tüketmesin
+                for frow, vrow in zip(sheet.iter_rows(max_row=_FORMULA_SCAN_ROWS, max_col=_FORMULA_SCAN_COLS),
+                                      cached.iter_rows(max_row=_FORMULA_SCAN_ROWS, max_col=_FORMULA_SCAN_COLS)):
                     for f, v in zip(frow, vrow):
                         if isinstance(f.value, str) and f.value.startswith("=") and v.value is None:
                             notes.append(f"{sheet.title}!{f.coordinate}")
