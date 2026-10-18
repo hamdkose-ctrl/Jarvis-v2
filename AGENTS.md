@@ -103,3 +103,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Tek kurulum temizliği: eski ayrı uyandırma ve tarayıcı kurulum BAT dosyaları paketten kaldırıldı; mevcut PC kurulumundaki kopyaları kurulum_temizligi.py temizler. Rehber ve hata mesajları kurulum.bat yönlendirir.
 
 - Git eşitleme: .venv_install/.venv_backup, modeller, kişisel veri ve .claude kaynak yayınlama ve karşılaştırma dışında kalır; .gitignore/.gitattributes kaynak takibine dahildir. Yerel günlükler depoya gönderilmez.
+
