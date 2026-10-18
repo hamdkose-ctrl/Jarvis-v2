@@ -186,6 +186,24 @@ def read_document(path: str, keep_pages: bool = False, cache: bool = False, dead
     return text if keep_pages else text.replace("\f", "\n")
 
 
+_FALLBACK_MAX_ROWS = 200_000           # openpyxl yedek okuyucusunda sayfa başına en fazla satır
+_MAX_DECLARED_CELLS = 5_000_000       # bildirilen boyut bundan büyükse MarkItDown/pandas atlanır (takılıp 300 sn bekler)
+
+
+def _declared_too_big(p: Path) -> bool:
+    """Çalışma sayfasının bildirdiği alan (satır x sütun) aşırı büyükse True; sayfa boyutu şişirilmiş dosyalar için."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(p, read_only=True)
+        try:
+            return any((ws.max_row or 0) * (ws.max_column or 0) > _MAX_DECLARED_CELLS for ws in wb.worksheets)
+        finally:
+            wb.close()
+    except Exception:
+        _record_failure('modules/docs.py:_declared_too_big')     # ölçülemezse eski yol (MarkItDown) denenir
+        return False
+
+
 _FORMULA_SCAN_ROWS = 5000
 _FORMULA_SCAN_COLS = 100
 
@@ -354,7 +372,7 @@ def _read_raw(p: Path, deadline: float | None = None) -> str:
 
     if ext in _OOXML:
         check_office_file(p)
-    if ext in _MARKITDOWN:
+    if ext in _MARKITDOWN and not (ext in (".xlsx", ".xlsm") and _declared_too_big(p)):
         # MarkItDown birincil okuyucu; kurulu değilse ya da çeviremezse aşağıdaki okuyuculara düşülür.
         text = read_markitdown_isolated(str(p), deadline)
         if text is not None:
@@ -378,7 +396,8 @@ def _read_raw(p: Path, deadline: float | None = None) -> str:
             lines = []
             for sheet in workbook.worksheets:
                 lines.append(f"[Sayfa: {sheet.title}]")
-                for row in sheet.iter_rows():
+                sheet.reset_dimensions()          # bildirilen boyuta değil, dosyadaki gerçek satırlara göre gez
+                for row in sheet.iter_rows(max_row=_FALLBACK_MAX_ROWS):
                     values = [f"{cell.coordinate}: {cell.value}" for cell in row if cell.value is not None]
                     if values:
                         lines.append(" | ".join(values))
