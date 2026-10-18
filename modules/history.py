@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 from config import DATA_DIR
+from modules.turkish_text import lower
 
 DIR = DATA_DIR / 'history'
 _LOCK = threading.RLock()
@@ -45,7 +46,7 @@ def append(slug, role, text, source=''):
     return row
 
 def read(slug, query='', limit=300):
-    rows=[]; q=query.strip().lower()
+    rows=[]; q=lower(query.strip())
     if limit <= 0: return rows
     try:
         with _LOCK:
@@ -53,7 +54,7 @@ def read(slug, query='', limit=300):
                 try: row=json.loads(line)
                 except (ValueError,UnicodeError): continue
                 if not isinstance(row,dict): continue
-                if q and q not in row.get('text','').lower(): continue
+                if q and q not in lower(row.get('text','')): continue
                 rows.append(row)
                 if len(rows)>=limit: break
     except OSError: pass

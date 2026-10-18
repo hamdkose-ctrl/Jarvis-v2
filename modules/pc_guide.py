@@ -245,10 +245,11 @@ def stop(owner=None):
 
 
 def handle(profile, command):
+    from modules.turkish_text import lower
     global _ACTIVE
-    low=command.lower().strip(' .!?')
+    low=lower(command).strip(' .!?')
     start=re.match(r'^(?:hey )?jarvis[, ]+(.*)$',command,re.I)
-    if start:command=start[1];low=command.lower().strip(' .!?')
+    if start:command=start[1];low=lower(command).strip(' .!?')
     explicit=re.match(r'^(?:pc yardımı|pc yardimi|bilgisayar rehberliği|bilgisayar rehberligi)\s*[:：]?\s*(.*)$',command,re.I)
     if _RUNTIME and getattr(_RUNTIME.engine,'_cur_source','')=='telefon':
         return 'PC rehberliği yalnız bilgisayardaki kullanıcı tarafından başlatılabilir.' if explicit else None
@@ -272,7 +273,7 @@ def handle(profile, command):
     goal=(explicit[1] if explicit else command).strip()
     if not goal:return 'Ne yapmak istediğini söyle: “PC yardımı: fotoğrafları telefona gönderme” gibi.'
     checkpoint={}
-    if goal.lower() in {'devam','kaldığım yerden devam','son yardıma devam'}:
+    if lower(goal) in {'devam','kaldığım yerden devam','son yardıma devam'}:
         checkpoint=profile.data.get('pc_guide_last') or {}
         goal=str(checkpoint.get('goal',''))
         if not goal:return 'Önceki bir PC yardım görevi yok; ne yapmak istediğini söyle.'
