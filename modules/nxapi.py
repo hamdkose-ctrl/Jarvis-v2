@@ -63,6 +63,18 @@ def known_folder(name: str) -> Path | None:
         return None
 
 
+def home_folder(name: str) -> Path | None:
+    """Masaüstü/Belgeler/İndirilenler/Resimler (İngilizce ad: Desktop, Documents, Downloads, Pictures) klasörünün gerçek yolu:
+    önce Windows'un bildirdiği, yoksa ana klasör ve OneDrive altındaki ad. Hiçbiri yoksa None."""
+    kf = known_folder(name)
+    if kf is not None and kf.is_dir():
+        return kf
+    for base in (HOME, HOME / "OneDrive"):
+        if (base / name).is_dir():
+            return base / name
+    return None
+
+
 def _roots() -> list[Path]:
     out = [FILES_DIR]
     for name in _KNOWN_FOLDER_IDS:                 # Windows'un söylediği gerçek klasörler, aynı kaynaktan izinli
