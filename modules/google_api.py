@@ -327,6 +327,26 @@ def day_events(day_offset: int = 0) -> list[tuple[datetime | None, str]]:
     return out
 
 
+def range_events(start_offset: int, days: int) -> list[tuple]:
+    """[bugün+start_offset, +days) aralığının Google Takvim etkinlikleri: (gün, başlangıç ya da tüm gün için None, ad).
+    Tek çağrı; çok günlük tüm gün etkinliği yalnız ilk gününde görünür. Hata yukarı fırlatılır."""
+    svc = _service("calendar", "v3")
+    start = (datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+             + timedelta(days=start_offset))
+    items = svc.events().list(calendarId="primary", timeMin=start.isoformat(),
+                              timeMax=(start + timedelta(days=days)).isoformat(), singleEvents=True,
+                              orderBy="startTime", maxResults=100).execute().get("items", [])
+    out = []
+    for e in items:
+        st = e.get("start", {})
+        if st.get("dateTime"):
+            when = datetime.fromisoformat(st["dateTime"]).astimezone()
+            out.append((when.date(), when, e.get("summary") or "(adsız)"))
+        elif st.get("date"):
+            out.append((datetime.fromisoformat(st["date"]).date(), None, e.get("summary") or "(adsız)"))
+    return out
+
+
 def unread_count() -> int:
     """Gelen kutusundaki okunmamış mail sayısı (yalnız sayı; içerik okunmaz). Hata yukarı fırlatılır."""
     svc = _service("gmail", "v1")
