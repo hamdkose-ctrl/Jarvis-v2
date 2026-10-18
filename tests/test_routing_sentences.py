@@ -14,10 +14,66 @@ from modules import learning, router
 
 DATA = json.loads((Path(__file__).parent / 'data' / 'yonlendirme_cumleleri.json').read_text(encoding='utf-8'))
 
-# main fdfd04756042396616a22bd57ebaa9827afe43aa: 48/49 doğru.
-# Sabit sayı yerine tam kesir: set büyüyünce başarı oranı korunur, yuvarlama yoktur.
-HOLDOUT_BASELINE_CORRECT = 48
-HOLDOUT_BASELINE_TOTAL = 49
+# Referans: main fdfd04756042396616a22bd57ebaa9827afe43aa, 48/49 doğru.
+# Eşik oran değil, bu sabit cümle kümesindeki bilinen hatalar dışındaki başarısızlıklardır.
+# Yeni cümleler yalnız ölçülür; ekleme/silme eski cümlelerin korumasını değiştirmez.
+# Seti güncelleyen geliştirici, PR inceleyicisiyle sonuçları doğrulayıp yeni cümleyi
+# referansa, geçmiyorsa bilinen hatalara ekler; silineni iki listeden çıkarır.
+# Düzelen bilinen hata listeden kaldırılır. Listeler test çalışırken otomatik üretilmez.
+HOLDOUT_BASELINE_SENTENCES = frozenset({
+    "Beni bi güldür ya.",
+    "mail göndermek nasıl çalışır?",
+    "Chrome'da yer imlerini dışa aktarmak nasıl yapılıyordu?",
+    "Borsa emri verince hemen gerçekleşir mi?",
+    "maili geri cagirmak mumkun mu",
+    "bi mail yazarken konu basligi ne kadar onemli",
+    "Sence masaüstünü klasörlere ayırmak mantıklı mı?",
+    "Bugünkü piyasada volatilite ne demek?",
+    "Tarayıcı çerezleri tam olarak ne tutuyor?",
+    "Görev çubuğunu gizlemek performansı etkiler mi?",
+    "Mümkünse takvim bloklama yöntemini açıklar mısın?",
+    "Toplantı notu işi... iyi not nasıl tutulur?",
+    "mail yazacağım ama kısa mı uzun mu olsun sence",
+    "Bana iki seçenek sunsan, dosyaları tarihe göre mi konuya göre mi ayırırsın?",
+    "Ben “bunu ara” dersem sen neyi aradığımı nasıl anlarsın?",
+    "İki dosya aynı isimdeyse hangisini seçersin?",
+    "bu mailli işlerde taslakla gonder arasındaki fark neydi",
+    "Bluetooth'u kapat.",
+    "rica etsem gece ışığını açar mısın",
+    "indirmeler klasörünü aç",
+    "Bugün İstanbul'da yağışla ilgili son durumu bul.",
+    "rica etsem resmi kaynaktan doğrular mısın",
+    "Şu linkte ne anlatılıyor, kısa özet çıkar.",
+    "şu makalenin yayın tarihini ve yazarını kontrol et",
+    "Bu PDF'yi aç, ilk iki sayfayı özetle.",
+    "Rica etsem bu metindeki yazım hatalarını düzeltebilir misin?",
+    "Şunu bi toparla, tekrar eden paragrafları da temizle.",
+    "Rica etsem proje klasörünün boyutunu hesaplar mısın?",
+    "Arşiv klasörünü ZIP'le ve masaüstüne koy.",
+    "bu maile kısa bi cevap taslağı hazırla",
+    "Bu maili taslaklara kaydet, gönderme.",
+    "En yeni okunmamış e-postayı bul, aç ve kısaca özetle.",
+    "Cuma öğleden sonraya bir saat çalışma bloğu koy.",
+    "Bu akşamki etkinliğin yerini göster.",
+    "bu haberi başka kaynaklar da vermiş mi kontrol et",
+    "Son haftadaki teknoloji haberlerini konu başlıklarına ayır.",
+    "Bu şirketin son bilancosundaki gelir ve kârı çıkar.",
+    "WhatsApp'ta sabitlenmiş sohbetleri göster.",
+    "Bu konuyu öğrenmem için üç kaynak bul, sonra bana çalışma sırası çıkar.",
+    "Oraya koy.",
+    "İlkini yap.",
+    "şey var ya onu indir",
+    "bu klasörü sil",
+    "cevabi gonder",
+    "Mesajı gönder.",
+    "Son maile evet de.",
+    "Bunu satın al.",
+    "Şunu bi halletsen?",
+    "Şu ikisinden birini sil.",
+})
+HOLDOUT_KNOWN_FAILURES = frozenset({
+    "bu mailli işlerde taslakla gonder arasındaki fark neydi",
+})
 
 
 def _route(row):
@@ -31,6 +87,37 @@ class _Profile:
 
 
 class RoutingSentenceTests(unittest.TestCase):
+    def test_new_failing_holdout_sentence_is_only_measured(self):
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        added = dict(rows[0], metin='Yeni bekletilmiş örnek: henüz doğru yönlenmiyor.')
+        original = _route
+        with patch.dict(DATA, cumleler=rows + [added]), patch(
+                __name__ + '._route', side_effect=lambda row: '__wrong__' if row is added else original(row)):
+            self.test_holdout_rule_regression_without_real_model()
+
+    def test_passing_additions_cannot_hide_old_sentence_regression(self):
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        broken = rows[0]['metin']
+        added = [dict(rows[0], metin=f'Yeni başarılı bekletilmiş örnek {i}') for i in range(100)]
+        original = _route
+        def route(row):
+            if row['metin'] == broken:
+                return '__wrong__'
+            return row['beklenen'] if row in added else original(row)
+        with patch.dict(DATA, cumleler=rows + added), patch(__name__ + '._route', side_effect=route):
+            with self.assertRaises(AssertionError):
+                self.test_holdout_rule_regression_without_real_model()
+
+    def test_removing_passing_holdout_sentence_does_not_lower_threshold(self):
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        with patch.dict(DATA, cumleler=rows[1:]):
+            self.test_holdout_rule_regression_without_real_model()
+
+    def test_fixed_holdout_failure_requires_marker_removal(self):
+        with patch(__name__ + '._route', side_effect=lambda row: row['beklenen']):
+            with self.assertRaisesRegex(AssertionError, 'HOLDOUT_KNOWN_FAILURES'):
+                self.test_holdout_rule_regression_without_real_model()
+
     def test_rule_regression_guard_rejects_holdout_drop(self):
         with patch(__name__ + '._route', return_value='__wrong__'):
             with self.assertRaises(AssertionError):
@@ -76,10 +163,13 @@ class RoutingSentenceTests(unittest.TestCase):
         rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
         wrong = [row['metin'] for row in rows if _route(row) != row['beklenen']]
         self.assertTrue(rows, 'Bekletilmiş kural regresyon seti boş olamaz.')
-        correct = len(rows) - len(wrong)
-        self.assertGreaterEqual(
-            correct * HOLDOUT_BASELINE_TOTAL, len(rows) * HOLDOUT_BASELINE_CORRECT,
-            f'Kural regresyonu: {correct}/{len(rows)} doğru; eşik 48/49. Yanlış: {wrong}')
+        current = {row['metin'] for row in rows}
+        baseline = current & HOLDOUT_BASELINE_SENTENCES
+        self.assertTrue(baseline, 'Referans cümlelerin tamamı kayıp; listeleri PR incelemesiyle güncelle.')
+        regressions = set(wrong) & baseline - HOLDOUT_KNOWN_FAILURES
+        self.assertFalse(regressions, f'Önceden geçen cümlelerde kural regresyonu: {sorted(regressions)}')
+        fixed = baseline & HOLDOUT_KNOWN_FAILURES - set(wrong)
+        self.assertFalse(fixed, f'Bu bilinen hatalar düzelmiş; HOLDOUT_KNOWN_FAILURES listesinden kaldır: {sorted(fixed)}')
         print(f"\nBekletilmiş cümle seti: {len(rows) - len(wrong)}/{len(rows)} doğru"
               + (f"; yanlış: {wrong}" if wrong else ''))
 
@@ -94,6 +184,7 @@ class RoutingSentenceTests(unittest.TestCase):
                     self.assertEqual(got, row['yuklenmeli'])
 
     def test_data_is_well_formed(self):
+        self.assertLessEqual(HOLDOUT_KNOWN_FAILURES, HOLDOUT_BASELINE_SENTENCES)
         texts = [row['metin'].casefold() for row in DATA['cumleler']]
         self.assertEqual(len(texts), len(set(texts)), 'Aynı cümle iki kez yazılmış.')
         for row in DATA['cumleler']:
@@ -109,4 +200,3 @@ class RoutingSentenceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
