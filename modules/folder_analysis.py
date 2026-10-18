@@ -345,7 +345,7 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
             h = _sha(p)
             if h:
                 groups.setdefault(h, []).append(p)
-        dups.extend(g for g in groups.values() if len(g) > 1)
+        dups.extend(sorted(g, key=lambda q: q.as_posix().lower()) for g in groups.values() if len(g) > 1)   # sıra işletim sistemine bağlı kalmasın
     indexed = 0
     index_cut = 0
     for p, text in texts.items():
