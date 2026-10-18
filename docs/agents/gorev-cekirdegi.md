@@ -1,4 +1,6 @@
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
+- `public_sources.address` veri taşıyan `data/payload/report/body/content/text/message` sorgu anahtarlarını tam adla reddeder; mevcut kimlik bilgisi filtresi ve meşru `date/city` sorguları korunur.
+- `tests/test_public_sources_exfil.py` ağ öncesi ret ve yönlendirmeyi sınar; TR-INJ-16 artık bilinen açık değildir (anahtar kara listesi tüm veri sızdırma biçimlerini kapsamaz).
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
