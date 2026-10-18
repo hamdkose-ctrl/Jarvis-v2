@@ -387,7 +387,46 @@ _DAY_TO = r"\b(cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|
 _EDIT_NOISE = (r"hatirlat\w*|etkinli\w*|randevu\w*|takvim\w*|sil\w*|kaldir\w*|iptal\w*|et|ertele\w*|otele\w*|bana|su|bu|"
                r"son|ekledigim|ekledi\w*|lutfen|ve|\d+|dakika\w*|dk|saat\w*|gun\w*|yarin\w*|haftaya|bir|iki|uc|bes|on|"
                r"yarim|ceyrek|dort|yirmi|otuz|bugun\w*|hafta\w*|seferlik|sadece|sonraki|atla\w*|kaydir\w*|"
-               r"(?:cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?")
+               r"(?:cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?|beni|bunu")
+
+_DUR = r"(?:\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(?:dakika|dk|saat)\w*|yarim saat|ceyrek saat"
+_DAYPART = re.compile(r"\b(sabah|ogleden sonra|oglen|aksam|gece)\w*")
+_DAYPART_HOUR = {"sabah": 9, "ogleden sonra": 14, "oglen": 12, "aksam": 18, "gece": 21}
+_DAYPART_TR = {"sabah": "sabah", "ogleden sonra": "öğleden sonra", "oglen": "öğle", "aksam": "akşam", "gece": "gece"}
+_SNOOZE_SAY = re.compile(r"(?:(?P<dur>" + _DUR + r")\s+sonra\s+|(?:biraz|daha)\s+sonra\s+)?"
+                         r"(?:tekrar|yine|bir daha|yeniden)\s+(?:cal|hatirlat|uyar)\w*")
+_SNOOZE_BARE = re.compile(r"^(?:lutfen\s+)?(?:(?:biraz|daha)\s+)?sonra\s+(?:tekrar\s+)?(?:hatirlat|cal|uyar)\w*$")
+_DAYPART_BARE = re.compile(r"^(?:lutfen\s+)?(?:yarin\s+)?(?:sabah|ogleden sonra|oglen|aksam|gece)\w*\s+(?:tekrar\s+)?hatirlat\w*$")
+
+
+def _say_to_postpone(tr: str) -> str:
+    """Erteleme sözü olmayan söyleyişleri ("10 dk sonra tekrar çal", "daha sonra hatırlat", "yarın sabah hatırlat")
+    mevcut erteleme yoluna çevirir; "… dk sonra hatırlat" (tekrar/yine yok) yeni hatırlatma eklemedir, buraya girmez."""
+    if re.search(r"\b(?:ertele|otele)", tr):
+        return tr
+    t = tr.strip(" .!?")
+    if _SNOOZE_BARE.match(t):
+        return "ertele"
+    if _DAYPART_BARE.match(t):
+        return re.sub(r"\s+", " ", re.sub(r"\btekrar\b", " ", re.sub(r"\b(?:hatirlat|cal|uyar)\w*", "ertele", t))).strip()
+    m = _SNOOZE_SAY.search(t)
+    if m:
+        return (t[:m.start()] + " " + (m.group("dur") or "") + " ertele " + t[m.end():]).strip()
+    return tr
+
+
+def _daypart_time(tr: str, now):
+    """"sabaha/akşama/öğleden sonraya": (zaman, söz). "yarın" varsa yarın, yoksa bugün (saat geçtiyse yarın)."""
+    from datetime import timedelta
+    m = _DAYPART.search(tr)
+    if not m:
+        return None
+    new = now.replace(hour=_DAYPART_HOUR[m.group(1)], minute=0, second=0, microsecond=0)
+    if re.search(r"\byarin", tr):
+        new += timedelta(days=1)
+    elif new <= now:
+        new += timedelta(days=1)
+    return new, _DAYPART_TR[m.group(1)]
 
 
 def _hint(runtime, tr: str) -> str:
@@ -448,6 +487,11 @@ def _snooze_repeating(runtime, ev: dict, tr: str, now) -> str | None:
     from datetime import timedelta
     if runtime.re.search(r"\bhaftaya\b|\byarin|" + _DAY_TO, tr):
         return None
+    dp = _daypart_time(tr, now)
+    if dp:
+        runtime.profile.snooze_event(ev['id'], dp[0].strftime('%Y-%m-%dT%H:%M'))
+        return (f"{ev['title']} için {dp[0].strftime('%H:%M')} ({dp[1]}) yeniden hatırlatacağım. "
+                f"Sıradaki normal tekrar değişmedi: {runtime.whenmod.describe(ev['when'], now)}.")
     mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
     if runtime.re.search(r"yarim saat", tr):
         n, unit = 30, 'dakika'
@@ -489,7 +533,7 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
     """Hatırlatma silme, erteleme, kaydırma ve atlama: "ilaç hatırlatmasını sil", "toplantıyı yarına ertele",
     "yarınki hatırlatmayı 1 saat ertele", "toplantıyı cumaya kaydır", "bugünkünü atla" (tekrarlayanda yalnız sıradaki oluşum)."""
     from datetime import datetime, timedelta
-    tr = _fold(text)
+    tr = _say_to_postpone(_fold(text))
     if not _EDIT_ASK.search(tr):
         return None
     skip = bool(runtime.re.search(r"\batla\b|\batlar\s+misin|\batlayabilir", tr))
@@ -510,7 +554,8 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
             pool = [e for e in runtime.profile.data['events'] if str(e['when'])[:10] == day]
             if not pool:
                 return f"{'Bugün' if qual == 'today' else 'Yarın'} için bir hatırlatman görünmüyor."
-    ev, ask = _edit_target(runtime, tr, delete=not (postpone or skip), pool=pool)
+    htr = _DAYPART.sub(" ", tr) if postpone else tr
+    ev, ask = _edit_target(runtime, htr, delete=not (postpone or skip), pool=pool)
     if ev is None:
         return ask
     if skip:
@@ -543,7 +588,12 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
                 f"{runtime.whenmod.describe(when, now)}. Hiçbir şeyi değiştirmedim.")
     base = datetime.strptime(when[:16], '%Y-%m-%dT%H:%M') if not allday else datetime.strptime(when, '%Y-%m-%d')
     dm = runtime.re.search(_DAY_TO, tr)
-    if runtime.re.search(r"\bhaftaya\b", tr):
+    dpt = _daypart_time(tr, now)
+    if dpt:
+        if allday:
+            return 'Bu tüm gün kaydı; "yarına" ya da "2 gün" gibi gün olarak ertele.'
+        new, said = dpt[0], dpt[1] + ' saatine'
+    elif runtime.re.search(r"\bhaftaya\b", tr):
         new, said = base + timedelta(days=7), 'bir hafta'
     elif runtime.re.search(r"\byarina\b|\byarin\b", tr):
         new, said = base + timedelta(days=1), 'bir gün'
