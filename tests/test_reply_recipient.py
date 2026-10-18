@@ -16,8 +16,7 @@ SENDER = 'arsiv@collector.example.net'
 class ReplyRecipientTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        self.root_patch = patch.object(service_store, 'ROOT', self.root / 'outbox')
+        self.root_patch = patch.object(service_store, 'ROOT', Path(self.tmp.name) / 'outbox')
         self.root_patch.start()
         self.key_token = llm._key_context.set(OWNER)
         self.request_token = requests_state._current.set(None)
@@ -32,33 +31,36 @@ class ReplyRecipientTests(unittest.TestCase):
         self.root_patch.stop()
         self.tmp.cleanup()
 
-    def execute(self, request, destination):
+    def _execute(self, request, destination):
         data = {'service': 'gmail', 'destination': destination, 'subject': 'Yanıt', 'text': 'Kısa cevap'}
         identity = {'job_id': 'job1', 'task_id': 'send', 'request': request}
-        with patch.object(goal_tools.task_agents, 'worker', return_value={'state': 'done', 'text': 'taklit gönderim'}) as worker:
-            result = goal_tools.execute(self.runtime, 'publish', data, self.dependencies, identity)
-        return result, worker
+        return goal_tools.execute(self.runtime, 'publish', data, self.dependencies, identity)
 
     def test_named_contact_reply_keeps_named_destination(self):
-        result, worker = self.execute("Ahmet'e cevap gönder", AHMET)
+        outbox.grant(OWNER, 'gmail', AHMET, seconds=3600)
+        with patch.object(outbox.services, 'send', return_value={'remote_id': 'fake'}) as send:
+            result = self._execute("Ahmet'e cevap gönder", AHMET)
         self.assertEqual(result['state'], 'done')
-        worker.assert_called_once()
-        self.assertEqual(worker.call_args.args[1]['input']['destination'], AHMET)
+        send.assert_called_once()
+        self.assertEqual(send.call_args.args[1]['destination'], AHMET)
 
     def test_named_contact_reply_rejects_mail_sender_swap(self):
-        with self.assertRaises(goal_tools.NotStarted):
-            self.execute("Ahmet'e cevap gönder", SENDER)
+        with patch.object(outbox.services, 'send') as send, self.assertRaises(goal_tools.NotStarted):
+            self._execute("Ahmet'e cevap gönder", SENDER)
+        send.assert_not_called()
 
     def test_unnamed_reply_still_accepts_verified_mail_sender(self):
-        result, worker = self.execute('Bu maile cevap gönder', SENDER)
-        self.assertEqual(result['state'], 'done')
-        worker.assert_called_once()
-        self.assertEqual(worker.call_args.args[1]['input']['destination'], SENDER)
+        with patch.object(outbox.services, 'send') as send:
+            result = self._execute('Bu maile cevap gönder', SENDER)
+        self.assertEqual(result['state'], 'approval')
+        self.assertEqual(result['preview']['destination'], SENDER)
+        send.assert_not_called()
 
     def test_grant_cannot_override_named_reply_destination(self):
         outbox.grant(OWNER, 'gmail', SENDER, seconds=3600)
-        with self.assertRaises(goal_tools.NotStarted):
-            self.execute("Ahmet'e cevap gönder", SENDER)
+        with patch.object(outbox.services, 'send') as send, self.assertRaises(goal_tools.NotStarted):
+            self._execute("Ahmet'e cevap gönder", SENDER)
+        send.assert_not_called()
 
 
 if __name__ == '__main__':
