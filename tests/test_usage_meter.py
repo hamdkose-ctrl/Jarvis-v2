@@ -83,6 +83,19 @@ class UsageMeterTests(unittest.TestCase):
         self.assertEqual([(r['p'], r['m'], r['r']) for r in self.lines()],
                          [('groq', 'g1', '429'), ('groq', 'g2', 'ok'), ('ollama', llm._cfg()['model'], 'baglanti')])
 
+    def test_ollama_success_is_recorded_after_reply_is_decoded(self):
+        def bad_json():
+            raise ValueError('geçersiz JSON')
+        good = Mock(status_code=200, content=b'x', json=lambda: {'message': {'content': 'merhaba'}})
+        broken = Mock(status_code=200, content=b'x', json=bad_json)
+        msgs = [{'role': 'user', 'content': 'soru'}]
+        with patch.object(llm.requests, 'post', side_effect=[good, broken]):
+            self.assertEqual(llm._ollama(msgs, '', 50), 'merhaba')
+            with self.assertRaises(llm.LocalModelError):
+                llm._ollama(msgs, '', 50)     # eskiden bozuk 200 yanıtı "ok" yazılıp ValueError fırlıyordu
+        rows = [(r['r'], r['o']) for r in self.lines()]
+        self.assertEqual(rows, [('ok', len('merhaba')), ('bozuk', 0)])
+
     def test_summary_command_answers_without_model(self):
         ask_from_router()
         with patch.object(llm, 'ask', side_effect=AssertionError('model called')):

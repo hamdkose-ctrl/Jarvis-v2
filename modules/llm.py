@@ -283,16 +283,24 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     except requests.RequestException as e:
         usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
         raise LocalModelError("Yerel model (Ollama) çalışmıyor. ollama.com'dan kurup `ollama serve` ile başlat.") from e
-    usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'ok' if r.status_code < 400 else str(r.status_code))
+    sent = usage_meter.size(msgs)
     if r.status_code == 404:
+        usage_meter.record('ollama', model, sent, 0, '404')
         raise LocalModelError(f"Ollama'da “{model}” modeli yok. Terminalde `ollama pull {model}` yaz.")
     if r.status_code >= 400:
+        usage_meter.record('ollama', model, sent, 0, str(r.status_code))
         detail = str((r.json() if r.content else {}).get('error','')).casefold()
         if any(word in detail for word in ('image', 'vision', 'multimodal', 'does not support')):
             raise ImageCapabilityError('Ollama modeli görüntü girdisini desteklemiyor.')
         raise LocalModelError(f"Ollama hata verdi ({r.status_code}).")
+    try:                     # başarı, yanıt gerçekten çözülünce yazılır; bozuk 200 yanıtı "ok" sayılmaz
+        text = (r.json().get("message") or {}).get("content", "")
+    except ValueError as e:
+        usage_meter.record('ollama', model, sent, 0, 'bozuk')
+        raise LocalModelError("Ollama yanıtı çözülemedi (geçersiz JSON).") from e
+    usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos')
     _route.model = model
-    return (r.json().get("message") or {}).get("content", "")
+    return text
 
 
 OLLAMA_BIG_MODEL = "qwen2.5:7b"
