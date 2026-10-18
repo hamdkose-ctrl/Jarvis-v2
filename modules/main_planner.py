@@ -113,9 +113,10 @@ def _agenda_text(runtime, day: str, label: str) -> str:
 _MONTHS_TR = ('Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık')
 _DAYS_TR = ('Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar')
 # "bugünün planı", "bugün ne yapmalıyım", "günümü planla", "yarın planım ne" (ASCII yazım da)
-_PLAN_ASK = re.compile(r"\b(?:bugünün|yarının|günün|günümün)\s+plan\w*|\bgünümü\s+planla\w*|"
-                       r"^(?:bugün(?:kü)?\s+|yarın(?:ki)?\s+|günlük\s+)?plan[ıi]m(?:[ıi]\s+(?:söyle|göster|oku)\w*|\s+ne(?:dir)?)?\s*[?.!]*$|"
-                       r"\b(?:bugün|yarın)\s+ne(?:ler)?\s+(?:yapmal[ıi]y[ıi]m|yapaca[ğg][ıi]m|yapmam\s+laz[ıi]m)")
+# Eşleşme ASCII'ye indirilmiş metinde yapılır (`_fold`): "bugunun plani", "yarinki plan", "bugun ne yapmaliyim" da çalışır.
+_PLAN_ASK = re.compile(r"\b(?:bugun(?:un|ku)?|yarin(?:in|ki)?|gunun|gunumun|gunluk)\s+plan\w*(?!\s+yap)|\bgunumu\s+planla\w*|"
+                       r"^plani?m(?:i\s+(?:soyle|goster|oku)\w*|\s+ne(?:dir)?)?\s*[?.!]*$|"
+                       r"\b(?:bugun|yarin)\s+ne(?:ler)?\s+(?:yapmaliyim|yapacagim|yapmam\s+lazim)")
 
 
 def _ago(minutes: int) -> str:
@@ -420,7 +421,7 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
             webbrowser.open('https://calendar.google.com')
             return "Google Takvim'i tarayıcıda açtım. " + day_txt
         return day_txt
-    if _PLAN_ASK.search(runtime.whenmod._turkish(cmd_lower)):
+    if _PLAN_ASK.search(_fold(cmd_lower)):
         return _day_plan(runtime, 1 if runtime.re.search('\\byar[ıi]n', cmd_lower) else 0)
     if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|randevum)\\b|\\b(programım|takvimim|ajandam)\\b|\\bne işim var\\b', cmd_lower):
         if 'yarın' in cmd_lower:

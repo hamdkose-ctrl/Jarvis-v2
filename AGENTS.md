@@ -28,6 +28,7 @@
 - GPT incelemesinden (statik, doğrulanmamış) kod okunarak doğrulanan maddeler: "her 2 günde / iki günde bir / gün aşırı" artık tanınmayan tekrardır, tek seferlik kayıt açmaz, sorulur (`when.parse_repeat`). Tekrarlayan kayıtta dosyada yalnız sıradaki zaman durur; `Profile.events_on` (yarının planı, gündem, sabah özeti) ve çakışma sorusu (`main_planner._conflicts`) artık kuralın o güne düşen oluşumunu da sayar (`when.occurs_on`; ilk zamandan önceki günler sayılmaz).
 - Yarının planında gecikme gerçek bugüne göre: bugünkü bitmemiş görev "gecikmiş" değil "bugün bitmezse yarına kalır".
 - Gmail cevap takibi: To adresi alt dize değil tam adres eşleşmesiyle aranır (`email.utils.getaddresses`; "Köse, Hamdi" <a@b> bölünmez). Gmail'den en çok 20 konuşma alınır; sayfa dolduysa ya da 8 mailden fazlası varsa cevap bunu söyler, boş sonuç "hiç yok" gibi sunulmaz. "cevap vermediğim maillere cevap yaz/gönder/cevapla" salt okunur listeye düşmez (Jarvis mail yazmaz/göndermez).
+- "Bugünün planı" kalıbı ASCII'ye indirilmiş metinde eşleşir (`_PLAN_ASK` + `_fold`): bugunun plani, bugunku plan, yarinin plani, gunumu planla, bugun ne yapmaliyim; "plan yapalım", "proje planım" yakalanmaz.
 - Test: `tests/test_review_fixes.py` (önce başarısız yazıldı). Gerçek Gmail ve PC'de denenmedi.
 
 ## Hatırlatma silme ve erteleme — 18 Ekim 2026

@@ -96,6 +96,35 @@ class LateTasksTests(ProfileCase):
         self.assertIn('bugün bitmezse yarına kalır 1 (Raporu bitir)', reply)
 
 
+class PlanAsciiTests(ProfileCase):
+    now = datetime(2026, 10, 17, 10, 0)
+
+    def test_ascii_and_typo_variants_reach_plan(self):
+        rt = _runtime(self, self.profile, self.now)
+        for k, v in _google(connected=False).items():
+            setattr(rt.google_api, k, v)
+        with patch('modules.handoff.brief_line', return_value=None):
+            for text in ('bugunun plani', 'Bugunun Plani ne', 'bugunku plan', 'bugunku planim', 'bugun ne yapmaliyim',
+                         'bugun ne yapacagim', 'gunumu planla', 'gunumun plani', 'planimi soyle', 'planimi goster',
+                         'bugunun planini soyle', 'bugun plan ne'):
+                with self.subTest(text=text):
+                    self.assertIn('Bugünün planı', say(rt, text))
+            for text in ('yarinin plani', 'yarin planim ne', 'yarinki plan', 'yarinin planini goster'):
+                with self.subTest(text=text):
+                    self.assertIn('Yarının planı', say(rt, text))
+
+    def test_other_plans_not_caught(self):
+        rt = _runtime(self, self.profile, self.now)
+        for text in ('proje planim', 'calisma planim', 'yarin plan yapalim', 'bugun ne var'):
+            with self.subTest(text=text), patch('modules.router.classify', return_value=None):
+                try:
+                    reply = rt.handle(text)
+                except Exception:
+                    reply = ''
+                self.assertNotIn('Bugünün planı', reply or '')
+                self.assertNotIn('Yarının planı', reply or '')
+
+
 class ToHeaderTests(unittest.TestCase):
     def run_mine(self, threads):
         with patch.object(google_api, '_service', return_value=FakeGmail(threads)):
