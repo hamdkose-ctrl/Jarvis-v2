@@ -1186,21 +1186,21 @@
   },
   {
    "metin": "bunu internette ara benzerlerini de bul",
-   "model": "task",
-   "beklenen": "task",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "web",
    "kaynak": "gpt-2026-10-17",
    "bolum": "ayarlama",
-   "tartismali": "\"Onu aç\" belirsiz sayılırken \"bunu\" burada görev; bağlam yoksa sormalı mı"
+   "tartismali": "\"Onu aç\" belirsiz sayılırken \"bunu\" burada görev; bağlam yoksa sormalı mı [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]"
   },
   {
    "metin": "rica etsem resmi kaynaktan doğrular mısın",
-   "model": "task",
-   "beklenen": "task",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "web",
    "kaynak": "gpt-2026-10-17",
    "bolum": "bekletilmis",
-   "tartismali": "neyin doğrulanacağı bağlamdan gelir; bağlam yoksa belirsiz"
+   "tartismali": "neyin doğrulanacağı bağlamdan gelir; bağlam yoksa belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]"
   },
   {
    "metin": "bu sayfadaki tabloyu bul ana rakamları çıkar",
@@ -1308,12 +1308,13 @@
   },
   {
    "metin": "Şu belgeyi Türkçeye çevirip ayrı dosya olarak kaydet.",
-   "model": "task",
-   "beklenen": "doc_translate",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "dosya",
    "kaynak": "gpt-2026-10-17",
    "bolum": "ayarlama",
-   "tartismali": "bugün belge çeviri yoluna (doc_translate) gidiyor; ekli belge yoksa hangisi belirsiz"
+   "tartismali": "bugün belge çeviri yoluna (doc_translate) gidiyor; ekli belge yoksa hangisi belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]",
+   "bilinen_hata": true
   },
   {
    "metin": "bu dosyada “bütçe” geçen yerleri bul",
@@ -1357,12 +1358,12 @@
   },
   {
    "metin": "Şunu bi toparla, tekrar eden paragrafları da temizle.",
-   "model": "task",
-   "beklenen": "task",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "dosya",
    "kaynak": "gpt-2026-10-17",
    "bolum": "bekletilmis",
-   "tartismali": "\"şunu\" bağlam gerektirir; ekli dosya yoksa belirsiz"
+   "tartismali": "\"şunu\" bağlam gerektirir; ekli dosya yoksa belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]"
   },
   {
    "metin": "İndirilenler klasöründeki PDF'leri ayrı bir klasöre taşı.",
@@ -1503,12 +1504,12 @@
   },
   {
    "metin": "şu eki indir ve aç",
-   "model": "task",
-   "beklenen": "task",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "mail",
    "kaynak": "gpt-2026-10-17",
    "bolum": "ayarlama",
-   "tartismali": "hangi mailin hangi eki; bağlam yoksa belirsiz"
+   "tartismali": "hangi mailin hangi eki; bağlam yoksa belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]"
   },
   {
    "metin": "Bu mail zincirindeki son kararı çıkar.",
@@ -1601,12 +1602,12 @@
   },
   {
    "metin": "Toplantıdan on dakika önce hatırlat.",
-   "model": "task",
-   "beklenen": "task",
+   "model": "clarify",
+   "beklenen": "clarify",
    "alan": "takvim",
    "kaynak": "gpt-2026-10-17",
    "bolum": "ayarlama",
-   "tartismali": "hangi toplantı; bağlam yoksa belirsiz"
+   "tartismali": "hangi toplantı; bağlam yoksa belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]"
   },
   {
    "metin": "Son 24 saatte Türkiye'de yapay zekâ ile ilgili önemli haberleri tara.",
