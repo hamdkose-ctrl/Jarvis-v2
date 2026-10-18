@@ -222,7 +222,7 @@ def keyword_search(profile, question: str, top: int = 5) -> list[tuple[str, str]
 
 
 # Dosyalar sayfasındaki arama kutusunun içerik araması için dizinlenen türler (Bilgi tabanı ekranındakiyle aynı).
-INDEXABLE = {".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md"}
+INDEXABLE = {".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md", ".rtf", ".odt", ".json"}
 
 
 def file_hits(profile, question: str, top: int = 30) -> list[dict]:
