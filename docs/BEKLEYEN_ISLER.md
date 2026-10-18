@@ -320,3 +320,8 @@ Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin k
 - Doğrulanmayan: Windows üzerinde doğrudan okuyucuyla GDELT erişimi ve gerçek haber raporu (geliştirme HTTP yoklaması 429 ardından JSON200; doğrudan okuyucuda DNS hatası), tüm istenen kurumların kapsamı. Mağaza yazma ve sosyal hesap kurulumu eklenmedi; mevcut hesap/CSV önkoşulları sürer. Bağımsız ajan/model kotası mimarisi bu değişikliğin kapsamı değildir.
 - Kullanıcının son testleri ve kaynak belgeleri: [Ücretsiz veri kaynakları](UCRETSIZ_VERI_KAYNAKLARI.md).
 
+
+## Finans: kur cevabı ve çevirisi — 18 Ekim 2026
+- Yapıldı ve testle doğrulandı (taklit kaynak yanıtıyla): yanlış "dolar/euro" alt dize tetiği kaldırıldı, TCMB + Frankfurter yedekli kur, 10 dk önbellek, para çevirisi, 12 para birimi. Ayrıntı `docs/agents/finans.md`.
+- Denenmedi: canlı TCMB/Frankfurter yanıtı (TCMB'nin bot kullanıcı aracısını kabul edip etmediği dahil), Windows'ta sesli okuma ("4.192,54"), tam motor akışında daha önceki bir kuralın cümleyi yakalayıp yakalamadığı.
+- Açık: altın, kripto, BIST (gayriresmî kaynak, hazır açık), takip listesi, modelsiz fiyat alarmı, yazıyla tam sayı söyleyişlerinin genişletilmesi ("bin beş yüz", "iki buçuk" çalışır; "yarım", "çeyrek" çalışmaz).
