@@ -121,6 +121,14 @@ class FileFixTests(unittest.TestCase):
         with patch.object(translate, 'ask', return_value='ÇEVİRİ: Short text.\nNOTLAR: yok'):
             self.assertEqual(translate.translate_text_document(str(short), 'İngilizce'), 'Short text.')
 
+    def test_failed_reread_keeps_old_searchable_record(self):
+        f = self.path('degisen.txt', 'eski içerik kira'.encode())
+        kb.add(self.profile, str(f))
+        f.write_bytes(b'')                                   # yeni hâli okunamıyor (boş)
+        with self.assertRaises(ValueError):
+            kb.add(self.profile, str(f))
+        self.assertTrue(kb.file_hits(self.profile, 'kira'))
+
     def test_large_excel_translation_stops_before_any_call(self):
         import openpyxl
         wb = openpyxl.Workbook(); ws = wb.active

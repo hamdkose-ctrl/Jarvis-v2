@@ -51,12 +51,14 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
 
 
 class _Chat:
+    body = {'error': {'message': 'Quota exceeded PerMinute', 'status': 'RESOURCE_EXHAUSTED'}}
+
     def __init__(self, sent, model):
         self.sent, self.model = sent, model
 
     def send_message(self, prompt):
         self.sent.append(self.model)
-        raise llm.errors.ClientError(429, {'error': {'message': 'Quota exceeded PerMinute', 'status': 'RESOURCE_EXHAUSTED'}})
+        raise llm.errors.ClientError(429, self.body)
 
 
 class RateLimitMemoryTests(unittest.TestCase):
@@ -91,6 +93,22 @@ class RateLimitMemoryTests(unittest.TestCase):
         with patch.object(llm.time, 'monotonic', return_value=llm.time.monotonic() + 61):
             self.ask()
         self.assertEqual(self.sent, ['lite', 'flash', 'lite', 'flash'])
+
+    def test_gemini_429_uses_retry_delay_from_error_body(self):
+        retry = {'error': {'message': 'Quota exceeded PerMinute', 'status': 'RESOURCE_EXHAUSTED',
+                           'details': [{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '300s'}]}}
+        with patch.object(_Chat, 'body', retry):
+            self.ask()
+        until = min(v[0] for v in llm._rate_limited.values())
+        self.assertAlmostEqual(until - llm.time.monotonic(), 300, delta=3)   # eskiden hep 60 sn
+
+    def test_gemini_daily_quota_ignores_short_retry_delay(self):
+        daily = {'error': {'message': 'Quota exceeded PerDay', 'status': 'RESOURCE_EXHAUSTED',
+                           'details': [{'retryDelay': '20s'}]}}
+        with patch.object(_Chat, 'body', daily):
+            self.ask()
+        until = min(v[0] for v in llm._rate_limited.values())
+        self.assertAlmostEqual(until - llm.time.monotonic(), 3600, delta=3)
 
     def test_limit_is_per_user(self):
         self.ask()
