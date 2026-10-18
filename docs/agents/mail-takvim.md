@@ -128,3 +128,10 @@ mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse write
 - Geçmişi anlatan cümleler (haftalık özet, "bu hafta neler oldu", rapor) ve yaz/yap/hazırla/hatırlat/ekle içerenler bu yola girmez (`_WEEK_NOT`); haftalık özet eskisi gibi Outlook iş takibidir.
 - Google okunamazsa yerel kayıtlar yine gösterilir ve "bakamadım" (izin düşmüşse Bağlan açıklaması) eklenir. Çok günlük tüm gün Google etkinliği yalnız ilk gününde görünür. Varsayılan: "bu hafta" = takvim haftası (pazartesi başlar), Cumartesi sorulursa yalnız 2 gün kalır.
 - Test: `tests/test_week_plan.py`. Gerçek Google Takvim ve PC'de denenmedi.
+
+## Outlook iş mailine cevap taslağı
+
+- "ilk iş mailime cevap taslağı hazırla", "Ayşe'nin iş mailine cevap yaz": `outlook.draft_handle` okunmamış iş maillerinden birini seçer (sıra sözcüğü ya da gönderen/konu anahtar kelimesi; belirsizse "Hangisi?", yoksa "bulamadım") ve tek model çağrısıyla yalnız cevap METNİ üretir. `engine_tools._mail_handle` içinde `outlook.handle`'dan önce çalışır, model sınıflandırmasına gitmez.
+- Göndermez, Outlook'ta cevap/taslak oluşturmaz, okundu işaretlemez, silmez/taşımaz; `fetch_unread` salt okunurdur ve bir test `outlook.py` kaynağında `.Send(`, `.Reply(`, `.Save(`, `.Delete(`, `.Move(` vb. bulunmadığını denetler. "Cevap gönder" istekleri açıkça reddedilir (gönderim Hamdi'de kalır, gönderim tavanı korunur).
+- Gizlilik: mail gövdesi (en çok 4000 karakter) yalnız bu açık istekte modele gider; `yerel` modda yalnız yerel modele, `gizli` modda maskelenerek gider. Mail VERİ sayılır, içindeki talimatlara uyulmaz; yanıtta modda göre not düşülür.
+- Sınır: gerçek Outlook, gerçek mail ve gerçek modelle PC'de denenmedi (testler taklit). Yalnız klasik Outlook (COM, Windows).
