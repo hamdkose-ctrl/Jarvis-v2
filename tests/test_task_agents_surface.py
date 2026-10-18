@@ -45,6 +45,21 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(set(task_tools.CATALOG) >= {'media', 'publish', 'account', 'research', 'writer', 'verify'})
 
 
+class WorkerMoveTests(unittest.TestCase):
+    def test_workers_live_in_task_workers_and_task_agents_delegates(self):
+        from modules import task_workers
+        self.assertTrue(callable(task_workers.run) and callable(task_workers.browser_task))
+        self.assertIs(agents.browser_task, task_workers.browser_task)
+        with patch.object(task_workers, 'run', return_value={'state': 'done'}) as run:
+            self.assertEqual(agents._worker('alice', {'agent': 'verify'}, {}), {'state': 'done'})
+        run.assert_called_once()
+
+    def test_unknown_agent_is_still_rejected_by_the_worker(self):
+        from modules import task_workers
+        with self.assertRaises(ValueError):
+            task_workers.run('alice', {'agent': 'nope', 'input': {}}, {})
+
+
 class FixedCommandTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
