@@ -94,10 +94,7 @@ def _resolve_doc(runtime, raw, command: str='') -> tuple[str | None, str | None]
     low = runtime._tr_lower(name).strip(' /\\')
     folder = None
     if low in runtime._HOME_DIRS:
-        for base in (nxapi.HOME, nxapi.HOME / 'OneDrive'):
-            if (base / runtime._HOME_DIRS[low]).is_dir():
-                folder = base / runtime._HOME_DIRS[low]
-                break
+        folder = nxapi.home_folder(runtime._HOME_DIRS[low])
     elif low in ('jarvis dosyaları', 'jarvis dosyalari', 'yüklediklerim'):
         folder = nxapi.FILES_DIR
     elif name:

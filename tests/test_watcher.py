@@ -18,6 +18,7 @@ class WatcherTests(unittest.TestCase):
         self.enterContext(patch.object(watcher, "DATA_DIR", self.tmp / "data"))
         self.enterContext(patch.object(nxapi, "HOME", self.home))
         self.enterContext(patch.object(nxapi, "FILES_DIR", self.home / "Documents" / "Jarvis Dosyaları"))
+        self.enterContext(patch.object(nxapi, "known_folder", return_value=None))   # gerçek Windows klasörleri sızmasın
         for d in (watcher._STATE, watcher._RECENT, watcher._PENDING):
             d.clear()
         watcher.OUTPUTS.clear()
@@ -30,6 +31,13 @@ class WatcherTests(unittest.TestCase):
 
     def tick(self):
         watcher.tick("hamdi", self.sent.append)
+
+    def test_known_folder_used_for_folder_word(self):
+        moved = self.tmp / "D_diski" / "Belgelerim"      # Windows'un başka diske taşıdığı Belgeler
+        moved.mkdir(parents=True)
+        with patch.object(nxapi, "known_folder", side_effect=lambda n: moved if n == "Documents" else None):
+            self.assertEqual(watcher.resolve_folder("Belgeler"), moved)
+            self.assertEqual(watcher.resolve_folder("İndirilenler"), self.down)
 
     def test_rule_commands_parse_folder_kind_and_action(self):
         reply, rule = self.add("İndirilenler'i izle, PDF gelince önemli yerleri tablo yap")
