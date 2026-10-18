@@ -148,21 +148,10 @@ def _validate(files: dict[str, bytes]) -> str | None:
 
 # Jarvis'in kendi ürettiği, .gitignore'daki yerel çıktılar (kabul raporu, geçici kontrol klasörü vb.).
 # Kaynak sayılmaz: güncellemeyi engellemez ve "GitHub'a Yükle" ile yayınlanmaz.
-LOCAL_ONLY_PARTS = {".v2_kontrol_gecici", ".ruff_cache", ".claude-mem", "JarvisAndroid"}
-LOCAL_ONLY_NAMES = ("v2_kabul_sonucu*.json", "*.yeni")
+from modules.publish_policy import LOCAL_ONLY_PARTS, LOCAL_ONLY_NAMES
 
 
-def _publishable_path(rel: str) -> bool:
-    import fnmatch
-    if any(fnmatch.fnmatch(Path(rel).name, pat) for pat in LOCAL_ONLY_NAMES) or any(x in LOCAL_ONLY_PARTS for x in Path(rel).parts):
-        return False
-    allowed = {".py", ".js", ".html", ".css", ".md", ".txt", ".json", ".bat", ".toml", ".yaml", ".yml", ".java", ".gradle", ".properties", ".xml", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2", ".ico", ".jar"}
-    skip_parts = {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"}
-    skip_names = {".env", "settings.json", "gemini_key.txt", "groq_key.txt", "github_token.txt", "phone_token.txt", "local.properties", "chat_sessions.json", "requests.json"}
-    pp = Path(rel)
-    return (pp.name not in skip_names and not pp.name.startswith(".env.")
-            and (pp.suffix.lower() in allowed or pp.name in {".gitignore", ".gitattributes"} or pp.as_posix() == "modules/desktop_uia.ps1")
-            and not any(x in skip_parts for x in pp.parts))
+from modules.publish_policy import is_publishable_path as _publishable_path
 
 
 _remote_paths: dict[str, set[str]] = {}   # son karşılaştırılan commit'lerin yayınlanabilir dosya listesi (fark türü için)
@@ -553,3 +542,4 @@ def status() -> dict:
 if __name__ == "__main__":                 # elle deneme: python updater.py
     print(check(apply_now=False, force=True) or "Güncel.")
     print(status())
+

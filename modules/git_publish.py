@@ -242,9 +242,11 @@ def _pr_text(pr: dict, count: int) -> str:
             "GitHub'da testler (CI) yeşil olunca PR'ı birleştir. Birleşince GitHub durumunu doğrula; bu bilgisayar eşitlenir.")
 
 
-_PUBLISH_EXT = {".py", ".js", ".html", ".css", ".md", ".txt", ".json", ".bat", ".toml", ".yaml", ".yml", ".java", ".gradle", ".properties", ".xml", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff2", ".ico", ".jar"}
-_PUBLISH_SKIP_PARTS = {".venv_install", ".venv_backup", ".jarvis", ".claude", "models", ".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "backups", ".backups", ".gradle", "build", ".idea"}
-_PUBLISH_SKIP_NAMES = {".env", "settings.json", "gemini_key.txt", "groq_key.txt", "github_token.txt", "phone_token.txt", "local.properties", "chat_sessions.json", "requests.json"}
+from modules.publish_policy import (
+    ALLOWED_EXTENSIONS as _PUBLISH_EXT,
+    SKIP_PARTS as _PUBLISH_SKIP_PARTS,
+    SKIP_NAMES as _PUBLISH_SKIP_NAMES,
+)
 
 
 def _publishable_files() -> dict[str, bytes]:
@@ -339,4 +341,5 @@ def publish_worktree(summary: str = "kullanıcı onaylı yerel değişiklikler")
     pr = _submit_pr(head, base_tree, entries, message, changed)
     forget_local(changed)
     return _pr_text(pr, len(changed))
+
 
