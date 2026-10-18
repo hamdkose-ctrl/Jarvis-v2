@@ -23,6 +23,17 @@ class AgentsLayoutTests(unittest.TestCase):
                 self.assertIn(f'docs/agents/{note.name}', text, 'Alan notu AGENTS.md dizininde yok.')
                 self.assertGreater(len(note.read_text(encoding='utf-8').strip()), 200)
 
+    def test_intro_line_is_at_top_of_agents_md(self):
+        text = (ROOT / 'AGENTS.md').read_text(encoding='utf-8')
+        self.assertIn('Bu dosya Jarvis kodunda değişiklik yapan', text.split('## Çalışma kuralları')[0])
+        note = (ROOT / 'docs' / 'agents' / 'haber.md').read_text(encoding='utf-8')
+        self.assertNotIn('Bu dosya Jarvis kodunda değişiklik yapan', note)
+
+    def test_gdelt_is_marked_historical_in_news_note(self):
+        note = (ROOT / 'docs' / 'agents' / 'haber.md').read_text(encoding='utf-8')
+        self.assertIn('GDELT Hamdi\'nin kararıyla kaldırıldı', note)
+        self.assertIn('Geçerli kural', note)
+
 
 if __name__ == '__main__':
     unittest.main()

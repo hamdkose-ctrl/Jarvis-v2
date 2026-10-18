@@ -1,5 +1,7 @@
 # AGENTS.md · Jarvis'te çalışan ajanlar için kısa rehber
 
+Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex vb.) içindir. Kod değiştiğinde bu dosya da aynı PR'da güncellenir. Alana özgü ayrıntı `docs/agents/` altındadır.
+
 ## Çalışma kuralları
 
 - **Ponytail yaklaşımı:** Önce mevcut kodu oku. Küçük, kararlı ve geri alınabilir değişiklik yap. Gereksiz katman veya bağımlılık ekleme.
