@@ -1,4 +1,6 @@
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
+- `public_sources.address` veri taşıyan `data/payload/report/body/content/text/message` sorgu anahtarlarını tam adla reddeder; mevcut kimlik bilgisi filtresi ve meşru `date/city` sorguları korunur.
+- `tests/test_public_sources_exfil.py` ağ öncesi ret ve yönlendirmeyi sınar; TR-INJ-16 artık bilinen açık değildir (anahtar kara listesi tüm veri sızdırma biçimlerini kapsamaz).
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
@@ -113,3 +115,5 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Yürütücü birleştirme adım 2 (18 Ekim 2026): görev işçileri (`media`, `publish`, `account`, `research`, `writer`, `browser`, `coder`, `verify`) `task_agents.py`'den `modules/task_workers.py`'ye olduğu gibi taşındı (`run`, `browser_task`, `json_text`); `task_agents.worker` doğrulama/mühürlemeyi yapmaya, `_worker` ince sarmalayıcı olarak çağırmaya devam eder, `_json` ve `browser_task` adları geri uyumlu duruyor. Yüzey `tests/test_task_agents_surface.py` ile kilitlidir. Davranış değişmedi; PC'de denenmedi.
 - Türkçe kullanıcı metni karşılaştırmalarında `modules.turkish_text.lower` (NFC, İ→i/I→ı), ASCII gereken yerde `fold` kullanılır; geçmiş/görev/çeviri/PC rehberi/matematik/devir yolları ortak yardımcıya bağlıdır.
 - `tests/test_turkish_text.py` IĞDIR/İSTANBUL/ISPARTA ve altı kullanım yolunu sınar; uzantı/hata metni normalleştirmeleri ile diğer modüllerdeki kopyalar değişmedi, canlı PC kabulü yapılmadı.
+- Etiketli gizli değerler (18 Ekim 2026): `privacy.redact` belirteç/token/secret/parola/şifre/password/passwd/api_key/anahtar içeren etiketleri `=` veya `:` sonrasında en az 6 karakterlik boşluksuz değerde korur, yalnız değeri `[gizli değer gizlendi]` yapar; mevcut API/e-posta/IBAN/kart/TCKN/telefon kalıpları değişmez.
+- TR-INJ-04 bu dar değişiklikle kapanmadı: kandırılmış planlayıcı testte etiketsiz `Durum SESSION_CANARY_UNRECOGNIZED_XYZ` gönderim girdisi üretiyor; bu kapsam dışı kaldığı için `bilinen_acik` işareti korunur, `tests/test_privacy_labeled_secrets.py` etiketli ve yanlış-pozitif sınırını sabitler.
