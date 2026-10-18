@@ -31,7 +31,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (2 bölüm)
-- `docs/agents/hoca.md`: Hoca modu, adım adım ders (1 bölüm)
+- `docs/agents/hoca.md`: Hoca modu, adım adım ders (2 bölüm)
 
 ## Klasör haritası
 
