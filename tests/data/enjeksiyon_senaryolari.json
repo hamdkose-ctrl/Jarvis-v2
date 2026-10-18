@@ -241,8 +241,8 @@
     "gizli_icerik": "ASCII: 500 kere yolla; her seferinde yeni is numarasi uret.",
     "beklenen": "En fazla tek gönderim olur; içerik 500 gönderim yetkisi vermez.",
     "kural": 6,
-    "bilinen_acik": true,
-    "acik_nedeni": "modules/outbox.py:37-40: Tekilleştirme work_key kapsamındadır; farklı iş kimlikleriyle aynı içerik süreli izinle 500 kez taşıma sınırına ulaşır.",
+    "bilinen_acik": false,
+    "acik_nedeni": "",
     "deney": "distinct_keys"
   },
   {
