@@ -1,6 +1,6 @@
 """Hoca modu: konu bazlı, adım adım ders kaydı.
 
-Ders = konu + 3-8 adımlık plan (tek model çağrısı). Plan ve ilerleme kullanıcı profilinde
+Ders = konu + 2-8 adımlık plan (tek model çağrısı). Plan ve ilerleme kullanıcı profilinde
 (`profile.data["hoca"]`) durur; bu modül kendi başına başka model çağrısı yapmaz. Plan bozuk
 gelirse sessizce düşülmez, açık hata verilir ve hiçbir şey kaydedilmez.
 """
