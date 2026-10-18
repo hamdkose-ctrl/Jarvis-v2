@@ -108,3 +108,5 @@ Hamdi: tüm arayüz eski haliyle kalır; yalnız arka plan yenilenir. `nx.js`, `
 - seljuk-backdrop.js sayfa başına tek dekoratif katman kurar; menü/sohbet dönüşünde yeniden başlamaz. Mevcut Tekrar oynat açılışı yeniden başlatır. Gizli belgede animasyonlar durur; reduced-motion veya nx_bust=false durağan son hâli gösterir. Katman pointer-events:none ve aria-hidden; mikrofon, model, hesap veya SSE eklenmez. Eski hologram figürü ve davranışı korunur, yalnız arkasındaki eski dağ katmanı gizlenir. Bu değişiklik Selçuklu karakterini uygulamaya bağlamaz.
 - Test: seljuk_backdrop_behavior.js; canlı Windows kabulü ve tam paket doğrulaması ayrıca gereklidir.
 
+- `tests/test_web_bridge_drift.py`, tüm webui JavaScript dosyalarındaki sabit `api`/`tryApi` adlarını Bridge ve miras metotlarıyla AST üzerinden karşılaştırır; özel/geçersiz ve çağrılamayan adları bildirir.
+- Dinamik adlar (`api(name)`, koşullu/birleştirilmiş/şablon dizgeleri) denetlenmez; uygulama import edilmez, gerçek arayüz/PC ve argüman/sonuç sözleşmesi ölçülmez.
