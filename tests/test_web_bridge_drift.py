@@ -8,6 +8,7 @@ Tam JS ayrıştırıcısı değildir; argüman sayısı, sonuç biçimi ve gerç
 import ast
 from pathlib import Path
 import re
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,7 +113,7 @@ class WebBridgeDriftTests(unittest.TestCase):
         self.assertEqual(stale, set(), f'Artık gerekmeyen IZINLI girdileri: {stale}')
         self.assertTrue(all(isinstance(reason, str) and reason.strip() for reason in IZINLI.values()))
         print(f'WEB_BRIDGE_DRIFT: {len(calls)} sabit çağrı, {len({n for _, _, n in calls})} ad, '
-              f'{len({p for p, _, _ in calls})} JS dosyası; eksik yok.')
+              f'{len({p for p, _, _ in calls})} JS dosyası; eksik yok.', file=sys.stderr)
 
     def test_extractor_covers_both_helpers_and_files_but_skips_dynamic_names(self):
         calls = api_calls({'webui/nx.js': "api('snapshot');\n tryApi(\"send\", 1); api(name); api('pre'+name);",
