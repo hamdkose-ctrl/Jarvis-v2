@@ -30,6 +30,7 @@ class FolderAnalysisTests(unittest.TestCase):
         self.home = Path(tmp.name)
         for name, value in (('HOME', self.home), ('FILES_DIR', self.home / 'Documents' / 'Jarvis Dosyaları')):
             p = patch.object(nxapi, name, value); p.start(); self.addCleanup(p.stop)
+        p = patch.object(nxapi, 'known_folder', return_value=None); p.start(); self.addCleanup(p.stop)   # gerçek Windows klasörleri teste karışmasın
         p = patch.object(kb, 'ROOT', self.home / 'kb'); p.start(); self.addCleanup(p.stop)
         self.dl = self.home / 'Downloads'; self.dl.mkdir()
         self.profile = Profile()
