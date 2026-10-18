@@ -136,7 +136,7 @@ def publish(paths: list[str], before: dict[str, bytes | None], summary: str) -> 
         forget_local(paths)
         return "GitHub zaten güncel."
     message="JARVIS: " + (summary.strip() or "otomatik geliştirme")[:180]
-    pr=_submit_pr(head, base_tree, entries, message, paths)
+    pr=_submit_pr(head, base_tree, entries, message, paths, keep_pr=True)
     forget_local(paths)
     return _pr_text(pr, len(paths))
 
@@ -165,15 +165,19 @@ def _open_pr_branch() -> tuple[dict, str] | None:
     return pr, ref["object"]["sha"]
 
 
-def _submit_pr(head: str, base_tree: str, entries: list[dict], message: str, paths: list[str]) -> dict:
+def _submit_pr(head: str, base_tree: str, entries: list[dict], message: str, paths: list[str], keep_pr: bool = False) -> dict:
     """Değişiklikleri main yerine ayrı bir jarvis/ dalına commit edip PR açar (açık PR varsa onu günceller).
 
     Ağaç her zaman güncel main ağacı + bütün yerel farklardır; bu yüzden aynı PR'ın güncellenmesi önceki
     farkları kaybetmez. Dal güncellemesi force=False ile yapılır, main'e hiç dokunulmaz.
+    keep_pr=True (yalnız bazı dosyaları gönderen artımlı `publish`): açık PR varsa ağaç main'den değil PR dalının
+    ucundan kurulur, yoksa ikinci yayın ilk yayının dosyalarını geri alırdı.
     """
     import updater
-    new_tree = _api("POST", "/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
     existing = _open_pr_branch()
+    if existing and keep_pr:
+        base_tree = _api("GET", f"/git/commits/{existing[1]}")["tree"]["sha"]
+    new_tree = _api("POST", "/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
     parent = existing[1] if existing else head
     new_commit = _api("POST", "/git/commits", {"message": message, "tree": new_tree, "parents": [parent]})["sha"]
     if existing:

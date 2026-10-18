@@ -22,7 +22,8 @@ class FakeGitHub:
             return {'object': {'sha': self.refs[path.rsplit('/heads/', 1)[1]]}}
         if method == 'GET' and path.startswith('/git/commits/'):
             sha = path.rsplit('/', 1)[1]
-            return {'tree': {'sha': 'merged-tree' if sha == 'merge1' else 'tree'}, 'message': 'msg'}
+            tree = 'merged-tree' if sha == 'merge1' else 'pr-tip-tree' if sha.startswith('c') else 'tree'
+            return {'tree': {'sha': tree}, 'message': 'msg'}
         if method == 'GET' and path.startswith('/pulls/'):
             return self.pulls[int(path.rsplit('/', 1)[1])]
         if path == '/git/blobs':
@@ -94,6 +95,26 @@ class PublishToPullRequestTests(unittest.TestCase):
         self.assertEqual([c[2] for c in self.gh.calls if c[1] == '/git/commits'][-1]['parents'], [first])
         self.assertEqual(self.writes_to_main(), [])
         self.assertIn('güncellendi', text)
+
+    def test_incremental_publish_keeps_files_of_earlier_upload_in_open_pr(self):
+        # Eski hata: publish(A) sonra publish(B) ağacı main+B kuruyor, A PR'dan siliniyordu. Sahte GitHub
+        # ağaç içeriği hesaplamadığı için eski test bunu göremiyordu; burada ikinci ağacın taban ağacına bakılır.
+        root = Path(tempfile.mkdtemp())
+        (root / 'a.py').write_text('a=1\n'); (root / 'b.py').write_text('b=1\n')
+        with patch.object(publish, 'ROOT', root):
+            publish.publish(['a.py'], {'a.py': None}, 'A')
+            publish.publish(['b.py'], {'b.py': None}, 'B')
+        trees = [c[2] for c in self.gh.calls if c[1] == '/git/trees']
+        self.assertEqual(trees[0]['base_tree'], 'tree')                # ilk yayın: main ağacı
+        self.assertEqual(trees[1]['base_tree'], 'pr-tip-tree')         # ikinci: PR dalının ucu, A korunur
+        self.assertEqual([e['path'] for e in trees[1]['tree']], ['b.py'])
+
+    def test_worktree_publish_still_builds_from_main_plus_all_local_diffs(self):
+        publish.publish_worktree('ilk')
+        self.files = {'main.py': b'print(2)\n'}
+        publish.publish_worktree('ikinci')
+        trees = [c[2] for c in self.gh.calls if c[1] == '/git/trees']
+        self.assertEqual([t['base_tree'] for t in trees], ['tree', 'tree'])
 
     def test_closed_pr_gets_a_new_pr(self):
         publish.publish_worktree('ilk')
