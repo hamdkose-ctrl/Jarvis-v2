@@ -29,8 +29,46 @@ CATS = {
 _ALL = set().union(*CATS.values())
 
 
+_KNOWN_FOLDER_IDS = {      # Windows Known Folder kimlikleri (FOLDERID_*)
+    "Desktop": "B4BFCC3A-DB2C-424C-B029-7FE99A87C641",
+    "Documents": "FDD39AD0-238F-46AF-ADB4-6C85480369C7",
+    "Downloads": "374DE290-123F-4565-9164-39C4925E467B",
+    "Pictures": "33E28130-4E1E-4676-835A-98395C3BC3BB",
+}
+
+
+def known_folder(name: str) -> Path | None:
+    """Windows'un bildirdiği gerçek klasör yolu (OneDrive yönlendirmesi, başka diske taşınmış, Türkçe ad). Windows dışında None."""
+    guid = _KNOWN_FOLDER_IDS.get(name)
+    if not guid or os.name != "nt":
+        return None
+    try:
+        import ctypes
+        import uuid
+        from ctypes import wintypes
+        raw = uuid.UUID(guid)
+        class _GUID(ctypes.Structure):
+            _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+        g = _GUID(raw.time_low, raw.time_mid, raw.time_hi_version, (ctypes.c_ubyte * 8)(*raw.bytes[8:]))
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) != 0:
+            return None
+        try:
+            path = Path(out.value)
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+        return path if path.is_dir() else None
+    except Exception:
+        _record_failure('modules/nxapi.py:known_folder')
+        return None
+
+
 def _roots() -> list[Path]:
     out = [FILES_DIR]
+    for name in _KNOWN_FOLDER_IDS:                 # Windows'un söylediği gerçek klasörler, aynı kaynaktan izinli
+        p = known_folder(name)
+        if p is not None and p.resolve() not in {r.resolve() for r in out if r.exists()}:
+            out.append(p)
     for c in ("Downloads", "İndirilenler", "Desktop", "Masaüstü", "Documents", "Belgeler", "Pictures", "Resimler",
               "OneDrive/Desktop", "OneDrive/Masaüstü", "OneDrive/Documents", "OneDrive/Belgeler"):
         p = HOME / c

@@ -51,6 +51,16 @@ def _fold(s: str) -> str:
     return s.replace("I", "ı").replace("İ", "i").lower()
 
 
+_CLOUD_ONLY = 0x400000 | 0x40000     # RECALL_ON_DATA_ACCESS | RECALL_ON_OPEN: açılırsa OneDrive dosyayı indirir
+
+
+def _cloud_only(p: Path) -> bool:
+    try:
+        return bool(getattr(p.stat(), "st_file_attributes", 0) & _CLOUD_ONLY)
+    except OSError:
+        return False
+
+
 def _count(p: Path) -> int:
     try:
         return sum(1 for c in p.iterdir() if not c.name.startswith((".", "~$")) and c.name.lower() not in _SKIP_NAMES)
@@ -59,8 +69,10 @@ def _count(p: Path) -> int:
 
 
 def _home_folder(cands: tuple[str, ...]) -> Path | None:
-    """OneDrive yönlendirmeli Windows'ta boş 'Desktop' kalıntısı gerçek 'OneDrive/Desktop' yerine seçilmesin: en dolu olan."""
-    found = [nxapi.HOME / c for c in cands if (nxapi.HOME / c).is_dir()]
+    """Önce Windows'un bildirdiği gerçek klasör (Known Folder); yoksa/eşitse aday adlar. OneDrive yönlendirmeli
+    Windows'ta boş 'Desktop' kalıntısı gerçek klasör yerine seçilmesin: en dolu olan, eşitlikte Windows'unki."""
+    kf = nxapi.known_folder(cands[0])      # her grubun ilk adayı Known Folder adıdır (Desktop, Documents…)
+    found = ([kf] if kf is not None else []) + [nxapi.HOME / c for c in cands if (nxapi.HOME / c).is_dir()]
     if not found:
         return None
     return max(found, key=_count)    # eşitlikte ilk aday (max ilkini korur)
@@ -275,6 +287,7 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
     texts: dict[Path, str] = {}
     unreadable: list[tuple[Path, str]] = []
     secret: list[Path] = []          # adı/uzantısı yüzünden hiç açılmayanlar
+    cloud: list[Path] = []           # yalnız çevrimiçi (OneDrive); indirmemek için açılmadı
     secret_text: list[Path] = []     # içeriği kontrol için okunup gizli bilgi bulunanlar (modele/dizine girmez)
     unsupported = 0
     read_bytes = 0
@@ -285,6 +298,9 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
             continue
         if p.suffix.lower() not in docs.SUPPORTED:
             unsupported += 1
+            continue
+        if _cloud_only(p):                  # açmak indirmeyi başlatır: kullanıcı haberi olmadan indirilmez
+            cloud.append(p)
             continue
         try:
             size = p.stat().st_size
@@ -310,7 +326,7 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
         texts[p] = text
     # Birebir aynı içerikli dosyalar (boyut eşleşenler arasında özet değeri)
     by_size: dict[int, list[Path]] = {}
-    hidden = set(secret) | set(secret_text)
+    hidden = set(secret) | set(secret_text) | set(cloud)
     for p, _ in files:
         if p in hidden:                 # gizli olanlar özet değeri için de açılmaz
             continue
@@ -329,7 +345,7 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
             h = _sha(p)
             if h:
                 groups.setdefault(h, []).append(p)
-        dups.extend(g for g in groups.values() if len(g) > 1)
+        dups.extend(sorted(g, key=lambda q: q.as_posix().lower()) for g in groups.values() if len(g) > 1)   # sıra işletim sistemine bağlı kalmasın
     indexed = 0
     index_cut = 0
     for p, text in texts.items():
@@ -370,6 +386,9 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
                   f"{len(secret_text)} dosya (kontrol için bilgisayarda açıldı): " +
                   ", ".join(rel(p) for p in secret_text[:6]) + ("…" if len(secret_text) > 6 else "")]
     limits = []
+    if cloud:
+        limits.append(f"{len(cloud)} belge yalnız çevrimiçi (OneDrive'da, bu bilgisayarda değil); indirmemek için açmadım: "
+                      + ", ".join(rel(p) for p in cloud[:4]) + ("…" if len(cloud) > 4 else ""))
     if unsupported:
         limits.append(f"{unsupported} dosyanın türü okunmuyor (görsel, video, arşiv vb.), yalnız sayıldı")
     if not_read:
