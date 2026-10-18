@@ -162,13 +162,16 @@ def _day_plan(runtime, offset: int = 0) -> str:
             parts.append(f'Sıradaki: {nxt[0]} {nxt[1]}, ' + (f'{_ago(mins)} sonra.' if mins > 0 else 'şimdi.'))
     else:
         parts.append('Takviminde bir şey yok.')
-    late, today, other = [], [], []
+    late, carry, today, other = [], [], [], []
+    real_today = now.date().isoformat()
     for t in runtime.profile.data.get('tasks', []):
         if t.get('done'):
             continue
         d = str(t.get('when') or '')[:10]
-        if d and d < day.isoformat():
+        if d and d < real_today:
             late.append(t['text'])
+        elif d and d < day.isoformat():       # yarının planında: bugün bitmezse yarına kalacaklar (henüz gecikmiş değil)
+            carry.append(t['text'])
         elif d == day.isoformat():
             today.append(t['text'])
         else:
@@ -176,6 +179,8 @@ def _day_plan(runtime, offset: int = 0) -> str:
     task = []
     if late:
         task.append(f"{len(late)} gecikmiş ({', '.join(late[:3])})")
+    if carry:
+        task.append(f"bugün bitmezse yarına kalır {len(carry)} ({', '.join(carry[:3])})")
     if today:
         task.append(f"{'bugün' if offset == 0 else 'yarın'} {len(today)} ({', '.join(today[:3])})")
     if other:
@@ -214,14 +219,16 @@ def _conflicts(runtime, when: str) -> list[str]:
     start = datetime.strptime(when, '%Y-%m-%dT%H:%M')
     window = timedelta(minutes=30)
     out = []
-    for e in runtime.profile.data.get('events', []):
-        raw = str(e.get('when') or '')
-        try:
-            t = datetime.strptime(raw, '%Y-%m-%dT%H:%M')
-        except ValueError:
-            continue
-        if abs(t - start) < window:
-            out.append(f"{raw[11:16]} {e.get('title', '')}".strip())
+    days = {(start - window).date(), start.date(), (start + window).date()}
+    for day in sorted(days):
+        for e in runtime.profile.events_on(day.isoformat()):      # tekrarlayan kayıtların o günkü oluşumları dahil
+            raw = str(e.get('when') or '')
+            try:
+                t = datetime.strptime(raw, '%Y-%m-%dT%H:%M')
+            except ValueError:
+                continue
+            if abs(t - start) < window:
+                out.append(f"{raw[11:16]} {e.get('title', '')}".strip())
     try:
         for a, _b, name in runtime.google_api.busy_between(start - window + timedelta(minutes=1), start + window):
             out.append(f"{a.strftime('%H:%M')} {name} (Google Takvim)")

@@ -317,7 +317,15 @@ class Profile:
 
     def events_on(self, day: str) -> list[dict]:
         """'YYYY-MM-DD' gününün etkinlikleri (saatlisi saat sırasıyla, tüm gün olanlar başta)."""
-        return sorted((e for e in self.data["events"] if e["when"][:10] == day), key=lambda e: e["when"])
+        out = []
+        for e in self.data["events"]:
+            if e["when"][:10] == day:
+                out.append(e)
+            elif e.get("repeat"):             # tekrarlayan kaydın o güne düşen oluşumu (kayıtta yalnız sıradaki zaman durur)
+                from modules import when as whenmod
+                if whenmod.occurs_on(e["repeat"], e["when"], datetime.strptime(day, "%Y-%m-%d").date()):
+                    out.append({**e, "when": day + e["when"][10:]})
+        return sorted(out, key=lambda e: e["when"])
 
     def upcoming(self, now: datetime, limit: int = 6) -> list[dict]:
         today = now.strftime("%Y-%m-%d")

@@ -186,7 +186,9 @@ def parse_repeat(text: str) -> tuple[str | None, str]:
         for word in ("sabah", "akşam", "gece", "öğlen"):
             if re.search(r"\bher\s+" + word + r"\b", " " + _turkish(_lower(text)) + " "):
                 s = f" {word} " + s
-    elif re.search(r"\bher\s+(?:\d+\s+)?(?:saat|dakika|hafta|ay|yıl|sene)\w*\b|\bher\s+ayın\b", s):
+    elif re.search(r"\bher\s+(?:\d+\s+)?(?:saat|dakika|hafta|ay|yıl|sene)\w*\b|\bher\s+ayın\b|"
+                   r"\bher\s+\d+\s+g[uü]n\w*|\b(?:\d+|iki|üç|uc|dört|dort|beş|bes|altı|yedi|on)\s+g[uü]n\w*\s+(?:de\s+)?bir\b|"
+                   r"\bg[uü]n\s+a[sş]ırı\b", s):
         return "unknown", text
     if rule is None:
         return None, text
@@ -212,6 +214,22 @@ def next_occurrence(rule: str, after: datetime, hour: int, minute: int) -> datet
             if day.day == min(want, last):          # 31'i olmayan ayda ayın son günü
                 return day
     raise ValueError(f"tekrar kuralı anlaşılmadı: {rule}")
+
+
+def occurs_on(rule: str | None, first: str, day) -> bool:
+    """Tekrar kuralı `day` (date) gününe düşer mi? `first` ilk (kayıttaki) zaman; ondan önceki günler sayılmaz."""
+    if not rule or day.isoformat() < first[:10]:
+        return False
+    if rule == "daily":
+        return True
+    if rule == "weekdays":
+        return day.weekday() < 5
+    if rule.startswith("weekly:"):
+        return day.weekday() == int(rule[7:])
+    if rule.startswith("monthly:"):
+        last = ((day.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day
+        return day.day == min(int(rule[8:]), last)
+    return False
 
 
 def describe_repeat(rule: str, hour: int, minute: int) -> str:

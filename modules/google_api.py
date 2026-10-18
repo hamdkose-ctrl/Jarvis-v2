@@ -303,15 +303,23 @@ def _addr(header: str) -> str:
     return (m.group(1) if m else (header or "")).strip().lower()
 
 
+def _addrs(header: str) -> set[str]:
+    """To/Cc başlığındaki tam adresler (küçük harf). "Köse, Hamdi" <a@b.com> gibi virgüllü adlar bölünmez."""
+    from email.utils import getaddresses
+    return {a.strip().lower() for _n, a in getaddresses([header or ""]) if a}
+
+
 def _name(header: str) -> str:
     return re.sub(r"\s*<.*?>", "", header or "").strip(' "') or _addr(header) or "Bilinmeyen"
 
 
-def awaiting(kind: str, limit: int = 8) -> list[dict]:
+def awaiting(kind: str, limit: int = 8, info: dict | None = None) -> list[dict]:
     """Cevap takibi, yalnız zarf bilgisiyle (gövde okunmaz).
 
     kind="mine": son yedi günde doğrudan sana (To) yazılmış, kişi gönderen, son mesajı senden olmayan konuşmalar.
     kind="theirs": son 30 günde senin gönderip en az 2 gündür cevap gelmeyen konuşmalar (son mesaj senin).
+    `info` verilirse taranan konuşma sayısı ("scanned"), Gmail'in 20'lik sayfasının dolup dolmadığı ("capped") ve
+    sınırdan dolayı kesilip kesilmediği ("cut") yazılır; böylece boş sonuç "hiç yok" gibi sunulmaz.
     Hata yukarı fırlatılır."""
     svc = _service("gmail", "v1")
     me = svc.users().getProfile(userId="me").execute().get("emailAddress", "").lower()
@@ -319,7 +327,13 @@ def awaiting(kind: str, limit: int = 8) -> list[dict]:
          if kind == "mine" else "in:sent newer_than:30d older_than:2d")
     threads = svc.users().threads().list(userId="me", q=q, maxResults=20).execute().get("threads", [])
     out, now = [], datetime.now().astimezone()
+    if info is not None:
+        info.update(scanned=len(threads), capped=len(threads) >= 20, cut=False)
     for th in threads:
+        if len(out) >= limit:
+            if info is not None:
+                info["cut"] = True            # sınıra ulaşıldı, daha fazlası olabilir
+            break
         msgs = svc.users().threads().get(userId="me", id=th["id"], format="metadata",
                                          metadataHeaders=["From", "To", "Subject"]).execute().get("messages", [])
         if not msgs:
@@ -328,7 +342,7 @@ def awaiting(kind: str, limit: int = 8) -> list[dict]:
         h = {x["name"]: x["value"] for x in last.get("payload", {}).get("headers", [])}
         mine_last = "SENT" in last.get("labelIds", []) or _addr(h.get("From", "")) == me
         if kind == "mine":
-            if mine_last or _ROBOT.search(h.get("From", "")) or (me and me not in h.get("To", "").lower()):
+            if mine_last or _ROBOT.search(h.get("From", "")) or (me and me not in _addrs(h.get("To", ""))):
                 continue
             who = _name(h.get("From", ""))
         else:
@@ -339,8 +353,6 @@ def awaiting(kind: str, limit: int = 8) -> list[dict]:
         if kind == "theirs" and now - when < timedelta(days=2):
             continue                      # sorgu konuşma düzeyinde: son mesaj (ör. dünkü takibim) yeniyse bekleyen sayılmaz
         out.append({"who": who, "subject": h.get("Subject") or "(konusuz)", "days": max((now - when).days, 0)})
-        if len(out) >= limit:
-            break
     return out
 
 
@@ -384,21 +396,31 @@ def awaiting_text(kind: str) -> str:
     problem = _ready()
     if problem:
         return problem
+    info: dict = {}
     try:
-        items = awaiting(kind)
+        items = awaiting(kind, info=info)
     except Exception as exc:
         _record_failure('modules/google_api.py:awaiting_text')
         return _friendly(exc, "Cevap bekleyen maillere bakamadım")
     ago = lambda d: "bugün" if d == 0 else f"{d} gün önce"
     if kind == "mine":
         if not items:
-            return "Son bir haftada kişilerden gelip cevaplamadığın mail görmedim (Gmail)."
+            return ("Son bir haftada kişilerden gelip cevaplamadığın mail görmedim (Gmail)." + _scan_note(info, False))
         return (f"Cevap vermediğin {len(items)} mail var (Gmail, son 7 gün): "
-                + "; ".join(f"{x['who']} ({ago(x['days'])}): {x['subject']}" for x in items) + ".")
+                + "; ".join(f"{x['who']} ({ago(x['days'])}): {x['subject']}" for x in items) + "." + _scan_note(info, True))
     if not items:
-        return "Gönderip cevap bekleyen mailin yok (Gmail, son 30 gün)."
+        return "Gönderip cevap bekleyen mailin yok (Gmail, son 30 gün)." + _scan_note(info, False)
     return (f"Cevap gelmeyen {len(items)} mailin var (Gmail): "
-            + "; ".join(f"{x['who']}, {ago(x['days'])}: {x['subject']}" for x in items) + ".")
+            + "; ".join(f"{x['who']}, {ago(x['days'])}: {x['subject']}" for x in items) + "." + _scan_note(info, True))
+
+
+def _scan_note(info: dict, shown: bool) -> str:
+    """Tarama sınırlıysa söyler: Gmail'den en çok 20 konuşma alınır, cevapta en çok 8 mail gösterilir."""
+    if info.get("cut"):
+        return f" İlk 8 tanesini gösterdim; daha fazlası olabilir."
+    if info.get("capped"):
+        return f" Yalnız en yeni {info['scanned']} konuşmaya baktım; daha eskilere bakmadım."
+    return ""
 
 
 # "cevap vermediğim mailler", "cevaplamadığım mailler" (bana gelen) / "cevap gelmeyen maillerim" (benim gönderdiğim)
@@ -423,16 +445,20 @@ _MAIL_CHECK = re.compile(
 _MAIL_SEND = re.compile(r"\b(?:gönder|yaz|(?<!göz )at|ilet)\w*\b(?!.*\b(?:kontrol|bak)\w*)")
 
 
+# "cevap vermediğim maillere cevap yaz/gönder/cevapla": liste değil, yazma isteğidir (Jarvis burada mail yazmaz/göndermez)
+_AWAIT_REPLY = re.compile(r"\bcevap\s+(?:yaz|gönder|at|ver)(?!m[ae]d)\w*|\b(?:cevapla|yanıtla)(?!ma)\w*|\byanıt\s+(?:yaz|gönder)\w*")
+
+
 def is_mail_query(t: str) -> bool:
     """handle() mail/özet cümlesini kendisi yanıtlayacak mı? (soru bekleyen hedefin bunu yutmaması için)"""
-    if re.search(_MAIL, t) and (_AWAIT_THEIRS.search(t) or _AWAIT_MINE.search(t)):
+    if re.search(_MAIL, t) and not _AWAIT_REPLY.search(t) and (_AWAIT_THEIRS.search(t) or _AWAIT_MINE.search(t)):
         return True
     return bool((_IMPORTANT.search(t) or _MAIL_CHECK.search(t)) and not _MAIL_SEND.search(t))
 
 
 def handle(cmd_lower: str) -> str | None:
     t = cmd_lower
-    if re.search(_MAIL, t) or re.search(r"\bkime\b|\bkimden\b|\bkimler\b", t):
+    if (re.search(_MAIL, t) or re.search(r"\bkime\b|\bkimden\b|\bkimler\b", t)) and not _AWAIT_REPLY.search(t):
         if _AWAIT_THEIRS.search(t):
             return awaiting_text("theirs")
         if _AWAIT_MINE.search(t):
