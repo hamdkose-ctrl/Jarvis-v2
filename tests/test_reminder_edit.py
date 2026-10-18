@@ -268,3 +268,55 @@ class RepeatSnoozeTests(ProfileCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SnoozeWordingTests(ProfileCase):
+    """"10 dk sonra tekrar çal", "daha sonra hatırlat", "yarın sabah hatırlat": ertele demeden söylenen erteleme; yeni kayıt eklemez."""
+    now = datetime(2026, 10, 17, 10, 0)
+
+    def setUp(self):
+        super().setUp()
+        self.profile.add_event('İlaç', '2026-10-17T09:30', repeat='daily')
+        self.assertEqual(len(self.profile.due_events(self.now)), 1)          # çaldı, sıradaki 18 Ekim'e kuruldu
+
+    def rt(self):
+        return _runtime(self, self.profile, self.now)
+
+    def ev(self):
+        evs = self.reload().data['events']
+        self.assertEqual(len(evs), 1, 'yeni kayıt eklenmemeli')
+        return evs[0]
+
+    def test_after_n_minutes_again_variants_snooze(self):
+        for text, want in (('10 dk sonra tekrar çal', '2026-10-17T10:10'), ('5 dakika sonra yine hatırlat', '2026-10-17T10:05'),
+                           ('10 dakika sonra bir daha çal', '2026-10-17T10:10'), ('1 saat sonra tekrar çal', '2026-10-17T11:00'),
+                           ('beni 10 dakika sonra tekrar uyar', '2026-10-17T10:10'), ('ilaç hatırlatmasını 10 dk sonra tekrar çal', '2026-10-17T10:10'),
+                           ('daha sonra hatırlat', '2026-10-17T10:10'), ('sonra tekrar hatırlat', '2026-10-17T10:10'),
+                           ('10 dakika sonra tekrar hatırlat', '2026-10-17T10:10')):
+            with self.subTest(text=text):
+                self.profile.data['events'][0].pop('snooze', None)
+                self.profile.save()
+                say(self.rt(), text)
+                e = self.ev()
+                self.assertEqual((e['snooze'], e['when']), (want, '2026-10-18T09:30'))
+
+    def test_day_part_snooze_and_next_occurrence_shift(self):
+        say(self.rt(), 'akşama ertele')
+        e = self.ev()
+        self.assertEqual((e['snooze'], e['when']), ('2026-10-17T18:00', '2026-10-18T09:30'))
+        for text in ('yarın sabah hatırlat', 'yarın sabaha ertele', 'ilaç hatırlatmasını yarın sabah tekrar hatırlat'):
+            with self.subTest(text=text):
+                self.profile.data['events'][0]['when'] = '2026-10-18T09:30'
+                self.profile.save()
+                reply = say(self.rt(), text)
+                self.assertIn('yarın 09:00', reply)
+                self.assertEqual(self.ev()['when'], '2026-10-18T09:00')
+
+    def test_adding_a_new_reminder_is_not_hijacked(self):
+        for text in ('toplantıyı 10 dakika sonra hatırlat', 'ilacı yarın sabah hatırlat', '2 saat sonra su iç hatırlat'):
+            with self.subTest(text=text):
+                before = len(self.reload().data['events'])
+                say(self.rt(), text)
+                self.assertEqual(len(self.reload().data['events']), before + 1)
+                self.profile.data['events'] = self.profile.data['events'][:1]
+                self.profile.save()
