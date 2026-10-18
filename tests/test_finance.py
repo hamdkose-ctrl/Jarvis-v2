@@ -32,6 +32,17 @@ def frankfurter(base, rate, day='2026-10-17'):
     return json.dumps({'base': base, 'quote': 'TRY', 'rate': rate, 'date': day}).encode()
 
 
+BTCTURK = {'BTCTRY': (2450000.0, 1.25), 'ETHTRY': (150000.5, -0.8), 'PAXGTRY': (109250.0, 0.1)}
+
+
+def btcturk(pair):
+    last, daily = BTCTURK[pair]
+    return json.dumps({'data': [{'pair': pair, 'pairNormalized': pair[:-3] + '_TRY', 'timestamp': 1792348920000,
+                                 'last': last, 'high': last, 'low': last, 'dailyPercent': daily,
+                                 'numeratorSymbol': pair[:-3], 'denominatorSymbol': 'TRY'}],
+                       'success': True, 'message': None, 'code': 0}).encode()
+
+
 class FinanceTest(unittest.TestCase):
     def setUp(self):
         finance._CACHE.clear()
@@ -41,6 +52,8 @@ class FinanceTest(unittest.TestCase):
         self.calls.append(url)
         if 'tcmb.gov.tr' in url:
             return {'url': url, 'body': TCMB_XML, 'content_type': 'text/xml'}
+        if 'btcturk.com' in url:
+            return {'url': url, 'body': btcturk(url.rsplit('=', 1)[1]), 'content_type': 'application/json'}
         code = re.search(r'/rate/([a-z]{3})/try', url).group(1).upper()
         return {'url': url, 'body': frankfurter(code, {'AZN': 24.6}.get(code, 1.0)), 'content_type': 'application/json'}
 
@@ -142,6 +155,78 @@ class FinanceTest(unittest.TestCase):
             return {'url': url, 'body': frankfurter('EUR', 1.0), 'content_type': 'application/json'}
         finance._CACHE.clear()
         self.assertIn('ulaşamadım', self.ask('manat kaç lira', wrong))
+
+    def test_crypto_prices_and_conversion(self):
+        for text in ('bitcoin kaç lira', 'btc ne kadar', "bitcoin'in fiyatı", 'bitcoinin fiyatı ne', 'Bitcoin kaç TL?'):
+            with self.subTest(text=text):
+                out = self.ask(text)
+                self.assertIn('Bitcoin 2.450.000,00 TL (günlük +%1,25)', out)
+                self.assertIn('BtcTurk BTC/TRY son işlem 18.10.2026', out)
+        self.assertIn('Ethereum 150.000,50 TL (günlük -%0,80)', self.ask('ethereum kaç tl'))
+        self.assertIn('0,5 bitcoin 1.225.000,00 TL eder', self.ask('0,5 bitcoin kaç lira'))
+        usd = self.ask('bitcoin kaç dolar')
+        self.assertIn('Bitcoin 58.437,13 dolar', usd);self.assertIn('TCMB döviz satış kuru', usd)
+        self.assertTrue(finance.is_conversion('0,5 bitcoini liraya çevir'))
+
+    def test_gold_prices(self):
+        for text in ('gram altın ne kadar', 'altın fiyatı', 'altın kaç lira', 'gram altin kac tl', 'altının fiyatı ne kadar'):
+            with self.subTest(text=text):
+                out = self.ask(text)
+                self.assertIn('Gram altın 3.512,47 TL', out)
+                self.assertIn('PAXG/TRY', out);self.assertIn('Kuyumcu ve banka fiyatı farklı olabilir', out)
+        self.assertIn('10 gram altın 35.124,69 TL eder', self.ask('10 gram altın kaç lira'))
+        self.assertIn('Ons altın 2.605,82 dolar', self.ask('ons altın kaç dolar'))
+        quarter = self.ask('çeyrek altın ne kadar')
+        self.assertIn('Çeyrek altın için güvenilir bir kaynak henüz yok', quarter)
+        self.assertIn('Gram altın 3.512,47 TL', quarter)
+
+    def test_asset_words_in_other_meanings_are_left_alone(self):
+        for text in ('altın madalya kaç tane kazandık', 'altın oran nedir', 'altın kural ne', 'sol tarafı aç',
+                     'bitcoin nedir', 'bitcoin neden düştü', 'bitcoin 3 milyon olunca haber ver', 'altın günü ne zaman',
+                     'altın topu kim kazandı', 'bitcoin hakkında bilgi ver', 'dün bitcoin kaçtı'):
+            with self.subTest(text=text):
+                self.assertIsNone(self.ask(text))
+        self.assertEqual(self.calls, [])
+
+    def test_crypto_source_failures(self):
+        def down(url, **_):
+            if 'btcturk.com' in url:raise OSError('yok')
+            return self.fetch_ok(url)
+        self.assertIn('Fiyat kaynağına (BtcTurk) şu an ulaşamadım', self.ask('bitcoin kaç lira', down))
+        def failed(url, **_):
+            return {'url': url, 'body': json.dumps({'success': False, 'data': None}).encode(), 'content_type': 'application/json'}
+        finance._CACHE.clear()
+        self.assertIn('ulaşamadım', self.ask('gram altın ne kadar', failed))
+        def wrong_pair(url, **_):
+            return {'url': url, 'body': btcturk('ETHTRY'), 'content_type': 'application/json'}
+        finance._CACHE.clear()
+        self.assertIn('ulaşamadım', self.ask('bitcoin kaç lira', wrong_pair))
+
+    def test_market_cache_is_short(self):
+        self.ask('bitcoin kaç lira');self.ask('btc ne kadar')
+        self.assertEqual(sum('BTCTRY' in u for u in self.calls), 1)
+        key = 'bt:BTCTRY'
+        stamp, value = finance._CACHE[key]
+        finance._CACHE[key] = (stamp - finance.MARKET_TTL - 1, value)
+        self.ask('bitcoin kaç lira')
+        self.assertEqual(sum('BTCTRY' in u for u in self.calls), 2)
+
+    def test_live_source_script_reports_each_source(self):
+        import contextlib, importlib.util, io
+        path = Path(__file__).resolve().parents[1] / 'scripts' / 'finans_kaynak_testi.py'
+        spec = importlib.util.spec_from_file_location('finans_kaynak_testi', path)
+        script = importlib.util.module_from_spec(spec);spec.loader.exec_module(script)
+        out = io.StringIO()
+        with patch.object(public_sources, 'fetch', side_effect=self.fetch_ok), contextlib.redirect_stdout(out):
+            self.assertEqual(script.main(), 0)
+        self.assertEqual(out.getvalue().count('GEÇTİ'), 4)
+        self.assertIn('Gram altın 3.512,47 TL', out.getvalue())
+        def down(url, **_):raise OSError('yok')
+        out = io.StringIO()
+        with patch.object(public_sources, 'fetch', side_effect=down), patch('modules.ollama_hint.internet_up', return_value=False), \
+             patch('modules.diagnostics.record_failure'), contextlib.redirect_stdout(out):
+            self.assertEqual(script.main(), 1)
+        self.assertEqual(out.getvalue().count('BAŞARISIZ'), 4)
 
     def test_engine_uses_intent_check_not_substring(self):
         source = Path(__file__).resolve().parents[1].joinpath('modules', 'engine_commands.py').read_text(encoding='utf-8')

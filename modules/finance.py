@@ -1,9 +1,10 @@
-"""Döviz kuru soruları ve çevirisi: modelsiz, kaynak ve tarih söyleyerek.
+"""Döviz kuru, kripto ve gram altın soruları ve çevirisi: modelsiz, kaynak ve tarih söyleyerek.
 
 Yalnız açık kur soruları yakalanır ("dolar kaç lira", "100 dolar kaç TL", "euro kaç dolar"); geçmiş tarih,
 yorum/tahmin, alarm/hatırlatma ve "euro 2024" gibi para birimi olmayan kullanımlar None döner ve diğer
 yollara bırakılır. Birincil kaynak TCMB today.xml (resmî gösterge, döviz satış), TCMB'de olmayan para birimi
-veya TCMB'ye ulaşılamazsa Frankfurter v2. Kaynak yanıtından yalnız sayı ve tarih okunur, metin modele gitmez.
+veya TCMB'ye ulaşılamazsa Frankfurter v2. Kripto ve gram altın BtcTurk genel API'sinden (altın PAXG/TRY'den
+hesaplanır). Kaynak yanıtından yalnız sayı ve tarih okunur, metin modele gitmez.
 """
 from __future__ import annotations
 
@@ -12,13 +13,17 @@ import re
 import threading
 import time
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml'
 FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/{code}/try'
+BTCTURK_URL = 'https://api.btcturk.com/api/v2/ticker?pairSymbol={pair}'
 TTL = 600
+MARKET_TTL = 60
+TROY_OUNCE_GRAMS = Decimal('31.1034768')
 _CACHE: dict = {}
+TR = timezone(timedelta(hours=3))
 _LOCK = threading.Lock()
 
 # (kod, söylenen ad, katlanmış metinde aranan kökler, Türkçe ek alır mı). Çok sözcüklüler önce aranır.
@@ -36,7 +41,21 @@ CURRENCIES = (
     ('CNY', 'yuan', ('yuan', 'cny'), True),
     ('TRY', 'TL', ('turk lira', 'lira', 'tl'), True),
 )
+# Kripto (BtcTurk TRY çifti) ve altın (BtcTurk PAXG/TRY: 1 PAXG = 1 ons altın). "sol" Türkçe sözcük olduğu için yok.
+CRYPTO = (
+    ('BTC', 'bitcoin', ('bitcoin', 'btc')),
+    ('ETH', 'ethereum', ('ethereum', 'ether', 'eth')),
+    ('USDT', 'tether', ('tether', 'usdt')),
+    ('XRP', 'ripple', ('ripple', 'xrp')),
+    ('SOL', 'solana', ('solana',)),
+    ('DOGE', 'dogecoin', ('dogecoin', 'doge')),
+    ('AVAX', 'avalanche', ('avalanche', 'avax')),
+    ('ADA', 'cardano', ('cardano',)),
+)
+_GOLD_CUE = r'\b(?:fiyat\w*|ne kadar|kac (?:lira|tl|dolar|euro|para)|kur\w*|eder|kac$|kacta)\b|\b(?:gram|ons) altin'
+_GOLD_OTHER = r'\baltin\w*\s+(?:madalya|top|oran|kural|cag|gun|vurus|saat|kelebek|portakal|kalp|kupa|yildiz|kitap|yumurta|sarisi)'
 _SUFFIX = r"(?:'?(?:[iu]|y[iu]|[ae]|y[ae]|n[iu]n|[iu]n|l[ae]|yl[ae]|d[ae]n?|t[ae]n?|[iu]m|lar[iu]?|s[iu]))?"
+_GOLD = r'\b(?:(?P<kind>gram|ons|ceyrek|yarim|tam|cumhuriyet|resat|ata)\s+)?altin' + _SUFFIX + r'\b'
 _CUE = r'\b(?:kac\w*|ne kadar|kur\w*|fiyat\w*|eder|ediyor|ne oldu|cevir\w*|degeri\w*|olarak|cinsinden)\b'
 # Geçmiş, tahmin/yorum, alarm ve takip istekleri bu kısa yolun işi değil.
 _SKIP = (r'\b(?:hatirlat\w*|haber ver\w*|alarm\w*|takip\w*|bildir\w*|olunca|gecince|dusunce|neden|niye|nicin|'
@@ -100,11 +119,31 @@ def _amount_before(low: str, start: int):
     return (total + current) or None
 
 
+def _asset(low: str):
+    """Kripto ya da altın fiyat sorusu: {'asset','kind','amount','target'}; değilse None."""
+    found = None
+    for code, _name_, stems in CRYPTO:
+        for stem in stems:
+            match = re.search(r'\b' + re.escape(stem) + _SUFFIX + r'\b', low)
+            if match and (found is None or match.start() < found[1]):found = (code, match.start(), match.end(), None)
+    gold = re.search(_GOLD, low)
+    if gold and re.search(_GOLD_CUE, low) and not re.search(_GOLD_OTHER, low) and (found is None or gold.start() < found[1]):
+        found = ('GOLD', gold.start(), gold.end(), gold.group('kind') or 'gram')
+    if found is None or (found[0] != 'GOLD' and not re.search(_CUE, low)):return None
+    code, start, end, kind = found
+    target = next((c for s_, _e, c in _mentions(low) if s_ >= end and c != 'TRY'), 'TRY')
+    return {'asset': code, 'kind': kind, 'amount': _amount_before(low, start), 'target': target,
+            'source': None, 'list': None}
+
+
 def parse(text: str):
-    """Kur sorusuysa {'amount','source','target','list'} döner; değilse None."""
+    """Kur sorusuysa {'amount','source','target','list'}, kripto/altın sorusuysa ek olarak 'asset' döner; değilse None."""
     low = _fold(text)
-    if not re.search(_CUE, low) or re.search(_SKIP, low):return None
+    if re.search(_SKIP, low):return None
     if re.search(_DEFINITION, low) and not re.search(r'\bkur\w*', low):return None
+    asset = _asset(low)
+    if asset:return asset
+    if not re.search(_CUE, low):return None
     mentions = _mentions(low)
     if not mentions:return None
     codes = [code for _s, _e, code in mentions]
@@ -127,6 +166,8 @@ def parse(text: str):
 def is_conversion(text: str) -> bool:
     """"50 euroyu dolara çevir" para çevirisidir, metin çevirisi değil ("bu metni euroya çevir" değildir)."""
     request = parse(text)
+    if request and request.get('asset'):
+        return request['amount'] is not None or request['target'] != 'TRY'
     return bool(request and not request['list'] and (request['amount'] is not None or request['target'] != 'TRY'
                                                        or len(_mentions(_fold(text))) > 1))
 
@@ -165,10 +206,10 @@ def _frankfurter(code: str):
     return value, 'Frankfurter günlük kur, ' + day.strftime('%d.%m.%Y')
 
 
-def _cached(key, loader):
+def _cached(key, loader, ttl=TTL):
     with _LOCK:
         hit = _CACHE.get(key)
-        if hit and time.monotonic() - hit[0] < TTL:return hit[1]
+        if hit and time.monotonic() - hit[0] < ttl:return hit[1]
     value = loader()
     with _LOCK:_CACHE[key] = (time.monotonic(), value)
     return value
@@ -197,6 +238,22 @@ def rates(codes):
     return result, '; '.join(labels)
 
 
+def _btcturk(pair: str):
+    from modules import public_sources
+    data = json.loads(public_sources.fetch(BTCTURK_URL.format(pair=pair), max_bytes=50_000)['body'])
+    if not isinstance(data, dict) or data.get('success') is False:raise ValueError('BtcTurk yanıtı başarısız.')
+    rows = data.get('data') if isinstance(data.get('data'), list) else [data.get('data')]
+    row = next((r for r in rows if isinstance(r, dict) and r.get('pair') == pair), None)
+    if row is None:raise ValueError('BtcTurk yanıtında çift yok.')
+    last = Decimal(str(row.get('last')))
+    if not last.is_finite() or last <= 0:raise ValueError('BtcTurk fiyatı geçersiz.')
+    stamp = row.get('timestamp')
+    when = datetime.fromtimestamp(stamp / 1000, TR) if isinstance(stamp, (int, float)) and stamp > 0 else None
+    daily = row.get('dailyPercent')
+    daily = Decimal(str(daily)) if isinstance(daily, (int, float)) else None
+    return {'last': last, 'when': when, 'daily': daily}
+
+
 def _num(value: Decimal, places: int = 2) -> str:
     quantum = Decimal(1).scaleb(-places)
     text = f'{value.quantize(quantum, rounding=ROUND_HALF_UP):,.{places}f}'
@@ -215,10 +272,48 @@ def _name(code: str) -> str:
     return next(name for item_code, name, _s, _i in CURRENCIES if item_code == code)
 
 
+def _asset_answer(request) -> str:
+    from urllib3.exceptions import HTTPError
+    from modules import ollama_hint
+    code, kind, target, amount = request['asset'], request['kind'], request['target'], request['amount']
+    note = ''
+    if code == 'GOLD' and kind not in ('gram', 'ons'):
+        shown = {'ceyrek': 'Çeyrek', 'yarim': 'Yarım', 'tam': 'Tam', 'cumhuriyet': 'Cumhuriyet', 'resat': 'Reşat', 'ata': 'Ata'}[kind]
+        note = (f'{shown} altın için güvenilir bir kaynak henüz yok; kuyumcu fiyatı ayar ve işçiliğe göre '
+                'değişir. ')
+        kind, amount = 'gram', None
+    pair = 'PAXGTRY' if code == 'GOLD' else code + 'TRY'
+    try:
+        row = _cached('bt:' + pair, lambda: _btcturk(pair), MARKET_TTL)
+        table, label = rates([target]) if target != 'TRY' else ({'TRY': Decimal(1)}, '')
+    except PermissionError as exc:
+        return str(exc)
+    except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
+        if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
+        return 'Fiyat kaynağına (BtcTurk' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
+    price = row['last'] / (TROY_OUNCE_GRAMS if kind == 'gram' else 1) / table[target]
+    name = (kind + ' altın') if code == 'GOLD' else next(n for c, n, _s in CRYPTO if c == code)
+    unit = _name(target)
+    if amount is None:
+        body = f'{name[0].upper()}{name[1:]} {_num(price)} {unit}'
+    else:
+        body = f'{_amount_text(amount)} {name} {_num(amount * price)} {unit} eder'
+    if code != 'GOLD' and row['daily'] is not None:
+        sign = '+' if row['daily'] > 0 else '-' if row['daily'] < 0 else ''
+        body += f' (günlük {sign}%{_num(abs(row["daily"]))})'
+    when = row['when'].strftime(' %d.%m.%Y %H:%M') if row['when'] else ''
+    source = (f'BtcTurk PAXG/TRY{when} fiyatından hesaplandı (PAXG 1 ons altına bağlı token, 1 ons = 31,1035 gram)'
+              if code == 'GOLD' else f'BtcTurk {code}/TRY son işlem{when}')
+    if label:source += '; ' + label
+    tail = ' Kuyumcu ve banka fiyatı farklı olabilir.' if code == 'GOLD' else ''
+    return f'{note}{body}. Kaynak: {source}.{tail}'
+
+
 def answer(text: str) -> str | None:
-    """Kur sorusunun cevabı; kur sorusu değilse None (komut diğer yollara devam eder)."""
+    """Kur, kripto ya da altın sorusunun cevabı; değilse None (komut diğer yollara devam eder)."""
     request = parse(text)
     if request is None:return None
+    if request.get('asset'):return _asset_answer(request)
     from urllib3.exceptions import HTTPError
     from modules import ollama_hint
     codes = request['list'] or [request['source'], request['target']]
