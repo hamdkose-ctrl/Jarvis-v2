@@ -45,9 +45,10 @@ class ReplyRecipientTests(unittest.TestCase):
         self.assertEqual(send.call_args.args[1]['destination'], AHMET)
 
     def test_named_contact_reply_rejects_mail_sender_swap(self):
-        with patch.object(outbox.services, 'send') as send, self.assertRaises(goal_tools.NotStarted):
-            self._execute("Ahmet'e cevap gönder", SENDER)
-        send.assert_not_called()
+        with patch.object(goal_tools.task_agents, 'worker', return_value={'state': 'done', 'text': 'taklit'}) as worker:
+            with self.assertRaises(goal_tools.NotStarted):
+                self._execute("Ahmet'e cevap gönder", SENDER)
+        worker.assert_not_called()
 
     def test_unnamed_reply_still_accepts_verified_mail_sender(self):
         with patch.object(outbox.services, 'send') as send:
@@ -58,9 +59,10 @@ class ReplyRecipientTests(unittest.TestCase):
 
     def test_grant_cannot_override_named_reply_destination(self):
         outbox.grant(OWNER, 'gmail', SENDER, seconds=3600)
-        with patch.object(outbox.services, 'send') as send, self.assertRaises(goal_tools.NotStarted):
-            self._execute("Ahmet'e cevap gönder", SENDER)
-        send.assert_not_called()
+        with patch.object(goal_tools.task_agents, 'worker', return_value={'state': 'done', 'text': 'taklit'}) as worker:
+            with self.assertRaises(goal_tools.NotStarted):
+                self._execute("Ahmet'e cevap gönder", SENDER)
+        worker.assert_not_called()
 
 
 if __name__ == '__main__':
