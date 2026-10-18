@@ -26,6 +26,16 @@ from modules import agents, engine_runtime, google_api, main_planner, personaliz
 from modules import when as whenmod
 
 
+def _release_logs(folder):
+    """EngineContext kök günlükçüye <geçici dizin>/jarvis.log tutucusu ekler; Windows açık dosyayı silemez."""
+    import logging
+    root = logging.getLogger()
+    for h in root.handlers[:]:
+        if str(getattr(h, 'baseFilename', '')).startswith(str(Path(folder))):
+            root.removeHandler(h)
+            h.close()
+
+
 def _runtime(case, profile, now, busy=()):
     """Gerçek motor bağlamı (EngineContext): komutlar handle() ile gerçek sırasından geçer."""
     temp = tempfile.TemporaryDirectory()
@@ -33,6 +43,7 @@ def _runtime(case, profile, now, busy=()):
     with patch.object(engine_runtime, 'DATA_DIR', Path(temp.name)):
         rt = engine_runtime.EngineContext()
     case.addCleanup(rt._prefetch_pool.shutdown, wait=False, cancel_futures=True)
+    case.addCleanup(_release_logs, temp.name)           # temp.cleanup'tan önce çalışır (LIFO)
     rt.profile = profile
     rt.datetime = SimpleNamespace(now=lambda: now, strptime=datetime.strptime)
     rt.google_api = SimpleNamespace(busy_between=lambda a, b: list(busy), _ready=lambda: 'yok',

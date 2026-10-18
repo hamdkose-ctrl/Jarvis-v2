@@ -16,6 +16,36 @@ from test_mail_awaiting import DAY, FakeGmail, ME, _msg
 from test_mail_calendar_fixes import ProfileCase, _runtime, say
 
 
+class RuntimeHelperLogCleanupTests(ProfileCase):
+    """Windows açık dosyayı silemez: _runtime'ın açtığı jarvis.log tutucusu temizlikten önce kapanmalı."""
+    def test_helper_releases_log_file_before_tempdir_cleanup(self):
+        import logging
+        import unittest as _u
+
+        class Inner(ProfileCase):
+            def runTest(self):
+                self.rt = _runtime(self, self.profile, datetime(2026, 10, 17, 10, 0))
+                self.logfile = [h.baseFilename for h in logging.getLogger().handlers
+                                if getattr(h, 'baseFilename', '').endswith('jarvis.log')]
+
+        saved = logging.getLogger().handlers[:]
+        for h in saved:
+            logging.getLogger().removeHandler(h)          # _initialize yalnız kök günlükçüde tutucu yoksa dosya açar
+        try:
+            case = Inner()
+            result = _u.TestResult()
+            case.run(result)
+            self.assertTrue(result.wasSuccessful(), result.errors)
+            self.assertTrue(case.logfile, 'test ortamı jarvis.log tutucusunu açmadı')
+            left = [h for h in logging.getLogger().handlers if getattr(h, 'baseFilename', '') in case.logfile]
+            self.assertEqual(left, [], 'jarvis.log tutucusu temizlikten sonra hâlâ açık')
+        finally:
+            for h in logging.getLogger().handlers[:]:
+                logging.getLogger().removeHandler(h)
+            for h in saved:
+                logging.getLogger().addHandler(h)
+
+
 class EveryTwoDaysTests(ProfileCase):
     now = datetime(2026, 10, 17, 10, 0)
 
