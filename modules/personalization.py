@@ -327,6 +327,23 @@ class Profile:
                 return True
         return False
 
+    def _snooze_event(self, eid: int, when: str) -> bool:
+        """Tekrarlayan kayda tek seferlik ek çalma zamanı koyar; sıradaki oluşum değişmez. Yazılamazsa eski hâline döner."""
+        for e in self.data["events"]:
+            if e["id"] == eid and e.get("repeat"):
+                old = e.get("snooze")
+                e["snooze"] = when
+                try:
+                    self.save()
+                except BaseException:
+                    if old:
+                        e["snooze"] = old
+                    else:
+                        e.pop("snooze", None)
+                    raise
+                return True
+        return False
+
     def events_on(self, day: str) -> list[dict]:
         """'YYYY-MM-DD' gününün etkinlikleri (saatlisi saat sırasıyla, tüm gün olanlar başta)."""
         out = []
@@ -352,10 +369,22 @@ class Profile:
         due = []
         marked = []
         moved = []                        # tekrarlayan kayıt: (kayıt, eski zaman); bir sonraki zamana kurulur
+        touched = []                      # (kayıt, alan, eski değer): "snooze" (ertelenmiş ek çalma) ve "fired" (son çalan oluşum)
         for e in self.data["events"]:
             if e.get("notified"):
                 continue
             raw = str(e.get("when") or "")
+            if e.get("repeat") and e.get("snooze"):          # "10 dakika sonra tekrar çal": sıradaki oluşumdan bağımsız tek ek çalma
+                try:
+                    st = datetime.strptime(e["snooze"], "%Y-%m-%dT%H:%M")
+                except ValueError:
+                    st = None
+                if st is None or st <= now:
+                    touched.append((e, "snooze", e.pop("snooze")))
+                    if st is not None and (now - st).total_seconds() < 6 * 3600:
+                        due.append(e)
+                        touched.append((e, "fired", e.get("fired")))
+                        e["fired"] = st.strftime("%Y-%m-%dT%H:%M")
             if e.get("repeat") and len(raw) == 16:
                 try:
                     from modules import when as whenmod
@@ -367,7 +396,10 @@ class Profile:
                 except ValueError:
                     continue
                 if (now - t).total_seconds() < 6 * 3600:
-                    due.append(e)         # Jarvis kapalıyken kaçan eski tekrarlar okunmaz, yalnız ileri kurulur
+                    if e not in due:
+                        due.append(e)     # Jarvis kapalıyken kaçan eski tekrarlar okunmaz, yalnız ileri kurulur
+                    touched.append((e, "fired", e.get("fired")))
+                    e["fired"] = raw
                 moved.append((e, raw, e.pop("base", None)))
                 e["when"] = nxt.strftime("%Y-%m-%dT%H:%M")
                 continue
@@ -387,11 +419,16 @@ class Profile:
                 if (now - t).total_seconds() < 6 * 3600:
                     due.append(e)
                     marked.append(e)
-        if due or moved:
+        if due or moved or touched:
             for e in marked: e["notified"] = True
             try: self.save()
             except BaseException:
                 for e in marked: e.pop("notified", None)
+                for e, key, old in reversed(touched):
+                    if old is None:
+                        e.pop(key, None)
+                    else:
+                        e[key] = old
                 for e, raw, base in moved:
                     e["when"] = raw
                     if base: e["base"] = base
@@ -419,6 +456,9 @@ class Profile:
 
     def reschedule_event(self, *a, **k):
         with _LOCK: return self._reschedule_event(*a, **k)
+
+    def snooze_event(self, *a, **k):
+        with _LOCK: return self._snooze_event(*a, **k)
 
     def due_events(self, *a, **k):
         with _LOCK: return self._due_events(*a, **k)

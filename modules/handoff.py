@@ -238,19 +238,26 @@ def handle(command: str, cmd_lower: str) -> str | None:
 
 
 # ------------------------------------------------------------------ açılışta / sabah özetinde
-def brief_line() -> str | None:
-    """Bu bilgisayarın yeri için bugüne kadar bekleyen notlar (özet ve açılış duyurusu için)."""
+def brief_status() -> tuple[str | None, str | None]:
+    """(devir notu satırı, sorun). Görevler izni hiç verilmediyse ikisi de None; okunamazsa sorun kullanıcıya söylenecek cümledir."""
     if not ready():
-        return None
+        return None, None
     try:
         here = place()
         items = pending(here, until=date.today())
-    except Exception:       # noqa: BLE001
-        _record_failure('modules/handoff.py:brief_line')
-        return None
+    except Exception as exc:       # noqa: BLE001
+        _record_failure('modules/handoff.py:brief_status')
+        if isinstance(exc, PermissionError) or any(k in f"{type(exc).__name__}: {exc}" for k in ("invalid_grant", "accessNotConfigured")):
+            return None, _explain(exc)
+        return None, "Devir notlarına bakamadım (Google Görevler)."
     if not items:
-        return None
-    return f"{'İş' if here == 'is' else 'Ev'} için bekleyen {len(items)} devir notu var: {_fmt(items)}."
+        return None, None
+    return f"{'İş' if here == 'is' else 'Ev'} için bekleyen {len(items)} devir notu var: {_fmt(items)}.", None
+
+
+def brief_line() -> str | None:
+    """Bu bilgisayarın yeri için bugüne kadar bekleyen notlar (özet ve açılış duyurusu için); hata sessiz kalır."""
+    return brief_status()[0]
 
 
 def startup_notice() -> str | None:
