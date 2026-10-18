@@ -282,3 +282,53 @@ class HocaEngineHookTests(unittest.TestCase):
         nxt = '{"text":"T2","question":"Q2?","answer":"A2"}'
         with patch.object(hoca.llm, 'ask', return_value=nxt):
             self.assertIn('Q2?', self._call(p, 'sonraki adıma geç'))
+
+
+class HocaSnapshotTests(unittest.TestCase):
+    def test_snapshot_without_lesson_and_with_lesson(self):
+        p = Profile()
+        self.assertEqual(hoca.snapshot(p, enabled=False), {'enabled': False, 'lesson': None, 'weak': []})
+        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]) as ask:
+            hoca.handle(p, 'hoca modu: hücre')
+            n = ask.call_count
+            snap = hoca.snapshot(p)
+            self.assertEqual(ask.call_count, n)  # model çağırmaz
+        self.assertEqual(snap['lesson']['step'], 1)
+        self.assertEqual(snap['lesson']['total'], 3)
+        self.assertEqual(snap['lesson']['question'], 'Hücre neyin birimi?')
+        self.assertEqual(snap['lesson']['steps'], ['Hücre nedir', 'Organeller', 'Zar'])
+        hoca.handle(p, 'bilmiyorum')
+        w = hoca.snapshot(p, now=0)['weak'][0]
+        self.assertFalse(w['due_now'])
+        self.assertTrue(hoca.snapshot(p, now=w['due'])['weak'][0]['due_now'])
+
+
+class HocaBridgeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import test_privacy_voice_and_pending  # noqa: F401 - web içe aktarımı için donanım adaptörleri (test_local_stt gibi)
+
+    def test_settings_save_stores_flag_as_real_boolean(self):
+        import web
+        bridge = web.Bridge.__new__(web.Bridge)
+        with patch.object(web.config, 'save_settings') as save, patch.object(web, '_wakeword'):
+            bridge.settings_save({'hoca_enabled': False})
+            save.assert_called_once_with(hoca_enabled=False)
+            bridge.settings_save({'hoca_enabled': 1})
+            save.assert_called_with(hoca_enabled=True)
+
+    def test_study_overview_carries_hoca_snapshot_without_model_call(self):
+        from types import SimpleNamespace
+        import web_study_exams
+        p = Profile()
+        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
+            hoca.handle(p, 'hoca modu: hücre')
+        ex = SimpleNamespace(stats=lambda p: {}, courses=lambda p: [], selected=lambda p: [], focus=lambda p, n: [],
+                             plan=lambda p: {}, today=lambda p: {}, wrong_summary=lambda p: {}, mock_status=lambda p: {})
+        services = SimpleNamespace(exams=ex, study=SimpleNamespace(status=lambda p: {}), current_profile=lambda: p)
+        owner = SimpleNamespace(_study_dependencies=services, _hoca_snapshot=lambda prof: web_study_exams.WebStudyExams._hoca_snapshot(None, prof))
+        with patch.object(hoca.llm, 'ask') as ask, patch('config.load_settings', return_value={'hoca_enabled': False}):
+            out = web_study_exams.WebStudyExams.study_overview(owner)
+        ask.assert_not_called()
+        self.assertEqual(out['hoca']['lesson']['topic'], 'hücre')
+        self.assertFalse(out['hoca']['enabled'])

@@ -5,6 +5,7 @@ from importlib import import_module
 from contextvars import ContextVar
 
 from modules.diagnostics import record_failure as _record_failure
+from modules import tr_speech_sets
 import difflib
 import json
 import logging
@@ -263,8 +264,7 @@ def _initialize(runtime):
     runtime._cur_source = ""
     runtime._cur_rid: str | None = None
     runtime._DAYS = ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar")
-    runtime._WEATHER_STOP = {"bugün", "yarın", "şimdi", "şuan", "bana", "bugünkü", "acaba", "dışarı", "dışarıda", "burada",
-                     "bu", "şu", "bir", "ve", "hava", "nasıl", "ne", "kaç"}
+    runtime._WEATHER_STOP = tr_speech_sets.WEATHER_STOP
     runtime._FILE_CMD = runtime.re.compile(r'^((?:"[^"]{4,400}"\s+){1,10})(.+)$')   # bir veya birden çok tırnaklı dosya yolu + istek
     runtime._IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".heic")
     runtime._HOME_DIRS = {"indirilenler": "Downloads", "indirilen": "Downloads", "downloads": "Downloads",
@@ -273,7 +273,7 @@ def _initialize(runtime):
                   "resimler": "Pictures", "resimlerim": "Pictures", "pictures": "Pictures"}
     runtime._MEDIA_Q = runtime.re.compile(r"(görsel\w*|resim\w*|fotoğraf\w*|şekil\w*|video\w*|wikipedia\w*|vikipedi\w*|youtube\w*)"
                           r".{0,40}(göster|aç|ver|bul|getir)|(göster|aç|ver|bul|getir)\w*.{0,20}(görsel|resim|video)")
-    runtime._NAME_SUFFIXES = {"im", "yim", "ye", "ya", "de", "da", "in", "nin", "dir", "ydi"}
+    runtime._NAME_SUFFIXES = tr_speech_sets.NAME_SUFFIXES
     runtime._NOTE_HEAD = runtime.re.compile(
         r"^(?:(?:bunu|şunu|bir)\s+)?(?:not\s+olarak\s+(?:ekle|kaydet|al|yaz)\w*|not\s+defterine\s+(?:ekle|yaz)\w*"
         r"|not\s+(?:al|et|düş|ekle|yaz)\w*|nota\s+(?:ekle|al|yaz)\w*|notlara\s+(?:ekle|yaz)\w*|not|hatırlatma)\s*[:,.\-]?\s+(.+)$")
@@ -289,6 +289,5 @@ def _initialize(runtime):
     runtime._STEP_SPLIT = runtime.re.compile(r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", runtime.re.I)
     runtime._typo_pass = False
     runtime._typo_orig = ""
-    runtime._JARVIS_MISHEAR = {"servis", "travis", "carvis", "cervis", "jervis", "çarviş", "harvis", "garvis", "darvis",
-                       "yarış", "yarvis", "jarviş", "jarvisi", "service", "jarves", "javis", "carviş"}
+    runtime._JARVIS_MISHEAR = tr_speech_sets.JARVIS_MISHEAR
     runtime._LEAD_WORDS = {"hey", "hay", "hei", "der"}
