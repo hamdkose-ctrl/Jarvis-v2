@@ -179,10 +179,10 @@ def _sync_index(profile, con) -> None:
 _STOP = {"ne", "neydi", "nedir", "kadar", "kaç", "hangi", "nerede", "nerde", "geçiyor", "geçen", "geçti", "var",
          "mı", "mi", "mu", "mü", "bu", "şu", "bir", "ve", "ile", "için", "olan", "dosya", "dosyada", "dosyadaydı",
          "dosyalarımda", "dosyamda", "belge", "belgede", "belgelerimde", "belgedeydi", "yüklediğim", "yazıyor",
-         "yazıyordu", "bul", "ara", "bana", "söyle", "dosyalarda", "belgelerde",
+         "yazıyordu", "yazıyodu", "geçiyordu", "geçiyodu", "nerde", "bul", "ara", "bana", "söyle", "dosyalarda", "belgelerde",
          # ASCII yazım ve dosya türü adları ("hangi dosyadaydi", "dosyalarimda geciyor mu", "hangi pdf'teydi")
          "kac", "geciyor", "gecen", "gecti", "su", "icin", "dosyadaydi", "dosyalarimda", "belgedeydi",
-         "yukledigim", "yaziyor", "yaziyordu", "soyle", "pdf", "pdfte", "pdfteydi",
+         "yukledigim", "yaziyor", "yaziyordu", "yaziyodu", "geciyordu", "geciyodu", "soyle", "pdf", "pdfte", "pdfteydi",
          "excel", "excelde", "word", "wordde", "sunum", "sunumda", "tablo", "tabloda", "teydi", "tadir", "tedir"}
 
 
@@ -343,6 +343,9 @@ _FILE_QUESTION = re.compile(
     r"(?:dosyalar[ıi]m|belgelerim|y[üu]kledi[ğg]im\s+(?:dosya|belge)\w*)\w*\s+(?:\w+\s+){0,4}"
     r"(?:ge[çc]iyor|ge[çc]en|var\s*m)")
 
+# "kira bedeli nerede yazıyordu", "vida nerde geçiyodu": dosya sözcüğü yok, bu yüzden tek başına yetmez (aşağıda konu belgede bulunmalı).
+_WHERE_WRITTEN = re.compile(r"\bnere?de\s+(?:yaz[ıi]yor(?:du)?|yaz[ıi]yodu|yaz[ıi]l[ıi]yd[ıi]|ge[çc]i(?:yor(?:du)?|yodu)|ge[çc]ti)\b")
+
 
 def handle(cmd_lower: str, profile) -> str | None:
     m = re.match(r"^(?:anlamsal ara|belgelerimde anlamca ara)\s*[:,]?\s*(.{3,})$", cmd_lower.strip())
@@ -358,5 +361,8 @@ def handle(cmd_lower: str, profile) -> str | None:
     # Yalnız "hangi dosyaDA" ve "dosyalarımda … geçiyor mu" kalıpları: "yüklediğim dosyayı özetle" gibi komutlara karışmaz.
     # ASCII yazım da tanınır: "hangi dosyadaydi", "hangi pdf'teydi", "dosyalarimda kira geciyor mu".
     if _docs(profile) and _FILE_QUESTION.search(cmd_lower):
+        return answer(profile, cmd_lower)
+    # Konu belgelerde geçmiyorsa ya da hiç konu yoksa sohbete düşer: genel bir soruya "belgede bulamadım" denmez.
+    if _docs(profile) and _WHERE_WRITTEN.search(cmd_lower) and search(profile, cmd_lower):
         return answer(profile, cmd_lower)
     return None
