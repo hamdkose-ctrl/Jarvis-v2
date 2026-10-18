@@ -421,6 +421,13 @@ _MAIL_CHECK = re.compile(
 _MAIL_SEND = re.compile(r"\b(?:gönder|yaz|(?<!göz )at|ilet)\w*\b(?!.*\b(?:kontrol|bak)\w*)")
 
 
+def is_mail_query(t: str) -> bool:
+    """handle() mail/özet cümlesini kendisi yanıtlayacak mı? (soru bekleyen hedefin bunu yutmaması için)"""
+    if re.search(_MAIL, t) and (_AWAIT_THEIRS.search(t) or _AWAIT_MINE.search(t)):
+        return True
+    return bool((_IMPORTANT.search(t) or _MAIL_CHECK.search(t)) and not _MAIL_SEND.search(t))
+
+
 def handle(cmd_lower: str) -> str | None:
     t = cmd_lower
     if re.search(_MAIL, t) or re.search(r"\bkime\b|\bkimden\b|\bkimler\b", t):
