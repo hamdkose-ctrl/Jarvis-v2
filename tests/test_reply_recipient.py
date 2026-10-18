@@ -38,7 +38,7 @@ class ReplyRecipientTests(unittest.TestCase):
 
     def test_named_contact_reply_keeps_named_destination(self):
         outbox.grant(OWNER, 'gmail', AHMET, seconds=3600)
-        with patch.object(outbox.services, 'send', return_value={'remote_id': 'fake'}) as send:
+        with patch.object(outbox.services, 'send', return_value={'scope': 'provider_accepted', 'remote_id': 'fake', 'service': 'gmail', 'destination': AHMET}) as send:
             result = self._execute("Ahmet'e cevap gönder", AHMET)
         self.assertEqual(result['state'], 'done')
         send.assert_called_once()
