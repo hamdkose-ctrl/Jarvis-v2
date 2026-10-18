@@ -697,6 +697,13 @@ def cancel_job(owner,identity):
         return render(job)
 
 
+def _is_fast_command(command):
+    """Modelsiz hızlı yolların (bugünün planı, mail listeleri) açık yeni komutu: bekleyen soruya cevap sayılmaz."""
+    from modules import google_api,main_planner,when
+    low=command.casefold().strip(' .!?');forms={low,when._turkish(low)}
+    return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
+
+
 def handle(runtime,command):
     low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
@@ -721,6 +728,6 @@ def handle(runtime,command):
         return run(runtime,command,resume=True)
     if job and job['state']=='question':
         from modules.work_modes import ends_with_action
-        if not ends_with_action(command):return run(runtime,command,resume=True)
+        if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     return None
