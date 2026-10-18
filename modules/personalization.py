@@ -301,16 +301,28 @@ class Profile:
         self.save()
         return len(self.data["events"]) < before
 
-    def _reschedule_event(self, eid: int, when: str) -> bool:
-        """Tek seferlik kaydı yeni zamana erteler (bildirildi işareti kalkar); kayıt yazılamazsa eski hâline döner."""
+    def _reschedule_event(self, eid: int, when: str, base: str | None = None) -> bool:
+        """Kaydı yeni zamana erteler (bildirildi işareti kalkar); kayıt yazılamazsa eski hâline döner.
+
+        Tekrarlayan kayıtta `base` ("HH:MM") bu oluşumun kaydırılmadan önceki saatidir: tekrar kuralı sonraki
+        oluşumları o saate kurar. `base` verilmezse eski base silinir (kural `when`in saatini kullanır).
+        """
         for e in self.data["events"]:
             if e["id"] == eid:
-                old = (e["when"], e.get("notified", False))
+                old = (e["when"], e.get("notified", False), e.get("base"))
                 e["when"], e["notified"] = when, False
+                if base:
+                    e["base"] = base
+                else:
+                    e.pop("base", None)
                 try:
                     self.save()
                 except BaseException:
-                    e["when"], e["notified"] = old
+                    e["when"], e["notified"] = old[0], old[1]
+                    if old[2]:
+                        e["base"] = old[2]
+                    else:
+                        e.pop("base", None)
                     raise
                 return True
         return False
@@ -324,7 +336,7 @@ class Profile:
             elif e.get("repeat"):             # tekrarlayan kaydın o güne düşen oluşumu (kayıtta yalnız sıradaki zaman durur)
                 from modules import when as whenmod
                 if whenmod.occurs_on(e["repeat"], e["when"], datetime.strptime(day, "%Y-%m-%d").date()):
-                    out.append({**e, "when": day + e["when"][10:]})
+                    out.append({**e, "when": day + "T" + e["base"] if e.get("base") else day + e["when"][10:]})
         return sorted(out, key=lambda e: e["when"])
 
     def upcoming(self, now: datetime, limit: int = 6) -> list[dict]:
@@ -350,12 +362,13 @@ class Profile:
                     t = datetime.strptime(raw, "%Y-%m-%dT%H:%M")
                     if t > now:
                         continue
-                    nxt = whenmod.next_occurrence(e["repeat"], now, t.hour, t.minute)
+                    bh, bm = (int(x) for x in e.get("base", raw[11:16]).split(":"))
+                    nxt = whenmod.next_occurrence(e["repeat"], now, bh, bm)
                 except ValueError:
                     continue
                 if (now - t).total_seconds() < 6 * 3600:
                     due.append(e)         # Jarvis kapalıyken kaçan eski tekrarlar okunmaz, yalnız ileri kurulur
-                moved.append((e, raw))
+                moved.append((e, raw, e.pop("base", None)))
                 e["when"] = nxt.strftime("%Y-%m-%dT%H:%M")
                 continue
             try:
@@ -379,7 +392,9 @@ class Profile:
             try: self.save()
             except BaseException:
                 for e in marked: e.pop("notified", None)
-                for e, raw in moved: e["when"] = raw
+                for e, raw, base in moved:
+                    e["when"] = raw
+                    if base: e["base"] = base
                 # Preserve an already-notified event's original value.
                 for e in self.data["events"]:
                     if e in marked and e.get("id") in {x.get("id") for x in marked}:

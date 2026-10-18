@@ -82,10 +82,7 @@ def resolve_folder(word: str) -> Path | None:
             break
     else:
         return None
-    for base in (nxapi.HOME, nxapi.HOME / "OneDrive"):
-        if (base / name).is_dir():
-            return base / name
-    return nxapi.HOME / name
+    return nxapi.home_folder(name) or nxapi.HOME / name
 
 
 def folder_label(folder: str | Path) -> str:

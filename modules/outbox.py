@@ -3,7 +3,82 @@ import hashlib
 import json
 import time
 import uuid
+import unicodedata
+from datetime import datetime, timedelta, timezone
 from modules import publish_services as services, service_store, requests_state, privacy
+
+# Conservative personal-assistant budgets, per user; all destinations share them.
+# Unknown outcomes also consume a slot: never assume a failed HTTP response means
+# the provider did not send. Instagram preparation polling reuses the same slot.
+DAILY_CHANNEL_LIMITS = {'gmail': 20, 'telegram': 30, 'whatsapp': 20, 'instagram': 5, 'youtube': 3}
+DAILY_TOTAL_LIMIT = 50
+DUPLICATE_WINDOW_SECONDS = 600
+# Istanbul has used UTC+3 year-round since 2016; no Windows tzdata dependency.
+_ISTANBUL = timezone(timedelta(hours=3), 'Europe/Istanbul')
+_CHANNEL_NAMES = {'gmail': 'mail', 'telegram': 'Telegram', 'whatsapp': 'WhatsApp',
+                  'instagram': 'Instagram', 'youtube': 'YouTube'}
+
+
+def _budget_day(stamp):
+    return datetime.fromtimestamp(stamp, _ISTANBUL).date().isoformat()
+
+
+def _repeat_digest(payload):
+    canonical = dict(payload)
+    canonical['operation'] = payload.get('operation', services.OPERATIONS[payload['service']])
+    if payload['service'] == 'instagram' and canonical['operation'] != 'reply_comment':
+        canonical.setdefault('media_type', 'IMAGE')
+    if 'file_sha256' in canonical:
+        canonical.pop('file', None)  # The same video at another path is still the same content.
+    canonical.pop('source_task', None)
+    for key in ('text', 'subject'):
+        if key in canonical:
+            canonical[key] = unicodedata.normalize('NFC', canonical[key].strip())
+    if payload['service'] == 'gmail':
+        canonical['destination'] = canonical['destination'].casefold()
+    elif payload['service'] in ('telegram', 'instagram'):
+        canonical['destination'] = str(int(canonical['destination']))
+    return _digest(canonical)
+
+
+def _budget_schema(db, now):
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='outbox_send_budget'").fetchone():
+        return
+    db.execute('''CREATE TABLE outbox_send_budget(
+        id TEXT NOT NULL, day TEXT NOT NULL, channel TEXT NOT NULL,
+        reserved REAL NOT NULL, fingerprint TEXT NOT NULL, PRIMARY KEY(id, day))''')
+    db.execute('CREATE INDEX outbox_budget_day ON outbox_send_budget(day, channel)')
+    db.execute('CREATE INDEX outbox_budget_repeat ON outbox_send_budget(fingerprint, reserved)')
+    start = datetime.fromtimestamp(now, _ISTANBUL).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    # First installation also counts today's existing send journal. Do this only
+    # once: a later preparation poll must not manufacture a new reservation.
+    for row in db.execute("SELECT id,payload,updated FROM outbox WHERE state IN ('accepted','sending','unknown','preparing') AND updated>=?",
+                          (min(start, now - DUPLICATE_WINDOW_SECONDS),)):
+        payload = json.loads(row['payload'])
+        db.execute('INSERT OR IGNORE INTO outbox_send_budget VALUES(?,?,?,?,?)',
+                   (row['id'], _budget_day(row['updated']), payload['service'], row['updated'], _repeat_digest(payload)))
+
+
+def _budget_block(db, record, now):
+    day = _budget_day(now)
+    if db.execute('SELECT 1 FROM outbox_send_budget WHERE id=? AND day=?', (record['id'], day)).fetchone():
+        return None  # A known, already-budgeted publication may finish preparation.
+    channel = record['payload']['service']
+    counts = dict(db.execute('SELECT channel,COUNT(*) FROM outbox_send_budget WHERE day=? GROUP BY channel', (day,)))
+    used, limit = counts.get(channel, 0), DAILY_CHANNEL_LIMITS.get(channel, 0)
+    if used >= limit:
+        return {'state': 'blocked', 'id': record['id'],
+                'text': f'Bugün {_CHANNEL_NAMES[channel]} için {used} gönderim denemesi kaydedildi; günlük sınır ({limit}) doldu.'}
+    total = sum(counts.values())
+    if total >= DAILY_TOTAL_LIMIT:
+        return {'state': 'blocked', 'id': record['id'],
+                'text': f'Bugün toplam {total} gönderim denemesi kaydedildi; günlük toplam sınır ({DAILY_TOTAL_LIMIT}) doldu.'}
+    duplicate = db.execute('SELECT 1 FROM outbox_send_budget WHERE fingerprint=? AND reserved>? AND id<>? LIMIT 1',
+                           (_repeat_digest(record['payload']), now - DUPLICATE_WINDOW_SECONDS, record['id'])).fetchone()
+    if duplicate:
+        return {'state': 'blocked', 'id': record['id'],
+                'text': 'Aynı hedefe aynı içerik kısa süre önce gönderilmeye çalışıldı; tekrar gönderim durduruldu.'}
+    return None
 
 
 def _digest(payload):
@@ -81,16 +156,24 @@ def dispatch(owner, oid, *, approve=False):
     if record['state'] not in ('prepared','preparing'):return _result(record)
     payload=record['payload']
     with service_store.database(owner) as db:
+        now = time.time()
+        _budget_schema(db, now)
+        if blocked := _budget_block(db, record, now):
+            return blocked
         # Atomic claim across processes; approval is for immutable stored content only.
         allowed=db.execute('SELECT expires FROM grants WHERE service=? AND destination=?',
                            (services.permission_key(payload),payload['destination'])).fetchone()
         sensitive=any(privacy.redact(payload.get(key,''),force=True)!=payload.get(key,'') for key in ('text','subject'))
-        if not approve and record['authorized_until']<=time.time() and (sensitive or not allowed or allowed['expires']<=time.time()):
+        if not approve and record['authorized_until']<=now and (sensitive or not allowed or allowed['expires']<=now):
             if record['state']=='preparing':db.execute('UPDATE outbox SET updated=? WHERE id=?',(time.time(),oid))
             return _result(record)
         count=db.execute("UPDATE outbox SET state='sending',updated=?,authorized_until=? WHERE id=? AND state IN ('prepared','preparing') AND digest=?",
                          (time.time(),time.time()+86400 if approve else record['authorized_until'],oid,record['digest'])).rowcount
         if count!=1:return {'state':'failed','id':oid,'text':'Bu gönderim başka yürütücü tarafından alındı; tekrar uygulanmadı.'}
+        # Reservation and send-once claim commit together under BEGIN IMMEDIATE.
+        # Any interruption rolls both back before the external adapter is called.
+        db.execute('INSERT OR IGNORE INTO outbox_send_budget VALUES(?,?,?,?,?)',
+                   (oid, _budget_day(now), payload['service'], now, _repeat_digest(payload)))
     def progress(receipt):
         receipt={**record['receipt'],**receipt}
         with service_store.database(owner) as db:
