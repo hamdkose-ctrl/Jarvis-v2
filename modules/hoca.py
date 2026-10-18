@@ -355,3 +355,19 @@ def handle(profile, text: str, enabled: bool = True) -> str | None:
         return None
     except HocaError as exc:
         return str(exc)
+
+
+def snapshot(profile, enabled: bool = True, now: float | None = None) -> dict:
+    """Arayüz için salt okunur özet; model çağırmaz."""
+    now = time.time() if now is None else now
+    lesson = active(profile)
+    out = {"enabled": bool(enabled), "lesson": None,
+           "weak": [{"id": w["id"], "title": w["title"], "topic": w["topic"], "due": w["due"], "due_now": w["due"] <= now}
+                    for w in weak_topics(profile)]}
+    if lesson:
+        step = current_step(profile) or {}
+        pending = lesson.get("pending") or {}
+        out["lesson"] = {"topic": lesson["topic"], "step": lesson["active"] + 1, "total": len(lesson["steps"]),
+                         "title": step.get("title", ""), "steps": [s["title"] for s in lesson["steps"]],
+                         "text": pending.get("text", ""), "question": pending.get("question", "")}
+    return out

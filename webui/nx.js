@@ -1081,7 +1081,7 @@ PAGES.study=pg=>{
     <div style="display:flex;gap:8px"><select id="scadd" class="inp" style="flex:1">${courses.filter(c=>!c.selected).map(c=>`<option value="${esc(c.key)}">${esc(c.label)} · ${c.count} soru</option>`).join('')}</select><button class="btn sm" data-act="scadd">${ic('plus')} Ekle</button></div>`:'';
   const fall=(ov.focus_all||ov.focus||[]);
   const focusHtml=fall.length?`<div class="sfocus"><b>${ic('target')} Bugün öncelik · ${fall.length} konu <small class="mut" style="font-weight:400">sınavda sık çıkan ve zayıf olduğun önce · tıkla, önce anlatsın</small></b><div class="sflist">${fall.map((f,i)=>`<button class="qchip ${i<3?'top':''}" data-act="slearn" data-t="${esc(f.topic)}" data-k="${esc(f.mk)}" data-c="${esc(f.course)}"><span class="no">${i+1}</span> ${esc(f.topic)} <small class="mut">%${f.weight} sınavda · ${esc(f.why)}</small></button>`).join('')}</div></div>`:'';
-  const tabs=[['learn','Çalış','spark'],['quiz','Soru Çöz','check'],['wrong','Yanlışlarım','refresh'],['mock','Deneme','target'],['plan','Programım','calendar'],['resources','Kaynaklar','folder'],['progress','İlerleme','target']];
+  const tabs=[['learn','Çalış','spark'],['quiz','Soru Çöz','check'],['wrong','Yanlışlarım','refresh'],['mock','Deneme','target'],['plan','Programım','calendar'],['resources','Kaynaklar','folder'],['progress','İlerleme','target'],['hoca','Hoca','spark']];
   const td=ov.today||{},tg=td.target||null,cov=ov.coverage||{},prep=td.readiness||0;
   const summary=`<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px"><div class="card"><small class="mut">Sınava kalan</small><b style="display:block;font-size:20px;margin-top:4px">${td.days_left==null?'—':td.days_left+' gün'}</b></div><div class="card"><small class="mut">Hazırlık seviyesi</small><b style="display:block;font-size:20px;margin-top:4px">%${prep}</b></div><div class="card"><small class="mut">Bugünkü hedef</small><b style="display:block;margin-top:4px">${tg?esc(tg.topic):'Henüz belirlenmedi'}</b><small class="mut">${tg?esc(tg.course.split(' (')[0]):esc(td.note||'')}</small></div><div class="card"><small class="mut">Son 3 yıl kapsaması</small><b style="display:block;font-size:20px;margin-top:4px">${cov.year_count||0}/3 yıl</b><small class="mut">${(cov.years||[]).join(' · ')||'Soru eklenmedi'}</small></div></div>${tg?`<button class="btn pri" style="width:100%;margin-bottom:12px" data-act="stoday" data-t="${esc(tg.topic)}" data-k="${esc(tg.mk)}" data-c="${esc(tg.course)}">${ic('spark')} Bugünkü Çalışmayı Başlat · ${esc(td.note||'')}</button>`:''}`;
   const libraryHtml=`${coursesHtml}${analysisHtml}
@@ -1102,6 +1102,7 @@ PAGES.study=pg=>{
     ${st.mode==='math'?'<div class="qrow study-answer-actions"><button class="btn sm" data-act="studyplain">Daha basit anlat</button><button class="btn sm" data-act="slspeak">Sesli anlat</button><button class="btn sm" data-act="slstop">Okumayı durdur</button></div>':''}<div id="studya" class="studyanswer" style="margin-top:12px">${S.sans?(st.mode==='math'?mathHtml(S.sans):mdMath(S.sans)):''}</div>`;
   else if(S.stab==='quiz')body=quizHtml(ov,abar);
   else if(S.stab==='wrong')body=wrongHtml(ov);
+  else if(S.stab==='hoca')body=hocaHtml(ov);
   else if(S.stab==='mock')body=mockHtml(ov);
   else if(S.stab==='resources')body=libraryHtml;
   else if(S.stab==='progress')body=summary;
@@ -1174,6 +1175,22 @@ function quizHtml(ov,abar){
   const table=keys.map(k=>{const c=stats[k];return `<div class="ch" style="margin-top:16px"><span class="ct">${esc(c.label)}</span><span class="mut">${c.asked} soru çözüldü · ${c.asked?Math.round(c.correct*100/c.asked):0}% doğru</span></div>${c.topics.filter(t=>t.name!=='Diğer').map(t=>abar(t.name,t.pct==null?0:t.pct,t.asked?`${t.correct}/${t.asked} doğru · sınavda %${t.weight}`:`henüz çözülmedi · sınavda %${t.weight}`,t.pct==null?'rgba(255,255,255,.15)':t.pct<50?'linear-gradient(90deg,#ff6b6b,#ff9f43)':t.pct<75?'linear-gradient(90deg,#f2ad32,#ffd36b)':'linear-gradient(90deg,#28d38c,#55c8ff)')).join('')}`}).join('');
   return filt+card+table;
 }
+function hocaHtml(ov){
+  const h=(ov&&ov.hoca)||{enabled:true,lesson:null,weak:[]},L=h.lesson,weak=h.weak||[];
+  const on=h.enabled!==false;
+  const head=`<div class="ch" style="margin-top:10px"><span class="ct">Hoca</span><span class="pill ${on?'good':'warn'}">${on?'Sohbet komutları açık':'Sohbet komutları kapalı'}</span><button class="btn sm" data-act="hocatoggle">${on?'Kapat':'Aç'}</button></div>`;
+  const start=`<div class="study-question-row" style="margin-top:8px"><input class="inp" id="hocatopic" placeholder="Hangi konuyu çalışalım? (örn. hücre)" style="flex:1"><button class="btn pri" data-act="hocastart">${ic('spark')} Başla</button></div><p class="mut" style="font-size:12px;margin-top:6px">Ders sohbet ekranında ilerler. Sohbette de “hoca modu: konu” veya “konu konusunu öğret” diyebilirsin.</p>`;
+  let lesson='';
+  if(L){
+    const steps=(L.steps||[]).map((t,i)=>`<div class="srow"><span class="i">${ic(i+1<L.step?'check':(i+1===L.step?'spark':'clock'))}</span><div style="flex:1"><b>${esc(t)}</b></div></div>`).join('');
+    lesson=`<div class="card" style="margin-top:12px"><div class="ch"><span class="ct">${esc(L.topic)}</span><span class="mut">Adım ${L.step}/${L.total}</span></div>${steps}
+      ${L.text?`<div style="white-space:pre-wrap;margin-top:10px">${esc(L.text)}</div>`:''}
+      ${L.question?`<div style="margin-top:10px"><b>Kontrol sorusu:</b> ${esc(L.question)}</div><div class="study-question-row" style="margin-top:8px"><input class="inp" id="hocaans" placeholder="Cevabın" style="flex:1"><button class="btn pri" data-act="hocaans">Cevapla</button></div>`:''}
+      <div class="qrow" style="margin-top:10px"><button class="btn sm" data-act="hocasay" data-q="sonraki adım">Sonraki adım</button><button class="btn sm" data-act="hocasay" data-q="bilmiyorum">Bilmiyorum</button><button class="btn sm" data-act="hocasay" data-q="konuyu değiştir">Dersi bırak</button></div></div>`;
+  }
+  const weakHtml=weak.length?weak.map(w=>`<div class="srow"><span class="i">${ic(w.due_now?'refresh':'clock')}</span><div style="flex:1"><b>${esc(w.title)}</b><small>${esc(w.topic||'')}</small></div><span class="pill ${w.due_now?'warn':'good'}">${w.due_now?'tekrar zamanı':'bekliyor'}</span></div>`).join(''):'<div class="empty">Zayıf konu yok. Kontrol sorusunu yanlış yaptığın adımlar burada aralıklı tekrara (1, 3, 7 gün arayla) girer; iki doğru tekrardan sonra öğrenildi sayılır.</div>';
+  return `${head}${L?'':start}${lesson}<div class="ch" style="margin-top:16px"><span class="ct">Zayıf konularım</span></div>${weakHtml}`;
+}
 function wrongHtml(ov){
   const w=ov.wrong||{},rows=w.active||[],due=w.due||[];
   if(!rows.length)return `<div class="empty" style="margin-top:12px">Yanlış defterin temiz. Yanlış yaptığın çıkmış sorular burada 1 ve 3 günlük tekrar döngüsüne girer; iki doğru tekrardan sonra öğrenildi sayılır.</div>`;
@@ -1205,6 +1222,10 @@ ACT.smockans=async el=>{if(S.mockBusy)return;const owner=((S.snap||{}).user||{})
 ACT.scadd=async()=>{const v=$('#scadd')&&$('#scadd').value;if(!v)return;const cur=((S.sov||{}).courses||[]).filter(c=>c.selected).map(c=>c.key);await tryApi('study_set_courses',[...cur,v]);await loadStudy();await refresh();render();toast('Ders eklendi. Sınav analizini başlatabilirsin.')};
 ACT.scdel=async el=>{const cur=((S.sov||{}).courses||[]).filter(c=>c.selected).map(c=>c.key).filter(k=>k!==el.dataset.k);await tryApi('study_set_courses',cur);await loadStudy();await refresh();render()};
 ACT.sfocus=el=>ACT.slearn(el);
+ACT.hocasay=el=>say(el.dataset.q);
+ACT.hocastart=()=>{const t=(($('#hocatopic')||{}).value||'').trim();if(!t)return toast('Konuyu yaz.');say('hoca modu: '+t)};
+ACT.hocaans=()=>{const t=(($('#hocaans')||{}).value||'').trim();if(!t)return toast('Cevabını yaz.');say('cevap: '+t)};
+ACT.hocatoggle=async()=>{const on=((S.sov||{}).hoca||{}).enabled!==false;const r=await tryApi('settings_save',{hoca_enabled:!on});if(r===undefined||r===null)return;await loadStudy();if(S.page==='study')render()};
 ACT.sqnext=async()=>{const f=($('#sqtopic')&&$('#sqtopic').value)||S.sqf||'';S.sqf=f;const [k,t]=f?f.split('§'):['',''];const owner=((S.snap||{}).user||{}).name,ticket=Symbol();S.studyQuizRequest=ticket;S.sres=null;S.sexp='';const q=await tryApi('study_quiz_next',k||'',t||'');if(owner!==((S.snap||{}).user||{}).name||S.studyQuizRequest!==ticket)return;if(!q){S.squiz=null;render();toast('Bu seçimde cevap anahtarı olan soru bulunamadı.','bad');return}S.squiz=q;render()};
 ACT.sqans=async el=>{if(!S.squiz||S.sres||S.quizBusy)return;const question=S.squiz,c=el.dataset.c,owner=((S.snap||{}).user||{}).name,ticket=Symbol();S.quizBusy=ticket;try{const r=await tryApi('study_quiz_answer',question.id,c,question.attempt_id||'');if(!r||owner!==((S.snap||{}).user||{}).name||S.squiz!==question)return;S.sres={...r,choice:c};await loadStudy();if(owner===((S.snap||{}).user||{}).name)render()}finally{if(S.quizBusy===ticket)S.quizBusy=false}};
 ACT.sqwhy=async()=>{const e=$('#sqexp');if(e)e.innerHTML='<span class="mut">Açıklanıyor…</span>';const t=await tryApi('study_explain',S.squiz.id,(S.sres||{}).choice||'');S.sexp=t||'';if(e)e.innerHTML=mdMath(S.sexp)};
