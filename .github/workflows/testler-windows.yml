@@ -1,0 +1,53 @@
+name: Windows testleri
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testler-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testler-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock.txt
+            requirements-bundle.txt
+            requirements-browser.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Sabit Windows paketleri ve ekleri
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --no-deps -r requirements.lock.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -c requirements.lock.txt -r requirements-bundle.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Sözdizimi kontrolü
+        run: python -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
+      - name: Tam doğrulama (Python, JavaScript ve smoke)
+        run: python -X utf8 -m modules.validation
