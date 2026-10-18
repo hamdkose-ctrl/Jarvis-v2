@@ -113,7 +113,7 @@ def advance(profile) -> dict | None:
 # --- Konu kilidi: yalnız açık komutlar adım değiştirir, geri kalan her şey aktif adımda kalır ---
 
 _NEXT = re.compile(r"\b(?:sonraki|bir sonraki|ileri)\s+(?:konu\w*|adım\w*|bölüm\w*)\s*(?:a|e|ya|ye)?\s*(?:geç\w*|ilerle\w*|git\w*)?")
-_NEXT_BARE = re.compile(r"(?:tamam\s+)?(?:devam(?:\s+et\w*)?|geç(?:elim|ebiliriz)?|ilerle(?:yelim)?)")
+_NEXT_BARE = re.compile(r"(?:tamam\s+)?(?:geç(?:elim|ebiliriz)?|ilerle(?:yelim)?)")
 _CHANGE = re.compile(r"\bkonu(?:yu)?\s+değiştir\w*|\bbaşka\s+(?:bir\s+)?konu\w*|\bders(?:i)?\s+bitir\w*|\bdersten\s+çık\w*")
 
 

@@ -460,6 +460,31 @@ def important(limit: int = 6) -> list[dict]:
     return out[:limit]
 
 
+def search_mail(keywords: list[str], days: int = 30, limit: int = 5) -> list[dict]:
+    """Son `days` günde konu/gönderen/gövdesinde anahtar sözcüklerden biri geçen kişi mailleri, yalnız zarf (gövde okunmaz):
+    {who, subject, days}. Promosyon/sosyal/forum ve robot göndericiler hariç. Hata yukarı fırlatılır."""
+    words = [re.sub(r"[^\w-]", "", w) for w in keywords]
+    words = [w for w in words if w]
+    if not words:
+        return []
+    svc = _service("gmail", "v1")
+    q = f"newer_than:{int(days)}d ({' OR '.join(words)}) -category:promotions -category:social -category:forums"
+    ids = svc.users().messages().list(userId="me", q=q, maxResults=15).execute().get("messages", [])
+    out, now = [], datetime.now().astimezone()
+    for m in ids:
+        if len(out) >= limit:
+            break
+        msg = svc.users().messages().get(userId="me", id=m["id"], format="metadata",
+                                         metadataHeaders=["From", "Subject"]).execute()
+        h = {x["name"]: x["value"] for x in msg.get("payload", {}).get("headers", [])}
+        if _ROBOT.search(h.get("From", "")):
+            continue
+        when = datetime.fromtimestamp(int(msg.get("internalDate", 0)) / 1000).astimezone()
+        out.append({"who": _name(h.get("From", "")), "subject": h.get("Subject") or "(konusuz)",
+                    "days": max((now - when).days, 0)})
+    return out
+
+
 def important_text() -> str:
     problem = _ready()
     if problem:

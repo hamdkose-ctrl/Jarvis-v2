@@ -136,3 +136,10 @@ mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse write
 - Göndermez, Outlook'ta cevap/taslak oluşturmaz, okundu işaretlemez, silmez/taşımaz; `fetch_unread` salt okunurdur ve bir test `outlook.py` kaynağında `.Send(`, `.Reply(`, `.Save(`, `.Delete(`, `.Move(` vb. bulunmadığını denetler. "Cevap gönder" istekleri açıkça reddedilir (gönderim Hamdi'de kalır, gönderim tavanı korunur).
 - Gizlilik: mail gövdesi (en çok 4000 karakter) yalnız bu açık istekte modele gider; `yerel` modda yalnız yerel modele, `gizli` modda maskelenerek gider. Mail VERİ sayılır, içindeki talimatlara uyulmaz; yanıtta modda göre not düşülür.
 - Sınır: gerçek Outlook, gerçek mail ve gerçek modelle PC'de denenmedi (testler taklit). Yalnız klasik Outlook (COM, Windows).
+
+## Toplantı hazırlığı özeti (yalnız okuma)
+
+- "toplantıma hazırlan", "sıradaki toplantım için hazırlık yap", "Ahmet'le görüşmeye hazırlan": `modules/meeting_prep.py`, `engine_tools._mail_handle` içinde ilk sırada. Önümüzdeki 7 günün en yakın toplantısını bulur (Jarvis kayıtları + Google Takvim bağlıysa; başlığında toplantı/görüşme/sunum/keşif/randevu vb. geçen ya da komuttaki ada uyan), başlıktaki ayırt edici sözcüklerle son 30 günün Gmail (`google_api.search_mail`) ve kuruluysa Outlook (`outlook.search_recent`, en yeni 200 mail) maillerinde gönderen + konu listeler.
+- Model çağrısı yok (kota/gizlilik): özet düz metindir. Mail gövdesi okunmaz, hiçbir şey gönderilmez/yazılmaz/işaretlenmez. Outlook TAKVİMİ okunmaz (COM tarih süzgeci yerel ayara bağlı, doğrulanamadığı için bilerek eklenmedi; çıktı bunu söyler). Tüm gün kayıtları sayılmaz.
+- Dokunulmayanlar: "toplantı ekle/ertele/sil", "bugün toplantı var mı" (eski ajanda yolu), "derse hazırlan".
+- Test: `tests/test_meeting_prep.py` (Gmail/Outlook/Google taklit). PC'de gerçek Gmail, Outlook ve Google Takvim'le denenmedi.

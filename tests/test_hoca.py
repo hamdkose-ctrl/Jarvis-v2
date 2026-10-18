@@ -87,11 +87,11 @@ class HocaCheckTests(unittest.TestCase):
             hoca.start(self.p, 'Hücre')
 
     def test_control_words_are_explicit_not_topic_guessing(self):
-        for t in ('sonraki konuya geç', 'Sonraki adıma geçelim', 'devam et', 'geç'):
+        for t in ('sonraki konuya geç', 'Sonraki adıma geçelim', 'geç', 'ilerleyelim'):
             self.assertEqual(hoca.intent(t), 'next', t)
         for t in ('konuyu değiştir', 'başka konuya geçelim', 'dersi bitir'):
             self.assertEqual(hoca.intent(t), 'change', t)
-        for t in ('mitokondri ne işe yarar', 'bir örnek ver', 'IĞDIR nerede', 'Osmanlı geç dönem nedir', 'devam eden süreç ne', 'geç kaldım'):
+        for t in ('mitokondri ne işe yarar', 'bir örnek ver', 'IĞDIR nerede', 'Osmanlı geç dönem nedir', 'devam eden süreç ne', 'geç kaldım', 'devam', 'devam et'):  # çıplak devam hedef motorunundur
             self.assertEqual(hoca.intent(t), 'stay', t)
 
     def test_question_is_one_call_and_stored_for_grading(self):
