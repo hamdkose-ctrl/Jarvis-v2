@@ -73,7 +73,8 @@ def _number(value):
 
 
 def wants_solution(question):
-    text = question.lower().translate(str.maketrans('çğıöşü', 'cgiosu'))
+    from modules.turkish_text import fold
+    text = fold(question)
     if re.search(r'\b(?:cozme|cozmeden|cozmeni istemiyorum|coz istemiyorum|cozumu verme)\b', text):
         return False
     return bool(re.search(r'\b(?:coz|cozsene|cozer misin|cozebilir misin|cozumunu goster|cozumu goster)\b', text))

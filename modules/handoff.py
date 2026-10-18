@@ -120,10 +120,11 @@ def pending(where: str | None = None, until: date | None = None) -> list[dict]:
 
 def complete(query: str) -> str | None:
     """'çizim işi tamam' -> en çok benzeyen bekleyen notu tamamlar. Bulamazsa None."""
-    q = query.lower()
+    from modules.turkish_text import lower
+    q = lower(query)
     best, hit = 0.0, None
     for it in pending():
-        t = it["text"].lower()
+        t = lower(it["text"])
         r = max(difflib.SequenceMatcher(None, q, t).ratio(),
                 sum(1 for w in q.split() if len(w) > 2 and w[:5] in t) / max(1, len([w for w in q.split() if len(w) > 2])))
         if r > best:

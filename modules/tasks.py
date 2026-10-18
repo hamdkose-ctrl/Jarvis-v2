@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from functools import wraps
 from modules.personalization import _LOCK
+from modules.turkish_text import lower
 
 
 def _tasks(profile) -> list[dict]:
@@ -75,7 +76,7 @@ def handle(cmd_lower: str, profile) -> str | None:
     if m:
         key = m.group(1).strip()
         for x in _tasks(profile):
-            if not x["done"] and key in x["text"].lower():
+            if not x["done"] and lower(key) in lower(x["text"]):
                 toggle(profile, x["id"])
                 return f"“{x['text']}” görevini tamamlandı olarak işaretledim."
         return f"“{key}” içeren açık bir görev bulamadım."

@@ -4,6 +4,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from config import DATA_DIR
+from modules.turkish_text import lower
 import json
 import os
 import threading
@@ -47,7 +48,7 @@ def _parts(command):
 def _is_source(command):
     if not command.strip() or _parts(command):
         return False
-    if command.lower().strip(' .!?') in ('tamam', 'ok', 'teşekkürler', 'tesekkurler', 'dur', 'sus', 'yeter'):
+    if lower(command).strip(' .!?') in ('tamam', 'ok', 'teşekkürler', 'tesekkurler', 'dur', 'sus', 'yeter'):
         return False
     if re.search(r"^(?:ses|parlaklık|hava|kullanıcı|kullanici|kamera|ekran|git|ayar|not ekle|görev ekle)\b", command, re.I):
         return False
@@ -67,9 +68,9 @@ def resolve(slug, command, rows):
     if not parts:
         return None
     instruction, inline = parts
-    low = unicodedata.normalize('NFKD', instruction.lower().replace('ı', 'i')).encode('ascii', 'ignore').decode()
+    low = unicodedata.normalize('NFKD', lower(instruction).replace('ı', 'i')).encode('ascii', 'ignore').decode()
     # Gerçek dosya ve format dönüşümü mevcut dosya işleyicisine aittir.
-    if re.search(r'\b(?:dosya\w*|belge\w*|pdf|word|excel|docx|xlsx)\b', inline.lower()) and len(inline) < 100:
+    if re.search(r'\b(?:dosya\w*|belge\w*|pdf|word|excel|docx|xlsx)\b', lower(inline)) and len(inline) < 100:
         return None
     target = next((label for key, label in [('turkce','Türkçe'),('ingilizce','İngilizce'),('almanca','Almanca'),('fransizca','Fransızca'),('arapca','Arapça'),('rusca','Rusça'),('ispanyolca','İspanyolca')] if key in low), '')
     target = target or 'Kaynak Türkçe ise İngilizce; İngilizce ise Türkçe; diğer dillerde Türkçe'
@@ -78,7 +79,7 @@ def resolve(slug, command, rows):
     recent_rows = [r for r in recent_rows if str(r.get('ts','')) >= cutoff.strftime('%Y-%m-%d %H:%M:%S') and r.get('text','').strip() != command.strip()]
     if re.search(r'son (?:cevab|yanit)|ozet', low):
         text = next((r['text'] for r in reversed(recent_rows) if r.get('role') == 'assistant'), '')
-    elif inline and inline.lower().strip(' .:') not in ('metni','bu metni','bunu','tam','tamamını','yazdığımı','yazdigimi'):
+    elif inline and lower(inline).strip(' .:') not in ('metni','bu metni','bunu','tam','tamamını','yazdığımı','yazdigimi'):
         text = inline
         _sources[slug] = (datetime.now(), text)
     else:
