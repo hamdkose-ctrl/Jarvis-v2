@@ -160,6 +160,11 @@ def explain(exc: BaseException) -> str:
     if name in ('LocalModelError', 'CloudError') and message:
         return message
     category = classify(exc)
+    if category in (DNS, NETWORK):
+        from modules import ollama_hint
+        offline = ollama_hint.offline_text(exc)
+        if offline:
+            return offline
     if category == RATE_LIMIT:
         return 'Yapay zekâ kullanım sınırı doldu; Jarvis uygun başka sağlayıcı veya modelsiz yolu denemeli.'
     if category == AUTH:
