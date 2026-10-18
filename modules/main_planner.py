@@ -216,6 +216,115 @@ def _day_plan(runtime, offset: int = 0) -> str:
     return ' '.join(parts)
 
 
+# "bu haftam nasıl", "haftaya ne var", "gelecek haftanın planı", "önümüzdeki 7 gün": ileriye dönük hafta planı (modelsiz).
+_WEEK_ASK = re.compile(r"\bbu\s+haft\w*\s+(?:nasil|ne\s+var|neler\s+var|plan\w*|program\w*|ajanda\w*|takvim\w*)|"
+                       r"\b(?:gelecek|onumuzdeki)\s+haft\w*\s+(?:nasil|ne\s+var|neler\s+var|plan\w*|program\w*|ajanda\w*|takvim\w*)|"
+                       r"\bhaftaya\s+(?:ne|neler)\s+(?:var|yapiyoruz|yapacagiz|yapiyorum)|"
+                       r"\bhaftalik\s+plan\w*|\bhaftam(?:i)?\s+(?:soyle|goster|oku|plan)\w*|\bhafta\s+plan\w*|"
+                       r"\bonumuzdeki\s+(?:7|yedi)\s+gun\w*")
+_WEEK_NOT = re.compile(r"\b(?:ozet\w*|oldu\w*|dondu\w*|gecti\w*|rapor\w*|yap|yapin|yapar\w*|hazirla\w*|olustur\w*|hatirlat\w*|ekle\w*)\b")
+
+
+def _week_range(f: str) -> str | None:
+    """Folded metin hafta planı isteğiyse 'this' | 'next' | 'seven', değilse None (geçmişi anlatan özet/rapor değil)."""
+    if not _WEEK_ASK.search(f) or _WEEK_NOT.search(f):
+        return None
+    if re.search(r"\bonumuzdeki\s+(?:7|yedi)\s+gun", f):
+        return 'seven'
+    return 'next' if re.search(r"\b(?:gelecek|onumuzdeki)\s+haft|\bhaftaya\b", f) else 'this'
+
+
+def _week_plan(runtime, kind: str) -> str:
+    """Modelsiz hafta planı: gün gün takvim (Jarvis + Google), çakışma uyarısı, boş günler, görevler. Google yalnız okunur."""
+    from datetime import timedelta
+    from modules import google_api as _google_api
+    now = runtime.datetime.now()
+    today = now.date()
+    wd = today.weekday()
+    if kind == 'this':
+        start, days, title, note = today, 7 - wd, 'Bu hafta', ', bugünden pazara'
+    elif kind == 'next':
+        start, days, title, note = today + timedelta(days=7 - wd), 7, 'Gelecek hafta', ''
+    else:
+        start, days, title, note = today, 7, 'Önümüzdeki 7 gün', ''
+    end = start + timedelta(days=days - 1)
+    span = (f'{start.day}–{end.day} {_MONTHS_TR[end.month - 1]}' if start.month == end.month
+            else f'{start.day} {_MONTHS_TR[start.month - 1]}–{end.day} {_MONTHS_TR[end.month - 1]}')
+    parts = [f'{title} planı ({span}{note}).']
+    per_day = {start + timedelta(days=i): [] for i in range(days)}
+    for d in per_day:
+        for e in runtime.profile.events_on(d.isoformat()):
+            per_day[d].append((e['when'][11:16] if len(e['when']) > 10 else '', e['title']))
+    problems, reconnect = [], False
+    try:
+        if runtime.google_api.connected():
+            for d, when, name in runtime.google_api.range_events((start - today).days, days):
+                if d in per_day:
+                    per_day[d].append((when.astimezone().strftime('%H:%M') if when else '', name))
+    except Exception as exc:
+        _record_failure('main.py:_week_plan')
+        problems.append("Google Takvim'e bakamadım")
+        reconnect = _google_api.needs_reconnect(exc)
+    cur = now.strftime('%H:%M')
+    lines, empty, clashes, busiest = [], [], [], None
+    for d, items in per_day.items():
+        seen, timed, allday = set(), [], []
+        for hhmm, name in sorted(items, key=lambda x: (x[0] or '', x[1])):
+            key = (hhmm, name.strip().casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            (timed if hhmm else allday).append((hhmm, name))
+        if not timed and not allday:
+            empty.append(_DAYS_TR[d.weekday()])
+            continue
+        texts = [f"{h} {n}" + (' (geçti)' if d == today and h < cur else '') for h, n in timed] + \
+                [f'tüm gün {n}' for _, n in allday]
+        lines.append(f"{_DAYS_TR[d.weekday()]} {d.day} {_MONTHS_TR[d.month - 1]}: " + '; '.join(texts) + '.')
+        for (h1, n1), (h2, n2) in zip(timed, timed[1:]):
+            if int(h2[:2]) * 60 + int(h2[3:]) - (int(h1[:2]) * 60 + int(h1[3:])) < 30:
+                clashes.append(f'{d.day} {_MONTHS_TR[d.month - 1]} {h1} {n1} ile {h2} {n2}')
+        if len(timed) + len(allday) >= 4 and (busiest is None or len(timed) + len(allday) > busiest[0]):
+            busiest = (len(timed) + len(allday), f"{_DAYS_TR[d.weekday()]} {d.day} {_MONTHS_TR[d.month - 1]}")
+    if lines:
+        parts.extend(lines)
+        if empty:
+            parts.append('Boş günler: ' + ', '.join(empty) + '.')
+    else:
+        parts.append('Bu aralıkta takviminde bir şey yok.')
+    if clashes:
+        parts.append('Çakışabilir: ' + '; '.join(clashes[:3]) + '.')
+    if busiest:
+        parts.append(f'En yoğun gün: {busiest[1]} ({busiest[0]} kayıt).')
+    late, dated, undated = [], [], 0
+    for t in runtime.profile.data.get('tasks', []):
+        if t.get('done'):
+            continue
+        d = str(t.get('when') or '')[:10]
+        if d and d < today.isoformat():
+            late.append(t['text'])
+        elif d and start.isoformat() <= d <= end.isoformat():
+            dd = datetime.strptime(d, '%Y-%m-%d')
+            dated.append(f"{t['text']} {dd.day} {_MONTHS_TR[dd.month - 1]}")
+        else:
+            undated += 1
+    task = []
+    if late:
+        task.append(f"{len(late)} gecikmiş ({', '.join(late[:3])})")
+    if dated:
+        task.append(f"bu aralıkta {len(dated)} ({', '.join(dated[:4])})")
+    if undated:
+        task.append(f'ayrıca {undated} açık görev')
+    if task:
+        parts.append('Görevler: ' + ', '.join(task) + '.')
+    if problems:
+        parts.append(' ve '.join(problems) + '.')
+        if reconnect:
+            parts.append(_google_api.reconnect_help())
+    return ' '.join(parts)
+
+
+
 def _add_event(runtime, title: str, when: str) -> str:
     runtime.profile.add_event(title, when)
     return f'Takvime ekledim: {title}, {runtime.whenmod.describe(when)}.'
@@ -715,6 +824,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
             webbrowser.open('https://calendar.google.com')
             return "Google Takvim'i tarayıcıda açtım. " + day_txt
         return day_txt
+    week = _week_range(_fold(cmd_lower))
+    if week:
+        return _week_plan(runtime, week)
     if _PLAN_ASK.search(_fold(cmd_lower)):
         return _day_plan(runtime, 1 if runtime.re.search('\\byar[ıi]n', cmd_lower) else 0)
     if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|randevum)\\b|\\b(programım|takvimim|ajandam)\\b|\\bne işim var\\b', cmd_lower):
