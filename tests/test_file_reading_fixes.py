@@ -149,6 +149,7 @@ class ExcelNanTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
         import openpyxl
+        from unittest.mock import patch
         from modules import docs
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -159,7 +160,10 @@ class ExcelNanTests(unittest.TestCase):
         ws["B5"] = "=SUM(B2:B3)"      # openpyxl sonucu kaydetmez
         path = Path(tempfile.mkdtemp()) / "f.xlsx"
         wb.save(path)
-        text = docs.read_document(str(path))
+        # MarkItDown'ın pandas çıktısı taklit edilir (gerçek alt süreç Windows CI'da paketi yavaşlatıyor)
+        fake = ("## Hesap\n\n| Ad | Tutar |\n| --- | --- |\n| a | 10 |\n| NaN | NaN |\n| NaN | NaN |\n| Toplam | NaN |\n")
+        with patch.object(docs, 'read_markitdown_isolated', return_value=fake):
+            text = docs.read_document(str(path))
         self.assertNotIn("NaN", text)
         self.assertIn("Hesap!B5", text)
         self.assertIn("kayıtlı sonucu yok", text)
