@@ -182,3 +182,34 @@ class ExcelNanTests(unittest.TestCase):
         self.assertNotIn("NaN", text)
         self.assertIn("Hesap!B5", text)
         self.assertIn("kayıtlı sonucu yok", text)
+
+
+class HugeDimensionExcelTests(unittest.TestCase):
+    """Boyutu şişirilmiş Excel MarkItDown'a (pandas) gitmez; hızlı openpyxl yoluyla okunur."""
+
+    def _book(self, far_cell):
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws["A1"] = "Ad"
+        ws["B1"] = "Tutar"
+        ws["A2"] = "kira"
+        ws["B2"] = 15000
+        if far_cell:
+            ws[far_cell] = "uzak"
+        path = Path(tempfile.mkdtemp()) / "b.xlsx"
+        wb.save(path)
+        return str(path)
+
+    def test_huge_declared_range_skips_markitdown(self):
+        path = self._book("XFD1048576")
+        with patch.object(docs, "read_markitdown_isolated", side_effect=AssertionError("MarkItDown'a gitmemeli")):
+            text = docs.read_document(path)
+        self.assertIn("kira", text)
+        self.assertIn("15000", text)
+
+    def test_normal_workbook_still_uses_markitdown(self):
+        path = self._book(None)
+        with patch.object(docs, "read_markitdown_isolated", return_value="| Ad | Tutar |\n| kira | 15000 |") as m:
+            docs.read_document(path)
+        m.assert_called_once()
