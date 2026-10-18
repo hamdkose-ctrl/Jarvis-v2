@@ -33,7 +33,7 @@ class ReplyRecipientTests(unittest.TestCase):
 
     def _execute(self, request, destination):
         data = {'service': 'gmail', 'destination': destination, 'subject': 'Yanıt', 'text': 'Kısa cevap'}
-        identity = {'job_id': 'job1', 'task_id': 'send', 'request': request}
+        identity = {'owner': OWNER, 'job_id': 'job1', 'task_id': 'send', 'request': request}
         return goal_tools.execute(self.runtime, 'publish', data, self.dependencies, identity)
 
     def test_named_contact_reply_keeps_named_destination(self):
