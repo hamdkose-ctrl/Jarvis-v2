@@ -26,3 +26,8 @@ Plan: `raporlar/hoca-modu-plan-2026-10-18.md` (Hamdi 2026-10-18: seçenek B; ön
 - Kaynak metin en çok 60 000 karakter, ~2500'lük parçalara bölünür ve profilde dersle birlikte durur; ders bitince/bırakılınca silinir. Plan isteminde kaynağın başı, her adımda yalnız o adıma düşen parçalar (en çok ~6000 karakter) gider; kaynaktaki talimatlar uygulanmaz ve kaynakta olmayan uydurulmaz uyarısı eklenir. Ek model çağrısı yok.
 - "video", "kaynak", "altyazı" ile başlayan sıradan konular ("hoca modu: video oyunları", "kaynak enerjisi") kaynak sayılmaz; video için bağlantı, dosya için tırnak/yol gerekir.
 - Test: `tests/test_hoca_video.py` (API ve dosya taklit). Gerçek YouTube API'si, gerçek altyazı dosyaları ve PC'de denenmedi; videoda "altyazı kapalı/otomatik" ayrımı yok (otomatik altyazı resmî yoldan alınamaz).
+
+## Arayüz sekmesi — 18 Ekim 2026
+- Çalışma sayfasında "Hoca" sekmesi (`hocaHtml`, `webui/nx.js`): konu kutusu + Başla, aktif ders (adım listesi, anlatım, kontrol sorusu, cevap kutusu, Sonraki adım / Bilmiyorum / Dersi bırak), zayıf konular (tekrar zamanı rozeti), "Sohbet komutları" aç/kapat. Düğmeler yeni bir yol açmaz: `say()` ile aynı sohbet komutlarını gönderir ("hoca modu: X", "cevap: …", "sonraki adım"), yani ders sohbet ekranında ilerler; sekme durumu gösterir.
+- Veri `study_overview()['hoca']` (= `hoca.snapshot`, model çağırmaz). Ayar `hoca_enabled` (varsayılan açık) `settings()` ve `settings_save` içindedir; sekmedeki düğme onu yazar.
+- Test: `tests/hoca_behavior.js` (`JS_GROUPS`'ta), `tests/test_hoca.py` (`HocaSnapshotTests`, `HocaBridgeTests`). Ekranda görsel olarak ve gerçek PC'de denenmedi; ders cevabından sonra sekmenin kendiliğinden yenilenmesi yok (sekmeye yeniden girince/yenile ile güncellenir).
