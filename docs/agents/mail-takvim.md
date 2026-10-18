@@ -110,3 +110,9 @@ mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse write
 - Gmail bağlı değil ama Outlook kuruluysa Outlook'un okunmamışları listelenir ve "Gmail bağlı değil, önem derecesine bakmıyorum" denir. İkisi de yoksa Google kurulum açıklaması + "klasik Outlook da kurulu değil" söylenir.
 - "iş/outlook önemli mailler" (araya önemli/öncelikli/acil/yeni/okunmamış girse de) Outlook'a gider, önem sıralaması yapılmadığı söylenir. "Öncelikli maillerim" artık iş takibi önceliği raporuna düşmez (`worktrack.handle`); "önceliklerim neler" aynen kalır.
 - Taklitle sınandı (`tests/test_mail_source_choice.py`); gerçek Gmail/Outlook'ta denenmedi.
+
+## Google kurulum sihirbazı (18 Ekim, B yolu)
+- Hamdi'nin kararı: her kullanıcı kendi Google Cloud projesini açar; sihirbaz Ayarlar › Bağlantı › Gmail ve Google Takvim bölümünde adım adım listedir (`modules/google_setup.py`, `web_integrations.google_setup_status/open`, `nx.js` `gsBox`/`ACT.gsopen`). Bağlandıktan sonra gizlenir.
+- Jarvis yalnız sabit `console.cloud.google.com` adreslerini açar (adım kimliği allowlist'tir) ve yalnız doğrulanabilenleri denetler: istemci dosyası (Masaüstü türü, client_id, client_secret), Google paketleri, izin var mı. Cloud'daki tıklamaları göremez. Yanıtlara istemci kimliği/sırrı girmez.
+- `google_upload` artık yalnız "Web uygulaması" türünü reddeder (Masaüstü gerekir); client_secret eksikse kaydeder ama uyarır. Takvime yazma izni bilerek sihirbazda yok (sonra ayrı adım). `google_credentials.json` hâlâ PC başına tek: aynı PC'de iki kullanıcı için ayrı proje yok (raporlar/mail-takvim-alan-durumu-2026-10-18.md §4).
+- Test: `tests/test_google_setup.py`. Adımların Google'daki güncel sayfa adları ve adresler tarayıcıda denenmedi; Google arayüzü değişirse adım metinleri eskiyebilir.
