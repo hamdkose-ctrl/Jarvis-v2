@@ -20,7 +20,6 @@ jobs:
     env:
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
-      JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
     defaults:
       run:
         shell: pwsh
@@ -50,4 +49,6 @@ jobs:
       - name: Sözdizimi kontrolü
         run: python -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
       - name: Tam doğrulama (Python, JavaScript ve smoke)
+        env:
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
         run: python -X utf8 -m modules.validation
