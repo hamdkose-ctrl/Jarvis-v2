@@ -3,7 +3,7 @@
 Yalnız açık kur soruları yakalanır ("dolar kaç lira", "100 dolar kaç TL", "euro kaç dolar"); geçmiş tarih,
 yorum/tahmin, alarm/hatırlatma ve "euro 2024" gibi para birimi olmayan kullanımlar None döner ve diğer
 yollara bırakılır. Birincil kaynak TCMB today.xml (resmî gösterge, döviz satış), TCMB'de olmayan para birimi
-veya TCMB'ye ulaşılamazsa Frankfurter v2. Kripto ve gram altın BtcTurk genel API'sinden (altın PAXG/TRY'den
+veya TCMB'ye ulaşılamazsa Frankfurter v2. Kripto ve gram altın CoinGecko'dan, olmazsa BtcTurk genel API'sinden (altın PAXG/TRY'den
 hesaplanır). Kaynak yanıtından yalnız sayı ve tarih okunur, metin modele gitmez.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ CURRENCIES = (
     ('CNY', 'yuan', ('yuan', 'cny'), True),
     ('TRY', 'TL', ('turk lira', 'lira', 'tl'), True),
 )
-# Kripto (BtcTurk TRY çifti) ve altın (BtcTurk PAXG/TRY: 1 PAXG = 1 ons altın). "sol" Türkçe sözcük olduğu için yok.
+# Kripto (CoinGecko, yedek BtcTurk TRY çifti) ve altın (PAXG/TRY: 1 PAXG = 1 ons altın). "sol" Türkçe sözcük olduğu için yok.
 CRYPTO = (
     ('BTC', 'bitcoin', ('bitcoin', 'btc')),
     ('ETH', 'ethereum', ('ethereum', 'ether', 'eth')),
@@ -273,16 +273,16 @@ def _coingecko(pair: str):
 
 
 def _market(pair: str):
-    """BtcTurk önce; ulaşılamazsa ya da yanıt bozuksa CoinGecko (aynı TL fiyatı, ücretsiz)."""
+    """CoinGecko önce (Hamdi'nin PC'sinde BtcTurk zaman aşımına düşüyor); olmazsa BtcTurk (aynı TL fiyatı)."""
     from urllib3.exceptions import HTTPError
     from modules.diagnostics import record_failure
     try:
-        return _btcturk(pair)
+        return _coingecko(pair)
     except PermissionError:
         raise
-    except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
-        record_failure('modules/finance.py:btcturk')
-    return _coingecko(pair)
+    except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation, KeyError):
+        record_failure('modules/finance.py:coingecko')
+    return _btcturk(pair)
 
 
 def _num(value: Decimal, places: int = 2) -> str:
@@ -321,7 +321,7 @@ def _asset_answer(request) -> str:
         return str(exc)
     except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
         if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
-        return 'Fiyat kaynağına (BtcTurk ve CoinGecko' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
+        return 'Fiyat kaynağına (CoinGecko ve BtcTurk' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
     price = row['last'] / (TROY_OUNCE_GRAMS if kind == 'gram' else 1) / table[target]
     name = (kind + ' altın') if code == 'GOLD' else next(n for c, n, _s in CRYPTO if c == code)
     unit = _name(target)
