@@ -125,3 +125,5 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - `tests/test_tr_speech_sets.py` eski içerik eşitliğini, normalleşmeyi ve gerçek EngineContext bağlantısını sınar; yönlendirme cümle setine henüz bağlanmadı, gerçek mikrofon/sesli komut denenmedi.
 - TR-INJ-07 not ekleme kapısı (18 Ekim 2026): hedef yürütücüsü `note_add` için yalnız özgün kullanıcı isteğindeki açık not/kaydet/hatırlat ekleme niyetini kabul eder; kaynak/dependency metni izin değildir, niyet yoksa köprü çağrısından önce etkisiz `approval` döner.
 - Regresyon `tests/test_note_add_source.py` ve enjeksiyon senaryosuyla kilitlidir: açık “şu notu ekle” çalışır, “bu sayfayı özetle” ve “notlarımı özetle” köprü yazmasına ulaşmaz; gerçek PC ve gerçek Not Defteri denenmedi.
+- Cevap gönderiminde kullanıcı isteğinde kayıtlı kişi adı veya açık `@`/adres varsa doğrulanmış mail göndereni alternatif alıcı sayılmaz; kişi/alıcı belirtilmeyen “bu maile cevap” yolu korunur.
+- Süreli servis/hedef izni alıcı seçmez; yalnız doğrulanmış kesin payload hedefini dispatch edebilir. Regresyon: `tests/test_reply_recipient.py`; TR-INJ-27/28 kapatıldı.
