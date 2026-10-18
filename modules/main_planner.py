@@ -113,9 +113,10 @@ def _agenda_text(runtime, day: str, label: str) -> str:
 _MONTHS_TR = ('Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık')
 _DAYS_TR = ('Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar')
 # "bugünün planı", "bugün ne yapmalıyım", "günümü planla", "yarın planım ne" (ASCII yazım da)
-_PLAN_ASK = re.compile(r"\b(?:bugünün|yarının|günün|günümün)\s+plan\w*|\bgünümü\s+planla\w*|"
-                       r"^(?:bugün(?:kü)?\s+|yarın(?:ki)?\s+|günlük\s+)?plan[ıi]m(?:[ıi]\s+(?:söyle|göster|oku)\w*|\s+ne(?:dir)?)?\s*[?.!]*$|"
-                       r"\b(?:bugün|yarın)\s+ne(?:ler)?\s+(?:yapmal[ıi]y[ıi]m|yapaca[ğg][ıi]m|yapmam\s+laz[ıi]m)")
+# Eşleşme ASCII'ye indirilmiş metinde yapılır (`_fold`): "bugunun plani", "yarinki plan", "bugun ne yapmaliyim" da çalışır.
+_PLAN_ASK = re.compile(r"\b(?:bugun(?:un|ku)?|yarin(?:in|ki)?|gunun|gunumun|gunluk)\s+plan\w*(?!\s+yap)|\bgunumu\s+planla\w*|"
+                       r"^plani?m(?:i\s+(?:soyle|goster|oku)\w*|\s+ne(?:dir)?)?\s*[?.!]*$|"
+                       r"\b(?:bugun|yarin)\s+ne(?:ler)?\s+(?:yapmaliyim|yapacagim|yapmam\s+lazim)")
 
 
 def _ago(minutes: int) -> str:
@@ -162,13 +163,16 @@ def _day_plan(runtime, offset: int = 0) -> str:
             parts.append(f'Sıradaki: {nxt[0]} {nxt[1]}, ' + (f'{_ago(mins)} sonra.' if mins > 0 else 'şimdi.'))
     else:
         parts.append('Takviminde bir şey yok.')
-    late, today, other = [], [], []
+    late, carry, today, other = [], [], [], []
+    real_today = now.date().isoformat()
     for t in runtime.profile.data.get('tasks', []):
         if t.get('done'):
             continue
         d = str(t.get('when') or '')[:10]
-        if d and d < day.isoformat():
+        if d and d < real_today:
             late.append(t['text'])
+        elif d and d < day.isoformat():       # yarının planında: bugün bitmezse yarına kalacaklar (henüz gecikmiş değil)
+            carry.append(t['text'])
         elif d == day.isoformat():
             today.append(t['text'])
         else:
@@ -176,6 +180,8 @@ def _day_plan(runtime, offset: int = 0) -> str:
     task = []
     if late:
         task.append(f"{len(late)} gecikmiş ({', '.join(late[:3])})")
+    if carry:
+        task.append(f"bugün bitmezse yarına kalır {len(carry)} ({', '.join(carry[:3])})")
     if today:
         task.append(f"{'bugün' if offset == 0 else 'yarın'} {len(today)} ({', '.join(today[:3])})")
     if other:
@@ -214,14 +220,16 @@ def _conflicts(runtime, when: str) -> list[str]:
     start = datetime.strptime(when, '%Y-%m-%dT%H:%M')
     window = timedelta(minutes=30)
     out = []
-    for e in runtime.profile.data.get('events', []):
-        raw = str(e.get('when') or '')
-        try:
-            t = datetime.strptime(raw, '%Y-%m-%dT%H:%M')
-        except ValueError:
-            continue
-        if abs(t - start) < window:
-            out.append(f"{raw[11:16]} {e.get('title', '')}".strip())
+    days = {(start - window).date(), start.date(), (start + window).date()}
+    for day in sorted(days):
+        for e in runtime.profile.events_on(day.isoformat()):      # tekrarlayan kayıtların o günkü oluşumları dahil
+            raw = str(e.get('when') or '')
+            try:
+                t = datetime.strptime(raw, '%Y-%m-%dT%H:%M')
+            except ValueError:
+                continue
+            if abs(t - start) < window:
+                out.append(f"{raw[11:16]} {e.get('title', '')}".strip())
     try:
         for a, _b, name in runtime.google_api.busy_between(start - window + timedelta(minutes=1), start + window):
             out.append(f"{a.strftime('%H:%M')} {name} (Google Takvim)")
@@ -245,6 +253,101 @@ def _reminder_or_confirm(runtime, title: str, when: str, repeat: str | None = No
         return (f"{runtime.whenmod.describe(when)} saatinde zaten şu var: {'; '.join(clash[:3])}. "
                 f"'{title}' kaydını yine de ekleyeyim mi?")
     return _save_reminder(runtime, title, when, repeat)
+
+_FOLD = str.maketrans('çğıöşüâî', 'cgiosuai')
+
+
+def _fold(text: str) -> str:
+    """Küçük harf + Türkçe harfsiz (ASCII) biçim: "Hatırlatmasını" ve "hatirlatmasini" aynı olur."""
+    return text.replace('İ', 'i').replace('I', 'ı').lower().translate(_FOLD)
+
+
+_EDIT_ASK = re.compile(r"\b(?:sil|kaldir|iptal|ertele|otele)\w*")
+_EDIT_TOPIC = re.compile(r"\b(?:hatirlat|etkinli|randevu|takvim)\w*")
+_NUM = {"bir": 1, "iki": 2, "uc": 3, "dort": 4, "bes": 5, "on": 10, "yirmi": 20, "otuz": 30}
+_EDIT_NOISE = (r"hatirlat\w*|etkinli\w*|randevu\w*|takvim\w*|sil\w*|kaldir\w*|iptal\w*|et|ertele\w*|otele\w*|bana|su|bu|"
+               r"son|ekledigim|ekledi\w*|lutfen|ve|\d+|dakika\w*|dk|saat\w*|gun\w*|yarin\w*|haftaya|bir|iki|uc|bes|on|"
+               r"yarim|ceyrek|dort|yirmi|otuz")
+
+
+def _edit_target(runtime, tr: str, delete: bool):
+    """(kayıt, mesaj): komuttaki başlık ipucuna göre tek kayıt; belirsizse kayıt None ve soru mesajı."""
+    events = list(runtime.profile.data['events'])
+    if not events:
+        return None, 'Kayıtlı bir hatırlatman yok.'
+    hint = runtime.re.sub(r"\b(?:" + _EDIT_NOISE + r")\b", " ", tr)
+    hint = runtime.re.sub(r"\s+", " ", hint).strip(" ,.:-'’")
+    if hint:
+        words = [w[:5] for w in hint.split()]
+        hits = [e for e in events if all(w in _fold(e['title']) for w in words)]
+        if not hits:
+            return None, f"'{hint}' adında bir kaydın yok."
+    elif runtime.re.search(r"\bson\b", tr) and delete:
+        hits = [max(events, key=lambda e: e['id'])]
+    elif not delete:
+        done = sorted((e for e in events if e.get('notified') and not e.get('repeat')), key=lambda e: e['when'], reverse=True)
+        hits = done[:1] or (events if len(events) == 1 else [])
+    else:
+        hits = events if len(events) == 1 else []
+    if len(hits) == 1:
+        return hits[0], ''
+    pool = hits or events
+    shown = '; '.join(f"{runtime.whenmod.describe(e['when'])} {e['title']}" for e in sorted(pool, key=lambda e: e['when'])[:5])
+    return None, f"Hangisini kastettin? Kayıtların: {shown}. Başlığını söyleyerek tekrar dene."
+
+
+def _edit_reminder(runtime, text: str, now) -> str | None:
+    """Hatırlatma silme ve erteleme: "ilaç hatırlatmasını sil", "hatırlatmayı 10 dakika ertele", "toplantıyı yarına ertele"."""
+    from datetime import datetime, timedelta
+    tr = _fold(text)
+    if not _EDIT_ASK.search(tr):
+        return None
+    postpone = bool(runtime.re.search(r"\b(?:ertele|otele)\w*", tr))
+    if not postpone and not _EDIT_TOPIC.search(tr):
+        return None
+    if runtime.re.search(r"\b(?:ekle|yaz|not et)\b|\bnot(?:u|lar\w*)?\s+sil|\bnumarali\b|\b\d+\.?\s*notu?\b", tr):
+        return None
+    ev, ask = _edit_target(runtime, tr, delete=not postpone)
+    if ev is None:
+        return ask
+    if not postpone:
+        runtime.profile.delete_event(ev['id'])
+        extra = ' (tekrarlayan kaydın bütün tekrarlarını kaldırdım)' if ev.get('repeat') else ''
+        return (f"Sildim: {ev['title']}, {runtime.whenmod.describe(ev['when'])}{extra}. Yalnız Jarvis kaydıdır; "
+                f"Google Takvim'e dokunmadım. Yanlışsa aynı kaydı yeniden ekleyebilirsin.")
+    if ev.get('repeat'):
+        return 'Tekrarlayan kaydı ertelemiyorum; istersen silip yeni saatle tekrar ekle.'
+    when = str(ev['when'])
+    allday = len(when) == 10
+    base = datetime.strptime(when[:16], '%Y-%m-%dT%H:%M') if not allday else datetime.strptime(when, '%Y-%m-%d')
+    if runtime.re.search(r"\bhaftaya\b", tr):
+        new, said = base + timedelta(days=7), 'bir hafta'
+    elif runtime.re.search(r"\byarina\b|\byarin\b", tr):
+        new, said = base + timedelta(days=1), 'bir gün'
+        if not allday and new < now:
+            new = now.replace(hour=base.hour, minute=base.minute, second=0, microsecond=0) + timedelta(days=1)
+    else:
+        mm = runtime.re.search(r"\b(\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(dakika|dk|saat|gun)\w*", tr)
+        if runtime.re.search(r"yarim saat", tr):
+            n, unit = 30, 'dakika'
+        elif runtime.re.search(r"ceyrek saat", tr):
+            n, unit = 15, 'dakika'
+        elif mm:
+            n = int(mm.group(1)) if mm.group(1).isdigit() else _NUM[mm.group(1)]
+            unit = {'dakika': 'dakika', 'dk': 'dakika', 'saat': 'saat', 'gun': 'gün'}[mm.group(2)]
+        else:
+            n, unit = 10, 'dakika'        # "ertele" tek başına: 10 dakika
+        if not 1 <= n <= 1000:
+            return 'Bu süreyi anlayamadım; "10 dakika" ya da "yarına" gibi söyle.'
+        delta = {'dakika': timedelta(minutes=n), 'saat': timedelta(hours=n), 'gün': timedelta(days=n)}[unit]
+        if allday and unit != 'gün':
+            return 'Bu tüm gün kaydı; "yarına" ya da "2 gün" gibi gün olarak ertele.'
+        new = (now if base <= now and unit != 'gün' else base) + delta
+        said = f'{n} {unit}'
+    out = new.strftime('%Y-%m-%d') if allday else new.strftime('%Y-%m-%dT%H:%M')
+    runtime.profile.reschedule_event(ev['id'], out)
+    return f"{ev['title']} kaydını {said} erteledim: {runtime.whenmod.describe(out)}."
+
 
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
                 "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
@@ -289,6 +392,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
         runtime._add_note(text)
         return f'Not aldım: {text}'
     tr = runtime.whenmod._turkish(cmd_lower)       # ASCII yazım: "yarin 9da ilac hatirlat"
+    edited = _edit_reminder(runtime, cmd_lower, now)
+    if edited is not None:
+        return edited
     m = runtime.re.search('\\btakvime\\s+(?:ekle|yaz|not et)\\w*\\s*$', tr) or runtime.re.match('^(?:takvime ekle|takvime not et|takvime yaz|hatırlat|bana hatırlat|bana .*hatırlat|randevu ekle|etkinlik ekle)\\b', tr) or (runtime.re.search('\\bhatırlat\\w*\\b', tr) and runtime.re.search("\\b(yarın|bugün|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|gün sonra|saat sonra|dakika sonra|her\\s|hergün|hafta\\s*içi|\\d{1,2}[:.]\\d{2}|\\d{1,2}['’]?(?:da|de|ta|te)\\b)", tr))
     if m:
         body = runtime.re.sub('^(?:bana\\s+)?(?:takvime (?:ekle|not et|yaz)|hat[ıi]rlat\\w*|randevu ekle|etkinlik ekle)\\s*[:,]?\\s*', '', command, flags=runtime.re.I)
@@ -315,7 +421,7 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
             webbrowser.open('https://calendar.google.com')
             return "Google Takvim'i tarayıcıda açtım. " + day_txt
         return day_txt
-    if _PLAN_ASK.search(runtime.whenmod._turkish(cmd_lower)):
+    if _PLAN_ASK.search(_fold(cmd_lower)):
         return _day_plan(runtime, 1 if runtime.re.search('\\byar[ıi]n', cmd_lower) else 0)
     if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|randevum)\\b|\\b(programım|takvimim|ajandam)\\b|\\bne işim var\\b', cmd_lower):
         if 'yarın' in cmd_lower:

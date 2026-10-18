@@ -71,6 +71,20 @@ class AwaitingTests(unittest.TestCase):
         self.assertNotIn('Toplantı', [x['subject'] for x in items])
         self.assertIn('in:sent', svc.queries[0])
 
+    def test_theirs_rechecks_age_of_last_message(self):
+        # Gmail sorgusu konuşma düzeyindedir: "older_than:2d" konuşmada herhangi bir eski mesaj varsa eşleşir.
+        # Dün benim yazdığım takip mesajı son mesajsa 2 gündür bekleyen bir konu değildir.
+        threads = {
+            'eski': [_msg(ME, 'Mehmet <mehmet@y.com>', 'Fatura', 5, sent=True)],
+            'takip': [_msg(ME, 'Ali <ali@y.com>', 'Teklif', 6, sent=True),
+                      _msg(ME, 'ali@y.com', 'Re: Teklif', 0.5, sent=True)],
+            'sinir': [_msg(ME, 'Veli <veli@y.com>', 'Rapor', 1.5, sent=True)],
+        }
+        with patch.object(google_api, '_service', return_value=FakeGmail(threads)):
+            items = google_api.awaiting('theirs')
+        self.assertEqual([x['subject'] for x in items], ['Fatura'])
+        self.assertTrue(all(x['days'] >= 2 for x in items))
+
     def test_text_and_errors(self):
         with patch.object(google_api, '_ready', return_value=None), \
                 patch.object(google_api, 'awaiting', return_value=[{'who': 'Ahmet', 'subject': 'Teklif', 'days': 0}]):

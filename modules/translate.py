@@ -18,6 +18,14 @@ MAX_TEXT_PARTS = 20      # belge çevirisinde en çok model çağrısı (~40-70 
 MAX_EXCEL_BATCHES = 30   # Excel çevirisinde en çok model çağrısı (15'er hücre)
 
 
+class _TranslatedText(str):
+    """Metin API'sini korur; kısmi teslim bilgisini model metninden ayrıştırmadan taşır."""
+    def __new__(cls, text: str, partial_warning: str = ''):
+        value = super().__new__(cls, text)
+        value.partial_warning = partial_warning
+        return value
+
+
 def split_text(text: str, size: int = 3500) -> list[str]:
     chunks = []
     while text:
@@ -232,13 +240,15 @@ def translate_text_document(
         if note:
             notes.append(note)
     result = "\n\n".join(bodies)
+    partial_warning = ''
     if skipped:
         done, rest = (f"{n:,}".replace(",", ".") for n in (sum(map(len, chunks)), sum(map(len, skipped))))
-        result += (f"\n\n(Belge uzun: yalnız ilk {done} karakteri çevrildi, kalan {rest} karakter çevrilmedi. "
-                   "Kalan kısmı istersen belgeyi bölüp ayrı ayrı çevirebilirim.)")
+        partial_warning = (f"Çeviri kısmi: yalnız ilk {done} karakteri çevrildi; "
+                           f"kalan {len(skipped)} parça, yaklaşık {rest} karakter çevrilmedi.")
+        result += (f"\n\n({partial_warning} Kalan kısmı istersen belgeyi bölüp ayrı ayrı çevirebilirim.)")
     if notes:
         result += "\n\nÇevirmen notları:\n" + "\n".join(f"- {n}" for n in notes)
-    return result
+    return _TranslatedText(result, partial_warning)
 
 
 def translate_document(
@@ -255,5 +265,7 @@ def translate_document(
     result = translate_text_document(path, target, source, tone, audience)
     saved_path = output.save_text_result(result, path, "ceviri")
     if saved_path:
-        return f"Çeviriyi kaydettim: {saved_path}"
+        warning = getattr(result, 'partial_warning', '')
+        return f"Çeviriyi kaydettim: {saved_path}" + (f"\n{warning}" if warning else '')
     return result
+
