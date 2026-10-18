@@ -104,3 +104,9 @@ mail-cevap.md ve doğrulanmış read_message bağımlılığı birlikteyse write
 - test_mail_followup_integration.py gerçek görev/kanıt akışında sabit mail kimliği, kısa komut yönlendirmesi ve boş ek durumunu model çağrısı olmadan sınar. Ekip revizyonu, imzalı onay/iptal, araştırma kanıt sözleşmesi, model bekleme sınırı ve kaynak izleme kodu değiştirilmez.
 
 
+
+## "Önemli maillerim" kaynak seçimi (18 Ekim, ikinci tur)
+- Önem işareti yalnız Gmail'de var (`engine_tools._important_mail`). Gmail bağlıysa Gmail yanıtlar; klasik Outlook da kuruluysa yanıtın sonuna iş maili için "iş maillerimi kontrol et" yolu eklenir.
+- Gmail bağlı değil ama Outlook kuruluysa Outlook'un okunmamışları listelenir ve "Gmail bağlı değil, önem derecesine bakmıyorum" denir. İkisi de yoksa Google kurulum açıklaması + "klasik Outlook da kurulu değil" söylenir.
+- "iş/outlook önemli mailler" (araya önemli/öncelikli/acil/yeni/okunmamış girse de) Outlook'a gider, önem sıralaması yapılmadığı söylenir. "Öncelikli maillerim" artık iş takibi önceliği raporuna düşmez (`worktrack.handle`); "önceliklerim neler" aynen kalır.
+- Taklitle sınandı (`tests/test_mail_source_choice.py`); gerçek Gmail/Outlook'ta denenmedi.

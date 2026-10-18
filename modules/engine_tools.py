@@ -338,13 +338,33 @@ def _morning_brief(runtime) -> None:
     from modules import main_planner
     return main_planner._morning_brief(runtime)
 
+def _important_mail(ga, outlook, cmd_lower: str) -> str:
+    """"Önemli maillerim": önem işareti yalnız Gmail'de var. Gmail bağlıysa o (Outlook da varsa iş maili yolunu söyler);
+    Gmail yoksa Outlook'un okunmamışları ve neden öyle olduğu; ikisi de yoksa neyin eksik olduğu."""
+    if ga._ready() is None:
+        reply = ga.important_text()
+        if outlook.installed():
+            reply += ' İş mailin (Outlook) için "iş maillerimi kontrol et" de.'
+        return reply
+    if outlook.installed():
+        return outlook.unread_mail(prefix="Gmail bağlı değil, o yüzden önemli işaretine bakamadım. "
+                                          + outlook.IMPORTANT_NOTE)
+    reply = ga.important_text()
+    if reply != ga.SETUP_HELP:
+        return reply
+    return reply + " Bu bilgisayarda klasik Outlook da kurulu değil, iş maili için o da kullanılamıyor."
+
 def _mail_handle(runtime, cmd_lower: str) -> str | None:
     """İş maili (Outlook) açıkça istenirse yalnızca onu; genel 'maili kontrol et'te Gmail + açıksa Outlook."""
     from modules import outlook
     reply = outlook.handle(cmd_lower)
     if reply is not None:
         return reply
-    reply = runtime.google_api.handle(cmd_lower)
+    ga = runtime.google_api
+    from modules import google_api as _g
+    if _g._IMPORTANT.search(cmd_lower) and not _g._MAIL_SEND.search(cmd_lower):
+        return _important_mail(_g, outlook, cmd_lower)
+    reply = ga.handle(cmd_lower)
     if reply is not None and runtime.google_api._MAIL_CHECK.search(cmd_lower) and outlook.installed():
         reply = "Gmail: " + reply + " İş (Outlook): " + outlook.unread_mail()
     return reply
