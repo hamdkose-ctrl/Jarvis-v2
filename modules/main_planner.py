@@ -5,6 +5,7 @@ from modules.diagnostics import record_failure as _record_failure
 import json
 import re
 import threading
+from datetime import datetime
 
 def _plain(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', text).strip(' .,:;!-')
@@ -470,6 +471,175 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
     return f"{ev['title']} kaydını {said} {verb}: {runtime.whenmod.describe(out, now)}."
 
 
+# ------------------------------------------------------------------ eski notu arama / düzeltme / silme
+_NOTE_DATE = re.compile(r"\b(?:bugunku|bugun|dunku|dun|gecen haftaki|gecen hafta|bu haftaki|bu hafta|gecen ayki|gecen ay|bu ayki|bu ay)\b")
+_NOTE_FILLER = re.compile(r"\b(?:benim|bana|aldigim|yazdigim|kaydettigim|tuttugum|ile ilgili|hakkindaki|hakkinda|icinde|icindeki|"
+                          r"olan|var mi|var|mi|mu|neydi|nelerdi|neler|nerede|ne|bir|su|bu|o|ara|bul|goster|oku|ya)\b")
+_NOTE_ASK_END = re.compile(r"\bnot\w*\s*(?:var mi|neydi|nelerdi|neler|ne|nerede|goster|oku|bul|ara|var)?$|"
+                           r"\b(?:ara|bul|goster|oku)\w*$|\bvar mi$|\bneydi$")
+_NOTE_NOT_ASK = re.compile(r"\b(?:nasil|neden|nedir|niye|ne demek|yaz[ıi]l[ıi]r)\b")
+_NOTE_EDIT = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:(?:su|bu)\s+)?(?:duzelt|degistir|guncelle)\w*\s*[:,]?\s*(?P<new>.*)$")
+_NOTE_DEL = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:sil|kaldir|iptal et)\w*$")
+_MONTHS = ('Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara')
+_FOUND: dict = {}                     # kullanıcı -> (son bulunan notun kimliği, zaman): "o notu düzelt" için
+
+
+def _note_window(f: str, now):
+    """Tarih sözü -> (başlangıç, bitiş, etiket); söz yoksa None."""
+    from datetime import timedelta
+    day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    monday = day - timedelta(days=day.weekday())
+    m = _NOTE_DATE.search(f)
+    if not m:
+        return None
+    w = m.group(0)
+    if w.startswith('bugun'):
+        return day, day + timedelta(days=1), 'bugün'
+    if w.startswith('dun'):
+        return day - timedelta(days=1), day, 'dün'
+    if w.startswith('bu hafta'):
+        return monday, monday + timedelta(days=7), 'bu hafta'
+    if w.startswith('gecen hafta'):
+        return monday - timedelta(days=7), monday, 'geçen hafta'
+    first = day.replace(day=1)
+    if w.startswith('bu ay'):
+        return first, (first + timedelta(days=32)).replace(day=1), 'bu ay'
+    return (first - timedelta(days=1)).replace(day=1), first, 'geçen ay'
+
+
+def _note_when(item) -> str:
+    try:
+        d = datetime.strptime(item.get('ts', '')[:10], '%Y-%m-%d')
+        return f'{d.day} {_MONTHS[d.month - 1]}'
+    except ValueError:
+        return ''
+
+
+def _note_words(text: str) -> list:
+    return re.findall(r"[a-z0-9]+", _fold(text))
+
+
+def _note_hits(items, kws, window, fuzzy=False):
+    """(numara, not) çiftleri: her anahtar sözcük nottaki bir sözcükle başlangıçta uyuşur (market ~ marketteki)."""
+    import difflib
+    out = []
+    for i, item in enumerate(items, 1):
+        if window:
+            try:
+                ts = datetime.strptime(item.get('ts', '')[:16], '%Y-%m-%d %H:%M')
+            except ValueError:
+                continue
+            if not window[0] <= ts < window[1]:
+                continue
+        words = _note_words(item['text'] + ' ' + item.get('title', ''))
+        def hit(k):
+            for w in words:
+                n = min(5, len(k), len(w))
+                if n >= 3 and k[:n] == w[:n]:
+                    return True
+                if fuzzy and len(k) >= 4 and difflib.SequenceMatcher(None, k, w).ratio() >= 0.8:
+                    return True
+            return False
+        if all(hit(k) for k in kws):
+            out.append((i, item))
+    return out
+
+
+def _note_listing(hits, limit=8) -> str:
+    parts = [f"{i}) {n['text']}" + (f' ({_note_when(n)})' if _note_when(n) else '') for i, n in hits[:limit]]
+    more = f' … ve {len(hits) - limit} not daha' if len(hits) > limit else ''
+    return '; '.join(parts) + more
+
+
+def _note_ref(runtime, ref: str, f_rest: str):
+    """Düzeltme/silme için hedef not: (not, mesaj). Tam biri bulunamazsa not None ve kullanıcıya söylenecek mesaj döner."""
+    items = runtime.profile.data['items']
+    ref = ref.strip(' .')
+    if not items:
+        return None, 'Not defterin boş.'
+    if re.fullmatch(r"\d{1,3}", ref):
+        idx = int(ref)
+        return (items[idx - 1], '') if 1 <= idx <= len(items) else (None, 'Böyle bir numaralı not yok.')
+    if ref in ('o', 'bu', 'su', 'bulundugum', 'buldugum', 'bulunan', 'az once buldugum'):
+        found = _FOUND.get(runtime.profile.slug)
+        if found and runtime.time.time() - found[1] <= 900:
+            for n in items:
+                if n['id'] == found[0]:
+                    return n, ''
+        return None, "Hangi notu kastettiğini anlayamadım. Önce “market notum” gibi ara ya da “2. notu düzelt: …” de."
+    window = _note_window(ref, runtime.datetime.now())
+    kws = _note_words(_NOTE_FILLER.sub(' ', _NOTE_DATE.sub(' ', ref)))
+    if not kws and not window:
+        return None, None
+    hits = _note_hits(items, kws, window) or _note_hits(items, kws, window, fuzzy=True)
+    if not hits:
+        return None, f"“{' '.join(kws) or ref}” ile eşleşen bir not bulamadım ({len(items)} notun var)."
+    if len(hits) > 1:
+        return None, 'Hangisini kastettin? ' + _note_listing(hits) + ' · Numarayla söyle, örn. “2. notu düzelt: …” ya da “2. notu sil”.'
+    return hits[0][1], ''
+
+
+def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
+    """Eski notu bulur ("geçen hafta aldığım market notu", "notlarımda kitap ara", "bugünkü notlarım"), numarayla ya da
+    sözcükle düzeltir ("2. notu düzelt: …", "market notunu değiştir: …", "o notu düzelt: …") ve silir ("kitap notunu sil").
+    Model çağrısı yok; birden çok not uyuyorsa hiçbir şeye dokunmaz, numaralı liste verip sorar."""
+    f0 = _fold(cmd_lower.strip())
+    f = f0.strip(' .!?')
+    if not re.search(r"\bnot\w*", f) or f.startswith(('not ', 'son not', 'not:')) or re.search(r"\bnot\s*(?:al|et|ekle|yaz)\w*|diye not", f):
+        return None
+    if re.search(r"\b(?:tum|butun|hepsini)\b", f):
+        return None
+    slug = runtime.profile.slug
+    items = runtime.profile.data['items']
+    m = _NOTE_EDIT.match(f)
+    if m:
+        note, msg = _note_ref(runtime, m.group('ref'), '')
+        if note is None and msg is None:
+            return None
+        if note is None:
+            return msg
+        start = f.index(m.group('new')) if m.group('new') else len(f)
+        new = runtime._plain(command.strip()[len(command.strip()) - (len(f0) - start):]) if m.group('new') else ''
+        if not new:
+            return f"Notun yeni metnini de söyle: “… notunu düzelt: yeni metin”. Şu an: {note['text']}"
+        note['text'] = new
+        runtime.profile.save()
+        _FOUND[slug] = (note['id'], runtime.time.time())
+        return f'Düzelttim: {new}'
+    m = _NOTE_DEL.match(f)
+    if m:
+        note, msg = _note_ref(runtime, m.group('ref'), '')
+        if note is None and msg is None:
+            return None
+        if note is None:
+            return msg
+        runtime.profile.delete_note_item(note['id'])
+        _FOUND.pop(slug, None)
+        return f"Notu sildim: {note['text']}"
+    if re.search(r"\b(?:sil|kaldir|duzelt|degistir|guncelle|temizle)\w*", f) or _NOTE_NOT_ASK.search(f) \
+            or not _NOTE_ASK_END.search(f):
+        return None
+    window = _note_window(f, runtime.datetime.now())
+    kws = _note_words(re.sub(r"\bnot\w*", ' ', _NOTE_FILLER.sub(' ', _NOTE_DATE.sub(' ', f))))
+    if len(kws) > 3 or (not kws and not window):
+        return None
+    if not items:
+        return 'Not defterin boş.'
+    hits = _note_hits(items, kws, window)
+    fuzzy = False
+    if not hits and kws:
+        hits, fuzzy = _note_hits(items, kws, window, fuzzy=True), True
+    label = window[2] if window else ''
+    what = ' '.join(filter(None, [label, ' '.join(kws)]))
+    if not hits:
+        return f'“{what}” için bir not bulamadım ({len(items)} notun var).'
+    if len(hits) == 1:
+        _FOUND[slug] = (hits[0][1]['id'], runtime.time.time())
+    head = 'Bulduğum not' if len(hits) == 1 else f'Bulduğum {len(hits)} not'
+    return f"{head}{' (yazımı benzeyen)' if fuzzy else ''}: {_note_listing(hits)}"
+
+
+
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
                 "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
 
@@ -505,6 +675,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
         runtime.profile.clear_note_items()
         return 'Tüm notlarını sildim.'
+    looked = _note_lookup(runtime, command, cmd_lower)
+    if looked is not None:
+        return looked
     fixed = runtime._note_fix(command, cmd_lower)
     if fixed is not None:
         return fixed
