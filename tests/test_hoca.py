@@ -332,3 +332,39 @@ class HocaBridgeTests(unittest.TestCase):
         ask.assert_not_called()
         self.assertEqual(out['hoca']['lesson']['topic'], 'hücre')
         self.assertFalse(out['hoca']['enabled'])
+
+
+class HocaParsePlanBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def _plan(count):
+        return '{"steps":[' + ','.join(
+            f'{{"title":"T{i}","goal":"G{i}"}}' for i in range(1, count + 1)) + ']}'
+
+    def test_one_valid_step_is_rejected(self):
+        with self.assertRaises(hoca.HocaError):
+            hoca.parse_plan(self._plan(1))
+
+    def test_exactly_two_valid_steps_are_returned(self):
+        steps = hoca.parse_plan(self._plan(2))
+        self.assertEqual(len(steps), 2)
+        self.assertEqual([step['title'] for step in steps], ['T1', 'T2'])
+
+    def test_nine_valid_steps_are_capped_at_first_eight(self):
+        steps = hoca.parse_plan(self._plan(9))
+        self.assertEqual(len(steps), 8)
+        self.assertEqual([step['title'] for step in steps], [f'T{i}' for i in range(1, 9)])
+
+    def test_blank_title_or_goal_items_do_not_count(self):
+        plan = ('{"steps":['
+                '{"title":"T1","goal":"G1"},'
+                '{"title":"","goal":"boş başlık"},'
+                '{"title":"boş hedef","goal":""},'
+                '{"title":"   ","goal":"   "},'
+                '{"title":"T2","goal":"G2"}]}')
+        steps = hoca.parse_plan(plan)
+        self.assertEqual(len(steps), 2)
+        self.assertEqual([step['title'] for step in steps], ['T1', 'T2'])
+
+    def test_non_json_text_is_rejected(self):
+        with self.assertRaises(hoca.HocaError):
+            hoca.parse_plan('Bu bir JSON ders planı değil.')
