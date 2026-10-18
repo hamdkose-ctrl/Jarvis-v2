@@ -55,6 +55,10 @@ _PATTERNS = [
     ("e-posta", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
     ("iban", re.compile(r"\bTR\d{2}(?:\s?\d{4}){5}\s?\d{2}\b", re.I)),
 ]
+_LABELED_SECRET = re.compile(
+    r"(\b[\w-]*(?:belirteç|belirtec|token|secret|parola|şifre|sifre|password|passwd|api[_-]?key|anahtar)[\w-]*\b\s*[=:]\s*)\S{6,}",
+    re.I,
+)
 _CARD = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
 _TCKN = re.compile(r"\b[1-9]\d{10}\b")
 _PHONE = re.compile(r"(?<!\d)(?:\+?90[\s-]?)?0?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}(?!\d)")
@@ -64,6 +68,7 @@ def redact(text: str, force: bool = False) -> str:
     """Bulut modele gitmeden önce anahtar, e-posta, IBAN, kart, T.C. no ve telefonu maskeler."""
     if not text or not (force or redact_enabled() or mode() == "gizli"):
         return text
+    text = _LABELED_SECRET.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
     for label, pat in _PATTERNS:
         text = pat.sub(f"[{label} gizlendi]", text)
 
