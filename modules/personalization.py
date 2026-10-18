@@ -301,6 +301,20 @@ class Profile:
         self.save()
         return len(self.data["events"]) < before
 
+    def _reschedule_event(self, eid: int, when: str) -> bool:
+        """Tek seferlik kaydı yeni zamana erteler (bildirildi işareti kalkar); kayıt yazılamazsa eski hâline döner."""
+        for e in self.data["events"]:
+            if e["id"] == eid:
+                old = (e["when"], e.get("notified", False))
+                e["when"], e["notified"] = when, False
+                try:
+                    self.save()
+                except BaseException:
+                    e["when"], e["notified"] = old
+                    raise
+                return True
+        return False
+
     def events_on(self, day: str) -> list[dict]:
         """'YYYY-MM-DD' gününün etkinlikleri (saatlisi saat sırasıyla, tüm gün olanlar başta)."""
         return sorted((e for e in self.data["events"] if e["when"][:10] == day), key=lambda e: e["when"])
@@ -379,6 +393,9 @@ class Profile:
 
     def delete_event(self, *a, **k):
         with _LOCK: return self._delete_event(*a, **k)
+
+    def reschedule_event(self, *a, **k):
+        with _LOCK: return self._reschedule_event(*a, **k)
 
     def due_events(self, *a, **k):
         with _LOCK: return self._due_events(*a, **k)

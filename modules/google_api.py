@@ -336,6 +336,8 @@ def awaiting(kind: str, limit: int = 8) -> list[dict]:
                 continue
             who = _name(h.get("To", "").split(",")[0])
         when = datetime.fromtimestamp(int(last.get("internalDate", 0)) / 1000).astimezone()
+        if kind == "theirs" and now - when < timedelta(days=2):
+            continue                      # sorgu konuşma düzeyinde: son mesaj (ör. dünkü takibim) yeniyse bekleyen sayılmaz
         out.append({"who": who, "subject": h.get("Subject") or "(konusuz)", "days": max((now - when).days, 0)})
         if len(out) >= limit:
             break

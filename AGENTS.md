@@ -24,6 +24,12 @@
 - `kota durumu` / `kota raporu` / `kota sayacı` / `bugün ne kadar kota harcadım` (`command_manager.dispatch`, model çağrısı yok): bugünün toplamı, sağlayıcı başına çağrı ve 429/hata sayısı, en çok çağıran 8 yer. Karakter token değildir; sağlayıcının kalan kotası buradan bilinmez. Live yalnız bağlantı sayılır, konuşma süresi sayılmaz.
 - Test: `tests/test_usage_meter.py` (model/ağ taklit). PC'de gerçek kullanımla denenmedi.
 
+## Hatırlatma silme ve erteleme — 18 Ekim 2026
+- `main_planner._edit_reminder` (model çağrısı yok; ASCII yazım dahil, `_fold`): "ilaç hatırlatmasını sil/kaldır/iptal et", "dişçi randevusunu kaldır", "toplantıyı 10 dakika / 2 saat / yarına / haftaya ertele", "yarım saat ertele"; tek başına "ertele" = en son bildirilen kaydı şimdiden 10 dakika sonraya (tekrar çalar). Başlık ipucu kayıt başlığındaki kelimelerle (ilk 5 harf) eşleşir; ipucu yoksa tek kayıt varsa o, belirsizse kimseyi silmeden "Hangisini kastettin?" diye kayıtları sayar.
+- Yalnız Jarvis'in kendi kaydı (`Profile.delete_event` / `reschedule_event`); Google Takvim'e dokunulmaz ve cevap bunu söyler. Tekrarlayan kayıtta silme bütün tekrarları kaldırır (cevap söyler); tekrarlayan kayıt ertelenmez (silip yeniden ekle denir). Tüm gün kaydı yalnız gün olarak ertelenir. Geri alma komutu yok (cevap yeniden eklemeyi önerir); silme onay sormaz.
+- "notu sil", "… hatırlat" ekleme yolu ve "ekle/yaz" geçen cümleler bu yola girmez. Bilinen sınır: konu sözcüksüz "… ertele" cümlesi başka bir şey için söylense bile hatırlatma kaydı aranır ("… adında bir kaydın yok" der, bir şey değiştirmez).
+- Test: `tests/test_reminder_edit.py` (gerçek profil JSON'u + gerçek `EngineContext.handle`). PC'de denenmedi: gerçek sesli söyleyiş ve ertelenen kaydın ertesi gün yeniden çalması.
+
 ## Gmail önemli mailler — 17 Ekim 2026
 - `google_api.important()` / `important_text()`: "önemli maillerim", "öncelikli mailler", "acil mail var mı", "hangi mail önemli" okunmamış gelen kutusunda Gmail'in önemli veya yıldız işaretlediği kişi maillerini verir (yıldızlılar önce ★; robot gönderenler, promosyon/sosyal/forum kategorileri hariç; en çok 6). Yalnız zarf (`format=metadata`), model çağrısı yok, okunmuş işaretlenmez. Sıralama Gmail'in kendi işaretine dayanır; Jarvis kendi önem puanı hesaplamaz, tanıdık gönderen ayrımı yoktur.
 - `worktrack` öncelik soruları ("öncelikli ... ne") mail sözcüğüyle gelip Gmail uygunsa (`_gmail_reply` kuralı: "gmail" denmiş, ya da Outlook yok + Google bağlı + "iş/outlook" denmemiş) Gmail'e bırakılır; Outlook'lu iş PC'sinde eski Outlook önceliği aynen kalır.
