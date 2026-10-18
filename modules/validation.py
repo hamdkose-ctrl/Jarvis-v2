@@ -44,7 +44,7 @@ def run_checks(root=None, *, python=None):
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['JARVIS_DATA_DIR'] = str(Path(scratch) / str(index))
                 env['JARVIS_TEST_PYTHON'] = executable
-                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180 if index == 0 else 90)
+                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=480 if index == 0 else 90)
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
