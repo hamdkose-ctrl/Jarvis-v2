@@ -13,7 +13,7 @@ import time
 from modules import llm
 from modules.diagnostics import record_failure as _record_failure
 
-MAX_STEPS = 7
+MAX_STEPS = 8
 MIN_STEPS = 2
 _TOPIC_MAX = 120
 _TITLE_MAX = 120
