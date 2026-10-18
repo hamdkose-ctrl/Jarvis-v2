@@ -25,7 +25,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (9 bölüm)
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (16 bölüm)
-- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (16 bölüm)
+- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (17 bölüm)
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (14 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
@@ -103,4 +103,3 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Tek kurulum temizliği: eski ayrı uyandırma ve tarayıcı kurulum BAT dosyaları paketten kaldırıldı; mevcut PC kurulumundaki kopyaları kurulum_temizligi.py temizler. Rehber ve hata mesajları kurulum.bat yönlendirir.
 
 - Git eşitleme: .venv_install/.venv_backup, modeller, kişisel veri ve .claude kaynak yayınlama ve karşılaştırma dışında kalır; .gitignore/.gitattributes kaynak takibine dahildir. Yerel günlükler depoya gönderilmez.
-
