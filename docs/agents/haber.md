@@ -36,25 +36,28 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - Sürdürme ve tamamlanmada mevcut makale tarihi yeniden kontrol edilir; geçmişte doğrulanan ama artık pencere dışında kalan kaynak ve bağımlı teslim aynı kimlikte yeniden ele alınır. Windows'ta önceki 30→90 kabulünde yayıncı makalesi/rapor passed kullanıcı tarafından bildirildi; GDELT timeout sürüyordu. Bu sonuç yeni 7 günlük sürümün kabulü sayılmaz.
 
 ## TÜBİTAK tekil haber şablonu — 16 Ekim 2026
+> **Kısmen eski:** aramadaki "AI/30 gün" ve "30→90 gün" genişletmesi 7 günlük varsayılanla değişti ("Haftalık haber tercihi — güncel karar"; `public_data.news_search` varsayılanı 7 gün, otomatik 30/90 genişlemesi yok). Kod: `modules/public_data.py:52`.
 - Canlı kabulde seçilen TÜBİTAK haberinde h1, article'ın kardeş Drupal bloğundadır; tarih article içindeki .node-date alanında Türkçe kısadır. Yalnız tubitak.gov.tr/tr/haber/ + eşleşen canonical + aynı region-content içinde tek article ve bilinen başlık/gövde blokları birlikteyse bu başlık bağlanır; yalnız o gövdenin node-date değeri okunur. Genel liste/foreign host/başka canonical veya ilgili haber tarihi istisna kazanmaz.
 - Kabul araştırması önce 30 gün içindeki doğrulanmış kaynakları seçer. Sınırlı adaylarda yoksa, kullanıcının önceki 30→90 tercihiyle en fazla 90 günlük doğrulanmış kaynağa kısmi genişler; public_news_window kaydı ve 90-gun-raporu dosya adıyla ayrılır. Gelecek/90 gün dışı veya tarihsiz kaynak kabul edilmez. Ek fetch veya model çağrısı yoktur.
 - Gerçek makale 21 Ağu 2026 tarihlidir; Ekim tarihiyle veya son 30 güne ait diye sunulamaz. Genel tarih/alıntı/dosya doğrulaması korunur; gerçek Windows yeni kabulü ayrıca bekler.
 
 ## Veri kabulünde arama zaman aşımı — 16 Ekim 2026
+> **Geçersiz/eski (GDELT zaman aşımı):** GDELT Hamdi'nin kararıyla kaldırıldı; `public_data.news_search` yalnız "kaldırıldı" hatası verir (`modules/public_data.py:52`). Geçerli kural: "Doğrudan haftalık haber kaynakları — son karar" bölümü. Aşağıdaki GDELT anlatımı tarihî kayıttır.
 - Kullanıcının Windows kabulünde kur passed; GDELT ReadTimeoutError nedeniyle arama/rapor pending görüldü. --public-data artık arama hata/boş/alıntısız sonuçtan sonra TÜBİTAK ve Boğaziçi resmî dizinlerini birer kez mevcut headlines ile okur; her dizinden en fazla bir AI başlığı adayı, toplam en fazla iki ek research denenir. Gerçek yayın tarihi ve birebir gövde kanıtı koşulu değişmez; başarısız GDELT satırı pending kalır.
 - Model çağrısı, kör retry, TLS/DNS doğrulamasını atlama, tarih gevşetme veya hedef değişikliği yoktur. İptal/sahiplik/gizlilik kapıları korunur. Tüm kaynaklar erişilemez veya uygun haber yoksa rapor yine pending kalır; Windows'ta başarılı teslim henüz doğrulanmadı.
 
 ## Anahtarsız verinin tek komutla kabulü — 16 Ekim 2026
+> **Kısmen eski:** aramadaki "AI/30 gün" ve "30→90 gün" genişletmesi 7 günlük varsayılanla değişti ("Haftalık haber tercihi — güncel karar"; `public_data.news_search` varsayılanı 7 gün, otomatik 30/90 genişlemesi yok). Kod: `modules/public_data.py:52`.
 - Mevcut acceptance_checks açık --public-data bayrağıyla aktif kullanıcı bağlamında public_data_acceptance çalıştırır; varsayılan çalışmada yeni web okuması yoktur. Kur ve sabit AI/30 gün/resmî alan araması; en fazla iki gerçek tekil haber, model-free birebir alıntı, writer ve verify ile kısmi yerel dosya denenir. Aktif hedef/hesap/anahtar/ayar değiştirilmez; gönderim yoktur.
 - Erişim/tarih/kapsam bulunamazsa pending; boş keşif gerçek rapor sayılmaz. İptal ve kullanıcı uyuşmazlığı yutulmaz. Bu kontrol kapsamın tamamını veya normal model planlayıcısını doğrulamaz. Windows'ta scripts/v2_kontrol.bat --public-data --skip-suite yeterlidir; sonuç mevcut kabul JSON'undadır.
 
 ## Anahtarsız haber keşfi — 16 Ekim 2026
+> **Geçersiz/eski (GDELT keşfi):** GDELT Hamdi'nin kararıyla kaldırıldı; `public_data.news_search` yalnız "kaldırıldı" hatası verir (`modules/public_data.py:52`). Geçerli kural: "Doğrudan haftalık haber kaynakları — son karar" bölümü. Aşağıdaki GDELT anlatımı tarihî kayıttır.
 - `public_data` mevcut data aracına sources/news_search ekler; GDELT DOC sabit HTTPS GET, anahtarsız JSON keşfi sağlar. Yeni model/hesap/ücret/bağımlılık veya görev sistemi yoktur. Frankfurter/CSV/sosyal adaptörler korunur. Kaynak listesi canlı bağlantı kanıtı değildir.
 - Arama en fazla 90 gün/20 sonuç; ayrı 1–5 alan adı filtresi ve sonuç URL'lerinde gerçek host/HTTPS denetimi vardır. seen_at yayın tarihi değildir; arama sonucu research/writer haber kanıtı sayılamaz. Mevcut tekil gövde/tarih/alıntı ve gerçek dosya doğrulaması zorunludur.
 - Süreç genelinde 5 saniye istek aralığı, HTTP429 sonrası 60 saniye geri çekilme; uyku/otomatik retry/ücretli fallback yoktur. Planlayıcı kurtarması yalnız boş yayıncı keşfinden sonra önceden denenmiş aynı alan adlarında bir arama yapabilir; aynı hedef ve 10/24/96 bütçeleri, onay/iptal kapıları korunur.
 - Canlı geliştirme yoklamasında kur JSON'u ve sonraki HTTP yoklamasında GDELT haber JSON'u erişildi. Öncesinde GDELT HTTP429; doğrudan IP doğrulayan okuyucuda bu ortamın DNS hatası görüldü. Bu yoklama Windows/üretim okuyucusuyla tam rapor kabulü değildir. Ayrıntı ve tek son kullanıcı test listesi docs/UCRETSIZ_VERI_KAYNAKLARI.md içindedir.
 
-Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex vb.) içindir. Kod değiştiğinde bu dosya da aynı PR'da güncellenir.
 
 ## Kaynak izleme ve bağlantı çalışması — 15 Ekim 2026
 
