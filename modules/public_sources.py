@@ -23,6 +23,9 @@ def address(url, *, resolve=False):
         raise ValueError('Yerel/ağ içi kaynak kullanılamaz.')
     if any(re.search(r'key|token|secret|password|signature|credential|auth',key,re.I) for key,_ in parse_qsl(parsed.query)):
         raise ValueError('Kaynak adresinde kimlik bilgisi saklanamaz.')
+    if any(key.casefold() in {'data','payload','report','body','content','text','message'}
+           for key,_ in parse_qsl(parsed.query,keep_blank_values=True)):
+        raise ValueError('Kaynak adresi sorgusunda veri taşıyan alan kullanılamaz.')
     try:
         if not ipaddress.ip_address(host).is_global:raise ValueError('Kaynak genel internette olmalı.')
     except ValueError as exc:
