@@ -83,6 +83,7 @@ def _read_private_json(path, *, max_bytes=131072, migrate=True, with_snapshot=Fa
             if not isinstance(data, dict):
                 raise ValueError('type')
         except Exception:
+            _record_failure('modules/publish_services.py:credential_read')
             # Never log parser/DPAPI exception values or credential-bearing URLs.
             if not protected:
                 raise ValueError('Bağlantı yapılandırması okunamadı veya geçersiz.') from None
@@ -91,6 +92,7 @@ def _read_private_json(path, *, max_bytes=131072, migrate=True, with_snapshot=Fa
             try:
                 raw = _write_private_json(path, data, max_bytes=max_bytes, expected=raw)
             except Exception:
+                _record_failure('modules/publish_services.py:credential_migration')
                 pass  # Original login remains usable; retry migration on next read.
         return (data, raw) if with_snapshot else data
 
@@ -101,7 +103,7 @@ def _record_failure(context):
     import sys
     kind=sys.exc_info()[0]
     try:
-        raise RuntimeError('Servis taşıma hatası: '+(kind.__name__ if kind else 'unknown'))
+        raise RuntimeError('Servis taşıma hatası: '+(kind.__name__ if kind else 'unknown')) from None
     except RuntimeError:
         _diagnostic_failure(context)
 
