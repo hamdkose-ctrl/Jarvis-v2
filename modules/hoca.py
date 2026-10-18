@@ -188,13 +188,14 @@ def grade(profile, reply: str, now: float | None = None) -> dict:
         raise HocaError("Cevap değerlendirmesi anlaşılamadı. Biraz sonra tekrar dene.")
     ok = data["correct"]
     step = current_step(profile)
+    expected = pending["answer"]
     lesson["pending"] = None
     if ok:
         advance(profile)
     else:
         _mark_weak(profile, lesson["topic"], step, now)
     profile.save()
-    return {"correct": ok, "feedback": _clip(data.get("feedback"), 300)}
+    return {"correct": ok, "feedback": _clip(data.get("feedback"), 300), "expected": expected}
 
 
 # --- Zayıf konular ve aralıklı tekrar (1/3/7 gün, iki doğru tekrar = öğrenildi; studyexam ile aynı kural) ---
@@ -242,3 +243,115 @@ def review_result(profile, wid: str, correct: bool, now: float | None = None) ->
                 w["due"] = now + _INTERVALS[w["stage"]] * _DAY
         profile.save()
         return
+
+
+# --- Adım anlatımı (açıklama + kontrol sorusu tek model çağrısında) ---
+
+def teach(profile) -> dict:
+    """Aktif adımın anlatımı ve kontrol sorusu. Aynı adım için bekleyen varsa model çağrılmaz."""
+    lesson = active(profile)
+    step = current_step(profile)
+    if not lesson or not step:
+        raise HocaError("Şu an aktif bir ders yok.")
+    pending = lesson.get("pending")
+    if pending and pending.get("step") == lesson["active"] and pending.get("text"):
+        return {"text": pending["text"], "question": pending["question"]}
+    data = _ask(f"Konu: {lesson['topic']}\nSeviye: {lesson.get('level') or 'belirtilmedi'}\nAdım: {step['title']} ({step['goal']})",
+                "Bu adımı kısa ve sade anlat (en çok 6 cümle), sonra tek bir kontrol sorusu sor. Yalnız JSON ver: "
+                "{\"text\":\"anlatım\",\"question\":\"soru\",\"answer\":\"beklenen kısa cevap\"}. Adımdan sapma.",
+                700, 'teach', 'Adım anlatımı')
+    text, question, answer = _clip(data.get("text"), 1500), _clip(data.get("question"), 300), _clip(data.get("answer"), 300)
+    if not text or not question:
+        raise HocaError("Adım anlatımı eksik geldi. Biraz sonra tekrar dene.")
+    lesson["pending"] = {"step": lesson["active"], "text": text, "question": question, "answer": answer}
+    profile.save()
+    return {"text": text, "question": question}
+
+
+def give_up(profile, now: float | None = None) -> str:
+    """'Bilmiyorum': model çağrılmadan adım zayıf konuya yazılır; beklenen cevap döner."""
+    now = time.time() if now is None else now
+    lesson = active(profile)
+    pending = lesson.get("pending") if lesson else None
+    if not pending:
+        raise HocaError("Bekleyen bir kontrol sorusu yok.")
+    _mark_weak(profile, lesson["topic"], current_step(profile), now)
+    lesson["pending"] = None
+    profile.save()
+    return pending["answer"]
+
+
+def stop(profile) -> None:
+    lesson = active(profile)
+    if lesson:
+        lesson["done"] = True
+        lesson["pending"] = None
+        profile.save()
+
+
+# --- Sohbet girişi: yalnız açık söyleniş ve açık ders cevapları yakalanır, gerisi normal yola gider ---
+
+_START = re.compile(r"hoca\s+modu(?:nu)?(?:\s+(?:aç\w*|başlat\w*))?\s*[:,\-]?\s*(?P<t>.*)")
+_START_TOPIC = re.compile(r"(?:bana\s+)?(?P<t>.+?)\s+(?:konusunu|konuyu)\s+öğret\w*")
+_ANSWER = re.compile(r"(?:cevap|cevabım)\s*[:,\-]\s*(?P<a>.+)", re.S)
+_GIVE_UP = re.compile(r"(?:bilmiyorum|bilmem|pas|pas geçiyorum)")
+_WEAK = re.compile(r"zayıf konular\w*|eksik konular\w*")
+_HINT = "(Cevap vermek için 'cevap: ...' yaz; bilmiyorsan 'bilmiyorum', geçmek için 'sonraki adım' de.)"
+
+
+def _lesson_text(profile) -> str:
+    lesson = active(profile)
+    t = teach(profile)
+    n = len(lesson["steps"])
+    step = current_step(profile)
+    return f"Adım {lesson['active'] + 1}/{n}: {step['title']}\n{t['text']}\n\nKontrol sorusu: {t['question']}\n{_HINT}"
+
+
+def _finished(profile) -> str:
+    weak = weak_topics(profile)
+    tail = ("\nTekrar edeceğin konular: " + ", ".join(w["title"] for w in weak)) if weak else "\nZayıf konu kalmadı."
+    return "Ders bitti." + tail
+
+
+def handle(profile, text: str, enabled: bool = True) -> str | None:
+    """Hoca modu cümlesini işler; hoca modunun olmadığı her cümle için None döner (normal yol)."""
+    if not enabled:
+        return None
+    from modules import turkish_text
+    t = turkish_text.lower(text).strip(" .!?")
+    try:
+        m = _START.fullmatch(t) or _START_TOPIC.fullmatch(t)
+        if m:
+            topic = m.group("t").strip(" .,:;")
+            if not topic:
+                return "Hangi konuyu çalışalım? Örneğin: 'hoca modu: hücre'."
+            lesson = start(profile, topic)
+            return f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım.\n\n" + _lesson_text(profile)
+        lesson = active(profile)
+        if not lesson:
+            return None
+        if _WEAK.fullmatch(t):
+            weak = weak_topics(profile)
+            return "Zayıf konuların: " + ", ".join(w["title"] for w in weak) if weak else "Şu an zayıf konun yok."
+        kind = intent(t)
+        if kind == "change":
+            stop(profile)
+            return "Dersi bıraktım. İstediğinde 'hoca modu: konu' diye yeniden başlarız."
+        if kind == "next":
+            if not advance(profile):
+                return _finished(profile)
+            return _lesson_text(profile)
+        a = _ANSWER.fullmatch(t)
+        if a and lesson.get("pending"):
+            r = grade(profile, a.group("a"))
+            if r["correct"]:
+                if not current_step(profile):
+                    return f"{r['feedback']}\n\n" + _finished(profile)
+                return f"{r['feedback']}\n\n" + _lesson_text(profile)
+            return (f"{r['feedback']}\nDoğrusu: {r['expected']}\nBu adımı zayıf konulara yazdım; "
+                    "devam etmek için 'sonraki adım' de.")
+        if _GIVE_UP.fullmatch(t) and lesson.get("pending"):
+            return f"Doğrusu: {give_up(profile)}\nBu adımı zayıf konulara yazdım; devam etmek için 'sonraki adım' de."
+        return None
+    except HocaError as exc:
+        return str(exc)

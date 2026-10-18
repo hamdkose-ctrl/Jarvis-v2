@@ -101,6 +101,15 @@ def _study_media_topic(runtime, cmd_lower: str) -> str:
     return runtime.re.sub(r"\s+", " ", t).strip(" .,?!")
 
 def _study_intent(runtime, cmd_lower: str) -> str | None:
+    # Hoca modu: yalnız açık söyleniş ("hoca modu: X", "X konusunu öğret") ve aktif dersin komut/cevapları; gerisi normal yol.
+    try:
+        from config import load_settings
+        from modules import hoca
+        reply = hoca.handle(runtime.profile, cmd_lower, enabled=bool(load_settings().get("hoca_enabled", True)))
+        if reply:
+            return reply
+    except Exception:
+        runtime._record_failure('main.py:_study_intent')
     if runtime.re.fullmatch(r"(?:ders )?çalışmaya başla[.! ]*", cmd_lower.strip()):
         runtime.emit("study_start", "")
         return "Çalışma ekranında seçili konu veya kaynaktan dersi hazırlıyorum."
