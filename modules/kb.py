@@ -50,15 +50,18 @@ def add(profile, path: str) -> dict:
     """
     p = Path(path)
     sig = _signature(p)
+    old = []
     for d in list(_docs(profile)):
         if d.get("path") == str(p):
             # Kodlama düzeltmesinden önce eklenen metin dosyaları (cp1254 harfleri silinmiş olabilir) yeniden okunur.
             if d.get("sig") == sig and (d.get("v") == 2 or p.suffix.lower() not in _TEXT_EXT):
                 return d
-            remove(profile, d["id"])
-    text = docs.read_document(path, keep_pages=True, cache=True).strip()
+            old.append(d)
+    text = docs.read_document(path, keep_pages=True, cache=True).strip()    # okunamazsa eski kayıt yerinde kalır
     if not text:
         raise ValueError(docs.no_text_message(path))
+    for d in old:
+        remove(profile, d["id"])
     entry = {"id": profile._new_id(), "title": p.name, "path": str(p), "chars": len(text), "sig": sig, "v": 2,
              "ts": datetime.now().strftime("%Y-%m-%d %H:%M")}
     (_dir(profile) / f"{entry['id']}.txt").write_text(text, encoding="utf-8")

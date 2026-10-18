@@ -51,44 +51,77 @@ def _fold(s: str) -> str:
     return s.replace("I", "ı").replace("İ", "i").lower()
 
 
+def _count(p: Path) -> int:
+    try:
+        return sum(1 for c in p.iterdir() if not c.name.startswith((".", "~$")) and c.name.lower() not in _SKIP_NAMES)
+    except OSError:
+        return 0
+
+
 def _home_folder(cands: tuple[str, ...]) -> Path | None:
-    for base in (nxapi.HOME,):
-        for c in cands:
-            p = base / c
-            if p.is_dir():
-                return p
+    """OneDrive yönlendirmeli Windows'ta boş 'Desktop' kalıntısı gerçek 'OneDrive/Desktop' yerine seçilmesin: en dolu olan."""
+    found = [nxapi.HOME / c for c in cands if (nxapi.HOME / c).is_dir()]
+    if not found:
+        return None
+    return max(found, key=_count)    # eşitlikte ilk aday (max ilkini korur)
+
+
+_GENERIC = {"bu", "şu", "o", "bir", "tüm", "bütün", "ilgili", "ki", "şuradaki", "buradaki", "içindeki"}
+_SPECIAL = re.compile(r"jarvis\s+dosyalar\w*|y[üu]klediklerim\w*")
+
+
+def _base_for(low: str, word: str | None = None) -> Path | None:
+    if _SPECIAL.fullmatch(word or "") or (word is None and _SPECIAL.search(low)):
+        return nxapi.FILES_DIR if nxapi.FILES_DIR.is_dir() else None
+    for pattern, cands in _FOLDER_WORDS:
+        if re.search(rf"\b(?:{pattern})" if word is None else rf"^(?:{pattern})$", word or low):
+            return _home_folder(cands)
     return None
 
 
-def target(cmd_lower: str) -> Path | None:
-    """Komut bir klasör analizi isteğiyse klasörün yolunu döner; değilse None (başka komutlara geçer)."""
+def resolve(cmd_lower: str) -> tuple[Path | None, str | None]:
+    """(klasör, bulunamayan alt klasör adı). Adı geçen alt klasör yoksa üst klasöre GENİŞLEMEZ."""
     low = _fold(cmd_lower)
     if _NOT_THIS.search(low):
-        return None
+        return None, None
     has_word = re.search(r"\bklas[öo]r\w*", low)
     if not (_ASK.search(low) or (has_word and _ASK_WITH_FOLDER.search(low))):
-        return None
-    base = None
-    if re.search(r"jarvis\s+dosyalar\w*|y[üu]klediklerim\w*", low):
-        base = nxapi.FILES_DIR if nxapi.FILES_DIR.is_dir() else None
-    else:
-        for pattern, cands in _FOLDER_WORDS:
-            if re.search(rf"\b(?:{pattern})", low):
-                base = _home_folder(cands)
-                break
+        return None, None
+    m = re.search(r"((?:\S+\s+){0,3}?)(\S+)\s+klas[öo]r\w*", low)
+    last = m.group(2).strip("'’\"") if m else ""
+    base = _base_for(low)
+    if m and base is None:
+        base = _base_for(low, last)
     if base is None:
-        return None
-    # "İndirilenlerdeki Proje klasörünü incele": doğrudan alt klasör adı
-    m = re.search(r"(\S+)\s+klas[öo]r\w*", low)
-    if m:
-        name = m.group(1).strip("'’\"")
-        try:
-            for child in base.iterdir():
-                if child.is_dir() and not child.is_symlink() and _fold(child.name) == name:
-                    return child
-        except OSError:
-            pass
-    return base
+        return None, None
+    if not m:
+        return base, None
+    # klasörden hemen önceki söz başka bir bilinen klasörse ("masaüstündeki belgeler klasörü") asıl hedef odur
+    word_base = _base_for(low, last) if last else None
+    try:
+        kids = [c for c in base.iterdir() if c.is_dir() and not c.is_symlink() and nxapi.allowed(c) is not None]
+    except OSError:
+        kids = []
+    best = None
+    for c in kids:
+        n = _fold(c.name)
+        if re.search(rf"(?<![\w]){re.escape(n)}\w*(?!\w)", low) and (best is None or len(n) > len(_fold(best.name))):
+            if n != last or word_base is None:       # 'belgeler' alt klasörü yoksa Belgeler'e gidilir
+                best = c
+            elif best is None:
+                best = c
+    if best is not None:
+        return best, None
+    if word_base is not None:
+        return word_base, None
+    if not last or last in _GENERIC or _base_for(low, last) is not None or re.fullmatch(_ASK.pattern, last):
+        return base, None
+    return None, last
+
+
+def target(cmd_lower: str) -> Path | None:
+    """Komut bir klasör analizi isteğiyse klasörün yolunu döner; değilse (ya da alt klasör yoksa) None."""
+    return resolve(cmd_lower)[0]
 
 
 def _title(folder: Path) -> str:
@@ -116,6 +149,8 @@ def _walk(folder: Path, deadline: float) -> tuple[list[tuple[Path, int]], int, b
                 if p.is_symlink():
                     continue
                 if p.is_dir():
+                    if nxapi.allowed(p) is None:       # Windows bağlantı noktası (junction) izinli ağaçtan çıkıyor
+                        continue
                     if depth < MAX_DEPTH:
                         stack.append((p, depth + 1))
                     else:
@@ -230,11 +265,17 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
     files, deeper, cut = _walk(folder, deadline)
     if not files:
         return f"{title} klasöründe incelenecek dosya yok." + (f" ({deeper} alt klasöre inmedim, çok derinde.)" if deeper else "")
-    files.sort(key=lambda fd: (fd[1], -fd[0].stat().st_mtime if fd[0].exists() else 0))
+    def _mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:                 # tarama sırasında silindi/erişim değişti: rapor düşmesin
+            return 0.0
+    files.sort(key=lambda fd: (fd[1], -_mtime(fd[0])))
     kinds = Counter(_kind(p) for p, _ in files)
     texts: dict[Path, str] = {}
     unreadable: list[tuple[Path, str]] = []
-    secret: list[Path] = []
+    secret: list[Path] = []          # adı/uzantısı yüzünden hiç açılmayanlar
+    secret_text: list[Path] = []     # içeriği kontrol için okunup gizli bilgi bulunanlar (modele/dizine girmez)
     unsupported = 0
     read_bytes = 0
     not_read = 0
@@ -264,12 +305,15 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
             unreadable.append((p, "metin yok (taranmış ya da boş olabilir)"))
             continue
         if _SECRET_TEXT.search(text):
-            secret.append(p)
+            secret_text.append(p)
             continue
         texts[p] = text
     # Birebir aynı içerikli dosyalar (boyut eşleşenler arasında özet değeri)
     by_size: dict[int, list[Path]] = {}
+    hidden = set(secret) | set(secret_text)
     for p, _ in files:
+        if p in hidden:                 # gizli olanlar özet değeri için de açılmaz
+            continue
         try:
             by_size.setdefault(p.stat().st_size, []).append(p)
         except OSError:
@@ -287,16 +331,20 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
                 groups.setdefault(h, []).append(p)
         dups.extend(g for g in groups.values() if len(g) > 1)
     indexed = 0
+    index_cut = 0
     for p, text in texts.items():
+        if time.monotonic() > deadline:
+            index_cut += 1
+            continue
         try:
             kb.add(profile, str(p))
             indexed += 1
         except (ValueError, OSError, RuntimeError):
             _record_failure('modules/folder_analysis.py:analyze')
-    rel = lambda p: str(p.relative_to(folder))
+    rel = lambda p: p.relative_to(folder).as_posix()    # Windows'ta da aynı biçim
     lines = [f"**{title}** klasöründe {len(files)} dosya var: " +
              ", ".join(f"{n} {k}" for k, n in kinds.most_common()) + "."]
-    summary = _model_summary(title, texts, folder) if use_model else None
+    summary = _model_summary(title, texts, folder) if use_model and time.monotonic() <= deadline else None
     if summary:
         lines += ["", "Ne hakkında: " + summary]
     elif use_model and texts:
@@ -315,8 +363,12 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
         if len(unreadable) > 10:
             lines.append(f"…ve {len(unreadable) - 10} dosya daha.")
     if secret:
-        lines += ["", f"Gizli bilgi içerebileceği için açmadığım {len(secret)} dosya: " +
+        lines += ["", f"Adı gizli bilgi düşündürdüğü için hiç açmadığım {len(secret)} dosya: " +
                   ", ".join(rel(p) for p in secret[:6]) + ("…" if len(secret) > 6 else "")]
+    if secret_text:
+        lines += ["", f"İçinde gizli bilgi (IBAN, şifre vb.) gördüğüm için özete, yapay zekâya ve aramaya katmadığım "
+                  f"{len(secret_text)} dosya (kontrol için bilgisayarda açıldı): " +
+                  ", ".join(rel(p) for p in secret_text[:6]) + ("…" if len(secret_text) > 6 else "")]
     limits = []
     if unsupported:
         limits.append(f"{unsupported} dosyanın türü okunmuyor (görsel, video, arşiv vb.), yalnız sayıldı")
@@ -325,6 +377,9 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
                       f"{MAX_READ_BYTES // 1048576} MB / {MAX_SECONDS} sn)")
     if deeper:
         limits.append(f"{deeper} alt klasöre inmedim ({MAX_DEPTH} seviyeden derin)")
+    if index_cut or time.monotonic() > deadline:
+        limits.append(f"{MAX_SECONDS} sn doldu; bazı adımlar (özet, aramaya ekleme"
+                      + (f", {index_cut} dosya" if index_cut else "") + ") yapılmadı")
     if cut:
         limits.append("klasör çok büyük, dosyaların bir kısmını saymadım")
     if limits:
@@ -335,7 +390,9 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
 
 
 def handle(cmd_lower: str, profile) -> str | None:
-    folder = target(cmd_lower)
+    folder, missing = resolve(cmd_lower)
+    if missing:
+        return f"'{missing}' adlı bir klasör bulamadım; başka bir klasörü incelemedim. Klasörün tam adını söyler misin?"
     if folder is None:
         return None
     return analyze(profile, folder)

@@ -62,8 +62,8 @@ class FolderAnalysisTests(unittest.TestCase):
         self.assertIn('kopya.docx = kira sözleşmesi.docx', out)            # birebir aynı dosya
         self.assertRegex(out, r'bozuk\.docx: .*bozuk')                     # okunamayan + nedeni
         self.assertIn('bos.txt: metin yok', out)
-        self.assertIn('hesap şifreleri.txt', out)                          # gizli: adından
-        self.assertIn('not.txt', out.split('açmadığım')[1])                # gizli: içeriğinden (IBAN)
+        self.assertIn('hesap şifreleri.txt', out.split('hiç açmadığım')[1].split('İçinde gizli')[0])   # gizli: adından, hiç açılmaz
+        self.assertIn('not.txt', out.split('İçinde gizli bilgi')[1])       # gizli: içeriğinden (IBAN), kontrol için okundu
         self.assertIn('1 alt klasöre inmedim', out)                        # derinlik sınırı
         self.assertIn('1 dosyanın türü okunmuyor', out)                    # png yalnız sayıldı
         self.assertRegex(out, r'• kira[^\n]*kira sözleşmesi\.docx[^\n]*proje/kira notu\.txt')
@@ -120,6 +120,65 @@ class FolderAnalysisTests(unittest.TestCase):
                   'masaüstünü temizle', 'indirilenleri açar mısın', 'masaüstünü düzenler misin', 'resim nedir', 'dosyalarımı göster', 'videolar klasöründe ne var'):
             with self.subTest(q):
                 self.assertIsNone(fa.target(kb._norm(q)))
+
+    # --- GPT incelemesi (madde 4-9): gerçek klasör düzenleriyle ---
+    def test_onedrive_redirected_folder_wins_over_empty_stub(self):
+        (self.home / 'Desktop').mkdir()                                    # boş kalıntı
+        real = self.home / 'OneDrive' / 'Desktop'; real.mkdir(parents=True)
+        (real / 'a.txt').write_text('gerçek dosya', encoding='utf-8')
+        self.assertEqual(fa.target(kb._norm('masaüstümde ne var')), real)
+
+    def test_named_subfolder_not_found_does_not_expand(self):
+        (self.dl / 'Proje Dosyaları').mkdir(); (self.dl / 'baska.txt').write_text('x', encoding='utf-8')
+        self.assertEqual(fa.target(kb._norm('indirilenlerdeki proje dosyaları klasörünü incele')), self.dl / 'Proje Dosyaları')
+        self.assertIsNone(fa.target(kb._norm('indirilenlerdeki gizli proje klasörünü incele')))
+        with patch('modules.llm.ask', side_effect=AssertionError('model çağrılmamalı')):
+            out = fa.handle(kb._norm('indirilenlerdeki gizli proje klasörünü incele'), self.profile)
+        self.assertIn("'proje' adlı bir klasör bulamadım", out)
+        self.assertNotIn('baska.txt', out)
+
+    def test_two_folder_phrase_goes_to_named_folder(self):
+        (self.home / 'Desktop').mkdir(); (self.home / 'Documents').mkdir()
+        self.assertEqual(fa.target(kb._norm('masaüstündeki belgeler klasörünü incele')), self.home / 'Documents')
+
+    def test_secret_files_are_not_hashed_and_wording_is_exact(self):
+        (self.dl / 'sifre1.txt').write_text('aynı', encoding='utf-8'); (self.dl / 'sifre2.txt').write_text('aynı', encoding='utf-8')
+        (self.dl / 'kayit1.txt').write_text('IBAN TR12 0006 1000 0000 1234 5678 90', encoding='utf-8')
+        (self.dl / 'kayit2.txt').write_text('IBAN TR12 0006 1000 0000 1234 5678 90', encoding='utf-8')
+        with patch.object(fa, '_sha', side_effect=AssertionError('gizli dosya özet için açılmamalı')), \
+             patch('modules.llm.ask', return_value='x' * 30):
+            out = fa.analyze(self.profile, self.dl)
+        self.assertNotIn('Birebir aynı', out)
+        self.assertIn('hiç açmadığım 2 dosya', out)
+        self.assertIn('kontrol için bilgisayarda açıldı', out)
+
+    def test_file_vanishing_during_scan_does_not_drop_report(self):
+        self.write('a.txt', 'kira kira'); self.write('b.txt', 'kira kira')
+        real = Path.stat
+        def flaky(self_, *a, **k):
+            if self_.name == 'a.txt' and k.get('follow_symlinks', True):
+                flaky.calls += 1
+                if flaky.calls == 3:        # tarama is_file, sıralama exists, sıralama stat: sonuncusunda dosya kayboldu
+                    raise FileNotFoundError('silindi')
+            return real(self_, *a, **k)
+        flaky.calls = 0
+        with patch.object(Path, 'stat', flaky), patch('modules.llm.ask', return_value='x' * 30):
+            out = fa.analyze(self.profile, self.dl)
+        self.assertIn('klasöründe', out)                          # rapor düşmedi, kalan dosya sürdü
+
+    def test_report_paths_use_forward_slashes(self):
+        self.write('proje/kira notu.txt', 'kira kira bedeli'); self.write('proje/kira 2.txt', 'kira kira bedeli')
+        with patch('modules.llm.ask', return_value='x' * 30):
+            self.assertIn('proje/kira notu.txt', fa.analyze(self.profile, self.dl))
+
+    def test_junction_like_dir_outside_allowed_tree_is_skipped(self):
+        outside = tempfile.TemporaryDirectory(); self.addCleanup(outside.cleanup)
+        Path(outside.name, 'dis.txt').write_text('dış', encoding='utf-8')
+        (self.dl / 'kisayol').mkdir(); self.write('ic.txt', 'iç iç')
+        real = nxapi.allowed
+        with patch.object(nxapi, 'allowed', side_effect=lambda p: None if Path(p).name == 'kisayol' else real(p)), \
+             patch('modules.llm.ask', return_value='x' * 30):
+            self.assertIn('1 dosya var', fa.analyze(self.profile, self.dl))
 
 
 if __name__ == '__main__':
