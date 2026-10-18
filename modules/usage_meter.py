@@ -9,10 +9,12 @@ etkilenmez. `kota durumu` komutu modele gitmeden bugünün özetini verir.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import tempfile
 import threading
-import time
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,7 +23,7 @@ from modules.diagnostics import record_failure as _record_failure
 
 _LOCK = threading.Lock()
 _TR = timezone(timedelta(hours=3))
-_MAX_BYTES = 2_000_000          # bu boyutu aşan dosya .1 olarak döner (en fazla iki dosya)
+_MAX_BYTES = 2_000_000          # dolan günlük parçası benzersiz arşive taşınır; eski parçalar ezilmez
 _SKIP = ('modules/llm.py', 'modules/usage_meter.py', 'modules/smart_router.py', 'modules/model_wait.py',
          'modules/paid_providers.py', 'modules/live_session.py')
 
@@ -81,6 +83,20 @@ def outcome(error) -> str:
     return 'hata'
 
 
+def _atomic_write(path: Path, content: bytes) -> None:
+    """Yarım yazılan geçici dosya hiçbir zaman geçerli kayıt dosyasının yerine geçmez."""
+    fd, name = tempfile.mkstemp(prefix='.' + path.name + '-', suffix='.tmp', dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0, result: str = 'ok',
            source: str | None = None, owner: str | None = None) -> None:
     try:
@@ -90,9 +106,13 @@ def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0
         path = _dir() / (_slug(owner or _owner()) + '.jsonl')
         with _LOCK:
             if path.exists() and path.stat().st_size > _MAX_BYTES:
-                path.replace(path.with_suffix('.jsonl.1'))
-            with open(path, 'a', encoding='utf-8') as handle:
-                handle.write(json.dumps(row, ensure_ascii=False) + '\n')
+                # Eski .1 yedeği de korunur. Arşiv sonrası kesinti olursa rows arşivi okuyabilir.
+                path.replace(path.with_name(path.name + '.archive-' + uuid.uuid4().hex))
+            previous = path.read_bytes() if path.exists() else b''
+            # Eski sürümden kalmış yarım satır yeni geçerli satırı yutmasın.
+            separator = b'\n' if previous and not previous.endswith(b'\n') else b''
+            encoded = (json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
+            _atomic_write(path, previous + separator + encoded)
     except Exception:
         _record_failure('modules/usage_meter.py:record')  # sayaç hatası çağrıyı etkilemez
 
@@ -113,23 +133,41 @@ def size(*parts) -> int:
     return total
 
 
-def rows(owner: str | None = None, day: str | None = None) -> list[dict]:
+def _read_rows(owner: str | None = None, day: str | None = None) -> tuple[list[dict], bool]:
     day = day or datetime.now(_TR).date().isoformat()
     base = _dir() / (_slug(owner or _owner()) + '.jsonl')
-    out = []
-    for path in (base.with_suffix('.jsonl.1'), base):
-        try:
-            with open(path, encoding='utf-8') as handle:
-                for line in handle:
-                    try:
-                        row = json.loads(line)
-                    except ValueError:
-                        continue
-                    if str(row.get('t', '')).startswith(day):
-                        out.append(row)
-        except OSError:
-            continue
-    return out
+    out, partial = [], False
+    with _LOCK:
+        paths = [base.with_suffix('.jsonl.1'), *sorted(base.parent.glob(base.name + '.archive-*')), base]
+        for path in paths:
+            try:
+                with open(path, 'rb') as handle:
+                    for line in handle:
+                        try:
+                            row = json.loads(line)
+                            valid = (isinstance(row, dict) and
+                                     all(isinstance(row.get(k), str) for k in ('t', 'p', 's', 'r')) and
+                                     all(type(row.get(k)) is int for k in ('i', 'o')))
+                            if not valid:
+                                raise ValueError('Geçersiz sayaç kaydı')
+                        except (ValueError, UnicodeError):
+                            partial = True
+                            continue
+                        if row['t'].startswith(day):
+                            out.append(row)
+                            # Eski sürüm .1 dosyasını ezmiş olabilir; geçmiş toplam geri getirilemez.
+                            if path == base.with_suffix('.jsonl.1'):
+                                partial = True
+            except FileNotFoundError:
+                if path not in (base, base.with_suffix('.jsonl.1')):
+                    partial = True
+            except OSError:
+                partial = True
+    return out, partial
+
+
+def rows(owner: str | None = None, day: str | None = None) -> list[dict]:
+    return _read_rows(owner, day)[0]
 
 
 _LABEL = {'gemini': 'Gemini', 'groq': 'Groq', 'ollama': 'Ollama (yerel)', 'openrouter': 'OpenRouter',
@@ -138,9 +176,12 @@ _LABEL = {'gemini': 'Gemini', 'groq': 'Groq', 'ollama': 'Ollama (yerel)', 'openr
 
 
 def summary(owner: str | None = None, day: str | None = None) -> str:
-    data = rows(owner, day)
+    data, partial = _read_rows(owner, day)
     day = day or datetime.now(_TR).date().isoformat()
     if not data:
+        if partial:
+            return (f'{day} için okunabilen kayıtlı model çağrısı yok. '
+                    'Sayaç kısmi: okunamayan veya yarım kayıt var; toplam doğrulanamadı.')
         return f'{day} için kayıtlı model çağrısı yok. Sayaç yalnız bu sürümden sonraki çağrıları sayar.'
     lines = [f'Kota sayacı · {day} · toplam {len(data)} çağrı, giden ~{sum(r["i"] for r in data):,} karakter'
              .replace(',', '.')]
@@ -160,6 +201,9 @@ def summary(owner: str | None = None, day: str | None = None) -> str:
         lines.append(f'- {source}: {count} çağrı, ~{chars:,} karakter'.replace(',', '.'))
     lines.append('')
     lines.append('Karakter sayısı token değildir, yaklaşık büyüklüktür. Sağlayıcının kalan kotası buradan bilinmez.')
+    if partial:
+        lines.append('Sayaç kısmi: eski rotasyon geçmişi eksik olabilir veya okunamayan/yarım kayıtlar var; '
+                     'gösterilen toplam yalnız okunabilen çağrılardır.')
     return '\n'.join(lines)
 
 
@@ -173,3 +217,4 @@ def handle(owner, command):
     if text in _COMMANDS:
         return summary(owner)
     return None
+
