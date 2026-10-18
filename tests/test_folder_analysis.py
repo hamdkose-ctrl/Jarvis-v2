@@ -180,6 +180,44 @@ class FolderAnalysisTests(unittest.TestCase):
              patch('modules.llm.ask', return_value='x' * 30):
             self.assertIn('1 dosya var', fa.analyze(self.profile, self.dl))
 
+    # --- Windows Known Folder ve yalnız çevrimiçi OneDrive dosyası (Windows API'si taklit; PC'de denenmedi) ---
+    def test_known_folder_outside_home_is_resolved_and_allowed(self):
+        moved = tempfile.TemporaryDirectory(); self.addCleanup(moved.cleanup)     # başka diske taşınmış Masaüstü
+        d = Path(moved.name) / 'Masaüstü Taşınmış'; d.mkdir()
+        (d / 'not.txt').write_text('taşınmış klasör içeriği', encoding='utf-8')
+        (self.home / 'Desktop').mkdir()                                          # HOME altında boş kalıntı
+        with patch.object(nxapi, 'known_folder', side_effect=lambda n: d if n == 'Desktop' else None):
+            self.assertEqual(fa.target(kb._norm('masaüstümde ne var')), d)
+            self.assertIsNotNone(nxapi.allowed(d / 'not.txt'))                    # izinli kökler aynı kaynaktan
+            with patch('modules.llm.ask', return_value='x' * 30):
+                self.assertIn('1 dosya var', fa.analyze(self.profile, d))
+
+    def test_known_folder_is_none_off_windows(self):
+        with patch.object(nxapi.os, 'name', 'posix'):
+            self.assertIsNone(nxapi.known_folder('Desktop'))
+        self.assertIsNone(nxapi.known_folder('Olmayan'))
+
+    def test_cloud_only_file_is_not_opened(self):
+        self.write('yerel.txt', 'kira kira yerel'); self.write('bulutta.txt', 'kira kira bulutta')
+        real = Path.stat
+        def stat(self_, *a, **k):
+            r = real(self_, *a, **k)
+            if self_.name == 'bulutta.txt':
+                class S:
+                    st_size, st_mtime, st_mode = r.st_size, r.st_mtime, r.st_mode
+                    st_file_attributes = 0x400000                                 # RECALL_ON_DATA_ACCESS
+                return S()
+            return r
+        opened = []
+        real_read = fa.docs.read_document
+        with patch.object(Path, 'stat', stat), \
+             patch.object(fa.docs, 'read_document', side_effect=lambda path, **k: opened.append(Path(path).name) or real_read(path, **k)), \
+             patch('modules.llm.ask', return_value='x' * 30):
+            out = fa.analyze(self.profile, self.dl)
+        self.assertEqual(set(opened), {'yerel.txt'})
+        self.assertIn('yalnız çevrimiçi', out)
+        self.assertIn('bulutta.txt', out)
+
 
 if __name__ == '__main__':
     unittest.main()
