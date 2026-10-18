@@ -371,7 +371,7 @@ def handle(cmd_lower: str, profile=None) -> str | None:
     if re.search(r"cevap\w* bekle|cevaplamadı\w*|yanıtlamadı\w*|dönmediğim|dönüş bekle", t) and not _gmail_reply(t):
         return report("reply")
     if re.search(r"öncelik\w*|önce ne yapmalı|ilk ne yapayım|acil (?:iş|ne)", t) and re.search(r"iş|ne|hangi", t) \
-            and not (google_api_important(t) and _gmail_reply(t)):
+            and not google_api_important(t):
         return report("priority")
     if re.search(r"yaklaşan (?:iş|keşif|toplantı)|tarihli iş|keşif ne zaman|keşifler", t):
         return report("dated")

@@ -9,7 +9,9 @@ import sys
 import time
 
 _MAIL = r"(?:g?mail|e-?posta|eposta|ileti)['’]?\w*"
-_WORK = re.compile(r"\b(?:iş|işyeri|şirket|ofis)\w*\s+" + _MAIL + r"|outlook\w*")
+_WORK = re.compile(r"\b(?:iş|işyeri|şirket|ofis)\w*\s+(?:(?:önemli|öncelikli|acil|yeni|okunmamış)\w*\s+)?" + _MAIL + r"|outlook\w*")
+IMPORTANT_NOTE = "Outlook'ta önem derecesine bakmıyorum; okunmamış iş maillerin: "
+_RANK = re.compile(r"önemli|öncelikli|acil")
 _CHECK = re.compile(r"k\w{0,2}t\w{0,2}r\w{0,2}l|bak|oku|var\s*mı|geldi|gelmiş|neler|ne var|kaç|okunmamış|yeni|göster|söyle")   # "kotrol" gibi yazım hataları da
 
 
@@ -29,7 +31,7 @@ def installed() -> bool:
         import winreg
         winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Outlook.Application"))
         return True
-    except OSError:
+    except (OSError, ImportError):
         return False
 
 
@@ -64,7 +66,7 @@ def _inbox():
 
 def unread_mail(limit: int = 5, prefix: str = "") -> str:
     if not sys.platform.startswith("win") or not installed():
-        return prefix + "Bu bilgisayarda Outlook kurulu değil."
+        return "Bu bilgisayarda Outlook kurulu değil."
     was_running = running()
     if not was_running:
         _launch()
@@ -115,5 +117,5 @@ def handle(cmd_lower: str) -> str | None:
     if _WORK.search(t) and (_CHECK.search(t) or len(t.split()) <= 3):   # "iş maili", "outlook mailleri"
         if re.fullmatch(r"\s*outlook\w*['’]?\w*\s+(?:aç|başlat|çalıştır)\w*\s*", t):
             return None
-        return unread_mail()
+        return unread_mail(prefix=IMPORTANT_NOTE if _RANK.search(t) else "")
     return None
