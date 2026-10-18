@@ -22,7 +22,11 @@ def handle(runtime, command: str) -> str:
                                     close=runtime._close_jarvis, set_sleep=runtime.set_sleep)
     if control_result is not None:
         return control_result
-    from modules import goal_executor
+    from modules import goal_executor, job_front
+    if job_front.wants(cmd_lower):
+        front_result = job_front.route(runtime.profile.slug, lambda *a, **k: runtime.emit(*a, **k), cmd_lower, session)
+        if front_result is not None:
+            return front_result
     if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in goal_executor.RESUME_COMMANDS or cmd_lower.strip(' .!?') in ('evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
         goal_result=goal_executor.handle(runtime,command)
         if goal_result is not None:return goal_result
