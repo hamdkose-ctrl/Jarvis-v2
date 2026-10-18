@@ -12,6 +12,15 @@ JS_GROUPS = ('desktop_flows', 'files_in_chat_behavior', 'chat_drop_behavior', 'm
 JS_GROUPS += ('team_center_behavior', 'seljuk_backdrop_behavior')
 SMOKE_GROUPS = ('headless_smoke', 'maintenance_smoke', 'voice_actions_smoke', 'paid_provider_smoke', 'developer_smoke', 'router_agents_smoke', 'stability_contracts')
 
+def python_timeout():
+    """Tüm Python testleri için üst sınır (sn). Linux ~70 sn, Windows runner'da 180 sn'ye yaklaşıp düşüyordu;
+    sınır hız ölçütü değil, takılma koruması. JARVIS_VALIDATION_TIMEOUT ile değişir."""
+    try:
+        return max(60, int(os.environ.get('JARVIS_VALIDATION_TIMEOUT') or 600))
+    except ValueError:
+        return 600
+
+
 def run_checks(root=None, *, python=None):
     root = Path(root or Path(__file__).resolve().parents[1])
     executable = str(python or sys.executable)
@@ -44,7 +53,7 @@ def run_checks(root=None, *, python=None):
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['JARVIS_DATA_DIR'] = str(Path(scratch) / str(index))
                 env['JARVIS_TEST_PYTHON'] = executable
-                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180 if index == 0 else 90)
+                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=python_timeout() if index == 0 else 90)
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:

@@ -40,3 +40,17 @@ class ValidationTests(unittest.TestCase):
         with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='Ran 0 tests\nOK', stderr='')):
             ok, log = validation.run_checks()
         self.assertFalse(ok); self.assertIn('çalışmadı', log)
+
+    def test_python_test_timeout_is_generous_and_overridable(self):
+        calls = []
+        def fake_run(cmd, **kw):
+            calls.append(kw.get('timeout'))
+            return SimpleNamespace(returncode=0, stdout='Ran 1 test\nOK', stderr='')
+        with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', side_effect=fake_run):
+            validation.run_checks()
+        self.assertGreaterEqual(calls[0], 600)       # Windows runner 180 sn'ye yaklaşıp düşüyordu
+        self.assertEqual(set(calls[1:]), {90})
+        with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': '900'}):
+            self.assertEqual(validation.python_timeout(), 900)
+        with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': 'x'}):
+            self.assertEqual(validation.python_timeout(), 600)
