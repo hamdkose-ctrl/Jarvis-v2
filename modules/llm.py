@@ -1,5 +1,6 @@
 """Tüm modüllerin paylaştığı LLM istemcisi (Google Gemini)."""
 from modules.diagnostics import record_failure as _record_failure
+import re
 import time
 import logging
 import threading
@@ -488,6 +489,18 @@ def _daily_quota(e: Exception) -> bool:
     return "PerDay" in str(e)
 
 
+def _gemini_retry_after(e: Exception):
+    """Gemini 429 gövdesindeki RetryInfo.retryDelay ("34s" / "34.5s") saniyesi; yoksa None."""
+    details = getattr(e, "details", None)
+    items = (details.get("error", details) if isinstance(details, dict) else {}).get("details") or []
+    for item in items if isinstance(items, list) else []:
+        delay = item.get("retryDelay") if isinstance(item, dict) else None
+        if isinstance(delay, str) and delay.endswith("s"):
+            return delay[:-1]
+    m = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s", str(e))
+    return m.group(1) if m else None
+
+
 _fallback_lock = threading.Lock()
 _fallback_states = {}
 # 429 alan model bir süre hiç denenmez: dakikalık sınır 1-2 sn sonra açılmaz, her çağrıda yeniden
@@ -589,7 +602,8 @@ def _with_models(call):
                     raise
                 if code == 429:
                     # Kullanım sınırı: aynı modeli 1-2 sn sonra yeniden denemek sınırı açmaz.
-                    _mark_limited('gemini', model, e, _limit_seconds(_daily_quota(e)))
+                    daily = _daily_quota(e)
+                    _mark_limited('gemini', model, e, _limit_seconds(daily, None if daily else _gemini_retry_after(e)))
                     break
                 if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
                     break   # bu modelde ısrar etme, sıradakine geç
