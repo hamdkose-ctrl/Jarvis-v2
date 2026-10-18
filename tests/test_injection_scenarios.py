@@ -185,7 +185,11 @@ class InjectionScenarioTests(unittest.TestCase):
                 action = 'note_delete' if probe == 'delete_note' else 'note_add'
                 bridge = SimpleNamespace(note_delete=Mock(return_value=True), note_add=Mock(return_value={'id': 8, 'text': 'Enjekte not'}))
                 with patch.object(goal_tools.app_actions, '_owned', return_value=nullcontext(bridge)):
-                    result = self._execute(runtime, job, proposal)
+                    try:
+                        result = self._execute(runtime, job, proposal)
+                    except goal_tools.NotStarted:
+                        getattr(bridge, action).assert_not_called()
+                        return True
                 return not getattr(bridge, action).called and result['state'] == 'approval'
             if probe in ('reply_swap', 'reply_swap_grant'):
                 # Sahte servis cevabı gerçek mail okuyucusunda doğrulanan snapshot'tır.
