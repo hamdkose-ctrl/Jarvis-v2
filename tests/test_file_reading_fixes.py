@@ -142,3 +142,24 @@ class FileFixTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ExcelNanTests(unittest.TestCase):
+    def test_empty_cells_and_unsaved_formula_are_not_nan(self):
+        import tempfile
+        from pathlib import Path
+        import openpyxl
+        from modules import docs
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hesap"
+        ws.append(["Ad", "Tutar"])
+        ws.append(["a", 10])
+        ws["A5"] = "Toplam"
+        ws["B5"] = "=SUM(B2:B3)"      # openpyxl sonucu kaydetmez
+        path = Path(tempfile.mkdtemp()) / "f.xlsx"
+        wb.save(path)
+        text = docs.read_document(str(path))
+        self.assertNotIn("NaN", text)
+        self.assertIn("Hesap!B5", text)
+        self.assertIn("kayıtlı sonucu yok", text)
