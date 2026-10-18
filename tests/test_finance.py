@@ -248,7 +248,7 @@ class FinanceTest(unittest.TestCase):
         with patch.object(public_sources, 'fetch', side_effect=down), patch('modules.ollama_hint.internet_up', return_value=False), \
              patch('modules.diagnostics.record_failure'), contextlib.redirect_stdout(out):
             self.assertEqual(script.main(), 1)
-        self.assertEqual(out.getvalue().count('BAŞARISIZ'), 4)
+        self.assertEqual(out.getvalue().count('BAŞARISIZ'), 6)
 
     def test_engine_uses_intent_check_not_substring(self):
         source = Path(__file__).resolve().parents[1].joinpath('modules', 'engine_commands.py').read_text(encoding='utf-8')
