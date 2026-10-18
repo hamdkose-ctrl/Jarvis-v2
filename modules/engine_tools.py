@@ -357,6 +357,9 @@ def _important_mail(ga, outlook, cmd_lower: str) -> str:
 def _mail_handle(runtime, cmd_lower: str) -> str | None:
     """İş maili (Outlook) açıkça istenirse yalnızca onu; genel 'maili kontrol et'te Gmail + açıksa Outlook."""
     from modules import outlook
+    reply = outlook.draft_handle(cmd_lower, getattr(runtime, "ask", None))
+    if reply is not None:
+        return reply
     reply = outlook.handle(cmd_lower)
     if reply is not None:
         return reply
