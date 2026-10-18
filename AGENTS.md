@@ -24,6 +24,19 @@
 - `kota durumu` / `kota raporu` / `kota sayacı` / `bugün ne kadar kota harcadım` (`command_manager.dispatch`, model çağrısı yok): bugünün toplamı, sağlayıcı başına çağrı ve 429/hata sayısı, en çok çağıran 8 yer. Karakter token değildir; sağlayıcının kalan kotası buradan bilinmez. Live yalnız bağlantı sayılır, konuşma süresi sayılmaz.
 - Test: `tests/test_usage_meter.py` (model/ağ taklit). PC'de gerçek kullanımla denenmedi.
 
+## Mail/takvim inceleme düzeltmeleri — 18 Ekim 2026
+- GPT incelemesinden (statik, doğrulanmamış) kod okunarak doğrulanan maddeler: "her 2 günde / iki günde bir / gün aşırı" artık tanınmayan tekrardır, tek seferlik kayıt açmaz, sorulur (`when.parse_repeat`). Tekrarlayan kayıtta dosyada yalnız sıradaki zaman durur; `Profile.events_on` (yarının planı, gündem, sabah özeti) ve çakışma sorusu (`main_planner._conflicts`) artık kuralın o güne düşen oluşumunu da sayar (`when.occurs_on`; ilk zamandan önceki günler sayılmaz).
+- Yarının planında gecikme gerçek bugüne göre: bugünkü bitmemiş görev "gecikmiş" değil "bugün bitmezse yarına kalır".
+- Gmail cevap takibi: To adresi alt dize değil tam adres eşleşmesiyle aranır (`email.utils.getaddresses`; "Köse, Hamdi" <a@b> bölünmez). Gmail'den en çok 20 konuşma alınır; sayfa dolduysa ya da 8 mailden fazlası varsa cevap bunu söyler, boş sonuç "hiç yok" gibi sunulmaz. "cevap vermediğim maillere cevap yaz/gönder/cevapla" salt okunur listeye düşmez (Jarvis mail yazmaz/göndermez).
+- "Bugünün planı" kalıbı ASCII'ye indirilmiş metinde eşleşir (`_PLAN_ASK` + `_fold`): bugunun plani, bugunku plan, yarinin plani, gunumu planla, bugun ne yapmaliyim; "plan yapalım", "proje planım" yakalanmaz.
+- Test: `tests/test_review_fixes.py` (önce başarısız yazıldı). Gerçek Gmail ve PC'de denenmedi.
+
+## Hatırlatma silme ve erteleme — 18 Ekim 2026
+- `main_planner._edit_reminder` (model çağrısı yok; ASCII yazım dahil, `_fold`): "ilaç hatırlatmasını sil/kaldır/iptal et", "dişçi randevusunu kaldır", "toplantıyı 10 dakika / 2 saat / yarına / haftaya ertele", "yarım saat ertele"; tek başına "ertele" = en son bildirilen kaydı şimdiden 10 dakika sonraya (tekrar çalar). Başlık ipucu kayıt başlığındaki kelimelerle (ilk 5 harf) eşleşir; ipucu yoksa tek kayıt varsa o, belirsizse kimseyi silmeden "Hangisini kastettin?" diye kayıtları sayar.
+- Yalnız Jarvis'in kendi kaydı (`Profile.delete_event` / `reschedule_event`); Google Takvim'e dokunulmaz ve cevap bunu söyler. Tekrarlayan kayıtta silme bütün tekrarları kaldırır (cevap söyler); tekrarlayan kayıt ertelenmez (silip yeniden ekle denir). Tüm gün kaydı yalnız gün olarak ertelenir. Geri alma komutu yok (cevap yeniden eklemeyi önerir); silme onay sormaz.
+- "notu sil", "… hatırlat" ekleme yolu ve "ekle/yaz" geçen cümleler bu yola girmez. Bilinen sınır: konu sözcüksüz "… ertele" cümlesi başka bir şey için söylense bile hatırlatma kaydı aranır ("… adında bir kaydın yok" der, bir şey değiştirmez).
+- Test: `tests/test_reminder_edit.py` (gerçek profil JSON'u + gerçek `EngineContext.handle`). PC'de denenmedi: gerçek sesli söyleyiş ve ertelenen kaydın ertesi gün yeniden çalması.
+
 ## Gmail önemli mailler — 17 Ekim 2026
 - `google_api.important()` / `important_text()`: "önemli maillerim", "öncelikli mailler", "acil mail var mı", "hangi mail önemli" okunmamış gelen kutusunda Gmail'in önemli veya yıldız işaretlediği kişi maillerini verir (yıldızlılar önce ★; robot gönderenler, promosyon/sosyal/forum kategorileri hariç; en çok 6). Yalnız zarf (`format=metadata`), model çağrısı yok, okunmuş işaretlenmez. Sıralama Gmail'in kendi işaretine dayanır; Jarvis kendi önem puanı hesaplamaz, tanıdık gönderen ayrımı yoktur.
 - `worktrack` öncelik soruları ("öncelikli ... ne") mail sözcüğüyle gelip Gmail uygunsa (`_gmail_reply` kuralı: "gmail" denmiş, ya da Outlook yok + Google bağlı + "iş/outlook" denmemiş) Gmail'e bırakılır; Outlook'lu iş PC'sinde eski Outlook önceliği aynen kalır.
