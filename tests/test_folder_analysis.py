@@ -60,7 +60,7 @@ class FolderAnalysisTests(unittest.TestCase):
             out = fa.analyze(self.profile, self.dl)
         self.assertEqual(len(prompts), 1)                                  # en çok bir model çağrısı
         self.assertIn('Ne hakkında: Klasör ev kirası', out)
-        self.assertIn('kopya.docx = kira sözleşmesi.docx', out)            # birebir aynı dosya
+        self.assertIn('kira sözleşmesi.docx = kopya.docx', out)            # birebir aynı dosya
         self.assertRegex(out, r'bozuk\.docx: .*bozuk')                     # okunamayan + nedeni
         self.assertIn('bos.txt: metin yok', out)
         self.assertIn('hesap şifreleri.txt', out.split('hiç açmadığım')[1].split('İçinde gizli')[0])   # gizli: adından, hiç açılmaz
