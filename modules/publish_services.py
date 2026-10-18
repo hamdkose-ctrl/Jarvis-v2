@@ -1,5 +1,9 @@
 """Official outbound adapters. Invoked only through the durable outbox."""
 import base64
+import json
+import os
+import tempfile
+import threading
 from email.message import EmailMessage
 import re
 from pathlib import Path
@@ -8,6 +12,90 @@ from config import DATA_DIR
 from modules import privacy, requests_state, service_store, task_results
 from modules.diagnostics import record_failure as _diagnostic_failure
 
+_credential_lock = threading.RLock()
+_UNSET = object()
+_LOGIN_REQUIRED = 'Bağlantı bilgileri okunamadı; lütfen yeniden giriş yap.'
+
+
+def _credential_path(path):
+    path = Path(path)
+    if any(p.is_symlink() for p in (path, path.parent, path.parent.parent)):
+        raise PermissionError(_LOGIN_REQUIRED)
+    return path
+
+
+def _write_private_json(path, data, *, max_bytes=131072, expected=_UNSET):
+    """Verify an encrypted temporary copy BEFORE atomically replacing plaintext.
+
+    No plaintext backup/temp is created. Failures before os.replace leave the
+    original bytes intact. Expected bytes also guard a concurrent credential edit.
+    """
+    path = _credential_path(path)
+    temporary = None
+    with _credential_lock:
+        if expected is _UNSET:
+            expected = path.read_bytes() if path.exists() else None
+        encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        if not isinstance(data, dict) or len(encoded.encode('utf-8')) > max_bytes:
+            raise ValueError('Bağlantı yapılandırması geçersiz.')
+        protected = privacy.protect(encoded)
+        if not isinstance(protected, str) or not protected.startswith(('dpapi:', 'b64:')):
+            raise OSError('Bağlantı bilgileri korumalı kaydedilemedi.')
+        if privacy.sys.platform == 'win32' and not protected.startswith('dpapi:'):
+            raise OSError('Windows bağlantı koruması kullanılamadı.')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd, name = tempfile.mkstemp(prefix='.credential-', dir=path.parent)
+            temporary = Path(name)
+            with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+                handle.write(protected)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if privacy.unprotect(temporary.read_text(encoding='utf-8')) != encoded:
+                raise OSError('Bağlantı koruması geri okuma kontrolünden geçmedi.')
+            _credential_path(path)
+            if (path.read_bytes() if path.exists() else None) != expected:
+                raise OSError('Bağlantı dosyası işlem sırasında değişti; üzerine yazılmadı.')
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                try: temporary.unlink(missing_ok=True)
+                except OSError: pass  # Never mask a successful atomic commit.
+        return protected.encode('utf-8')
+
+
+def _read_private_json(path, *, max_bytes=131072, migrate=True, with_snapshot=False):
+    """Plain JSON remains usable if safe migration cannot be completed."""
+    with _credential_lock:
+        protected = False
+        try:
+            path = _credential_path(path)
+            with path.open('rb') as handle:
+                raw = handle.read(max_bytes * 4 + 4097)
+            if len(raw) > max_bytes * 4 + 4096:
+                raise ValueError('size')
+            stored = raw.decode('utf-8-sig').strip()
+            protected = stored.startswith(('dpapi:', 'b64:'))
+            text = privacy.unprotect(stored) if protected else stored
+            if not isinstance(text, str) or len(text.encode('utf-8')) > max_bytes:
+                raise ValueError('size')
+            data = json.loads(text)
+            if not isinstance(data, dict):
+                raise ValueError('type')
+        except Exception:
+            _record_failure('modules/publish_services.py:credential_read')
+            # Never log parser/DPAPI exception values or credential-bearing URLs.
+            if not protected:
+                raise ValueError('Bağlantı yapılandırması okunamadı veya geçersiz.') from None
+            raise PermissionError(_LOGIN_REQUIRED) from None
+        if migrate and (not protected or (stored.startswith('b64:') and privacy.sys.platform == 'win32')):
+            try:
+                raw = _write_private_json(path, data, max_bytes=max_bytes, expected=raw)
+            except Exception:
+                _record_failure('modules/publish_services.py:credential_migration')
+                pass  # Original login remains usable; retry migration on next read.
+        return (data, raw) if with_snapshot else data
+
 
 def _record_failure(context):
     # Telegram carries its credential in the URL path. Ordinary URL redaction
@@ -15,7 +103,7 @@ def _record_failure(context):
     import sys
     kind=sys.exc_info()[0]
     try:
-        raise RuntimeError('Servis taşıma hatası: '+(kind.__name__ if kind else 'unknown'))
+        raise RuntimeError('Servis taşıma hatası: '+(kind.__name__ if kind else 'unknown')) from None
     except RuntimeError:
         _diagnostic_failure(context)
 
@@ -91,15 +179,14 @@ def validate(data):
 
 def configuration(owner, service):
     service_store.identity(owner)
+    if not isinstance(service, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,40}', service):
+        raise ValueError('Bağlantı servisi geçersiz.')
     path=DATA_DIR/'connector_users'/owner/(service+'.json')
     if any(p.is_symlink() for p in (path,path.parent,path.parent.parent)):
         raise ValueError('Bağlantı dosyası sembolik bağ olamaz.')
-    if not path.is_file() or path.stat().st_size>16000:
+    if not path.is_file():
         raise PermissionError('Servise ait yerel bağlantı yapılandırması gerekli.')
-    import json
-    data=json.loads(path.read_text(encoding='utf-8'))
-    if not isinstance(data,dict):raise ValueError('Bağlantı yapılandırması geçersiz.')
-    return data
+    return _read_private_json(path, max_bytes=16000)
 
 
 def google_service(service, interactive=False):

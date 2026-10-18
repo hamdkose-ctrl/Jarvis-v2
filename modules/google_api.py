@@ -10,10 +10,22 @@ Kurulum (bir kez):
 İlk komutta tarayıcı açılır, izni sen onaylarsın; şifren Jarvis'e hiç verilmez. İzin dosyası ~/.jarvis/google_token.json.
 """
 from __future__ import annotations
-from modules.diagnostics import record_failure as _record_failure
+from modules.diagnostics import record_failure as _diagnostic_failure
 
 import re
 from datetime import datetime, timedelta
+
+
+def _record_failure(context, *, credential_error=False):
+    if not credential_error:
+        return _diagnostic_failure(context)
+    # Never let diagnostics inspect credential parser/refresh messages or URLs.
+    import sys
+    kind = sys.exc_info()[0]
+    try:
+        raise RuntimeError('Google kimlik işlemi başarısız: ' + (kind.__name__ if kind else 'Exception')) from None
+    except RuntimeError:
+        _diagnostic_failure(context)
 
 from config import DATA_DIR
 
@@ -44,6 +56,8 @@ def token_path(token=None):
         raise PermissionError("Google hesabı için kullanıcı seçilmeli.")
     legacy = token or TOKEN
     folder = DATA_DIR / "google_users" / user
+    from modules.publish_services import _credential_path, _read_private_json, _write_private_json
+    _credential_path(folder / legacy.name)
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / legacy.name
     with _token_lock:
@@ -53,8 +67,18 @@ def token_path(token=None):
                 owner = slugify(get_active())
                 save_settings(google_legacy_owner=owner)
             if owner == user and not dest.exists():
-                dest.write_bytes(legacy.read_bytes())
-                legacy.unlink()
+                try:
+                    # Do not modify the only legacy copy until the destination
+                    # has a verified, atomically committed protected credential.
+                    data, original = _read_private_json(legacy, migrate=False, with_snapshot=True)
+                    _write_private_json(dest, data, expected=None)
+                except Exception:
+                    _record_failure('modules/google_api.py:token_migration', credential_error=True)
+                    return legacy  # Includes malformed legacy data: never delete it.
+                try:
+                    if legacy.read_bytes() == original:
+                        legacy.unlink()
+                except OSError: pass
     return dest
 
 
@@ -62,26 +86,54 @@ def _creds(token=None, scopes=None, interactive: bool = True):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
+    from modules.publish_services import _read_private_json, _write_private_json, _LOGIN_REQUIRED
     token, scopes = token_path(token), scopes or SCOPES
-    creds = Credentials.from_authorized_user_file(str(token), scopes) if token.exists() else None
+    try:
+        info, expected = _read_private_json(token, with_snapshot=True) if token.exists() else (None, None)
+    except (ValueError, PermissionError):
+        raise PermissionError(_LOGIN_REQUIRED) from None
+    try:
+        creds = Credentials.from_authorized_user_info(info, scopes) if info is not None else None
+    except Exception:
+        _record_failure('modules/google_api.py:credential_parse', credential_error=True)
+        raise PermissionError(_LOGIN_REQUIRED) from None
     if creds and creds.valid:
         return creds
+    granted = False
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
         except Exception as exc:          # noqa: BLE001 - izin süresi dolmuş/geri alınmış: yeniden izin iste
-            _record_failure('modules/google_api.py:_creds')
+            _record_failure('modules/google_api.py:credential_refresh', credential_error=True)
             if not interactive or "invalid_grant" not in str(exc):
-                raise
-            token.unlink(missing_ok=True)
-            creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
-            _mark_granted(token)
+                raise PermissionError(_LOGIN_REQUIRED) from None
+            # Failed re-login must not remove the user's existing credential.
+            try:
+                creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
+            except Exception:
+                _record_failure('modules/google_api.py:credential_reconnect', credential_error=True)
+                raise PermissionError(_LOGIN_REQUIRED) from None
+            granted = True
     elif interactive:
-        creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
-        _mark_granted(token)
+        try:
+            creds = InstalledAppFlow.from_client_secrets_file(str(CRED), scopes).run_local_server(port=0)
+        except Exception:
+            _record_failure('modules/google_api.py:credential_connect', credential_error=True)
+            raise PermissionError(_LOGIN_REQUIRED) from None
+        granted = True
     else:
-        raise PermissionError("izin yok")
-    token.write_text(creds.to_json(), encoding="utf-8")
+        raise PermissionError(_LOGIN_REQUIRED)
+    try:
+        import json
+        _write_private_json(token, json.loads(creds.to_json()), expected=expected)
+    except Exception:
+        _record_failure('modules/google_api.py:credential_save', credential_error=True)
+        return creds  # Keep working with refreshed in-memory credentials; old disk bytes survive.
+    if granted:
+        try: _mark_granted(token)
+        except Exception:
+            _record_failure('modules/google_api.py:credential_grant_age', credential_error=True)
+            pass  # Grant-age bookkeeping must not lose a successful login.
     return creds
 
 
