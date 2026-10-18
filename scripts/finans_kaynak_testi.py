@@ -19,8 +19,11 @@ CHECKS = (
     ('BtcTurk PAXG/TRY (gram altın)', lambda: _market('PAXGTRY')),
     ('CoinGecko BTC/TRY (yedek)', lambda: _market('BTCTRY', finance._coingecko)),
     ('CoinGecko PAXG/TRY (yedek)', lambda: _market('PAXGTRY', finance._coingecko)),
+    ('Yahoo Finance THYAO.IS', lambda: _bist('THYAO')),
+    ('Yahoo Finance XU100.IS', lambda: _bist('XU100')),
 )
-SENTENCES = ('dolar kaç lira', '100 euro kaç TL', 'bitcoin kaç lira', 'gram altın ne kadar')
+SENTENCES = ('dolar kaç lira', '100 euro kaç TL', 'bitcoin kaç lira', 'gram altın ne kadar',
+             'thy hissesi kaç lira', 'bist 100 kaç puan')
 
 
 def _tcmb():
@@ -31,6 +34,11 @@ def _tcmb():
 def _market(pair, source=None):
     row = (source or finance._btcturk)(pair)
     return f'son {row["last"]}, günlük %{row["daily"]}, zaman {row["when"]}'
+
+
+def _bist(code):
+    row = finance._yahoo(code)
+    return f'son {row["last"]} TRY, günlük %{row["daily"]}, zaman {row["when"]}'
 
 
 def main() -> int:
