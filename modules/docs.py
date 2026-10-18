@@ -1,6 +1,8 @@
 """Döküman analizi: PDF/DOCX/XLSX/PPTX/CSV/HTML/TXT oku, özetle, içgörü çıkar."""
+import re
 from pathlib import Path
 
+from .diagnostics import record_failure as _record_failure
 from .llm import ask
 
 SUPPORTED = (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md")
@@ -175,6 +177,43 @@ def read_document(path: str, keep_pages: bool = False, cache: bool = False) -> s
     return text if keep_pages else text.replace("\f", "\n")
 
 
+_FORMULA_SCAN_ROWS = 5000
+_FORMULA_SCAN_COLS = 100
+
+
+def _clean_excel(text: str, p: Path) -> str:
+    """MarkItDown (pandas) boş hücreyi ve kayıtlı sonucu olmayan formülü "NaN" yazar: boş bırakır, formülleri not düşer."""
+    text = re.sub(r"(?m)(?<=\| )NaN(?= \|)", "", text)
+    text = re.sub(r"(?m)^\|(?: *\|)+ *\n?", "", text)     # tamamen boşalan satır
+    notes = []
+    try:
+        from openpyxl import load_workbook
+        values = load_workbook(p, read_only=True, data_only=True)
+        formulas = load_workbook(p, read_only=True)
+        try:
+            for sheet in formulas.worksheets:
+                cached = values[sheet.title]
+                # sınırlı tarama: boyutu yanlış yazılmış çalışma kitabı (milyon satır) süreyi tüketmesin
+                for frow, vrow in zip(sheet.iter_rows(max_row=_FORMULA_SCAN_ROWS, max_col=_FORMULA_SCAN_COLS),
+                                      cached.iter_rows(max_row=_FORMULA_SCAN_ROWS, max_col=_FORMULA_SCAN_COLS)):
+                    for f, v in zip(frow, vrow):
+                        if isinstance(f.value, str) and f.value.startswith("=") and v.value is None:
+                            notes.append(f"{sheet.title}!{f.coordinate}")
+                            if len(notes) >= 20:
+                                raise StopIteration
+        finally:
+            values.close()
+            formulas.close()
+    except StopIteration:
+        pass
+    except Exception:
+        _record_failure('modules/docs.py:_clean_excel')   # not eklenemezse metin yine de verilir
+    if notes:
+        text += ("\n\nNot: şu hücrelerde formül var ama dosyada kayıtlı sonucu yok (Excel'de açıp kaydedince dolar): "
+                 + ", ".join(notes))
+    return text
+
+
 def _read_raw(p: Path) -> str:
     ext = p.suffix.lower()
 
@@ -197,7 +236,7 @@ def _read_raw(p: Path) -> str:
         # MarkItDown birincil okuyucu; kurulu değilse ya da çeviremezse aşağıdaki okuyuculara düşülür.
         text = read_markitdown_isolated(str(p))
         if text is not None:
-            return text
+            return _clean_excel(text, p) if ext in (".xlsx", ".xlsm") else text
 
     if ext == ".docx":
         import docx
