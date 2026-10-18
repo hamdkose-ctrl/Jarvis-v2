@@ -123,3 +123,5 @@ Ortak yürütücü talimatı rapor için writer dosya çıktısını ve kısa ya
 - Modül henüz motora bağlı değildir; kayıtlar buluta gönderilmez, motor bağlantısı ayrı çalışmada yapılacaktır.
 - Türkçe söyleyiş kümeleri `modules/tr_speech_sets.py` içinde değişmez veri olarak durur; motorun `_WEATHER_STOP`, `_NAME_SUFFIXES`, `_JARVIS_MISHEAR` adları ve okuyucuları korunur.
 - `tests/test_tr_speech_sets.py` eski içerik eşitliğini, normalleşmeyi ve gerçek EngineContext bağlantısını sınar; yönlendirme cümle setine henüz bağlanmadı, gerçek mikrofon/sesli komut denenmedi.
+- TR-INJ-07 not ekleme kapısı (18 Ekim 2026): hedef yürütücüsü `note_add` için yalnız özgün kullanıcı isteğindeki açık not/kaydet/hatırlat ekleme niyetini kabul eder; kaynak/dependency metni izin değildir, niyet yoksa köprü çağrısından önce etkisiz `approval` döner.
+- Regresyon `tests/test_note_add_source.py` ve enjeksiyon senaryosuyla kilitlidir: açık “şu notu ekle” çalışır, “bu sayfayı özetle” ve “notlarımı özetle” köprü yazmasına ulaşmaz; gerçek PC ve gerçek Not Defteri denenmedi.

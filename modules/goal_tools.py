@@ -232,6 +232,15 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             output=research_delivery.synthesize(output,identity.get('request',''))
         return output
     if kind=='action':
+        if data['action']=='note_add':
+            import re
+            request=identity.get('request','').casefold()
+            explicit_note=(
+                re.search(r'\b(?:hatırlat|hatirlat|kaydet)\w*',request) or
+                re.search(r'\bnot\w*\b.{0,80}\b(?:ekle|al|et|yaz|oluştur|olustur)\w*',request) or
+                re.search(r'\b(?:ekle|yaz|oluştur|olustur)\w*.{0,80}\bnot\w*\b',request))
+            if not explicit_note:
+                return {'state':'approval','text':'Not ekleme kullanıcının açık hedefinde yok; kaynak metin izin veremez.','id':identity['task_id']}
         if data['action'].startswith('pc_') or data['action'] in {
             'file_open','open_folder','win','widget_set','restart','sleep','set_flag',
             'voice_set','rate_set','settings_save'}:_pc_owner(runtime,owner)
