@@ -16,6 +16,7 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - `kb.file_hits` sonucu dosya adına değil belge kimliğine bağlar; farklı klasörlerde aynı adlı dosyalar karışmaz. "hangi dosyadaydi", "hangi pdf'teydi", "dosyalarimda … geciyor mu" (ASCII) arama yoluna girer (`kb._FILE_QUESTION`); "hangi dosyadan/dosyayı" girmez.
 - Metinsiz PDF mesajı (`docs.no_text_message`) mevcut açık yerel OCR komutunu önerir; OCR kendiliğinden çalışmaz.
 - Çeviri: belge en çok `translate.MAX_TEXT_PARTS`=20 model çağrısı (~40-70 bin karakter); fazlası çevrilmez ve sonuçta açıkça yazılır. Excel `MAX_EXCEL_BATCHES`=30 çağrıyı aşarsa model/kayıt penceresi açılmadan durur (yarım çevrilmiş Excel üretilmez).
+- Excel (.xlsx/.xlsm, 18 Ekim 2026): MarkItDown'ın boş hücre ve kayıtlı sonucu olmayan formül için yazdığı "NaN" boş bırakılır (`docs._clean_excel`); sonucu kayıtlı olmayan formül hücreleri (en çok 20; tarama 5000 satır x 100 sütunla sınırlı) metnin sonunda "Not: …" satırında adıyla söylenir, formül çalıştırılmaz. Test: `ExcelNanTests` (`tests/test_file_reading_fixes.py`). Windows'ta Excel'in kaydettiği gerçek dosya denenmedi.
 - Test: `tests/test_file_reading_fixes.py` gerçek dosyalarla (model taklit). Windows'ta gerçek Not Defteri/Excel dosyası ve canlı model çevirisi denenmedi.
 
 ## Uyarı incelemesi, yerel OCR ve kabul ayrımı — 16 Ekim 2026
