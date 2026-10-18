@@ -77,10 +77,7 @@ class ReminderEditTests(ProfileCase):
         ev = [e for e in self.reload().data['events'] if e['title'] == 'İlaç'][0]
         self.assertEqual((ev['when'], ev['notified']), ('2026-10-17T10:10', False))     # şimdiden itibaren, tekrar çalar
 
-    def test_postpone_refuses_repeating_and_allday_minutes(self):
-        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
-        self.assertIn('Tekrarlayan kaydı ertelemiyorum', say(self.rt(), 'ilaç hatırlatmasını ertele'))
-        self.profile.data['events'].clear()
+    def test_postpone_allday_minutes_refused_days_ok(self):
         self.profile.add_event('Hediye', '2026-10-20')
         self.assertIn('tüm gün kaydı', say(self.rt(), 'hediye hatırlatmasını 10 dakika ertele'))
         self.assertIn('erteledim', say(self.rt(), 'hediye hatırlatmasını 2 gün ertele'))
@@ -92,6 +89,108 @@ class ReminderEditTests(ProfileCase):
         say(self.rt(), 'ilaç hatırlatmasını 30 dakika ertele')
         self.assertEqual(len(self.profile.due_events(datetime(2026, 10, 17, 10, 29))), 0)
         self.assertEqual(len(self.profile.due_events(datetime(2026, 10, 17, 10, 31))), 1)
+
+
+class RepeatingEditTests(ProfileCase):
+    """Tekrarlayan hatırlatmayı yalnız sıradaki oluşum için ertele / başka güne kaydır / atla (18 Ekim 2026)."""
+    now = datetime(2026, 10, 17, 10, 0)       # cumartesi
+
+    def rt(self):
+        return _runtime(self, self.profile, self.now)
+
+    def ev(self, title='İlaç'):
+        return [e for e in self.reload().data['events'] if e['title'] == title][0]
+
+    def test_postpone_next_occurrence_only(self):
+        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+        reply = say(self.rt(), 'yarınki ilaç hatırlatmasını 1 saat ertele')
+        self.assertIn('yarın 10:00', reply)
+        self.assertIn('09:00', reply)                                   # sonrakilerin eski saatte kaldığı söylenir
+        e = self.ev()
+        self.assertEqual((e['when'], e['base'], e['repeat']), ('2026-10-18T10:00', '09:00', 'daily'))
+        self.assertEqual(self.reload().events_on('2026-10-19')[0]['when'], '2026-10-19T09:00')
+        self.assertEqual(self.reload().events_on('2026-10-18')[0]['when'], '2026-10-18T10:00')
+
+    def test_shifted_occurrence_fires_then_rule_returns_to_base_time(self):
+        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+        say(self.rt(), 'yarınki ilaç hatırlatmasını 1 saat ertele')
+        p = self.reload()
+        self.assertEqual(p.due_events(datetime(2026, 10, 18, 9, 30)), [])
+        self.assertEqual(len(p.due_events(datetime(2026, 10, 18, 10, 1))), 1)
+        e = p.data['events'][0]
+        self.assertEqual(e['when'], '2026-10-19T09:00')                  # kural eski saatine döndü
+        self.assertNotIn('base', e)
+
+    def test_ascii_and_typo_variants(self):
+        for text in ('yarinki ilac hatirlatmasini 1 saat otele', 'yarınki ilacı 1 saat ertele', 'YARINKİ İlaç hatırlatmasını bir saat ertele'):
+            with self.subTest(text=text):
+                self.profile.data['events'].clear()
+                self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+                say(self.rt(), text)
+                self.assertEqual(self.ev()['when'], '2026-10-18T10:00')
+
+    def test_move_to_weekday(self):
+        self.profile.add_event('Toplantı', '2026-10-19T10:00', repeat='weekly:0')      # pazartesi
+        reply = say(self.rt(), 'bu haftaki toplantı hatırlatmasını cumaya kaydır')
+        self.assertIn('23 Ekim 10:00', reply)
+        e = self.ev('Toplantı')
+        self.assertEqual(e['when'], '2026-10-23T10:00')
+        self.assertNotIn('base', e)                                      # saat değişmedi, kaydırılan yalnız gün
+        say(self.rt(), 'toplantıyı pazartesiye kaydir')
+        self.assertEqual(self.ev('Toplantı')['when'], '2026-10-19T10:00')
+
+    def test_move_past_regular_occurrences_says_so(self):
+        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+        reply = say(self.rt(), 'ilaç hatırlatmasını cumaya kaydır')
+        self.assertEqual(self.ev()['when'], '2026-10-23T09:00')
+        self.assertIn('Aradaki', reply)
+
+    def test_move_one_off_event_and_not_hijacking(self):
+        self.profile.add_event('Sunum', '2026-10-19T14:00')
+        self.assertIn('Sunum', say(self.rt(), 'sunumu cumaya kaydır'))
+        self.assertEqual(self.ev('Sunum')['when'], '2026-10-23T14:00')
+        from modules import main_planner
+        for text in ('sayfayı aşağı kaydır', 'ekranı yukarı kaydır', 'oyunu atla', 'reklamı atla', 'bugünkü reklamı atla'):
+            with self.subTest(text=text):
+                self.assertIsNone(main_planner._edit_reminder(self.rt(), text, self.now))
+
+    def test_skip_today_and_ascii(self):
+        self.profile.add_event('İlaç', '2026-10-17T18:00', repeat='daily')
+        reply = say(self.rt(), 'bugünkünü atla')
+        self.assertIn('atladım', reply)
+        self.assertEqual(self.ev()['when'], '2026-10-18T18:00')
+        self.profile.data['events'].clear()
+        self.profile.add_event('İlaç', '2026-10-17T18:00', repeat='daily')
+        say(self.rt(), 'bugunku hatirlatmayi atla')
+        self.assertEqual(self.ev()['when'], '2026-10-18T18:00')
+
+    def test_skip_clears_shift_and_uses_rule(self):
+        self.profile.add_event('Toplantı', '2026-10-19T10:00', repeat='weekly:0')
+        say(self.rt(), 'toplantıyı cumaya kaydır')
+        say(self.rt(), 'toplantı hatırlatmasını atla')
+        e = self.ev('Toplantı')
+        self.assertEqual(e['when'], '2026-10-26T10:00')                  # sıradaki pazartesi
+        self.assertNotIn('base', e)
+
+    def test_day_qualifier_mismatch_changes_nothing(self):
+        self.profile.add_event('İlaç', '2026-10-19T09:00', repeat='weekly:0')
+        reply = say(self.rt(), 'yarınki ilacı atla')
+        self.assertIn('yarın', reply)
+        self.assertEqual(self.ev()['when'], '2026-10-19T09:00')
+
+    def test_skip_one_off_is_refused(self):
+        self.profile.add_event('Dişçi', '2026-10-19T15:00')
+        self.assertIn('silmeyi', say(self.rt(), 'dişçi hatırlatmasını atla'))
+        self.assertEqual(self.ev('Dişçi')['when'], '2026-10-19T15:00')
+
+    def test_bare_postpone_does_not_touch_repeating_only(self):
+        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+        self.assertIn('Hangisini', say(self.rt(), 'ertele'))
+        self.assertEqual(self.ev()['when'], '2026-10-18T09:00')
+
+    def test_delete_still_removes_all_repeats(self):
+        self.profile.add_event('İlaç', '2026-10-18T09:00', repeat='daily')
+        self.assertIn('bütün tekrarlarını', say(self.rt(), 'ilaç hatırlatmasını sil'))
 
 
 if __name__ == '__main__':

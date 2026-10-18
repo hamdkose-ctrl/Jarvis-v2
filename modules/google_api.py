@@ -192,9 +192,20 @@ def connect() -> tuple[bool, str]:
         return False, text[:400]
 
 
+def needs_reconnect(exc: Exception) -> bool:
+    """İzin süresi dolmuş/geri alınmış ya da hiç verilmemiş mi (ağ hatası değil)?"""
+    t = f"{type(exc).__name__}: {exc}"
+    return "invalid_grant" in t or isinstance(exc, PermissionError) or "expired" in t.lower()
+
+
+def reconnect_help() -> str:
+    return (f"Google izni çalışmıyor (süresi dolmuş ya da geri alınmış). {PLACE} bölümünde "
+            "“Bağlan” düğmesine basıp izni yenile.")
+
+
 def _friendly(exc: Exception, what: str) -> str:
     t = f"{type(exc).__name__}: {exc}"
-    if "invalid_grant" in t or isinstance(exc, PermissionError) or "expired" in t.lower():
+    if needs_reconnect(exc):
         return (f"{what}: Google izni çalışmıyor (süresi dolmuş ya da geri alınmış). {PLACE} bölümünde "
                 "“Bağlan” düğmesine basıp izni yenile.")
     return f"{what}: {t}"
