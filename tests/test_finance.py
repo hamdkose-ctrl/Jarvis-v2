@@ -35,12 +35,12 @@ def frankfurter(base, rate, day='2026-10-17'):
 BTCTURK = {'BTCTRY': (2450000.0, 1.25), 'ETHTRY': (150000.5, -0.8), 'PAXGTRY': (109250.0, 0.1)}
 
 
-COINGECKO = {'bitcoin': 2449000.0, 'pax-gold': 109000.0}
+COINGECKO = {'bitcoin': (2450000.0, 1.25), 'ethereum': (150000.5, -0.8), 'pax-gold': (109250.0, 0.1)}
 
 
 def coingecko(url):
     ids = re.search(r'ids=([a-z0-9,-]+)', url).group(1).split(',')
-    return json.dumps({i: {'try': COINGECKO[i], 'try_24h_change': 1.5, 'last_updated_at': 1792348920} for i in ids}).encode()
+    return json.dumps({i: {'try': COINGECKO[i][0], 'try_24h_change': COINGECKO[i][1], 'last_updated_at': 1792348920} for i in ids}).encode()
 
 
 def btcturk(pair):
@@ -53,7 +53,7 @@ def btcturk(pair):
 
 class FinanceTest(unittest.TestCase):
     def setUp(self):
-        finance._CACHE.clear();finance._BTCTURK_DOWN.clear()
+        finance._CACHE.clear()
         self.calls = []
 
     def fetch_ok(self, url, **_):
@@ -171,7 +171,7 @@ class FinanceTest(unittest.TestCase):
             with self.subTest(text=text):
                 out = self.ask(text)
                 self.assertIn('Bitcoin 2.450.000,00 TL (günlük +%1,25)', out)
-                self.assertIn('BtcTurk BTC/TRY son işlem 18.10.2026', out)
+                self.assertIn('CoinGecko BTC/TRY 18.10.2026', out)
         self.assertIn('Ethereum 150.000,50 TL (günlük -%0,80)', self.ask('ethereum kaç tl'))
         self.assertIn('0,5 bitcoin 1.225.000,00 TL eder', self.ask('0,5 bitcoin kaç lira'))
         usd = self.ask('bitcoin kaç dolar')
@@ -200,18 +200,18 @@ class FinanceTest(unittest.TestCase):
 
     def test_crypto_source_failures(self):
         def down(url, **_):
-            if 'btcturk.com' in url:raise OSError('yok')
+            if 'coingecko.com' in url:raise OSError('yok')
             return self.fetch_ok(url)
         out = self.ask('bitcoin kaç lira', down)
-        self.assertIn('Bitcoin 2.449.000,00 TL (günlük +%1,50)', out)
-        self.assertIn('CoinGecko BTC/TRY 18.10.2026', out)
+        self.assertIn('Bitcoin 2.450.000,00 TL (günlük +%1,25)', out)
+        self.assertIn('BtcTurk BTC/TRY son işlem 18.10.2026', out)
         gold = self.ask('gram altın ne kadar', down)
-        self.assertIn('Gram altın 3.504,43 TL', gold);self.assertIn('CoinGecko PAXG/TRY', gold)
+        self.assertIn('Gram altın 3.512,47 TL', gold);self.assertIn('BtcTurk PAXG/TRY', gold)
         def both(url, **_):
             if 'btcturk.com' in url or 'coingecko.com' in url:raise OSError('yok')
             return self.fetch_ok(url)
-        finance._CACHE.clear();finance._BTCTURK_DOWN.clear()
-        self.assertIn('Fiyat kaynağına (BtcTurk ve CoinGecko) şu an ulaşamadım', self.ask('bitcoin kaç lira', both))
+        finance._CACHE.clear()
+        self.assertIn('Fiyat kaynağına (CoinGecko ve BtcTurk) şu an ulaşamadım', self.ask('bitcoin kaç lira', both))
         def denied(url, **_):raise PermissionError('Gizlilik modu açık')
         finance._CACHE.clear()
         self.assertEqual('Gizlilik modu açık', self.ask('bitcoin kaç lira', denied))
@@ -224,29 +224,18 @@ class FinanceTest(unittest.TestCase):
         finance._CACHE.clear()
         self.assertIn('ulaşamadım', self.ask('bitcoin kaç lira', wrong_pair))
 
-    def test_failed_btcturk_is_skipped_for_a_while(self):
-        def down(url, **_):
-            self.calls.append(url)
-            if 'btcturk.com' in url:raise OSError('yok')
-            return self.fetch_ok(url)
-        self.calls.clear()
-        self.assertIn('CoinGecko', self.ask('bitcoin kaç lira', down))
-        finance._CACHE.clear()
-        self.assertIn('CoinGecko', self.ask('btc ne kadar', down))
-        self.assertEqual(sum('btcturk.com' in u for u in self.calls), 1)
-        finance._BTCTURK_DOWN['until'] = 0  # bekleme süresi doldu
-        finance._CACHE.clear();self.calls.clear()
-        self.assertIn('Bitcoin 2.450.000,00 TL', self.ask('bitcoin kaç lira'))
-        self.assertTrue(any('btcturk.com' in u for u in self.calls))
+    def test_coingecko_is_first_and_btcturk_is_not_called(self):
+        self.assertIn('CoinGecko', self.ask('bitcoin kaç lira'))
+        self.assertFalse(any('btcturk.com' in u for u in self.calls))
 
     def test_market_cache_is_short(self):
         self.ask('bitcoin kaç lira');self.ask('btc ne kadar')
-        self.assertEqual(sum('BTCTRY' in u for u in self.calls), 1)
+        self.assertEqual(sum('coingecko.com' in u for u in self.calls), 1)
         key = 'bt:BTCTRY'
         stamp, value = finance._CACHE[key]
         finance._CACHE[key] = (stamp - finance.MARKET_TTL - 1, value)
         self.ask('bitcoin kaç lira')
-        self.assertEqual(sum('BTCTRY' in u for u in self.calls), 2)
+        self.assertEqual(sum('coingecko.com' in u for u in self.calls), 2)
 
     def test_live_source_script_reports_each_source(self):
         import contextlib, importlib.util, io
