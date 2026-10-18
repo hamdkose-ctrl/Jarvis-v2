@@ -92,6 +92,21 @@ class FileFixTests(unittest.TestCase):
                 with self.subTest(q):
                     self.assertIsNone(kb.handle(kb._norm(q), self.profile))
 
+    # 6. "nerede yazıyordu": yalnız belgesi olan kullanıcıda ve cümlede aranacak konu belgede bulunuyorsa aramaya girer
+    def test_where_written_questions_reach_search_only_with_matching_docs(self):
+        asked = []
+        with patch.object(kb, 'answer', side_effect=lambda p, q: asked.append(q) or 'CEVAP'):
+            self.assertIsNone(kb.handle(kb._norm('kira bedeli nerede yazıyordu'), self.profile))   # belge yok
+            kb.add(self.profile, str(self.path('kira.txt', 'Aylık kira bedeli 15.000 TL'.encode())))
+            for q in ('kira bedeli nerede yazıyordu', 'kira bedeli nerde yaziyodu', 'KİRA NEREDE GEÇİYORDU',
+                      'kira bedeli nerede yazıyor', 'kira bedeli nerede geciyodu'):
+                with self.subTest(q):
+                    self.assertEqual(kb.handle(kb._norm(q), self.profile), 'CEVAP')
+            for q in ('nerede yazıyordu', 'zeytinyağı fiyatı nerede yazıyordu', 'kira nerede oturuyordu',
+                      "Windows'ta başlangıç programlarını nereden kapatıyorduk", 'kira bedeli neydi'):
+                with self.subTest(q):
+                    self.assertIsNone(kb.handle(kb._norm(q), self.profile))     # sohbete düşer, uydurma yok
+
     def test_ascii_question_words_do_not_dilute_search(self):
         self.assertEqual(kb._match_query('kira hangi dosyadaydi'), '"kira"*')
         self.assertEqual(kb._match_query("kira hangi pdf'teydi"), '"kira"*')

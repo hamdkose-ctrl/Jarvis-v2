@@ -2100,6 +2100,22 @@
    "alan": "dosya",
    "kaynak": "gpt-2026-10-17",
    "bolum": "bekletilmis"
+  },
+  {
+   "metin": "Python'da hata mesajı nerede yazıyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "claude-2026-10-18",
+   "bolum": "ayarlama"
+  },
+  {
+   "metin": "Bu şarkıda 'gül' kelimesi nerede geçiyor?",
+   "model": "chat",
+   "beklenen": "chat",
+   "alan": "dosya",
+   "kaynak": "claude-2026-10-18",
+   "bolum": "ayarlama"
   }
  ],
  "kurallar": [
