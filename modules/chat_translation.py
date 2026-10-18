@@ -68,6 +68,9 @@ def resolve(slug, command, rows):
     if not parts:
         return None
     instruction, inline = parts
+    from modules import finance
+    if finance.is_conversion(command):  # "50 euroyu dolara çevir": para çevirisi, kur yoluna kalır
+        return None
     low = unicodedata.normalize('NFKD', lower(instruction).replace('ı', 'i')).encode('ascii', 'ignore').decode()
     # Gerçek dosya ve format dönüşümü mevcut dosya işleyicisine aittir.
     if re.search(r'\b(?:dosya\w*|belge\w*|pdf|word|excel|docx|xlsx)\b', lower(inline)) and len(inline) < 100:

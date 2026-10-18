@@ -293,10 +293,11 @@ def handle(runtime, command: str) -> str:
     if "sistem durumu" in cmd_lower or "bilgisayar durumu" in cmd_lower or "pc durumu" in cmd_lower:
         return runtime.desktop.system_status()
 
-    # Döviz (LLM'e gitmeden gerçek kur çeker)
-    if "dolar" in cmd_lower or "euro" in cmd_lower:
-        from modules import finance
-        return finance.get_live_rate("dolar" if "dolar" in cmd_lower else "euro")
+    # Döviz kuru ve çevirisi (modelsiz); kur sorusu değilse None döner ve akış devam eder
+    from modules import finance
+    rate_reply = finance.answer(command)
+    if rate_reply is not None:
+        return rate_reply
 
     # GitHub'a yayın: Ev/İş fark etmez; yalnız açık "git yükle / GitHub'a gönder" komutuyla.
     if runtime.re.search(r"(?:^|\b)(?:git|github'?a?)\s+(?:yükle|gönder|yayınla)\b|değişiklikleri\s+github'?a?\s+(?:yükle|gönder)", cmd_lower):
