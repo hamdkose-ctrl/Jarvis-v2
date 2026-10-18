@@ -324,4 +324,5 @@ Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin k
 ## Finans: kur cevabı ve çevirisi — 18 Ekim 2026
 - Yapıldı ve testle doğrulandı (taklit kaynak yanıtıyla): yanlış "dolar/euro" alt dize tetiği kaldırıldı, TCMB + Frankfurter yedekli kur, 10 dk önbellek, para çevirisi, 12 para birimi. Ayrıntı `docs/agents/finans.md`.
 - Denenmedi: canlı TCMB/Frankfurter yanıtı (TCMB'nin bot kullanıcı aracısını kabul edip etmediği dahil), Windows'ta sesli okuma ("4.192,54"), tam motor akışında daha önceki bir kuralın cümleyi yakalayıp yakalamadığı.
-- Açık: altın, kripto, BIST (gayriresmî kaynak, hazır açık), takip listesi, modelsiz fiyat alarmı, yazıyla tam sayı söyleyişlerinin genişletilmesi ("bin beş yüz", "iki buçuk" çalışır; "yarım", "çeyrek" çalışmaz).
+- Kripto ve gram altın (BtcTurk) eklendi; canlı deneme için `scripts/finans_kaynak_testi.py` PC'de çalıştırılmalı (PAXG/TRY çifti doğrulanmadı).
+- Açık: BIST (gayriresmî kaynak, hazır açık), takip listesi, modelsiz fiyat alarmı, yazıyla tam sayı söyleyişlerinin genişletilmesi ("bin beş yüz", "iki buçuk" çalışır; "yarım", "çeyrek" çalışmaz).

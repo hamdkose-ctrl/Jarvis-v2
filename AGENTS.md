@@ -32,7 +32,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (2 bölüm)
 - `docs/agents/hoca.md`: Hoca modu, adım adım ders (5 bölüm)
-- `docs/agents/finans.md`: Finans takibi, kur ve çeviri (1 bölüm)
+- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (2 bölüm)
 
 ## Klasör haritası
 
