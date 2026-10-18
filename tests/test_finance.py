@@ -35,6 +35,14 @@ def frankfurter(base, rate, day='2026-10-17'):
 BTCTURK = {'BTCTRY': (2450000.0, 1.25), 'ETHTRY': (150000.5, -0.8), 'PAXGTRY': (109250.0, 0.1)}
 
 
+COINGECKO = {'bitcoin': 2449000.0, 'pax-gold': 109000.0}
+
+
+def coingecko(url):
+    ids = re.search(r'ids=([a-z0-9,-]+)', url).group(1).split(',')
+    return json.dumps({i: {'try': COINGECKO[i], 'try_24h_change': 1.5, 'last_updated_at': 1792348920} for i in ids}).encode()
+
+
 def btcturk(pair):
     last, daily = BTCTURK[pair]
     return json.dumps({'data': [{'pair': pair, 'pairNormalized': pair[:-3] + '_TRY', 'timestamp': 1792348920000,
@@ -52,6 +60,8 @@ class FinanceTest(unittest.TestCase):
         self.calls.append(url)
         if 'tcmb.gov.tr' in url:
             return {'url': url, 'body': TCMB_XML, 'content_type': 'text/xml'}
+        if 'coingecko.com' in url:
+            return {'url': url, 'body': coingecko(url), 'content_type': 'application/json'}
         if 'btcturk.com' in url:
             return {'url': url, 'body': btcturk(url.rsplit('=', 1)[1]), 'content_type': 'application/json'}
         code = re.search(r'/rate/([a-z]{3})/try', url).group(1).upper()
@@ -192,7 +202,19 @@ class FinanceTest(unittest.TestCase):
         def down(url, **_):
             if 'btcturk.com' in url:raise OSError('yok')
             return self.fetch_ok(url)
-        self.assertIn('Fiyat kaynağına (BtcTurk) şu an ulaşamadım', self.ask('bitcoin kaç lira', down))
+        out = self.ask('bitcoin kaç lira', down)
+        self.assertIn('Bitcoin 2.449.000,00 TL (günlük +%1,50)', out)
+        self.assertIn('CoinGecko BTC/TRY 18.10.2026', out)
+        gold = self.ask('gram altın ne kadar', down)
+        self.assertIn('Gram altın 3.504,43 TL', gold);self.assertIn('CoinGecko PAXG/TRY', gold)
+        def both(url, **_):
+            if 'btcturk.com' in url or 'coingecko.com' in url:raise OSError('yok')
+            return self.fetch_ok(url)
+        finance._CACHE.clear()
+        self.assertIn('Fiyat kaynağına (BtcTurk ve CoinGecko) şu an ulaşamadım', self.ask('bitcoin kaç lira', both))
+        def denied(url, **_):raise PermissionError('Gizlilik modu açık')
+        finance._CACHE.clear()
+        self.assertEqual('Gizlilik modu açık', self.ask('bitcoin kaç lira', denied))
         def failed(url, **_):
             return {'url': url, 'body': json.dumps({'success': False, 'data': None}).encode(), 'content_type': 'application/json'}
         finance._CACHE.clear()
@@ -219,7 +241,7 @@ class FinanceTest(unittest.TestCase):
         out = io.StringIO()
         with patch.object(public_sources, 'fetch', side_effect=self.fetch_ok), contextlib.redirect_stdout(out):
             self.assertEqual(script.main(), 0)
-        self.assertEqual(out.getvalue().count('GEÇTİ'), 4)
+        self.assertEqual(out.getvalue().count('GEÇTİ'), 6)
         self.assertIn('Gram altın 3.512,47 TL', out.getvalue())
         def down(url, **_):raise OSError('yok')
         out = io.StringIO()

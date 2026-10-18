@@ -19,6 +19,9 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml'
 FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/{code}/try'
 BTCTURK_URL = 'https://api.btcturk.com/api/v2/ticker?pairSymbol={pair}'
+COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids={id}&vs_currencies=try&include_24hr_change=true&include_last_updated_at=true'
+COINGECKO_IDS = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'USDT': 'tether', 'XRP': 'ripple', 'SOL': 'solana',
+                 'DOGE': 'dogecoin', 'AVAX': 'avalanche-2', 'ADA': 'cardano', 'PAXG': 'pax-gold'}
 TTL = 600
 MARKET_TTL = 60
 TROY_OUNCE_GRAMS = Decimal('31.1034768')
@@ -251,7 +254,35 @@ def _btcturk(pair: str):
     when = datetime.fromtimestamp(stamp / 1000, TR) if isinstance(stamp, (int, float)) and stamp > 0 else None
     daily = row.get('dailyPercent')
     daily = Decimal(str(daily)) if isinstance(daily, (int, float)) else None
-    return {'last': last, 'when': when, 'daily': daily}
+    return {'last': last, 'when': when, 'daily': daily, 'source': 'BtcTurk'}
+
+
+def _coingecko(pair: str):
+    from modules import public_sources
+    coin = COINGECKO_IDS[pair[:-3]]
+    data = json.loads(public_sources.fetch(COINGECKO_URL.format(id=coin), max_bytes=20_000)['body'])
+    row = data.get(coin) if isinstance(data, dict) else None
+    if not isinstance(row, dict):raise ValueError('CoinGecko yanıtında coin yok.')
+    last = Decimal(str(row.get('try')))
+    if not last.is_finite() or last <= 0:raise ValueError('CoinGecko fiyatı geçersiz.')
+    stamp = row.get('last_updated_at')
+    when = datetime.fromtimestamp(stamp, TR) if isinstance(stamp, (int, float)) and stamp > 0 else None
+    daily = row.get('try_24h_change')
+    daily = Decimal(str(round(daily, 2))) if isinstance(daily, (int, float)) else None
+    return {'last': last, 'when': when, 'daily': daily, 'source': 'CoinGecko'}
+
+
+def _market(pair: str):
+    """BtcTurk önce; ulaşılamazsa ya da yanıt bozuksa CoinGecko (aynı TL fiyatı, ücretsiz)."""
+    from urllib3.exceptions import HTTPError
+    from modules.diagnostics import record_failure
+    try:
+        return _btcturk(pair)
+    except PermissionError:
+        raise
+    except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
+        record_failure('modules/finance.py:btcturk')
+    return _coingecko(pair)
 
 
 def _num(value: Decimal, places: int = 2) -> str:
@@ -284,13 +315,13 @@ def _asset_answer(request) -> str:
         kind, amount = 'gram', None
     pair = 'PAXGTRY' if code == 'GOLD' else code + 'TRY'
     try:
-        row = _cached('bt:' + pair, lambda: _btcturk(pair), MARKET_TTL)
+        row = _cached('bt:' + pair, lambda: _market(pair), MARKET_TTL)
         table, label = rates([target]) if target != 'TRY' else ({'TRY': Decimal(1)}, '')
     except PermissionError as exc:
         return str(exc)
     except (ValueError, OSError, HTTPError, json.JSONDecodeError, InvalidOperation):
         if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
-        return 'Fiyat kaynağına (BtcTurk' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
+        return 'Fiyat kaynağına (BtcTurk ve CoinGecko' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
     price = row['last'] / (TROY_OUNCE_GRAMS if kind == 'gram' else 1) / table[target]
     name = (kind + ' altın') if code == 'GOLD' else next(n for c, n, _s in CRYPTO if c == code)
     unit = _name(target)
@@ -302,8 +333,8 @@ def _asset_answer(request) -> str:
         sign = '+' if row['daily'] > 0 else '-' if row['daily'] < 0 else ''
         body += f' (günlük {sign}%{_num(abs(row["daily"]))})'
     when = row['when'].strftime(' %d.%m.%Y %H:%M') if row['when'] else ''
-    source = (f'BtcTurk PAXG/TRY{when} fiyatından hesaplandı (PAXG 1 ons altına bağlı token, 1 ons = 31,1035 gram)'
-              if code == 'GOLD' else f'BtcTurk {code}/TRY son işlem{when}')
+    source = (f'{row["source"]} PAXG/TRY{when} fiyatından hesaplandı (PAXG 1 ons altına bağlı token, 1 ons = 31,1035 gram)'
+              if code == 'GOLD' else f'{row["source"]} {code}/TRY' + (' son işlem' if row['source'] == 'BtcTurk' else '') + when)
     if label:source += '; ' + label
     tail = ' Kuyumcu ve banka fiyatı farklı olabilir.' if code == 'GOLD' else ''
     return f'{note}{body}. Kaynak: {source}.{tail}'

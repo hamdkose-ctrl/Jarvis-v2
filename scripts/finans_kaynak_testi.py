@@ -17,6 +17,8 @@ CHECKS = (
     ('Frankfurter (USD/TRY)', lambda: '{} TL, {}'.format(*finance._frankfurter('USD'))),
     ('BtcTurk BTC/TRY', lambda: _market('BTCTRY')),
     ('BtcTurk PAXG/TRY (gram altın)', lambda: _market('PAXGTRY')),
+    ('CoinGecko BTC/TRY (yedek)', lambda: _market('BTCTRY', finance._coingecko)),
+    ('CoinGecko PAXG/TRY (yedek)', lambda: _market('PAXGTRY', finance._coingecko)),
 )
 SENTENCES = ('dolar kaç lira', '100 euro kaç TL', 'bitcoin kaç lira', 'gram altın ne kadar')
 
@@ -26,8 +28,8 @@ def _tcmb():
     return f'{table["USD"]} TL, {len(table)} para birimi, {label}'
 
 
-def _market(pair):
-    row = finance._btcturk(pair)
+def _market(pair, source=None):
+    row = (source or finance._btcturk)(pair)
     return f'son {row["last"]}, günlük %{row["daily"]}, zaman {row["when"]}'
 
 
