@@ -283,6 +283,9 @@ def report(kind: str = "status", project: str | None = None) -> str:
         return _ai(prompt_data(f), _SYS.format(task=task, name=name)).strip() or _plain(f, kind)
     except Exception:           # noqa: BLE001 - yapay zeka yoksa düz liste
         _record_failure('modules/worktrack.py:report')
+        if settings()["ai"] == "local":     # iş maili buluta gitmez: Ollama yoksa düz liste + açık uyarı
+            from modules import ollama_hint
+            return ollama_hint.need("Yapay zekâ özeti") + "\n" + _plain(f, kind)
         return _plain(f, kind)
 
 

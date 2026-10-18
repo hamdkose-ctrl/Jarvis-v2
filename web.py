@@ -1476,8 +1476,8 @@ def _capabilities() -> list:
     add(G, "İş akışı otomasyonu", "Workflow automation", "ready", f"{len(prof.data.get('macros') or {})} kısayol/rutin")
     add(G, "Takvim ve e-posta desteği", "Calendar and email assistance", "ready" if google_ok else "setup",
         "Gmail ve Google Takvim (salt okuma)" if google_ok else "Menü › Yapay zekâ › Gmail ve Takvim bölümünden Google'ı bağla")
-    add(G, "Ollama aracılığıyla yerel yapay zekâ", "Local AI through Ollama", "ready" if ollama else "setup",
-        f"Model: {st['ollama_model']}" if ollama else "Ollama kurulu/çalışır değil (ollama.com)")
+    add(G, "Ollama aracılığıyla yerel yapay zekâ", "Local AI through Ollama", "ready" if ollama else "off",
+        f"Model: {st['ollama_model']}" if ollama else "İsteğe bağlı: kurulu değil. Jarvis onsuz çalışır; yalnızca “Yalnızca yerel” mod ve yerel iş maili özeti için gerekir (ollama.com)")
     cloud_names=(["Gemini"] if st["gemini_key"] else []) + (["Groq ("+st["groq_model"]+")"] if st["groq_key"] else [])
     cloud_names += [label for key,label in (("openai","OpenAI"),("anthropic","Claude")) if st.get("paid",{}).get(key,{}).get("key")]
     add(G, "Bulut yapay zekâ sağlayıcısı desteği", "Cloud AI provider support", "ready" if cloud_names else "setup",

@@ -140,7 +140,7 @@ def _cli():
 import requests
 
 from config import load_settings, save_settings
-from modules import privacy
+from modules import ollama_hint, privacy
 
 
 class LocalModelError(RuntimeError):
@@ -282,7 +282,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
                                 "options": {"num_predict": max_tokens}})
     except requests.RequestException as e:
         usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
-        raise LocalModelError("Yerel model (Ollama) çalışmıyor. ollama.com'dan kurup `ollama serve` ile başlat.") from e
+        raise LocalModelError(ollama_hint.need("Yerel model")) from e
     sent = usage_meter.size(msgs)
     if r.status_code == 404:
         usage_meter.record('ollama', model, sent, 0, '404')
@@ -291,7 +291,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
         usage_meter.record('ollama', model, sent, 0, str(r.status_code))
         detail = str((r.json() if r.content else {}).get('error','')).casefold()
         if any(word in detail for word in ('image', 'vision', 'multimodal', 'does not support')):
-            raise ImageCapabilityError('Ollama modeli görüntü girdisini desteklemiyor.')
+            raise ImageCapabilityError(ollama_hint.IMAGE)
         raise LocalModelError(f"Ollama hata verdi ({r.status_code}).")
     try:                     # başarı, yanıt gerçekten çözülünce yazılır; bozuk 200 yanıtı "ok" sayılmaz
         text = (r.json().get("message") or {}).get("content", "")
@@ -401,7 +401,7 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
 def _need_cloud(prompt: str) -> str:
     """Buluta gitmeden önce: yerel modda engelle, değilse hassas bilgiyi maskele."""
     if privacy.mode() == "yerel":
-        raise LocalModelError("Yalnızca yerel mod açık ama yerel model yanıt vermedi.")
+        raise LocalModelError("Yalnızca yerel mod açık ama yerel model yanıt vermedi. " + ollama_hint.need("Bu mod"))
     return privacy.redact(prompt)
 
 
