@@ -542,6 +542,22 @@ def _limited(provider_name: str, model: str):
     return error
 
 
+def quota_wait_seconds(owner=None) -> int:
+    """Seçili sağlayıcıların hepsi 429/bekleme içindeyse kalan en kısa saniye; denenebilecek yol varsa 0."""
+    owner = owner if owner is not None else current_user()
+    name = provider()
+    if name == 'auto':
+        from modules import smart_router
+        return smart_router.wait_seconds(owner)
+    if name != 'gemini' or user_groq_key(owner):
+        return 0                       # Groq/Ollama yedeği ya da başka sağlayıcı: denemeden bilemeyiz
+    now = time.monotonic()
+    with _fallback_lock:
+        left = [int(until - now + .999) if until > now else 0
+                for until in (_rate_limited.get((owner, 'gemini', m), (0, None))[0] for m in model_names(owner))]
+    return min(left) if left and all(left) else 0
+
+
 def model_names(owner=None):
     from modules import user_models
     return user_models.get(owner if owner is not None else current_user(), _MODELS)
