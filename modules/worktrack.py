@@ -231,7 +231,7 @@ def _line(x: dict) -> str:
 
 def prompt_data(f: dict, max_lines: int = 60) -> str:
     """Yapay zekaya gidecek metin: yalnızca gönderen, konu, tarih ve işaretler."""
-    rows = [f"Son {f['days']} gün. Takip edilen projeler: {', '.join(f['projects']) or 'belirlenmedi'}." ]
+    rows = [f"Son {f['days']} gün. Takip edilen projeler: {', '.join(f['projects']) or 'belirlenmedi'}."]
     for p, xs in sorted(f["by_project"].items(), key=lambda kv: (kv[0] == "Diğer", -len(kv[1]))):
         rows.append(f"\nPROJE {p} ({len(xs)} mail):")
         rows += [_line(x) for x in xs[:12]]
