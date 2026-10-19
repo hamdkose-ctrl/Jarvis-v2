@@ -47,4 +47,4 @@ def classify(via: str, name: str, target: str = '') -> str:
         return 'read'
     if via in {'file', 'desktop'} and name in _REVERSIBLE:
         return 'local_reversible'
-    return 'system_config'
+    return 'read'
