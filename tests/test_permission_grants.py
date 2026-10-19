@@ -159,6 +159,20 @@ class PermissionGrantsTests(unittest.TestCase):
             requests_state._current.reset(token)
         self.assertFalse(self.root.exists())
 
+    def test_bad_message_permission_cannot_remove_a_valid_permanent_system_ban(self):
+        from modules.permission_gate import decide
+        self.root.mkdir()
+        path = self.root / 'alice.json'
+        action = {'class': 'system_config', 'target': 'terminal', 'via': 'system'}
+        for messages in ({'chat': float('nan')}, {'chat': True}, [], {'chat': 'invalid'}):
+            with self.subTest(messages=messages):
+                path.write_text(json.dumps({'message_out': messages, 'apps_never': ['terminal']}))
+                grants = self.store.load('alice')
+                self.assertEqual(grants['message_out'], {})
+                self.assertEqual(decide(action, grants, now=100)['decision'], 'deny')
+                self.store.grant_message('alice', 'good-chat', 60, now=100)
+                self.assertEqual(json.loads(path.read_text())['apps_never'], ['terminal'])
+
 
 if __name__ == '__main__':
     unittest.main()

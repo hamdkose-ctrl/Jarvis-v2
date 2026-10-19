@@ -76,15 +76,20 @@ def _read(path):
         if len(raw) > _MAX_BYTES:
             return _empty()
         data = json.loads(raw.decode('utf-8'))
-        if (not isinstance(data, dict) or set(data) != {'message_out', 'apps_never'}
-                or not isinstance(data['message_out'], dict) or len(data['message_out']) > _LIMIT
-                or not isinstance(data['apps_never'], list) or len(data['apps_never']) > 50
+        if (not isinstance(data, dict) or not isinstance(data.get('apps_never'), list) or len(data['apps_never']) > 50
                 or any(not isinstance(app, str) or len(app) > 320 for app in data['apps_never'])):
             return _empty()
+        safe = {'message_out': {}, 'apps_never': data['apps_never']}
+        if (set(data) != {'message_out', 'apps_never'} or not isinstance(data.get('message_out'), dict)
+                or len(data['message_out']) > _LIMIT):
+            return safe  # Bozuk mesaj izinleri geçerli kalıcı sistem yasaklarını düşürmez.
         messages = {}
         for target, expiry in data['message_out'].items():
-            target = _target(target)
-            expiry = _number(expiry)
+            try:
+                target = _target(target)
+                expiry = _number(expiry)
+            except (ValueError, TypeError, OverflowError):
+                continue
             # Differently cased duplicate email keys must not extend an earlier expiry.
             messages[target] = min(expiry, messages.get(target, expiry))
         return {'message_out': messages, 'apps_never': data['apps_never']}
