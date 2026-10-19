@@ -16,7 +16,7 @@ from modules.diagnostics import record_failure as _record_failure
 
 _ROOT = DATA_DIR / 'finance_alerts'
 _lock = threading.RLock()
-_LIMIT = 21
+_LIMIT = 20
 _MAX_BYTES = 1_000_000
 _SLUG = re.compile(r'[a-z0-9][a-z0-9_-]{0,99}')
 _ID = re.compile(r'[a-z0-9]{8,24}')
