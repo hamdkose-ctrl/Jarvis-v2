@@ -79,21 +79,22 @@ def _permission_name(action, item=None):
     return ' '.join(parts)[:1500]
 
 
-def _permission_decision(owner, page, action, item=None):
+def _permission_decision(owner, page, action, item=None, *, audit=True):
     """Tarayıcı adımını ortak kapıdan geçirir; tanınmayan ad mevcut politikayı değiştirmez."""
     try:
-        from modules import permission_audit, permission_classify, permission_gate, permission_grants
+        from modules import permission_audit, permission_classify, permission_gate
         target=_domain(page)
         kind,known=permission_classify.classify_detail('browser',_permission_name(action,item),target)
         if known:
-            result=permission_gate.decide({'class':kind,'target':target,'via':'browser'},
-                                          permission_grants.load(owner),time.time())
+            # Browser grants cannot weaken today's mandatory interactive approval; only DENY may tighten it.
+            result=permission_gate.decide({'class':kind,'target':target,'via':'browser'}, {}, time.time())
             decision,reason=result['decision'],result['reason']
         else:
             decision,reason='allow','Tanınmayan ad; mevcut tarayıcı onay politikası geçerli.'
         if decision not in ('allow','ask','deny') or not isinstance(reason,str):
             raise ValueError('Geçersiz izin kararı.')
-        permission_audit.record(owner,decision,kind,target,'browser',reason)
+        if audit:
+            permission_audit.record(owner,decision,kind,target,'browser',reason)
     except Exception:
         _record_failure('modules/browser_agent.py:permission_gate')
         raise ValueError('İzin denetimi tamamlanamadı; tarayıcı işlemi yapılmadı.') from None
@@ -102,10 +103,10 @@ def _permission_decision(owner, page, action, item=None):
     return {'decision':decision,'class':kind,'reason':reason,'target':target}
 
 
-def _permission_preview(owner,page,actions,first_item):
+def _permission_preview(owner,page,actions,first_item,*,audit=True):
     asks=[]
     for index,action in enumerate(actions):
-        result=_permission_decision(owner,page,action,first_item if index==0 else None)
+        result=_permission_decision(owner,page,action,first_item if index==0 else None,audit=audit)
         if result['decision']=='ask' and result['reason'] not in asks:
             asks.append(result['reason'])
     return asks
@@ -147,6 +148,7 @@ def _save_pending(root, page, actions, item, permission_asks=None):
 def _execute(page, root, actions, approved=None, *, owner=None):
     log=[]
     plan_approved=False
+    explicit_owner=owner is not None
     owner=owner or root.name
     for i,a in enumerate(validate(actions)):
         requests_state.check()
@@ -155,16 +157,16 @@ def _execute(page, root, actions, approved=None, *, owner=None):
             item=_target(page,a.get('selector'))
             sensitive=_sensitive(a,item)
             if sensitive and not plan_approved and approved is None:
-                permission_asks=_permission_preview(owner,page,actions[i:],item)
+                permission_asks=_permission_preview(owner,page,actions[i:],item,audit=explicit_owner)
                 return {**_save_pending(root,page,actions[i:],item,permission_asks),'steps':log,'page':snapshot(page)}
-            _permission_decision(owner,page,a,item)
+            _permission_decision(owner,page,a,item,audit=explicit_owner)
             if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
             if sensitive and not plan_approved:
                 if approved['digest']!=_digest(page) or approved['signature']!=_signature(item):
                     raise ValueError('Sayfa veya hedef değişmiş; yeni işlem önizlemesi gerekli.')
                 plan_approved=True  # The displayed remainder is the exact approved plan.
         else:
-            _permission_decision(owner,page,a)
+            _permission_decision(owner,page,a,audit=explicit_owner)
         before_url=page.url
         before_text=page.locator('body').inner_text() if op in ('click','press') else ''
         if op=='goto': page.goto(_url(a['url']),wait_until='domcontentloaded',timeout=25000)
