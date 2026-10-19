@@ -86,11 +86,13 @@ _TOKEN_TRIM = ".,;:!?()[]{}<>\"'`“”‘’"
 _UUID32 = re.compile(r"[0-9a-fA-F]{32}")
 _VERSION = re.compile(r"v?\d+(?:\.\d+){1,4}", re.I)
 _DATE_OR_TIME = re.compile(r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?::\d{2})?)")
+_ISO_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?")
+_DASHED_UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 _MIXED_TOKEN = re.compile(r"(?<!\S)\S{16,}(?!\S)")
 
 
 def _secret_token(raw: str, min_len: int) -> str | None:
-    token = raw.strip(_TOKEN_TRIM)
+    token = re.split(r"[=\"'`]", raw.strip(_TOKEN_TRIM))[-1].strip(_TOKEN_TRIM)
     if len(token) < min_len or not token:
         return None
     low = token.casefold()
@@ -98,12 +100,15 @@ def _secret_token(raw: str, min_len: int) -> str | None:
         return None
     if _UUID32.fullmatch(token) or _VERSION.fullmatch(token) or _DATE_OR_TIME.fullmatch(token):
         return None
-    has_letter = any(char.isalpha() for char in token)
-    has_digit = any(char.isdigit() for char in token)
-    has_symbol = any(not char.isalnum() for char in token)
-    if not has_letter or not (has_digit or has_symbol):
+    if _ISO_STAMP.fullmatch(token) or _DASHED_UUID.fullmatch(token):
         return None
-    return token
+    # Ayırıcılarla (_ - .) bölünen kelime/sayı dizileri (snake_case, dosya adı, tarih) sır sayılmaz;
+    # rastgele anahtar en az bir uzun parçada harf ile rakam/sembol karıştırır.
+    for part in re.split(r"[_.\-]", token):
+        if (len(part) >= 10 and any(c.isalpha() for c in part)
+                and any(c.isdigit() or not c.isalnum() for c in part)):
+            return token
+    return None
 
 
 def _mask_core(raw: str, token: str) -> str:

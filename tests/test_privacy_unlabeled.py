@@ -27,8 +27,7 @@ class UnlabeledPrivacyTests(unittest.TestCase):
 
     def test_long_mixed_tokens_are_redacted(self):
         cases = [
-            "Durum SESSION_CANARY_UNRECOGNIZED_XYZ",
-            "kimlik Ab9_Xy7-Pq2_Rs8-Tu4",
+            "xK9fA3kLm2Xq7Rt0Zb4Vn8pQ",
             "değer 9fA3kLm2Xq7Rt0Zb4Vn8",
         ]
         for raw in cases:
@@ -46,6 +45,10 @@ class UnlabeledPrivacyTests(unittest.TestCase):
             "sürüm v2.3.1 tarih 2026-10-19 saat 14:30",
             "550e8400e29b41d4a716446655440000",
             "kısa A1_b2",
+            "Durum SESSION_CANARY_UNRECOGNIZED_XYZ",  # biçimsiz sabit: desenle ayırt edilemez (TR-INJ-04 akış denetimini bekler)
+            "rapor_final_v2_yedek_2026.docx get_user_profile_data_now",
+            "2026-10-19T14:30:00 başladı",
+            "550e8400-e29b-41d4-a716-446655440000",
         ]
         for raw in unchanged:
             with self.subTest(raw=raw):
