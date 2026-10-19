@@ -57,7 +57,7 @@ def due_rules(rules, state, now, min_interval=300):
             if not isinstance(saved, dict):
                 continue
             checked = saved.get('checked_at')
-            if checked is not None and moment - _number(checked) <= interval:
+            if checked is not None and moment - _number(checked) < interval:
                 continue
             seen.add(ident)
             result.append(copy.deepcopy(rule))
