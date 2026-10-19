@@ -7,6 +7,19 @@ import time
 import numpy as np
 from modules.diagnostics import record_failure as _record_failure
 
+
+def _connection_timeout_message(self):
+    """Return a safe user message plus category name; never expose the raw provider error."""
+    from modules import failure_policy, ollama_hint
+    category = getattr(self, '_session_error_category', None)
+    if not ollama_hint.internet_up():
+        return ollama_hint.NO_INTERNET, failure_policy.NETWORK
+    if category == failure_policy.RATE_LIMIT:
+        return 'Gemini kotası dolmuş görünüyor, biraz sonra tekrar dene.', failure_policy.RATE_LIMIT
+    return ('Canlı konuşmaya bağlanılamadı. İnternetini kontrol edip tekrar “Hey Jarvis” de.',
+            category or failure_policy.UNKNOWN)
+
+
 def run(self, services) -> None:
     import sounddevice as sd
     from modules import voice, wakeword
@@ -135,9 +148,10 @@ def frame(self, x, wakeword, services) -> None:
             return
         self._outbox.append(x.tobytes())
         if time.monotonic() - self._since > 25:
-            services.log.warning("Canlı bağlantı 25 sn'de kurulamadı, sıfırlanıyor")
+            message, category = _connection_timeout_message(self)
+            services.log.warning("Canlı bağlantı 25 sn'de kurulamadı, sıfırlanıyor (kategori=%s)", category)
             self._state = 'asleep'
-            self.emit('system', 'Canlı konuşmaya bağlanılamadı. İnternetini kontrol edip tekrar “Hey Jarvis” de.')
+            self.emit('system', message)
             self.emit('state', 'idle')
         return
     speaking = self.player.busy()
