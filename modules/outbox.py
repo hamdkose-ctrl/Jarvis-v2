@@ -6,6 +6,7 @@ import uuid
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from modules import publish_services as services, service_store, requests_state, privacy
+from modules.diagnostics import record_failure as _record_failure
 
 # Conservative personal-assistant budgets, per user; all destinations share them.
 # Unknown outcomes also consume a slot: never assume a failed HTTP response means
@@ -150,6 +151,40 @@ def _result(record):
             'preview':record['payload']}
 
 
+def _permission_decision(owner, payload, now, legacy_expiry, authorized_until):
+    """Existing channel grants stay local to this immutable payload and channel."""
+    try:
+        from modules import permission_classify, permission_gate, permission_grants, permission_audit
+        target = payload['destination']
+        classification = permission_classify.classify('outbox', 'Gönder', target)
+        grants = permission_grants.load(owner)
+        grants = dict(grants)
+        grants['message_out'] = dict(grants.get('message_out', {}))
+        message_operation = (payload['service'] in ('gmail', 'telegram', 'whatsapp')
+                             and payload.get('operation', services.OPERATIONS[payload['service']])
+                             == services.OPERATIONS[payload['service']])
+        if not message_operation:
+            grants['message_out'] = {}  # Mesaj izni yayın veya yorum izni değildir.
+        # Preserve old channel-scoped grants and approved preparation polling.
+        # Never persist these as a new cross-channel standing permission.
+        expiry = max(legacy_expiry or 0, authorized_until or 0,
+                     grants['message_out'].get(target, 0))
+        if expiry > now:
+            grants['message_out'][target] = expiry
+        result = permission_gate.decide(
+            {'class': 'message_out', 'target': target, 'via': 'outbox'}, grants, now)
+        decision, reason = result['decision'], result['reason']
+        if classification != 'message_out':
+            decision, reason = 'deny', 'Bu alıcıya gönderim izin politikasıyla engellendi.'
+        if decision not in ('allow', 'ask', 'deny') or not isinstance(reason, str):
+            raise ValueError('Geçersiz izin kararı.')
+        permission_audit.record(owner, decision, 'message_out', target, 'outbox', reason)
+        return decision, reason
+    except Exception:
+        _record_failure('modules/outbox.py:permission_gate')
+        return 'deny', 'İzin denetimi tamamlanamadı; gönderim yapılmadı.'
+
+
 def dispatch(owner, oid, *, approve=False):
     requests_state.check()
     record=get(owner,oid)
@@ -163,8 +198,12 @@ def dispatch(owner, oid, *, approve=False):
         # Atomic claim across processes; approval is for immutable stored content only.
         allowed=db.execute('SELECT expires FROM grants WHERE service=? AND destination=?',
                            (services.permission_key(payload),payload['destination'])).fetchone()
+        decision, reason = _permission_decision(owner, payload, now,
+                                                allowed['expires'] if allowed else 0, record['authorized_until'])
+        if decision == 'deny':
+            return {'state':'blocked', 'id':oid, 'text':reason}
         sensitive=any(privacy.redact(payload.get(key,''),force=True)!=payload.get(key,'') for key in ('text','subject'))
-        if not approve and record['authorized_until']<=now and (sensitive or not allowed or allowed['expires']<=now):
+        if not approve and (decision == 'ask' or (sensitive and record['authorized_until']<=now)):
             if record['state']=='preparing':db.execute('UPDATE outbox SET updated=? WHERE id=?',(time.time(),oid))
             return _result(record)
         count=db.execute("UPDATE outbox SET state='sending',updated=?,authorized_until=? WHERE id=? AND state IN ('prepared','preparing') AND digest=?",
