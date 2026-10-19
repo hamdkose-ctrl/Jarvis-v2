@@ -204,13 +204,15 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
                 raise NotStarted('Dış gönderim kullanıcının açık hedefinde yok; kaynak metin izin veremez.')
             if data['service'] in {'gmail','telegram','whatsapp'}:
                 destination=data['destination'].casefold()
+                contacts=runtime.profile.data.get('contacts',{})
+                explicit_recipient='@' in request or any(name.casefold() in request for name in contacts)
                 authorized=destination in request
-                if not authorized and re.search(r'cevap|yanıt|reply',request):
+                if not authorized and not explicit_recipient and re.search(r'cevap|yanıt|reply',request):
                     from email.utils import parseaddr
                     authorized=any(destination==parseaddr(value.get('snapshot',{}).get('message',{}).get('from',''))[1].casefold()
                         for value in dependencies.values() if value.get('snapshot',{}).get('operation')=='read_message')
                 if not authorized:
-                    for name,value in runtime.profile.data.get('contacts',{}).items():
+                    for name,value in contacts.items():
                         target=value if isinstance(value,str) else value.get('phone',value.get('email','')) if isinstance(value,dict) else ''
                         if name.casefold() in request and destination==str(target).casefold():authorized=True
                 if not authorized:raise NotStarted('Kesin gönderim hedefi kullanıcı isteği, kayıtlı kişi veya doğrulanmış cevap mailiyle eşleşmiyor.')

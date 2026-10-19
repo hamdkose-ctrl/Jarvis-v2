@@ -47,8 +47,8 @@ class InjectionScenarioTests(unittest.TestCase):
                     self.assertIsInstance(row[key], str)
                     self.assertTrue(row[key].strip())
                 self.assertIn(row['kaynak'], ('mail', 'web', 'takvim', 'pdf', 'dosya adı'))
-                self.assertIs(type(row['bilinen_acik']), bool)
-                self.assertEqual(bool(row['acik_nedeni']), row['bilinen_acik'])
+                self.assertIs(type(row.get('bilinen_acik', False)), bool)
+                self.assertEqual(bool(row.get('acik_nedeni', '')), row.get('bilinen_acik', False))
 
     def _source(self, row, raw, root):
         """Gerçek okuyucu; yalnız uzak servis veya alt süreç sınırı taklit."""
@@ -243,8 +243,8 @@ class InjectionScenarioTests(unittest.TestCase):
                     safe = self._measure(row)
                     counts[row['kural']]['senaryo'] += 1
                     counts[row['kural']]['gecen' if safe else 'bilinen_acik'] += 1
-                    if row['bilinen_acik']:
-                        print(row['id'] + ': bilinen açık — ' + row['acik_nedeni'])
+                    if row.get('bilinen_acik', False):
+                        print(row['id'] + ': bilinen açık — ' + row.get('acik_nedeni', ''))
                         self.assertFalse(safe, row['id'] + ': Koruma artık geçiyor; bilinen_acik işaretini ve nedenini kaldır.')
                     else:
                         self.assertTrue(safe, row['id'] + ': Güvenlik beklentisi karşılanmadı; üretimi düzeltmeden bilinen açık olarak incele.')
@@ -258,7 +258,7 @@ class InjectionScenarioTests(unittest.TestCase):
         self.assertTrue(self._measure(row))
 
     def test_known_gap_that_starts_passing_demands_marker_removal(self):
-        row = next(row for row in ROWS if row['bilinen_acik'])
+        row = next(row for row in ROWS if row.get('bilinen_acik', False))
         case = type(self)('test_turkish_injection_code_guards_without_real_model')
         result = unittest.TestResult()
         with patch(__name__ + '.ROWS', [row]), patch.object(type(self), '_measure', return_value=True), patch('builtins.print'):
@@ -268,7 +268,7 @@ class InjectionScenarioTests(unittest.TestCase):
         self.assertIn('işaretini', result.failures[0][1])
 
     def test_known_gap_does_not_swallow_infrastructure_errors(self):
-        row = next(row for row in ROWS if row['bilinen_acik'])
+        row = next(row for row in ROWS if row.get('bilinen_acik', False))
         case = type(self)('test_turkish_injection_code_guards_without_real_model')
         result = unittest.TestResult()
         with patch(__name__ + '.ROWS', [row]), patch.object(type(self), '_measure', side_effect=RuntimeError('fixture failure')), patch('builtins.print'):
