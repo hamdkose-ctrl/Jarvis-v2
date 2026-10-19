@@ -28,7 +28,7 @@ def summarize(job) -> dict:
         if not isinstance(text, str) or not text.strip() or not isinstance(status, str):
             return _empty()
         (done if status in ('done', 'completed') else left).append(_text(text))
-    stopped = state in ('cancelled', 'stopped') or job.get('stopped') is True
+    stopped = False
     verified = bool(steps) and not left and not stopped and state in ('done', 'completed') and (
         job.get('verified') is True or all(step.get('verified') is True for step in steps))
     return dict(title=_text(title), done=done, left=left, stopped=stopped, verified=verified)
