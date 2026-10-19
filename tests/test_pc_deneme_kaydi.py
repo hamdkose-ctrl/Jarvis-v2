@@ -118,9 +118,15 @@ class PcDenemeKaydiTests(unittest.TestCase):
 
     def test_real_item_list_is_complete_and_unique(self):
         ids = [item['id'] for item in kayit.ITEMS]
-        self.assertEqual(ids, ['A1', 'A2', 'A3', 'A4', 'A5', 'B1', 'B2', 'B3', 'B4'])
+        self.assertEqual(ids, ['A1', 'A2', 'A3', 'A4', 'A5', 'B1', 'B2', 'B3', 'B4',
+                               'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7'])
+        self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(all(len(item['text']) > 30 for item in kayit.ITEMS))
         self.assertFalse(any('Rapordaki' in item['text'] for item in kayit.ITEMS))
+        for item in kayit.ITEMS:
+            self.assertEqual(item['group'], item['id'][0])
+            if item['group'] == 'C':
+                self.assertIn('Beklenen:', item['text'])
 
 
 if __name__ == '__main__':
