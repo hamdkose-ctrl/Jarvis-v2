@@ -26,25 +26,33 @@ def _has(text, phrases):
 
 def classify(via: str, name: str, target: str = '') -> str:
     """Yol ve etiketi sınıflandırır; tanınmayan eylem ASLA salt okuma sayılmaz."""
+    return classify_detail(via, name, target)[0]
+
+
+def classify_detail(via: str, name: str, target: str = '') -> tuple[str, bool]:
+    """(sınıf, tanındı). Tanınmadı = hiçbir kurala uymadı; sınıf yine system_config'tir.
+
+    Çağıran yol, tanınmayan adı kendi mevcut politikasına bırakabilir (ör. masaüstünde
+    Hesap Makinesi rakam düğmeleri); geçersiz girdi de tanınmadı sayılır."""
     if (not isinstance(via, str) or not isinstance(name, str) or not isinstance(target, str)
             or len(via) > 32 or len(name) > 512 or len(target) > 2048):
-        return 'system_config'
+        return 'system_config', False
     via, name, target = _normal(via), _normal(name), _normal(target)
     if via not in _VIAS or not name:
-        return 'system_config'
+        return 'system_config', False
     # Açık para/kimlik ve sistem hedefleri genel bir "Aç" etiketinden önce gelir.
     if _has(name, _MONEY) or _has(target, _MONEY):
-        return 'money_credential'
+        return 'money_credential', True
     if _has(name, _SYSTEM) or _has(target, _SYSTEM):
-        return 'system_config'
+        return 'system_config', True
     if _has(name, _DESTROY):
-        return 'local_destructive'
+        return 'local_destructive', True
     if _has(name, _PUBLISH):
-        return 'publish'
+        return 'publish', True
     if _has(name, _SEND):
-        return 'message_out'
+        return 'message_out', True
     if name in _READ:
-        return 'read'
+        return 'read', True
     if via in {'file', 'desktop'} and name in _REVERSIBLE:
-        return 'local_reversible'
-    return 'system_config'
+        return 'local_reversible', True
+    return 'system_config', False
