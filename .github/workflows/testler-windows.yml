@@ -1,7 +1,8 @@
 name: Windows testleri
 
+# Actions dakikası kısıtlı: Windows testi her PR push'unda değil, yalnız main'e birleşmede
+# ve elle (Actions > Windows testleri > Run workflow, birleşmeden önce istenen dalda) çalışır.
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
