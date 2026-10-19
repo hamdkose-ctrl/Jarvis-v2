@@ -445,6 +445,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         try:
             out = self._snapshot_impl()
             out["engine_running"] = _engine_running
+            out["working"] = getattr(hub, "state", "idle") == "thinking"
             return out
         except Exception as exc:  # noqa: BLE001
             _record_failure('web.py:snapshot')
@@ -498,6 +499,12 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         engine.set_sleep(bool(on))
         hub.publish("state", hub.state)
         return dict(engine.flags)
+
+    def stop_task(self) -> dict:
+        """Durdur düğmesi: yalnız çalışan işi iptal eder (mikrofon/konuşma açık kalır)."""
+        engine.requests_state.cancel(_p().slug)
+        hub.publish("state", "idle")
+        return {"stopped": True, "msg": "Görev durduruldu."}
 
     def emergency(self) -> str:
         from modules import pc_guide
