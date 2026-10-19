@@ -452,8 +452,42 @@ def _ensure(owner, current):
         raise ValueError(message)
 
 
-def _perform(job, snapshot, action, ui, emit, current):
+def _permission_decision(job, snapshot, action):
+    """Additional fail-closed gate; existing UIA and approval restrictions remain."""
+    try:
+        from modules import permission_classify, permission_gate, permission_grants, permission_audit
+        target = snapshot.get('app', '')
+        name = _control(snapshot, action['control']).get('name', '')
+        kind = permission_classify.classify('desktop', name, target)
+        result = permission_gate.decide({'class': kind, 'target': target, 'via': 'desktop'},
+                                        permission_grants.load(job['owner']), time.time())
+        decision, reason = result['decision'], result['reason']
+        if decision not in ('allow', 'ask', 'deny') or not isinstance(reason, str):
+            raise ValueError('Geçersiz izin kararı.')
+        permission_audit.record(job['owner'], decision, kind, target, 'desktop', reason)
+    except Exception:
+        _record_failure('modules/desktop_agent.py:permission_gate')
+        raise ValueError('İzin denetimi tamamlanamadı; masaüstü işlemi yapılmadı.') from None
+    if decision == 'deny':
+        raise ValueError(' '.join(reason.split())[:200] or 'Bu masaüstü işlemi izin politikası nedeniyle yapılmadı.')
+    return decision
+
+
+def _approval(job, snapshot, action):
+    ident = uuid.uuid4().hex[:12]
+    job['approval'] = {'id': ident, 'at': time.time(), 'digest': desktop_uia.digest(snapshot), 'action': action}
+    job['status'] = 'approval'
+    item = _control(snapshot, action['control'])
+    job['message'] = 'Somut işlem: '+action['op']+' → '+item['name']+ ('\nYeni metin: '+action.get('value', '') if action['op'] == 'fill' else '') + '\nUygulamak için “PC onayla '+ident+'”, iptal için “PC görevi iptal” yaz.'
+    _save(job)
+
+
+def _perform(job, snapshot, action, ui, emit, current, *, approved=False):
     _ensure(job['owner'], current)
+    decision = _permission_decision(job, snapshot, action)
+    if not approved and (decision == 'ask' or needs_approval(snapshot, action)):
+        _approval(job, snapshot, action)
+        return None
     # Journal intent before interacting: an interrupted action is never blindly replayed.
     job['pending_effect'] = {'action': action, 'at': time.time()}
     job['status'] = 'checking'; _save(job)
@@ -535,7 +569,7 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
                 _save(job); return render(job)
             action = validate(snapshot, pending['action'])
             job['approval'] = None
-            snapshot = _perform(job, snapshot, action, ui, emit, current)
+            snapshot = _perform(job, snapshot, action, ui, emit, current, approved=True)
             if snapshot is None:
                 return render(job)
         job['status'] = 'running'; _save(job)
@@ -594,13 +628,6 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
                 snapshot = ui.observe(job['target'], job['hwnd'])
                 validate(snapshot, action)
                 job['status'] = 'done'; job['message'] = str(action.get('message') or 'Hedef sonucu doğrulandı.')[:600] + '\nEkran kanıtı: ' + str(action['expect'])
-                _save(job); return render(job)
-            if needs_approval(snapshot, action):
-                ident = uuid.uuid4().hex[:12]
-                job['approval'] = {'id': ident, 'at': time.time(), 'digest': desktop_uia.digest(snapshot), 'action': action}
-                job['status'] = 'approval'
-                item = _control(snapshot, action['control'])
-                job['message'] = 'Somut işlem: '+action['op']+' → '+item['name']+ ('\nYeni metin: '+action.get('value', '') if action['op'] == 'fill' else '') + '\nUygulamak için “PC onayla '+ident+'”, iptal için “PC görevi iptal” yaz.'
                 _save(job); return render(job)
             snapshot = _perform(job, snapshot, action, ui, emit, current)
             if snapshot is None:
