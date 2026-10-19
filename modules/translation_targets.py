@@ -7,5 +7,5 @@ def target_from_command(command: str) -> str:
     names = {'turkce': 'Türkçe', 'ingilizce': 'İngilizce', 'almanca': 'Almanca',
              'fransizca': 'Fransızca', 'arapca': 'Arapça', 'rusca': 'Rusça', 'ispanyolca': 'İspanyolca'}
     matches = re.findall(r"\b(turkce|ingilizce|almanca|fransizca|arapca|rusca|ispanyolca)(?:['’]?ye|['’]?ya)?\b(?!den|dan)", normalized)
-    return names[matches[-1]] if matches else ''
+    return names[matches[0]] if matches else ''
 
