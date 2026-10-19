@@ -19,7 +19,7 @@ class PermissionDesktopTests(unittest.TestCase):
         self.audit=self.enterContext(patch.object(permission_audit,'record'))
         self.failure=self.enterContext(patch.object(agent,'_record_failure'))
         self.decide=self.enterContext(patch.object(permission_gate,'decide',return_value={'decision':'allow','reason':'İzinli.'}))
-        self.classify=self.enterContext(patch.object(permission_classify,'classify',return_value='local_reversible'))
+        self.classify=self.enterContext(patch.object(permission_classify,'classify_detail',return_value=('local_reversible',True)))
         self.ui=FakeUI()
         self.job={'owner':'alice','target':'Hesap Makinesi','goal':'12 ile 7 topla','status':'running',
                   'history':[],'hwnd':None,'approval':None,'pending_effect':None}
@@ -96,3 +96,13 @@ class PermissionDesktopTests(unittest.TestCase):
         self.run_job()
         self.assertEqual(self.ui.calls,[])
         self.assertEqual(self.job['status'],'blocked')
+
+    def test_unrecognized_name_defers_to_existing_policy_without_asking(self):
+        self.classify.return_value=('system_config',False)
+        self.decide.return_value={'decision':'ask','reason':'Sistem ayarı onay ister.'}
+        self.run_job()
+        self.decide.assert_not_called()
+        self.assertEqual(len(self.ui.calls),1)
+        self.assertEqual(self.job['status'],'done')
+        self.audit.assert_called_with('alice','allow','system_config','calculatorapp','desktop','Tanınmayan ad; mevcut masaüstü onay politikası geçerli.')
+

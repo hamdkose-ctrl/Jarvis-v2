@@ -458,10 +458,14 @@ def _permission_decision(job, snapshot, action):
         from modules import permission_classify, permission_gate, permission_grants, permission_audit
         target = snapshot.get('app', '')
         name = _control(snapshot, action['control']).get('name', '')
-        kind = permission_classify.classify('desktop', name, target)
-        result = permission_gate.decide({'class': kind, 'target': target, 'via': 'desktop'},
-                                        permission_grants.load(job['owner']), time.time())
-        decision, reason = result['decision'], result['reason']
+        kind, known = permission_classify.classify_detail('desktop', name, target)
+        if known:
+            result = permission_gate.decide({'class': kind, 'target': target, 'via': 'desktop'},
+                                            permission_grants.load(job['owner']), time.time())
+            decision, reason = result['decision'], result['reason']
+        else:
+            # Tanınmayan ad (ör. Hesap Makinesi rakamı): ek sorma yok, mevcut needs_approval politikası geçerli.
+            decision, reason = 'allow', 'Tanınmayan ad; mevcut masaüstü onay politikası geçerli.'
         if decision not in ('allow', 'ask', 'deny') or not isinstance(reason, str):
             raise ValueError('Geçersiz izin kararı.')
         permission_audit.record(job['owner'], decision, kind, target, 'desktop', reason)

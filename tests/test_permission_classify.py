@@ -61,5 +61,18 @@ class PermissionClassifyTests(unittest.TestCase):
             self.assertEqual(decide(action, now=100)['decision'], decision)
 
 
+
+
+class ClassifyDetailTests(unittest.TestCase):
+    def test_known_and_unknown_are_distinguished_without_changing_classify(self):
+        from modules import permission_classify as pc
+        self.assertEqual(pc.classify_detail('desktop', 'Gönder', 'x'), ('message_out', True))
+        self.assertEqual(pc.classify_detail('desktop', 'Topla', 'calculatorapp'), ('system_config', False))
+        self.assertEqual(pc.classify_detail('bilinmeyen', 'Aç'), ('system_config', False))
+        self.assertEqual(pc.classify_detail(None, 'Aç'), ('system_config', False))
+        for args in [('desktop', 'Topla', 'calculatorapp'), ('desktop', 'Gönder', ''), ('browser', 'Aç', '')]:
+            self.assertEqual(pc.classify(*args), pc.classify_detail(*args)[0])
+
+
 if __name__ == '__main__':
     unittest.main()
