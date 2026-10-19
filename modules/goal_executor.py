@@ -23,6 +23,8 @@ _CANCEL_REQUESTED=set()
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
 PLANNER_SECONDS=60
+STALE_SECONDS=6*3600     # bu kadar eski yarım iş "açık" sayılmaz; bare devam/iptal ona dokunmaz
+QUESTION_SECONDS=600     # sorulmuş bir hedef yalnız bu süre içinde sıradaki cümleyi cevap sayar
 RESUME_COMMANDS=frozenset({'devam','devam et','sürdür','surdur','hedef devam','hedef sürdür','hedef surdur'})
 _INTERNAL_FAILURE_HINTS=(
     'data.headlines','data operation=sources','known_news_sources','url yolu uydurma',
@@ -96,8 +98,28 @@ def _root(owner):
 
 def _save(job):
     root=_root(job['owner'])
+    job['updated']=time.time()
     release_guard.atomic(root/(job['id']+'.json'),json.dumps(job,ensure_ascii=False).encode('utf-8'))
     release_guard.atomic(root/'latest.json',json.dumps({'id':job['id']}).encode())
+
+
+def age(job):
+    """İşin son hareketinden bu yana saniye; damga yoksa 0 (eski davranış)."""
+    stamp=job.get('updated') or job.get('created')
+    return max(0,time.time()-stamp) if isinstance(stamp,(int,float)) else 0
+
+
+def is_open(job):
+    """Kullanıcının sürdürebileceği iş: bitmemiş ve bayat değil."""
+    return bool(job) and job.get('state') not in {'done','cancelled'} and age(job)<=STALE_SECONDS
+
+
+def _closed_reply(job):
+    if job['state']=='done':return 'Açık hedef yok; son hedef tamamlandı. Sonucu görmek için “hedef durumu” de.'
+    if job['state']=='cancelled':return 'Açık hedef yok; son hedef iptal edilmişti. Sonucu görmek için “hedef durumu” de.'
+    hours=max(1,int(age(job)//3600))
+    return (f'Açık hedef yok; son hedef {hours} saat önce yarım kalmıştı. Yine de sürdürmek için “hedef devam”, '
+            'kapatmak için “hedef iptal” de ya da yeni isteğini söyle.')
 
 
 def latest(owner):
@@ -513,8 +535,18 @@ def control_key(job):
     return hashlib.sha256(json.dumps(view,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
+def _quota_wait():
+    """Tüm modeller 429 beklemesindeyse kalan saniye; sorgu hata verirse işi engellemez."""
+    try:return llm.quota_wait_seconds()
+    except Exception:
+        _record_failure('modules/goal_executor.py:quota')
+        return 0
+
+
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     owner=runtime.profile.slug
+    if not resume and not approve and (wait:=_quota_wait())>0:
+        return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
                     expected_job_id=expected_job_id,expected_control=expected_control)
@@ -559,7 +591,8 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                 if output['state']!='done':return render(job)
             if job['state']=='review':return render(job)
         else:
-            if job and job['state'] in {'running','approval','review'}:return render(job)
+            if job and job['state'] in {'running','approval','review'} and is_open(job):
+                return ('Önceki hedef bitmedi, bu yüzden yeni iş açılmadı. Onu kapatmak için “hedef iptal” de.\n\n' if job['state']=='review' else '')+render(job)
             job={'id':uuid.uuid4().hex[:16],'owner':owner,'request':request,'created':time.time(),
                  'state':'running','goals':[],'steps':[],'outputs':{}}
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
@@ -653,7 +686,7 @@ def handle(runtime,command):
         if bound[1].casefold()=='yanıtla' and not (bound[4] or '').strip():raise ValueError('Yanıt boş olamaz.')
         return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',expected_job_id=bound[2],expected_control=bound[3])
     if job and job['state']=='approval' and low in {'evet','onaylıyorum','onayla'}:low='hedef onayla'
-    if job and job['state'] not in {'done','cancelled'} and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
+    if is_open(job) and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
     if low in {'hedef durumu','işin durumu','hedef ayrıntıları'}:return render(job) if job else 'Kayıtlı hedef yok.'
     if low=='hedef iptal' and job:
         if job['state']=='approval':
@@ -667,8 +700,9 @@ def handle(runtime,command):
         job['state']='cancelled';_save(job);return render(job)
     if low in {'hedef onayla'}:return run(runtime,command,resume=True,approve=True)
     if low in RESUME_COMMANDS:
+        if job and not low.startswith('hedef') and not is_open(job):return _closed_reply(job)
         return run(runtime,command,resume=True)
-    if job and job['state']=='question':
+    if job and job['state']=='question' and age(job)<=QUESTION_SECONDS:
         from modules.work_modes import ends_with_action
         if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
     if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())

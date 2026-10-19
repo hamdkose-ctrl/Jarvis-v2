@@ -246,4 +246,40 @@ class SmartRouterTests(unittest.TestCase):
         self.assertIn('istek/token sınır',router.failure_text(error))
         self.assertNotIn('dol',router.failure_text(error))
 
+    def test_ollama_missing_hint_is_safe_and_specific(self):
+        from modules import ollama_hint
+        with patch.object(router,'candidates',return_value=['ollama']), \
+             patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
+            with self.assertRaises(RuntimeError) as caught:
+                router.run('alice','test',Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))))
+        message=str(caught.exception)
+        self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)',message)
+        self.assertIn('(LocalModelError)',message)
+        self.assertEqual(router.status('alice')['last']['attempts'][0].get('hint'),'ollama_missing')
+
+    def test_ollama_model_missing_does_not_get_install_hint(self):
+        error=llm.LocalModelError('Model bulunamadı; ollama pull llama3.2 çalıştır.')
+        with patch.object(router,'candidates',return_value=['ollama']), \
+             patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
+            with self.assertRaises(RuntimeError) as caught:
+                router.run('alice','test',Mock(side_effect=error))
+        self.assertNotIn('Ollama yüklü değil',str(caught.exception))
+        self.assertNotIn('hint',router.status('alice')['last']['attempts'][0])
+        self.assertIn('ollama: çağrı başarısız (LocalModelError)',str(caught.exception))
+
+    def test_groq_429_detail_is_unchanged(self):
+        attempt={'provider':'groq','ok':False,'error':'HTTPError','kind':'quota','status':429}
+        self.assertEqual(router.failure_detail(attempt),'groq: kota veya hız sınırı (HTTPError, HTTP 429)')
+
+    def test_ollama_hint_never_exposes_raw_error_text(self):
+        from modules import ollama_hint
+        secret='PRIVATE'
+        error=llm.LocalModelError(ollama_hint.need('Yerel model') + secret)
+        with patch.object(router,'candidates',return_value=['ollama']), \
+             patch.object(router,'selection',return_value={'candidates':['ollama'],'skipped':[]}):
+            with self.assertRaises(RuntimeError) as caught:
+                router.run('alice','test',Mock(side_effect=error))
+        self.assertNotIn(secret,str(caught.exception))
+        self.assertNotIn(secret,json.dumps(router.status('alice')['last']))
+
 if __name__=='__main__':unittest.main()
