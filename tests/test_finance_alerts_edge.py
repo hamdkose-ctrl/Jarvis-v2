@@ -74,14 +74,13 @@ class FinanceAlertsEdgeTests(unittest.TestCase):
 
     def test_same_price_does_not_fire_twice(self):
         rows = [
-            (rule('above', 100), 101),
-            (rule('below', 100), 99),
-            (rule('pct_up', 10), 110),
-            (rule('pct_down', 10), 90),
+            (rule('above', 100), {'price': 99, 'fired_at': None}, 101),
+            (rule('below', 100), {'price': 101, 'fired_at': None}, 99),
+            (rule('pct_up', 10), {'price': 100, 'fired_at': None}, 110),
+            (rule('pct_down', 10), {'price': 100, 'fired_at': None}, 90),
         ]
-        for alarm_rule, price in rows:
+        for alarm_rule, base, price in rows:
             with self.subTest(op=alarm_rule['op']):
-                base = {'price': 100, 'fired_at': None}
                 first = alerts.evaluate(alarm_rule, price, base, now=1000)
                 self.assertTrue(first['fire'])
                 second = alerts.evaluate(alarm_rule, price, first['state'], now=2000)
