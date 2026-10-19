@@ -25,7 +25,12 @@ class HocaError(Exception):
 
 
 def _state(profile) -> dict:
-    s = profile.data.setdefault("hoca", {})
+    if not isinstance(getattr(profile, "data", None), dict):
+        profile.data = {}
+    s = profile.data.get("hoca")
+    if not isinstance(s, dict):
+        s = {}
+        profile.data["hoca"] = s
     if not isinstance(s.get("lesson"), (dict, type(None))):
         s["lesson"] = None
     s.setdefault("lesson", None)
@@ -112,13 +117,20 @@ def current_step(profile) -> dict | None:
     if not lesson:
         return None
     i = lesson.get("active", 0)
-    steps = lesson.get("steps") or []
-    return steps[i] if 0 <= i < len(steps) else None
+    steps = lesson.get("steps")
+    if isinstance(i, bool) or not isinstance(i, int) or not isinstance(steps, list):
+        return None
+    if not 0 <= i < len(steps):
+        return None
+    step = steps[i]
+    return step if isinstance(step, dict) else None
 
 
 def context_for(profile) -> str:
     """Aktif adımın kısa, salt okunur bağlamı; modele/ağa başvurmaz."""
-    lesson = (profile.data.get("hoca") or {}).get("lesson")
+    data_ = getattr(profile, "data", None)
+    hoca = data_.get("hoca") if isinstance(data_, dict) else None
+    lesson = hoca.get("lesson") if isinstance(hoca, dict) else None
     if not isinstance(lesson, dict) or lesson.get("done"):
         return ""
     step = current_step(profile)
@@ -219,21 +231,24 @@ def grade(profile, reply: str, now: float | None = None) -> dict:
     now = time.time() if now is None else now
     lesson = active(profile)
     pending = lesson.get("pending") if lesson else None
-    if not pending:
+    step = current_step(profile) if lesson else None
+    if not isinstance(pending, dict) or not step:
         raise HocaError("Bekleyen bir kontrol sorusu yok.")
-    data = _ask(f"Soru: {pending['question']}\nBeklenen: {pending['answer']}\nÖğrencinin cevabı: {_clip(reply, 500)}",
+    question = _clip(pending.get("question"), 300)
+    expected = _clip(pending.get("answer"), 300)
+    if not question or not expected:
+        raise HocaError("Bekleyen bir kontrol sorusu yok.")
+    data = _ask(f"Soru: {question}\nBeklenen: {expected}\nÖğrencinin cevabı: {_clip(reply, 500)}",
                 "Öğrencinin cevabını beklenen cevapla karşılaştır; anlam doğruysa kabul et. Yalnız JSON ver: "
                 "{\"correct\":true|false,\"feedback\":\"tek cümle\"}.", 200, 'grade', 'Cevap değerlendirmesi')
     if not isinstance(data.get("correct"), bool):
         raise HocaError("Cevap değerlendirmesi anlaşılamadı. Biraz sonra tekrar dene.")
     ok = data["correct"]
-    step = current_step(profile)
-    expected = pending["answer"]
     lesson["pending"] = None
     if ok:
         advance(profile)
     else:
-        _mark_weak(profile, lesson["topic"], step, now)
+        _mark_weak(profile, lesson.get("topic"), step, now)
     profile.save()
     return {"correct": ok, "feedback": _clip(data.get("feedback"), 300), "expected": expected}
 
@@ -248,12 +263,19 @@ def _weak(profile) -> list:
 
 
 def _mark_weak(profile, topic, step, now) -> None:
-    wid = f"{_clip(topic, 60)}::{step['title']}"
+    if not isinstance(step, dict):
+        raise HocaError("Aktif ders adımı bozuk; bu cevap kaydedilemedi.")
+    title = _clip(step.get("title"), _TITLE_MAX)
+    goal = _clip(step.get("goal"), _GOAL_MAX)
+    if not title or not goal:
+        raise HocaError("Aktif ders adımı bozuk; bu cevap kaydedilemedi.")
+    topic = _clip(topic, _TOPIC_MAX)
+    wid = f"{_clip(topic, 60)}::{title}"
     for w in _weak(profile):
-        if w["id"] == wid:
+        if isinstance(w, dict) and w.get("id") == wid:
             w.update(stage=0, good=0, due=now + _DAY)
             return
-    _weak(profile).append({"id": wid, "topic": topic, "title": step["title"], "goal": step["goal"],
+    _weak(profile).append({"id": wid, "topic": topic, "title": title, "goal": goal,
                            "stage": 0, "good": 0, "due": now + _DAY})
 
 
@@ -263,23 +285,38 @@ def weak_topics(profile) -> list[dict]:
 
 def due_reviews(profile, now: float | None = None) -> list[dict]:
     now = time.time() if now is None else now
-    return [w for w in _weak(profile) if w["due"] <= now]
+    rows = []
+    for w in _weak(profile):
+        if not isinstance(w, dict):
+            continue
+        due = w.get("due")
+        if isinstance(due, bool) or not isinstance(due, (int, float)):
+            continue
+        if due <= now:
+            rows.append(w)
+    return rows
 
 
 def review_result(profile, wid: str, correct: bool, now: float | None = None) -> None:
     now = time.time() if now is None else now
     weak = _weak(profile)
     for w in weak:
-        if w["id"] != wid:
+        if not isinstance(w, dict) or w.get("id") != wid:
             continue
         if not correct:
             w.update(stage=0, good=0, due=now + _DAY)
         else:
-            w["good"] += 1
+            good = w.get("good", 0)
+            stage = w.get("stage", 0)
+            if isinstance(good, bool) or not isinstance(good, int) or good < 0:
+                good = 0
+            if isinstance(stage, bool) or not isinstance(stage, int) or not 0 <= stage < len(_INTERVALS):
+                stage = 0
+            w["good"] = good + 1
             if w["good"] >= 2:
                 weak.remove(w)
             else:
-                w["stage"] = min(w["stage"] + 1, len(_INTERVALS) - 1)
+                w["stage"] = min(stage + 1, len(_INTERVALS) - 1)
                 w["due"] = now + _INTERVALS[w["stage"]] * _DAY
         profile.save()
         return
@@ -325,12 +362,16 @@ def give_up(profile, now: float | None = None) -> str:
     now = time.time() if now is None else now
     lesson = active(profile)
     pending = lesson.get("pending") if lesson else None
-    if not pending:
+    step = current_step(profile) if lesson else None
+    if not isinstance(pending, dict) or not step:
         raise HocaError("Bekleyen bir kontrol sorusu yok.")
-    _mark_weak(profile, lesson["topic"], current_step(profile), now)
+    answer = _clip(pending.get("answer"), 300)
+    if not answer:
+        raise HocaError("Bekleyen bir kontrol sorusu yok.")
+    _mark_weak(profile, lesson.get("topic"), step, now)
     lesson["pending"] = None
     profile.save()
-    return pending["answer"]
+    return answer
 
 
 def stop(profile) -> None:
