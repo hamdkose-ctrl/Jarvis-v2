@@ -78,7 +78,7 @@ def evaluate(rule: dict, price: float | int | None, previous: dict | None = None
     threshold_text = f'{value:g}'
 
     if op == 'above':
-        candidate = current >= value and (old_price is None or old_price < value)
+        candidate = current > value and (old_price is None or old_price < value)
         reason = f'{symbol} fiyatı {current:g}; üst eşik {threshold_text}.'
     elif op == 'below':
         candidate = current < value and (old_price is None or old_price > value)
