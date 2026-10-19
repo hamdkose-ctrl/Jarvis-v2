@@ -384,6 +384,9 @@ def _mail_handle(runtime, cmd_lower: str) -> str | None:
     return reply
 
 def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
+    from modules import finance_alert_commands
+    if finance_alert_commands.matches(command):
+        return finance_alert_commands.handle(runtime.profile.slug, command)
     plug = runtime.plugins.handle(command, cmd_lower)
     if plug:
         return plug
