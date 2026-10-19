@@ -310,8 +310,9 @@ def brief_line() -> str | None:
         _record_failure('modules/worktrack.py:brief_line')
         return None
     d = [x for x in f["dated"] if x["when"].date() <= (datetime.now() + timedelta(days=2)).date()]
-    parts = [f"son 24 saatte {len(f['recent'])} iş maili ({sum(1 for x in f['recent'] if x['direct'])} doğrudan sana, "
-             f"{f['cc_only']} bilgide)", f"cevap bekleyen {len(needs_reply(collect(7)))}"]
+    parts = [f"son 24 saatte {len(f['recent'])} iş maili geldi (okunmuş olanlar dahil; "
+             f"{sum(1 for x in f['recent'] if x['direct'])} doğrudan sana, {f['cc_only']} bilgide)",
+             f"son 7 günde cevap bekleyen {len(needs_reply(collect(7)))}"]
     if d:
         parts.append("yaklaşan: " + "; ".join(f"{_fmt_when(x['when'], x['has_time'])} {x['subject']}" for x in d[:3]))
     if f["vip"]:
