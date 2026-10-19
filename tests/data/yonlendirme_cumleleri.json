@@ -257,6 +257,46 @@
    "beklenen": "task"
   },
   {
+   "metin": "thy hissesi kaç lira",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "bist 100 kaç puan",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "garanti hissesi ne kadar",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "10 thy hissesi kaç lira",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "thy bileti kaç lira",
+   "model": "task",
+   "beklenen": "task"
+  },
+  {
+   "metin": "koç üniversitesi kaç puan istiyor",
+   "model": "chat",
+   "beklenen": "chat"
+  },
+  {
+   "metin": "şişe kaç lira",
+   "model": "clarify",
+   "beklenen": "clarify"
+  },
+  {
+   "metin": "ev hissesi kaç",
+   "model": "clarify",
+   "beklenen": "clarify"
+  },
+  {
    "metin": "güncel yapay zeka haberleri neler",
    "model": "chat",
    "beklenen": "task"

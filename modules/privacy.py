@@ -51,7 +51,7 @@ def _luhn(num: str) -> bool:
 
 
 _PATTERNS = [
-    ("anahtar", re.compile(r"\b(?:AIza[0-9A-Za-z_\-]{30,}|sk-[A-Za-z0-9_\-]{20,}|gsk_[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9\-]{10,})\b")),
+    ("anahtar", re.compile(r"\b(?:AIza[0-9A-Za-z_\-]{30,}|sk-[A-Za-z0-9_\-]{20,}|gsk_[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9\-]{10,}|(?:AKIA|ASIA)[A-Z0-9]{16})\b")),
     ("e-posta", re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")),
     ("iban", re.compile(r"\bTR\d{2}(?:\s?\d{4}){5}\s?\d{2}\b", re.I)),
 ]
@@ -66,6 +66,14 @@ _BEARER = re.compile(
     r"(?![A-Za-z0-9._~+/=-])",
     re.I,
 )
+_BASIC = re.compile(
+    r"(\bBasic[ \t]+)(?!" + _MASKED_VALUE + r")[A-Za-z0-9+/]{8,}={0,2}(?![A-Za-z0-9+/=])",
+    re.I,
+)
+_QUERY_KEY = re.compile(
+    r"([?&](?:key|apikey|api_key|access_token|token|sig|signature)=)(?!" + _MASKED_VALUE + r")[^\s&#]{6,}",
+    re.I,
+)
 _CARD = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
 _TCKN = re.compile(r"\b[1-9]\d{10}\b")
 _PHONE = re.compile(r"(?<!\d)(?:\+?90[\s-]?)?0?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}(?!\d)")
@@ -76,6 +84,8 @@ def redact(text: str, force: bool = False) -> str:
     if not text or not (force or redact_enabled() or mode() == "gizli"):
         return text
     text = _BEARER.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
+    text = _BASIC.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
+    text = _QUERY_KEY.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
     text = _LABELED_SECRET.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
     for label, pat in _PATTERNS:
         text = pat.sub(f"[{label} gizlendi]", text)

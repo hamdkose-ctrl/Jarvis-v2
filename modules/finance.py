@@ -1,10 +1,11 @@
-"""Döviz kuru, kripto ve gram altın soruları ve çevirisi: modelsiz, kaynak ve tarih söyleyerek.
+"""Döviz, kripto, gram altın ve BIST fiyatı: modelsiz, kaynak ve tarih söyleyerek.
 
 Yalnız açık kur soruları yakalanır ("dolar kaç lira", "100 dolar kaç TL", "euro kaç dolar"); geçmiş tarih,
 yorum/tahmin, alarm/hatırlatma ve "euro 2024" gibi para birimi olmayan kullanımlar None döner ve diğer
 yollara bırakılır. Birincil kaynak TCMB today.xml (resmî gösterge, döviz satış), TCMB'de olmayan para birimi
 veya TCMB'ye ulaşılamazsa Frankfurter v2. Kripto ve gram altın CoinGecko'dan, olmazsa BtcTurk genel API'sinden (altın PAXG/TRY'den
-hesaplanır). Kaynak yanıtından yalnız sayı ve tarih okunur, metin modele gitmez.
+hesaplanır). BIST için Yahoo Finance gecikmeli TRY fiyatı okunur. Kaynak yanıtından yalnız sayı
+ve tarih okunur, metin modele gitmez.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, DecimalException, InvalidOperation, ROUND_HALF_UP
 
 TCMB_URL = 'https://www.tcmb.gov.tr/kurlar/today.xml'
 FRANKFURTER_URL = 'https://api.frankfurter.dev/v2/rate/{code}/try'
@@ -22,6 +23,7 @@ BTCTURK_URL = 'https://api.btcturk.com/api/v2/ticker?pairSymbol={pair}'
 COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price?ids={id}&vs_currencies=try&include_24hr_change=true&include_last_updated_at=true'
 COINGECKO_IDS = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'USDT': 'tether', 'XRP': 'ripple', 'SOL': 'solana',
                  'DOGE': 'dogecoin', 'AVAX': 'avalanche-2', 'ADA': 'cardano', 'PAXG': 'pax-gold'}
+YAHOO_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/{code}.IS?range=1d&interval=1d'
 TTL = 600
 MARKET_TTL = 60
 TROY_OUNCE_GRAMS = Decimal('31.1034768')
@@ -54,6 +56,27 @@ CRYPTO = (
     ('DOGE', 'dogecoin', ('dogecoin', 'doge')),
     ('AVAX', 'avalanche', ('avalanche', 'avax')),
     ('ADA', 'cardano', ('cardano',)),
+)
+STOCKS = (
+    ('THYAO', 'THY', ('turk hava yollari', 'thy')),
+    ('GARAN', 'Garanti', ('garanti bankasi', 'garanti')),
+    ('AKBNK', 'Akbank', ('akbank',)),
+    ('ISCTR', 'İş Bankası', ('is bankasi', 'isbank')),
+    ('YKBNK', 'Yapı Kredi', ('yapi kredi',)),
+    ('HALKB', 'Halkbank', ('halkbank', 'halk bankasi')),
+    ('VAKBN', 'VakıfBank', ('vakifbank', 'vakif bankasi')),
+    ('ASELS', 'Aselsan', ('aselsan',)),
+    ('TUPRS', 'Tüpraş', ('tupras',)),
+    ('EREGL', 'Ereğli', ('eregli', 'erdemir')),
+    ('BIMAS', 'BİM', ('bim',)),
+    ('KCHOL', 'Koç Holding', ('koc holding', 'koc')),
+    ('SAHOL', 'Sabancı Holding', ('sabanci holding', 'sabanci')),
+    ('FROTO', 'Ford Otosan', ('ford otosan', 'ford')),
+    ('SISE', 'Şişecam', ('sisecam', 'sise')),
+    ('TCELL', 'Turkcell', ('turkcell',)),
+    ('PGSUS', 'Pegasus', ('pegasus',)),
+    ('SASA', 'Sasa', ('sasa',)),
+    ('XU100', 'BIST 100', ('bist 100', 'bist100')),
 )
 _GOLD_CUE = r'\b(?:fiyat\w*|ne kadar|kac (?:lira|tl|dolar|euro|para)|kur\w*|eder|kac$|kacta)\b|\b(?:gram|ons) altin'
 _GOLD_OTHER = r'\baltin\w*\s+(?:madalya|top|oran|kural|cag|gun|vurus|saat|kelebek|portakal|kalp|kupa|yildiz|kitap|yumurta|sarisi)'
@@ -139,13 +162,38 @@ def _asset(low: str):
             'source': None, 'list': None}
 
 
+def _stock(text: str, low: str):
+    context = bool(re.search(r'\b(?:hisse\w*|borsa\w*|bist(?:100)?)\b', low))
+    cue = bool(re.search(r'\b(?:kac\w*|ne kadar|fiyat\w*)\b', low))
+    index = re.fullmatch(r'(?:jarvis )?(?:borsa|bist)(?: 100)? (?:kac(?: puan)?|ne durumda|ne kadar)', low.strip('.,'))
+    if index:return {'stock': 'XU100', 'amount': None, 'target': 'TRY', 'source': None, 'list': None}
+    if not cue:return None
+    for code, _name_, stems in STOCKS:
+        upper = len(code) == 5 and re.search(r'\b' + code + '(?i:' + _SUFFIX + r')\b', text)
+        if not context and not upper:continue
+        for stem in (code.lower(), *stems):
+            match = re.search(r'\b' + re.escape(stem) + _SUFFIX + r'\b', low)
+            if match:
+                return {'stock': code, 'amount': None if code == 'XU100' else _amount_before(low, match.start()),
+                        'target': 'TRY', 'source': None, 'list': None}
+    if re.search(r'\bhisse\w*\b', low):
+        for match in re.finditer(r'\b([A-Z]{4,5})(?=\b|[a-zçğıöşü])', text):
+            code = match[1]
+            found = re.search(r'\b' + code.lower() + _SUFFIX + r'\b', low)
+            if found:return {'stock': code, 'amount': _amount_before(low, found.start()),
+                              'target': 'TRY', 'source': None, 'list': None}
+    return None
+
+
 def parse(text: str):
-    """Kur sorusuysa {'amount','source','target','list'}, kripto/altın sorusuysa ek olarak 'asset' döner; değilse None."""
+    """Fiyat sorusu: kur alanları, kripto/altında 'asset', BIST'te 'stock'; değilse None."""
     low = _fold(text)
     if re.search(_SKIP, low):return None
     if re.search(_DEFINITION, low) and not re.search(r'\bkur\w*', low):return None
     asset = _asset(low)
     if asset:return asset
+    stock = _stock(text, low)
+    if stock:return stock
     if not re.search(_CUE, low):return None
     mentions = _mentions(low)
     if not mentions:return None
@@ -169,6 +217,7 @@ def parse(text: str):
 def is_conversion(text: str) -> bool:
     """"50 euroyu dolara çevir" para çevirisidir, metin çevirisi değil ("bu metni euroya çevir" değildir)."""
     request = parse(text)
+    if request and request.get('stock'):return False
     if request and request.get('asset'):
         return request['amount'] is not None or request['target'] != 'TRY'
     return bool(request and not request['list'] and (request['amount'] is not None or request['target'] != 'TRY'
@@ -285,6 +334,60 @@ def _market(pair: str):
     return _btcturk(pair)
 
 
+def _yahoo(code: str):
+    from modules import public_sources
+    try:
+        body = public_sources.fetch(YAHOO_URL.format(code=code), max_bytes=200_000)['body']
+    except ValueError as exc:
+        if str(exc) == 'Kaynak HTTP yanıtı başarılı değil: 404':
+            raise LookupError(f'{code} borsa kodu bulunamadı.') from None
+        raise
+    data = json.loads(body)
+    chart = data.get('chart') if isinstance(data, dict) else None
+    rows = chart.get('result') if isinstance(chart, dict) else None
+    meta = rows[0].get('meta') if isinstance(rows, list) and rows and isinstance(rows[0], dict) else None
+    if not isinstance(meta, dict) or meta.get('currency') != 'TRY':raise ValueError('Yahoo TRY fiyatı okunamadı.')
+    last = Decimal(str(meta.get('regularMarketPrice')))
+    stamp = meta.get('regularMarketTime')
+    if not last.is_finite() or last <= 0:raise ValueError('Yahoo fiyatı geçersiz.')
+    if type(stamp) not in (int, float) or stamp <= 0:raise ValueError('Yahoo fiyat zamanı okunamadı.')
+    when = datetime.fromtimestamp(stamp, TR)
+    previous = meta.get('chartPreviousClose')
+    if previous is None:previous = meta.get('previousClose')
+    daily = None
+    try:
+        previous = Decimal(str(previous))
+        if previous.is_finite() and previous > 0:daily = (last / previous - 1) * 100
+    except DecimalException:
+        pass
+    return {'last': last, 'when': when, 'daily': daily}
+
+
+def _bist_answer(request) -> str:
+    from urllib3.exceptions import HTTPError
+    from modules import ollama_hint
+    code, amount = request['stock'], request['amount']
+    try:
+        row = _cached('bist:' + code, lambda: _yahoo(code), MARKET_TTL)
+        name = next((name for item, name, _stems in STOCKS if item == code), code)
+        shown = name if code == 'XU100' or name == code else f'{name} ({code})'
+        if amount is None:body = f'{shown} {_num(row["last"])} ' + ('puan' if code == 'XU100' else 'TL')
+        else:body = f'{_amount_text(amount)} {shown} hissesi {_num(amount * row["last"])} TL eder'
+        if row['daily'] is not None:
+            sign = '+' if row['daily'] > 0 else '-' if row['daily'] < 0 else ''
+            body += f' (günlük {sign}%{_num(abs(row["daily"]))})'
+        return (f'{body}. Kaynak: Yahoo Finance {row["when"].strftime("%d.%m.%Y %H:%M")}; '
+                'borsa verisi yaklaşık 15 dk gecikmeli, kapalıyken son kapanış. '
+                'Bilgi amaçlıdır, yatırım tavsiyesi değildir.')
+    except PermissionError as exc:
+        return str(exc)
+    except LookupError as exc:
+        return str(exc)
+    except (ValueError, OSError, HTTPError, DecimalException, OverflowError):
+        if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
+        return 'Fiyat kaynağına (Yahoo Finance) şu an ulaşamadım, biraz sonra tekrar dene.'
+
+
 def _num(value: Decimal, places: int = 2) -> str:
     quantum = Decimal(1).scaleb(-places)
     text = f'{value.quantize(quantum, rounding=ROUND_HALF_UP):,.{places}f}'
@@ -341,9 +444,10 @@ def _asset_answer(request) -> str:
 
 
 def answer(text: str) -> str | None:
-    """Kur, kripto ya da altın sorusunun cevabı; değilse None (komut diğer yollara devam eder)."""
+    """Kur/kripto/altın/BIST fiyat cevabı; değilse None (komut diğer yollara devam eder)."""
     request = parse(text)
     if request is None:return None
+    if request.get('stock'):return _bist_answer(request)
     if request.get('asset'):return _asset_answer(request)
     from urllib3.exceptions import HTTPError
     from modules import ollama_hint
