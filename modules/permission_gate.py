@@ -66,7 +66,7 @@ def decide(action: dict, grants: dict | None = None, now: float | None = None) -
         return _result(ASK, action_class, 'Gönderim hedefi gerekli; onay gerekli.')
 
     if action_class == READ:
-        return _result(ASK, action_class, 'Geçici negatif test.')
+        return _result(ALLOW, action_class, 'Salt okuma güvenli.')
     if action_class == LOCAL_REVERSIBLE:
         return _result(ALLOW, action_class, 'Yerel geri alınabilir işlem.')
     if action_class == LOCAL_DESTRUCTIVE:
