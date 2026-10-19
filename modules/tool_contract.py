@@ -112,7 +112,7 @@ def load_all(package: str = 'modules', prefix: str = 'tool_') -> dict[str, dict]
         if paths is None:
             raise ValueError('Araç paketi dizin paketi değil.')
     except Exception as exc:
-        _failure('modules/tool_contract.py:load_all:package', f'{type(exc).__name__}: paket yüklenemedi')
+        _record_failure('modules/tool_contract.py:load_all:package')
         return {}
 
     grouped: dict[str, list[tuple[str, dict]]] = {}
@@ -120,7 +120,7 @@ def load_all(package: str = 'modules', prefix: str = 'tool_') -> dict[str, dict]
     try:
         discovered = sorted(pkgutil.iter_modules(paths), key=lambda item: item.name)
     except Exception as exc:
-        _failure('modules/tool_contract.py:load_all:discover', f'{type(exc).__name__}: araçlar listelenemedi')
+        _record_failure('modules/tool_contract.py:load_all:discover')
         return {}
 
     for info in discovered:
@@ -138,7 +138,7 @@ def load_all(package: str = 'modules', prefix: str = 'tool_') -> dict[str, dict]
                 raise ValueError('; '.join(errors))
             grouped.setdefault(contract['id'], []).append((module_name, contract))
         except Exception as exc:
-            _failure(f'modules/tool_contract.py:load_all:{short}', f'{type(exc).__name__}: {exc}')
+            _record_failure(f'modules/tool_contract.py:load_all:{short}')
 
     loaded: dict[str, dict] = {}
     for ident, rows in grouped.items():
@@ -161,6 +161,7 @@ def _safe_status(status_callable) -> dict:
             raise ValueError('Geçersiz araç durumu.')
         return {'state': result['state'], 'detail': result['detail']}
     except Exception:
+        _record_failure('modules/tool_contract.py:status')
         return {'state': 'error', 'detail': 'Araç durumu alınamadı.'}
 
 
