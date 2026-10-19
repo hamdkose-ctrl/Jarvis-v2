@@ -156,11 +156,11 @@ def _execute(page, root, actions, approved=None, *, owner=None):
         if op in ('click','fill','select','press'):
             item=_target(page,a.get('selector'))
             sensitive=_sensitive(a,item)
+            if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
             if sensitive and not plan_approved and approved is None:
                 permission_asks=_permission_preview(owner,page,actions[i:],item,audit=explicit_owner)
                 return {**_save_pending(root,page,actions[i:],item,permission_asks),'steps':log,'page':snapshot(page)}
             _permission_decision(owner,page,a,item,audit=explicit_owner)
-            if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
             if sensitive and not plan_approved:
                 if approved['digest']!=_digest(page) or approved['signature']!=_signature(item):
                     raise ValueError('Sayfa veya hedef değişmiş; yeni işlem önizlemesi gerekli.')
