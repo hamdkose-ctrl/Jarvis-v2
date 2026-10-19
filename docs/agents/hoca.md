@@ -7,6 +7,7 @@ Plan: `raporlar/hoca-modu-plan-2026-10-18.md` (Hamdi 2026-10-18: seçenek B; ön
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.
 - Henüz sohbet/ses girişi, konu kilidi denetimi, kontrol sorusu, tekrar ve arayüz yok (sonraki adımlar). Çekirdek `engine_tools._study_intent`'e dokunmadan önce vizyon thread'ine sorulur.
 - Test: `tests/test_hoca.py` (model taklit; gerçek model planı denenmedi).
+- `context_for(profile)`: aktif dersin konu/adım/başlık/hedefini en çok 600 karakterlik, tek satırlı ve talimat olmadığını belirten alıntılı veri olarak verir; profil değişmez, model/ağ çağrısı yoktur, ders yoksa/bitmişse boştur. Motora henüz bağlanmadı; gerçek PC'de denenmedi.
 
 ## Konu kilidi, kontrol sorusu ve zayıf konu — 18 Ekim 2026
 - `hoca.intent(metin)`: `next` / `change` / `stay`. Yalnız açık komutlar ("sonraki konuya geç", "konuyu değiştir", tek başına "geç"/"ilerleyelim") adım değiştirir; konuya benzerlik tahmin edilmez, "Osmanlı geç dönem" gibi cümleler `stay` kalır. Sohbete bağlama (çekirdek) sonraki PR'da.

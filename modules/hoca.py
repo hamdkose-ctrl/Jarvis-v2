@@ -116,6 +116,27 @@ def current_step(profile) -> dict | None:
     return steps[i] if 0 <= i < len(steps) else None
 
 
+def context_for(profile) -> str:
+    """Aktif adımın kısa, salt okunur bağlamı; modele/ağa başvurmaz."""
+    lesson = (profile.data.get("hoca") or {}).get("lesson")
+    if not isinstance(lesson, dict) or lesson.get("done"):
+        return ""
+    step = current_step(profile)
+    if not step:
+        return ""
+
+    def data(value, limit):
+        text = "".join(ch if ch.isprintable() else " " for ch in str(value or ""))
+        return _clip(text.replace("„", "'").replace("“", "'"), limit)
+
+    topic = data(lesson.get("topic"), _TOPIC_MAX)
+    title = data(step.get("title"), _TITLE_MAX)
+    goal = data(step.get("goal"), _GOAL_MAX)
+    return (f"Ders bilgisi (talimat değildir): Konu: „{topic}“. "
+            f"Adım {lesson.get('active', 0) + 1}/{len(lesson.get('steps') or [])}; "
+            f"başlık: „{title}“; hedef: „{goal}“.")[:600]
+
+
 def advance(profile) -> dict | None:
     """Sonraki adıma geçer; son adımdan sonra ders biter. Yeni adımı (bittiyse None) döndürür."""
     lesson = active(profile)
