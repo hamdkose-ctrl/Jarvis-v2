@@ -18,7 +18,7 @@ def save(owner,key,updates,chat):
         message_inbox._schema(db)
         for update in updates:
             uid=update.get('update_id')
-            if type(uid) is not int or uid<0:raise ValueError('Bot güncelleme kimliği geçersiz.')
+            if type(uid) is not int:raise ValueError('Bot güncelleme kimliği geçersiz.')
             latest=uid if latest is None else max(latest,uid)
             msg=update.get('message',{})
             if str(msg.get('chat',{}).get('id'))!=chat:continue
