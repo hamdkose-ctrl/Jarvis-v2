@@ -1,0 +1,47 @@
+name: Main bekçisi
+
+# main'e PR'sız (doğrudan) giren her commit'i görünür yapar: iş kırmızı yanar. Hiçbir şeyi geri almaz.
+# PR ile giren commit'ler (squash, merge, rebase) meşrudur: GitHub her birini ilgili PR ile ilişkilendirir.
+# Checkout yok, test yok; yalnız birkaç API çağrısı. Dakika harcaması saniyeler.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  bekci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: PR'sız commit var mı
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -u
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "İlk push veya dal oluşturma; karşılaştırılacak önceki commit yok."; exit 0
+          fi
+          shas=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --paginate --jq '.commits[].sha')
+          bad=""
+          for sha in $shas; do
+            n=0
+            # PR ilişkisi birleştirmeden birkaç saniye sonra görünür; kısa bekleyip yeniden dene.
+            for try in 1 2 3 4; do
+              n=$(gh api "repos/$REPO/commits/$sha/pulls" --jq 'length')
+              [ "$n" -gt 0 ] && break
+              sleep 6
+            done
+            if [ "$n" -eq 0 ]; then bad="$bad $sha"; fi
+          done
+          if [ -n "$bad" ]; then
+            echo "::error title=main'e PR'sız commit girdi::Şu commit'ler hiçbir PR ile ilişkili değil:$bad"
+            echo "Bu iş yalnız uyarır, geri almaz. Commit'e bak: gerekirse PR ile geri al (git revert)."
+            exit 1
+          fi
+          echo "Tüm commit'ler bir PR ile ilişkili."
