@@ -22,7 +22,7 @@ ITEMS = [
     {'id': 'B4', 'group': 'B', 'text': 'Rapordaki B4 PC denemesi.'},
 ]
 
-_STATUSES = {'c': 'yarım', 'y': 'yarım', 'b': 'bozuk', 'a': 'atlandı'}
+_STATUSES = {'c': 'çalıştı', 'y': 'yarım', 'b': 'bozuk', 'a': 'atlandı'}
 _EMAIL = re.compile(r'(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b')
 _PHONE = re.compile(r'(?<!\d)(?:\+?90[ .-]?)?0?5\d{2}(?:[ .-]?\d{3})(?:[ .-]?\d{2}){2}(?!\d)')
 _TOKEN = re.compile(r'(?i)\b(?:sk[-_]?|ghp_|github_pat_|AIza)[A-Z0-9_-]{8,}\b')
