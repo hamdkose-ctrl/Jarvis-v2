@@ -564,8 +564,11 @@ class Live:
         except Exception:                             # noqa: BLE001
             _record_failure('modules/live.py:_save_sent')
 
-    @staticmethod
-    def _explain(exc: Exception) -> str:
+    def _explain(self, exc: Exception) -> str:
+        from modules import failure_policy
+        category = failure_policy.classify(exc)
+        self._session_error_category = category
+        self._session_rate_limited = category == failure_policy.RATE_LIMIT
         low = str(exc).lower()
         if "1011" in low or "internal error" in low:
             return ("Google'ın canlı konuşma servisi bağlantıyı üst üste kesti (sunucu tarafı hata, senden kaynaklı değil). "
@@ -635,7 +638,8 @@ class Live:
                 # Uyandı ama hiç söz gelmedi: büyük ihtimalle TV/ortam sesiyle yanlış uyanma. Hassasiyeti düşürmek gerçek
                 # "Hey Jarvis"leri de kaçırtıyordu (kısık mikrofonda skor 0,15-0,23); onun yerine boş oturumu hemen kapat.
                 if self._speech_activity.last is not None:
-                    log.warning("Yerel ses etkinliği var fakat konuşma transkripti gelmedi; oturum kapatıldı")
+                    quota = 'var' if getattr(self, '_session_rate_limited', False) else 'yok'
+                    log.warning("Yerel ses etkinliği var fakat konuşma transkripti gelmedi; oturum kapatıldı; oturumda kota hatası %s", quota)
                     self.emit("system", "Ses etkinliği algıladım fakat konuşmanı yazıya çeviremedim. Tekrar söyler misin?")
                 else:
                     log.info("Bağlantı açıldıktan sonra %d sn konuşma transkripti veya yerel konuşma etkinliği gelmedi; oturum kapatıldı",
