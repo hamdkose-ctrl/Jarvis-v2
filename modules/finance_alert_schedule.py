@@ -7,15 +7,15 @@ quiet_hours yalnız send/defer kararı verir; çağırıcı defer sonucunda bekl
 tetik kaydını saklamalı ve sonradan göndermelidir. Bu modül tetik tüketmez/silmez.
 """
 import copy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 import math
 import re
-from zoneinfo import ZoneInfo
 
 from modules import finance_alerts
 
-_ISTANBUL = ZoneInfo('Europe/Istanbul')
+# Güncel Türkiye saati; Windows'ta ek tzdata/IANA veritabanı gerektirmez.
+_ISTANBUL = timezone(timedelta(hours=3))
 
 
 def _number(value):
@@ -96,7 +96,7 @@ def notification_text(rule, price, currency='TRY'):
 
 
 def quiet_hours(now, start=23, end=7):
-    """İstanbul saatinde [start,end) sessiz aralığı: defer; dışında send.
+    """Güncel Türkiye (UTC+3) saatinde [start,end): defer; dışında send.
 
     now aware/naive datetime veya epoch saniyedir. Naive datetime İstanbul
     yerel saati kabul edilir; start==end boş aralıktır. Gerçek saat okunmaz.

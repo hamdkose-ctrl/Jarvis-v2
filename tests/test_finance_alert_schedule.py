@@ -1,6 +1,8 @@
 """Pure scheduling/text helpers; the caller retains deferred notifications."""
 import copy
 from datetime import datetime, timezone
+import subprocess
+import sys
 import unittest
 from modules import finance_alert_schedule as schedule
 
@@ -86,6 +88,13 @@ class FinanceAlertScheduleTests(unittest.TestCase):
             with self.subTest(now=bad), self.assertRaises(ValueError):schedule.quiet_hours(bad)
         for bad in (True, -1, 24, 2.5, '23'):
             with self.subTest(hour=bad), self.assertRaises(ValueError):schedule.quiet_hours(1000, bad, 7)
+
+    def test_import_and_quiet_hours_work_without_an_iana_timezone_database(self):
+        code = "from unittest.mock import patch; from zoneinfo import ZoneInfoNotFoundError; from datetime import datetime; p=patch('zoneinfo.ZoneInfo',side_effect=ZoneInfoNotFoundError('tzdata unavailable')); p.start(); from modules.finance_alert_schedule import quiet_hours; print(quiet_hours(datetime(2026,10,19,23)))"
+        result = subprocess.run([sys.executable, '-X', 'utf8', '-c', code],
+                                capture_output=True, text=True, encoding='utf-8', timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'defer')
 
 
 if __name__ == '__main__':
