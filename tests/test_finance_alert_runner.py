@@ -142,6 +142,29 @@ class FinanceAlertRunnerTests(unittest.TestCase):
         for rule in (first, second):
             self.assertEqual(self.store.get_state('alice', rule['id'])['fired_at'], 1234)
 
+    def test_state_write_failure_keeps_other_rules_and_still_reports_the_fire(self):
+        first, second = self.add(symbol='USD'), self.add(symbol='EUR')
+        real = self.store.set_state
+        def flaky(owner, rule_id, state):
+            if rule_id == first['id']:
+                raise OSError('disk')
+            return real(owner, rule_id, state)
+        with patch.object(self.store, 'set_state', side_effect=flaky):
+            fired = self.runner.run_once('alice', Mock(return_value=41), now=100)
+        self.assertEqual({row['id'] for row in fired}, {first['id'], second['id']})
+        self.assertEqual(self.store.get_state('alice', second['id'])['fired_at'], 100)
+        self.diagnostic.assert_any_call('modules/finance_alert_runner.py:state')
+
+    def test_rule_removed_during_the_round_is_skipped_without_losing_the_rest(self):
+        first, second = self.add(symbol='USD'), self.add(symbol='EUR')
+        def removed(owner, rule_id, state):
+            if rule_id == first['id']:
+                raise ValueError('Bilinmeyen alarm kuralı.')
+        real = self.store.set_state
+        with patch.object(self.store, 'set_state', side_effect=lambda o, r, s: removed(o, r, s) or real(o, r, s)):
+            fired = self.runner.run_once('alice', Mock(return_value=41), now=100)
+        self.assertEqual([row['id'] for row in fired], [second['id']])
+
 
 if __name__ == '__main__':
     unittest.main()

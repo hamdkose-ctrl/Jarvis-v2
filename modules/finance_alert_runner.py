@@ -34,7 +34,13 @@ def run_once(owner, price_getter, now=None) -> list[dict]:
         except (KeyError, TypeError, ValueError, OverflowError):
             _record_failure('modules/finance_alert_runner.py:evaluate')
             continue
-        finance_alert_store.set_state(owner, rule['id'], result['state'])
+        try:
+            finance_alert_store.set_state(owner, rule['id'], result['state'])
+        except ValueError:                      # kural bu arada silindi: tetik de geçersiz
+            _record_failure('modules/finance_alert_runner.py:state')
+            continue
+        except OSError:                         # durum yazılamadı: tetik yine bildirilir, tur kesilmez
+            _record_failure('modules/finance_alert_runner.py:state')
         if result['fire']:
             fired.append({**{key: rule[key] for key in ('id', 'kind', 'symbol', 'op', 'value')},
                           'reason': result['reason']})
