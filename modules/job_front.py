@@ -24,7 +24,7 @@ def _goal_open(owner):
     except Exception:                                   # bozuk kayıt: eski davranış (hedef yoluna bırak)
         _record_failure('modules/job_front.py:_goal_open')
         return True
-    return bool(job) and job.get('state') not in {'done', 'cancelled'}
+    return goal_executor.is_open(job)                   # bitmemiş ve bayat olmayan iş
 
 
 def wants(cmd_lower):

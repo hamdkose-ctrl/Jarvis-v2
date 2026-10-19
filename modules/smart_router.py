@@ -99,6 +99,15 @@ def selection(owner,task):
     return {'candidates':[p for p in orders[task] if p in selected],'skipped':skipped}
 
 
+def wait_seconds(owner, task='analysis'):
+    """Hiç uygun sağlayıcı kalmadıysa ve en az biri bekleme (kota/hata) içindeyse kalan en kısa saniye; yoksa 0."""
+    row = selection(owner, task)
+    if row['candidates']:
+        return 0
+    waits = [int(item.get('seconds') or 0) for item in row['skipped'] if item.get('seconds')]
+    return min(waits) if waits else 0
+
+
 def candidates(owner, task):
     return selection(owner,task)['candidates']
 

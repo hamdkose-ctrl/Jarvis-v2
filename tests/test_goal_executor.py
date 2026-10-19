@@ -804,7 +804,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(goals.handle(self.runtime,'devam'),'Sürdürülecek kayıtlı hedef yok.')
         self.ask.assert_not_called()
 
-    def test_bare_resume_closed_goal_returns_saved_result_without_model(self):
+    def test_bare_resume_closed_goal_says_it_is_closed_without_model(self):
         self.responses(self.plan('İş'),RuntimeError('models unavailable'))
         goals.run(self.runtime,'İş yap');job=goals.latest('alice')
         job['state']='cancelled';goals._save(job);self.ask.reset_mock()
