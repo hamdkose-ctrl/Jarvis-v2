@@ -24,7 +24,7 @@ def _run_steps(runtime, steps: list[str]) -> str:
                 break
             reply = runtime.handle(st)
             out.append(f"{i}. {reply}")
-            if getattr(reply, 'ok', None) is True:
+            if getattr(reply, 'ok', None) is False:
                 out.append('(Bu adım doğrulanamadı; ona bağlı kalan adımları çalıştırmadım.)')
                 break
             if runtime.flags.get('closing') or runtime.stop_event.is_set():
