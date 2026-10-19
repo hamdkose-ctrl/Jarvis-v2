@@ -128,7 +128,9 @@ def current_step(profile) -> dict | None:
 
 def context_for(profile) -> str:
     """Aktif adımın kısa, salt okunur bağlamı; modele/ağa başvurmaz."""
-    lesson = _state(profile).get("lesson")
+    data_ = getattr(profile, "data", None)
+    hoca = data_.get("hoca") if isinstance(data_, dict) else None
+    lesson = hoca.get("lesson") if isinstance(hoca, dict) else None
     if not isinstance(lesson, dict) or lesson.get("done"):
         return ""
     step = current_step(profile)
