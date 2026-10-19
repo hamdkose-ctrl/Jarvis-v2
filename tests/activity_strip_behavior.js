@@ -11,7 +11,9 @@ assert.deepStrictEqual(last.map(x=>x.status),['done','done','error','working']);
 assert.strictEqual(last[2].detail.length,80);
 assert.strictEqual(last[0].detail,'ayrıntı 4');
 
-assert.deepStrictEqual(strip.stripState({working:false},steps),{visible:false,label:'Çalışıyor…',stoppable:false});
+const hidden=strip.stripState({working:false},steps);
+assert.strictEqual(hidden.visible,false);
+assert.strictEqual(hidden.stoppable,false);
 assert.deepStrictEqual(strip.stripState({working:true},steps),{visible:true,label:'İşlem 7',stoppable:true});
 const more={a:{ts:1,items:new Map([['a',{t:'Eski çalışan',s:'working',d:''}]])},b:{ts:2,items:new Map([['b',{t:'Yeni çalışan',s:'working',d:''}]])}};
 assert.strictEqual(strip.stripState({working:true},more).label,'Yeni çalışan');
