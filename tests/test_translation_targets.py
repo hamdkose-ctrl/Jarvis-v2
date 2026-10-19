@@ -71,11 +71,9 @@ class TranslationTargetsTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(target_from_command(command), expected)
 
-    @unittest.expectedFailure  # Source apostrophe is currently mistaken for a target.
     def test_straight_apostrophe_source_only_is_not_a_destination(self):
         self.assertEqual(target_from_command("İngilizce'den çevir"), '')
 
-    @unittest.expectedFailure  # Same source-suffix bug with a curly apostrophe.
     def test_curly_apostrophe_source_only_is_not_a_destination(self):
         self.assertEqual(target_from_command('Almanca’dan çevir'), '')
 
