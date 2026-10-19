@@ -18,4 +18,9 @@ Plan: `raporlar/finans-takibi-plan-2026-10-18.md`. Kapsam yalnız okuma: piyasa 
 - Hedef para: TL varsayılan; "bitcoin kaç dolar/euro" BtcTurk TRY fiyatı ÷ TCMB (yoksa Frankfurter) kuru, iki kaynak da cevapta. Miktar: "0,5 bitcoin", "10 gram altın".
 - "altın" yalnız fiyat ipucuyla (fiyat, ne kadar, kaç lira/tl/dolar, kur, "gram/ons altın") ve "madalya/top/oran/kural/gün…" gibi başka anlam izlemiyorsa yakalanır. Kripto adı ayrıca kur ipucu ister; "bitcoin nedir/neden düştü/olunca haber ver" yakalanmaz.
 - Canlı deneme: `scripts/finans_kaynak_testi.py` her kaynağa (TCMB, Frankfurter, BtcTurk ve CoinGecko BTC/TRY, PAXG/TRY) bir istek atar ve dört örnek cümleyi cevaplar; model çağrısı ve yazma yok. BtcTurk yanıt biçimi açık kaynak bir istemciden (borsa-mcp) okundu, PAXG/TRY çiftinin BtcTurk'te bulunduğu **doğrulanmadı**; betik bunu PC'de gösterir. Yoksa gram altın "ulaşamadım" der, başka kaynak sonraki PR.
-- Sıradaki: BIST (gayriresmî, hazır açık), takip listesi, modelsiz fiyat alarmı (plan dosyası 4. bölüm).
+- Sıradaki: takip listesi, modelsiz fiyat alarmı (plan dosyası 4. bölüm).
+
+- BIST: `STOCKS` tablosundaki 18 hisse ve XU100 için Yahoo Finance gayriresmî chart ucu okunur; yalnız TRY fiyatı ve işlem zamanı kabul edilir, `bist:<KOD>` 60 sn önbellek kullanır.
+- Cevapta kaynak/son işlem saati ve yaklaşık 15 dk gecikme, kapalıyken son kapanış notu bulunur; önceki kapanış yoksa günlük değişim gösterilmez, yatırım tavsiyesi verilmez.
+- Tetik: isim + hisse/borsa/bist + fiyat ipucu; bilinen büyük harfli beşli kod tek başına fiyat ipucuyla yeter, bilinmeyen büyük harfli 4–5 harfli kod hisse sözcüğü ister; diğer anlamlar, geçmiş/tahmin/alarm kısa yola girmez.
+- Canlı Yahoo yanıtı, Hamdi’nin PC’si ve gerçek ses denenmedi; `finans_kaynak_testi.py` THYAO/XU100 biçimini PC’de göstermek içindir, testlerde yalnız elle kurulmuş JSON kullanılır.

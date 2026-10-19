@@ -51,6 +51,15 @@ def btcturk(pair):
                        'success': True, 'message': None, 'code': 0}).encode()
 
 
+def yahoo(code='THYAO', **changes):
+    meta = {'regularMarketPrice': 10250.75 if code == 'XU100' else 312.5,
+            'chartPreviousClose': 10300 if code == 'XU100' else 308,
+            'regularMarketTime': 1792346340, 'currency': 'TRY',
+            'shortName': 'Bu kaynak metni cevapta veya modelde kullanılmaz.'}
+    meta.update(changes)
+    return json.dumps({'chart': {'result': [{'meta': meta}], 'error': None}}).encode()
+
+
 class FinanceTest(unittest.TestCase):
     def setUp(self):
         finance._CACHE.clear()
@@ -58,6 +67,9 @@ class FinanceTest(unittest.TestCase):
 
     def fetch_ok(self, url, **_):
         self.calls.append(url)
+        if 'query1.finance.yahoo.com' in url:
+            code = url.split('/chart/')[1].split('.IS')[0]
+            return {'url': url, 'body': yahoo(code), 'content_type': 'application/json'}
         if 'tcmb.gov.tr' in url:
             return {'url': url, 'body': TCMB_XML, 'content_type': 'text/xml'}
         if 'coingecko.com' in url:
@@ -245,14 +257,134 @@ class FinanceTest(unittest.TestCase):
         out = io.StringIO()
         with patch.object(public_sources, 'fetch', side_effect=self.fetch_ok), contextlib.redirect_stdout(out):
             self.assertEqual(script.main(), 0)
-        self.assertEqual(out.getvalue().count('GEÇTİ'), 6)
+        self.assertEqual(out.getvalue().count('GEÇTİ'), 8)
         self.assertIn('Gram altın 3.512,47 TL', out.getvalue())
+        self.assertIn('THY (THYAO) 312,50 TL', out.getvalue())
+        self.assertIn('BIST 100 10.250,75 puan', out.getvalue())
         def down(url, **_):raise OSError('yok')
         out = io.StringIO()
         with patch.object(public_sources, 'fetch', side_effect=down), patch('modules.ollama_hint.internet_up', return_value=False), \
              patch('modules.diagnostics.record_failure'), contextlib.redirect_stdout(out):
             self.assertEqual(script.main(), 1)
-        self.assertEqual(out.getvalue().count('BAŞARISIZ'), 6)
+        self.assertEqual(out.getvalue().count('BAŞARISIZ'), 8)
+
+    def test_bist_names_codes_ascii_and_suffixes(self):
+        for text, code in [('thy hissesi kaç lira', 'THYAO'), ('THY HİSSESİ KAÇ LİRA', 'THYAO'),
+                           ('turk hava yollari hissesi kac', 'THYAO'), ("thy'nin hissesi kaçta", 'THYAO'),
+                           ('THYAO kaç', 'THYAO'), ('thyao hissesi kaç', 'THYAO'),
+                           ("THYAO'NUN fiyatı", 'THYAO'), ('THYAOYU kaç', 'THYAO'),
+                           ('garantiyi borsada kaç liradan alıyorlar', 'GARAN'),
+                           ('garanti hissesi ne kadar', 'GARAN'), ('koç holding hissesi kaç', 'KCHOL'),
+                           ('ereğli hissesi fiyatı', 'EREGL'), ('erdemir hissesi kaç', 'EREGL')]:
+            with self.subTest(text=text):
+                request = finance.parse(text)
+                self.assertIsNotNone(request)
+                self.assertEqual(request['stock'], code)
+                out = self.ask(text)
+                self.assertIn(f'({code}) 312,50 TL', out)
+                self.assertIn('günlük +%1,46', out)
+                self.assertIn('Kaynak: Yahoo Finance 18.10.2026', out)
+                self.assertIn('yaklaşık 15 dk gecikmeli', out)
+                self.assertIn('kapalıyken son kapanış', out)
+                self.assertIn('yatırım tavsiyesi değildir', out)
+                self.assertNotIn('Bu kaynak metni', out)
+
+    def test_bist_all_requested_codes_and_index(self):
+        codes = ('THYAO GARAN AKBNK ISCTR YKBNK HALKB VAKBN ASELS TUPRS EREGL BIMAS KCHOL '
+                 'SAHOL FROTO SISE TCELL PGSUS SASA').split()
+        self.assertEqual({row[0] for row in finance.STOCKS}, set(codes) | {'XU100'})
+        for code in codes:
+            with self.subTest(code=code):
+                self.assertEqual(finance.parse(code + ' hissesi kaç')['stock'], code)
+        for text in ('bist 100 kaç puan', 'bist100 kaç', 'BİST 100 ne kadar', 'borsa kaç puan',
+                     'borsa ne durumda', 'bist kaç', '10 bist 100 kaç puan'):
+            with self.subTest(text=text):
+                self.assertEqual(finance.parse(text)['stock'], 'XU100')
+                self.assertIsNone(finance.parse(text)['amount'])
+                self.assertIn('BIST 100 10.250,75 puan (günlük -%0,48)', self.ask(text))
+
+    def test_bist_non_price_and_ambiguous_words_do_not_fetch(self):
+        for text in ('thy bileti kaç lira', 'garanti kredi faizi kaç', 'bim kaç kişi çalışıyor',
+                     'koç üniversitesi kaç puan istiyor', 'şişe kaç lira', 'ev hissesi kaç', 'dün thy kaçtı',
+                     'borsa nasıl çalışır', 'thy hissesi nedir', 'thy hissesi neden düştü',
+                     'thy hissesi 400 olunca haber ver', 'thy hissesi için alarm kur', 'garanti kaç',
+                     'sasa kaç', 'koç kaç', 'ATA hissesi kaç', 'thyao kaç', 'ABCD kaç'):
+            with self.subTest(text=text):
+                self.assertIsNone(self.ask(text))
+        self.assertEqual(self.calls, [])
+
+    def test_bist_amount_is_not_currency_conversion(self):
+        self.assertIn('10 THY (THYAO) hissesi 3.125,00 TL eder', self.ask('10 thy hissesi kaç lira'))
+        self.assertIn('10 Garanti (GARAN) hissesi 3.125,00 TL eder', self.ask('10 garanti hissesi kaç lira'))
+        for text in ('thy hissesi kaç lira', '10 thy hissesi kaç lira', '10 garanti hissesi kaç', 'bist 100 kaç'):
+            with self.subTest(text=text):
+                self.assertFalse(finance.is_conversion(text))
+
+    def test_bist_cache_uses_code_and_60_second_ttl(self):
+        self.ask('thy hissesi kaç'); self.ask('THYAO kaç')
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0], 'https://query1.finance.yahoo.com/v8/finance/chart/THYAO.IS?range=1d&interval=1d')
+        key = 'bist:THYAO'
+        stamp, value = finance._CACHE[key]
+        finance._CACHE[key] = (stamp - 61, value)
+        self.ask('THYAO kaç')
+        self.assertEqual(len(self.calls), 2)
+
+    def test_bist_404_is_not_found_and_other_http_errors_are_unavailable(self):
+        for code in ('ABCD', 'ABCDE'):
+            finance._CACHE.clear()
+            def missing(url, **_):
+                self.assertIn(f'/chart/{code}.IS?', url)
+                raise ValueError('Kaynak HTTP yanıtı başarılı değil: 404')
+            self.assertEqual(self.ask(code + ' hissesi kaç', missing), f'{code} borsa kodu bulunamadı.')
+        self.assertIsNone(finance.parse('abcde hissesi kaç'))
+        for status in (401, 429, 500):
+            def failed(url, **_):raise ValueError(f'Kaynak HTTP yanıtı başarılı değil: {status}')
+            self.assertIn('Yahoo Finance) şu an ulaşamadım', self.ask('THYAO kaç', failed))
+
+    def test_bist_network_and_privacy_errors(self):
+        def down(url, **_):raise OSError('ağ yok')
+        self.assertEqual(self.ask('THYAO kaç', down),
+                         'Fiyat kaynağına (Yahoo Finance) şu an ulaşamadım, biraz sonra tekrar dene.')
+        with patch.object(public_sources, 'fetch', side_effect=down), patch('modules.ollama_hint.internet_up', return_value=False):
+            from modules import ollama_hint
+            self.assertEqual(finance.answer('THYAO kaç'), ollama_hint.NO_INTERNET)
+        def private(url, **_):raise PermissionError('Web işlemleri gizli modda kapalı.')
+        self.assertEqual(self.ask('THYAO kaç', private), 'Web işlemleri gizli modda kapalı.')
+
+    def test_bist_malformed_missing_and_non_try_responses(self):
+        bodies = [b'not json', b'null', b'[]', b'{}', b'{"chart":{"result":[]}}',
+                  b'{"chart":{"result":[{"meta":null}]}}',
+                  yahoo(currency='USD'), yahoo(currency=None), yahoo(regularMarketPrice=None),
+                  yahoo(regularMarketPrice=-1), yahoo(regularMarketPrice='NaN'),
+                  yahoo(regularMarketPrice='1e9999999'),
+                  yahoo(regularMarketTime=None), yahoo(regularMarketTime=True), yahoo(regularMarketTime=1e100)]
+        for body in bodies:
+            with self.subTest(body=body):
+                finance._CACHE.clear()
+                calls = []
+                def fetch(url, **kwargs):
+                    calls.append((url, kwargs))
+                    return {'body': body}
+                self.assertIn('Yahoo Finance) şu an ulaşamadım', self.ask('THYAO kaç', fetch))
+                self.assertEqual(len(calls), 1)
+                self.assertLessEqual(calls[0][1]['max_bytes'], 200_000)
+
+    def test_bist_previous_close_is_optional_with_fallback(self):
+        def fetch(**changes):
+            return lambda url, **_: {'body': yahoo(**changes)}
+        self.assertNotIn('günlük', self.ask('THYAO kaç', fetch(chartPreviousClose=None)))
+        finance._CACHE.clear()
+        self.assertIn('günlük +%1,46', self.ask('THYAO kaç', fetch(chartPreviousClose=None, previousClose=308)))
+        finance._CACHE.clear()
+        self.assertNotIn('günlük', self.ask('THYAO kaç', fetch(chartPreviousClose=0)))
+        finance._CACHE.clear()
+        self.assertNotIn('günlük', self.ask('THYAO kaç', fetch(chartPreviousClose='1e-9999999')))
+
+    def test_bist_does_not_call_a_model(self):
+        with patch('modules.llm.ask', side_effect=AssertionError('Model çağrılmamalı')), \
+             patch('modules.llm.chat', side_effect=AssertionError('Model çağrılmamalı')):
+            self.assertIn('THY (THYAO) 312,50 TL', self.ask('thy hissesi kaç lira'))
 
     def test_engine_uses_intent_check_not_substring(self):
         source = Path(__file__).resolve().parents[1].joinpath('modules', 'engine_commands.py').read_text(encoding='utf-8')
