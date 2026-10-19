@@ -11,15 +11,15 @@ from pathlib import Path
 
 
 ITEMS = [
-    {'id': 'A1', 'group': 'A', 'text': 'Devam: yarım kalmış PC görevini sürdür.'},
-    {'id': 'A2', 'group': 'A', 'text': 'Devam et: bekleyen PC görevini sürdür.'},
-    {'id': 'A3', 'group': 'A', 'text': 'PC devam: bekleyen görevi sürdür.'},
-    {'id': 'A4', 'group': 'A', 'text': 'İptal: yarım kalmış PC görevini kapat.'},
-    {'id': 'A5', 'group': 'A', 'text': 'PC iptal: aktif/bekleyen görevi kapat.'},
-    {'id': 'B1', 'group': 'B', 'text': 'Rapordaki B1 PC denemesi.'},
-    {'id': 'B2', 'group': 'B', 'text': 'Rapordaki B2 PC denemesi.'},
-    {'id': 'B3', 'group': 'B', 'text': 'Rapordaki B3 PC denemesi.'},
-    {'id': 'B4', 'group': 'B', 'text': 'Rapordaki B4 PC denemesi.'},
+    {'id': 'A1', 'group': 'A', 'text': 'Uzun bir iş başlat (ör. "mailleri özetle"), bitmeden Jarvis\'i kapatıp aç, sonra yalnız "devam" de. Beklenen: iş kaldığı yerden sürer ya da açık bir mesaj gelir.'},
+    {'id': 'A2', 'group': 'A', 'text': 'Yarım işte yalnız "iptal" de. Beklenen: iş kapanır, "iptal edildi" denir.'},
+    {'id': 'A3', 'group': 'A', 'text': 'Hiç açık iş yokken "devam" de. Beklenen: normal sohbet ya da açık mesaj; garip bir iş başlamamalı.'},
+    {'id': 'A4', 'group': 'A', 'text': 'Jarvis bir soru sorarken (ör. "hangi dosya?") "devam" de. Beklenen: soruya cevap sayılır, yeni iş açılmaz.'},
+    {'id': 'A5', 'group': 'A', 'text': '"hedef ..." ile bir hedef başlat, sonra "devam" ve "iptal" de. Beklenen: hedef işi etkilenir, eski görev kaydı değil.'},
+    {'id': 'B1', 'group': 'B', 'text': '"görev akışı ..." ile çok adımlı iş çalıştır (ör. haberleri bul, özetle, dosyaya yaz). Sonucu not et.'},
+    {'id': 'B2', 'group': 'B', 'text': 'Zamanlı iş: "yarın sabah 9\'da hava durumunu söyle" ve "her gün 18:00\'de kurları söyle"; sonra işleri listele ve birini iptal et.'},
+    {'id': 'B3', 'group': 'B', 'text': 'Bir mailde Gmail ek okuma komutunu çalıştır. Sonucu not et.'},
+    {'id': 'B4', 'group': 'B', 'text': 'Bir işi yarıda bırakıp Jarvis\'i yeniden aç: kayıtlı iş geri geliyor mu?'},
 ]
 
 _STATUSES = {'c': 'çalıştı', 'y': 'yarım', 'b': 'bozuk', 'a': 'atlandı'}
