@@ -44,7 +44,7 @@ def check_completion(job,goal,evidence,*,final=False):
                     re.search(r'bul|listele|keşfet|kesfet|seç|sec|belirle',text) and
                     not re.search(r'araştır|arastir|incele|analiz|doğrula|dogrula|rapor|özet|ozet|değerlendir|degerlendir',text))
     research_goal=re.search(r'araştır|arastir|haber|gelişme|rapor|incele|analiz|özet|ozet',text)
-    if article and not discovery_goal and research_goal:
+    if not article and not discovery_goal and research_goal:
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
     if final or state=='done':
         from modules import publisher_news
