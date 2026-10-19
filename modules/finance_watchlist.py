@@ -13,7 +13,7 @@ from modules.diagnostics import record_failure as _record_failure
 
 _ROOT = DATA_DIR / 'finance_watchlists'
 _lock = threading.RLock()
-_LIMIT = 19
+_LIMIT = 20
 _MAX_BYTES = 1_000_000
 _KINDS = {'doviz', 'kripto', 'altin', 'hisse'}
 _SLUG = re.compile(r'[a-z0-9][a-z0-9_-]{0,99}')
