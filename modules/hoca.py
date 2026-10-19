@@ -128,8 +128,8 @@ def current_step(profile) -> dict | None:
 
 def context_for(profile) -> str:
     """Aktif adımın kısa, salt okunur bağlamı; modele/ağa başvurmaz."""
-    lesson = active(profile)
-    if not lesson:
+    lesson = _state(profile).get("lesson")
+    if not isinstance(lesson, dict) or lesson.get("done"):
         return ""
     step = current_step(profile)
     if not step:
@@ -152,14 +152,8 @@ def advance(profile) -> dict | None:
     lesson = active(profile)
     if not lesson:
         return None
-    current = lesson.get("active", 0)
-    if isinstance(current, bool) or not isinstance(current, int):
-        return None
-    steps = lesson.get("steps")
-    if not isinstance(steps, list):
-        return None
-    lesson["active"] = current + 1
-    if lesson["active"] >= len(steps):
+    lesson["active"] = lesson.get("active", 0) + 1
+    if lesson["active"] >= len(lesson.get("steps") or []):
         lesson["done"] = True
         lesson.pop("source", None)
     profile.save()
@@ -217,7 +211,7 @@ def check_question(profile) -> str:
     if not lesson or not step:
         raise HocaError("Şu an aktif bir ders yok.")
     pending = lesson.get("pending")
-    if isinstance(pending, dict) and pending.get("step") == lesson["active"] and pending.get("question"):
+    if pending and pending.get("step") == lesson["active"]:
         return pending["question"]
     data = _ask(f"Konu: {lesson['topic']}\nAdım: {step['title']} ({step['goal']})",
                 "Bu adım için tek bir kısa kontrol sorusu sor. Yalnız JSON ver: "
@@ -335,7 +329,7 @@ def teach(profile) -> dict:
     if not lesson or not step:
         raise HocaError("Şu an aktif bir ders yok.")
     pending = lesson.get("pending")
-    if isinstance(pending, dict) and pending.get("step") == lesson["active"] and pending.get("text"):
+    if pending and pending.get("step") == lesson["active"] and pending.get("text"):
         return {"text": pending["text"], "question": pending["question"]}
     prompt = f"Konu: {lesson['topic']}\nSeviye: {lesson.get('level') or 'belirtilmedi'}\nAdım: {step['title']} ({step['goal']})"
     src = lesson.get("source")
@@ -423,7 +417,7 @@ def _lesson_text(profile) -> str:
 
 
 def _finished(profile) -> str:
-    weak = [w for w in weak_topics(profile) if isinstance(w, dict) and w.get("title")]
+    weak = weak_topics(profile)
     tail = ("\nTekrar edeceğin konular: " + ", ".join(w["title"] for w in weak)) if weak else "\nZayıf konu kalmadı."
     return "Ders bitti." + tail
 
@@ -452,7 +446,7 @@ def handle(profile, text: str, enabled: bool = True) -> str | None:
         if not lesson:
             return None
         if _WEAK.fullmatch(t):
-            weak = [w for w in weak_topics(profile) if isinstance(w, dict) and w.get("title")]
+            weak = weak_topics(profile)
             return "Zayıf konuların: " + ", ".join(w["title"] for w in weak) if weak else "Şu an zayıf konun yok."
         kind = intent(t)
         if kind == "change":
@@ -463,7 +457,7 @@ def handle(profile, text: str, enabled: bool = True) -> str | None:
                 return _finished(profile)
             return _lesson_text(profile)
         a = _ANSWER.fullmatch(t)
-        if a and isinstance(lesson.get("pending"), dict):
+        if a and lesson.get("pending"):
             r = grade(profile, a.group("a"))
             if r["correct"]:
                 if not current_step(profile):
@@ -471,7 +465,7 @@ def handle(profile, text: str, enabled: bool = True) -> str | None:
                 return f"{r['feedback']}\n\n" + _lesson_text(profile)
             return (f"{r['feedback']}\nDoğrusu: {r['expected']}\nBu adımı zayıf konulara yazdım; "
                     "devam etmek için 'sonraki adım' de.")
-        if _GIVE_UP.fullmatch(t) and isinstance(lesson.get("pending"), dict):
+        if _GIVE_UP.fullmatch(t) and lesson.get("pending"):
             return f"Doğrusu: {give_up(profile)}\nBu adımı zayıf konulara yazdım; devam etmek için 'sonraki adım' de."
         return None
     except HocaError as exc:
@@ -482,17 +476,13 @@ def snapshot(profile, enabled: bool = True, now: float | None = None) -> dict:
     """Arayüz için salt okunur özet; model çağırmaz."""
     now = time.time() if now is None else now
     lesson = active(profile)
-    clean_weak = [w for w in weak_topics(profile) if isinstance(w, dict)]
     out = {"enabled": bool(enabled), "lesson": None,
-           "weak": [{"id": w.get("id", ""), "title": w.get("title", ""), "topic": w.get("topic", ""),
-                     "due": w.get("due"), "due_now": isinstance(w.get("due"), (int, float)) and not isinstance(w.get("due"), bool) and w["due"] <= now}
-                    for w in clean_weak]}
+           "weak": [{"id": w["id"], "title": w["title"], "topic": w["topic"], "due": w["due"], "due_now": w["due"] <= now}
+                    for w in weak_topics(profile)]}
     if lesson:
         step = current_step(profile) or {}
-        pending = lesson.get("pending") if isinstance(lesson.get("pending"), dict) else {}
-        steps = lesson.get("steps") if isinstance(lesson.get("steps"), list) else []
-        active_index = lesson.get("active") if isinstance(lesson.get("active"), int) and not isinstance(lesson.get("active"), bool) else -1
-        out["lesson"] = {"topic": lesson.get("topic", ""), "step": active_index + 1, "total": len(steps),
-                         "title": step.get("title", ""), "steps": [s.get("title", "") for s in steps if isinstance(s, dict)],
+        pending = lesson.get("pending") or {}
+        out["lesson"] = {"topic": lesson["topic"], "step": lesson["active"] + 1, "total": len(lesson["steps"]),
+                         "title": step.get("title", ""), "steps": [s["title"] for s in lesson["steps"]],
                          "text": pending.get("text", ""), "question": pending.get("question", "")}
     return out
