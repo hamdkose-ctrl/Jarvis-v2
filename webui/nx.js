@@ -1439,12 +1439,14 @@ function onStep(m){
 function msgFiles(t){const paths=[];let rest=t||'',x;while((x=rest.match(/^"([^"]*[\\/][^"]*\.\w{2,5})"\s+/))){paths.push(x[1]);rest=rest.slice(x[0].length)}return {paths,rest}}
 const extOf=p=>(p.split('.').pop()||'').toLowerCase();
 const catOf=p=>{const e=extOf(p);return e==='pdf'?'pdf':/^docx?|odt|rtf$/.test(e)?'word':/^xlsx?|csv|ods$/.test(e)?'excel':/^(png|jpe?g|webp|bmp|gif|heic)$/.test(e)?'image':'other'};
+function stripHtml(){const A=window.JarvisActivityStrip;if(!A)return'';const st=A.stripState(S.snap,S.steps);if(!st.visible)return'';const rid=Object.keys(S.steps).pop();const it=A.activityItems(S.steps,rid).map(x=>`<small class="as-${x.status}">${esc(x.text)}${x.detail?' · '+esc(x.detail):''}</small>`).join('');return `<div class="actstrip"><b>${esc(st.label)}</b>${it}${st.stoppable?'<button data-act="stoptask" title="Durdur">Durdur</button>':''}</div>`}
+ACT.stoptask=async()=>{const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');toast(r.msg||'Görev durduruldu.')};
 function drawMsgs(){
   const el=$('#msgs');if(!el)return;const ms=curMsgs(),first=ms.find(m=>m.role==='user');
   const ch=$('#chead');if(ch){const [i,c]=convIcon(first&&first.text);const files=new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]));
     ch.innerHTML=`<span class="ib ${c}" style="width:52px;height:52px;font-size:26px">${ic(i)}</span><div><b>${esc(first?convTitle(first.text):'Yeni Sohbet')}</b><small>${files.size?files.size+' dosya • ':''}${ms.length} mesaj • ${S.day===ymd(new Date())?'Bugün':S.day.split('-').reverse().join('.')}</small></div>
      <div class="acts"><button data-act="ccopy" title="Kopyala">${ic('up')}</button><button data-act="cmore" title="Diğer">•••</button></div>`}
-  el.innerHTML=(ms.length?ms.map(msgHtml).join(''):`<div class="m s" style="margin:auto">Konuşmaya başla: yaz ya da mikrofona dokun.</div>`)+(S.waiting&&S.day===ymd(new Date())?`<div class="m a"><span class="orb">${ic('mic')}</span><div class="bb"><span class="typing"><i></i><i></i><i></i></span></div></div>`:'');
+  el.innerHTML=(ms.length?ms.map(msgHtml).join(''):`<div class="m s" style="margin:auto">Konuşmaya başla: yaz ya da mikrofona dokun.</div>`)+(S.waiting&&S.day===ymd(new Date())?`<div class="m a"><span class="orb">${ic('mic')}</span><div class="bb"><span class="typing"><i></i><i></i><i></i></span></div></div>`:'')+stripHtml();
   el.scrollTop=el.scrollHeight;
 }
 ACT.ccopy=async()=>{const t=curMsgs().filter(m=>m.role!=='step'&&m.role!=='files'&&m.role!=='agenda').map(m=>`${m.role==='user'?'Sen':'Jarvis'}: ${m.text}`).join('\n\n');try{await navigator.clipboard.writeText(t);toast('Konuşma panoya kopyalandı.')}catch(e){toast('Kopyalanamadı.','bad')}};

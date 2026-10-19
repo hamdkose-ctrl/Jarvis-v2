@@ -110,3 +110,4 @@ Hamdi: tüm arayüz eski haliyle kalır; yalnız arka plan yenilenir. `nx.js`, `
 
 - `tests/test_web_bridge_drift.py`, tüm webui JavaScript dosyalarındaki sabit `api`/`tryApi` adlarını Bridge ve miras metotlarıyla AST üzerinden karşılaştırır; özel/geçersiz ve çağrılamayan adları bildirir.
 - Dinamik adlar (`api(name)`, koşullu/birleştirilmiş/şablon dizgeleri) denetlenmez; uygulama import edilmez, gerçek arayüz/PC ve argüman/sonuç sözleşmesi ölçülmez.
+- Durdur şeridi: `Bridge.stop_task` yalnız çalışan isteği iptal eder (mikrofon/konuşma açık kalır, `emergency` hepsini durdurur); `snapshot.working` orb `thinking` iken doğrudur. `webui/activity_strip.js` (saf: `stripState`, `activityItems`) `nx.js` `drawMsgs` sonunda `.actstrip` şeridini çizer: etiket son çalışan adım, son 4 adım, Durdur düğmesi. Gerçek PC'de denenmedi.
