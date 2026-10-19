@@ -76,9 +76,9 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             {'request': REQUEST, 'steps': [], 'outputs': {}},
         ]
         for current in rows:
-            with self.subTest(current=current), self.assertRaises(ValueError) as caught:
-                news_policy.check_completion(current, GOAL, [], final=False)
-            self.assertNotIsInstance(caught.exception, KeyError)
+            with self.subTest(current=current):
+                with self.assertRaisesRegex(ValueError, 'Geçersiz haber işi'):
+                    news_policy.check_completion(current, GOAL, [], final=False)
 
     def test_resume_recovery_missing_or_incomplete_job_returns_false(self):
         save = Mock()
