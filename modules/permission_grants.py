@@ -19,7 +19,7 @@ from modules import service_store
 
 ROOT = Path(os.environ.get('JARVIS_HOME') or DATA_DIR) / 'permission_grants'
 _LOCK = threading.RLock()
-_LIMIT = 50
+_LIMIT = 51
 _MAX_SECONDS = 24 * 60 * 60
 _MAX_BYTES = 64000
 _DEVICES = {'con', 'prn', 'aux', 'nul'} | {f'{p}{n}' for p in ('com', 'lpt') for n in range(1, 10)}
