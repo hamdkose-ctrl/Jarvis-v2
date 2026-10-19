@@ -25,6 +25,12 @@ class FinanceAlarmCommandsTests(unittest.TestCase):
                 self.assertEqual((row['kind'],row['symbol'],row['op'],row['value']),(kind,symbol,'below',33.5))
         commands.handle('alice',"dolar 33,50 TL altına inerse haber ver")
         self.assertEqual(len(store.list_rules('alice')),4)
+        store.add_rule('alice',{'kind':'doviz','symbol':'EUR','op':'pct_up','value':5})
+        listing=commands.handle('alice','alarmlarım')
+        self.assertNotIn('pct_up',listing)
+        self.assertIn('%5',listing)
+        self.assertNotIn('above',listing)
+        self.assertIn('33,5 TL',listing)
         self.assertIn('geçersiz',commands.handle('alice','USD 0 TL üstüne çıkarsa haber ver').lower())
     def test_unrelated_commands_not_captured_or_written(self):
         for text in ['dolar kaç lira','alarm kur yarın 7','alarmları kapat','USD al','USD sat','haber ver']:

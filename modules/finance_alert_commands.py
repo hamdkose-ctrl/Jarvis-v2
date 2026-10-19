@@ -35,13 +35,26 @@ def _asset(name):
     raise ValueError('Geçersiz veya tanınmayan alarm sembolü.')
 
 
+def _amount(value):
+    return format(value, 'g').replace('.', ',')
+
+
+def _description(rule):
+    amount = _amount(rule['value'])
+    if rule['op'] in ('above', 'below'):
+        direction = 'üstüne çıkınca' if rule['op'] == 'above' else 'altına inince'
+        return f"{rule['symbol']} · {amount} TL'nin {direction}"
+    direction = 'yükselişte' if rule['op'] == 'pct_up' else 'düşüşte'
+    return f"{rule['symbol']} · %{amount} {direction}"
+
+
 def handle(owner, command):
     if not isinstance(command,str):
         return None
     text = _normal_command(command)
     if text == 'alarmlarim':
         rows = finance_alert_store.list_rules(owner)
-        return '\n'.join(f"{i}. {r['symbol']} · {r['op']} · {r['value']:g} TL" for i,r in enumerate(rows,1)) or 'Kayıtlı finans alarmın yok.'
+        return '\n'.join(f"{i}. {_description(r)}" for i,r in enumerate(rows,1)) or 'Kayıtlı finans alarmın yok.'
     match = _DELETE.fullmatch(text)
     if match:
         rows = finance_alert_store.list_rules(owner)
@@ -60,4 +73,4 @@ def handle(owner, command):
             'op':'above' if match[3].startswith('ustune') else 'below','value':value})
     except ValueError as exc:
         return 'Alarm kaydedilmedi: '+str(exc)
-    return f"Alarm kaydedildi: {row['symbol']} {row['value']:g} TL eşiği; yalnız fiyat bildirimi. Kontrol aralığı yaklaşık 5 dakikadır; sessiz saatlerde bildirim bekletilir."
+    return f"Alarm kaydedildi: {row['symbol']} {_amount(row['value'])} TL eşiği; yalnız fiyat bildirimi. Kontrol aralığı yaklaşık 5 dakikadır; sessiz saatlerde bildirim bekletilir."
