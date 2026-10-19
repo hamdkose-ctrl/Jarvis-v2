@@ -32,7 +32,7 @@ def describe(owner):
         for tool in member['tools']:
             delivery,scope=CONTRACTS.get(tool,('Adaptörün durumlu yerel sonucu','Mevcut adaptör izinleri çalışma sırasında denetlenir.'))
             readiness='runtime_check_required'
-            if tool=='coder':readiness='unlocked' if status.get('enabled') and status.get('unlocked') else 'locked'
+            if tool=='coder':readiness='unlocked' if status.get('enabled') or status.get('unlocked') else 'locked'
             elif tool=='media':readiness='local_prerequisites_present' if shutil.which('ffmpeg') and shutil.which('ffprobe') else 'missing_ffmpeg_or_ffprobe'
             elif tool in ('research','browser') and privacy.blocked('web'):readiness='privacy_blocked'
             elif tool=='writer':readiness='local_adapter_available'
