@@ -30,6 +30,10 @@ def _url(url):
     return url
 
 
+def _domain(page):
+    return (urlsplit(str(page.url)).hostname or '').casefold()
+
+
 def _digest(page):
     return hashlib.sha256((page.url+'\n'+page.title()+'\n'+page.locator('body').inner_text()[:16000]).encode()).hexdigest()
 
@@ -50,6 +54,61 @@ def _target(page, selector):
 
 def _signature(item):
     return item.evaluate("e => JSON.stringify({tag:e.tagName,type:e.type||'',id:e.id,name:e.name||'',text:(e.innerText||e.getAttribute('aria-label')||e.placeholder||'').slice(0,150),href:e.href||'',formAction:e.formAction||e.form?.action||'',formMethod:e.formMethod||e.form?.method||''})")
+
+
+def _permission_name(action, item=None):
+    """Sınıflandırıcıya yalnız işlem etiketi/DOM kimliği gider; fill değeri asla gitmez."""
+    parts=[]
+    if item is not None:
+        try:
+            data=json.loads(_signature(item))
+        except (TypeError,ValueError,AttributeError):
+            data={}
+        label=next((data.get(k) for k in ('text','name','id') if isinstance(data.get(k),str) and data.get(k).strip()),'')
+        if label: parts.append(label)
+        field_type=data.get('type')
+        if isinstance(field_type,str) and field_type.casefold()=='password': parts.append('password')
+        if not parts:
+            for key in ('tag','type','id','name'):
+                value=data.get(key)
+                if isinstance(value,str) and value.strip(): parts.append(value)
+    if not parts:
+        for key in ('op','selector','key'):
+            value=action.get(key)
+            if isinstance(value,str) and value.strip(): parts.append(value)
+    return ' '.join(parts)[:1500]
+
+
+def _permission_decision(owner, page, action, item=None):
+    """Tarayıcı adımını ortak kapıdan geçirir; tanınmayan ad mevcut politikayı değiştirmez."""
+    try:
+        from modules import permission_audit, permission_classify, permission_gate, permission_grants
+        target=_domain(page)
+        kind,known=permission_classify.classify_detail('browser',_permission_name(action,item),target)
+        if known:
+            result=permission_gate.decide({'class':kind,'target':target,'via':'browser'},
+                                          permission_grants.load(owner),time.time())
+            decision,reason=result['decision'],result['reason']
+        else:
+            decision,reason='allow','Tanınmayan ad; mevcut tarayıcı onay politikası geçerli.'
+        if decision not in ('allow','ask','deny') or not isinstance(reason,str):
+            raise ValueError('Geçersiz izin kararı.')
+        permission_audit.record(owner,decision,kind,target,'browser',reason)
+    except Exception:
+        _record_failure('modules/browser_agent.py:permission_gate')
+        raise ValueError('İzin denetimi tamamlanamadı; tarayıcı işlemi yapılmadı.') from None
+    if decision=='deny':
+        raise ValueError(' '.join(reason.split())[:200] or 'Bu tarayıcı işlemi izin politikası nedeniyle yapılmadı.')
+    return {'decision':decision,'class':kind,'reason':reason,'target':target}
+
+
+def _permission_preview(owner,page,actions,first_item):
+    asks=[]
+    for index,action in enumerate(actions):
+        result=_permission_decision(owner,page,action,first_item if index==0 else None)
+        if result['decision']=='ask' and result['reason'] not in asks:
+            asks.append(result['reason'])
+    return asks
 
 
 def _sensitive(action, item):
@@ -73,30 +132,39 @@ def validate(actions):
     return result
 
 
-def _save_pending(root, page, actions, item):
+def _save_pending(root, page, actions, item, permission_asks=None):
     token=uuid.uuid4().hex[:12]
     pending={'id':token,'created':time.time(),'url':page.url,'digest':_digest(page),
              'signature':_signature(item),'actions':actions}
     path=root/'pending.json'; path.write_text(json.dumps(pending,ensure_ascii=False),encoding='utf-8')
+    note=''
+    if permission_asks:
+        note=' İzin kapısı onay notu: '+'; '.join(permission_asks)+'.'
     return {'state':'approval','id':token,'action':actions[0], 'url':page.url,
-            'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}. Bu planı uygulamak için ‘tarayıcı onayla {token}’, vazgeçmek için ‘tarayıcı iptal’ yaz."}
+            'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}.{note} Bu planı uygulamak için ‘tarayıcı onayla {token}’, vazgeçmek için ‘tarayıcı iptal’ yaz."}
 
 
-def _execute(page, root, actions, approved=None):
+def _execute(page, root, actions, approved=None, *, owner=None):
     log=[]
     plan_approved=False
+    owner=owner or root.name
     for i,a in enumerate(validate(actions)):
         requests_state.check()
         op=a['op']; item=None
         if op in ('click','fill','select','press'):
             item=_target(page,a.get('selector'))
-            if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
             sensitive=_sensitive(a,item)
+            if sensitive and not plan_approved and approved is None:
+                permission_asks=_permission_preview(owner,page,actions[i:],item)
+                return {**_save_pending(root,page,actions[i:],item,permission_asks),'steps':log,'page':snapshot(page)}
+            _permission_decision(owner,page,a,item)
+            if item.get_attribute('type')=='password': raise ValueError('Şifreyi açılan tarayıcıda kendin gir; sohbet/model şifre alanını doldurmaz.')
             if sensitive and not plan_approved:
-                if approved is None: return {**_save_pending(root,page,actions[i:],item),'steps':log,'page':snapshot(page)}
                 if approved['digest']!=_digest(page) or approved['signature']!=_signature(item):
                     raise ValueError('Sayfa veya hedef değişmiş; yeni işlem önizlemesi gerekli.')
                 plan_approved=True  # The displayed remainder is the exact approved plan.
+        else:
+            _permission_decision(owner,page,a)
         before_url=page.url
         before_text=page.locator('body').inner_text() if op in ('click','press') else ''
         if op=='goto': page.goto(_url(a['url']),wait_until='domcontentloaded',timeout=25000)
@@ -153,7 +221,7 @@ def _run(owner, actions=None, approval=None, *, headless=False):
                 page.goto(pending['url'],wait_until='domcontentloaded',timeout=25000)
                 # Consume before any effect: a retry must never send/submit twice.
                 (root/'pending.json').unlink()
-            result=_execute(page,root,actions,pending)
+            result=_execute(page,root,actions,pending,owner=owner)
             privacy.audit('tarayıcı ajanı',result['state'])
             return result
         finally: context.close()
