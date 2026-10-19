@@ -506,6 +506,14 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         hub.publish("state", "idle")
         return {"stopped": True, "msg": "Görev durduruldu."}
 
+    def map(self):
+        """Harita sayfası: arka uç henüz yok; arayüz "bu sürümde yok" gösterir."""
+        return None
+
+    def map_set_policy(self, tool: str, action: str, policy: str):
+        """Politika değişimi arka ucu henüz yok; hiçbir şey değişmez."""
+        return None
+
     def emergency(self) -> str:
         from modules import pc_guide
         pc_guide.stop()

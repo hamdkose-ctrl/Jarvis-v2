@@ -145,7 +145,7 @@ let bgT=0;
 let lastPaint=0;function frame(now){if(now-lastPaint<50)return requestAnimationFrame(frame);const dt=Math.min(.1,(now-lastT)/1000);lastT=now;lastPaint=now;if(!document.hidden){window.JarvisBackdropController?.sync();bgT+=dt;GLOBES.forEach(st=>drawGlobe(st,dt))}requestAnimationFrame(frame)}
 
 // ======================================================================= üst çubuk ve sağ sütun
-const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid']];
+const NAV=[['home','Ana Sayfa','home'],['chat','Sohbet','msg'],['study','Çalışma','book'],['files','Dosyalar','folder'],['vision','Ekran','monitor'],['tools','Araçlar','gear'],['settings','Ayarlar','gear'],['menu','Menü','grid'],['team','Ekip merkezi','grid'],['map','Harita','grid']];
 function ic2(n){return ic(n)}
 function renderTop(){
   const sn=S.snap||{},n=needCount(),w=sn.weather,win=sn.winctl!==false;
@@ -1712,6 +1712,44 @@ const APPS=[
  ['Araçlar','green','calendar','Bugün Neler Var','Takvim, mail ve görevlerin özeti.','günlük özet'],
 ];
 const ACATS=['Tümü','Üretkenlik','Analiz','Geliştirme','Medya','Araçlar'];
+// HARITA START
+const HARITA_CLASS={read:['okuma','ok'],local_reversible:['geri alınabilir','ok'],local_destructive:['yıkıcı','warn'],message_out:['gönderim','warn'],publish:['yayın','warn'],money_credential:['para','bad'],system_config:['sistem','warn']};
+const HARITA_POLICY=[['ask','Sor'],['allow','İzin ver'],['deny','Engelle']];
+const HARITA_AREA={cihaz:'Cihazlar',iletisim:'İletişim'};
+function harita_action(t,a){
+  const cls=HARITA_CLASS[a.class]||[String(a.class||'bilinmiyor'),'warn'];
+  const ctl=a.policy==='locked'
+    ?`<button class="harita-lock" data-map-policy="locked" disabled aria-disabled="true" title="Bu işlem kilitli">🔒 Kilitli</button>`
+    :`<select class="harita-pol" data-map-tool="${esc(t.id)}" data-map-action="${esc(a.id)}" data-map-old="${esc(a.policy)}">${HARITA_POLICY.map(([v,l])=>`<option value="${v}"${v===a.policy?' selected':''}>${l}</option>`).join('')}</select>`;
+  return `<div class="harita-act"><div class="harita-actx"><b>${esc(a.name)}</b><small>${esc(a.desc)}</small></div><span class="harita-badge ${cls[1]}">${esc(cls[0])}</span>${ctl}</div>`;
+}
+function harita_tool(t){
+  const acts=Array.isArray(t.actions)?t.actions.filter(a=>a&&typeof a==='object'):[];
+  return `<section class="card harita-tool"><div class="harita-th"><span class="harita-ic">${ic(t.icon||'gear')}</span><div><b>${esc(t.name)}</b><small>${esc(t.detail)}</small></div><span class="harita-state ${esc(t.state)}">${esc(t.state)}</span></div>${acts.map(a=>harita_action(t,a)).join('')}</section>`;
+}
+function harita_render(data){
+  if(!data||typeof data!=='object'||!Array.isArray(data.tools))return `<div class="harita-wrap"><div class="empty">Harita bu sürümde yok.</div></div>`;
+  const tools=data.tools.filter(t=>t&&typeof t==='object'&&t.id!==undefined&&t.name!==undefined);
+  const ph=(Array.isArray(data.placeholders)?data.placeholders:[]).filter(p=>p&&typeof p==='object');
+  const areas=[...new Set(tools.map(t=>t.area).concat(ph.map(p=>p.area)))];
+  return `<div class="harita-wrap"><div class="harita-hub"><div class="harita-orb">${menuOrbSvg()}</div><button class="btn sm bad" data-act="stoptask">Durdur</button></div>`
+    +areas.map(ar=>`<div class="harita-area"><h3>${esc(HARITA_AREA[ar]||ar||'Diğer')}</h3>${tools.filter(t=>t.area===ar).map(harita_tool).join('')}${ph.filter(p=>p.area===ar).map(p=>`<div class="card harita-soon"><b>${esc(p.name)}</b><span class="harita-badge">Yakında</span></div>`).join('')}</div>`).join('')+`</div>`;
+}
+async function harita_set_policy(tool,action,old,next,control){
+  const r=await tryApi('map_set_policy',tool,action,next);
+  if(r===null||r===undefined||r===false||(typeof r==='object'&&r.ok===false)){if(control)control.value=old;toast('Harita politika değişimi bu sürümde yok.','bad');return}
+  if(control&&control.dataset)control.dataset.mapOld=next;
+}
+PAGES.map=async pg=>{
+  pg.innerHTML=`<div class="harita-wrap"><div class="empty">Harita yükleniyor…</div></div>`;
+  const d=await tryApi('map');
+  pg.innerHTML=harita_render(d);
+};
+if(typeof document!=='undefined')document.addEventListener('change',e=>{
+  const s=e.target&&e.target.closest&&e.target.closest('select[data-map-tool]');if(!s)return;
+  harita_set_policy(s.dataset.mapTool,s.dataset.mapAction,s.dataset.mapOld,s.value,s);
+});
+// HARITA END
 PAGES.apps=pg=>{
   pg.innerHTML=`<div class="apph"><div><div class="kick">• YAPAY ZEKÂ ARAÇLARI •</div><h1>Uygula<span>malar</span></h1><p>Daha fazlasını keşfet, üretkenliğini artır</p></div><div style="height:250px;position:relative"><canvas id="g-apps" style="position:absolute;inset:0;width:100%;height:100%"></canvas></div></div>
    <section class="card glow"><div class="ftool"><div class="chips" style="margin:0">${ACATS.map(c=>`<button class="chip ${S.acat===c?'on':''}" data-act="acat" data-c="${c}">${c}</button>`).join('')}</div>
