@@ -1399,7 +1399,7 @@ function msgHtml(m){
 function stepsHtml(card){
   const items=card?[...card.items.values()]:[];if(!items.length)return '';
   const mark={working:'…',done:'✓',error:'✗'};
-  return `<div class="m stepcard"><div class="steps">${items.map(i=>`<div class="step ${esc(i.s)}"><span class="sm">${mark[i.s]||'•'}</span><span>${esc(i.t)}${i.s==='error'&&i.d?`<small>${esc(i.d)}</small>`:''}</span></div>`).join('')}</div></div>`;
+  return `<div class="m stepcard"><div class="steps">${items.map(i=>`<div class="step ${esc(i.s)}"><span class="sm">${mark[i.s]||'•'}</span><span>${esc(i.t)}${i.s==='error'&&i.d?`<small>${esc(i.d)}</small>`:''}</span></div>`).join('')}</div></div>`+taskSummaryCardHtml(card);
 }
 // ---- Sohbet köşe orb'u (APEX "mini" kipi): başlıkta küçük orb Jarvis'in durumunu gösterir; cevap gelirken hangi modelin yanıtladığı yanında bir an çiçek gibi açılıp kaybolur.
 // Yalnız yerel çizim (model/ağ yok); veri mevcut 'step' olaylarındaki model satırlarından (m1, m2…) gelir. Sakin modda kare atlar.
@@ -1426,10 +1426,72 @@ function mountMiniOrb(card){
     g.globalAlpha=1;g.globalCompositeOperation='source-over';requestAnimationFrame(frame)};
   requestAnimationFrame(frame);
 }
+// TASK SUMMARY START
+function taskSummaryText(text){
+  if(typeof text!=='string')return '';
+  text=text.replace(/\b(Bearer|Basic)\s+\S+/gi,'$1 [gizlendi]')
+    .replace(/(^|[^\p{L}\p{N}_])([\p{L}\p{N}_-]*(?:token|secret|password|passwd|parola|belirte[çc]|[şŞsS][iİıI]fre|api[_ -]?key|anahtar)[\p{L}\p{N}_-]*)\s*[:=]\s*\S+/giu,'$1$2=[gizlendi]')
+    .replace(/\b(?:AIza|sk-|gsk_|ghp_|github_pat_|xox[baprs]-|AKIA|ASIA)[\w-]+/g,'[gizlendi]')
+    .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi,'[e-posta gizlendi]')
+    .replace(/\bTR(?:\s*\d){24}\b/gi,'[IBAN gizlendi]')
+    .replace(/\+?\d[\d ()-]{8,}\d/g,'[numara gizlendi]');
+  return Array.from(text.replace(/\s+/g,' ').trim()).slice(0,200).join('');
+}
+function taskSummaryData(job){
+  const empty=()=>({title:'',done:[],left:[],stopped:false,verified:false});
+  if(!job||Array.isArray(job)||typeof job!=='object')return empty();
+  const title=job.title===undefined?job.request:job.title,steps=job.steps;
+  if(typeof title!=='string'||!title.trim()||typeof job.state!=='string'||!Array.isArray(steps))return empty();
+  const done=[],left=[];
+  for(const step of steps){
+    if(!step||typeof step!=='object')return empty();
+    const text=step.text===undefined?step.title:step.text;
+    if(typeof text!=='string'||!text.trim()||typeof step.state!=='string')return empty();
+    (['done','completed'].includes(step.state)?done:left).push(taskSummaryText(text));
+  }
+  const stopped=['cancelled','stopped'].includes(job.state)||job.stopped===true;
+  const verified=steps.length>0&&!left.length&&!stopped&&['done','completed'].includes(job.state)&&(job.verified===true||steps.every(x=>x.verified===true));
+  return {title:taskSummaryText(title),done,left,stopped,verified};
+}
+function taskSummaryHtml(job){
+  const data=taskSummaryData(job);if(!data.title)return '';
+  const list=(label,items)=>items.length?'<div><b>'+label+'</b><ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></div>':'';
+  return '<section class="task-summary" aria-label="Görev sonucu"><strong>'+esc(data.title)+'</strong>'+list('Yapılan',data.done)+list('Yarım kalan',data.left)+'<small>'+(data.verified?'Doğrulandı':'Doğrulama bilgisi yok')+'</small></section>';
+}
+function taskSummaryOwner(){return (((S.snap||{}).user||{}).slug)||''}
+function taskSummaryTrack(card,rid){
+  if(card._summaryOwner===undefined)card._summaryOwner=taskSummaryOwner();
+  card._summaryRid=rid;
+  if(card._summaryReady===undefined)card._summaryReady=false;
+}
+function taskSummaryActiveRid(){
+  const owner=taskSummaryOwner();if(!owner)return null;
+  const ids=Object.keys(S.steps).filter(rid=>rid!=='serbest'&&S.steps[rid]._summaryOwner===owner&&!S.steps[rid]._summaryReady);
+  const last=[...(S.live||[])].reverse().find(x=>x.role==='user'&&x.rid);
+  return last?(ids.includes(last.rid)?last.rid:null):(ids.length===1?ids[0]:null);
+}
+function taskSummaryFinish(rid,stopped){
+  const card=rid&&S.steps[rid],owner=taskSummaryOwner();
+  if(!card||!owner||card._summaryOwner!==owner||(card._summaryReady&&stopped!==true))return;
+  card._summaryReady=true;card._summaryStopped=stopped===true;
+  if(S.page==='chat'&&typeof drawMsgs==='function')drawMsgs();
+}
+function taskSummaryEvent(m){
+  const owner=taskSummaryOwner();
+  if(!m||!owner||(m.user&&m.user!==owner))return;
+  if(m.rid&&((m.k==='state'&&m.t==='idle')||m.k==='assistant'))taskSummaryFinish(m.rid,false);
+}
+function taskSummaryCardHtml(card){
+  if(!card||!card._summaryReady||!taskSummaryOwner()||card._summaryOwner!==taskSummaryOwner()||!(card.items instanceof Map))return '';
+  return taskSummaryHtml({title:card._summaryStopped?'Durdurulan görev':'Görev sonucu',state:card._summaryStopped?'stopped':'done',
+    steps:[...card.items.values()].map(x=>({text:x.t,state:x.s==='error'?'failed':x.s})),verified:false});
+}
+// TASK SUMMARY END
 function onStep(m){
   const [status,id,detail]=String(m.x||'').split('|');const rid=m.rid||'serbest';const ts=m.ts||Date.now()/1000;
   let card=S.steps[rid];if(!card){card=S.steps[rid]={ts,items:new Map()};S.live.push({role:'step',rid,text:'adım:'+rid,ts});S.live=S.live.slice(-300)}
   card.items.set(id||String(card.items.size),{t:String(m.t||''),s:status||'working',d:detail||''});
+  taskSummaryTrack(card,rid);
   const keys=Object.keys(S.steps);if(keys.length>60)keys.slice(0,keys.length-60).forEach(k=>delete S.steps[k]);
   if(/ses(i)? (kapatıl|açıl)/i.test(String(m.t||''))&&status!=='working')loadPcMute();
   if(/^m\d+$/.test(id||''))miniBloom(m.t,status);
@@ -1440,7 +1502,7 @@ function msgFiles(t){const paths=[];let rest=t||'',x;while((x=rest.match(/^"([^"
 const extOf=p=>(p.split('.').pop()||'').toLowerCase();
 const catOf=p=>{const e=extOf(p);return e==='pdf'?'pdf':/^docx?|odt|rtf$/.test(e)?'word':/^xlsx?|csv|ods$/.test(e)?'excel':/^(png|jpe?g|webp|bmp|gif|heic)$/.test(e)?'image':'other'};
 function stripHtml(){const A=window.JarvisActivityStrip;if(!A)return'';const st=A.stripState(S.snap,S.steps);if(!st.visible)return'';const rid=Object.keys(S.steps).pop();const it=A.activityItems(S.steps,rid).map(x=>`<small class="as-${x.status}">${esc(x.text)}${x.detail?' · '+esc(x.detail):''}</small>`).join('');return `<div class="actstrip"><b>${esc(st.label)}</b>${it}${st.stoppable?'<button data-act="stoptask" title="Durdur">Durdur</button>':''}</div>`}
-ACT.stoptask=async()=>{const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');toast(r.msg||'Görev durduruldu.')};
+ACT.stoptask=async()=>{const rid=typeof taskSummaryActiveRid==='function'?taskSummaryActiveRid():null;const r=await tryApi('stop_task');if(!r)return toast('Durdurma bu sürümde yok.','bad');if(r.stopped===true&&typeof taskSummaryFinish==='function')taskSummaryFinish(rid,true);toast(r.msg||'Görev durduruldu.')};
 function drawMsgs(){
   const el=$('#msgs');if(!el)return;const ms=curMsgs(),first=ms.find(m=>m.role==='user');
   const ch=$('#chead');if(ch){const [i,c]=convIcon(first&&first.text);const files=new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]));
@@ -2168,6 +2230,7 @@ function onEvent(m){
   const owner=((S.snap||{}).user||{}).slug;
   if(m.user&&owner&&m.user!==owner){refreshSoon();return}
   if(m.mid&&((S.hist||[]).some(r=>r.id===m.mid)||S.live.some(r=>r.id===m.mid)))return;
+  if(typeof taskSummaryEvent==='function')taskSummaryEvent(m);
   if(k==='action'){Promise.all([refresh(),loadUi()]).then(()=>{S.files=null;S.sc=null;S.sov=null;if(S.page!=='chat')render()});return}
   if(k==='reconcile'){loadHist().then(()=>{S.live=[];if(S.page==='chat'){drawMsgs();drawConvs()}});return}
   if(k==='user'||k==='assistant'){const ts=m.ts||Date.now()/1000;
