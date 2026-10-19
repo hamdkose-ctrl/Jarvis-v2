@@ -14,7 +14,7 @@ def _connection_timeout_message(self):
     category = getattr(self, '_session_error_category', None)
     if not ollama_hint.internet_up():
         return ollama_hint.NO_INTERNET, failure_policy.NETWORK
-    if category == failure_policy.RATE_LIMIT:
+    if getattr(self, '_session_rate_limited', False):
         return 'Gemini kotası dolmuş görünüyor, biraz sonra tekrar dene.', failure_policy.RATE_LIMIT
     return ('Canlı konuşmaya bağlanılamadı. İnternetini kontrol edip tekrar “Hey Jarvis” de.',
             category or failure_policy.UNKNOWN)
@@ -115,6 +115,8 @@ def frame(self, x, wakeword, services) -> None:
         self.emit('system', "Mikrofon hiç ses vermiyor. Windows'ta Ayarlar > Gizlilik > Mikrofon iznini kontrol et ya da Ayarlar'dan mikrofonu seç.")
     st = self._state
     if st == 'asleep':
+        self._session_error_category = None
+        self._session_rate_limited = False
         self._pre.append(x.tobytes())
         sc = wakeword.score(x)
         thr = wakeword.sensitivity_threshold()
