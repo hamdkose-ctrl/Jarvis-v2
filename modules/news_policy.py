@@ -14,7 +14,7 @@ def check_completion(job,goal,evidence,*,final=False):
         raise ValueError('Geçersiz haber işi kaydı.')
     request=job.get('request');raw_steps=job.get('steps');outputs=job.get('outputs');state=job.get('state')
     if (not isinstance(request,str) or not request.strip() or not isinstance(raw_steps,list)
-            or not isinstance(outputs,dict) or not isinstance(state,str)):
+            or not isinstance(outputs,dict)):
         raise ValueError('Geçersiz haber işi kaydı.')
     if not research_evidence.news_requested(request):return
     steps={}
@@ -44,7 +44,7 @@ def check_completion(job,goal,evidence,*,final=False):
                     re.search(r'bul|listele|keşfet|kesfet|seç|sec|belirle',text) and
                     not re.search(r'araştır|arastir|incele|analiz|doğrula|dogrula|rapor|özet|ozet|değerlendir|degerlendir',text))
     research_goal=re.search(r'araştır|arastir|haber|gelişme|rapor|incele|analiz|özet|ozet',text)
-    if not article and not discovery_goal and research_goal:
+    if not article and not discovery_goal and research_goal and research_evidence.news_requested(text):
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
     if final or state=='done':
         from modules import publisher_news
@@ -60,7 +60,7 @@ def resume_recovery(runtime,job,started_steps,save):
     if not isinstance(job,dict):return False
     request=job.get('request');steps=job.get('steps');outputs=job.get('outputs')
     if (not isinstance(request,str) or not request.strip() or not isinstance(steps,list) or not steps
-            or not isinstance(outputs,dict) or not isinstance(job.get('state'),str)):
+            or not isinstance(outputs,dict)):
         return False
     if any(not isinstance(step,dict) or not step.get('id') for step in steps):return False
     if not research_evidence.news_requested(request):return False

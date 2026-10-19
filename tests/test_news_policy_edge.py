@@ -73,7 +73,8 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             {},
             {'request': REQUEST},
             {'request': REQUEST, 'steps': []},
-            {'request': REQUEST, 'steps': [], 'outputs': {}},
+            {'request': REQUEST, 'outputs': {}},
+            {'request': REQUEST, 'steps': 'x', 'outputs': {}},
         ]
         for current in rows:
             with self.subTest(current=current):
@@ -108,6 +109,29 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             second = news_policy.resume_recovery(object(), current, 1, save)
         self.assertFalse(first)
         self.assertFalse(second)
+
+
+class MixedGoalTests(unittest.TestCase):
+    """Gerçek news_requested: haber istenen işte haber olmayan hedef (mail, hava) kaynak aramamalı."""
+
+    @staticmethod
+    def _job(request, tool):
+        return {'request': request, 'state': 'running', 'partial_report': None,
+                'steps': [{'id': 'x1', 'tool': tool, 'input': {}, 'depends': []}],
+                'outputs': {'x1': {'state': 'done'}}}
+
+    def test_non_news_goal_in_news_job_is_not_blocked(self):
+        for request, goal, tool in [
+            ('bugün mailleri özetle ve İstanbul haberlerini araştır', 'mailleri özetle', 'mail'),
+            ('hava durumunu söyle ve son haberleri araştır', 'hava durumu raporunu yaz', 'weather'),
+        ]:
+            with self.subTest(goal=goal):
+                self.assertIsNone(news_policy.check_completion(self._job(request, tool), {'text': goal}, ['x1']))
+
+    def test_news_goal_without_article_is_still_blocked(self):
+        current = self._job('bugün mailleri özetle ve İstanbul haberlerini araştır', 'mail')
+        with self.assertRaises(ValueError):
+            news_policy.check_completion(current, {'text': 'İstanbul haberlerini araştır'}, ['x1'])
 
 
 if __name__ == '__main__':
