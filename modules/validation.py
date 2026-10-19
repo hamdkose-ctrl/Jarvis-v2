@@ -9,7 +9,7 @@ import tempfile
 import release_guard as guard
 
 JS_GROUPS = ('desktop_flows', 'files_in_chat_behavior', 'chat_drop_behavior', 'mobile_behavior', 'continuity_behavior', 'fieldnotes_behavior', 'desktop_auth_behavior', 'paid_provider_behavior', 'developer_behavior', 'router_behavior', 'study_behavior', 'navigation_start_behavior', 'local_stt_behavior', 'menu_security_behavior', 'hologram_behavior', 'ai_page_behavior', 'menu_dock_behavior', 'screen_files_panel_behavior', 'menu_subs_behavior', 'ses_boxes_behavior', 'files_search_behavior', 'mini_preview_behavior', 'menu_tap_behavior')
-JS_GROUPS += ('team_center_behavior', 'seljuk_backdrop_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior')
+JS_GROUPS += ('team_center_behavior', 'seljuk_backdrop_behavior', 'hoca_behavior', 'activity_strip_behavior', 'task_summary_behavior', 'harita_behavior')
 SMOKE_GROUPS = ('headless_smoke', 'maintenance_smoke', 'voice_actions_smoke', 'paid_provider_smoke', 'developer_smoke', 'router_agents_smoke', 'stability_contracts')
 
 def python_timeout():
