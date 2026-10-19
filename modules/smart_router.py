@@ -115,6 +115,8 @@ def failure_status(exc):
 
 def failure_detail(attempt):
     reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı'}.get(attempt.get('kind'), 'çağrı başarısız')
+    if attempt.get('hint') == 'ollama_missing':
+        reason = 'Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)'
     error = attempt.get('error', '')
     if error in ('Timeout', 'ReadTimeout', 'ConnectTimeout', 'TimeoutError'):
         reason = 'zaman aşımı'
@@ -160,8 +162,13 @@ def run(owner, prompt, callback, image=False):
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')
-            attempts.append({'provider':provider,'ok':False,'error':type(exc).__name__,
-                             'kind':failure_kind(exc),'status':failure_status(exc)})
+            attempt={'provider':provider,'ok':False,'error':type(exc).__name__,
+                     'kind':failure_kind(exc),'status':failure_status(exc)}
+            if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
+                from modules import ollama_hint
+                if str(exc) == ollama_hint.need('Yerel model'):
+                    attempt['hint'] = 'ollama_missing'
+            attempts.append(attempt)
             from modules import llm
             llm.note_route(llm.provider_label(provider) + ' ' + failure_text(exc) + ', sıradakine geçildi', False)
             if type(exc).__name__ != 'ImageCapabilityError':
