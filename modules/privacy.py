@@ -56,9 +56,14 @@ _PATTERNS = [
     ("iban", re.compile(r"\bTR\d{2}(?:\s?\d{4}){5}\s?\d{2}\b", re.I)),
 ]
 _MASKED_VALUE = r"\[(?:gizli değer|anahtar|e-posta|iban|kart|telefon|kimlik no) gizlendi\]"
+_SECRET_WORD = r"[\w-]*(?:belirteç|belirtec|token|secret|parola|şifre|sifre|password|passwd|api[_-]?key|anahtar)[\w-]*"
 _LABELED_SECRET = re.compile(
-    r"(\b[\w-]*(?:belirteç|belirtec|token|secret|parola|şifre|sifre|password|passwd|api[_-]?key|anahtar)[\w-]*\b\s*[=:]\s*)"
+    r"(\b" + _SECRET_WORD + r"\b\s*[=:]\s*)"
     r"(?!" + _MASKED_VALUE + r")\S{6,}",
+    re.I,
+)
+_FLEX_LABELED_SECRET = re.compile(
+    r"(?P<label>\b" + _SECRET_WORD + r"\b)(?P<tail>(?:[ \t]+\S+){1,4})",
     re.I,
 )
 _BEARER = re.compile(
@@ -77,6 +82,58 @@ _QUERY_KEY = re.compile(
 _CARD = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
 _TCKN = re.compile(r"\b[1-9]\d{10}\b")
 _PHONE = re.compile(r"(?<!\d)(?:\+?90[\s-]?)?0?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}(?!\d)")
+_TOKEN_TRIM = ".,;:!?()[]{}<>\"'`“”‘’"
+_UUID32 = re.compile(r"[0-9a-fA-F]{32}")
+_VERSION = re.compile(r"v?\d+(?:\.\d+){1,4}", re.I)
+_DATE_OR_TIME = re.compile(r"(?:\d{4}-\d{2}-\d{2}|\d{1,2}:\d{2}(?::\d{2})?)")
+_ISO_STAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?")
+_DASHED_UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+_MIXED_TOKEN = re.compile(r"(?<!\S)\S{16,}(?!\S)")
+
+
+def _secret_token(raw: str, min_len: int) -> str | None:
+    token = re.split(r"[=\"'`]", raw.strip(_TOKEN_TRIM))[-1].strip(_TOKEN_TRIM)
+    if len(token) < min_len or not token:
+        return None
+    low = token.casefold()
+    if low.startswith(("http://", "https://", "www.")) or "://" in token or "/" in token or "\\" in token:
+        return None
+    if _UUID32.fullmatch(token) or _VERSION.fullmatch(token) or _DATE_OR_TIME.fullmatch(token):
+        return None
+    if _ISO_STAMP.fullmatch(token) or _DASHED_UUID.fullmatch(token):
+        return None
+    # Ayırıcılarla (_ - .) bölünen kelime/sayı dizileri (snake_case, dosya adı, tarih) sır sayılmaz;
+    # rastgele anahtar en az bir uzun parçada harf ile rakam/sembol karıştırır.
+    for part in re.split(r"[_.\-]", token):
+        if (len(part) >= 10 and any(c.isalpha() for c in part)
+                and any(c.isdigit() or not c.isalnum() for c in part)):
+            return token
+    return None
+
+
+def _mask_core(raw: str, token: str) -> str:
+    start = raw.find(token)
+    if start < 0:
+        return raw
+    return raw[:start] + "[gizli değer gizlendi]" + raw[start + len(token):]
+
+
+def _flex_labeled(match: re.Match) -> str:
+    tail = match.group("tail")
+    pieces = list(re.finditer(r"\S+", tail))
+    # Etiketten sonra en çok üç ara sözcük; ilk gizli-değer biçimli aday maskelenir.
+    for piece in pieces[:4]:
+        token = _secret_token(piece.group(0), 6)
+        if token:
+            masked = tail[:piece.start()] + _mask_core(piece.group(0), token) + tail[piece.end():]
+            return match.group("label") + masked
+    return match.group(0)
+
+
+def _mixed_secret(match: re.Match) -> str:
+    raw = match.group(0)
+    token = _secret_token(raw, 16)
+    return _mask_core(raw, token) if token else raw
 
 
 def redact(text: str, force: bool = False) -> str:
@@ -87,8 +144,10 @@ def redact(text: str, force: bool = False) -> str:
     text = _BASIC.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
     text = _QUERY_KEY.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
     text = _LABELED_SECRET.sub(lambda m: m.group(1) + "[gizli değer gizlendi]", text)
+    text = _FLEX_LABELED_SECRET.sub(_flex_labeled, text)
     for label, pat in _PATTERNS:
         text = pat.sub(f"[{label} gizlendi]", text)
+    text = _MIXED_TOKEN.sub(_mixed_secret, text)
 
     def card(m):
         digits = re.sub(r"\D", "", m.group(0))
