@@ -10,9 +10,14 @@ _MAX_COOLDOWN = 7 * 24 * 60 * 60
 
 
 def _number(value, *, label, positive=False, allow_zero=True):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f'Geçersiz {label}.')
-    value = float(value)
+    try:
+        value = float(value)
+    except (OverflowError, TypeError, ValueError):
+        raise ValueError(f'Geçersiz {label}.') from None
+    if not math.isfinite(value):
+        raise ValueError(f'Geçersiz {label}.')
     if positive and (value < 0 or (not allow_zero and value == 0)):
         raise ValueError(f'Geçersiz {label}.')
     return value
@@ -63,28 +68,36 @@ def evaluate(rule: dict, price: float | int | None, previous: dict | None = None
              now: float | None = None) -> dict:
     """Bir fiyat gözlemini kurala göre değerlendirip yeni alarm durumunu döndürür."""
     symbol, op, value, cooldown = _validate_rule(rule)
-    old_price, fired_at = _previous(previous)
+    previous_invalid = False
+    try:
+        old_price, fired_at = _previous(previous)
+    except (ValueError, OverflowError, TypeError):
+        old_price, fired_at = None, None
+        previous_invalid = True
 
-    if _invalid_price(price):
+    try:
+        current = _number(price, label='fiyat', positive=True)
+    except ValueError:
         return {
             'fire': False,
             'reason': f'Fiyat alınamadı; eşik {value:g}, önceki durum korundu.',
             'state': _state(old_price, fired_at),
         }
 
-    current = float(price)
     moment = time.time() if now is None else _number(now, label='zaman')
     candidate = False
     threshold_text = f'{value:g}'
 
     if op == 'above':
-        candidate = current > value and (old_price is None or old_price < value)
+        candidate = (not previous_invalid and current > value
+                     and (old_price is None or old_price < value))
         reason = f'{symbol} fiyatı {current:g}; üst eşik {threshold_text}.'
     elif op == 'below':
-        candidate = current < value and (old_price is None or old_price > value)
+        candidate = (not previous_invalid and current < value
+                     and (old_price is None or old_price > value))
         reason = f'{symbol} fiyatı {current:g}; alt eşik {threshold_text}.'
     else:
-        if old_price is None:
+        if previous_invalid or old_price is None:
             return {
                 'fire': False,
                 'reason': f'{symbol} fiyatı {current:g}; yüzde eşiği %{threshold_text}, önceki fiyat yok.',
