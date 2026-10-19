@@ -82,6 +82,12 @@ def decide(action: dict, grants: dict | None = None, now: float | None = None) -
         return _result(DENY, action_class, 'Para ve kimlik bilgisi işlemleri kapalı.')
 
     never = grants.get('apps_never') if isinstance(grants, dict) else None
-    if isinstance(never, (list, tuple, set)) and target in never:
+    if isinstance(never, (list, tuple, set)) and _never_hit(never, target):
         return _result(DENY, action_class, 'Bu sistem hedefi kalıcı olarak yasak.')
     return _result(ASK, action_class, 'Sistem ayarı onay ister.')
+
+def _never_hit(never, target):
+    def norm(value):
+        text = str(value).strip().casefold()
+        return text[:-4] if text.endswith('.exe') else text
+    return norm(target) in {norm(item) for item in never}
