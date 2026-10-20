@@ -43,4 +43,3 @@ class SelectedNewsSourcesTests(unittest.TestCase):
             self.assertFalse(any(host in url for url in urls), host)
         self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),
                          {'mynet.com','investing.com','aa.com.tr','bbc.com'})
-
