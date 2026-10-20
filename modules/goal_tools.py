@@ -191,6 +191,9 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
     owner=runtime.profile.slug;validate(kind,data);requests_state.check()
     if kind in goal_extensions.TOOLS:return goal_extensions.execute(runtime,kind,data,identity,approval)
     if kind in task_tools.CATALOG:
+        from modules import untrusted_flow
+        if identity.get('job_id'):
+            untrusted_flow.observe(owner, identity['job_id'], dependencies)
         if kind=='coder':
             from modules import developer
             state=developer.status(owner)
@@ -228,6 +231,8 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             from modules import outbox
             return task_results.seal('publish',outbox.dispatch(owner,approval['id'],approve=True))
         output=task_agents.worker(owner,task,dependencies)
+        if kind != 'publish' and identity.get('job_id'):
+            untrusted_flow.observe(owner, identity['job_id'], output)
         if (kind=='research' and output.get('state')=='done' and output.get('news_article') and
                 identity.get('source_only') is not True):
             from modules import research_delivery

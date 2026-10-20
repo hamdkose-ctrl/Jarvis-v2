@@ -110,12 +110,18 @@ def prepare(owner, payload, work_key):
     if not isinstance(work_key,str) or not 1<=len(work_key)<=200:raise ValueError('Gönderim iş kimliği gerekli.')
     encoded=service_store.encode(payload);digest=_digest(payload);now=time.time()
     with service_store.database(owner) as db:
+        from modules import untrusted_flow
+        flow = untrusted_flow.requires_approval(owner, work_key, payload)
+        db.execute('CREATE TABLE IF NOT EXISTS outbox_flow(id TEXT PRIMARY KEY, needs_approval INTEGER NOT NULL)')
         existing=db.execute('SELECT * FROM outbox WHERE work_key=?',(work_key,)).fetchone()
         if existing:
             if existing['digest']!=digest:raise ValueError('Aynı iş kimliği farklı içerikle kullanılamaz.')
+            if flow:
+                db.execute('INSERT OR REPLACE INTO outbox_flow VALUES(?,1)', (existing['id'],))
             return existing['id']
         oid=uuid.uuid4().hex[:16]
         db.execute('INSERT INTO outbox(id,work_key,payload,digest,state,created,updated,receipt,error) VALUES(?,?,?,?,?,?,?,?,?)',(oid,work_key,encoded,digest,'prepared',now,now,'{}',''))
+        db.execute('INSERT INTO outbox_flow VALUES(?,?)', (oid, int(flow)))
         return oid
 
 
@@ -203,8 +209,19 @@ def dispatch(owner, oid, *, approve=False):
                                                 allowed['expires'] if allowed else 0, record['authorized_until'])
         if decision == 'deny':
             return {'state':'blocked', 'id':oid, 'text':reason}
+        try:
+            from modules import untrusted_flow
+            db.execute('CREATE TABLE IF NOT EXISTS outbox_flow(id TEXT PRIMARY KEY, needs_approval INTEGER NOT NULL)')
+            saved = db.execute('SELECT needs_approval FROM outbox_flow WHERE id=?', (oid,)).fetchone()
+            flow = untrusted_flow.requires_approval(owner, record['work_key'], payload)
+            if flow:
+                db.execute('INSERT OR REPLACE INTO outbox_flow VALUES(?,1)', (oid,))
+            flow = flow or bool(saved and saved['needs_approval'])
+        except Exception:
+            _record_failure('modules/outbox.py:untrusted_flow')
+            return {'state': 'blocked', 'id': oid, 'text': 'Kaynak akışı denetlenemedi; gönderim yapılmadı.'}
         sensitive=any(privacy.redact(payload.get(key,''),force=True)!=payload.get(key,'') for key in ('text','subject'))
-        if not approve and (decision == 'ask' or (sensitive and record['authorized_until']<=now)):
+        if not approve and (decision == 'ask' or ((sensitive or flow) and record['authorized_until']<=now)):
             if record['state']=='preparing':db.execute('UPDATE outbox SET updated=? WHERE id=?',(time.time(),oid))
             return _result(record)
         count=db.execute("UPDATE outbox SET state='sending',updated=?,authorized_until=? WHERE id=? AND state IN ('prepared','preparing') AND digest=?",
