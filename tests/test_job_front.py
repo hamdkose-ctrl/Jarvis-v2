@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime
 from modules import goal_executor, task_agents
+from modules.diagnostics import record_failure as _record_failure
 
 NOW = time.time()
 
@@ -19,8 +20,11 @@ def _task(state, age=60):
 
 
 class JobFrontTests(ProfileCase):
-    def _run(self, text, goal=None, task=None, pending=None):
+    def _run(self, text, goal=None, task=None, pending=None, photo_pending=False, forbid_model=False):
         rt = _runtime(self, self.profile, datetime(2026, 10, 18, 9, 0))
+        if photo_pending:
+            rt._pending_photo[rt.profile.slug] = {'t': time.time(), 'path': 'fake-photo.jpg'}
+            self.addCleanup(rt._pending_photo.pop, rt.profile.slug, None)
         for name, value in (pending or {}).items():
             setattr(rt._session(), name, value)
         calls = []
@@ -44,11 +48,14 @@ class JobFrontTests(ProfileCase):
                 patch.object(task_agents, 'recent', return_value=task), \
                 patch.object(task_agents, 'continue_job', side_effect=task_continue), \
                 patch.object(task_agents, 'cancel_job', side_effect=task_cancel), \
-                patch('modules.router.classify', side_effect=RuntimeError('sohbete düştü')):
+                patch('modules.router.classify', side_effect=RuntimeError('sohbete düştü')) as model:
             try:
                 reply = rt.handle(text)
             except Exception:                       # sahte bekleyen durum sonraki yolları bozabilir; önemli olan çağrılar
+                _record_failure('tests/test_job_front.py:_run')
                 reply = 'SOHBET'
+            if forbid_model:
+                model.assert_not_called()
         return calls, str(reply)
 
     def test_bare_continue_reaches_open_task_job_when_no_goal_is_open(self):
@@ -84,7 +91,33 @@ class JobFrontTests(ProfileCase):
                 with self.subTest(text=text, task=task and task['state']):
                     calls, reply = self._run(text, task=task)
                     self.assertEqual(calls, [])
-                    self.assertEqual(reply, 'Şu an iptal edilecek bir işlem yok.')   # SOHBET olsaydı model yoluna düşmüştü
+                    self.assertEqual(reply, 'İptal edilecek açık görev yok.')   # Kart 58'in istediği kesin metin; eşitlik korunur.
+
+    def test_card58_empty_cancel_words_never_reach_model_or_app_action(self):
+        for text in ('iptal', 'vazgeç.', 'boşver'):
+            with self.subTest(text=text), patch('modules.app_actions.voice') as action:
+                calls, reply = self._run(text, forbid_model=True)
+                self.assertEqual(reply, 'İptal edilecek açık görev yok.')
+                self.assertEqual(calls, [])
+                action.assert_not_called()
+
+    def test_card58_pending_shutdown_keeps_confirmation_response(self):
+        calls, reply = self._run('iptal', pending={'pending_confirm': 'shutdown'}, forbid_model=True)
+        self.assertEqual(reply, 'Tamam, vazgeçtim.')
+        self.assertEqual(calls, [])
+
+    def test_card58_pending_photo_keeps_photo_cancel_response(self):
+        calls, reply = self._run('iptal', photo_pending=True, forbid_model=True)
+        self.assertEqual(reply, 'Tamam, fotoğrafla bir şey yapmıyorum.')
+        self.assertEqual(calls, [])
+
+    def test_card58_continue_and_open_goal_still_fall_through(self):
+        from types import SimpleNamespace
+        from modules import job_front
+        with patch.object(goal_executor, 'active', return_value=False), patch.object(job_front, '_goal_open', return_value=False), patch.object(task_agents, 'recent', return_value=None):
+            self.assertIsNone(job_front.route(self.profile.slug, lambda *a: None, 'devam', SimpleNamespace()))
+            with patch.object(job_front, '_goal_open', return_value=True):
+                self.assertIsNone(job_front.route(self.profile.slug, lambda *a: None, 'iptal', SimpleNamespace()))
 
     def test_pending_questions_keep_their_own_answers(self):
         for field in ('pending_confirm', 'pending_action', 'pending_msg', 'pending_organize', 'pending_desktop', 'pending_app'):
