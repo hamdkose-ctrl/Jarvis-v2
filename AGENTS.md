@@ -115,3 +115,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Hedef planlama turu toplam 120 sn bütçeyi model beklemesinde ve yeni planlama turundan önce denetler; doğrulanmış yeni çıktı olmadan üç geçersiz karar duraklatır. Kayıt/çıktı korunur, yeni açık devam yeni tur bütçesi alır. Devam eden senkron dış işlem zorla kesilmez; bu sınır fiziksel işlem iptali garantisi değildir.
 
 - Açık hedef komutu öneki görev metnine dahil edilmez: hedef … ve hedef: … kontrol komutlarından sonra, eski soru cevabından önce ayrılır. Görev içindeki gerçek hedef sözcükleri korunur; kaynak/konu/izin doğrulaması gevşetilmez.
+
+- Genel haber keşfi isteğe göre AA/BBC Türkçe/DW Türkçe/Euronews Türkçe dizinlerini, kurum araştırması mevcut kurum kataloğunu kullanır. Kayıtlı adres canlı erişim kanıtı değildir; genel haber tamamlanması iki yayıncıdan tarihli tekil makale ister.

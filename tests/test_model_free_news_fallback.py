@@ -70,7 +70,7 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
             if step['tool']=='data':
                 current['outputs'][step['id']]={'state':'done','text':'başlıklar','owner':'hamdi','local_evidence':'data',
                     'structured':{'items':[{'url':'https://news.example.org/a','title':'İstanbul yağış haberi','summary':''},
-                                           {'url':'https://news.example.org/b','title':'İstanbul ulaşım haberi','summary':''}]}}
+                                           {'url':'https://other.example.net/b','title':'İstanbul ulaşım haberi','summary':''}]}}
             else:
                 url=step['input']['url']
                 text=('İstanbul genelinde güncel gelişme hakkında doğrulanmış açıklama yayımlandı ve ilgili kurum ayrıntıların gün içinde yeniden paylaşılacağını bildirdi.' if url.endswith('/a') else
