@@ -154,7 +154,7 @@ def _result(record):
 def _permission_decision(owner, payload, now, legacy_expiry, authorized_until):
     """Existing channel grants stay local to this immutable payload and channel."""
     try:
-        from modules import permission_classify, permission_gate, permission_grants, permission_audit
+        from modules import permission_classify, permission_gate, permission_grants, permission_audit, permission_policy
         target = payload['destination']
         classification = permission_classify.classify('outbox', 'Gönder', target)
         grants = permission_grants.load(owner)
@@ -176,6 +176,7 @@ def _permission_decision(owner, payload, now, legacy_expiry, authorized_until):
         decision, reason = result['decision'], result['reason']
         if classification != 'message_out':
             decision, reason = 'deny', 'Bu alıcıya gönderim izin politikasıyla engellendi.'
+        decision, reason = permission_policy.apply(owner, 'outbox', 'message_out', decision, reason)
         if decision not in ('allow', 'ask', 'deny') or not isinstance(reason, str):
             raise ValueError('Geçersiz izin kararı.')
         permission_audit.record(owner, decision, 'message_out', target, 'outbox', reason)

@@ -82,7 +82,7 @@ def _permission_name(action, item=None):
 def _permission_decision(owner, page, action, item=None, *, audit=True):
     """Tarayıcı adımını ortak kapıdan geçirir; tanınmayan ad mevcut politikayı değiştirmez."""
     try:
-        from modules import permission_audit, permission_classify, permission_gate
+        from modules import permission_audit, permission_classify, permission_gate, permission_policy
         target=_domain(page)
         kind,known=permission_classify.classify_detail('browser',_permission_name(action,item),target)
         if known:
@@ -91,6 +91,7 @@ def _permission_decision(owner, page, action, item=None, *, audit=True):
             decision,reason=result['decision'],result['reason']
         else:
             decision,reason='allow','Tanınmayan ad; mevcut tarayıcı onay politikası geçerli.'
+        decision,reason=permission_policy.apply(owner,'browser',kind,decision,reason)
         if decision not in ('allow','ask','deny') or not isinstance(reason,str):
             raise ValueError('Geçersiz izin kararı.')
         if audit:

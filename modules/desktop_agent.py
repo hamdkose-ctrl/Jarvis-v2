@@ -455,7 +455,7 @@ def _ensure(owner, current):
 def _permission_decision(job, snapshot, action):
     """Additional fail-closed gate; existing UIA and approval restrictions remain."""
     try:
-        from modules import permission_classify, permission_gate, permission_grants, permission_audit
+        from modules import permission_classify, permission_gate, permission_grants, permission_audit, permission_policy
         target = snapshot.get('app', '')
         name = _control(snapshot, action['control']).get('name', '')
         kind, known = permission_classify.classify_detail('desktop', name, target)
@@ -466,6 +466,7 @@ def _permission_decision(job, snapshot, action):
         else:
             # Tanınmayan ad (ör. Hesap Makinesi rakamı): ek sorma yok, mevcut needs_approval politikası geçerli.
             decision, reason = 'allow', 'Tanınmayan ad; mevcut masaüstü onay politikası geçerli.'
+        decision, reason = permission_policy.apply(job['owner'], 'desktop', kind, decision, reason)
         if decision not in ('allow', 'ask', 'deny') or not isinstance(reason, str):
             raise ValueError('Geçersiz izin kararı.')
         permission_audit.record(job['owner'], decision, kind, target, 'desktop', reason)
