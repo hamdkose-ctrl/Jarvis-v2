@@ -1,3 +1,10 @@
+## 20 Ekim 2026 — CI engeli sonrası devam
+
+- #206/#208/#209/#210/#211/#212 squash birleşti; main 7563161. Aşağıdaki açık taslak listesi önceki anlık kontroldür.
+- 62-B #213 hazır: yalnız goal_executor._is_fast_command + mevcut test dosyası. Önce düşen test, 71 ilgili test, fiziksel mutasyon ve tam validation yeşil. GitHub job hiç başlamadı: hesap ödemesi/Actions harcama sınırı annotation'ı. CI yeşil olmadan birleşmez; ay sonuna kadar engel bekleniyor.
+- CI beklerken [merkezi ayrım tasarımı](MERKEZI_AYRIM_TASARIMI.md) ve [PC taban matrisi](PC_TABAN_KABUL_20261020.md) hazırlanır. Bunlar uygulanmış kod veya yapılmış PC kabulü değildir. #213 açıkken goal_executor.py üzerinde ikinci kaynak işi açılmaz.
+- Öncelik: gerçek PC'de mevcut main ölçümü (62-B'nin yokluğu açık) ve tasarım incelemesi; yeni büyük özellik/kod yığını yok. Kaynak kartları ileride ayrı dal/PR/test/CI ile, mevcut izin kapısını koruyarak uygulanır.
+
 ## 20 Ekim 2026 — uçtan uca kapsam ve güncel sıra
 
 - Güncel plan: [Birleşik yol planı](yol-haritasi-birlesik-2026-10-20.md). 14 alanın geniş kapsamı, ses/yazı ortak yürütmesi, bağlam sahipliği, adım başına izin ve gerçek kabul ölçütleri burada tutulur. Aşağıdaki tarihli kayıtlar tarihsel kanıttır; tümü güncel durum sayılmaz.

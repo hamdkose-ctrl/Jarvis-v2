@@ -2,6 +2,12 @@
 
 Güncelleme: 20 Ekim 2026 (Europe/Istanbul). Bu belge Hamdi'nin 14 alanlık hedefi, konuşmada açıklanan süreklilik ihtiyacı ve GitHub'dan doğrulanan durumla güncellenmiştir. Önceki raporun tarihsel metni Git geçmişindedir (#204–205); aşağıdaki sıra onun yerine geçer. Bu PR yalnız belgedir; burada tarif edilen yeni davranışlar uygulanmış sayılmaz.
 
+## Sonraki durum — CI engeli
+
+Bu plan #211 ile main'e girdi. #206/#208/#209/#210/#212 de squash birleşti (main 7563161). Bölüm 2'deki açık PR tablosu plan hazırlanırken alınmış tarihsel anlık görüntüdür. 62-B artık [#213](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/213) taslağında hazır; yerel validation yeşil, GitHub ödeme/Actions harcama engeli yüzünden CI job başlamadı. Yeşil CI olmadan birleşmez.
+
+Bu sırada [merkezi ayrım tasarımı](MERKEZI_AYRIM_TASARIMI.md) ve [ses/yazı PC kabul matrisi](PC_TABAN_KABUL_20261020.md) üzerinde ilerlenir. Gerçek PC denemeleri Denenmedi; M1 ve sonraki kod kartları uygulanmadı. Eski “62-B bağımlılık bekliyor” satırları bu güncelleme ile aşılmıştır; yeni engel CI'dır.
+
 ## 1. Hedef ve tamamlanma ölçüsü
 
 Jarvis sesli ve yazılı verilen işi anlayan, bağlamını koruyan, gerektiğinde araştıran, araçları birlikte kullanan, hatadan toparlanan ve sonucu kanıtla teslim eden kişisel dijital çalışan olarak geliştirilir.
