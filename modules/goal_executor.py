@@ -23,6 +23,9 @@ _CANCEL_REQUESTED=set()
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
 PLANNER_SECONDS=60
+TURN_SECONDS=120
+MAX_INVALID_DECISIONS=3
+_TURN_DEADLINE=ContextVar("jarvis_goal_turn_deadline",default=None)
 STALE_SECONDS=6*3600     # bu kadar eski yarım iş "açık" sayılmaz; bare devam/iptal ona dokunmaz
 QUESTION_SECONDS=600     # sorulmuş bir hedef yalnız bu süre içinde sıradaki cümleyi cevap sayar
 RESUME_COMMANDS=frozenset({'devam','devam et','sürdür','surdur','hedef devam','hedef sürdür','hedef surdur'})
@@ -184,6 +187,18 @@ def _ensure(runtime,job):
     if runtime.profile.slug!=job['owner']:raise requests_state.Cancelled('Kullanıcı değişti; önceki hedef durduruldu.')
 
 
+
+class _TurnBudget(RuntimeError):
+    """A planning turn exhausted its bounded wait/retry allowance."""
+
+
+def _turn_check(runtime,job):
+    _ensure(runtime,job)
+    deadline=_TURN_DEADLINE.get()
+    if deadline is not None and time.monotonic()>=deadline:
+        raise _TurnBudget('Bu turun toplam '+str(TURN_SECONDS)+' saniyelik bekleme süresi doldu; hedef ve mevcut sonuçlar korundu. Devam etmek istersen “hedef devam” diyebilirsin.')
+
+
 def _context(job):
     recent=set(list(job['outputs'])[-6:]);outputs={}
     for key,value in job['outputs'].items():
@@ -275,7 +290,7 @@ def _planner(runtime,job,prompt,system):
     job['phase']='planning';job['phase_started']=time.time();_save(job)
     try:
         answer=model_wait.ask(prompt,system,max_tokens=1200,validator=_parse,seconds=PLANNER_SECONDS,
-                              check=lambda:_ensure(runtime,job))
+                              check=lambda:_turn_check(runtime,job))
         return _parse(answer)
     finally:
         job.pop('phase',None);job.pop('phase_started',None);_save(job)
@@ -323,6 +338,18 @@ def _resume_news_recovery(runtime,job,started_steps):
 
 
 def _loop(runtime,job,answer=None):
+    token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
+    try:
+        return _loop_steps(runtime,job,answer)
+    except _TurnBudget as exc:
+        job['state']='paused';job['blocker']=str(exc);_save(job)
+        runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
+        return render(job)
+    finally:
+        _TURN_DEADLINE.reset(token)
+
+
+def _loop_steps(runtime,job,answer=None):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -331,6 +358,7 @@ def _loop(runtime,job,answer=None):
     rejected_finishes=0
     rejected_sources=0
     rejected_questions=0
+    invalid_decisions=0
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     for step in job['steps']:
         if step['state']=='running':
@@ -378,13 +406,14 @@ def _loop(runtime,job,answer=None):
     if _finish_completed(job):return render(job)
     if answer is None and _resume_news_recovery(runtime,job,started_steps):return render(job)
     for _ in range(MAX_TURNS):
-        _ensure(runtime,job)
+        _turn_check(runtime,job)
         context=_context(job)
         prompt=json.dumps(context,ensure_ascii=False)
         system=SYSTEM+'\nTek kaynağın erişim hatası bütün araştırmayı bitirmez. Başarısız kaynakları doğrulanmış sayma; izin verilen başka ilgili kaynak seç. Rapor erişilemeyen kaynakları belirtmeli.\nGerçek araç kataloğu:\n'+json.dumps(goal_tools.planner_catalog(),ensure_ascii=False,default=str,separators=(',',':'))
         if job['goals']:
             system+='\nBu çağrıda kayıtlı plan VAR. action:plan verme; mevcut hedef numarasıyla tool/complete, gerekirse ask veya bütün kanıtlar hazırsa finish seç. Hedefleri yeniden oluşturma.'
         planner_pending=True
+        completed_before={key for key,value in job["outputs"].items() if value.get("state")=="done"}
         try:
             call=_planner(runtime,job,prompt,system)
             planner_pending=False
@@ -506,14 +535,20 @@ def _loop(runtime,job,answer=None):
                     _record(runtime,job,step)
                     if job['state'] in {'approval','review'}:return render(job)
             _save(job)
+            if any(value.get("state")=="done" and key not in completed_before for key,value in job["outputs"].items()):invalid_decisions=0
             if _finish_completed(job):return render(job)
-        except (requests_state.Cancelled,PermissionError):raise
+        except (requests_state.Cancelled,PermissionError,_TurnBudget):raise
         except Exception as exc:
             _record_failure('modules/goal_executor.py:turn')
             job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600])
             job.setdefault('failures',[]).append(failure_policy.snapshot(exc,context='planner'));job['failures']=job['failures'][-20:];_save(job)
+            if isinstance(exc,(ValueError,TypeError)):
+                invalid_decisions+=1
+                if invalid_decisions>=MAX_INVALID_DECISIONS:
+                    raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
             if isinstance(exc,RuntimeError):
                 if planner_pending:
+                    _turn_check(runtime,job)
                     from modules import news_recovery
                     try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
                     except (requests_state.Cancelled,PermissionError):raise

@@ -111,3 +111,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Haber konu terimleri: “son dakika” genel haber ifadesidir; “haberleri” konu üretmez. Bağımsız “dakika” ve gerçek konu sözcükleri korunur; ilgisiz makale reddi devam eder. Bu ayrım kaynak seçiminin veya canlı haber kabulünün kanıtı değildir.
 
 - Hedef durum özeti hem goal_executor.handle hem engine_queue.submit girişinde kullanılır; açık ayrıntılar komutu render kullanır. Gerçek arayüz kabulü ayrıca ölçülür.
+
+- Hedef planlama turu toplam 120 sn bütçeyi model beklemesinde ve yeni planlama turundan önce denetler; doğrulanmış yeni çıktı olmadan üç geçersiz karar duraklatır. Kayıt/çıktı korunur, yeni açık devam yeni tur bütçesi alır. Devam eden senkron dış işlem zorla kesilmez; bu sınır fiziksel işlem iptali garantisi değildir.
