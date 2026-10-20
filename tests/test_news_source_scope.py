@@ -6,16 +6,35 @@ import unittest
 from modules import publisher_news, goal_tools, goal_executor as goals
 import test_goal_executor as fixture
 
-GENERAL = ['https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
+GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
+           'https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
            'https://www.dw.com/tr/', 'https://tr.euronews.com/']
 
 
 class NewsSourceScopeTests(unittest.TestCase):
+    def test_mynet_and_investing_are_discoverable_without_guessed_articles(self):
+        self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),
+                         {'mynet.com','investing.com','aa.com.tr','bbc.com'})
+        for url in ('https://www.mynet.com/haber/', 'https://tr.investing.com/news/'):
+            with self.subTest(url=url):
+                self.assertIn(url,publisher_news.recovery_indexes('son dakika haberleri',[]))
+                self.assertEqual(publisher_news.candidate_url(url,'son dakika haberleri',{}),url)
+                with self.assertRaises(ValueError):
+                    publisher_news.candidate_url(url+'uydurulmus-haber','son dakika haberleri',{})
+
+    def test_dpu_is_not_a_configured_or_automatically_allowed_source(self):
+        removed = 'https://haber.dpu.edu.tr/'
+        self.assertNotIn(removed, [r['url'] for r in publisher_news.sources_for('Üniversitelerin haberleri')])
+        self.assertNotIn(removed, publisher_news.recovery_indexes('Üniversitelerin haberleri', []))
+        with self.assertRaises(ValueError):
+            publisher_news.candidate_url(removed, 'Üniversitelerin haberleri', {})
+        self.assertEqual(publisher_news.candidate_url(removed, 'Bu adresi oku: '+removed, {}), removed)
+
     def test_general_and_topical_news_use_general_publishers(self):
         for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır', 'yapay zekâ haberleri'):
             with self.subTest(request=request):
                 self.assertEqual([r['url'] for r in publisher_news.sources_for(request)], GENERAL)
-                self.assertEqual(publisher_news.recovery_indexes(request, []), GENERAL)
+                self.assertEqual(publisher_news.recovery_indexes(request, []), GENERAL[:4])
 
     def test_institution_scope_and_explicit_urls_are_not_broadened(self):
         self.assertEqual([r['url'] for r in publisher_news.sources_for('Üniversitelerin araştırma haberleri')], [r['url'] for r in publisher_news.SOURCES])
@@ -24,7 +43,7 @@ class NewsSourceScopeTests(unittest.TestCase):
         self.assertEqual(publisher_news.recovery_indexes('Sadece https://example.org/haberler haberleri', ['https://example.org/haberler']), ['https://example.org/haberler'])
 
     def test_old_institution_seed_does_not_trap_general_news(self):
-        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://tubitak.gov.tr/tr/haberler']), GENERAL)
+        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://tubitak.gov.tr/tr/haberler']), GENERAL[:4])
 
     def test_planner_receives_request_scoped_sources(self):
         rows = goal_tools.planner_catalog('son dakika haberleri')['known_news_sources']

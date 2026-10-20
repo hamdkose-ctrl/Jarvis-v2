@@ -5,7 +5,6 @@ from urllib.parse import urlsplit, unquote
 from bs4 import BeautifulSoup
 
 SOURCES=(
-    {'name':'Kütahya Dumlupınar Üniversitesi','url':'https://haber.dpu.edu.tr/'},
     {'name':'Yıldız Teknik Üniversitesi','url':'https://www.yildiz.edu.tr/medya/haberler'},
     {'name':'TÜBİTAK','url':'https://tubitak.gov.tr/tr/haberler'},
     {'name':'Boğaziçi Üniversitesi','url':'https://haberler.bogazici.edu.tr/'},
@@ -13,6 +12,8 @@ SOURCES=(
 
 
 GENERAL_SOURCES=(
+    {'name':'Mynet Haber','url':'https://www.mynet.com/haber/'},
+    {'name':'Investing.com Türkçe','url':'https://tr.investing.com/news/'},
     {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
     {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
     {'name':'DW Türkçe','url':'https://www.dw.com/tr/'},
@@ -53,12 +54,13 @@ def publisher_key(url):
 
 
 def catalog_keys(request=None):
-    return {publisher_key(row['url']) for row in sources_for(request)}
+    """Required baseline: up to four default indexes; other catalog entries are alternatives."""
+    return {publisher_key(row['url']) for row in sources_for(request)[:4]}
 
 
 def catalog_attempted(job):
     """Only a completed or failed execution counts as an attempted catalog read."""
-    keys=set();known={row['url']:publisher_key(row['url']) for row in sources_for(job.get('request'))}
+    keys=set();known={row['url']:publisher_key(row['url']) for row in sources_for(job.get('request'))[:4]}
     for step in job.get('steps',[]):
         data=step.get('input',{});output=job.get('outputs',{}).get(step.get('id'),{})
         if (step.get('tool')=='data' and data.get('operation')=='headlines' and
