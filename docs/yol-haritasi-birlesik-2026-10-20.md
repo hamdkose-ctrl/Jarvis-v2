@@ -5,6 +5,9 @@
 3. **Motor birleştirme.** Ek PC deneme turu olmadan, düzeltmeler bitince seçenek A.
 4. **Builder en sona.** Araç sihirbazı (54-57) ve 2 araç PC'de geçtikten sonra; yalnız insan onaylı taslak PR.
 5. **Arayüz.** Kota arayüzden önce; varlık-merkezli arayüz en son.
+6. **Cümle ayrımı ortak kural.** Her cümle bu sırayla ayrılır: sade soru/sohbet, tek kelimelik komut (devam, iptal), görev, dışarıya gönderme (mail/mesaj; yalnız açık niyet varsa, en sonda). Ayrım mevcut motorda tek yerde kurulur (motor birleştirmenin "tek giriş"ine bağlanır), sıfırdan yeniden yazılmaz. Düzeltme kartları GPT Görev 58-62 bu kuralı uygular; 2026-10-20 PC denemesindeki 5 cümle ("hangi dosya yazıldı", "hedef durumu", çıplak "iptal", "hedef son dakika haberleri", "6 dolar") gerçek cümle setine eklenir.
+7. **Taban oturana kadar yeni özellik açılmaz.** Önce 58-62, sonra aynı cümleler PC'de tek listede bir kez daha denenir, hepsi geçince yeni işe geçilir.
+8. **Hiçbiri PC'de denenmedi** (2026-10-20 itibarıyla).
 
 ---
 
@@ -38,7 +41,7 @@ Hamdi'nin belgesi mimari yönü doğru koyuyor ve projenin zaten izlediği hatla
 | Senaryo 1 uzun görev + kesinti + devam | "devam/iptal" tek giriş (#139); PC deneme listesi A bölümü | [K] kod+test; **PC'de denenmedi** (liste). 20 Ekim denemesinde yalnız "hedef yokken devam" denendi |
 | Senaryo 3 haber (7 gün, 2 yayıncı, tekil sayfa) | #60-#71 haber düzeltmeleri, GDELT'siz katalog | [K] kod; güncel sürüm **PC'de denenmedi**; 20 Ekim "son dakika haberleri" **tamamlanmadı** (bkz. C-4) |
 | Senaryo 4 Gmail oku → ek işle | Ek okuma (PDF/Office) gerçek baytlarla test | [K] vizyon-v2 §2.3; gerçek Gmail **PC'de denenmedi**. 20 Ekim "mailleri özetle": 3 Gmail + 1 Outlook doğru listelendi (PC'de denendi, ek yok) |
-| Senaryo 5 güvenli gönderim (alıcı sabit, çift gönderim yok) | `outbox.py`: kesin hedef izni, günlük tavan, aynı içerik tekrar engeli, digest'e bağlı onay | [K] ortak-izin-kapısı §1; Görev 46 (TR-INJ-04) hâlâ açık |
+| Senaryo 5 güvenli gönderim (alıcı sabit, çift gönderim yok) | `outbox.py`: kesin hedef izni, günlük tavan, aynı içerik tekrar engeli, digest'e bağlı onay | [K] ortak-izin-kapisi §1; Görev 46 (TR-INJ-04) hâlâ açık |
 | Senaryo 6-7 PC / üçüncü taraf uygulama | `desktop_agent`: UIA, `apps.json` uygulama izni, `_NEVER_APPS`, kapı #181 | [K]; yalnız Paint/Hesap Makinesi PC'de; Gezgini/Ayarlar **denenmedi** |
 | Senaryo 8 kuyruk + yeniden başlatma | `task_queue` sabit plan, checkpoint | [K] kod; **PC'de denenmedi** (liste B4) |
 | Senaryo 9 sağlayıcı arızası, kör retry yok | 429'da model bekletme (60 sn / günlük 3600 sn), Groq→Ollama düşüşü, kota sayacı (#76) | [K] `pc-testi-haber-ve-429-bulgu` §2; **gerçek 429 PC'de 20 Ekim'de görüldü ve kötü davrandı** (C-4) |
@@ -112,7 +115,7 @@ Hamdi'nin belgesi mimari yönü doğru koyuyor ve projenin zaten izlediği hatla
 ## D. Belgedeki riskler / çelişkiler
 
 1. **Kendi kendine yetenek ekleme vs. "Jarvis main'e yazmaz".** Belge §15 ikisini yan yana koyuyor. Çelişki yok gibi görünse de: üretilen kod Jarvis'in kendi kapı kodunu (`permission_gate`, sınıf tablosu) değiştirebilecek bir dosyaya dokunursa sorun. Gerçek risk: builder'ın ürettiği adapter **kendi eylem sınıfını ve `replay_safe` beyanını kendi manifestinde yazıyor** (belge §11 `risk`, `approval`, `replay_safe` manifest alanları). Projede kural tersi: sınıf **kapının tablosundan** gelir, araç icat edemez. Manifestteki `risk/approval` alanları beyan değil, kapıdan okunmalı. Ayrıca CI bu depoda bütçe sıkışık (C6) ve "testi geçti" ≠ "güvenli" (vizyon-v2: yeşil test ≠ çalışan özellik). Builder ancak insan incelemeli taslak PR olarak ve `physical`/`money`/`message_out` sınıflı yeteneklere **hiç** dokunmamalı.
-2. **Fazla soyut fazlar.** Faz H (karakter gelişimi), I (paralel uzmanlar), J (sağlık durumları) ve §21 "kaynak çakışması" için bugün tek kullanıcı, tek PC, 2 uzman kullanımı var; `brain_delegate`/`specialist_orchestrator` zaten üretimde çağrılmayan ölü kod olarak silinmeyi bekliyor. Soyut katman eklemek yeni bozulma yüzeyi (vizyon-v2 §3: "10'a yakın paralel yol").
+2. **Fazla soyut fazlar.** Faz H (karakter gelişimi), I (paralel uzmanlar) ve J (sağlık durumları) ve §21 "kaynak çakışması" için bugün tek kullanıcı, tek PC, 2 uzman kullanımı var; `brain_delegate`/`specialist_orchestrator` zaten üretimde çağrılmayan ölü kod olarak silinmeyi bekliyor. Soyut katman eklemek yeni bozulma yüzeyi (vizyon-v2 §3: "10'a yakın paralel yol").
 3. **"Kalite > iş sayısı" ve kota.** Belge sıralamayla 9 başlık açıyor. Kimlik/kişilik/self model her çağrıda prompt uzatır (kota), builder/discovery model çağrılı iş (kota), qualification testleri CI dakikası (bütçe). Hamdi'nin "en iyisi" ilkesi ancak **az sayıda, PC'de kanıtlı** işle sağlanır.
 4. **Aynı şey iki adla.** Belge "Capability Manifest/Registry", proje "Araç sözleşmesi (`CONTRACT`)/Harita". İkisini paralel kurmak, vizyon-v2'nin teşhis ettiği "aynı işi yapan çok yol" sorununu yeniden üretir. Karar: manifest = `CONTRACT` genişletilmiş; registry = `tool_contract.load_all`'un kalıcı durum alanı.
 5. **"Harita" ad çakışması.** Belge `maps.search/route/...` pilotu için "Harita" diyor; projede Harita ekranı = araç/izin haritası (`Bridge.map`, `tool_map.py`). Konuşmada karışır. Öneri: coğrafi olanı **"Konum/Rota"** diye anmak.
