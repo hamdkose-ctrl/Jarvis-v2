@@ -117,3 +117,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Açık hedef komutu öneki görev metnine dahil edilmez: hedef … ve hedef: … kontrol komutlarından sonra, eski soru cevabından önce ayrılır. Görev içindeki gerçek hedef sözcükleri korunur; kaynak/konu/izin doğrulaması gevşetilmez.
 
 - Genel haber keşfi isteğe göre AA/BBC Türkçe/DW Türkçe/Euronews Türkçe dizinlerini, kurum araştırması mevcut kurum kataloğunu kullanır. Kayıtlı adres canlı erişim kanıtı değildir; genel haber tamamlanması iki yayıncıdan tarihli tekil makale ister.
+
+- DPÜ kullanıcı isteğiyle otomatik haber kataloğundan çıkarıldı; açık kullanıcı adresinin güvenli okunması ve eski makale ayrıştırıcıları korunur.
+- Mynet Haber ve Investing Türkçe genel kataloğa eklendi; dört varsayılan dizin (Mynet/Investing/AA/BBC) ve DW/Euronews alternatifleri mevcut toplam adım/zaman ve makale kanıtı sınırları içinde kalır. Katalog kaydı canlı erişim kanıtı değildir.

@@ -34,9 +34,9 @@ class RecoveryVariations(unittest.TestCase):
         for step in job['steps']:step['state']='done'
         self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys())
         job['steps'][0]['started']=False
-        self.assertEqual(len(publisher_news.catalog_attempted(job)),3)
+        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys()-{publisher_news.publisher_key(rows[0]['url'])})
         job['steps'][0]['started']=True;job['steps'][0]['input']['url']=rows[0]['url']+'made-up'
-        self.assertEqual(len(publisher_news.catalog_attempted(job)),3)
+        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys()-{publisher_news.publisher_key(rows[0]['url'])})
 
     def test_final_catalog_gate_is_explicit_and_not_latest_job_dependent(self):
         with patch.object(goals,'latest',side_effect=AssertionError('No hidden journal lookup')):

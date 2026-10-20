@@ -47,7 +47,7 @@ class PublicDataAcceptanceTests(unittest.TestCase):
             checks=acceptance.run('alice')
         states={r['check']:r['state'] for r in checks}
         self.assertEqual(states['public_news_search'],'informational');self.assertEqual(states['public_news_report'],'passed')
-        search.assert_not_called();self.assertEqual(self.headlines.call_count,4)
+        search.assert_not_called();self.assertEqual(self.headlines.call_count,3)
         self.assertEqual(len(list(self.root.rglob('*.md'))),1)
 
     def test_publisher_permission_denial_is_not_bypassed(self):
