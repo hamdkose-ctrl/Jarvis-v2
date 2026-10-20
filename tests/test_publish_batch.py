@@ -13,14 +13,16 @@ class PublishBatchTests(unittest.TestCase):
             if method == 'GET': return {'tree': {'sha': 'tree'}, 'message': 'old'}
             if path == '/pulls': return {'number': 9, 'html_url': 'https://github.com/x/y/pull/9'}
             return {'sha': 'new'}
-        with patch.object(publish, '_api', side_effect=api) as remote, \
+        with tempfile.TemporaryDirectory() as state, \
+             patch.object(publish, '_api', side_effect=api) as remote, \
              patch('updater.status', return_value={'sha': 'base'}), \
              patch('modules.dependencies.in_venv', return_value=False), \
              patch.object(publish, '_remote_paths', return_value={}), \
              patch.object(publish, '_publishable_files', return_value=files), \
              patch.object(publish, '_release_tests') as tests, \
              patch.object(publish, 'forget_local'), patch('updater.mark_current'), \
-             patch.object(publish, 'PR_STATE', Path(tempfile.mkdtemp()) / 'pr.json'):
+             patch.object(publish, 'STATE', Path(state)), \
+             patch.object(publish, 'PR_STATE', Path(state) / 'pr.json'):
             result = publish.publish_worktree('test')
         self.assertIn('120 dosya', result)
         tests.assert_called_once()
