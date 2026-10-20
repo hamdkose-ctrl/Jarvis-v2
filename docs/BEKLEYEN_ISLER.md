@@ -1,3 +1,10 @@
+## 20 Ekim 2026 — uçtan uca kapsam ve güncel sıra
+
+- Güncel plan: [Birleşik yol planı](yol-haritasi-birlesik-2026-10-20.md). 14 alanın geniş kapsamı, ses/yazı ortak yürütmesi, bağlam sahipliği, adım başına izin ve gerçek kabul ölçütleri burada tutulur. Aşağıdaki tarihli kayıtlar tarihsel kanıttır; tümü güncel durum sayılmaz.
+- GitHub kontrolünde #206, #208, #209, #210 açık taslak ve testler CI yeşil; #207 birleşmiş. Taslaklar otomatik birleştirilmez. #209 engine_commands.py, #210 goal_executor.py üzerinde açık iş sahibidir.
+- 62-B, 61 birleşmeden başlamaz; #208 ile aynı test dosyası da eşzamanlı değiştirilmez. Haber “son dakika haberleri” konu terimleri ayrı dar kart ister; gerçek DPÜ seçiminin nedeni bilinmiyor. #206 son üretilen dosyayı izleme özelliği değildir.
+- 45a–57 main geçmişinde birleşmiş; yeniden geliştirme listesine alınmaz. Gerçek PC/hesap/cihaz kabulü ayrı bekler. Merkezi ayrım ayrı kartla, mevcut izin sınıflarına bağlı ve kademeli geliştirilir.
+
 ## Kalıcı yürütmede toparlanma ve uzman seçimi — 17 Ekim 2026
 - Son kontrol: 1378 Python testi OK (1 Windows DPAPI atlaması), 25 Node grubu ve 6 smoke grubu başarılı; 11 yeni varyasyon testi geçti. Son salt okunur kural incelemesi geçti. Windows canlı kabulü bu sonuçlara dahil değildir.
 - Geniş Türkiye AI haber görevinde ilk, kaynak adımı başlamadan yapılan kısmi kurtarma iki yayıncıda durabilir; sonraki devam mevcut raporu koruyarak kalan kayıtlı dizinleri önce dener. Normal kaynak denemesi olan görevde de bütün dizinler önce denenir. İlk tekil aday başarısızsa aynı dizindeki ikinci gerçek bağlantı kalan bütçede denenir. 10 toplam kurtarma / 24 tur / 96 görev adımı ve 45 saniyeden sonra yeni ağ adımı başlatmama sınırları korunur; katalog taraması Türkiye'nin bütün haberlerini kapsadığı iddiası değildir.
