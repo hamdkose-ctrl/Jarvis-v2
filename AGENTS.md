@@ -104,3 +104,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Git eşitleme: .venv_install/.venv_backup, modeller, kişisel veri ve .claude kaynak yayınlama ve karşılaştırma dışında kalır; .gitignore/.gitattributes kaynak takibine dahildir. Yerel günlükler depoya gönderilmez.
 
+- İzin politikası (`modules/permission_policy.py`): kullanıcıya özel `yol:sınıf` → Sor/İzin ver/Engelle. Varsayılan Sor (kapının kararı). Engelle masaüstü, tarayıcı ve gönderim yollarında kesin ret olur (izin veya onay ezemez); İzin ver yalnız yıkıcı yerel işte sorulanı açar, gönderim izni ve yayın onayı değişmez; para/kimlik ve sistem ayarı sınıfları kilitlidir. Politika hatası işlemi yapmaz.
