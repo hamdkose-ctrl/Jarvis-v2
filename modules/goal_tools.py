@@ -25,19 +25,19 @@ LOCAL = {
 LOCAL.update(goal_extensions.TOOLS)
 
 
-def catalog():
+def catalog(request=None):
     from modules import account_tools
-    from modules.publisher_news import SOURCES
+    from modules.publisher_news import sources_for
     from modules.source_watch import KNOWN_SOURCES
     return {'workers':task_agents.WORKER_CATALOG, 'inputs':task_tools.CATALOG,
             'local_tools':LOCAL, 'actions':app_actions.catalog(),'account_services':account_tools.SERVICES,
             'media_example':{'scenes':[{'caption':'Sahne yazısı','duration':3}],'layout':'landscape'},
-            'known_watch_sources':KNOWN_SOURCES,'known_news_sources':list(SOURCES)}
+            'known_watch_sources':KNOWN_SOURCES,'known_news_sources':sources_for(request)}
 
 
-def planner_catalog():
+def planner_catalog(request=None):
     """Same action contract values with repeated JSON column names removed."""
-    result=catalog()
+    result=catalog(request)
     columns=['action','label','args','confirm']
     result['action_columns']=columns
     result['actions']=[[row[key] for key in columns] for row in result['actions']]

@@ -17,6 +17,7 @@ class GoalTests(unittest.TestCase):
         self.profile=SimpleNamespace(slug='alice',data={'items':[]})
         token=llm._key_context.set('alice');self.addCleanup(llm._key_context.reset,token)
         self.runtime=SimpleNamespace(profile=self.profile,_cur_source='yazı',pc_profile=lambda:self.profile,emit=Mock())
+        transport=patch('modules.public_sources.fetch',side_effect=OSError('Taklit kaynak ağı kapalı'));transport.start();self.addCleanup(transport.stop)
         model=patch.object(llm,'ask');self.ask=model.start();self.addCleanup(model.stop)
 
     def responses(self,*items):self.ask.side_effect=[json.dumps(x) if isinstance(x,dict) else x for x in items]
@@ -866,7 +867,7 @@ class GoalTests(unittest.TestCase):
         from modules import public_sources,publisher_news
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
-        index_urls=[s['url'] for s in publisher_news.SOURCES[:2]]
+        index_urls=[s['url'] for s in publisher_news.sources_for('Türkiye yapay zekâ haberleri')[:2]]
         domains=['https://publisher-one.org','https://publisher-two.net']
         fetched=[]
         def fetch(url):

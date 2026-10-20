@@ -64,7 +64,7 @@ class RecoveryVariations(unittest.TestCase):
                 with self.assertRaises(type(exc)):goals._resume_news_recovery(SimpleNamespace(),job,1)
 
     def real_transport(self,*,first_bad=False):
-        indexes=[s['url'] for s in publisher_news.SOURCES];fetched=[]
+        indexes=[s['url'] for s in publisher_news.sources_for(REQUEST)];fetched=[]
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         def fetch(url):
             fetched.append(url)
@@ -84,7 +84,7 @@ class RecoveryVariations(unittest.TestCase):
             job=goals.latest('alice');old=job['partial_report'];old_bytes=Path(job['outputs'][old]['file']).read_bytes()
             self.assertEqual(len(publisher_news.catalog_attempted(job)),2)
             self.assertFalse(goals._resume_news_recovery(case.runtime,job,len(job['steps'])))
-            self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys())
+            self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys(REQUEST))
             self.assertFalse(goals._resume_news_recovery(case.runtime,job,len(job['steps'])))
         self.assertEqual(case.ask.call_count,2)
         self.assertEqual(old_bytes,Path(job['outputs'][old]['file']).read_bytes())
@@ -101,7 +101,7 @@ class RecoveryVariations(unittest.TestCase):
             text=goals.run(case.runtime,'devam',resume=True)
         after=goals.latest('alice')
         self.assertEqual(after['id'],before['id']);self.assertEqual(after['state'],'done')
-        self.assertEqual(publisher_news.catalog_attempted(after),publisher_news.catalog_keys())
+        self.assertEqual(publisher_news.catalog_attempted(after),publisher_news.catalog_keys(REQUEST))
         self.assertEqual(path.read_bytes(),saved);self.assertIn(str(path),text)
         self.assertEqual(case.ask.call_count,3)
 
@@ -114,7 +114,7 @@ class RecoveryVariations(unittest.TestCase):
             goals.run(case.runtime,REQUEST)
         job=goals.latest('alice')
         self.assertIn('https://publisher0.example/news/second',fetched)
-        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys())
+        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys(REQUEST))
         output=job['outputs'][job['partial_report']]
         self.assertTrue(goal_tools.verify(output,'alice'))
         self.assertIn('publisher0.example/news/second',Path(output['file']).read_text())

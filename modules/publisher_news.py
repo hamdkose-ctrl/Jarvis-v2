@@ -12,20 +12,39 @@ SOURCES=(
 )
 
 
+GENERAL_SOURCES=(
+    {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
+    {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
+    {'name':'DW Türkçe','url':'https://www.dw.com/tr/'},
+    {'name':'Euronews Türkçe','url':'https://tr.euronews.com/'},
+)
+
+
+def sources_for(request=None):
+    """Configured discovery indexes, not live-health or article evidence claims."""
+    institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
+    rows=SOURCES if institutional else GENERAL_SOURCES
+    return [dict(row,scope='Kurum/üniversite duyuruları' if institutional else 'Genel ve konu odaklı haber keşfi',
+                 live_connection_tested=False) for row in rows]
+
+
+def multiple_publishers(request):
+    restricted=re.search(r'https://|sadece|yalnız|yalniz|\bonly\b|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',request,re.I)
+    return not restricted and bool(re.search(r'son\s+dakika|genel|gündem|gundem|haberler\w*|gelişmeler\w*|gelismeler\w*|\bnews\b',request,re.I))
+
+
 def recovery_indexes(request,seeds):
-    """Broaden only the user's general Turkey/university research, not an exclusive source."""
+    """Select scoped real indexes; old institutional guesses cannot trap general news."""
     scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
-    # Existing source choices are authoritative; never replace one university with another.
-    broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
     named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
-    if broad and not scoped and not named:
-        # Failed planner guesses are not a reason to abandon the real publisher catalog.
-        known=[s['url'] for s in SOURCES]
-        preferred=[url for url in known if any((urlsplit(seed).hostname or '').removeprefix('www.')==
-                    (urlsplit(url).hostname or '').removeprefix('www.') for seed in seeds)]
-        return list(dict.fromkeys(preferred+known))[:4]
-    defaults=[]
-    return list(dict.fromkeys(defaults+seeds))[:4]
+    if scoped or named:return list(dict.fromkeys(seeds))[:4]
+    known=[s['url'] for s in sources_for(request)]
+    host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
+    preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
+    broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
+    excluded={host(s['url']) for s in SOURCES+GENERAL_SOURCES}
+    discovered=[] if broad else [url for url in seeds if host(url) not in excluded]
+    return list(dict.fromkeys(discovered+preferred+known))[:4]
 
 
 def publisher_key(url):
@@ -33,13 +52,13 @@ def publisher_key(url):
     return '.'.join(labels[-3:] if '.'.join(labels[-2:]) in {'edu.tr','gov.tr','com.tr','org.tr'} else labels[-2:])
 
 
-def catalog_keys():
-    return {publisher_key(row['url']) for row in SOURCES}
+def catalog_keys(request=None):
+    return {publisher_key(row['url']) for row in sources_for(request)}
 
 
 def catalog_attempted(job):
     """Only a completed or failed execution counts as an attempted catalog read."""
-    keys=set();known={row['url']:publisher_key(row['url']) for row in SOURCES}
+    keys=set();known={row['url']:publisher_key(row['url']) for row in sources_for(job.get('request'))}
     for step in job.get('steps',[]):
         data=step.get('input',{});output=job.get('outputs',{}).get(step.get('id'),{})
         if (step.get('tool')=='data' and data.get('operation')=='headlines' and
@@ -56,7 +75,7 @@ def broad_research(request):
 
 def require_catalog(job):
     if not broad_research(job['request']):return
-    attempted=catalog_attempted(job);known=catalog_keys()
+    attempted=catalog_attempted(job);known=catalog_keys(job['request'])
     if not known.issubset(attempted):
         raise ValueError(f'Genel Türkiye araştırması henüz tamamlanmadı: kayıtlı haber kataloğunun {len(attempted)}/{len(known)} kaynağı denendi. Kalan kayıtlı kaynakları tara; erişilemeyenleri raporda belirt.')
 
@@ -65,7 +84,7 @@ def candidate_url(url,request,outputs):
     """Model guesses are not news links: require user, catalog or actual discovery provenance."""
     from modules.public_sources import address
     candidate=address(url)
-    allowed={address(s['url']) for s in SOURCES}
+    allowed={address(s['url']) for s in SOURCES+GENERAL_SOURCES}
     for raw in re.findall(r'https://[^\s<>"\]]+',request):
         try:allowed.add(address(raw.rstrip('.,;)')))
         except ValueError:pass

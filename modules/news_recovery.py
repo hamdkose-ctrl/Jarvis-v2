@@ -2,7 +2,7 @@
 
 Uses the existing journal and adapters. Does not grant approvals. File-backed AI report
 recovery keeps its established contract; ordinary current-news chat can also recover from
-real publisher/listing URLs already attempted by the durable planner.
+configured publisher indexes or real URLs already attempted by the durable planner.
 """
 import hashlib
 import json
@@ -12,7 +12,7 @@ from modules import research_evidence, goal_tools
 
 
 def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
-    """Recover ordinary news chat from already discovered/attempted real source URLs."""
+    """Recover news chat from scoped configured indexes or previously discovered URLs."""
     from modules import goal_executor as goals, model_free_news
     request=job['request']
     if job['state'] in {'approval','review','cancelled'} or not job['goals']:return
@@ -27,6 +27,8 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     for raw in re.findall(r'https://[^\s<>|]+',request):
         url=raw.rstrip(".,!?)\"'”")
         if url not in seeds:seeds.append(url)
+    from modules import publisher_news
+    seeds=publisher_news.recovery_indexes(request,seeds)
     sources={}
     for step in job['steps']:
         output=job['outputs'].get(step['id'],{})
@@ -35,7 +37,12 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     terms=model_free_news.terms(request)
     plural=bool(re.search(r'\bhaberler\w*|\bgelişmeler\w*|\bgelismeler\w*|\bgündem\b|\bgundem\b',request,re.I))
     needed=2 if plural else 1
-    def enough():return len({o['news_article']['url'] for o in sources.values()})>=needed
+    broad=publisher_news.broad_research(request)
+    def evidence_enough():
+        articles=[o['news_article'] for o in sources.values()]
+        return len({a['url'] for a in articles})>=needed and (not publisher_news.multiple_publishers(request) or len({publisher_news.publisher_key(a['url']) for a in articles})>=2)
+    def enough():
+        return evidence_enough() and (not broad or publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)))
     if enough():
         job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job);return
     if existing_only or not seeds:return
@@ -72,6 +79,7 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             return sum(1 for term in terms if term in text)
         rows=sorted(rows,key=score,reverse=True)[:4]
         for row in rows:
+            if evidence_enough():break
             url=row.get('url')
             if not url or url in attempted:continue
             attempted.add(url)

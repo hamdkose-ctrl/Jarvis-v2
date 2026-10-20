@@ -51,7 +51,7 @@ def check_completion(job,goal,evidence,*,final=False):
         publisher_news.require_catalog(job)
     from modules import publisher_news
     if (not discovery_goal and research_goal
-            and publisher_news.broad_research(request) and len(publishers)<2):
+            and (publisher_news.broad_research(request) or publisher_news.multiple_publishers(request) and research_evidence.news_requested(text)) and len(publishers)<2):
         raise ValueError(f'Araştırma kısmi: {len(publishers)} bağımsız yayıncı doğrulandı. Genel Türkiye araştırmasını tamamlamak için en az iki yayıncıdan tarihli haber kanıtı gerekli; tek haber bütün kapsam sayılmaz.')
 
 
@@ -85,7 +85,7 @@ def resume_recovery(runtime,job,started_steps,save):
             reads.append(step)
     if after and reads:
         from modules import publisher_news
-        if publisher_news.broad_research(request) and publisher_news.catalog_keys().issubset(publisher_news.catalog_attempted(job)):
+        if publisher_news.broad_research(request) and publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)):
             job['blocker']='Kayıtlı katalog denemeleri tamamlandı; doğrulanmış rapor korundu. Kalan hedefler gerçek kanıtlarıyla denetleniyor.'
             save(job);return False
     if after and (after!=before or reads):

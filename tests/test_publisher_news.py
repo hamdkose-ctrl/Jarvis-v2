@@ -5,8 +5,8 @@ class PublisherNewsTests(unittest.TestCase):
     def test_general_recovery_replaces_old_guessed_paths_with_real_indexes(self):
         seeds=['https://tubitak.gov.tr/tr/bilim-kalkinimi/yapay-zeka','https://www.veri']
         result=p.recovery_indexes('Türkiye yapay zekâ gelişmelerini araştır',seeds)
-        self.assertEqual(result[0],'https://tubitak.gov.tr/tr/haberler')
-        self.assertEqual(set(result),{s['url'] for s in p.SOURCES})
+        self.assertEqual(result[0],'https://www.aa.com.tr/tr/gundem')
+        self.assertEqual(set(result),{'https://www.aa.com.tr/tr/gundem','https://www.bbc.com/turkce','https://www.dw.com/tr/','https://tr.euronews.com/'})
         self.assertNotIn(seeds[0],result)
 
     def test_actual_discovery_or_user_url_required_for_article(self):
@@ -40,11 +40,11 @@ class PublisherNewsTests(unittest.TestCase):
     def test_exclusive_source_never_broadens(self):
         seeds=['https://example.org/haberler']
         self.assertEqual(p.recovery_indexes('Sadece Türkiye üniversite haberleri',seeds),seeds)
-        self.assertEqual(p.recovery_indexes('Türkiye yapay zekâ haberleri',[]),[s['url'] for s in p.SOURCES])
+        self.assertEqual(p.recovery_indexes('Türkiye yapay zekâ haberleri',[]),[s['url'] for s in p.sources_for('Türkiye haberleri')])
 
     def test_named_university_keeps_its_own_scope_without_exclusive_word(self):
         seeds=['https://haberler.bogazici.edu.tr/']
         self.assertEqual(p.recovery_indexes('Boğaziçi Üniversitesi yapay zekâ haberleri',seeds),seeds)
         self.assertEqual(p.recovery_indexes('Türkiye Boğaziçi Üniversitesi haberleri',[]),[])
-        self.assertEqual(p.recovery_indexes('Türkiye haberleri',seeds),seeds+[s['url'] for s in p.SOURCES if s['url'] not in seeds])
+        self.assertEqual(p.recovery_indexes('Türkiye haberleri',seeds),[s['url'] for s in p.sources_for('Türkiye haberleri')])
         self.assertEqual(p.recovery_indexes('Türkiye Ankara Üniversitesi yapay zekâ haberleri',[]),[])
