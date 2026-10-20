@@ -1713,7 +1713,7 @@ const APPS=[
 ];
 const ACATS=['Tümü','Üretkenlik','Analiz','Geliştirme','Medya','Araçlar'];
 // HARITA START
-const HARITA_CLASS={read:['okuma','ok'],local_reversible:['geri alınabilir','ok'],local_destructive:['yıkıcı','warn'],message_out:['gönderim','warn'],publish:['yayın','warn'],money_credential:['para','bad'],system_config:['sistem','warn']};
+const HARITA_CLASS={read:['okuma','ok'],local_reversible:['geri alınabilir','ok'],local_destructive:['yıkıcı','warn'],message_out:['gönderim','warn'],publish:['yayın','warn'],money_credential:['para','bad'],system_config:['sistem','warn'],physical:['fiziksel','warn']};
 const HARITA_POLICY=[['ask','Sor'],['allow','İzin ver'],['deny','Engelle']];
 const HARITA_AREA={cihaz:'Cihazlar',iletisim:'İletişim'};
 function harita_action(t,a){

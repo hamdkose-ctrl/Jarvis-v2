@@ -8,6 +8,7 @@ MESSAGE_OUT = 'message_out'
 PUBLISH = 'publish'
 MONEY_CREDENTIAL = 'money_credential'
 SYSTEM_CONFIG = 'system_config'
+PHYSICAL = 'physical'
 
 ALLOW = 'allow'
 ASK = 'ask'
@@ -15,7 +16,7 @@ DENY = 'deny'
 
 CLASSES = {
     READ, LOCAL_REVERSIBLE, LOCAL_DESTRUCTIVE, MESSAGE_OUT,
-    PUBLISH, MONEY_CREDENTIAL, SYSTEM_CONFIG,
+    PUBLISH, MONEY_CREDENTIAL, SYSTEM_CONFIG, PHYSICAL,
 }
 VIAS = {'outbox', 'desktop', 'browser', 'file', 'system'}
 
@@ -65,6 +66,8 @@ def decide(action: dict, grants: dict | None = None, now: float | None = None) -
     if action_class in {MESSAGE_OUT, PUBLISH} and not target.strip():
         return _result(ASK, action_class, 'Gönderim hedefi gerekli; onay gerekli.')
 
+    if action_class == PHYSICAL:
+        return _result(ASK, action_class, 'Fiziksel işlem her seferinde somut onay ister.')
     if action_class == READ:
         return _result(ALLOW, action_class, 'Salt okuma güvenli.')
     if action_class == LOCAL_REVERSIBLE:

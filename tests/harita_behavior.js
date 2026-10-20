@@ -19,7 +19,8 @@ const fake={tools:[
    {id:'undo',name:'Geri al',desc:'Yerel değişiklik',class:'local_reversible',policy:'ask',until:null},
    {id:'send',name:'Gönder',desc:'Mesaj gönder',class:'message_out',policy:'deny',until:null},
    {id:'publish',name:'Yayınla',desc:'Dışarı yayınla',class:'publish',policy:'ask',until:null},
-   {id:'system',name:'Sistem',desc:'Sistem ayarı',class:'system_config',policy:'ask',until:null}],last:[]}],
+   {id:'system',name:'Sistem',desc:'Sistem ayarı',class:'system_config',policy:'ask',until:null},
+   {id:'print',name:'Yazdır',desc:'Fiziksel işlem',class:'physical',policy:'ask',until:null}],last:[]}],
  placeholders:[{area:'cihaz',name:'Akıllı ev <yakında>'}]};
 
 const html=H.harita_render(fake);
@@ -30,7 +31,7 @@ assert(html.includes('fake-orb'));
 assert(html.includes('data-act="stoptask"'));
 assert(html.includes('Yakında'));
 assert(html.includes('Akıllı ev &lt;yakında&gt;'));
-for(const label of ['okuma','geri alınabilir','yıkıcı','gönderim','yayın','para','sistem'])assert(html.includes(label),label+' rozeti eksik');
+for(const label of ['okuma','geri alınabilir','yıkıcı','gönderim','yayın','para','sistem','fiziksel'])assert(html.includes(label),label+' rozeti eksik');
 
 const locked=html.match(/<button[^>]*data-map-policy="locked"[^>]*>/)?.[0]||'';
 assert(locked.includes('disabled'));
