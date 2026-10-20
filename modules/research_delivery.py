@@ -27,5 +27,7 @@ def synthesize(output,request):
     answer=' '.join(findings)
     if len(answer)>1800:answer=answer[:1797].rstrip()+'...'
     refreshed=copy.deepcopy(output);refreshed.pop('verification',None)
-    refreshed['text']=answer+'\nYayın tarihi: '+article['published']+'\nKaynak: '+article['url']
+    from modules.research_evidence import VIDEO_DESCRIPTION_NOTE
+    note='\n'+VIDEO_DESCRIPTION_NOTE if article.get('kind')=='video_description' else ''
+    refreshed['text']=answer+'\nYayın tarihi: '+article['published']+note+'\nKaynak: '+article['url']
     return task_results.seal('research',refreshed)
