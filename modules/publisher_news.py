@@ -18,6 +18,15 @@ GENERAL_SOURCES=(
     {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
     {'name':'DW Türkçe','url':'https://www.dw.com/tr/'},
     {'name':'Euronews Türkçe','url':'https://tr.euronews.com/'},
+    {'name':'NTV','url':'https://www.ntv.com.tr/'},
+    {'name':'T24','url':'https://t24.com.tr/'},
+    {'name':'Bloomberg HT','url':'https://www.bloomberght.com/'},
+    {'name':'Ekonomim','url':'https://www.ekonomim.com/'},
+    {'name':'KAP','url':'https://www.kap.org.tr/tr/',
+     'scope':'Resmî şirket açıklamaları; genel haber bülteni değildir'},
+    {'name':'DonanımHaber','url':'https://www.donanimhaber.com/'},
+    {'name':'Webtekno','url':'https://www.webtekno.com/'},
+    {'name':'TRT Haber','url':'https://www.trthaber.com/'},
 )
 
 
@@ -25,7 +34,7 @@ def sources_for(request=None):
     """Configured discovery indexes, not live-health or article evidence claims."""
     institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
     rows=SOURCES if institutional else GENERAL_SOURCES
-    return [dict(row,scope='Kurum/üniversite duyuruları' if institutional else 'Genel ve konu odaklı haber keşfi',
+    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if institutional else 'Genel ve konu odaklı haber keşfi'),
                  live_connection_tested=False) for row in rows]
 
 

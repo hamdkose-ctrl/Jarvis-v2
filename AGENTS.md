@@ -120,3 +120,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - DPÜ kullanıcı isteğiyle otomatik haber kataloğundan çıkarıldı; açık kullanıcı adresinin güvenli okunması ve eski makale ayrıştırıcıları korunur.
 - Mynet Haber ve Investing Türkçe genel kataloğa eklendi; dört varsayılan dizin (Mynet/Investing/AA/BBC) ve DW/Euronews alternatifleri mevcut toplam adım/zaman ve makale kanıtı sınırları içinde kalır. Katalog kaydı canlı erişim kanıtı değildir.
+- Hamdi'nin seçtiği NTV, T24, Bloomberg HT, Ekonomim, KAP, DonanımHaber, Webtekno ve TRT Haber Türkçe keşif alternatifleridir. KAP şirket açıklaması kaynağı olarak etiketlenir; katalog kaydı haber okuma/işlem yetkisi veya canlı kabul kanıtı değildir.

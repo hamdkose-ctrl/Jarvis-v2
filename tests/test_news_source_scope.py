@@ -8,7 +8,11 @@ import test_goal_executor as fixture
 
 GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
            'https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
-           'https://www.dw.com/tr/', 'https://tr.euronews.com/']
+           'https://www.dw.com/tr/', 'https://tr.euronews.com/',
+           'https://www.ntv.com.tr/', 'https://t24.com.tr/',
+           'https://www.bloomberght.com/', 'https://www.ekonomim.com/',
+           'https://www.kap.org.tr/tr/', 'https://www.donanimhaber.com/',
+           'https://www.webtekno.com/', 'https://www.trthaber.com/']
 
 
 class NewsSourceScopeTests(unittest.TestCase):
