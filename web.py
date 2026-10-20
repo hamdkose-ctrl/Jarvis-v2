@@ -507,12 +507,22 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
         return {"stopped": True, "msg": "Görev durduruldu."}
 
     def map(self):
-        """Harita sayfası: arka uç henüz yok; arayüz "bu sürümde yok" gösterir."""
-        return None
+        """Aktif kullanıcının araç ve izin politikası görünümü."""
+        try:
+            from modules import tool_map
+            return tool_map.snapshot(_p().slug)
+        except Exception:
+            _record_failure('web.py:map')
+            return None
 
     def map_set_policy(self, tool: str, action: str, policy: str):
-        """Politika değişimi arka ucu henüz yok; hiçbir şey değişmez."""
-        return None
+        """Kilitli sınıfları ve bilinmeyen eylemleri değiştirmez."""
+        try:
+            from modules import tool_map
+            return tool_map.set_policy(_p().slug, tool, action, policy)
+        except Exception:
+            _record_failure('web.py:map_set_policy')
+            return None
 
     def emergency(self) -> str:
         from modules import pc_guide
