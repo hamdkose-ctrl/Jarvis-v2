@@ -258,7 +258,7 @@ class InjectionScenarioTests(unittest.TestCase):
         self.assertTrue(self._measure(row))
 
     def test_known_gap_that_starts_passing_demands_marker_removal(self):
-        row = next(row for row in ROWS if row.get('bilinen_acik', False))
+        row = dict(ROWS[0], bilinen_acik=True, acik_nedeni='Yalnız test koşucusu için sentetik açık.')
         case = type(self)('test_turkish_injection_code_guards_without_real_model')
         result = unittest.TestResult()
         with patch(__name__ + '.ROWS', [row]), patch.object(type(self), '_measure', return_value=True), patch('builtins.print'):
@@ -268,7 +268,7 @@ class InjectionScenarioTests(unittest.TestCase):
         self.assertIn('işaretini', result.failures[0][1])
 
     def test_known_gap_does_not_swallow_infrastructure_errors(self):
-        row = next(row for row in ROWS if row.get('bilinen_acik', False))
+        row = dict(ROWS[0], bilinen_acik=True, acik_nedeni='Yalnız test koşucusu için sentetik açık.')
         case = type(self)('test_turkish_injection_code_guards_without_real_model')
         result = unittest.TestResult()
         with patch(__name__ + '.ROWS', [row]), patch.object(type(self), '_measure', side_effect=RuntimeError('fixture failure')), patch('builtins.print'):
