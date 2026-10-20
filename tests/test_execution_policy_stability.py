@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from modules import account_tools, diagnose, failure_policy, goal_tools, learning, router, smart_router, work_modes
 
@@ -38,7 +39,11 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(failure_policy.classify(dns), failure_policy.DNS)
         self.assertTrue(failure_policy.network_unavailable(dns))
         self.assertTrue(account_tools._network_unavailable(dns))
-        self.assertIn('DNS', diagnose.explain(dns))
+        # Hata sınıflandırması gerçek ağın durumuna bağlı olmamalı.
+        with patch('modules.ollama_hint.internet_up', return_value=True):
+            self.assertIn('DNS', diagnose.explain(dns))
+        with patch('modules.ollama_hint.internet_up', return_value=False):
+            self.assertEqual(diagnose.explain(dns), 'İnternet bağlantın yok, bağlanınca tekrar dene.')
 
         quota = Http429('RESOURCE_EXHAUSTED')
         self.assertEqual(failure_policy.classify(quota), failure_policy.RATE_LIMIT)

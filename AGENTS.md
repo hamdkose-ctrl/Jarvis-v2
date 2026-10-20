@@ -54,6 +54,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 ## Testler
 
+- Ağ hata sınıflandırma testleri çevrimiçi/çevrimdışı durumunu açıkça taklit eder; yayın toplu işlem testi durumunu geçici klasöre yazar. Gerçek ağ ve kullanıcı ev dizini birim test önkoşulu değildir.
+
 - Calculator operatör kanıtı: UIA ham ağaç gezintisi 500 öğeyle sınırlıdır. Yalnız gerçek Calculator sürecinin `CalculatorExpression` Text kontrolü ekran dışındayken salt okunur olarak dahil edilir; patterns boş ve işlem hedefi değildir. Ekran dışı kanıt tamamlanma/işlem başarısı sayılmaz. Operatör sonrası görünür ifade adı değişimi doğrulanır; mevcut sonuç ekranı kanıt sayılmaz.
 
 - Açık `PC görev`/`PC görevi` ve `PC onayla` komutları model/rehber/geliştirme yorumundan önce sahiplik kontrolü yapan masaüstü motoruna gider. Görev kontrolünde fazla boşluk ve son noktalama temizlenir; iptal kalıcı görev kaydını kapatır. Telefon/aktif kullanıcı sınırı korunur.
