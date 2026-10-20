@@ -109,3 +109,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - İzin politikası (`modules/permission_policy.py`): kullanıcıya özel `yol:sınıf` → Sor/İzin ver/Engelle. Varsayılan Sor (kapının kararı). Engelle masaüstü, tarayıcı ve gönderim yollarında kesin ret olur (izin veya onay ezemez); İzin ver yalnız yıkıcı yerel işte sorulanı açar, gönderim izni ve yayın onayı değişmez; para/kimlik ve sistem ayarı sınıfları kilitlidir. Politika hatası işlemi yapmaz.
 
 - Haber konu terimleri: “son dakika” genel haber ifadesidir; “haberleri” konu üretmez. Bağımsız “dakika” ve gerçek konu sözcükleri korunur; ilgisiz makale reddi devam eder. Bu ayrım kaynak seçiminin veya canlı haber kabulünün kanıtı değildir.
+
+- Hedef durum özeti hem goal_executor.handle hem engine_queue.submit girişinde kullanılır; açık ayrıntılar komutu render kullanır. Gerçek arayüz kabulü ayrıca ölçülür.
