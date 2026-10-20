@@ -635,13 +635,16 @@ def render(job):
         for current in job['steps']:
             if current['state']=='running' and (current['tool']=='research' or current['tool']=='data' and current['input'].get('operation')=='headlines'):
                 lines.append('Denenen kaynak: '+goal_tools.public_request(current['input']['url']))
+        def seen_error(text):
+            normalized = ' '.join(text.casefold().split())
+            return any(normalized in ' '.join(line.casefold().split()) for line in lines)
         for step in job['steps'][-3:]:
             output=job['outputs'].get(step['id'],{})
             text=str(output.get('text') or output.get('message') or step['state'])
-            if output.get('state')!='done' and not _internal_failure(text):lines.append(step['tool']+': '+text[:500])
+            if output.get('state')!='done' and not _internal_failure(text) and not seen_error(text[:500]):lines.append(step['tool']+': '+text[:500])
         if job.get('feedback'):
             visible=next((str(item) for item in reversed(job['feedback']) if not _internal_failure(item)),None)
-            if visible:lines.append(visible[:500])
+            if visible and not seen_error(visible[:500]):lines.append(visible[:500])
     if job['state']=='cancelled':lines.append('Hedef iptal edildi.')
     return '\n\n'.join(lines) or 'Hedef kaydedildi.'
 

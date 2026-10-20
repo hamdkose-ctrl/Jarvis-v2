@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import socket
 import time
+import errno
 
 from modules import failure_policy
 
@@ -14,6 +15,25 @@ _cache: dict = {}
 
 def need(feature: str) -> str:
     return f"{feature} için Ollama yüklemelisin: {INSTALL}."
+
+
+def unavailable(error: BaseException) -> str | None:
+    """Yalnız mevcut hata zincirindeki bağlantı reddi; ek ağ/servis yoklaması yapmaz."""
+    pending, seen = [error], set()
+    while pending and len(seen) < 24:
+        current = pending.pop()
+        if not isinstance(current, BaseException) or id(current) in seen:
+            continue
+        seen.add(id(current))
+        if (isinstance(current, ConnectionRefusedError)
+                or isinstance(current, OSError) and (
+                    getattr(current, 'errno', None) == errno.ECONNREFUSED
+                    or getattr(current, 'winerror', None) == 10061
+                    or 'connection refused' in str(current).casefold())):
+            return 'Ollama yüklenmemiş veya çalışmıyor; Ollama yüklemelisin: ' + INSTALL + '.'
+        pending.extend([current.__cause__, current.__context__, getattr(current, 'reason', None)])
+        pending.extend(value for value in current.args if isinstance(value, BaseException))
+    return None
 
 
 def _probe() -> bool:

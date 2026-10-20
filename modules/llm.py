@@ -715,11 +715,11 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
     if selected == "ollama":
         try:
             return _timed("ollama", lambda: _ollama_task(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
-        except LocalModelError:
+        except LocalModelError as e:
             if strict or privacy.mode() == "yerel" or _cli() is None:
                 raise                      # buluta düşmek yasak ya da bu kullanıcının Gemini anahtarı yok
             print("(Yerel model yok, Gemini'ye geçiliyor)")
-            note_route("Ollama yanıt vermedi, Gemini'ye geçildi", False)
+            note_route(ollama_hint.unavailable(e) or "Ollama yanıt vermedi, Gemini'ye geçildi", False)
     prompt = _need_cloud(prompt)
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok ve seçili sağlayıcı kullanılamadı.")
@@ -756,8 +756,8 @@ def _after_gemini(prompt: str, system: str, max_tokens: int, history, error: Exc
         try:
             print("(Gemini yanıt vermedi, " + {"groq": "Groq'a", "ollama": "Ollama'ya"}[name] + " geçiliyor)")
             answer = _send(prompt, system, max_tokens, history, name, True)
-        except (LocalModelError, CloudError):
-            note_route(provider_label(name) + " de yanıt vermedi", False)
+        except (LocalModelError, CloudError) as e:
+            note_route((ollama_hint.unavailable(e) if name == 'ollama' else None) or provider_label(name) + " de yanıt vermedi", False)
             continue
         if isinstance(answer, str) and answer.strip():
             return answer
