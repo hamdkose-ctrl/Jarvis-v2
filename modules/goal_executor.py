@@ -756,7 +756,8 @@ def handle(runtime,command):
     if is_open(job) and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
     if low in {'hedef durumu','işin durumu'}:return status_summary(job) if job else 'Kayıtlı hedef yok.'
     if low == 'hedef ayrıntıları':return render(job) if job else 'Kayıtlı hedef yok.'
-    if low=='hedef iptal' and job:
+    if low=='hedef iptal':
+        if not job:return 'Kayıtlı hedef yok.'
         if job['state']=='approval':
             step=next(s for s in job['steps'] if s['id']==job['waiting'])
             if step['tool']=='browser':
@@ -770,8 +771,11 @@ def handle(runtime,command):
     if low in RESUME_COMMANDS:
         if job and not low.startswith('hedef') and not is_open(job):return _closed_reply(job)
         return run(runtime,command,resume=True)
+    if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
+    explicit=re.match(r'^hedef\s+(.+)$',command.strip(),re.I|re.S)
+    if explicit and explicit[1].split(None,1)[0].casefold().strip(' .!?') not in {'iptal','devam','sürdür','surdur','onayla','yanıtla'}:
+        return run(runtime,explicit[1].strip())
     if job and job['state']=='question' and age(job)<=QUESTION_SECONDS:
         from modules.work_modes import ends_with_action
         if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
-    if low.startswith(('hedef:','görev:','görev yap:')):return run(runtime,command.split(':',1)[1].strip())
     return None
