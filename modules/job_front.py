@@ -32,13 +32,15 @@ def wants(cmd_lower):
     return low in _CONTINUE or low in _CANCEL
 
 
-def route(owner, emit, cmd_lower, session):
+def route(owner, emit, cmd_lower, session, *, photo_pending=False):
     """Çıplak devam/iptal için açık görev işi yanıtı; uygun değilse None (eski yol aynen sürer)."""
     low = cmd_lower.strip(' .!?')
     if low not in _CONTINUE and low not in _CANCEL:
         return None
     if any(getattr(session, name, None) for name in _PENDING):
         return None                                     # bekleyen soru kendi cevabını alır
+    if photo_pending and low in _CANCEL:
+        return None                                     # fotoğrafın mevcut iptal yanıtına bırak
     from modules import goal_executor
     if goal_executor.active() or _goal_open(owner):
         return None
@@ -46,7 +48,7 @@ def route(owner, emit, cmd_lower, session):
     job = task_agents.recent(owner)
     if not job or job.get('state') not in _OPEN or time.time() - float(job.get('updated') or 0) > _FRESH_SECONDS:
         # Çıplak iptal, açık iş yokken modele gitmesin (eskiden 'Yeni sohbet başlat' onayına dönüşüyordu).
-        return 'Şu an iptal edilecek bir işlem yok.' if low in _CANCEL else None
+        return 'İptal edilecek açık görev yok.' if low in _CANCEL else None
     session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
     if low in _CONTINUE:
         return task_agents.render(task_agents.continue_job(owner, emit=emit))
