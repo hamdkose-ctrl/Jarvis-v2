@@ -13,7 +13,26 @@ from pathlib import Path
 
 from config import DATA_DIR
 from modules import files
+from modules.diagnostics import record_failure as _record_failure
 
+
+
+def _permission_decision(owner, name, target):
+    try:
+        from modules import permission_audit, permission_classify, permission_gate, permission_policy, service_store
+        service_store.identity(owner)
+        kind, recognized = permission_classify.classify_detail('file', name, target)
+        if not recognized:
+            kind = 'local_reversible'  # Mevcut işlemler çakışmasız ve geri alınabilir.
+        result = permission_gate.decide({'class': kind, 'target': target, 'via': 'file'})
+        decision, reason = permission_policy.apply(owner, 'file', kind, result['decision'], result['reason'])
+        if decision not in ('allow', 'ask', 'deny'):
+            raise ValueError('Geçersiz izin kararı.')
+        permission_audit.record(owner, decision, kind, target, 'file', reason)
+        return None if decision == 'allow' else reason
+    except Exception:
+        _record_failure('modules/file_ops.py:permission_gate')
+        return 'İzin denetimi tamamlanamadı; dosya işlemi yapılmadı.'
 
 
 def _undo_path(owner: str = "") -> Path:
@@ -124,6 +143,8 @@ def _move(command: str, owner: str = "") -> str | None:
     source, (folder, label, _need) = hits[0], destination
     if source.parent.resolve() == folder.resolve():
         return f"{source.name} zaten {label} klasöründe."
+    if reason := _permission_decision(owner, 'Taşı', str(source)):
+        return reason
     try:
         final = files._free_name(folder / source.name)
         shutil.move(str(source), str(final))
@@ -155,6 +176,8 @@ def _rename(command: str, owner: str = "") -> str | None:
     target = source.with_name(new)
     if target.exists() and _fold(target.name) != _fold(source.name):
         return f"{new} adında bir dosya zaten var; üzerine yazmadım."
+    if reason := _permission_decision(owner, 'Yeniden adlandır', str(source)):
+        return reason
     try:
         source.rename(target)
     except OSError as exc:
@@ -179,6 +202,8 @@ def _create(command: str, owner: str = "") -> str | None:
     if Path(name).suffix.lower() != ".txt":
         name = Path(name).stem + ".txt"
     content = _clean(found.group(3) or "")
+    if reason := _permission_decision(owner, 'Metin dosyası oluştur', str(folder / name)):
+        return reason
     try:
         final = files._free_name(folder / name)
         final.write_text(content + ("\n" if content else ""), encoding="utf-8")
@@ -190,6 +215,10 @@ def _create(command: str, owner: str = "") -> str | None:
 
 
 def undo(owner: str = "") -> str:
+    from modules import llm
+    owner = owner or llm._key_context.get() or ''
+    if reason := _permission_decision(owner, 'Geri al', 'Son dosya işlemi'):
+        return reason
     try:
         pairs = json.loads(_undo_path(owner).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -220,6 +249,8 @@ def undo(owner: str = "") -> str:
 def handle(command: str, owner: str = "") -> str | None:
     """“rapor.pdf dosyasını belgelere taşı”, “x dosyasının adını y yap”, “masaüstüne not adında bir metin dosyası oluştur
     ve içine merhaba yaz”, “son dosya işlemini geri al”. İlgisizse None."""
+    from modules import llm
+    owner = owner or llm._key_context.get() or ''
     if re.search(r"\bson dosya işlemi\w*\s+geri\s+al", _fold(command)):
         return undo(owner)
     for fn in (_move, _rename, _create):

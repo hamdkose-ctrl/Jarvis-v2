@@ -4,6 +4,8 @@ import sys
 import types
 import time
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 if 'pyautogui' not in sys.modules:
@@ -15,7 +17,23 @@ from modules import system_control as pc, command_execution, engine_tools, reque
 from modules.session_state import SessionState
 
 
+def user_context(case):
+    """Yerel işlem testleri açık kullanıcı ve geçici kayıtlarla çalışır."""
+    from modules import llm, pc_contracts, permission_audit, permission_policy
+    td = tempfile.TemporaryDirectory(); case.addCleanup(td.cleanup)
+    root = Path(td.name)
+    token = llm._key_context.set('alice'); case.addCleanup(llm._key_context.reset, token)
+    token = requests_state._current.set(None); case.addCleanup(requests_state._current.reset, token)
+    for module, key, value in ((pc_contracts, 'ROOT', root / 'pc'),
+                               (permission_policy, 'ROOT', root / 'policy'),
+                               (permission_audit, 'DATA_DIR', root)):
+        case.enterContext(patch.object(module, key, value))
+
+
 class ApplicationEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        user_context(self)
+
     def test_calculator_aliases_select_uwp_frame(self):
         windows = [(2034606, 'Hesap Makinesi', 'applicationframehost'),
                    (9, 'Calculator - Chrome', 'chrome'), (10, 'Ayarlar', 'applicationframehost')]

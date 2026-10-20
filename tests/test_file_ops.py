@@ -4,13 +4,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import file_ops, files
+from modules import file_ops, files, llm, permission_audit, permission_policy, requests_state
 
 
 class FileOpsTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name)
+        token = llm._key_context.set('alice'); self.addCleanup(llm._key_context.reset, token)
+        token = requests_state._current.set(None); self.addCleanup(requests_state._current.reset, token)
+        self.enterContext(patch.object(permission_policy, 'ROOT', self.home / 'policy'))
+        self.enterContext(patch.object(permission_audit, 'DATA_DIR', self.home))
         for name in ('Downloads', 'Desktop', 'Documents', 'Pictures'):
             (self.home / name).mkdir()
         self.enterContext(patch.object(files.Path, 'home', return_value=self.home))
@@ -93,7 +97,11 @@ class FileOpsTests(unittest.TestCase):
     def test_undo_record_is_per_user(self):
         self.write(self.downloads, 'rapor.pdf')
         file_ops.handle('rapor dosyasını belgelere taşı', 'alice')
-        self.assertIn('yok', file_ops.handle('son dosya işlemini geri al', 'bob'))
+        token = llm._key_context.set('bob')
+        try:
+            self.assertIn('yok', file_ops.handle('son dosya işlemini geri al', 'bob'))
+        finally:
+            llm._key_context.reset(token)
         self.assertTrue((self.documents / 'rapor.pdf').exists())
         self.assertIn('geri aldım', file_ops.handle('son dosya işlemini geri al', 'alice'))
         self.assertTrue((self.downloads / 'rapor.pdf').exists())
