@@ -24,6 +24,33 @@ class BareAmountTests(unittest.TestCase):
         self.assertNotIn('e-posta', reply)
         rates.assert_called_once_with(['USD', 'TRY'])
 
+    def test_pending_recipient_question_does_not_swallow_currency_but_accepts_address(self):
+        from datetime import datetime
+        from test_mail_calendar_fixes import ProfileCase, _runtime
+        from modules import goal_executor as goals
+        fixture = ProfileCase()
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        rt = _runtime(self, fixture.profile, datetime(2026, 10, 20, 12, 0))
+        job = {'state': 'question', 'question': 'Alıcının e-posta adresi nedir?'}
+        with patch.object(goals, 'latest', return_value=job), \
+             patch.object(goals, 'age', return_value=0), \
+             patch.object(goals, 'active', return_value=False), \
+             patch.object(goals, 'run', return_value='Hedef yanıtı alındı.') as resume, \
+             patch.object(finance, 'rates', return_value=({'USD': Decimal(40), 'TRY': Decimal(1)}, 'Taklit kaynak')), \
+             patch('modules.router.classify', side_effect=AssertionError('Model yönlendirici çağrılmamalı')):
+            with self.subTest(command='6 dolar'):
+                reply = rt.handle('6 dolar')
+                self.assertIn('TL eder', reply)
+                self.assertIn('Taklit kaynak', reply)
+                resume.assert_not_called()
+                self.assertTrue(goals._is_fast_command('6 dolar'))
+            resume.reset_mock()
+            with self.subTest(command='ali@ornek.com'):
+                self.assertEqual(rt.handle('ali@ornek.com'), 'Hedef yanıtı alındı.')
+                resume.assert_called_once_with(rt, 'ali@ornek.com', resume=True)
+                self.assertFalse(goals._is_fast_command('ali@ornek.com'))
+
     def test_non_questions_payment_send_alarm_and_percentage_are_unchanged(self):
         for text in ('6 dolar ödedim', '6 dolar gönder', 'dolar', '6', '6 tl',
                      'dolar alarmı kur 6 olunca haber ver', 'yüzde 6 dolar', '6% dolar',
