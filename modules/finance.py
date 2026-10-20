@@ -185,6 +185,23 @@ def _stock(text: str, low: str):
     return None
 
 
+def _bare_amount(text, low):
+    # Do not let folding erase a percent sign or other words/punctuation.
+    if not isinstance(text, str) or not re.fullmatch(r"[\w\s.,']+", text):
+        return None
+    match = re.fullmatch(r"(\d+(?:[.,]\d+)*)\s+([a-z][a-z ']*?)\.?", low)
+    if not match:
+        return None
+    currency = match[2]
+    mentions = _mentions(currency)
+    if len(mentions) != 1 or mentions[0][:2] != (0, len(currency)) or mentions[0][2] == 'TRY':
+        return None
+    amount = _decimal(match[1])
+    if amount is None:
+        return None
+    return {'amount': amount, 'source': mentions[0][2], 'target': 'TRY', 'list': None}
+
+
 def parse(text: str):
     """Fiyat sorusu: kur alanları, kripto/altında 'asset', BIST'te 'stock'; değilse None."""
     low = _fold(text)
@@ -194,7 +211,7 @@ def parse(text: str):
     if asset:return asset
     stock = _stock(text, low)
     if stock:return stock
-    if not re.search(_CUE, low):return None
+    if not re.search(_CUE, low):return _bare_amount(text, low)
     mentions = _mentions(low)
     if not mentions:return None
     codes = [code for _s, _e, code in mentions]
