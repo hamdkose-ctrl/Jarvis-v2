@@ -1733,7 +1733,7 @@ function harita_render(data){
   const ph=(Array.isArray(data.placeholders)?data.placeholders:[]).filter(p=>p&&typeof p==='object');
   const areas=[...new Set(tools.map(t=>t.area).concat(ph.map(p=>p.area)))];
   return `<div class="harita-wrap"><div class="harita-hub"><div class="harita-orb">${menuOrbSvg()}</div><button class="btn sm bad" data-act="stoptask">Durdur</button></div>`
-    +areas.map(ar=>`<div class="harita-area"><h3>${esc(HARITA_AREA[ar]||ar||'Diğer')}</h3>${tools.filter(t=>t.area===ar).map(harita_tool).join('')}${ph.filter(p=>p.area===ar).map(p=>`<div class="card harita-soon"><b>${esc(p.name)}</b><span class="harita-badge">Yakında</span></div>`).join('')}</div>`).join('')+`</div>`;
+    +harita_wizard_html()+areas.map(ar=>`<div class="harita-area"><h3>${esc(HARITA_AREA[ar]||ar||'Diğer')}</h3>${tools.filter(t=>t.area===ar).map(harita_tool).join('')}${ph.filter(p=>p.area===ar).map(p=>`<div class="card harita-soon"><b>${esc(p.name)}</b><span class="harita-badge">Yakında</span></div>`).join('')}</div>`).join('')+`</div>`;
 }
 async function harita_set_policy(tool,action,old,next,control){
   const r=await tryApi('map_set_policy',tool,action,next);
@@ -1749,6 +1749,89 @@ if(typeof document!=='undefined')document.addEventListener('change',e=>{
   const s=e.target&&e.target.closest&&e.target.closest('select[data-map-tool]');if(!s)return;
   harita_set_policy(s.dataset.mapTool,s.dataset.mapAction,s.dataset.mapOld,s.value,s);
 });
+const HARITA_PENDING=new WeakMap(),HARITA_BUSY=new WeakSet();
+const HARITA_PROGRAM_CLASSES=['local_destructive','local_reversible','read','message_out','publish','physical'];
+function harita_wizard_html(){
+  return `<details class="harita-wizard"><summary>Araç ekle</summary><form class="harita-form">
+    <label>Araç türü<select name="kind"><option value="api">Açık API</option><option value="program">Yerel program</option><option value="device">HTTP cihaz</option></select></label>
+    <fieldset class="harita-api"><legend>Açık API</legend><label>Keşfet<input name="query" maxlength="200" placeholder="Örneğin hava durumu"></label><button type="button" class="btn sm" data-harita-search>Servis ara</button>
+      <label>Servis adayı<select name="candidate"><option value="">Önce servis arayın</option></select></label><label>Kesin HTTPS GET adresi<input name="endpoint" maxlength="2048"></label>
+      <label>Parametre şeması<textarea name="parameters" rows="2">{}</textarea></label><p>Belgeden doğruladığınız kesin okuma adresini girin. Şema örneği: {"city":"string"}. Bu araç yalnız okuma yapar; ücret/kota doğrulanmadı.</p></fieldset>
+    <fieldset class="harita-program" hidden><legend>Yerel program</legend><label>Araç adı<input name="program_name" maxlength="120"></label><label>Programın tam yolu<input name="program" maxlength="2000"></label>
+      <label>Argüman listesi<textarea name="arguments" rows="3">[]</textarea></label><label>Eylem sınıfı<select name="action_class">${HARITA_PROGRAM_CLASSES.map(c=>`<option value="${c}">${esc(HARITA_CLASS[c][0])}</option>`).join('')}</select></label>
+      <p>Argüman örneği: ["--dosya", "{dosya}"]. Sınıfı siz seçersiniz; varsayılan yıkıcı yerel işlem onay ister. Para ve sistem sınıfları kapalıdır. Program otomatik indirilmez.</p></fieldset>
+    <fieldset class="harita-device" hidden><legend>HTTP cihaz</legend><label>Araç adı<input name="device_name" maxlength="120"></label><label>IP veya localhost adresi<input name="address" maxlength="1000"></label>
+      <label>Anahtar<input name="key" type="password" autocomplete="off" maxlength="1024"></label><label class="harita-check"><input name="allow_private" type="checkbox">Bu cihaz için özel IP/localhost erişimini onaylıyorum.</label>
+      <p>Yalnız açık IP veya localhost kabul edilir; genel IP HTTPS ister. GET okuma, POST fiziksel komuttur ve her seferinde onay ister. Bu genel cihazın durdurma protokolü tanımlı değildir.</p></fieldset>
+    <div class="harita-buttons"><button type="button" class="btn sm" data-harita-preview>Önizle</button><button type="button" class="btn sm pri harita-confirm" data-harita-confirm disabled>Onayla ve ekle</button></div>
+    <pre class="harita-review" role="status" aria-live="polite"></pre></form></details>`;
+}
+function harita_wizard_payload(form){
+  const value=name=>form.querySelector(`[name="${name}"]`)?.value||'';
+  const kind=value('kind');let payload;
+  if(kind==='api')payload={candidate:value('candidate'),endpoint:value('endpoint'),parameters:JSON.parse(value('parameters')||'{}')};
+  else if(kind==='program'){
+    if(!HARITA_PROGRAM_CLASSES.includes(value('action_class')))throw Error('Sınıf kapalı.');
+    payload={name:value('program_name'),program:value('program'),arguments:JSON.parse(value('arguments')||'[]'),action_class:value('action_class')};
+    if(!Array.isArray(payload.arguments))throw Error('Argüman listesi gerekli.');
+  }else if(kind==='device')payload={name:value('device_name'),address:value('address'),key:value('key'),allow_private:!!form.querySelector('[name="allow_private"]')?.checked};
+  else throw Error('Araç türü geçersiz.');
+  return {kind,payload};
+}
+function harita_wizard_reset(form){
+  HARITA_PENDING.delete(form);
+  const button=form.querySelector('.harita-confirm');if(button)button.disabled=true;
+  const review=form.querySelector('.harita-review');if(review)review.textContent='';
+}
+function harita_wizard_kind(form){
+  const kind=form.querySelector('[name="kind"]')?.value;
+  for(const name of ['api','program','device']){const section=form.querySelector('.harita-'+name);if(section)section.hidden=name!==kind}
+}
+async function harita_wizard_save(form,confirmed){
+  if(HARITA_BUSY.has(form))return;
+  const review=form.querySelector('.harita-review');
+  try{
+    const data=harita_wizard_payload(form),signature=JSON.stringify(data),pending=HARITA_PENDING.get(form);
+    if(confirmed&&(!pending||pending.signature!==signature)){harita_wizard_reset(form);review.textContent='Bilgiler değişti veya önizleme yok; yeniden önizleyin.';return}
+    const owner=confirmed?pending.owner:null;
+    harita_wizard_reset(form);HARITA_BUSY.add(form);
+    review.textContent=confirmed?'Kayıt onaylanıyor…':'Önizleme hazırlanıyor…';
+    const result=await tryApi('tool_wizard_add',data.kind,data.payload,!!confirmed,owner);
+    if(form.isConnected===false)return;
+    if(!result||result.state==='error'||result.state==='blocked'){review.textContent=result?.detail||'Araç eklenemedi. Alanları kontrol edip yeniden önizleyin.';return}
+    if(!confirmed){
+      if(result.state!=='approval'||typeof result.owner!=='string'||!result.owner){review.textContent='Önizleme kullanıcı bağlamı doğrulanamadı.';return}
+      if(JSON.stringify(harita_wizard_payload(form))!==signature){review.textContent='Bilgiler değişti; yeniden önizleyin.';return}
+      review.textContent=String(result.text||'Bu aracı eklemeyi onaylayın.');
+      HARITA_PENDING.set(form,{signature,owner:result.owner});form.querySelector('.harita-confirm').disabled=false;return;
+    }
+    if(result.state!=='done'){review.textContent='Kayıt doğrulanamadı; yeniden önizleyin.';return}
+    const key=form.querySelector('[name="key"]');if(key)key.value='';
+    review.textContent='Araç kaydedildi. Gerçek PC, canlı hesap ve gerçek cihaz denenmedi.';toast('Araç Harita’ya eklendi.','ok');
+    const map=await tryApi('map'),wrap=form.closest('.harita-wrap');
+    if(form.isConnected!==false&&wrap&&Array.isArray(map?.tools))wrap.outerHTML=harita_render(map);
+  }catch(_){harita_wizard_reset(form);review.textContent='Alanları kontrol edin: argüman listesi ve parametre şeması geçerli JSON olmalı.'}
+  finally{HARITA_BUSY.delete(form)}
+}
+async function harita_wizard_search(form){
+  if(HARITA_BUSY.has(form))return;
+  harita_wizard_reset(form);HARITA_BUSY.add(form);
+  const review=form.querySelector('.harita-review'),query=form.querySelector('[name="query"]').value;
+  try{
+    review.textContent='Servisler aranıyor…';const result=await tryApi('tool_wizard_discover',query);
+    if(form.isConnected===false)return;
+    if(form.querySelector('[name="query"]').value!==query){review.textContent='Arama değişti; yeniden arayın.';return}
+    if(!Array.isArray(result?.candidates)){review.textContent='Servis araması tamamlanamadı.';return}
+    form.querySelector('[name="candidate"]').innerHTML='<option value="">Bir aday seçin</option>'+result.candidates.filter(c=>c&&typeof c.id==='string').map(c=>`<option value="${esc(c.id)}">${esc(c.name)} — ${esc(c.url)}</option>`).join('');
+    review.textContent=result.candidates.length?'Adayı seçin; resmî belgeden kesin okuma adresini ve şemayı girip önizleyin.':'Aday bulunamadı.';
+  }catch(_){review.textContent='Servis araması tamamlanamadı.'}finally{HARITA_BUSY.delete(form)}
+}
+if(typeof document!=='undefined'){
+  document.addEventListener('input',event=>{const form=event.target?.closest?.('form.harita-form');if(form)harita_wizard_reset(form)});
+  document.addEventListener('change',event=>{const form=event.target?.closest?.('form.harita-form');if(form){harita_wizard_reset(form);harita_wizard_kind(form)}});
+  document.addEventListener('click',event=>{const button=event.target?.closest?.('[data-harita-preview],[data-harita-confirm],[data-harita-search]'),form=button?.closest('form.harita-form');if(!form)return;event.preventDefault();if(button.hasAttribute('data-harita-search'))harita_wizard_search(form);else harita_wizard_save(form,button.hasAttribute('data-harita-confirm'))});
+  document.addEventListener('submit',event=>{const form=event.target?.closest?.('form.harita-form');if(form){event.preventDefault();harita_wizard_save(form,false)}});
+}
 // HARITA END
 PAGES.apps=pg=>{
   pg.innerHTML=`<div class="apph"><div><div class="kick">• YAPAY ZEKÂ ARAÇLARI •</div><h1>Uygula<span>malar</span></h1><p>Daha fazlasını keşfet, üretkenliğini artır</p></div><div style="height:250px;position:relative"><canvas id="g-apps" style="position:absolute;inset:0;width:100%;height:100%"></canvas></div></div>

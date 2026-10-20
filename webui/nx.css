@@ -1406,3 +1406,17 @@ body.home-full .hscene .center-stage{border:0;border-radius:0;background:none}
 .harita-pol,.harita-lock{min-width:96px}
 .harita-lock{opacity:.6;cursor:not-allowed}
 .harita-soon{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;margin-bottom:10px;opacity:.7}
+.harita-wizard{border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:14px;background:rgba(255,255,255,.03)}
+.harita-wizard summary{cursor:pointer;font-weight:600;font-size:15px}
+.harita-form{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.harita-form fieldset{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:14px;min-width:0}
+.harita-form fieldset[hidden]{display:none}
+.harita-form label{display:flex;flex-direction:column;gap:5px;margin:8px 0}
+.harita-form input,.harita-form select,.harita-form textarea{width:100%;box-sizing:border-box;max-width:100%;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#151824;color:inherit;font:inherit}
+.harita-form textarea{resize:vertical;min-height:56px}
+.harita-form p{font-size:12px;line-height:1.5;opacity:.8;margin:8px 0 0}
+.harita-form .harita-check{flex-direction:row;align-items:center;gap:8px}
+.harita-form .harita-check input{width:auto}
+.harita-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.harita-confirm:disabled{opacity:.45;cursor:not-allowed}
+.harita-review{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.5;max-height:260px;overflow:auto;margin:0}
