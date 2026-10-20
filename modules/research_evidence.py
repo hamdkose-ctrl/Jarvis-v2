@@ -100,8 +100,7 @@ def article(response):
             try:days.add(date.fromisoformat(m[1]).isoformat())
             except ValueError:pass
     if len(days)!=1:raise ValueError('Haberin kendisine ait tek bir yayın tarihi doğrulanamadı; başka tarihli kaynak seç.')
-    for hidden in node(['script','style','noscript','nav','footer','header','aside','svg']):hidden.decompose()
-    text=re.sub(r'\s+',' ',node.get_text(' ',strip=True))[:20000]
+    text=public_sources.readable_text(node)
     if len(text)<80 or not title:raise ValueError('Tekil haber metni yeterli değil.')
     return {'url':url,'title':title,'published':days.pop(),'text':text}
 
@@ -162,6 +161,10 @@ def vague_question(question,request):
 
 def preview(output):
     """Show the researched finding in chat; links support the answer instead of replacing it."""
+    if output.get('source') and not output.get('news_article') and not output.get('news_report_evidence'):
+        answer=str(output.get('text','')).split('\nKaynak:',1)[0].strip()
+        if len(answer)>1200:answer=answer[:1197].rsplit(' ',1)[0]+'…'
+        return answer+'\nKaynak: '+output['source']
     sources=([output['news_article']] if output.get('news_article') else
              [row['news_article'] for row in output.get('news_report_evidence',{}).get('sources',{}).values() if row.get('news_article')])
     unique={source['url']:source for source in sources}
@@ -169,7 +172,14 @@ def preview(output):
     if report and output.get('file'):
         return ''
     if not report and output.get('news_article') and str(output.get('text','')).strip():
-        return str(output['text']).strip()
+        source=output['news_article']
+        if not source.get('title') or not source.get('published'):
+            return 'Eksik kaynak kaydı: başlık ve yayın tarihi doğrulanamadı.\n'+str(output['text']).strip()+'\nKaynak: '+source['url']
+        title=re.sub(r'([\\`*_{}\[\]<>#])',r'\\\1',re.sub(r'\s+',' ',source['title']))
+        quotes=output.get('source_quotes') or [str(output['text']).split('\nKaynak:',1)[0]]
+        excerpt=re.sub(r'\s+',' ',' '.join(quotes[:2])).strip()
+        if len(excerpt)>600:excerpt=excerpt[:597].rsplit(' ',1)[0]+'…'
+        return title+'\nYayın tarihi: '+source['published']+'\nKaynak alıntısı: '+excerpt+'\nKaynak: '+source['url']
     lines=[]
     if report:
         from modules.publisher_news import publisher_key

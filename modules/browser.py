@@ -21,10 +21,9 @@ def page_text(url: str, limit: int = 12000) -> str:
     html = r.text
     try:
         from bs4 import BeautifulSoup
+        from modules.public_sources import readable_text
         soup = BeautifulSoup(html, "html.parser")
-        for t in soup(["script", "style", "noscript", "nav", "footer", "header", "svg"]):
-            t.decompose()
-        text = soup.get_text(" ", strip=True)
+        text = readable_text(soup)
     except ImportError:
         text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
         text = re.sub(r"<[^>]+>", " ", text)

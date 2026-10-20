@@ -648,10 +648,19 @@ def render(job):
             try:_check_news_completion(job,goal,goal['evidence'])
             except ValueError:partial=True
             lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
+            steps={step['id']:step for step in job.get('steps',[]) if isinstance(step,dict) and step.get('id')}
+            has_findings=any(steps.get(ident,{}).get('tool')=='research' and job['outputs'].get(ident,{}).get('state')=='done'
+                             for ident in goal['evidence'])
+            seen=set()
             for ident in goal['evidence']:
+                if ident in seen:continue
+                seen.add(ident)
                 output=job['outputs'][ident]
+                step=steps.get(ident,{})
+                if has_findings and step.get('tool')=='data' and step.get('input',{}).get('operation') in {'sources','headlines','news_search'}:
+                    continue
                 from modules import research_evidence
-                lines.append(research_evidence.preview(output) if output.get('news_article') or output.get('news_report_evidence') else output.get('text','')[:1200])
+                lines.append(research_evidence.preview(output) if output.get('news_article') or output.get('news_report_evidence') or step.get('tool')=='research' and output.get('source') else output.get('text','')[:1200])
                 for item in output.get('files',[]):lines.append('Dosya: '+item['file'])
                 if output.get('file') and not output.get('files'):lines.append('Dosya: '+output['file'])
     if job['state']=='approval':

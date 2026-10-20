@@ -106,9 +106,30 @@ class Page(HTMLParser):
         if self.current:self.current['title']+=data+' '
 
 
+def readable_text(node):
+    """Shared semantic body extraction; preserve plain/div-only and technical pages."""
+    import copy
+    node=copy.deepcopy(node)
+    for hidden in node(['script','style','noscript','nav','footer','header','aside','svg','button','form']):
+        hidden.decompose()
+    for hidden in node.select('[role="navigation"], [role="banner"], [role="complementary"], [aria-hidden="true"], [hidden]'):
+        hidden.decompose()
+    bodies=node.select('[itemprop="articleBody"]')
+    articles=node.find_all('article');mains=node.find_all('main')
+    if len(bodies)==1:node=bodies[0]
+    elif len(articles)==1:node=articles[0]
+    elif len(mains)==1:node=mains[0]
+    blocks=node.find_all(['h1','h2','h3','p','li','pre','table','blockquote'])
+    if sum(len(p.get_text(' ',strip=True)) for p in node.find_all('p'))>=80:
+        names={id(block) for block in blocks}
+        value=' '.join(block.get_text(' ',strip=True) for block in blocks if not any(id(parent) in names for parent in block.parents))
+    else:value=node.get_text(' ',strip=True)
+    return re.sub(r'\s+',' ',value).strip()[:20000]
+
+
 def text(body):
-    page=Page();page.feed(body.decode('utf-8',errors='replace'))
-    return re.sub(r'\s+',' ',' '.join(page.parts)).strip()[:20000]
+    from bs4 import BeautifulSoup
+    return readable_text(BeautifulSoup(body.decode('utf-8',errors='replace'),'html.parser'))
 
 
 def feeds(response):
