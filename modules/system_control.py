@@ -12,6 +12,36 @@ import time
 from typing import Any
 
 import pyautogui
+from functools import wraps
+
+
+def _permission_decision(action, target=''):
+    try:
+        from modules import llm, permission_audit, permission_classify, permission_gate, permission_policy, service_store
+        owner = llm._key_context.get()
+        service_store.identity(owner)
+        kind, recognized = permission_classify.classify_detail('system', action, target)
+        if not recognized:
+            kind = 'local_reversible'  # Tanınmayan ad mevcut işlem politikasında kalır.
+        result = permission_gate.decide({'class': kind, 'target': target, 'via': 'system'})
+        decision, reason = permission_policy.apply(owner, 'system', kind, result['decision'], result['reason'])
+        if decision not in ('allow', 'ask', 'deny'):
+            raise ValueError('Geçersiz izin kararı.')
+        permission_audit.record(owner, decision, kind, target, 'system', reason)
+    except Exception:
+        _record_failure('modules/system_control.py:permission_gate')
+        decision, reason = 'deny', 'İzin denetimi tamamlanamadı; sistem işlemi yapılmadı.'
+    if decision != 'allow':
+        raise PermissionError(reason)
+
+
+def _permission_instrument(action, target):
+    @wraps(target)
+    def guarded(*args, **kwargs):
+        name = next((value for value in (*args, *kwargs.values()) if isinstance(value, str)), action)
+        _permission_decision(action, name)
+        return target(*args, **kwargs)
+    return guarded
 
 # Sabit kısayollar. Bunların dışında yalnızca Başlat menüsünde kurulu görünen uygulamalar açılır
 # (serbest komut çalıştırılmaz; komut enjeksiyonu olmaz).
@@ -318,6 +348,7 @@ def current_volume() -> int | None:
 
 def mute_volume():
     """Eski uyumluluk: sessize alır (artık durumu tersine çevirmez). Ayarlanamazsa klavye tuşuna basar."""
+    _permission_decision('mute_volume')
     if not set_mute(True):
         pyautogui.press("volumemute")
 
@@ -364,6 +395,7 @@ def media_control(action: str) -> bool:
 
 def open_new_tab(url: str = "https://google.com"):
     """Tarayıcıda yeni bir sekme açar."""
+    _permission_decision('open_new_tab', url)
     try:
         import webbrowser
         webbrowser.open_new_tab(url)
@@ -459,6 +491,7 @@ def windows_settings(command: str):
             continue
         for pattern, page, label in pages:
             if re.search(pattern, text):
+                _permission_decision('windows_settings', command)
                 if os.name != "nt":
                     return ApplicationResult("Windows Ayarlar yalnız Windows'ta açılır.")
                 try:
@@ -624,4 +657,4 @@ def window_shortcut(target: str, shortcut: str) -> dict:
 # The underlying functions retain their window, owner and approval guards.
 from modules.pc_contracts import CATALOG as _PC_CONTRACTS, instrument as _pc_instrument
 for _pc_name in _PC_CONTRACTS:
-    globals()[_pc_name]=_pc_instrument(_pc_name,globals()[_pc_name])
+    globals()[_pc_name]=_pc_instrument(_pc_name,_permission_instrument(_pc_name,globals()[_pc_name]))

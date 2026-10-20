@@ -3,6 +3,10 @@ from unittest.mock import Mock
 
 
 class NavigationCommandsTests(unittest.TestCase):
+    def setUp(self):
+        from tests.test_verified_execution import user_context
+        user_context(self)
+
     def test_local_notes_and_calendar_open_commands(self):
         from modules import selfctl
         for command in ('not sayfasını aç', 'not defterini aç', 'takvimi aç', 'takvim sayfasını aç'):
