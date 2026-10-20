@@ -5,6 +5,9 @@
 3. **Motor birleştirme.** Ek PC deneme turu olmadan, düzeltmeler bitince seçenek A.
 4. **Builder en sona.** Araç sihirbazı (54-57) ve 2 araç PC'de geçtikten sonra; yalnız insan onaylı taslak PR.
 5. **Arayüz.** Kota arayüzden önce; varlık-merkezli arayüz en son.
+6. **Cümle ayrımı ortak kural.** Her cümle bu sırayla ayrılır: sade soru/sohbet, tek kelimelik komut (devam, iptal), görev, dışarıya gönderme (mail/mesaj; yalnız açık niyet varsa, en sonda). Ayrım mevcut motorda tek yerde kurulur (motor birleştirmenin "tek giriş"ine bağlanır), sıfırdan yeniden yazılmaz. Düzeltme kartları GPT Görev 58-62 bu kuralı uygular; 2026-10-20 PC denemesindeki 5 cümle ("hangi dosya yazıldı", "hedef durumu", çıplak "iptal", "hedef son dakika haberleri", "6 dolar") gerçek cümle setine eklenir.
+7. **Taban oturana kadar yeni özellik açılmaz.** Önce 58-62, sonra aynı cümleler PC'de tek listede bir kez daha denenir, hepsi geçince yeni işe geçilir.
+8. **Hiçbiri PC'de denenmedi** (2026-10-20 itibarıyla).
 
 ---
 
