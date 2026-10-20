@@ -45,7 +45,8 @@ def route(owner, emit, cmd_lower, session):
     from modules import task_agents
     job = task_agents.recent(owner)
     if not job or job.get('state') not in _OPEN or time.time() - float(job.get('updated') or 0) > _FRESH_SECONDS:
-        return None
+        # Çıplak iptal, açık iş yokken modele gitmesin (eskiden 'Yeni sohbet başlat' onayına dönüşüyordu).
+        return 'Şu an iptal edilecek bir işlem yok.' if low in _CANCEL else None
     session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
     if low in _CONTINUE:
         return task_agents.render(task_agents.continue_job(owner, emit=emit))

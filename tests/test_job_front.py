@@ -78,6 +78,14 @@ class JobFrontTests(ProfileCase):
                 calls, _ = self._run('iptal', task=task)
                 self.assertEqual(calls, [])
 
+    def test_bare_cancel_with_nothing_open_answers_directly_not_via_model(self):
+        for task in (None, _task('done'), _task('cancelled')):
+            for text in ('iptal', 'vazgeç', 'boşver'):
+                with self.subTest(text=text, task=task and task['state']):
+                    calls, reply = self._run(text, task=task)
+                    self.assertEqual(calls, [])
+                    self.assertEqual(reply, 'Şu an iptal edilecek bir işlem yok.')   # SOHBET olsaydı model yoluna düşmüştü
+
     def test_pending_questions_keep_their_own_answers(self):
         for field in ('pending_confirm', 'pending_action', 'pending_msg', 'pending_organize', 'pending_desktop', 'pending_app'):
             with self.subTest(field=field):
