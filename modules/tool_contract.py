@@ -127,7 +127,7 @@ def load_all(package: str = 'modules', prefix: str = 'tool_') -> dict[str, dict]
         short = info.name
         if not short.startswith(prefix):
             continue
-        if package == __package__ and short == own_name:
+        if package == __package__ and short in (own_name, 'tool_map', 'tool_wizard'):
             continue
         module_name = f'{package}.{short}'
         try:
@@ -139,6 +139,21 @@ def load_all(package: str = 'modules', prefix: str = 'tool_') -> dict[str, dict]
             grouped.setdefault(contract['id'], []).append((module_name, contract))
         except Exception as exc:
             _record_failure(f'modules/tool_contract.py:load_all:{short}')
+
+    if package == __package__ and prefix == 'tool_':
+        try:
+            from modules import llm, tool_wizard
+            owner = llm._key_context.get()
+            if owner:
+                generated = tool_wizard.contracts(owner)
+                for ident, contract in generated.items():
+                    errors = validate(contract)
+                    if errors or ident != contract['id']:
+                        raise ValueError('Kullanıcı araç sözleşmesi geçersiz.')
+                for ident, contract in generated.items():
+                    grouped.setdefault(ident, []).append(('modules.tool_wizard', contract))
+        except Exception:
+            _record_failure('modules/tool_contract.py:load_all:wizard')
 
     loaded: dict[str, dict] = {}
     for ident, rows in grouped.items():
