@@ -1,12 +1,14 @@
 """Onaylı araç kayıtları veridir; Python modülü veya kurulum kodu üretilmez."""
 from pathlib import Path
 import json
+import ipaddress
 import os
 import re
 import subprocess
 import tempfile
 import threading
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 from config import DATA_DIR
 from modules import capability_hub, llm, permission_audit, permission_gate, permission_policy, service_store
@@ -16,6 +18,7 @@ from modules.publish_services import _read_private_json, _write_private_json
 ROOT = DATA_DIR / 'tool_wizard'
 _LOCK = threading.RLock()
 _RUNNING = {}
+_DEVICE_BUSY = set()
 _PARAM_TYPES = {'string': 'str', 'integer': 'int', 'number': 'float', 'boolean': 'bool'}
 _PROGRAM_CLASSES = permission_gate.CLASSES - {'money_credential', 'system_config'}
 
@@ -50,6 +53,36 @@ def _program(path):
     return str(executable)
 
 
+def _device(address, key, allow_private):
+    if (not isinstance(address, str) or len(address) > 1000 or any(c.isspace() or ord(c) < 32 for c in address)
+            or not isinstance(allow_private, bool)):
+        raise ValueError('Geçersiz cihaz adresi veya özel ağ onayı.')
+    url = urlsplit(address)
+    if (url.scheme not in ('http', 'https') or not url.hostname or url.username is not None
+            or url.password is not None or url.query or url.fragment or '%' in url.hostname):
+        raise ValueError('Cihaz adresinde kimlik bilgisi, sorgu veya parça kullanılamaz.')
+    host = '127.0.0.1' if url.hostname == 'localhost' else url.hostname
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        raise ValueError('Cihaz için açık IP veya localhost gerekli; DNS adları kabul edilmez.') from None
+    if ip.is_link_local or ip.is_unspecified or ip.is_multicast or (ip.is_reserved and not ip.is_loopback):
+        raise ValueError('Link-local/metadata, belirsiz, çoklu yayın veya ayrılmış cihaz adresi kullanılamaz.')
+    if not ip.is_global and (not allow_private or not (ip.is_private or ip.is_loopback)):
+        raise ValueError('Özel IP/localhost için ayrıca açık özel ağ onayı gerekli.')
+    if ip.is_global and url.scheme != 'https':
+        raise ValueError('Genel IP cihazı HTTPS gerektirir.')
+    if not isinstance(key, str) or not 1 <= len(key) <= 1024 or any(ord(c) < 32 or ord(c) > 126 for c in key):
+        raise ValueError('Geçersiz cihaz anahtarı.')
+    port = url.port
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError('Geçersiz cihaz portu.')
+    netloc = ('[' + str(ip) + ']') if ip.version == 6 else str(ip)
+    if port is not None:
+        netloc += ':' + str(port)
+    return urlunsplit((url.scheme, netloc, url.path or '/', '', ''))
+
+
 def _record_failure(context):
     try:
         raise RuntimeError('Kullanıcı araç kaydı veya işlemi doğrulanamadı.') from None
@@ -68,7 +101,7 @@ def _path(owner):
 
 
 def _validate(record):
-    if (not isinstance(record, dict) or record.get('kind') not in ('api', 'program')
+    if (not isinstance(record, dict) or record.get('kind') not in ('api', 'program', 'device')
             or not isinstance(record.get('id'), str) or not re.fullmatch('custom_[a-f0-9]{16}', record['id'])
             or not isinstance(record.get('name'), str) or not 1 <= len(record['name']) <= 120
             or not isinstance(record.get('params'), dict) or len(record['params']) > 12
@@ -79,11 +112,16 @@ def _validate(record):
         if (record.get('class') != 'read' or not isinstance(record.get('candidate'), str)
                 or not re.fullmatch('[a-f0-9]{16}', record['candidate']) or record['id'] != 'custom_' + record['candidate']):
             raise ValueError('API yalnız read sınıfında olabilir.')
-    else:
+    elif record['kind'] == 'program':
         if (not isinstance(record.get('class'), str) or record['class'] not in _PROGRAM_CLASSES
                 or not isinstance(record.get('program'), str) or not Path(record['program']).is_absolute()
                 or record['params'] != _argument_schema(record.get('arguments'))):
             raise ValueError('Yerel program kaydı geçersiz; para ve sistem sınıfları kilitli.')
+    else:
+        if record.get('class') != 'physical' or record['params'] != {'payload': 'str'}:
+            raise ValueError('Cihaz komutları yalnız physical sınıfında olabilir.')
+        if _device(record.get('address'), record.get('key'), record.get('allow_private')) != record['address']:
+            raise ValueError('Cihaz adresi kesin kayıtla eşleşmiyor.')
     return record
 
 
@@ -196,20 +234,69 @@ def _run_program(owner, record, parameters):
                     _RUNNING.pop(key)
 
 
-def execute(owner, ident, parameters, *, approve=False):
+def add_device(owner, name, address, key, *, allow_private=False, confirmed=False):
+    service_store.identity(owner)
+    if not isinstance(confirmed, bool):
+        raise ValueError('Açık kullanıcı onayı gerekli.')
+    record = {'id': 'custom_' + uuid.uuid4().hex[:16], 'kind': 'device', 'name': name,
+              'address': _device(address, key, allow_private), 'key': key,
+              'allow_private': allow_private, 'class': 'physical', 'params': {'payload': 'str'}}
+    _validate(record)
+    if not confirmed:
+        return {'state': 'approval', 'key': '***', 'text': name + '\n' + record['address'] + '\nAnahtar: ***\n'
+                + ('Özel IP/localhost erişimini açıkça onaylıyorsunuz. ' if allow_private else '')
+                + 'GET okuma; POST fiziksel komutu her seferinde ayrıca onay ister. Fiziksel durdurma protokolü tanımlı değil.'}
+    _save(owner, record)
+    return {'state': 'done', 'id': record['id'], 'address': '***', 'key': '***',
+            'detail': 'Kullanıcı onaylı cihaz kaydı eklendi; gerçek cihaz sınanmadı.'}
+
+
+def _device_request(owner, record, parameters, action):
+    from modules.tool_printer import _http
+    address = _device(record['address'], record['key'], record['allow_private'])
+    if action == 'read':
+        if parameters != {}:
+            raise ValueError('Cihaz okuması ek parametre kabul etmez.')
+        payload = None
+    else:
+        if (not isinstance(parameters, dict) or set(parameters) != {'payload'}
+                or not isinstance(parameters['payload'], str) or len(parameters['payload']) > 20000):
+            raise ValueError('Cihaz komutu sınırlı JSON nesnesi gerektirir.')
+        payload = json.loads(parameters['payload'])
+        if not isinstance(payload, dict):
+            raise ValueError('Cihaz komutu JSON nesnesi olmalı.')
+    key = (owner, record['id'])
+    with _LOCK:
+        if key in _DEVICE_BUSY:
+            raise ValueError('Bu cihaz isteği zaten sürüyor.')
+        _DEVICE_BUSY.add(key)
+    try:
+        data = _http({'address': address, 'key': record['key']}, 'GET' if action == 'read' else 'POST', '', payload)
+        return {'state': 'done', 'data': data, 'detail': 'HTTP yanıtı kabul edildi; fiziksel sonuç doğrulanmadı.'}
+    finally:
+        with _LOCK:
+            _DEVICE_BUSY.discard(key)
+
+
+def execute(owner, ident, parameters, *, approve=False, action='invoke'):
     try:
         if not isinstance(approve, bool):
             raise ValueError('Geçersiz onay.')
         record = _load(owner)[ident]
-        decision = _decision(owner, ident, record['class'])
+        if action not in (('invoke', 'read') if record['kind'] == 'device' else ('invoke',)):
+            raise ValueError('Geçersiz araç eylemi.')
+        action_class = 'read' if record['kind'] == 'device' and action == 'read' else record['class']
+        decision = _decision(owner, ident, action_class)
         if decision == 'deny':
             return {'state': 'blocked', 'detail': 'Politika: Engelle.'}
         if decision == 'ask' and not approve:
             return {'state': 'approval', 'detail': 'Bu eylem için somut onay gerekli.'}
-        if record['class'] == 'physical' and not approve:
+        if action_class == 'physical' and not approve:
             return {'state': 'approval', 'detail': 'Fiziksel eylem her seferinde somut onay ister.'}
         if record['kind'] == 'program':
             return _run_program(owner, record, parameters)
+        if record['kind'] == 'device':
+            return _device_request(owner, record, parameters, action)
         data = capability_hub.read(owner, record['candidate'], parameters)
         return {'state': 'done', 'data': data}
     except Exception:
@@ -220,6 +307,11 @@ def execute(owner, ident, parameters, *, approve=False):
 def _status(owner, ident):
     try:
         record = _load(owner)[ident]
+        if record['kind'] == 'device':
+            with _LOCK:
+                if (owner, ident) in _DEVICE_BUSY:
+                    return {'state': 'running', 'detail': 'Kullanıcının cihaz HTTP isteği sürüyor.'}
+            return {'state': 'ready', 'detail': 'Kullanıcı onaylı cihaz kaydı var; gerçek cihaz sınanmadı.'}
         if record['kind'] == 'program':
             with _LOCK:
                 if (owner, ident) in _RUNNING:
@@ -238,7 +330,10 @@ def _status(owner, ident):
 def _cancel(owner, ident):
     try:
         service_store.identity(owner)
-        if _load(owner)[ident]['kind'] == 'program':
+        kind = _load(owner)[ident]['kind']
+        if kind == 'device':
+            return {'cancelled': False, 'detail': 'Cihaz durdurma protokolü tanımlı değil; fiziksel durma doğrulanmadı.'}
+        if kind == 'program':
             if _decision(owner, ident, 'local_reversible') != 'allow':
                 return {'cancelled': False, 'detail': 'Yerel iptal izni verilmedi.'}
             with _LOCK:
@@ -261,4 +356,9 @@ def contracts(owner):
                                       'class': record['class'], 'params': record['params']}],
                          'status': lambda ident=ident: _status(owner, ident),
                          'cancel': lambda ident=ident: _cancel(owner, ident)}
+        if record['kind'] == 'device':
+            result[ident]['icon'] = 'plug'
+            result[ident]['actions'][0]['name'] = 'Fiziksel komut'
+            result[ident]['actions'].append({'id': 'read', 'name': 'Durumu oku', 'desc': 'Sabit cihaz adresinden GET okuması.',
+                                             'class': 'read', 'params': {}})
     return result
