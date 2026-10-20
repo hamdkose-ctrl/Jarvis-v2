@@ -26,7 +26,8 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         with runtime.requests_state.activate(owner,rid):
             job=goal_executor.latest(owner)
             runtime._emit_for(profile,'user',text,source,rid=rid)
-            runtime._emit_for(profile,'assistant',goal_executor.render(job) if job else 'Kayıtlı hedef yok.',source,rid=rid)
+            formatter = goal_executor.render if runtime._tr_lower(text).strip(' .!?') == 'hedef ayrıntıları' else goal_executor.status_summary
+            runtime._emit_for(profile,'assistant',formatter(job) if job else 'Kayıtlı hedef yok.',source,rid=rid)
         return True
     runtime.events.put(("command", text, source, user, rid))
     return True
