@@ -5,6 +5,10 @@ import re
 VIDEO_DESCRIPTION_NOTE='Video izlenmedi; yalnız sayfanın yazılı açıklaması okundu.'
 
 
+class ChatDeliveryRequired(ValueError):
+    """News findings belong in chat; no file write has been authorized."""
+
+
 def news_requested(text):
     """Use the runtime request, not a model-supplied exemption, for dated news."""
     text=re.sub(r'\bhaber\s+ver\w*','',str(text),flags=re.I)
@@ -16,13 +20,13 @@ def file_requested(text):
     return bool(re.search(r'\b(dosya\w*|kaydet\w*|markdown|\.md\b|indirilebilir|çıktı\s+dosya\w*|cikti\s+dosya\w*)\b',str(text),re.I))
 
 
-def news_report_requested(request,instruction,dependencies):
+def news_report_requested(request,instruction,dependencies,*,allow_source_only=True):
     if any(o.get('snapshot',{}).get('operation')=='read_message' for o in dependencies.values()):return False
     requested=(any(o.get('news_article') for o in dependencies.values()) or news_requested(instruction) or
                news_requested(request) and (not dependencies or any(o.get('verification',{}).get('agent')=='research' for o in dependencies.values())))
-    source_only=bool(dependencies) and all(o.get('source_only') is True for o in dependencies.values())
+    source_only=allow_source_only and bool(dependencies) and all(o.get('source_only') is True for o in dependencies.values())
     if requested and news_requested(request) and not file_requested(request) and not source_only:
-        raise ValueError('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
+        raise ChatDeliveryRequired('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
     return requested
 
 

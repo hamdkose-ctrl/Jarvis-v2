@@ -42,7 +42,7 @@ Sonra {"action":"tool","goal":0,"tool":"araç","specialist":"kayıtlı uzman id"
 depends yalnız gerçekten tamamlanmış önceki adımlar. Çıktıları oku, kimlik/yol/özet uydurma.
 Araç yanıtı başarısızsa nedenini incele, farklı girdi/araç/yöntem dene; aynı başarısız isteği körlemesine yineleme.
 Bir sağlayıcı/araç bulunamazsa diğer araçları birleştir. Araştırma web sayfası, salt-okuma browser araması veya belgelerle;
-rapor writer ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
+rapor dosyası writer ile, sohbet raporu complete ile, hesap işleri account/publish ile, medya media ile; PC desktop/application ve action kataloğuyla yapılır.
 Rapor dosyası writer aracının filename alanıyla kaydedilir; yazılı kısa video media scenes/caption/duration ile üretilir.
 Bu iki iş için Python kodu, coder veya geliştirme alanı gerekmez. Örnek: media input={"scenes":[{"caption":"İstanbul","duration":3}],"layout":"landscape"}.
 Finans/store CSV hesapları ve günlük kaynak kuru data; haber/duyuru bağlantıları data input={"operation":"headlines","url":"https://kurumun-gercek-duyuru-dizini","query":"araştırma konusu"} ile keşfedilir.
@@ -51,7 +51,7 @@ Anahtarsız kaynak seçenekleri data operation=sources ile okunur. Haber araşt�
 Kullanıcı kaynakları senin seçmeni istiyorsa ona yeniden kaynak listesi sorma. Elindeki araçlarla erişilebilir dizinleri dene; erişim engelini somut belirt.
 Kamuya açık kaynak, URL, yayıncı, haber, resmî/akademik yayın veya erişilebilir veri seçimi kullanıcıya geri sorulacak kişisel bilgi değildir. Bunları mevcut araç/kataloglarla kendin bul. Kullanıcıdan yalnız gerçekten kullanıcıya özel bilgi, izin, hesap bağlantısı, hedef kişi, sahiplik, dosya seçimi veya kişisel tercih gerekiyorsa soru sor.
 AI haber adresi kullanıcıdan, known_news_sources dizininden veya başarılı headlines keşfinden gelmeli; modelin tahmin ettiği yeni URL yolu kullanılmaz. Genel Türkiye haber araştırmasında en az iki farklı yayıncıdan tarihli kanıt gerekir; aynı kurumun alt alanları ayrı kaynak sayılmaz. Tek kaynak/kurum isteyen açık kapsamı genişletme. İki yayıncı bütün kurumların eksiksiz tarandığı anlamına gelmez; gerçek kapsamı raporda belirt.
-Kaynak bulunduğunda writer aracına yalnız doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları raporda açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
+Kullanıcı dosya/kaydetme istemediyse haber bulgularını complete ve gerçek research kanıt kimlikleriyle doğrudan sohbetten teslim et; writer çağırma. Yalnız rapor dosyası açıkça istendiğinde writer aracına doğrulanmış kaynak adımlarını depends olarak ver, ardından verify ile dosyayı denetle. Haber araştırması tekil haber gövdesi ve makaleye ait yayın tarihi ister; kategori sayfası başarı sayılmaz. Eksik kapsam ve erişilemeyen kaynakları açıkla; yalnız başlıklardan güncel olay veya yayın tarihi üretme.
 Kaynak takibi monitor, yeni API/MCP referansı arama ve resmî belge değerlendirmesi capability ile yapılır.
 Servis adayı bulunması çalışan hesap/izin veya ücretsiz kullanım değildir. Genel GET bağlantısı somut kullanıcı onayı gerektirir.
 Takip kaydı yalnız kullanıcının kesin URL ve açık izleme isteğiyle oluşturulur. Kaynak bildirimi, tarih/kapsamı yorumlanmış kesin karar değildir.
@@ -404,7 +404,9 @@ def _loop_steps(runtime,job,answer=None):
                 goal.update(state='pending',evidence=[])
                 job.setdefault('feedback',[]).append(str(exc));_save(job)
     if _finish_completed(job):return render(job)
-    if answer is None and _resume_news_recovery(runtime,job,started_steps):return render(job)
+    if answer is None:
+        resumed=_resume_news_recovery(runtime,job,started_steps)
+        if _finish_completed(job) or resumed:return render(job)
     for _ in range(MAX_TURNS):
         _turn_check(runtime,job)
         context=_context(job)
@@ -478,7 +480,11 @@ def _loop_steps(runtime,job,answer=None):
                     if job.get('partial_report'):break
                     if rejected_finishes>=3:
                         raise RuntimeError('Planlayıcı eksik hedefleri 3 kez bitirmeye çalıştı; mevcut sonuçlar korundu.')
-                    raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı. Eksik rapor için writer ve dosya kontrolü için verify çalıştır.')
+                    from modules import research_evidence
+                    hint=('Haber bulgularını gerçek research kanıtlarıyla complete üzerinden sohbetten teslim et.'
+                          if research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request']) else
+                          'Eksik rapor için writer ve dosya kontrolü için verify çalıştır.')
+                    raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı. '+hint)
                 for goal in job['goals']:
                     try:
                         for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
@@ -513,6 +519,14 @@ def _loop_steps(runtime,job,answer=None):
                             raise
                     deps=call.get('depends',[])
                     if not isinstance(deps,list) or any(not isinstance(d,str) or job['outputs'].get(d,{}).get('state')!='done' for d in deps):raise ValueError('Bağımlılık gerçek tamamlanmış adım olmalı.')
+                    if kind=='writer':
+                        try:research_evidence.news_report_requested(job['request'],data['instruction'],{d:job['outputs'][d] for d in deps},allow_source_only=False)
+                        except research_evidence.ChatDeliveryRequired:
+                            from modules import news_policy
+                            news_policy.deliver_chat(job,goal,deps)
+                            _save(job)
+                            if job['state']=='paused' or _finish_completed(job):return render(job)
+                            continue
                     signature=hashlib.sha256(json.dumps([kind,data],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
                     previous=[s for s in job['steps'] if s['signature']==signature]
                     immediate=bool(previous and previous[-1]['id']==job['steps'][-1]['id'] and previous[-1]['state']=='done')
@@ -643,16 +657,18 @@ def render(job):
         elapsed=max(0,int(time.time()-job.get('phase_started',time.time())))
         lines.append(f'Model planı bekleniyor: {elapsed} saniye. Bu çağrının sınırı {PLANNER_SECONDS} saniye; henüz araç adımı başlamamış olabilir.')
     for goal in job['goals']:
-        if goal['state']=='done':
-            partial=False
-            try:_check_news_completion(job,goal,goal['evidence'])
+        chat=[ident for ident in goal.get('chat_evidence',[]) if job['outputs'].get(ident,{}).get('state')=='done']
+        if goal['state']=='done' or chat:
+            partial=goal['state']!='done'
+            evidence=goal['evidence'] if goal['state']=='done' else chat
+            try:_check_news_completion(job,goal,evidence)
             except ValueError:partial=True
             lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
             steps={step['id']:step for step in job.get('steps',[]) if isinstance(step,dict) and step.get('id')}
             has_findings=any(steps.get(ident,{}).get('tool')=='research' and job['outputs'].get(ident,{}).get('state')=='done'
-                             for ident in goal['evidence'])
+                             for ident in evidence)
             seen=set()
-            for ident in goal['evidence']:
+            for ident in evidence:
                 if ident in seen:continue
                 seen.add(ident)
                 output=job['outputs'][ident]

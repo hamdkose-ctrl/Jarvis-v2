@@ -8,6 +8,37 @@ from modules import privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 
+def deliver_chat(job,goal,evidence):
+    """Deliver existing news receipts after a file-only writer was misselected."""
+    from modules import goal_tools,research_evidence
+    if (job['state'] in {'approval','review','cancelled'} or
+            not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):
+        raise ValueError('Bu hedef sohbet haber teslimine çevrilemez.')
+    steps={step['id']:step for step in job['steps']}
+    pending=list(evidence);seen=set();sources=[]
+    while pending:
+        ident=pending.pop(0)
+        if ident in seen:continue
+        seen.add(ident)
+        output=job['outputs'][ident]
+        goal_tools.verify(output,job['owner'])
+        if output.get('news_article'):sources.append(ident)
+        pending.extend(steps.get(ident,{}).get('depends',[]))
+    target=job['goals'][goal]
+    target['chat_evidence']=sources
+    try:
+        if not sources:raise ValueError('Henüz doğrulanmış tekil haber gövdesi yok.')
+        check_completion(job,target,sources,final=True)
+    except ValueError as exc:
+        job['state']='paused'
+        job['blocker']=('Haberler sohbette kısmi teslim edildi; dosya oluşturulmadı. ' if sources else
+                        'Sohbet teslimi tamamlanmadı; dosya oluşturulmadı. ')+str(exc)
+        return
+    target.update(state='done',evidence=sources)
+    target.pop('chat_evidence',None)
+    job.setdefault('feedback',[]).append('Dosya adımı çalıştırılmadan mevcut haber kanıtları sohbetten teslim edildi.')
+
+
 def check_completion(job,goal,evidence,*,final=False):
     from modules import research_evidence
     if not isinstance(job,dict):
