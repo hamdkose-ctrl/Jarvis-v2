@@ -2,6 +2,8 @@
 import json
 import re
 
+VIDEO_DESCRIPTION_NOTE='Video izlenmedi; yalnız sayfanın yazılı açıklaması okundu.'
+
 
 def news_requested(text):
     """Use the runtime request, not a model-supplied exemption, for dated news."""
@@ -37,11 +39,12 @@ def article(response):
     if urlsplit(url).path.rstrip('/').split('/')[-1].lower() in {'','haberler','haber','news','duyurular','announcements','bilim-teknoloji'}:
         raise ValueError('Bu adres haber dizini; data.headlines ile tekil haber bağlantısı seç.')
     soup=BeautifulSoup(response['body'],'html.parser')
-    schemas=[]
+    schemas=[];videos=[]
     def walk(value):
         if isinstance(value,dict):
             types=value.get('@type',[]);types=[types] if isinstance(types,str) else types
             if any(t in ('NewsArticle','Article','BlogPosting','Report') for t in types):schemas.append(value)
+            if 'VideoObject' in types:videos.append(value)
             for item in value.values():walk(item)
         elif isinstance(value,list):
             for item in value:walk(item)
@@ -65,6 +68,19 @@ def article(response):
     # TÜBİTAK's single-news template renders the page title as a sibling block.
     # Bind only that exact publisher layout and canonical URL, not arbitrary lists.
     canonical=soup.find('link',rel='canonical')
+    video=None
+    if not schemas and len(videos)==1 and videos[0].get('name')==title and videos[0].get('url')==url:
+        main=node.find_parent('main')
+        sections=node.find_all('section',recursive=False)
+        canonicals=soup.select('link[rel="canonical"]')
+        if (len(canonicals)!=1 or canonical.get('href')!=url or main is None or
+                titles[0].find_parent('main') is not main or len(main.find_all('article'))!=1 or
+                len(sections)!=1 or not sections[0].find('p')):
+            raise ValueError('Video açıklaması başlık, tekil gövde ve sayfa adresiyle eşleşmiyor.')
+        if not isinstance(videos[0].get('uploadDate'),str) or not videos[0]['uploadDate'].strip():
+            raise ValueError('Videonun kendi yükleme tarihi bulunamadı; başka alanın tarihi kullanılmadı.')
+        video=videos[0]
+        node=sections[0]
     publisher_title=soup.select_one('#block-feza-gursey-page-title h1')
     publisher_body=soup.select_one('#block-feza-gursey-content > article')
     region=node.find_parent(class_='region-content')
@@ -72,10 +88,11 @@ def article(response):
              canonical is not None and canonical.get('href','').rstrip('/')==url.rstrip('/') and
              publisher_title is titles[0] and publisher_body is node and region is not None and
              publisher_title.find_parent(class_='region-content') is region and len(region.find_all('article'))==1)
-    if not node.find('h1') and not schemas and not tubitak:
+    if not node.find('h1') and not schemas and not tubitak and video is None:
         raise ValueError('Başlık haber gövdesine ait değil; liste kartı haber kanıtı sayılmadı.')
     # Only published metadata tied to this page; dateModified and dates in other cards are excluded.
-    dates=[s.get('datePublished') for s in schemas if s.get('datePublished')]
+    dates=([video.get('uploadDate')] if video is not None else
+           [s.get('datePublished') for s in schemas if s.get('datePublished')])
     if tubitak:
         months={'oca':1,'şub':2,'mar':3,'nis':4,'may':5,'haz':6,'tem':7,'ağu':8,'eyl':9,'eki':10,'kas':11,'ara':12}
         for label in node.select('.node-date'):
@@ -102,7 +119,7 @@ def article(response):
     if len(days)!=1:raise ValueError('Haberin kendisine ait tek bir yayın tarihi doğrulanamadı; başka tarihli kaynak seç.')
     text=public_sources.readable_text(node)
     if len(text)<80 or not title:raise ValueError('Tekil haber metni yeterli değil.')
-    return {'url':url,'title':title,'published':days.pop(),'text':text}
+    return {'url':url,'title':title,'published':days.pop(),'text':text,**({'kind':'video_description'} if video is not None else {})}
 
 
 def news_receipt(output):
@@ -110,7 +127,9 @@ def news_receipt(output):
     from datetime import date
     from modules import public_sources
     source=output.get('news_article')
-    if not isinstance(source,dict) or set(source)!={'url','title','published','text'}:raise ValueError('Tarihli tekil haber kanıtı eksik.')
+    if (not isinstance(source,dict) or set(source) not in ({'url','title','published','text'},
+            {'url','title','published','text','kind'}) or 'kind' in source and source['kind']!='video_description'):
+        raise ValueError('Tarihli tekil haber kanıtı eksik.')
     if public_sources.address(source['url'])!=output.get('source') or not source['title'].strip():raise ValueError('Haber kaynağı eşleşmiyor.')
     date.fromisoformat(source['published'])
     parse(json.dumps({'supported':True,'answer':output['text'],'quotes':output.get('source_quotes')},ensure_ascii=False),source['text'])
@@ -179,7 +198,8 @@ def preview(output):
         quotes=output.get('source_quotes') or [str(output['text']).split('\nKaynak:',1)[0]]
         excerpt=re.sub(r'\s+',' ',' '.join(quotes[:2])).strip()
         if len(excerpt)>600:excerpt=excerpt[:597].rsplit(' ',1)[0]+'…'
-        return title+'\nYayın tarihi: '+source['published']+'\nKaynak alıntısı: '+excerpt+'\nKaynak: '+source['url']
+        note='\n'+VIDEO_DESCRIPTION_NOTE if source.get('kind')=='video_description' else ''
+        return title+'\nYayın tarihi: '+source['published']+note+'\nKaynak alıntısı: '+excerpt+'\nKaynak: '+source['url']
     lines=[]
     if report:
         from modules.publisher_news import publisher_key
@@ -204,6 +224,7 @@ def news_report(dependencies):
         if source['url'] in seen:continue
         seen.add(source['url'])
         lines+=['','## '+escape(source['title']),'','Yayın tarihi: '+source['published'],'','Kaynak: <'+source['url'].replace('>','%3E').replace('<','%3C')+'>','', 'Kaynak alıntıları:']
+        if source.get('kind')=='video_description':lines+=['',VIDEO_DESCRIPTION_NOTE]
         lines+=['\n> '+escape(re.sub(r'\s+',' ',q)) for q in output['source_quotes']]
     return '\n'.join(lines)+'\n'
 
