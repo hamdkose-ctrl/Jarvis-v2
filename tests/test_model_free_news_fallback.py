@@ -20,6 +20,26 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
         normalized=' '.join(article['text'].split())
         self.assertTrue(all(' '.join(q.split()) in normalized for q in quotes))
 
+    def test_breaking_news_phrase_does_not_create_a_false_topic(self):
+        article = {'title': 'Kampüste etkinlik', 'text': 'Üniversite kampüsünde öğrenciler için kültür etkinliği düzenlendi ve katılımcılar çalışmalarını sundu.'}
+        for request in ('son dakika haberleri', 'Son dakika haberleri!', 'son dakika haberler'):
+            with self.subTest(request=request):
+                self.assertEqual(model_free_news.terms(request), [])
+                self.assertEqual(model_free_news.quotes(article, request), [article['text']])
+
+    def test_breaking_news_keeps_the_requested_topic_and_rejects_unrelated_text(self):
+        request = 'son dakika yapay zeka haberleri'
+        self.assertEqual(model_free_news.terms(request), ['yapay', 'zeka'])
+        with self.assertRaises(ValueError):
+            model_free_news.quotes({'title': 'Kampüs', 'text': 'Üniversite kampüsünde öğrenciler için kültür etkinliği düzenlendi ve katılımcılar çalışmalarını sundu.'}, request)
+        article = {'title': 'Teknoloji', 'text': 'Yapay zeka araştırmacıları yeni bir çalışma yayımladı ve sonuçları bilim dünyasıyla paylaştı.'}
+        self.assertEqual(model_free_news.quotes(article, request), [article['text']])
+
+    def test_minute_is_still_a_topic_outside_the_breaking_news_phrase(self):
+        self.assertIn('dakika', model_free_news.terms('dakika başına üretim'))
+        with self.assertRaises(ValueError):
+            model_free_news.quotes({'title': 'Kampüs', 'text': 'Üniversite kampüsünde öğrenciler için kültür etkinliği düzenlendi ve katılımcılar çalışmalarını sundu.'}, 'dakika başına üretim')
+
     def test_durable_news_step_bypasses_goal_tool_llm_worker(self):
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))
         job={'owner':'hamdi','request':'istanbul güncel haberler nelerdir','outputs':{}}

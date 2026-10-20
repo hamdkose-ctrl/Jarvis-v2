@@ -10,7 +10,7 @@ import re
 from modules import privacy, public_sources, research_delivery, research_evidence, requests_state, task_results
 
 _STOP={
-    'haber','haberler','haberi','guncel','güncel','son','durum','nelerdir','nedir','neler','ne','var','bugun','bugün',
+    'haber','haberler','haberleri','haberi','guncel','güncel','son','durum','nelerdir','nedir','neler','ne','var','bugun','bugün',
     'anlat','anlatir','anlatır','gelisme','gelişme','gelismeler','gelişmeler','hakkinda','hakkında','icin','için',
     'ara','arastir','araştır','bak','bakar','latest','news','recent','today','what','about','the','and','ile','bir',
 }
@@ -23,7 +23,8 @@ def _fold(value):
 def terms(value):
     """Return topical words only; generic news/request words do not create false relevance."""
     result=[]
-    for word in re.findall(r'[\wçğıöşüâîû-]+',_fold(value),re.UNICODE):
+    topical = re.sub(r'\bson\s+dakika\b', ' ', _fold(value))
+    for word in re.findall(r'[\wçğıöşüâîû-]+',topical,re.UNICODE):
         word=word.strip('-_')
         if len(word)<3 or word in _STOP or word.isdigit():continue
         if word not in result:result.append(word)
