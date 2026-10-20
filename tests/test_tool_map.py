@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import llm, permission_audit, permission_grants, permission_policy, requests_state
+from modules import llm, permission_audit, permission_gate, permission_grants, permission_policy, requests_state
 from modules import tool_map
 
 
@@ -38,7 +38,7 @@ class ToolMapTests(unittest.TestCase):
         self.assertEqual(set(tools), {'desktop', 'browser', 'outbox', 'demo'})
         for name in ('desktop', 'browser', 'outbox'):
             actions = tools[name]['actions']
-            self.assertEqual(len(actions), 7)
+            self.assertEqual({a['class'] for a in actions}, permission_gate.CLASSES)
             for action in actions:
                 self.assertTrue({'id', 'name', 'desc', 'class', 'policy', 'until'} <= set(action))
                 self.assertEqual(action['policy'], 'locked' if action['class'] in permission_policy.LOCKED else 'ask')
