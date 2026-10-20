@@ -10,6 +10,10 @@ _PENDING={}
 DEFAULT_SECONDS=60
 _CHECK=ContextVar("model_parent_check",default=None)
 
+class ModelWaitTimeout(RuntimeError):
+    """Bounded wait expired; existing failure policy identifies a timeout."""
+
+
 @contextmanager
 def guard(check):
     token=_CHECK.set(check)
@@ -18,7 +22,7 @@ def guard(check):
 
 
 
-def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
+def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,ask_fn=None,**kwargs):
     seconds=DEFAULT_SECONDS if seconds is None else seconds
     owner=llm.current_user()
     if not owner:raise PermissionError('Model beklemesi için kullanıcı bağlamı gerekli.')
@@ -35,12 +39,15 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
                 _PENDING[owner]=entry;break
             if pending['abandoned']:
                 raise RuntimeError('Önceki zaman aşımına uğrayan model çağrısı henüz kapanmadı; ikinci çağrı başlatılmadı.')
-        if time.monotonic()>=deadline:raise RuntimeError('Model sırası bekleme süresi doldu; çağrı başlatılmadı.')
+        if time.monotonic()>=deadline:raise ModelWaitTimeout('Model sırası bekleme süresi doldu; çağrı başlatılmadı.')
         pending['done'].wait(min(.1,max(0,deadline-time.monotonic())))
     def work():
         try:
             with requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
-                box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
+                if ask_fn is None:
+                    box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
+                else:
+                    box['answer']=ask_fn(prompt,system,max_tokens=max_tokens,**kwargs)
                 requests_state.check()
         except BaseException as exc:box['error']=exc
         finally:
@@ -53,7 +60,7 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
         while not done.wait(min(.1,max(0,deadline-time.monotonic()))):
             check()
             if time.monotonic()>=deadline:
-                raise RuntimeError('Model '+str(seconds)+' saniyede yanıt vermedi; işlem duraklatıldı. Geç yanıt araç çalıştıramaz veya teslim dosyası yazamaz.')
+                raise ModelWaitTimeout('Model '+str(seconds)+' saniyede yanıt vermedi; işlem duraklatıldı. Geç yanıt araç çalıştıramaz veya teslim dosyası yazamaz.')
     except BaseException:
         cancelled.set()
         with _LOCK:entry['abandoned']=True
@@ -62,6 +69,6 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,**kwargs):
     for text,ok in box.get('routes',[]):llm.note_route(text,ok)
     if 'error' in box:
         exc=box['error']
-        if isinstance(exc,TimeoutError):raise RuntimeError(str(exc)) from None
+        if isinstance(exc,TimeoutError):raise ModelWaitTimeout(str(exc)) from None
         raise exc
     return box['answer']

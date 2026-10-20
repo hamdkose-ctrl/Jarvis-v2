@@ -10,7 +10,10 @@ def route(runtime, command: str) -> dict:
                'last_command': session.last_command,
                'pending_request': session.pending_request}
     context = privacy.redact(runtime.json.dumps(context, ensure_ascii=False), force=True)
-    result = runtime.intent_router.classify(command, runtime.ask, context=context)
+    from modules import model_wait
+    def bounded_ask(prompt, system):
+        return model_wait.ask(prompt, system, ask_fn=runtime.ask)
+    result = runtime.intent_router.classify(command, bounded_ask, context=context)
     session.pending_request = None
     if result.get('intent') != 'clarify':
         session.last_command = command[:2000]
