@@ -157,6 +157,29 @@ def _check_reference(profile,action,values):
         if action in (prefix+'delete',prefix+'update') and not 0<=values['idx']<len(profile.data.get(collection,[])):
             raise ValueError('Bu kullanıcıda seçilen kayıt bulunamadı.')
 
+def _files_list_message(files):
+    if not files:
+        return 'Henüz listelenecek dosya bulamadım.'
+    lines = [f'{len(files)} dosya var:']
+    for item in files[:10]:
+        row = item if isinstance(item, dict) else {}
+        name = ' '.join(str(row.get('name') or row.get('path') or 'Adsız dosya').split())
+        details = []
+        size = row.get('size')
+        if type(size) is int and size >= 0:
+            details.append(f'{size} B')
+        mtime = row.get('mtime')
+        if type(mtime) in (int, float):
+            try:
+                details.append(time.strftime('%Y-%m-%d', time.localtime(mtime)))
+            except (ValueError, OverflowError, OSError):
+                pass
+        lines.append('- ' + name + (' (' + ', '.join(details) + ')' if details else ''))
+    if len(files) > 10:
+        lines.append(f've {len(files) - 10} dosya daha')
+    return '\n'.join(lines)
+
+
 def run(bridge,profile,action,args,*,confirmed=False):
     from modules import requests_state
     requests_state.check()
@@ -196,6 +219,8 @@ def run(bridge,profile,action,args,*,confirmed=False):
     # A failed adapter result must never be narrated as success.
     ok=result is not False and not (isinstance(result,dict) and result.get('ok') is False)
     message=(result.get('msg') or result.get('message')) if isinstance(result,dict) else None
+    if ok and action == 'files_list' and isinstance(result, dict) and isinstance(result.get('files'), list):
+        message = _files_list_message(result['files'])
     if not message:
         if isinstance(result,str):message=result
         elif not ok:message=spec['label']+': işlem tamamlanamadı.'
