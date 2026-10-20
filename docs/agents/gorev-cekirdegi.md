@@ -1,4 +1,5 @@
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
+- Sohbet haber teslimi yanlış writer seçimini yürütmeden mevcut bağımlı haber makbuzlarına çevirir. Kısmi teslim için chat_evidence yalnız görünüm referansıdır; hedefin tamamlanma kanıtı değildir. Kaynak eksikse hedef açık kalır; diğer hedefler ve gerçek dosya üretimi korunur.
 - Araştırma son görünümünde aynı kanıt kimliği bir kez basılır. Aynı hedefte başarılı research varsa data sources/headlines/news_search keşif dökümleri son bulgulara karıştırılmaz; yalnız keşif hedefi, başka veri sonuçları ve dosya yolları korunur. Genel araştırmada kısa yanıt sonrası kaynak URL'si kesilmeden gösterilir. Kayıt/kanıt/planlama ve tamamlanma kuralları değişmez.
 - `public_sources.address` veri taşıyan `data/payload/report/body/content/text/message` sorgu anahtarlarını tam adla reddeder; mevcut kimlik bilgisi filtresi ve meşru `date/city` sorguları korunur.
 - `tests/test_public_sources_exfil.py` ağ öncesi ret ve yönlendirmeyi sınar; TR-INJ-16 artık bilinen açık değildir (anahtar kara listesi tüm veri sızdırma biçimlerini kapsamaz).
