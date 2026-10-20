@@ -525,6 +525,32 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             _record_failure('web.py:map_set_policy')
             return None
 
+    def tool_wizard_discover(self, query: str):
+        try:
+            from modules import tool_wizard
+            return tool_wizard.discover(_p().slug, query)
+        except Exception:
+            _record_failure('web.py:tool_wizard_discover')
+            return {'state': 'error', 'detail': 'Servis araması tamamlanamadı.'}
+
+    def tool_wizard_add(self, kind: str, payload: dict, confirmed: bool = False, owner: str = None):
+        try:
+            from modules import tool_wizard
+            current = _p().slug
+            if confirmed and owner != current:
+                raise PermissionError('Önizlemeden sonra aktif kullanıcı değişti.')
+            fields = {'api': {'candidate', 'endpoint', 'parameters'},
+                      'program': {'name', 'program', 'arguments', 'action_class'},
+                      'device': {'name', 'address', 'key', 'allow_private'}}
+            if not isinstance(kind, str) or kind not in fields or not isinstance(payload, dict) or set(payload) != fields[kind]:
+                raise ValueError('Geçersiz sihirbaz alanları.')
+            functions = {'api': tool_wizard.add_api, 'program': tool_wizard.add_program, 'device': tool_wizard.add_device}
+            result = functions[kind](current, **payload, confirmed=confirmed)
+            return {**result, 'owner': current}
+        except Exception:
+            _record_failure('web.py:tool_wizard_add')
+            return {'state': 'error', 'detail': 'Araç eklenemedi. Kullanıcıyı ve alanları kontrol edip yeniden önizleyin.'}
+
     def emergency(self) -> str:
         from modules import pc_guide
         pc_guide.stop()
