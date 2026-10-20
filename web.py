@@ -502,6 +502,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
 
     def stop_task(self) -> dict:
         """Durdur düğmesi: yalnız çalışan işi iptal eder (mikrofon/konuşma açık kalır)."""
+        from modules import tool_printer; tool_printer.cancel_running(_p().slug)
         engine.requests_state.cancel(_p().slug)
         hub.publish("state", "idle")
         return {"stopped": True, "msg": "Görev durduruldu."}
