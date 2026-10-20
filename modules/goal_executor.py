@@ -679,6 +679,34 @@ def _is_fast_command(command):
     return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
 
 
+def status_summary(job):
+    states = {'running': 'çalışıyor', 'done': 'bitti', 'cancelled': 'iptal edildi',
+              'approval': 'onay bekliyor', 'question': 'soru bekliyor',
+              'paused': 'duraklatıldı', 'interrupted': 'duraklatıldı',
+              'blocked': 'duraklatıldı', 'failed': 'başarısız'}
+    steps = job.get('steps', [])
+    steps = steps if isinstance(steps, list) else []
+    completed = sum(isinstance(step, dict) and step.get('state') == 'done' for step in steps)
+    outputs = job.get('outputs', {})
+    outputs = outputs if isinstance(outputs, dict) else {}
+    urls, report = set(), ''
+    for output in outputs.values():
+        if not isinstance(output, dict):
+            continue
+        article = output.get('news_article')
+        url = article.get('url') if isinstance(article, dict) else output.get('url')
+        if article and isinstance(url, str) and url.strip():
+            urls.add(url.strip())
+        if not report and isinstance(output.get('file'), str):
+            report = ' '.join(output['file'].split())[:260]
+    request = job.get('request', '')
+    request = ' '.join(request.split())[:120] if isinstance(request, str) else ''
+    summary = f"Durum: {states.get(job.get('state'), 'belirsiz')} · {completed}/{len(steps)} adım · {len(urls)} kaynak"
+    if report:
+        summary += ' · Rapor dosyası: ' + report
+    return ('Hedef: ' + request + '\n' if request else '') + summary
+
+
 def handle(runtime,command):
     low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
@@ -687,7 +715,8 @@ def handle(runtime,command):
         return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',expected_job_id=bound[2],expected_control=bound[3])
     if job and job['state']=='approval' and low in {'evet','onaylıyorum','onayla'}:low='hedef onayla'
     if is_open(job) and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
-    if low in {'hedef durumu','işin durumu','hedef ayrıntıları'}:return render(job) if job else 'Kayıtlı hedef yok.'
+    if low in {'hedef durumu','işin durumu'}:return status_summary(job) if job else 'Kayıtlı hedef yok.'
+    if low == 'hedef ayrıntıları':return render(job) if job else 'Kayıtlı hedef yok.'
     if low=='hedef iptal' and job:
         if job['state']=='approval':
             step=next(s for s in job['steps'] if s['id']==job['waiting'])
