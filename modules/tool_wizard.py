@@ -1,7 +1,12 @@
 """Onaylı araç kayıtları veridir; Python modülü veya kurulum kodu üretilmez."""
 from pathlib import Path
+import json
+import os
 import re
+import subprocess
+import tempfile
 import threading
+import uuid
 
 from config import DATA_DIR
 from modules import capability_hub, llm, permission_audit, permission_gate, permission_policy, service_store
@@ -10,7 +15,39 @@ from modules.publish_services import _read_private_json, _write_private_json
 
 ROOT = DATA_DIR / 'tool_wizard'
 _LOCK = threading.RLock()
+_RUNNING = {}
 _PARAM_TYPES = {'string': 'str', 'integer': 'int', 'number': 'float', 'boolean': 'bool'}
+_PROGRAM_CLASSES = permission_gate.CLASSES - {'money_credential', 'system_config'}
+
+
+def _argument_schema(arguments):
+    if not isinstance(arguments, list) or len(arguments) > 40:
+        raise ValueError('Argüman şablonu en fazla 40 öğeli liste olmalı.')
+    fields = set()
+    for argument in arguments:
+        if not isinstance(argument, str) or len(argument) > 4000 or '\x00' in argument:
+            raise ValueError('Geçersiz argüman şablonu.')
+        found = re.findall(r'\{([a-zA-Z][a-zA-Z0-9_]{0,40})\}', argument)
+        remaining = re.sub(r'\{([a-zA-Z][a-zA-Z0-9_]{0,40})\}', '', argument)
+        if '{' in remaining or '}' in remaining:
+            raise ValueError('Yalnız {alan} biçiminde düz parametre kullanılabilir.')
+        fields.update(found)
+    if len(fields) > 12:
+        raise ValueError('En fazla 12 parametre kullanılabilir.')
+    return {field: 'str' for field in sorted(fields)}
+
+
+def _program(path):
+    if not isinstance(path, str) or len(path) > 2000 or '\x00' in path or not Path(path).is_absolute():
+        raise ValueError('Programın açık tam yolu gerekli.')
+    executable = Path(path)
+    if any(p.is_symlink() or (hasattr(p, 'is_junction') and p.is_junction()) for p in (executable, *executable.parents)):
+        raise ValueError('Program yolu sembolik bağ olamaz.')
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        raise ValueError('Seçilen program kurulu değil veya yürütülemiyor.')
+    if os.name == 'nt' and executable.suffix.lower() != '.exe':
+        raise ValueError('Windows programı .exe olmalı; BAT/CMD kabuk dosyaları kabul edilmez.')
+    return str(executable)
 
 
 def _record_failure(context):
@@ -31,14 +68,22 @@ def _path(owner):
 
 
 def _validate(record):
-    if (not isinstance(record, dict) or record.get('kind') != 'api' or record.get('class') != 'read'
-            or not isinstance(record.get('candidate'), str) or not re.fullmatch('[a-f0-9]{16}', record['candidate'])
-            or record.get('id') != 'custom_' + record['candidate']
+    if (not isinstance(record, dict) or record.get('kind') not in ('api', 'program')
+            or not isinstance(record.get('id'), str) or not re.fullmatch('custom_[a-f0-9]{16}', record['id'])
             or not isinstance(record.get('name'), str) or not 1 <= len(record['name']) <= 120
             or not isinstance(record.get('params'), dict) or len(record['params']) > 12
             or any(not isinstance(k, str) or not re.fullmatch('[a-zA-Z][a-zA-Z0-9_]{0,40}', k)
                    or v not in _PARAM_TYPES.values() for k, v in record['params'].items())):
         raise ValueError('Araç kaydı geçersiz.')
+    if record['kind'] == 'api':
+        if (record.get('class') != 'read' or not isinstance(record.get('candidate'), str)
+                or not re.fullmatch('[a-f0-9]{16}', record['candidate']) or record['id'] != 'custom_' + record['candidate']):
+            raise ValueError('API yalnız read sınıfında olabilir.')
+    else:
+        if (not isinstance(record.get('class'), str) or record['class'] not in _PROGRAM_CLASSES
+                or not isinstance(record.get('program'), str) or not Path(record['program']).is_absolute()
+                or record['params'] != _argument_schema(record.get('arguments'))):
+            raise ValueError('Yerel program kaydı geçersiz; para ve sistem sınıfları kilitli.')
     return record
 
 
@@ -95,6 +140,62 @@ def _decision(owner, ident, action_class):
     return decision
 
 
+def add_program(owner, name, program, arguments, *, action_class='local_destructive', confirmed=False):
+    service_store.identity(owner)
+    if not isinstance(confirmed, bool):
+        raise ValueError('Açık kullanıcı onayı gerekli.')
+    record = {'id': 'custom_' + uuid.uuid4().hex[:16], 'kind': 'program', 'name': name,
+              'program': _program(program), 'arguments': arguments, 'params': _argument_schema(arguments), 'class': action_class}
+    _validate(record)
+    if not confirmed:
+        return {'state': 'approval', 'text': name + '\n' + program + '\n' + json.dumps(arguments, ensure_ascii=False) + '\nSınıf: ' + action_class}
+    _save(owner, record)
+    return {'state': 'done', 'id': record['id'], 'detail': 'Kullanıcının seçtiği yerel program kaydedildi; henüz yürütülmedi.'}
+
+
+def _run_program(owner, record, parameters):
+    if (not isinstance(parameters, dict) or set(parameters) != set(record['params'])
+            or any(not isinstance(v, str) or len(v) > 2000 or '\x00' in v for v in parameters.values())):
+        raise ValueError('Program parametreleri şablonla eşleşmiyor.')
+    try:
+        program = _program(record['program'])
+    except ValueError:
+        return {'state': 'not_connected', 'detail': 'Program kurulu değil veya artık güvenle yürütülemiyor.'}
+    argv = [program, *[re.sub(r'\{([a-zA-Z][a-zA-Z0-9_]{0,40})\}', lambda m: parameters[m[1]], argument)
+                      for argument in record['arguments']]]
+    key = (owner, record['id'])
+    process = None
+    try:
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            with _LOCK:
+                if key in _RUNNING:
+                    raise ValueError('Bu araç zaten çalışıyor.')
+                process = subprocess.Popen(argv, shell=False, stdin=subprocess.DEVNULL, stdout=output, stderr=errors)
+                _RUNNING[key] = process
+            try:
+                process.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate(timeout=5)
+                return {'state': 'error', 'detail': 'Yerel program zaman aşımında durduruldu.'}
+            if process.returncode != 0:
+                return {'state': 'error', 'detail': 'Yerel program başarı kodu döndürmedi.'}
+            output.seek(0)
+            raw = output.read(20001)
+            return {'state': 'done', 'data': {'text': raw[:20000].decode('utf-8', errors='replace'), 'truncated': len(raw) > 20000}}
+    finally:
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=5)
+            except Exception:
+                _record_failure('modules/tool_wizard.py:program_cleanup')
+            with _LOCK:
+                if _RUNNING.get(key) is process:
+                    _RUNNING.pop(key)
+
+
 def execute(owner, ident, parameters, *, approve=False):
     try:
         if not isinstance(approve, bool):
@@ -105,6 +206,10 @@ def execute(owner, ident, parameters, *, approve=False):
             return {'state': 'blocked', 'detail': 'Politika: Engelle.'}
         if decision == 'ask' and not approve:
             return {'state': 'approval', 'detail': 'Bu eylem için somut onay gerekli.'}
+        if record['class'] == 'physical' and not approve:
+            return {'state': 'approval', 'detail': 'Fiziksel eylem her seferinde somut onay ister.'}
+        if record['kind'] == 'program':
+            return _run_program(owner, record, parameters)
         data = capability_hub.read(owner, record['candidate'], parameters)
         return {'state': 'done', 'data': data}
     except Exception:
@@ -114,16 +219,34 @@ def execute(owner, ident, parameters, *, approve=False):
 
 def _status(owner, ident):
     try:
-        _load(owner)[ident]
+        record = _load(owner)[ident]
+        if record['kind'] == 'program':
+            with _LOCK:
+                if (owner, ident) in _RUNNING:
+                    return {'state': 'running', 'detail': 'Kullanıcının yerel programı çalışıyor.'}
+            try:
+                _program(record['program'])
+            except ValueError:
+                return {'state': 'not_connected', 'detail': 'Seçilen program kurulu değil veya yürütülemiyor.'}
+            return {'state': 'ready', 'detail': 'Kullanıcı onaylı yerel program kaydı var; gerçek PC sınanmadı.'}
         return {'state': 'ready', 'detail': 'Kullanıcı onaylı araç kaydı var; canlı servis sınanmadı.'}
     except Exception:
         _record_failure('modules/tool_wizard.py:status')
         return {'state': 'error', 'detail': 'Bu kullanıcı için araç kaydı doğrulanamadı.'}
 
 
-def _cancel(owner):
+def _cancel(owner, ident):
     try:
         service_store.identity(owner)
+        if _load(owner)[ident]['kind'] == 'program':
+            if _decision(owner, ident, 'local_reversible') != 'allow':
+                return {'cancelled': False, 'detail': 'Yerel iptal izni verilmedi.'}
+            with _LOCK:
+                process = _RUNNING.get((owner, ident))
+                if process is not None and process.poll() is None:
+                    process.terminate()
+                    return {'cancelled': True, 'detail': 'Başlatılan sürece durdurma iletildi; çıkış henüz doğrulanmadı.'}
+            return {'cancelled': False, 'detail': 'Bu kullanıcı için çalışan yerel araç işi yok.'}
         return {'cancelled': False, 'detail': 'Bu araç ayrı bir arka plan işi başlatmaz.'}
     except Exception:
         _record_failure('modules/tool_wizard.py:cancel')
@@ -133,9 +256,9 @@ def _cancel(owner):
 def contracts(owner):
     result = {}
     for ident, record in _load(owner).items():
-        result[ident] = {'id': ident, 'name': record['name'], 'area': 'cihaz', 'icon': 'globe',
-                         'actions': [{'id': 'invoke', 'name': 'Veriyi oku', 'desc': 'Onaylı sabit genel GET bağlantısı.',
+        result[ident] = {'id': ident, 'name': record['name'], 'area': 'cihaz', 'icon': 'terminal' if record['kind'] == 'program' else 'globe',
+                         'actions': [{'id': 'invoke', 'name': 'Çalıştır' if record['kind'] == 'program' else 'Veriyi oku', 'desc': 'Kullanıcının açıkça onayladığı araç girişi.',
                                       'class': record['class'], 'params': record['params']}],
                          'status': lambda ident=ident: _status(owner, ident),
-                         'cancel': lambda: _cancel(owner)}
+                         'cancel': lambda ident=ident: _cancel(owner, ident)}
     return result
