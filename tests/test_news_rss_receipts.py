@@ -13,6 +13,16 @@ class NewsRssReceiptTests(unittest.TestCase):
         self.assertEqual(receipt['published'],'2026-10-21')
         self.assertEqual(receipt['article_url'],'https://www.trthaber.com/haber/gundem/ornek-1.html')
 
+    def test_page_without_date_uses_only_its_bound_rss_receipt(self):
+        from modules import research_evidence
+        response={'url':'https://www.trthaber.com/haber/gundem/ornek-1.html',
+                  'body':b'<article><h1>Ornek haber</h1><p>Bu tekil haber govdesi dogrulanabilir uzunlukta metin icerir ve kaynak metni aynen korunur.</p></article>'}
+        bound={'article_url':response['url'],'published':'2026-10-21','title':'Ornek haber'}
+        result=research_evidence.article(response,rss_receipt=bound)
+        self.assertEqual(result['published'],'2026-10-21')
+        with self.assertRaises(ValueError):
+            research_evidence.article(response,rss_receipt={**bound,'article_url':'https://www.trthaber.com/haber/gundem/diger.html'})
+
 
 if __name__ == '__main__':
     unittest.main()
