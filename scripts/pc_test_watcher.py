@@ -44,6 +44,15 @@ def python_exe(root: Path) -> Path:
     return candidate if candidate.is_file() else Path(sys.executable)
 
 
+def gh_exe() -> str | None:
+    found = shutil.which("gh") or shutil.which("gh.exe")
+    if found:
+        return found
+    program_files = os.environ.get("ProgramFiles") or r"C:\Program Files"
+    candidate = Path(program_files) / "GitHub CLI" / "gh.exe"
+    return str(candidate) if candidate.is_file() else None
+
+
 def load_state(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -150,11 +159,12 @@ def pr_comment_body(report: dict) -> str:
 
 
 def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
-    if not shutil.which("gh"):
+    gh = gh_exe()
+    if not gh:
         return {"state": "skipped", "reason": "gh_cli_missing"}
     branch = branch_from_ref(ref)
     listed = run(
-        ["gh", "pr", "list", "--head", branch, "--state", "open", "--limit", "1", "--json", "number,url"],
+        [gh, "pr", "list", "--head", branch, "--state", "open", "--limit", "1", "--json", "number,url"],
         cwd=root,
         check=False,
         capture=True,
@@ -172,7 +182,7 @@ def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
     if not isinstance(number, int):
         return {"state": "failed", "reason": "open_pr_number_missing"}
     posted = run(
-        ["gh", "pr", "comment", str(number), "--body", pr_comment_body(report)],
+        [gh, "pr", "comment", str(number), "--body", pr_comment_body(report)],
         cwd=root,
         check=False,
         capture=True,
