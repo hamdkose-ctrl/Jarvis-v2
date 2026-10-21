@@ -810,7 +810,7 @@ class GoalTests(unittest.TestCase):
             {'action':'invalid'},{'action':'invalid'},{'action':'invalid'})
         from modules import news_recovery
         with patch.object(news_recovery,'deliver') as recover:
-            goals.run(self.runtime,'Son dakika haberleri')
+            goals.run(self.runtime,'Yapay zekâ son dakika haberleri')
         recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
         self.assertEqual(self.ask.call_count,4)
         self.assertEqual(goals.latest('alice')['state'],'paused')
