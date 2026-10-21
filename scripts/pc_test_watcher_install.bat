@@ -11,6 +11,7 @@ set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "STARTER=%STARTUP%\Jarvis-PC-Acceptance-Watcher.cmd"
 set "DESKTOP=%USERPROFILE%\Desktop"
 set "DESKTOP_STARTER=%DESKTOP%\Jarvis-PC-Test-Watcher.cmd"
+set "REPO_STARTER=%ROOT%\Jarvis-PC-Test-Watcher.cmd"
 
 if not exist "%WATCHER%" (
   echo HATA: Watcher bulunamadi: %WATCHER%
@@ -81,23 +82,34 @@ exit /b 0
 
 :desktop_fallback
 echo BILGI: Otomatik baslatma yollari engelli; masaustune tek tik baslatici yaziliyor.
-if not exist "%DESKTOP%" (
-  echo HATA: Masaustu klasoru bulunamadi: %DESKTOP%
-  exit /b 1
+if exist "%DESKTOP%" (
+  >"%DESKTOP_STARTER%" echo @echo off
+  >>"%DESKTOP_STARTER%" echo cd /d "%ROOT%"
+  >>"%DESKTOP_STARTER%" echo call "%WATCHER%"
+  if not errorlevel 1 (
+    echo Kuruldu: masaustu tek tik baslaticisi
+    echo Baslatici: %DESKTOP_STARTER%
+    echo Bu PC otomatik baslangici engelliyor; Windows oturumu acildiktan sonra bu dosyayi bir kez ac.
+    echo Sonuc: %%LOCALAPPDATA%%\Jarvis\pc-acceptance\pc_test_watcher_last.json
+    start "Jarvis PC Acceptance Watcher" /min "%DESKTOP_STARTER%"
+    echo Ilk watcher calistirmasi baslatildi.
+    exit /b 0
+  )
 )
 
->"%DESKTOP_STARTER%" echo @echo off
->>"%DESKTOP_STARTER%" echo cd /d "%ROOT%"
->>"%DESKTOP_STARTER%" echo call "%WATCHER%"
+echo BILGI: Masaustu kokune yazma engelli; baslatici repo klasorune yaziliyor.
+>"%REPO_STARTER%" echo @echo off
+>>"%REPO_STARTER%" echo cd /d "%ROOT%"
+>>"%REPO_STARTER%" echo call "%WATCHER%"
 if errorlevel 1 (
-  echo HATA: Masaustu baslaticisi yazilamadi: %DESKTOP_STARTER%
+  echo HATA: Repo baslaticisi yazilamadi: %REPO_STARTER%
   exit /b 1
 )
 
-echo Kuruldu: masaustu tek tik baslaticisi
-echo Baslatici: %DESKTOP_STARTER%
+echo Kuruldu: repo icinde tek tik baslaticisi
+echo Baslatici: %REPO_STARTER%
 echo Bu PC otomatik baslangici engelliyor; Windows oturumu acildiktan sonra bu dosyayi bir kez ac.
 echo Sonuc: %%LOCALAPPDATA%%\Jarvis\pc-acceptance\pc_test_watcher_last.json
-start "Jarvis PC Acceptance Watcher" /min "%DESKTOP_STARTER%"
+start "Jarvis PC Acceptance Watcher" /min "%REPO_STARTER%"
 echo Ilk watcher calistirmasi baslatildi.
 exit /b 0
