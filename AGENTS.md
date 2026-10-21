@@ -130,3 +130,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Hedef planlayıcısının specialist etiketi araç yürütmesini bloke edemez; durable yürütücü uzmanı kullanıcıya ait kayıtlı yeteneklerden deterministik seçer. Açık uzman sözleşmesi ve gerçek işlem izinleri aynı katı kontrollerden geçer.
 
 - Haber planlayıcısı üç geçersiz kararda durdurulduğunda, kalan aynı tur/araç bütçesi içindeki mevcut modelsiz kurtarma denenebilir; dördüncü model denemesi veya geçersiz kanıtın kabulü yoktur. Kaynak yoksa hedef tamamlandı sayılmaz.
+
+- PC watcher validation başarısızlığında PR yorumuna yalnız sınırlı unittest test kimliklerini ekler; ham log/traceback aktarılmaz. Alan notlarında bölüm başlığı değişikliği dizindeki mevcut sayıyla uyumlu tutulur.

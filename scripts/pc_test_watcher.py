@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -149,6 +150,11 @@ def pr_comment_body(report: dict) -> str:
         f"- Genel durum: **{report.get('status', 'unknown')}**",
         f"- Validation: **{'passed' if validation.get('exit_code') == 0 else 'failed'}**",
     ]
+    if validation.get('exit_code') != 0:
+        failures=re.findall(r'^(?:FAIL|ERROR): test_[A-Za-z0-9_]+ \(([A-Za-z0-9_.]+)\)',
+                            str(validation.get('tail') or ''),re.MULTILINE)
+        for name in list(dict.fromkeys(failures))[:8]:
+            lines.append(f"- Başarısız test: `{name[:200]}`")
     for name in ("calculator", "news_chat_resume"):
         row = selected.get(name)
         if not row:

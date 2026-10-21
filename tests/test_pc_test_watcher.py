@@ -15,6 +15,16 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
+    def test_failed_validation_comment_exposes_test_names_without_raw_log(self):
+        report={'sha':'a'*40,'status':'failed','validation':{'exit_code':1,'tail':
+            'FAIL: test_agents_index_matches_files_and_section_counts (test_agents_index.AgentsIndexTests.test_agents_index_matches_files_and_section_counts)\n'
+            'Traceback: PRIVATE_PC_PATH Authorization: Bearer PRIVATE_KEY\n'
+            'AssertionError: PRIVATE_USER_CONTENT\nFAILED (failures=1, skipped=1)'}}
+        body=watcher.pr_comment_body(report)
+        self.assertIn('test_agents_index.AgentsIndexTests.test_agents_index_matches_files_and_section_counts',body)
+        self.assertNotIn('PRIVATE_',body)
+        self.assertNotIn('Bearer',body)
+
     def test_choose_candidate_skips_already_seen_head(self):
         candidates = [
             {'ref': 'refs/remotes/origin/gpt/new', 'sha': 'bbb', 'time': 2},

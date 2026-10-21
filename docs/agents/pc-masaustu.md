@@ -19,7 +19,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - 21 Ekim 2026: şirket PC'sinde GitHub CLI MSI ile `C:\Program Files\GitHub CLI\gh.exe` altına kurulup PATH'e yansımayabildiği için watcher ve kurucu önce PATH'i, sonra bu standart Program Files yolunu dener. Böylece yeni CMD açılmadan da açık GitHub oturumu kullanılarak PR yorumu gönderilebilir.
 - 21 Ekim 2026: watcher daha önce yarıda kesilmiş bir geçici worktree'nin klasörü silinmiş fakat Git kaydı kalmışsa `git worktree prune` ile yalnız stale kaydı temizleyip aynı adayı yeniden oluşturur; bu durum artık watcher döngüsünü `missing but already registered worktree` hatasıyla durdurmaz.
 
-## Ajanların gerçek PC sonucu ile çalışma döngüsü — 21 Ekim 2026
+**Ajanların gerçek PC sonucu ile çalışma döngüsü — 21 Ekim 2026**
 
 - `gpt/*` dalında çalışan her ajan, kendi açık PR'ında watcher'ın `<!-- jarvis-pc-acceptance -->` işaretli **Gerçek Windows PC kabul sonucu** yorumunu çalışma döngüsünün parçası sayar.
 - Yeni commit gönderdikten sonra eski PC sonucu yeni commit için başarı kanıtı değildir. Ajan yalnız kendi son commit SHA'sı ile eşleşen watcher yorumunu geçerli kabul eder.
@@ -30,3 +30,5 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - 21 Ekim 2026: `scripts/pc_test_loop.py`, watcher'ın yeni SHA için PR yorumunu yayımlamasından sonra aynı SHA'yı yalnız bir kez `scripts/codex_followup.py` üzerinden yerel Codex CLI'ya devreder. PATH yoksa `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe` denenir.
 - Codex takip turu `workspace-write` sınırında çalışır; önce remote head ile test edilen SHA'yı eşleştirmesi, `AGENTS.md` ve ilgili alan notlarını okuması, `main`e doğrudan yazmaması ve `--force` kullanmaması istenir. Başarısız kabulte aynı işi düzeltip yeni head'i push eder; başarılı kabulte mevcut işi repo kurallarına göre tamamlayıp yalnız daha önce onaylanmış yol haritası maddesine geçer.
 - Codex turu 30 dakika ile sınırlıdır ve sonucu yerel kabul JSON'una `codex_followup` olarak yazılır. CLI yoksa veya tur hata verirse watcher test sonucu bozulmaz; durum `skipped/failed` olarak ayrıca kaydedilir.
+
+- 21 Ekim 2026: 1b382ce validation hatası yerelde yeniden üretildi: pc-masaustu notunun üçüncü bölüm başlığı AGENTS dizinindeki iki bölümle uyuşmuyordu. Yeni döngü notu aynı içerikle kalın etiket yapıldı; bölüm sayısı yeniden iki, mevcut test değişmedi. Watcher başarısız unittest kimliklerinden en fazla sekizini PR yorumuna taşır; ham traceback, dosya yolu, kullanıcı içeriği ve anahtarlar eklenmez. Yeni commit için PC kabulü henüz bekleniyor.
