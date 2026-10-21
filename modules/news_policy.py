@@ -4,8 +4,29 @@ Yürütücü genel kalır; haber kuralları (tekil makale kanıtı, iki yayınc�
 burada durur. goal_executor aynı adlı ince sarmalayıcılarla çağırır.
 """
 import re
+import unicodedata
 from modules import privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
+
+
+def complete_chat_followups(job,evidence):
+    """Share verified news only with scope-neutral read/research/chat goals."""
+    from modules import research_evidence
+    if (job['state'] in {'approval','review','cancelled'} or
+            not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):return
+    allowed=re.compile(r'(?:haber|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin)')
+    for index,target in enumerate(job['goals']):
+        if target.get('state')!='pending':continue
+        low=''.join(c for c in unicodedata.normalize('NFKD',target.get('text','').casefold().replace('ı','i')) if not unicodedata.combining(c))
+        words=re.findall(r'[^\W\d_]+',low)
+        if not words or not all(allowed.fullmatch(word) for word in words):continue
+        # Unknown topics/actions, files, messages, analysis and media are not inferred.
+        if not re.search(r'haber|kaynak|baglanti|baslik|ozet|rapor|sohbet|arastir|derle|sonuc',low):continue
+        if any(step.get('goal')==index and not (step.get('tool')=='research' or
+                step.get('tool')=='data' and step.get('input',{}).get('operation') in {'headlines','sources'})
+                for step in job['steps']):continue
+        deliver_chat(job,index,evidence)
+        if target['state']!='done':return
 
 
 def deliver_chat(job,goal,evidence):

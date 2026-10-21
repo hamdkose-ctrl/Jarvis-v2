@@ -134,3 +134,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PC watcher validation başarısızlığında PR yorumuna yalnız sınırlı unittest test kimliklerini ekler; ham log/traceback aktarılmaz. Alan notlarında bölüm başlığı değişikliği dizindeki mevcut sayıyla uyumlu tutulur.
 
 - Haber kabulü başarısızsa kısa PR önizlemesinde hedef durumları, doğrulanmış makale/yayıncı sayısı ve modelsiz kurtarma adımlarının durum sayıları korunur; hedef metni, ham kaynak veya kullanıcı girdisi bu özete eklenmez.
+
+- Mevcut tarihli haber makbuzları kapsamı aynı kalan araştırma/sohbet alt hedeflerinde yeniden doğrulanarak paylaşılabilir. Bilinmeyen konu/eylem, dosya, mesaj, yayın, takip, çeviri veya analiz teslimi bu yolla tamamlandı sayılmaz; onay ve kanıt kapıları korunur.

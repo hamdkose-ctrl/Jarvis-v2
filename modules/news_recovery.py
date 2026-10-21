@@ -44,7 +44,9 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     def enough():
         return evidence_enough() and (not broad or publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)))
     if enough():
-        job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job);return
+        job['goals'][goal].update(state='done',evidence=list(sources))
+        from modules import news_policy
+        news_policy.complete_chat_followups(job,list(sources));goals._save(job);return
     if existing_only or not seeds:return
     count=sum(bool(s.get('recovery')) for s in job['steps']);new_steps=0;deadline=time.monotonic()+45
     def tool(kind,data,depends=()):
@@ -88,7 +90,9 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
                 sources[rid]=result
                 if enough():break
     if enough():
-        job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job)
+        job['goals'][goal].update(state='done',evidence=list(sources))
+        from modules import news_policy
+        news_policy.complete_chat_followups(job,list(sources));goals._save(job)
 
 
 def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
