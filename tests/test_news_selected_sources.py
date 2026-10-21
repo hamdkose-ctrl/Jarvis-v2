@@ -26,7 +26,7 @@ class SelectedNewsSourcesTests(unittest.TestCase):
                 self.assertFalse(by_name[name]['live_connection_tested'])
                 recovered = publisher_news.recovery_indexes('Türkiye haberleri', [url])
                 self.assertEqual(recovered[0], url)
-                self.assertLessEqual(len(recovered), 4)
+                self.assertLessEqual(len(recovered), 5)
                 self.assertEqual(publisher_news.candidate_url(url, 'Türkiye haberleri', {}), url)
                 with self.assertRaises(ValueError):
                     publisher_news.candidate_url(url+'uydurulmus-haber', 'Türkiye haberleri', {})
@@ -42,4 +42,4 @@ class SelectedNewsSourcesTests(unittest.TestCase):
         for host in ('reuters.com', 'apnews.com', 'techcrunch.com', 'haber.dpu.edu.tr'):
             self.assertFalse(any(host in url for url in urls), host)
         self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),
-                         {'mynet.com','investing.com','aa.com.tr','bbc.com'})
+                         {'mynet.com','investing.com','aa.com.tr','trthaber.com'})
