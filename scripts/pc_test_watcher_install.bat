@@ -9,6 +9,8 @@ set "AUTODIR=%LOCALAPPDATA%\Jarvis\pc-acceptance"
 set "AUTOSTART=%AUTODIR%\pc_test_watcher_start.cmd"
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "STARTER=%STARTUP%\Jarvis-PC-Acceptance-Watcher.cmd"
+set "DESKTOP=%USERPROFILE%\Desktop"
+set "DESKTOP_STARTER=%DESKTOP%\Jarvis-PC-Test-Watcher.cmd"
 
 if not exist "%WATCHER%" (
   echo HATA: Watcher bulunamadi: %WATCHER%
@@ -62,23 +64,40 @@ if not errorlevel 1 (
 :startup_fallback
 echo BILGI: Run kaydi kullanilamiyor; kullanici Startup klasorune geciliyor.
 if not exist "%STARTUP%" mkdir "%STARTUP%" >nul 2>nul
-if errorlevel 1 (
-  echo HATA: Otomatik baslatma kurulamadı. Gorev Zamanlayici, HKCU Run ve Startup erisimi engelli.
-  exit /b 1
-)
+if errorlevel 1 goto desktop_fallback
 
 >"%STARTER%" echo @echo off
 >>"%STARTER%" echo cd /d "%ROOT%"
 >>"%STARTER%" echo call "%WATCHER%"
-if errorlevel 1 (
-  echo HATA: Startup baslaticisi yazilamadi: %STARTER%
-  exit /b 1
-)
+if errorlevel 1 goto desktop_fallback
 
 echo Kuruldu: kullanici Startup klasoru
 echo Baslatici: %STARTER%
 echo Windows oturumu acildiginda watcher otomatik baslayacak.
 echo Sonuc: %%LOCALAPPDATA%%\Jarvis\pc-acceptance\pc_test_watcher_last.json
 start "Jarvis PC Acceptance Watcher" /min "%STARTER%"
+echo Ilk watcher calistirmasi baslatildi.
+exit /b 0
+
+:desktop_fallback
+echo BILGI: Otomatik baslatma yollari engelli; masaustune tek tik baslatici yaziliyor.
+if not exist "%DESKTOP%" (
+  echo HATA: Masaustu klasoru bulunamadi: %DESKTOP%
+  exit /b 1
+)
+
+>"%DESKTOP_STARTER%" echo @echo off
+>>"%DESKTOP_STARTER%" echo cd /d "%ROOT%"
+>>"%DESKTOP_STARTER%" echo call "%WATCHER%"
+if errorlevel 1 (
+  echo HATA: Masaustu baslaticisi yazilamadi: %DESKTOP_STARTER%
+  exit /b 1
+)
+
+echo Kuruldu: masaustu tek tik baslaticisi
+echo Baslatici: %DESKTOP_STARTER%
+echo Bu PC otomatik baslangici engelliyor; Windows oturumu acildiktan sonra bu dosyayi bir kez ac.
+echo Sonuc: %%LOCALAPPDATA%%\Jarvis\pc-acceptance\pc_test_watcher_last.json
+start "Jarvis PC Acceptance Watcher" /min "%DESKTOP_STARTER%"
 echo Ilk watcher calistirmasi baslatildi.
 exit /b 0
