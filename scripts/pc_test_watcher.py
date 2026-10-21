@@ -272,6 +272,10 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     try:
         add_worktree(root, target["sha"], worktree)
         result = run_suite(root, worktree, target["ref"], target["sha"], desktop=desktop)
+        if result.get("status") == "failed":
+            from codex_followup import run_followup
+            failure_hint = (result.get("desktop_acceptance", {}).get("tail") or result.get("validation", {}).get("tail") or "")
+            result["codex_followup"] = run_followup(root, target["ref"], target["sha"], "failed", failure_hint)
         result["github_pr_comment"] = publish_pr_comment(root, target["ref"], result)
         save_json(report_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
