@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import tempfile
 import time
@@ -11,6 +13,57 @@ from codex_followup import run_followup
 
 
 CODEX_STATE_NAME = "codex_followup_state.json"
+
+
+def failure_hint(report: dict) -> str:
+    validation = report.get("validation") if isinstance(report.get("validation"), dict) else {}
+    if validation.get("exit_code") not in (None, 0):
+        return "validation: " + " ".join(str(validation.get("tail") or "").split())[-1200:]
+    desktop = report.get("desktop_acceptance") if isinstance(report.get("desktop_acceptance"), dict) else {}
+    checks = desktop.get("checks") if isinstance(desktop.get("checks"), list) else []
+    parts = []
+    for row in checks:
+        if not isinstance(row, dict) or row.get("state") == "passed":
+            continue
+        name = str(row.get("check") or "unknown")
+        state = str(row.get("state") or "unknown")
+        detail = " ".join(str(row.get("detail") or "").split())[:500]
+        parts.append(f"{name}={state}: {detail}" if detail else f"{name}={state}")
+    if parts:
+        return " | ".join(parts)[:1200]
+    return "desktop_acceptance: " + " ".join(str(desktop.get("tail") or "").split())[-1200:]
+
+
+def failure_signature(report: dict) -> str:
+    if str(report.get("status") or "") != "failed":
+        return ""
+    normalized = failure_hint(report).lower()
+    return hashlib.sha256(normalized.encode("utf-8", errors="replace")).hexdigest()[:20]
+
+
+def should_run_codex(report: dict, state: dict) -> tuple[bool, str]:
+    sha = str(report.get("sha") or "")
+    if not sha:
+        return False, "sha_missing"
+    if state.get("sha") == sha:
+        return False, "same_sha_already_handled"
+    if str(report.get("status") or "") == "failed":
+        signature = failure_signature(report)
+        if signature and state.get("last_failure_signature") == signature:
+            return False, "repeated_failure_stopped"
+    return True, "new_result"
+
+
+def next_state(report: dict, result: dict) -> dict:
+    state = {
+        "sha": str(report.get("sha") or ""),
+        "time": time.time(),
+        "result": result,
+    }
+    signature = failure_signature(report)
+    if signature:
+        state["last_failure_signature"] = signature
+    return state
 
 
 def main() -> int:
@@ -36,21 +89,27 @@ def main() -> int:
             changed = watcher.once(root, state_path, report_path, args.pattern, desktop=not args.no_desktop)
             if changed:
                 report = watcher.load_state(report_path)
-                sha = str(report.get("sha") or "")
                 codex_state = watcher.load_state(codex_state_path)
-                if sha and codex_state.get("sha") != sha:
-                    comment = report.get("github_pr_comment") if isinstance(report.get("github_pr_comment"), dict) else {}
-                    if comment.get("state") == "published":
-                        result = run_followup(
-                            root,
-                            str(report.get("ref") or ""),
-                            sha,
-                            str(report.get("status") or "unknown"),
-                        )
-                        report["codex_followup"] = result
-                        watcher.save_json(report_path, report)
-                        watcher.save_json(codex_state_path, {"sha": sha, "time": time.time(), "result": result})
-                        print(f"Codex takip sonucu: {result.get('state')} ({result.get('reason', 'ok')})")
+                comment = report.get("github_pr_comment") if isinstance(report.get("github_pr_comment"), dict) else {}
+                run_it, reason = should_run_codex(report, codex_state)
+                if comment.get("state") == "published" and run_it:
+                    result = run_followup(
+                        root,
+                        str(report.get("ref") or ""),
+                        str(report.get("sha") or ""),
+                        str(report.get("status") or "unknown"),
+                        failure_hint(report),
+                    )
+                    report["codex_followup"] = result
+                    watcher.save_json(report_path, report)
+                    watcher.save_json(codex_state_path, next_state(report, result))
+                    print(f"Codex takip sonucu: {result.get('state')} ({result.get('reason', 'ok')})")
+                elif comment.get("state") == "published" and reason == "repeated_failure_stopped":
+                    result = {"state": "stopped", "reason": reason}
+                    report["codex_followup"] = result
+                    watcher.save_json(report_path, report)
+                    watcher.save_json(codex_state_path, next_state(report, result))
+                    print("Codex takip durdu: aynı hata tekrarlandı; kota koruması devrede.")
             else:
                 print("Yeni test adayı yok.")
         except KeyboardInterrupt:
