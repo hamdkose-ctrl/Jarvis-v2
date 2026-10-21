@@ -2,6 +2,10 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## PC watcher haber kabulü — 22 Ekim 2026
+
+- `modules.acceptance_checks --news --skip-suite`, dosyasız canlı haber hedefinde iki tarihli bağımsız yayıncı makbuzunu, writer çalışmamasını ve tamamlanmış hedefe `devam` yanıtının kalıcı kaydı değiştirmediğini geçici, izole hedef deposunda doğrular. Başarısız özet yalnız sınırlı maskelenmiş karar/kurtarma sayaçlarını taşır; ham istek, kaynak veya kişisel veri yazılmaz. `--news` yoksa kontrol pending kalır. Test: `tests/test_acceptance_news.py`; gerçek Windows kabulü ayrıca çalıştırılmalıdır.
+
 ## Haber politikası ayrı modülde — 18 Ekim 2026
 - `modules/news_policy.py`: haber araştırmasının tamamlanma kuralları (tekil makale kanıtı, başlık listesi tamamlama sayılmaz, iki yayıncı, katalog denemesi) ve modelsiz kayıtlı kurtarma `goal_executor`'dan taşındı; davranış aynı. `goal_executor._check_news_completion` / `_resume_news_recovery` yalnız bunları çağıran ince sarmalayıcıdır (testler bu adları yamalar). Haber kuralı değişirse `news_policy`'de değişir. Test: `tests/test_news_policy_split.py`; PC'de denenmedi.
 
