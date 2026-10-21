@@ -68,13 +68,13 @@ def quotes(article,request):
     return result
 
 
-def run(owner,data,request,*,source_only=False):
+def run(owner,data,request,*,source_only=False,rss_receipt=None):
     """Fetch, verify and render one dated article without any LLM call."""
     if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
     requests_state.check()
     if not isinstance(data,dict) or not isinstance(data.get('url'),str):raise ValueError('Araştırma için haber adresi gerekli.')
     response=public_sources.fetch(data['url'])
-    article=research_evidence.article(response)
+    article=research_evidence.article(response,rss_receipt=rss_receipt)
     research_evidence.news_date(article['published'],request or data.get('question',''))
     evidence=quotes(article,(request+' '+data.get('question','')).strip())
     raw={'state':'done','text':' '.join(evidence),'source':article['url'],'source_chars':len(article['text']),
