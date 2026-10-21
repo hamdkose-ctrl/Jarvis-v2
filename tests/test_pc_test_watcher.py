@@ -41,11 +41,37 @@ class PcTestWatcherTests(unittest.TestCase):
     def test_safe_name_does_not_create_nested_path(self):
         self.assertEqual(watcher.safe_name('refs/remotes/origin/gpt/haber-test'), 'gpt_haber-test')
 
+    def test_branch_from_remote_ref(self):
+        self.assertEqual(
+            watcher.branch_from_ref('refs/remotes/origin/gpt/windows-pc-watcher'),
+            'gpt/windows-pc-watcher',
+        )
+
     def test_real_acceptance_includes_live_news(self):
         command = watcher.acceptance_command(Path('python.exe'))
         self.assertIn('--desktop', command)
         self.assertIn('--news', command)
         self.assertIn('--skip-suite', command)
+
+    def test_pr_comment_only_exposes_selected_acceptance_details(self):
+        report = {
+            'sha': '1234567890abcdef',
+            'status': 'failed',
+            'validation': {'exit_code': 0},
+            'desktop_acceptance': {
+                'checks': [
+                    {'check': 'calculator', 'state': 'passed', 'detail': 'Calculator 19'},
+                    {'check': 'news_chat_resume', 'state': 'failed', 'detail': '3 geçersiz karar'},
+                    {'check': 'local_configuration', 'state': 'informational', 'detail': 'GİZLİ AYAR DETAYI'},
+                ]
+            },
+        }
+        body = watcher.pr_comment_body(report)
+        self.assertIn('calculator', body)
+        self.assertIn('news_chat_resume', body)
+        self.assertIn('3 geçersiz karar', body)
+        self.assertNotIn('GİZLİ AYAR DETAYI', body)
+        self.assertNotIn('Calculator 19', body)
 
 
 if __name__ == '__main__':
