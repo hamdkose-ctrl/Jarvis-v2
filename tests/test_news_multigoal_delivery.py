@@ -51,6 +51,16 @@ class NewsMultigoalDeliveryTests(unittest.TestCase):
         self.assertTrue(all(goal['state']=='done' for goal in after['goals']))
         case.ask.assert_not_called()
 
+    def test_saved_receipts_finish_featured_developments_delivery_wording(self):
+        case,job=self.prepared('Öne çıkan gelişmeleri kullanıcıya aktar')
+        case.ask.reset_mock();case.ask.side_effect=AssertionError('No new model for saved news delivery')
+        with patch('modules.public_sources.fetch',side_effect=AssertionError('No repeat read')):
+            reply=goals.run(case.runtime,'devam',resume=True)
+        after=goals.latest('alice')
+        self.assertEqual(after['state'],'done',reply)
+        self.assertTrue(all(goal['state']=='done' for goal in after['goals']))
+        case.ask.assert_not_called()
+
     def test_news_evidence_does_not_complete_other_deliverables(self):
         for text in ('Haber özetini Gmail ile gönder','Haberlerden video üret',
                      'Haber raporunu dosyaya kaydet','Haberler hakkında not ekle',
