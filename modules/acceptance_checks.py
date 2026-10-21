@@ -60,6 +60,18 @@ def _news_job_facts(job):
     return articles,publishers
 
 
+def _news_failure_detail(job):
+    """Only bounded redacted decision summaries leave the isolated goal store."""
+    from modules import privacy
+    detail=f"Haber hedefi tamamlanmadı: {job.get('state','unknown')}"
+    blocker=privacy.redact(str(job.get('blocker') or ''),force=True)[:240]
+    if blocker:detail+='; '+blocker
+    trace=job.get('decision_diagnostics',[])[-3:]
+    if trace:
+        detail+='; decision_diagnostics='+privacy.redact(json.dumps(trace,ensure_ascii=False),force=True)
+    return detail
+
+
 def _news_chat_resume(owner):
     """Run the real fileless-news turn in an isolated goal store, then verify closed-goal resume."""
     from modules import engine_runtime,goal_executor
@@ -73,10 +85,7 @@ def _news_chat_resume(owner):
             job=goal_executor.latest(owner)
             if not job:return 'failed','Haber hedefi oluşturulmadı.'
             if job.get('state')!='done':
-                blocker=str(job.get('blocker') or '')[:240]
-                detail=f"Haber hedefi tamamlanmadı: {job.get('state','unknown')}"
-                if blocker:detail+='; '+blocker
-                return 'failed',detail
+                return 'failed',_news_failure_detail(job)
             if any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
                    for step in job.get('steps') or []):
                 return 'failed','Dosya istenmeyen haber hedefinde writer çalıştı.'

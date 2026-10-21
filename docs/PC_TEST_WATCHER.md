@@ -60,3 +60,6 @@ Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows otur
 - PR yorumuna/check API'sine sonuç yazmaz; sonuç yerel JSON ve konsoldadır.
 - Bir turda bir değişmiş `gpt/*` head'i test eder; birden fazla yeni head varsa sonraki döngülerde sırayla ele alınır. `--pattern` ile tek dal hedeflenebilir.
 - `main` checkout edilmez veya değiştirilmez.
+
+
+Haber kabulü üç geçersiz kararda durursa `news_chat_resume.detail` içindeki `decision_diagnostics` son üç kararın action/tool bilgisini, bilinen girdi alan adlarını ve maskelemiş kısa hata nedenlerini içerir. Ham girdi değerleri veya model yanıtları bu tanıya alınmaz. Bu çıktı kök nedeni ayırt etmek içindir; haber kabulü geçmedikçe çözüm tamamlanmış sayılmaz.

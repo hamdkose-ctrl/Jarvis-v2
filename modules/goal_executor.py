@@ -359,6 +359,7 @@ def _loop_steps(runtime,job,answer=None):
     rejected_sources=0
     rejected_questions=0
     invalid_decisions=0
+    job['decision_diagnostics']=[]
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     for step in job['steps']:
         if step['state']=='running':
@@ -415,6 +416,7 @@ def _loop_steps(runtime,job,answer=None):
         if job['goals']:
             system+='\nBu çağrıda kayıtlı plan VAR. action:plan verme; mevcut hedef numarasıyla tool/complete, gerekirse ask veya bütün kanıtlar hazırsa finish seç. Hedefleri yeniden oluşturma.'
         planner_pending=True
+        call=None
         completed_before={key for key,value in job["outputs"].items() if value.get("state")=="done"}
         try:
             call=_planner(runtime,job,prompt,system)
@@ -558,6 +560,21 @@ def _loop_steps(runtime,job,answer=None):
             job.setdefault('failures',[]).append(failure_policy.snapshot(exc,context='planner'));job['failures']=job['failures'][-20:];_save(job)
             if isinstance(exc,(ValueError,TypeError)):
                 invalid_decisions+=1
+                proposal=call if isinstance(call,dict) else {}
+                action=proposal.get('action');tool=proposal.get('tool')
+                inputs=proposal.get('input')
+                job['decision_diagnostics'].append({
+                    'attempt':invalid_decisions,
+                    'action':action if action in {'plan','tool','complete','ask','finish','legacy_plan'} else 'unparsed',
+                    'tool':tool if isinstance(tool,str) and tool in {*goal_tools.LOCAL,*task_tools.CATALOG} else '',
+                    'input_fields':sorted(key for key in inputs if key in {
+                        'url','question','operation','query','action','params','instruction','filename',
+                        'path','target','goal','request','service','kind'}) if isinstance(inputs,dict) else [],
+                    'reason':privacy.redact(str(exc),force=True)[:320],
+                    'error_type':type(exc).__name__,
+                })
+                job['decision_diagnostics']=job['decision_diagnostics'][-3:]
+                _save(job)
                 if invalid_decisions>=MAX_INVALID_DECISIONS:
                     raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
             if isinstance(exc,RuntimeError):

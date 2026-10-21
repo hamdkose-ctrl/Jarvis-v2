@@ -124,3 +124,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Genel web araştırması ve tarihli haber okuması ortak anlamsal gövde temizliğini kullanır. Sonuçta bulgu varsa keşif listesi ayrıca dökülmez; kaynak URL'si kısaltılmaz, haber başlık/tarih/kısa alıntıyla gösterilir. Bu sunum değişikliği yeni tamamlanma veya kaynak doğruluğu garantisi değildir.
 - VideoObject sayfasının yazılı açıklaması yalnız tek video kimliği, tam canonical/URL/başlık, ortak main içindeki tek makale/tek bölüm ve kendi uploadDate tarihiyle okunur. Video izlenmiş veya ses dökümü alınmış sayılmaz; sohbet ve rapor bunu açıkça belirtir.
 - Dosya istemeyen haber hedefinde yanlış writer seçimi yazma başlamadan sohbet teslimine yönlendirilir; yeterli kanıtla tamamlanır, eksik kanıt kısmi gösterilir. Gerçek dosya istekleri ve diğer iş türleri korunur. Mevcut haberlerle modelsiz toparlanan hedef yeniden planlayıcı beklemez.
+
+- Gerçek PC haber kabulünde üç geçersiz kararın nedeni yalnız son bütçe mesajıyla örtülmez: sınırlı/maskelemiş karar tanısı acceptance çıktısına taşınır; ham model girdileri dışarı çıkarılmaz. Tanı eklemek haber akışının düzeldiği anlamına gelmez.
