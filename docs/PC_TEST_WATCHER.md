@@ -21,6 +21,18 @@ Canlı haber kabulü gerçek ağ ve mevcut model/sağlayıcı ayarlarını kulla
 
 PR yorumu için `gh` yoksa, GitHub oturumu açık değilse veya dalın açık PR'ı bulunamazsa test kesilmez. Yerel JSON yine yazılır ve `github_pr_comment` alanında neden `skipped`/`failed` olduğu kaydedilir. `gh` kimlik doğrulama bilgisi veya token değeri rapora yazılmaz.
 
+## Otomatik başlangıç
+
+Bir kez:
+
+```bat
+scripts\pc_test_watcher_install.bat
+```
+
+çalıştırıldığında Windows Görev Zamanlayıcı'da `Jarvis PC Acceptance Watcher` görevi oluşturulur. Görev kullanıcı oturum açtığında interaktif oturumda başlar ve kurulum sonunda ilk çalıştırma da denenir. Yönetici hakları istenmez; görev oluşturma bu Windows hesabında engellenmişse kurucu açık hata verir.
+
+Kurucu `gh` varlığını ve oturum durumunu da kontrol eder. `gh` yoksa veya oturum açık değilse watcher yine gerçek PC testlerini ve yerel JSON'u üretir; yalnız PR yorumu atlanır.
+
 ## İlk deneme
 
 Önce masaüstüne ve canlı habere dokunmadan watcher'ın Git/ref/worktree kısmını kontrol et:
@@ -55,7 +67,7 @@ scripts\pc_test_watcher.bat --interval 60
 
 ## Windows oturumu
 
-Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows oturumunda çalışmalıdır. Windows Görev Zamanlayıcı kullanılacaksa "Kullanıcı oturum açtığında çalıştır" biçimi tercih edilmelidir; kullanıcı oturumu olmayan servis oturumu masaüstü GUI kabulü için uygun değildir.
+Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows oturumunda çalışmalıdır. Windows Görev Zamanlayıcı kurulumu bu nedenle `ONLOGON` + interaktif görev kullanır; kullanıcı oturumu olmayan servis oturumu masaüstü GUI kabulü için uygun değildir.
 
 ## Sınırlar
 
