@@ -123,8 +123,12 @@ def headlines(owner,url,*,query=None,fetcher=None):
             title=fold(row['title']);text=fold(row.get('summary','')+' '+row['url'])
             return sum(3*(term in title)+(term in text) for term in terms if len(term)>2)
         items=sorted(items,key=rank,reverse=True)
-    return {'items':items[:20],'source':response['url'],'discovered_from':discovered_from,'fetched_at':time.time(),
-            'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Kaynak başlıkları; metin doğruluğu veya karar kapsamı ayrıca incelenmeli.'}
+    items=items[:20]
+    from modules import news_rss_receipts
+    rss_receipts=news_rss_receipts.from_headlines(response['url'],items)
+    return {'items':items,'source':response['url'],'discovered_from':discovered_from,'rss_receipts':rss_receipts,
+            'fetched_at':time.time(),'sha256':hashlib.sha256(response['body']).hexdigest(),
+            'scope':'Kaynak başlıkları; metin doğruluğu veya karar kapsamı ayrıca incelenmeli.'}
 
 
 def social(owner,service,operation,resource_id=None,limit=10):
