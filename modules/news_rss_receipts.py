@@ -10,6 +10,14 @@ PROVIDERS = {
 }
 
 
+def provider_for_feed(feed_url):
+    """Return the registered provider id for an exact normalized feed URL."""
+    normalized=public_sources.address(feed_url)
+    for provider_id,provider in PROVIDERS.items():
+        if public_sources.address(provider['feed_url'])==normalized:return provider_id
+    return None
+
+
 def receipt(*, provider_id, feed_url, entry, article_url):
     """Bind a registered feed entry's publication date to its exact article URL."""
     provider = PROVIDERS.get(provider_id)
@@ -35,3 +43,18 @@ def receipt(*, provider_id, feed_url, entry, article_url):
         raise ValueError('RSS yayın tarihi ISO-8601 olmalı.') from exc
     return {'provider_id': provider_id, 'feed_url': expected_feed, 'article_url': url,
             'title': title.strip(), 'published': day}
+
+
+def from_headlines(feed_url, entries):
+    """Create exact-URL receipts only when headlines came from a registered RSS feed."""
+    provider_id=provider_for_feed(feed_url)
+    if provider_id is None:return {}
+    result={}
+    for entry in entries:
+        if not isinstance(entry,dict) or not entry.get('published'):continue
+        try:
+            bound=receipt(provider_id=provider_id,feed_url=feed_url,entry=entry,article_url=entry.get('url',''))
+        except (TypeError,ValueError):
+            continue
+        result[bound['article_url']]=bound
+    return result
