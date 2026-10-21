@@ -559,6 +559,16 @@ def _loop_steps(runtime,job,answer=None):
             if isinstance(exc,(ValueError,TypeError)):
                 invalid_decisions+=1
                 if invalid_decisions>=MAX_INVALID_DECISIONS:
+                    from modules import research_evidence
+                    if research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request']):
+                        from modules import news_recovery
+                        try:
+                            news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                        except (requests_state.Cancelled,PermissionError):raise
+                        except Exception as recovery_error:
+                            _record_failure('modules/goal_executor.py:news_recovery')
+                            job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
+                        if _finish_completed(job):return render(job)
                     raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
             if isinstance(exc,RuntimeError):
                 if planner_pending:

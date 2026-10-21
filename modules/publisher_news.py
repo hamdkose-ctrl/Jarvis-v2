@@ -53,8 +53,9 @@ def recovery_indexes(request,seeds):
     preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
     excluded={host(s['url']) for s in SOURCES+GENERAL_SOURCES}
-    discovered=[] if broad else [url for url in seeds if host(url) not in excluded]
-    return list(dict.fromkeys(discovered+preferred+known))[:4]
+    discovered=[] if broad or multiple_publishers(request) else [url for url in seeds if host(url) not in excluded]
+    ordered=(preferred+known+discovered) if multiple_publishers(request) else (discovered+preferred+known)
+    return list(dict.fromkeys(ordered))[:4]
 
 
 def publisher_key(url):

@@ -805,6 +805,16 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(goals.handle(self.runtime,'devam'),'Sürdürülecek kayıtlı hedef yok.')
         self.ask.assert_not_called()
 
+    def test_invalid_fileless_news_plans_try_bounded_source_recovery(self):
+        self.responses(self.plan('Son haberleri araştır'),
+            {'action':'invalid'},{'action':'invalid'},{'action':'invalid'})
+        from modules import news_recovery
+        with patch.object(news_recovery,'deliver') as recover:
+            goals.run(self.runtime,'Son dakika haberleri')
+        recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
+        self.assertEqual(self.ask.call_count,4)
+        self.assertEqual(goals.latest('alice')['state'],'paused')
+
     def test_bare_resume_closed_goal_says_it_is_closed_without_model(self):
         self.responses(self.plan('İş'),RuntimeError('models unavailable'))
         goals.run(self.runtime,'İş yap');job=goals.latest('alice')
