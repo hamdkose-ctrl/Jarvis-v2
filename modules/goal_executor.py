@@ -419,6 +419,14 @@ def _loop_steps(runtime,job,answer=None):
             from modules import news_recovery
             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
             if _finish_completed(job):return render(job)
+            # A generic request has no additional subject for the planner to
+            # resolve.  If the bounded source-only path could not establish
+            # enough evidence, preserve its pending goal instead of spending
+            # model turns on an invalid replacement plan.
+            job['state']='paused'
+            job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'
+            _save(job)
+            return render(job)
         resumed=_resume_news_recovery(runtime,job,started_steps)
         if _finish_completed(job) or resumed:return render(job)
     for _ in range(MAX_TURNS):

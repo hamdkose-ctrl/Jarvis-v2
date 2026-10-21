@@ -823,6 +823,18 @@ class GoalTests(unittest.TestCase):
         recover.assert_called_once_with(self.runtime,goals.latest('alice'),max_new_steps=24)
         self.ask.assert_not_called()
 
+    def test_generic_fileless_news_pauses_when_bounded_recovery_has_no_evidence(self):
+        from modules import news_recovery
+        with patch.object(news_recovery,'deliver') as recover:
+            result=goals.run(self.runtime,'Son dakika haberleri')
+        job=goals.latest('alice')
+        recover.assert_called_once_with(self.runtime,job,max_new_steps=24)
+        self.ask.assert_not_called()
+        self.assertEqual(job['state'],'paused')
+        self.assertEqual(job['goals'][0]['state'],'pending')
+        self.assertEqual(job['steps'],[])
+        self.assertIn('doğrulanmış',result)
+
     def test_bare_resume_closed_goal_says_it_is_closed_without_model(self):
         self.responses(self.plan('İş'),RuntimeError('models unavailable'))
         goals.run(self.runtime,'İş yap');job=goals.latest('alice')
