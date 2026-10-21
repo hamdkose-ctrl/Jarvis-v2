@@ -12,6 +12,7 @@ set "STARTER=%STARTUP%\Jarvis-PC-Acceptance-Watcher.cmd"
 set "DESKTOP=%USERPROFILE%\Desktop"
 set "DESKTOP_STARTER=%DESKTOP%\Jarvis-PC-Test-Watcher.cmd"
 set "REPO_STARTER=%ROOT%\Jarvis-PC-Test-Watcher.cmd"
+set "GH=gh.exe"
 
 if not exist "%WATCHER%" (
   echo HATA: Watcher bulunamadi: %WATCHER%
@@ -20,11 +21,16 @@ if not exist "%WATCHER%" (
 
 where gh.exe >nul 2>nul
 if errorlevel 1 (
-  echo UYARI: GitHub CLI ^(gh^) bulunamadi. Testler calisir ama PR yorumu gonderilmez.
-) else (
-  gh auth status >nul 2>nul
-  if errorlevel 1 echo UYARI: gh oturumu acik degil. Testler calisir ama PR yorumu gonderilmez.
+  if exist "%ProgramFiles%\GitHub CLI\gh.exe" (
+    set "GH=%ProgramFiles%\GitHub CLI\gh.exe"
+  ) else (
+    echo UYARI: GitHub CLI ^(gh^) bulunamadi. Testler calisir ama PR yorumu gonderilmez.
+    goto gh_done
+  )
 )
+"%GH%" auth status >nul 2>nul
+if errorlevel 1 echo UYARI: gh oturumu acik degil. Testler calisir ama PR yorumu gonderilmez.
+:gh_done
 
 where schtasks.exe >nul 2>nul
 if not errorlevel 1 (
