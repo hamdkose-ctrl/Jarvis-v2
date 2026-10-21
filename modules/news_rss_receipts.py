@@ -1,0 +1,37 @@
+"""Immutable, registered RSS publication-date receipts for news articles."""
+from datetime import datetime
+from urllib.parse import urlsplit
+
+from modules import public_sources
+
+
+PROVIDERS = {
+    'trt_haber': {'feed_url': 'https://www.trthaber.com/rss.xml', 'host': 'www.trthaber.com'},
+}
+
+
+def receipt(*, provider_id, feed_url, entry, article_url):
+    """Bind a registered feed entry's publication date to its exact article URL."""
+    provider = PROVIDERS.get(provider_id)
+    if provider is None:
+        raise ValueError('Kayıtlı RSS sağlayıcısı bulunamadı.')
+    expected_feed = public_sources.address(provider['feed_url'])
+    if public_sources.address(feed_url) != expected_feed:
+        raise ValueError('RSS makbuzu kayıtlı sağlayıcı akışıyla eşleşmiyor.')
+    if not isinstance(entry, dict):
+        raise ValueError('RSS girdisi geçersiz.')
+    url = public_sources.address(article_url)
+    if public_sources.address(entry.get('url', '')) != url:
+        raise ValueError('RSS girdisi tekil haber bağlantısıyla eşleşmiyor.')
+    if urlsplit(url).hostname != provider['host']:
+        raise ValueError('RSS makbuzu başka alan adına ait olamaz.')
+    title = entry.get('title')
+    published = entry.get('published')
+    if not isinstance(title, str) or not title.strip() or not isinstance(published, str):
+        raise ValueError('RSS başlığı veya yayın tarihi geçersiz.')
+    try:
+        day = datetime.fromisoformat(published.replace('Z', '+00:00')).date().isoformat()
+    except ValueError as exc:
+        raise ValueError('RSS yayın tarihi ISO-8601 olmalı.') from exc
+    return {'provider_id': provider_id, 'feed_url': expected_feed, 'article_url': url,
+            'title': title.strip(), 'published': day}
