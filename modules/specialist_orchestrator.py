@@ -65,6 +65,26 @@ def run(runtime, request, tasks):
             'summary':json.dumps([{'id':t['id'],'specialist':t['specialist'],'tool':t['tool']} for t in journal],ensure_ascii=False)}
 
 
+def _rss_receipt(dependencies,url,owner):
+    """Read an exact-URL RSS receipt only from a verified data dependency."""
+    for output in dependencies.values():
+        if not isinstance(output,dict) or output.get('local_evidence')!='data':continue
+        goal_tools.verify(output,owner)
+        structured=output.get('structured')
+        if not isinstance(structured,dict):continue
+        receipts=structured.get('rss_receipts')
+        if not isinstance(receipts,dict):continue
+        bound=receipts.get(url)
+        if not isinstance(bound,dict) or bound.get('article_url')!=url:continue
+        from modules import news_rss_receipts
+        try:
+            checked=news_rss_receipts.receipt(provider_id=bound.get('provider_id'),feed_url=bound.get('feed_url'),
+                entry={'url':bound.get('article_url'),'title':bound.get('title'),'published':bound.get('published')},article_url=url)
+        except (TypeError,ValueError):continue
+        return checked
+    return None
+
+
 def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the existing durable journal and permission gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
@@ -73,5 +93,7 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         from modules import research_evidence
         if research_evidence.news_requested(job['request']):
             from modules import model_free_news
-            return model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
+            receipt=_rss_receipt(deps,step['input'].get('url'),job['owner'])
+            return model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True,
+                                       rss_receipt=receipt)
     return goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
