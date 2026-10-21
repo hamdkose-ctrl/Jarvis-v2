@@ -17,27 +17,38 @@ def codex_exe() -> str | None:
     return str(candidate) if candidate.is_file() else None
 
 
-def run_followup(root: Path, ref: str, sha: str, status: str) -> dict:
+def _prompt(ref: str, sha: str, status: str, failure_hint: str = "") -> str:
+    branch = ref.replace("refs/remotes/origin/", "", 1)
+    if status == "failed":
+        hint = f" Failure summary: {failure_hint[:1200]}" if failure_hint else ""
+        return (
+            "Read AGENTS.md and only the relevant docs/agents note for this task. "
+            f"Windows acceptance failed for branch {branch} at commit {sha}.{hint} "
+            "Fetch origin and verify this commit is still the remote branch head; if stale, stop without edits. "
+            "Stay on this task and branch. Inspect only files needed for this failure, fix the root cause, "
+            "run the required focused tests plus repository validation, then commit and push a new SHA. "
+            "Do not scan unrelated areas, do not start another roadmap item, do not write directly to main, "
+            "do not use force, do not touch android or .venv, do not read or commit personal secrets, "
+            "and do not weaken tests or safety checks."
+        )
+    return (
+        "Read AGENTS.md, the relevant docs/agents note, docs/JARVIS_ANA_PLAN.md and docs/BEKLEYEN_ISLER.md. "
+        f"Windows acceptance passed for branch {branch} at commit {sha}. "
+        "Fetch origin and verify this commit is still the remote branch head; if stale, stop without edits. "
+        "Use this PASS as the completion signal for the current approved task. Keep context small: do not rescan "
+        "unrelated code. Finish the current PR according to existing repo rules; once that task is actually complete, "
+        "continue only with the next already-approved open roadmap item in a separate gpt/ branch. "
+        "Do not write directly to main, do not use force, do not touch android or .venv, and do not read or commit personal secrets. "
+        "If fresh user approval is required for a scope that is not already approved, stop and report that blocker."
+    )
+
+
+def run_followup(root: Path, ref: str, sha: str, status: str, failure_hint: str = "") -> dict:
     codex = codex_exe()
     if not codex:
         return {"state": "skipped", "reason": "codex_cli_missing"}
-    branch = ref.replace("refs/remotes/origin/", "", 1)
-    prompt = (
-        "Read AGENTS.md and the relevant docs/agents notes first. "
-        f"The Windows acceptance result for branch {branch} at commit {sha} is {status}. "
-        "Fetch origin and verify that this commit is still the remote branch head before changing anything; "
-        "if it is stale, stop without edits. Read the open PR and its Windows acceptance comment. "
-        "Use the repository's existing workflow and roadmap. If the result failed, stay on that branch, "
-        "fix only that task, run the required tests and validation, then commit and push the new head so the watcher can retest it. "
-        "If it passed, finish the current PR according to the existing repo rules; once that task is actually complete, "
-        "read docs/JARVIS_ANA_PLAN.md and docs/BEKLEYEN_ISLER.md, choose the next already-approved open roadmap item, "
-        "create a separate gpt/ branch from current main, implement it with a failing test first, validate it, open a draft PR, and push. "
-        "Do not write directly to main, do not use force, do not touch android or .venv, do not read or commit personal secrets, "
-        "and do not weaken tests or safety checks. Do not ask Hamdi to copy terminal output between agents. "
-        "If repo rules require fresh user approval for a scope that is not already approved in the roadmap, stop and report that blocker instead of coding."
-    )
     proc = subprocess.run(
-        [codex, "exec", "--sandbox", "workspace-write", prompt],
+        [codex, "exec", "--sandbox", "workspace-write", _prompt(ref, sha, status, failure_hint)],
         cwd=str(root),
         check=False,
         capture_output=True,
