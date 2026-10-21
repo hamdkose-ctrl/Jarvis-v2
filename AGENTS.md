@@ -142,4 +142,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Tamamlanmış haber makbuzu varken ilk geçersiz complete kararı, turda bir kez modelsiz kurtarmayı erkenden deneyebilir. Çok yayıncılı istekte mevcut yayıncı dışındaki aynı sınırlı kaynaklar öne alınır; 120 sn, üç geçersiz karar ve araç sınırları büyütülmez.
 
 - Mevcut tarihli iki yayıncı makbuzunun sohbet tesliminde, planlayıcının kapsam-nötr “önem sırasıyla kullanıcıya aktar” türü sözleri tanınabilir. Yalnız sunum sözcükleri eklenir; dosya, mesaj, yayın, takip, çeviri, analiz, finans veya başka araç gerektiren hedefler otomatik tamamlanmaz.
+
+- Genel haber kurtarması Türkçe kayıtlı dizinlerde ilk beş ayrı yayıncıyı kapsar; ilk dört erişemez veya tarihli makale vermezse beşinci kaynak denenir. On adım ve 45 saniye sınırı büyütülmez; iki bağımsız yayıncı ile tarihli tekil makbuz zorunluluğu sürer.
 - Sınırlı sohbet haber kurtarması, aynı yayıncının ikinci bağlantısına geçmeden önce her kayıtlı yayıncının en yüksek eşleşen adayını dener. Toplam adım/süre sınırı, tarihli tekil makale doğrulaması ve iki bağımsız yayıncı tamamlama kuralı değişmez.

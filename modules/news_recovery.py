@@ -77,7 +77,7 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     query=' '.join(terms)[:300]
     attempted=set(o['news_article']['url'] for o in sources.values())
     candidates=[]
-    for seed in seeds[-4:]:
+    for seed in seeds[-5:]:
         if enough():break
         data={'operation':'headlines','url':seed}
         if query:data['query']=query

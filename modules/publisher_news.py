@@ -15,9 +15,7 @@ GENERAL_SOURCES=(
     {'name':'Mynet Haber','url':'https://www.mynet.com/haber/'},
     {'name':'Investing.com Türkçe','url':'https://tr.investing.com/news/'},
     {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
-    {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
-    {'name':'DW Türkçe','url':'https://www.dw.com/tr/'},
-    {'name':'Euronews Türkçe','url':'https://tr.euronews.com/'},
+    {'name':'TRT Haber','url':'https://www.trthaber.com/'},
     {'name':'NTV','url':'https://www.ntv.com.tr/'},
     {'name':'T24','url':'https://t24.com.tr/'},
     {'name':'Bloomberg HT','url':'https://www.bloomberght.com/'},
@@ -26,7 +24,6 @@ GENERAL_SOURCES=(
      'scope':'Resmî şirket açıklamaları; genel haber bülteni değildir'},
     {'name':'DonanımHaber','url':'https://www.donanimhaber.com/'},
     {'name':'Webtekno','url':'https://www.webtekno.com/'},
-    {'name':'TRT Haber','url':'https://www.trthaber.com/'},
 )
 
 
@@ -54,7 +51,7 @@ def recovery_indexes(request,seeds):
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
     excluded={host(s['url']) for s in SOURCES+GENERAL_SOURCES}
     discovered=[] if broad else [url for url in seeds if host(url) not in excluded]
-    return list(dict.fromkeys(discovered+preferred+known))[:4]
+    return list(dict.fromkeys(discovered+preferred+known))[:5]
 
 
 def publisher_key(url):
