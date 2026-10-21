@@ -76,6 +76,7 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         return ident,job['outputs'][ident]
     query=' '.join(terms)[:300]
     attempted=set(o['news_article']['url'] for o in sources.values())
+    candidates=[]
     for seed in seeds[-4:]:
         if enough():break
         data={'operation':'headlines','url':seed}
@@ -86,16 +87,21 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         def score(row):
             text=(str(row.get('title',''))+' '+str(row.get('summary',''))).casefold().replace('ı','i').replace('\u0307','')
             return sum(1 for term in terms if term in text)
-        rows=sorted(rows,key=score,reverse=True)[:4]
-        for row in rows:
+        candidates.append(sorted(rows,key=score,reverse=True)[:4])
+    # Try the best candidate from each publisher before spending the bounded
+    # recovery budget on a second link from one publisher.
+    for position in range(max((len(rows) for rows in candidates),default=0)):
+        for rows in candidates:
             if evidence_enough():break
+            if position>=len(rows):continue
+            row=rows[position]
             url=row.get('url')
             if not url or url in attempted:continue
             attempted.add(url)
             rid,result=tool('research',{'url':url,'question':request})
             if result.get('state')=='done' and result.get('news_article'):
                 sources[rid]=result
-                if enough():break
+        if enough():break
     if enough():
         job['goals'][goal].update(state='done',evidence=list(sources))
         from modules import news_policy

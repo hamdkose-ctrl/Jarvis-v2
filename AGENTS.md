@@ -140,3 +140,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Gerçek PC genel PASS, validation çıkış koduna ek olarak calculator ve news_chat_resume kayıtlarının ikisinin de passed olmasını ister; pending/eksik kayıt kabulü tamamlamaz. Otomatik takip istemi opsiyonel yapılandırma yerine başarısız/asıl kabul kontrollerini öne alır.
 
 - Tamamlanmış haber makbuzu varken ilk geçersiz complete kararı, turda bir kez modelsiz kurtarmayı erkenden deneyebilir. Çok yayıncılı istekte mevcut yayıncı dışındaki aynı sınırlı kaynaklar öne alınır; 120 sn, üç geçersiz karar ve araç sınırları büyütülmez.
+- Sınırlı sohbet haber kurtarması, aynı yayıncının ikinci bağlantısına geçmeden önce her kayıtlı yayıncının en yüksek eşleşen adayını dener. Toplam adım/süre sınırı, tarihli tekil makale doğrulaması ve iki bağımsız yayıncı tamamlama kuralı değişmez.

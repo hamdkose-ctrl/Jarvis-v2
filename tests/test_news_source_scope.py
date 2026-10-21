@@ -109,3 +109,25 @@ class NewsSourceScopeTests(unittest.TestCase):
         job, fetched, reply = self.run_recovery(fail_first=True)
         self.assertEqual(job['state'], 'done', reply)
         self.assertIn(GENERAL[2], fetched)
+
+    def test_recovery_samples_each_publisher_before_second_article_attempt(self):
+        """Broken articles at early indexes cannot consume the diversity budget."""
+        case = fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        case.responses(case.plan('Güncel haberleri araştır'), RuntimeError('Taklit sağlayıcı kullanılamıyor'))
+        day = datetime.now(timezone(timedelta(hours=3))).date().isoformat()
+        def fetch(url):
+            if url in GENERAL:
+                return {'url': url, 'body': b'<a href="/story/one">Son dakika deprem haberi</a><a href="/story/two">Yeni deprem haberi</a>'}
+            host = urlsplit(url).hostname
+            if host in {'www.mynet.com', 'tr.investing.com'}:
+                return {'url': url, 'body': b'<article><h1>Eksik tarihli haber</h1><p>Deprem hakkinda yeni bilgi var.</p></article>'}
+            text = ('Deprem sonrasi kurumlar sahadaki incelemelerin sonuclarini kamuoyuna acikladi. '
+                    'Yetkililer dogrulanmis yeni bilgileri paylasti ve calismalar suruyor.')
+            body = f'<article><h1>{host} deprem haberi</h1><time itemprop="datePublished" datetime="{day}"></time><p>{text}</p></article>'
+            return {'url': url, 'body': body.encode()}
+        with patch('modules.public_sources.fetch', side_effect=fetch), patch('modules.privacy.blocked', return_value=None):
+            reply = goals.run(case.runtime, 'son dakika deprem haberleri')
+        job = goals.latest('alice')
+        self.assertEqual(job['state'], 'done', reply)
+        articles = [row['news_article'] for row in job['outputs'].values() if row.get('news_article')]
+        self.assertGreaterEqual(len({publisher_news.publisher_key(row['url']) for row in articles}), 2)
