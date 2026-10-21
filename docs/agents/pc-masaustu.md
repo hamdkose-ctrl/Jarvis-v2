@@ -18,3 +18,12 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - 21 Ekim 2026: watcher, Windows PC'de GitHub CLI (`gh`) hazır ve oturum açık olduğunda test edilen dalın açık PR'ını bulup redacted kabul özetini otomatik yorum olarak gönderir. PR'a yalnız commit, genel test durumu, validation ile `calculator` ve `news_chat_resume` durumları gider; yerel yapılandırma, hesap ayrıntıları, anahtarlar ve ham model yanıtları gitmez. `gh` yoksa/oturum kapalıysa test yine yerel JSON'a yazılır ve PR yorum adımı sonucu değiştirmeden `skipped` kalır.
 - 21 Ekim 2026: şirket PC'sinde GitHub CLI MSI ile `C:\Program Files\GitHub CLI\gh.exe` altına kurulup PATH'e yansımayabildiği için watcher ve kurucu önce PATH'i, sonra bu standart Program Files yolunu dener. Böylece yeni CMD açılmadan da açık GitHub oturumu kullanılarak PR yorumu gönderilebilir.
 - 21 Ekim 2026: watcher daha önce yarıda kesilmiş bir geçici worktree'nin klasörü silinmiş fakat Git kaydı kalmışsa `git worktree prune` ile yalnız stale kaydı temizleyip aynı adayı yeniden oluşturur; bu durum artık watcher döngüsünü `missing but already registered worktree` hatasıyla durdurmaz.
+
+## Ajanların gerçek PC sonucu ile çalışma döngüsü — 21 Ekim 2026
+
+- `gpt/*` dalında çalışan her ajan, kendi açık PR'ında watcher'ın `<!-- jarvis-pc-acceptance -->` işaretli **Gerçek Windows PC kabul sonucu** yorumunu çalışma döngüsünün parçası sayar.
+- Yeni commit gönderdikten sonra eski PC sonucu yeni commit için başarı kanıtı değildir. Ajan yalnız kendi son commit SHA'sı ile eşleşen watcher yorumunu geçerli kabul eder.
+- Sonuç `failed` ise ajan Hamdi'den log kopyalamasını istemeden yorumdaki güvenli hata özetinden ilerler, hatayı kendi dalında düzeltir, yeni commit gönderir ve yeni watcher turunu bekler. Testi geçirmek için güvenlik veya kanıt kapıları gevşetilmez.
+- Sonuç `passed` ise gerçek PC kabulü tamamlanmış sayılır ve ajan sonraki PR/CI adımına geçebilir. `validation`, `calculator` veya `news_chat_resume` alanlarından biri başarısızsa genel kabul başarılı sayılmaz.
+- Yorum henüz yoksa ajan PC testini geçti varsaymaz; PR'ı bekleyen gerçek-PC kabulü olarak bırakır. Watcher'ın yerel olarak çalışmaması veya yorum gönderememesi halinde durum açıkça belirtilir; sahte başarı yazılmaz.
+- Amaç Hamdi'nin ajanlar arasında çıktı taşımasını kaldırmaktır: ajan PR yorumunu kendisi okur, kendi dalındaki sonucu kendisi değerlendirir ve yalnız gerçek yeni sonuç üzerinden devam eder.
