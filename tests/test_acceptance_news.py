@@ -5,6 +5,20 @@ from modules import acceptance_checks
 
 
 class NewsAcceptanceHelperTests(unittest.TestCase):
+    def test_failure_summary_keeps_recovery_facts_in_truncated_pr_preview(self):
+        job={'state':'paused','request':'son dakika haberleri',
+             'goals':[{'state':'done'},{'state':'pending','text':'PRIVATE_REQUEST'}],
+             'steps':[{'id':'s1','tool':'data','state':'done','recovery':True},
+                      {'id':'s2','tool':'research','state':'failed','recovery':True}],
+             'outputs':{'s2':{'state':'failed','text':'PRIVATE_CONTENT'}},
+             'blocker':'3 geçersiz karar '+('x'*300),
+             'decision_diagnostics':[{'reason':'Bu hedefin başarılı adımı değil.'}]*3}
+        detail=acceptance_checks._news_failure_detail(job)
+        self.assertIn('hedefler=done,pending',detail[:600])
+        self.assertIn('makale=0',detail[:600])
+        self.assertIn('kurtarma=data.done:1,research.failed:1',detail[:600])
+        self.assertNotIn('PRIVATE_',detail)
+
     def test_goal_signature_ignores_volatile_top_level_time(self):
         base={'id':'g1','owner':'alice','request':'haber','state':'done','goals':[],'steps':[],'outputs':{},'updated':1}
         later={**base,'updated':999}

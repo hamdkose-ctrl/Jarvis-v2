@@ -64,6 +64,20 @@ def _news_failure_detail(job):
     """Only bounded redacted decision summaries leave the isolated goal store."""
     from modules import privacy
     detail=f"Haber hedefi tamamlanmadı: {job.get('state','unknown')}"
+    states=[goal.get('state') for goal in job.get('goals',[]) if goal.get('state') in {'done','pending'}]
+    recovery={}
+    for step in job.get('steps',[]):
+        tool=step.get('tool');state=step.get('state')
+        if step.get('recovery') and tool in {'data','research','writer','verify'} and state in {'done','failed','blocked','approval','queued','running'}:
+            key=tool+'.'+state;recovery[key]=recovery.get(key,0)+1
+    detail+='; hedefler='+','.join(states[:8])
+    try:
+        articles,publishers=_news_job_facts(job)
+        detail+=f'; makale={articles}; yayıncı={len(publishers)}'
+    except (ValueError,PermissionError,OSError):
+        _record_failure('modules/acceptance_checks.py:news_failure_receipts')
+        detail+='; makale=geçersiz'
+    detail+='; kurtarma='+(','.join(key+':'+str(value) for key,value in sorted(recovery.items())) or 'yok')
     blocker=privacy.redact(str(job.get('blocker') or ''),force=True)[:240]
     if blocker:detail+='; '+blocker
     trace=job.get('decision_diagnostics',[])[-3:]

@@ -132,3 +132,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Haber planlayıcısı üç geçersiz kararda durdurulduğunda, kalan aynı tur/araç bütçesi içindeki mevcut modelsiz kurtarma denenebilir; dördüncü model denemesi veya geçersiz kanıtın kabulü yoktur. Kaynak yoksa hedef tamamlandı sayılmaz.
 
 - PC watcher validation başarısızlığında PR yorumuna yalnız sınırlı unittest test kimliklerini ekler; ham log/traceback aktarılmaz. Alan notlarında bölüm başlığı değişikliği dizindeki mevcut sayıyla uyumlu tutulur.
+
+- Haber kabulü başarısızsa kısa PR önizlemesinde hedef durumları, doğrulanmış makale/yayıncı sayısı ve modelsiz kurtarma adımlarının durum sayıları korunur; hedef metni, ham kaynak veya kullanıcı girdisi bu özete eklenmez.
