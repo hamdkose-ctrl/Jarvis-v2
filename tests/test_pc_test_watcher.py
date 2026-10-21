@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / 'scripts' / 'pc_test_watcher.py'
@@ -46,6 +48,16 @@ class PcTestWatcherTests(unittest.TestCase):
             watcher.branch_from_ref('refs/remotes/origin/gpt/windows-pc-watcher'),
             'gpt/windows-pc-watcher',
         )
+
+    def test_gh_exe_falls_back_to_program_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            candidate = Path(td) / 'GitHub CLI' / 'gh.exe'
+            candidate.parent.mkdir(parents=True)
+            candidate.write_text('', encoding='utf-8')
+            with mock.patch.object(watcher.shutil, 'which', return_value=None), mock.patch.dict(
+                os.environ, {'ProgramFiles': td}, clear=False
+            ):
+                self.assertEqual(watcher.gh_exe(), str(candidate))
 
     def test_real_acceptance_includes_live_news(self):
         command = watcher.acceptance_command(Path('python.exe'))
