@@ -59,6 +59,21 @@ class PcTestWatcherTests(unittest.TestCase):
             ):
                 self.assertEqual(watcher.gh_exe(), str(candidate))
 
+    def test_add_worktree_prunes_stale_registration_before_add(self):
+        root = Path('repo')
+        target = Path('temp-worktree')
+        with mock.patch.object(watcher, 'run') as run_mock, mock.patch.object(
+            watcher.Path, 'exists', return_value=False
+        ):
+            watcher.add_worktree(root, 'abc123', target)
+        self.assertEqual(
+            run_mock.call_args_list,
+            [
+                mock.call(['git', 'worktree', 'prune'], cwd=root, check=False),
+                mock.call(['git', 'worktree', 'add', '--detach', str(target), 'abc123'], cwd=root),
+            ],
+        )
+
     def test_real_acceptance_includes_live_news(self):
         command = watcher.acceptance_command(Path('python.exe'))
         self.assertIn('--desktop', command)
