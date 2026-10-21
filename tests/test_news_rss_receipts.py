@@ -37,14 +37,14 @@ class NewsRssReceiptTests(unittest.TestCase):
         self.assertEqual(result['rss_receipts'][article]['feed_url'],feed)
 
     def test_research_receives_only_matching_sealed_headlines_receipt(self):
-        from modules import specialist_orchestrator, task_results
+        from modules import goal_tools, specialist_orchestrator
         article='https://www.trthaber.com/haber/gundem/ornek-1.html'
         other='https://www.trthaber.com/haber/gundem/diger.html'
         receipt={'provider_id':'trt_haber','feed_url':'https://www.trthaber.com/rss.xml',
                  'article_url':article,'title':'Ornek haber','published':'2026-10-21'}
-        output=task_results.seal('data',{'state':'done','text':'basliklar','owner':'alice','local_evidence':'data',
-            'structured':{'items':[{'url':article,'title':'Ornek haber','published':'2026-10-21'}],
-                          'rss_receipts':{article:receipt}}})
+        output=goal_tools.local_result('alice','data','basliklar',structured={
+            'items':[{'url':article,'title':'Ornek haber','published':'2026-10-21'}],
+            'rss_receipts':{article:receipt}})
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='alice'))
         job={'owner':'alice','request':'guncel haberleri araştır','outputs':{'h':output}}
         step={'tool':'research','input':{'url':article},'depends':['h']}
