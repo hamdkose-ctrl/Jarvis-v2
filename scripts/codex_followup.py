@@ -6,6 +6,20 @@ import subprocess
 from pathlib import Path
 
 
+QUOTA_MARKERS = (
+    "429",
+    "rate limit",
+    "rate_limit",
+    "quota",
+    "usage limit",
+    "usage_limit",
+    "capacity",
+    "too many requests",
+    "try again later",
+    "temporarily unavailable",
+)
+
+
 def codex_exe() -> str | None:
     found = shutil.which("codex") or shutil.which("codex.exe")
     if found:
@@ -49,6 +63,11 @@ def _prompt(ref: str, sha: str, status: str, failure_hint: str = "") -> str:
     )
 
 
+def quota_or_rate_limited(text: str) -> bool:
+    normalized = " ".join(str(text or "").lower().split())
+    return any(marker in normalized for marker in QUOTA_MARKERS)
+
+
 def run_followup(root: Path, ref: str, sha: str, status: str, failure_hint: str = "") -> dict:
     codex = codex_exe()
     if not codex:
@@ -73,7 +92,15 @@ def run_followup(root: Path, ref: str, sha: str, status: str, failure_hint: str 
         errors="replace",
         timeout=1800,
     )
-    tail = "\n".join((proc.stdout or "").splitlines()[-40:])
+    combined = "\n".join(part for part in (proc.stdout or "", proc.stderr or "") if part)
+    tail = "\n".join(combined.splitlines()[-40:])
     if proc.returncode:
+        if quota_or_rate_limited(combined):
+            return {
+                "state": "pending_quota",
+                "reason": "quota_or_rate_limit",
+                "exit_code": proc.returncode,
+                "tail": tail[:3000],
+            }
         return {"state": "failed", "exit_code": proc.returncode, "tail": tail[:3000]}
     return {"state": "completed", "exit_code": 0, "tail": tail[:3000]}
