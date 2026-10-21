@@ -15,7 +15,7 @@ def chat_followup_candidates(job):
     if (job['state'] in {'approval','review','cancelled'} or
             not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):return []
     candidates=[]
-    allowed=re.compile(r'(?:haber|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin)')
+    allowed=re.compile(r'(?:haber|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver|onem|oncelik|sira|aktar|ilet|paylas|acikla)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin|gore)')
     for index,target in enumerate(job['goals']):
         if target.get('state')!='pending':continue
         low=''.join(c for c in unicodedata.normalize('NFKD',target.get('text','').casefold().replace('ı','i')) if not unicodedata.combining(c))
