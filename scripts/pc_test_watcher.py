@@ -37,9 +37,9 @@ def git_root() -> Path:
     ).strip())
 
 
-def python_exe(root: Path) -> Path:
+def python_exe(root: Path) -> Path | None:
     candidate = root / ".venv" / "Scripts" / "python.exe"
-    return candidate if candidate.is_file() else Path(sys.executable)
+    return candidate if candidate.is_file() else None
 
 
 def gh_exe() -> str | None:
@@ -136,6 +136,13 @@ def run_acceptance(py: Path, worktree: Path, *flags: str) -> dict:
 def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool, news: bool) -> dict:
     py = python_exe(root)
     report = {"ref": ref, "sha": sha, "started": time.time(), "status": "failed"}
+    if py is None:
+        report["validation"] = {
+            "exit_code": 2,
+            "tail": "Doğrulama çalıştırılmadı: .venv\\Scripts\\python.exe bulunamadı.",
+        }
+        report["finished"] = time.time()
+        return report
 
     print("[A] Validation basladi...", flush=True)
     validation = run([str(py), "-X", "utf8", "-m", "modules.validation"],

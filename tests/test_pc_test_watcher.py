@@ -19,6 +19,15 @@ class PcTestWatcherTests(unittest.TestCase):
         seen = {'refs/remotes/origin/gpt/new': 'bbb'}
         self.assertEqual(watcher.choose_candidate(candidates, seen), candidates[1])
 
+    def test_suite_reports_missing_venv_without_running_another_python(self):
+        with mock.patch.object(watcher, 'python_exe', return_value=None), \
+                mock.patch.object(watcher, 'run') as run:
+            result = watcher.run_suite(Path('repo'), Path('worktree'), 'ref', 'a'*40, desktop=True, news=False)
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['validation']['exit_code'], 2)
+        self.assertIn('.venv\\Scripts\\python.exe', result['validation']['tail'])
+        run.assert_not_called()
+
     def test_normal_suite_does_not_run_news(self):
         validation = mock.Mock(returncode=0, stdout='OK')
         desktop = {'exit_code': 0, 'tail': '', 'checks': [{'check': 'calculator', 'state': 'passed'}]}

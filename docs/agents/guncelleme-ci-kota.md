@@ -99,3 +99,5 @@ Resmî koşular her kökün kendi `python -m modules.validation` girişini ayrı
 ## PC watcher haber kabul seçeneği — 22 Ekim 2026
 
 `pc_test_watcher` ve `pc_test_loop` haber final aşamasını `modules.acceptance_checks --news --skip-suite` ile çalıştırır. Bu seçenek dosyasız canlı haber hedefinde iki tarihli bağımsız yayıncı makbuzunu, writer çalışmamasını ve tamamlanmış hedefe `devam` yanıtının kalıcı kaydı değiştirmediğini izole geçici hedef deposunda doğrular. Başarısız özet yalnız sınırlı, maskelenmiş karar/kurtarma sayaçlarını taşır; ham istek, kaynak veya kişisel veri yazılmaz. `--news` verilmezse kontrol pending kalır; watcher kabulü passed saymaz. Test: `tests/test_acceptance_news.py`, `tests/test_pc_test_watcher.py`, `tests/test_pc_test_loop.py`; gerçek Windows haber kabulü ayrıca çalıştırılmalıdır.
+
+Watcher doğrulamayı yalnız gözetleyen kökteki `.venv\\Scripts\\python.exe` ile başlatır. Bu yorumlayıcı yoksa sistem Python'una düşmez; çalışma başlatılmadan "ortam eksik" sonucu kaydedilir. Böylece eksik paketli farklı bir Python'un yanıltıcı test hatası kabul sonucu sayılmaz.
