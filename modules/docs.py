@@ -3,7 +3,6 @@ import re
 from pathlib import Path
 
 from .diagnostics import record_failure as _record_failure
-from .llm import ask
 
 SUPPORTED = (".pdf", ".docx", ".xlsx", ".xlsm", ".pptx", ".csv", ".html", ".htm", ".txt", ".md", ".rtf", ".odt", ".json")
 _LEGACY = {".doc": "Word", ".xls": "Excel", ".ppt": "PowerPoint"}
@@ -478,6 +477,7 @@ def _read_text(path: str) -> str:
 
 
 def summarize(path: str) -> str:
+    from .llm import ask
     text = _read_text(path)
     chunks = list(_chunks(text))
     note = ""
@@ -491,6 +491,7 @@ def summarize(path: str) -> str:
 
 
 def insights(path: str, question: str = "") -> str:
+    from .llm import ask
     text = _read_text(path)[:40000]
     q = question or "Ana bulgular, riskler, aksiyon maddeleri ve dikkat çeken detaylar neler?"
     return ask(f"Döküman:\n{text}\n\nSoru: {q}\nTürkçe yanıtla.")

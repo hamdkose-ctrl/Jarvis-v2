@@ -1,6 +1,7 @@
 # Güncelleme, CI, model ve kota (AGENTS.md alan notları)
 
 - Test izolasyonu: `test_execution_policy_stability` hem DNS hem çevrimdışı mesajını kontrollü ağ durumuyla doğrular. `test_publish_batch` STATE ve PR_STATE için aynı temizlenen geçici klasörü kullanır; kullanıcının `.jarvis` verisine yazmaz. Üretim davranışı değişmez.
+- Hafif import: `modules.docs`, LLM istemcisini yalnız özet veya içgörü istendiğinde yükler. Çalışma modu ve medya yardımcıları opsiyonel Google Gemini paketi olmadan içe aktarılabilir; `tests/test_warning_acceptance.py` bunu ayrı süreçte doğrular.
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
