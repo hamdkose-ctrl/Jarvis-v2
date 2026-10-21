@@ -105,6 +105,16 @@ def acceptance_command(py: Path) -> list[str]:
     return [str(py), "-X", "utf8", "-m", "modules.acceptance_checks", "--desktop", "--news", "--skip-suite"]
 
 
+def acceptance_details(worktree: Path) -> list[dict]:
+    path = worktree / "v2_kabul_sonucu.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    checks = data.get("checks") if isinstance(data, dict) else None
+    return checks if isinstance(checks, list) else []
+
+
 def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) -> dict:
     py = python_exe(root)
     report = {
@@ -140,6 +150,7 @@ def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) 
         report["desktop_acceptance"] = {
             "exit_code": acceptance.returncode,
             "tail": "\n".join((acceptance.stdout or "").splitlines()[-120:]),
+            "checks": acceptance_details(worktree),
         }
         if acceptance.returncode != 0:
             report["finished"] = time.time()
