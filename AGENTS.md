@@ -126,3 +126,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Dosya istemeyen haber hedefinde yanlış writer seçimi yazma başlamadan sohbet teslimine yönlendirilir; yeterli kanıtla tamamlanır, eksik kanıt kısmi gösterilir. Gerçek dosya istekleri ve diğer iş türleri korunur. Mevcut haberlerle modelsiz toparlanan hedef yeniden planlayıcı beklemez.
 
 - Gerçek PC haber kabulünde üç geçersiz kararın nedeni yalnız son bütçe mesajıyla örtülmez: sınırlı/maskelemiş karar tanısı acceptance çıktısına taşınır; ham model girdileri dışarı çıkarılmaz. Tanı eklemek haber akışının düzeldiği anlamına gelmez.
+
+- Hedef planlayıcısının specialist etiketi araç yürütmesini bloke edemez; durable yürütücü uzmanı kullanıcıya ait kayıtlı yeteneklerden deterministik seçer. Açık uzman sözleşmesi ve gerçek işlem izinleri aynı katı kontrollerden geçer.
