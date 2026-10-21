@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import pc_test_watcher as watcher
+from pc_test_watcher import _record_failure
 from codex_followup import run_followup
 
 
@@ -24,6 +25,8 @@ def failure_hint(report: dict) -> str:
     parts = []
     for row in checks:
         if not isinstance(row, dict) or row.get("state") == "passed":
+            continue
+        if row.get('state')!='failed' and row.get('check') not in {'calculator','news_chat_resume'}:
             continue
         name = str(row.get("check") or "unknown")
         state = str(row.get("state") or "unknown")
@@ -115,6 +118,7 @@ def main() -> int:
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
+            _record_failure('scripts/pc_test_loop.py:main')
             error = {"status": "loop_error", "error": f"{type(exc).__name__}: {exc}", "time": time.time()}
             watcher.save_json(report_path, error)
             print(error)

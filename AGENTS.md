@@ -136,3 +136,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Haber kabulü başarısızsa kısa PR önizlemesinde hedef durumları, doğrulanmış makale/yayıncı sayısı ve modelsiz kurtarma adımlarının durum sayıları korunur; hedef metni, ham kaynak veya kullanıcı girdisi bu özete eklenmez.
 
 - Mevcut tarihli haber makbuzları kapsamı aynı kalan araştırma/sohbet alt hedeflerinde yeniden doğrulanarak paylaşılabilir. Bilinmeyen konu/eylem, dosya, mesaj, yayın, takip, çeviri veya analiz teslimi bu yolla tamamlandı sayılmaz; onay ve kanıt kapıları korunur.
+
+- Gerçek PC genel PASS, validation çıkış koduna ek olarak calculator ve news_chat_resume kayıtlarının ikisinin de passed olmasını ister; pending/eksik kayıt kabulü tamamlamaz. Otomatik takip istemi opsiyonel yapılandırma yerine başarısız/asıl kabul kontrollerini öne alır.
+
+- Tamamlanmış haber makbuzu varken ilk geçersiz complete kararı, turda bir kez modelsiz kurtarmayı erkenden deneyebilir. Çok yayıncılı istekte mevcut yayıncı dışındaki aynı sınırlı kaynaklar öne alınır; 120 sn, üç geçersiz karar ve araç sınırları büyütülmez.

@@ -16,6 +16,14 @@ STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
 
 
+def _record_failure(context):
+    # Direct script invocation puts scripts/, not the repository root, on sys.path.
+    root=str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:sys.path.insert(0,root)
+    from modules.diagnostics import record_failure
+    record_failure(context)
+
+
 def run(cmd, *, cwd: Path, check: bool = True, capture: bool = False):
     return subprocess.run(
         cmd,
@@ -241,6 +249,10 @@ def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) 
         if acceptance.returncode != 0:
             report["finished"] = time.time()
             return report
+        states={row.get('check'):row.get('state') for row in report['desktop_acceptance']['checks'] if isinstance(row,dict)}
+        if any(states.get(name)!='passed' for name in ('calculator','news_chat_resume')):
+            report['finished']=time.time()
+            return report
 
     report["status"] = "passed"
     report["finished"] = time.time()
@@ -297,6 +309,7 @@ def main() -> int:
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
+            _record_failure('scripts/pc_test_watcher.py:main')
             error = {
                 "status": "watcher_error",
                 "error": f"{type(exc).__name__}: {exc}",

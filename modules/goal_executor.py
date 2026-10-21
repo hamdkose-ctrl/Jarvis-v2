@@ -359,6 +359,7 @@ def _loop_steps(runtime,job,answer=None):
     rejected_sources=0
     rejected_questions=0
     invalid_decisions=0
+    news_recovery_attempted=False
     job['decision_diagnostics']=[]
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     for step in job['steps']:
@@ -575,7 +576,10 @@ def _loop_steps(runtime,job,answer=None):
                 })
                 job['decision_diagnostics']=job['decision_diagnostics'][-3:]
                 _save(job)
-                if invalid_decisions>=MAX_INVALID_DECISIONS:
+                early_news=(not news_recovery_attempted and action=='complete' and
+                            any(value.get('state')=='done' and value.get('news_article') for value in job['outputs'].values()))
+                if invalid_decisions>=MAX_INVALID_DECISIONS or early_news:
+                    news_recovery_attempted=True
                     _turn_check(runtime,job)
                     from modules import news_recovery
                     try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
@@ -584,6 +588,7 @@ def _loop_steps(runtime,job,answer=None):
                         _record_failure('modules/goal_executor.py:invalid_news_recovery')
                         job.setdefault('feedback',[]).append('Modelsiz kaynak kurtarma tamamlanamadı: '+privacy.redact(str(recovery_error),force=True)[:600])
                     if _finish_completed(job):return render(job)
+                if invalid_decisions>=MAX_INVALID_DECISIONS:
                     raise _TurnBudget('Doğrulanmış yeni bir sonuç olmadan '+str(MAX_INVALID_DECISIONS)+' geçersiz karar üretildi; yeniden deneme durduruldu. Hedef ve mevcut sonuçlar korundu.')
             if isinstance(exc,RuntimeError):
                 if planner_pending:

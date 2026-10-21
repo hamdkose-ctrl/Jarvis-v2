@@ -9,11 +9,12 @@ from modules import privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 
-def complete_chat_followups(job,evidence):
-    """Share verified news only with scope-neutral read/research/chat goals."""
+def chat_followup_candidates(job):
+    """Select only scope-neutral read/research/chat goals; unknown work stays open."""
     from modules import research_evidence
     if (job['state'] in {'approval','review','cancelled'} or
-            not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):return
+            not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):return []
+    candidates=[]
     allowed=re.compile(r'(?:haber|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin)')
     for index,target in enumerate(job['goals']):
         if target.get('state')!='pending':continue
@@ -25,8 +26,15 @@ def complete_chat_followups(job,evidence):
         if any(step.get('goal')==index and not (step.get('tool')=='research' or
                 step.get('tool')=='data' and step.get('input',{}).get('operation') in {'headlines','sources'})
                 for step in job['steps']):continue
+        candidates.append(index)
+    return candidates
+
+
+def complete_chat_followups(job,evidence):
+    """Share receipts through the existing sealed-news delivery contract."""
+    for index in chat_followup_candidates(job):
         deliver_chat(job,index,evidence)
-        if target['state']!='done':return
+        if job['goals'][index]['state']!='done':return
 
 
 def deliver_chat(job,goal,evidence):

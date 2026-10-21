@@ -15,6 +15,30 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
+    def test_watcher_exception_is_recorded_and_failure_report_is_preserved(self):
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.dict(os.environ,{'LOCALAPPDATA':td}), \
+                mock.patch('sys.argv',['watcher','--once']), \
+                mock.patch.object(watcher,'git_root',return_value=Path(td)), \
+                mock.patch.object(watcher,'once',side_effect=RuntimeError('test failure')), \
+                mock.patch.object(watcher,'_record_failure',create=True) as record:
+            self.assertEqual(watcher.main(),1)
+            record.assert_called_once()
+            report=Path(td)/'Jarvis'/'pc-acceptance'/watcher.REPORT_NAME
+            self.assertEqual(json.loads(report.read_text())['status'],'watcher_error')
+
+    def test_suite_requires_both_live_checks_passed_even_with_zero_exit(self):
+        for calc,news,expected in [('passed','passed','passed'),('pending','passed','failed'),
+                                   ('passed','failed','failed'),('passed',None,'failed')]:
+            with self.subTest(calculator=calc,news=news):
+                checks=[{'check':'calculator','state':calc}]
+                if news is not None:checks.append({'check':'news_chat_resume','state':news})
+                with mock.patch.object(watcher,'python_exe',return_value=Path('python.exe')), \
+                        mock.patch.object(watcher,'run',return_value=mock.Mock(returncode=0,stdout='OK')), \
+                        mock.patch.object(watcher,'acceptance_details',return_value=checks):
+                    result=watcher.run_suite(Path('repo'),Path('worktree'),'gpt/test','a'*40,desktop=True)
+                self.assertEqual(result['status'],expected)
+
     def test_failed_validation_comment_exposes_test_names_without_raw_log(self):
         report={'sha':'a'*40,'status':'failed','validation':{'exit_code':1,'tail':
             'FAIL: test_agents_index_matches_files_and_section_counts (test_agents_index.AgentsIndexTests.test_agents_index_matches_files_and_section_counts)\n'

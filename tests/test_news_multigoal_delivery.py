@@ -43,6 +43,7 @@ class NewsMultigoalDeliveryTests(unittest.TestCase):
                 case,job=self.prepared(text)
                 with patch('modules.public_sources.fetch',side_effect=AssertionError('No extra reads')):
                     news_recovery.deliver(case.runtime,job,existing_only=True)
+                    news_recovery.deliver(case.runtime,job,existing_only=True)
                 self.assertEqual(job['goals'][2]['state'],'pending')
                 self.assertEqual(job['goals'][2]['evidence'],[])
 

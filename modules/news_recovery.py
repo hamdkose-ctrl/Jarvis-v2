@@ -15,8 +15,12 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     """Recover news chat from scoped configured indexes or previously discovered URLs."""
     from modules import goal_executor as goals, model_free_news
     request=job['request']
-    if job['state'] in {'approval','review','cancelled'} or not job['goals']:return
+    if job['state'] in {'approval','review','cancelled'} or not job['goals'] or research_evidence.file_requested(request):return
     goal=next((i for i,g in enumerate(job['goals']) if g['state']!='done'),None)
+    if len(job['goals'])>1:
+        from modules import news_policy
+        candidates=news_policy.chat_followup_candidates(job)
+        goal=candidates[0] if candidates else None
     if goal is None:return
     seeds=[]
     for step in job['steps']:
@@ -38,6 +42,9 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     plural=bool(re.search(r'\bhaberler\w*|\bgelişmeler\w*|\bgelismeler\w*|\bgündem\b|\bgundem\b',request,re.I))
     needed=2 if plural else 1
     broad=publisher_news.broad_research(request)
+    if publisher_news.multiple_publishers(request):
+        represented={publisher_news.publisher_key(o['news_article']['url']) for o in sources.values()}
+        seeds.sort(key=lambda seed:publisher_news.publisher_key(seed) in represented)
     def evidence_enough():
         articles=[o['news_article'] for o in sources.values()]
         return len({a['url'] for a in articles})>=needed and (not publisher_news.multiple_publishers(request) or len({publisher_news.publisher_key(a['url']) for a in articles})>=2)
