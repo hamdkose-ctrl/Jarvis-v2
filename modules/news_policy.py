@@ -15,14 +15,14 @@ def chat_followup_candidates(job):
     if (job['state'] in {'approval','review','cancelled'} or
             not research_evidence.news_requested(job['request']) or research_evidence.file_requested(job['request'])):return []
     candidates=[]
-    allowed=re.compile(r'(?:haber|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver|onem|oncelik|sira|aktar|ilet|paylas|acikla)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin|gore)')
+    allowed=re.compile(r'(?:haber|gelisme|kaynak|baglanti|baslik|ozet|tarih|guncel|arastir|incele|tara|bul|belirle|sec|dogrula|listele|derle|sun|topla|duzenle|hazirla|rapor|sonuc|bilgi|metin|icerik|oku|sohbet|kullanici|goster|olustur|ver|onem|oncelik|sira|aktar|ilet|paylas|acikla)\w*|(?:ve|ile|olarak|icin|bir|en|son|dakika|bugun|bu|gun|gunun|gunluk|hafta|haftalik|gundem|kisa|turkce|kamuya|acik|guvenilir|dogru|gercek|istenen|ilgili|uygun|gerekli|yayin|gore)')
     for index,target in enumerate(job['goals']):
         if target.get('state')!='pending':continue
         low=''.join(c for c in unicodedata.normalize('NFKD',target.get('text','').casefold().replace('ı','i')) if not unicodedata.combining(c))
         words=re.findall(r'[^\W\d_]+',low)
         if not words or not all(allowed.fullmatch(word) for word in words):continue
         # Unknown topics/actions, files, messages, analysis and media are not inferred.
-        if not re.search(r'haber|kaynak|baglanti|baslik|ozet|rapor|sohbet|arastir|derle|sonuc',low):continue
+        if not re.search(r'haber|gelisme|kaynak|baglanti|baslik|ozet|rapor|sohbet|arastir|derle|sonuc',low):continue
         if any(step.get('goal')==index and not (step.get('tool')=='research' or
                 step.get('tool')=='data' and step.get('input',{}).get('operation') in {'headlines','sources'})
                 for step in job['steps']):continue
