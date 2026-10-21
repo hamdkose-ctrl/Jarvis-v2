@@ -41,6 +41,12 @@ class PcTestWatcherTests(unittest.TestCase):
     def test_safe_name_does_not_create_nested_path(self):
         self.assertEqual(watcher.safe_name('refs/remotes/origin/gpt/haber-test'), 'gpt_haber-test')
 
+    def test_real_acceptance_includes_live_news(self):
+        command = watcher.acceptance_command(Path('python.exe'))
+        self.assertIn('--desktop', command)
+        self.assertIn('--news', command)
+        self.assertIn('--skip-suite', command)
+
 
 if __name__ == '__main__':
     unittest.main()

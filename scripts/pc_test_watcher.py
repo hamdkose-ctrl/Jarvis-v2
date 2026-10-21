@@ -101,6 +101,10 @@ def remove_worktree(root: Path, target: Path) -> None:
     shutil.rmtree(target, ignore_errors=True)
 
 
+def acceptance_command(py: Path) -> list[str]:
+    return [str(py), "-X", "utf8", "-m", "modules.acceptance_checks", "--desktop", "--news", "--skip-suite"]
+
+
 def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) -> dict:
     py = python_exe(root)
     report = {
@@ -128,7 +132,7 @@ def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) 
 
     if desktop:
         acceptance = run(
-            [str(py), "-X", "utf8", "-m", "modules.acceptance_checks", "--desktop", "--skip-suite"],
+            acceptance_command(py),
             cwd=worktree,
             check=False,
             capture=True,
@@ -175,7 +179,7 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=30, help="GitHub kontrol aralığı (saniye)")
     parser.add_argument("--pattern", default=DEFAULT_PATTERN, help="İzlenecek remote ref kalıbı")
     parser.add_argument("--once", action="store_true", help="Bir kez kontrol et ve çık")
-    parser.add_argument("--no-desktop", action="store_true", help="Gerçek masaüstü kabulünü çalıştırma")
+    parser.add_argument("--no-desktop", action="store_true", help="Gerçek masaüstü ve canlı haber kabulünü çalıştırma")
     args = parser.parse_args()
 
     root = git_root()

@@ -11,9 +11,7 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 ## Gerçek PC kabul geri bildirimi — 14 Ekim 2026
 
 Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tanır; uygulama açmaya düşmez. İlk mailin ek komutları yalnız bir mail seçer ve sonuçlarını sade gösterir; hash/adım günlükleri kayıt ve açık görev durumunda korunur. Boş ek, okunacak ek yok şeklinde anlatılır. Kuyruk durumu işin adını, bekleme süresini ve açık iptal/sonuç komutlarını gösterir; bildirimi de sonuç özeti taşır. Masaüstü görevleri her mevcut kaydetme noktasında çalışma turu süresini ölçer; yeni UIA çağrısı/model çağrısı yoktur. Normal sonuçta ham kontrol kanıtı gizlenir; `PC görevi ayrıntıları` ile istenir.
-
-## Actions'sız sürekli Windows kabul watcher'ı — 21 Ekim 2026
-
-- `scripts/pc_test_watcher.py` ve `.bat`, sürekli açık Windows PC'de `origin/gpt/*` dallarındaki yeni head'leri 30 saniyelik varsayılan aralıkla izler. Ana checkout'u değiştirmez; adayı geçici `git worktree` içinde çalıştırır.
-- Her yeni head için önce `modules.validation`, sonra isteğe bağlı gerçek `modules.acceptance_checks --desktop --skip-suite` çalışır. Aynı head tekrar koşmaz; sonuç ve kısa çıktı `%LOCALAPPDATA%/Jarvis/pc-acceptance/pc_test_watcher_last.json` altında yerel tutulur.
-- Gerçek GUI kabulü interaktif Windows oturumu ister; servis oturumu yeterli değildir. İlk sürüm mevcut Calculator/desktop kabulünü otomatikleştirir; canlı haber sohbet kabulü ayrı takip işidir. GitHub Actions veya ücretli runner gerektirmez.
+- 21 Ekim 2026: `scripts/pc_test_watcher.py` ve `.bat`, sürekli açık Windows PC'de `origin/gpt/*` dallarındaki yeni head'leri 30 saniyelik varsayılan aralıkla izler. Ana checkout'u değiştirmez; adayı geçici `git worktree` içinde çalıştırır.
+- Her yeni head için önce `modules.validation`, sonra gerçek `modules.acceptance_checks --desktop --news --skip-suite` çalışır. Aynı head tekrar koşmaz; sonuç ve kısa çıktı `%LOCALAPPDATA%/Jarvis/pc-acceptance/pc_test_watcher_last.json` altında yerel tutulur.
+- `--news` kabulü gerçek `hedef son dakika haberleri` turunu ayrı geçici goal store'da çalıştırır; kullanıcının gerçek son hedefini değiştirmez. Başarı için hedefin `done` olması, dosya istenmemişken writer başlamaması ve en az iki farklı yayıncıdan tarihli tekil haber kanıtı gerekir. Ardından `devam` aynı tamamlanmış hedefi yeniden açmamalı veya kalıcı kaydını değiştirmemelidir.
+- Gerçek GUI kabulü interaktif Windows oturumu ister; servis oturumu yeterli değildir. Canlı haber kabulü gerçek ağ/model sağlayıcısını ve kotayı kullanır. GitHub Actions veya ücretli runner gerektirmez.
