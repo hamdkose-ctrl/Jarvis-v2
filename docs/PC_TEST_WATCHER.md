@@ -14,9 +14,12 @@ Bu düzen GitHub Actions kullanmadan, sürekli açık Windows PC'nin `gpt/*` dal
 6. Masaüstünde gerçek Hesap Makinesi kabulünü ve canlı `hedef son dakika haberleri` akışını dener. Haberde en az iki farklı yayıncıdan tarihli makale kanıtı gerekir; dosya istenmemişken writer çalışmamalıdır.
 7. Haber hedefi tamamlandıktan sonra `devam` gönderir; aynı hedefin `done` kalmasını ve kalıcı hedef kaydının değişmemesini doğrular.
 8. Sonucu `%LOCALAPPDATA%\Jarvis\pc-acceptance\pc_test_watcher_last.json` dosyasına yazar.
-9. Aynı branch head'i tekrar test etmez; yeni commit gelirse yeniden test eder.
+9. GitHub CLI (`gh`) kurulu, oturum açık ve dalın açık PR'ı varsa sonuç özetini otomatik PR yorumuna gönderir. Yorum yalnız commit, genel durum, validation, `calculator` ve `news_chat_resume` durumunu taşır; yerel yapılandırma/hesap ayrıntıları gönderilmez.
+10. Aynı branch head'i tekrar test etmez; yeni commit gelirse yeniden test eder.
 
 Canlı haber kabulü gerçek ağ ve mevcut model/sağlayıcı ayarlarını kullanır, bu yüzden sağlayıcı kotası harcayabilir. Hedef kaydı geçici ayrı bir kabul klasöründe tutulur; kullanıcının gerçek son hedefini değiştirmez. Kullanıcının `.jarvis` ayarları, anahtarları veya kişisel verileri Git'e yazılmaz. Geçici test worktree'si `%TEMP%\jarvis-pc-acceptance` altındadır ve test sonunda kaldırılır.
+
+PR yorumu için `gh` yoksa, GitHub oturumu açık değilse veya dalın açık PR'ı bulunamazsa test kesilmez. Yerel JSON yine yazılır ve `github_pr_comment` alanında neden `skipped`/`failed` olduğu kaydedilir. `gh` kimlik doğrulama bilgisi veya token değeri rapora yazılmaz.
 
 ## İlk deneme
 
@@ -57,9 +60,8 @@ Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows otur
 ## Sınırlar
 
 - Canlı haber testi dış sitelere ve seçili sağlayıcının o andaki erişimine bağlıdır. Başarısızlık gerçek PC raporunda görünür; dış kaynak sorunu testten gizlenmez.
-- PR yorumuna/check API'sine sonuç yazmaz; sonuç yerel JSON ve konsoldadır.
+- PR yorumu yalnız `gh` kullanılabiliyorsa gönderilir; yorum gönderilememesi gerçek test sonucunu başarılı/başarısız olarak değiştirmez.
 - Bir turda bir değişmiş `gpt/*` head'i test eder; birden fazla yeni head varsa sonraki döngülerde sırayla ele alınır. `--pattern` ile tek dal hedeflenebilir.
 - `main` checkout edilmez veya değiştirilmez.
-
 
 Haber kabulü üç geçersiz kararda durursa `news_chat_resume.detail` içindeki `decision_diagnostics` son üç kararın action/tool bilgisini, bilinen girdi alan adlarını ve maskelemiş kısa hata nedenlerini içerir. Ham girdi değerleri veya model yanıtları bu tanıya alınmaz. Bu çıktı kök nedeni ayırt etmek içindir; haber kabulü geçmedikçe çözüm tamamlanmış sayılmaz.
