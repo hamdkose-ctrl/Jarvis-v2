@@ -21,7 +21,7 @@ Canlı haber kabulü gerçek ağ ve mevcut model/sağlayıcı ayarlarını kulla
 
 PR yorumu için `gh` yoksa, GitHub oturumu açık değilse veya dalın açık PR'ı bulunamazsa test kesilmez. Yerel JSON yine yazılır ve `github_pr_comment` alanında neden `skipped`/`failed` olduğu kaydedilir. `gh` kimlik doğrulama bilgisi veya token değeri rapora yazılmaz.
 
-## Otomatik başlangıç
+## Otomatik başlangıç / tek tık başlangıç
 
 Bir kez:
 
@@ -29,7 +29,9 @@ Bir kez:
 scripts\pc_test_watcher_install.bat
 ```
 
-çalıştırıldığında Windows Görev Zamanlayıcı'da `Jarvis PC Acceptance Watcher` görevi oluşturulur. Görev kullanıcı oturum açtığında interaktif oturumda başlar ve kurulum sonunda ilk çalıştırma da denenir. Yönetici hakları istenmez; görev oluşturma bu Windows hesabında engellenmişse kurucu açık hata verir.
+çalıştırılır. Kurucu sırayla kullanıcı seviyesinde şu yolları dener: Windows Görev Zamanlayıcı `ONLOGON`, HKCU Run kaydı ve kullanıcı Startup klasörü. Gerçek GUI kabulü için watcher interaktif kullanıcı oturumunda çalışmalıdır.
+
+Şirket politikası bu üç otomatik başlangıç yolunu da engelliyorsa kurucu başarısız saymak yerine masaüstüne `Jarvis-PC-Test-Watcher.cmd` adında tek tık başlatıcı yazar ve ilk watcher turunu hemen başlatır. Bu durumda Windows'a girişten sonra bu dosyayı bir kez açmak yeterlidir; watcher açık kaldığı sürece yeni commitleri kendisi izler.
 
 Kurucu `gh` varlığını ve oturum durumunu da kontrol eder. `gh` yoksa veya oturum açık değilse watcher yine gerçek PC testlerini ve yerel JSON'u üretir; yalnız PR yorumu atlanır.
 
@@ -67,7 +69,7 @@ scripts\pc_test_watcher.bat --interval 60
 
 ## Windows oturumu
 
-Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows oturumunda çalışmalıdır. Windows Görev Zamanlayıcı kurulumu bu nedenle `ONLOGON` + interaktif görev kullanır; kullanıcı oturumu olmayan servis oturumu masaüstü GUI kabulü için uygun değildir.
+Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows oturumunda çalışmalıdır. Kullanıcı oturumu olmayan servis oturumu masaüstü GUI kabulü için uygun değildir.
 
 ## Sınırlar
 
@@ -77,6 +79,5 @@ Gerçek UI Automation / Calculator kabulü için watcher interaktif Windows otur
 - `main` checkout edilmez veya değiştirilmez.
 
 Haber kabulü üç geçersiz kararda durursa `news_chat_resume.detail` içindeki `decision_diagnostics` son üç kararın action/tool bilgisini, bilinen girdi alan adlarını ve maskelemiş kısa hata nedenlerini içerir. Ham girdi değerleri veya model yanıtları bu tanıya alınmaz. Bu çıktı kök nedeni ayırt etmek içindir; haber kabulü geçmedikçe çözüm tamamlanmış sayılmaz.
-
 
 0303da0 gerçek PC raporunda Calculator ve validation geçti; haberin üç geçersiz kararı da data için uyumsuz model uzman etiketinden kaynaklandı. Sonraki düzeltme uzman seçimini durable yürütücünün mevcut kayıtlı yetenek atamasına bırakır. Yeni commit için canlı haber + devam kabulü ayrıca geçmelidir; önceki Calculator sonucu yeni sürüm başarısı sayılmaz.
