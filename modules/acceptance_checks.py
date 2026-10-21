@@ -99,7 +99,8 @@ def _news_chat_resume(owner):
                 pool=getattr(runtime,'_prefetch_pool',None)
                 if pool is not None:
                     try:pool.shutdown(wait=False,cancel_futures=True)
-                    except Exception:pass
+                    except Exception:
+                        _record_failure('modules/acceptance_checks.py:news_prefetch_shutdown')
             goal_executor.STORE=previous_store
 
 
