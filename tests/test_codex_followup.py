@@ -24,7 +24,7 @@ class CodexFollowupTests(unittest.TestCase):
             ):
                 self.assertEqual(followup.codex_exe(), str(candidate))
 
-    def test_followup_uses_workspace_write_and_repo_rules(self):
+    def test_followup_uses_terra_unelevated_danger_full_access_and_repo_rules(self):
         completed = mock.Mock(returncode=0, stdout='done')
         with mock.patch.object(followup, 'codex_exe', return_value='codex.exe'), mock.patch.object(
             followup.subprocess, 'run', return_value=completed
@@ -32,7 +32,7 @@ class CodexFollowupTests(unittest.TestCase):
             result = followup.run_followup(Path('repo'), 'refs/remotes/origin/gpt/task', 'abc123', 'failed')
         self.assertEqual(result['state'], 'completed')
         command = run_mock.call_args.args[0]
-        self.assertEqual(command[:4], ['codex.exe', 'exec', '--sandbox', 'workspace-write'])
+        self.assertEqual(command[:8], ['codex.exe', '-m', 'gpt-5.6-terra', '-c', "windows.sandbox='unelevated'", 'exec', '--sandbox', 'danger-full-access'])
         prompt = command[-1]
         self.assertIn('AGENTS.md', prompt)
         self.assertIn('main', prompt)

@@ -48,7 +48,7 @@ def run_followup(root: Path, ref: str, sha: str, status: str, failure_hint: str 
     if not codex:
         return {"state": "skipped", "reason": "codex_cli_missing"}
     proc = subprocess.run(
-        [codex, "exec", "--sandbox", "workspace-write", _prompt(ref, sha, status, failure_hint)],
+        [codex, "-m", "gpt-5.6-terra", "-c", "windows.sandbox='unelevated'", "exec", "--sandbox", "danger-full-access", _prompt(ref, sha, status, failure_hint)],
         cwd=str(root),
         check=False,
         capture_output=True,
