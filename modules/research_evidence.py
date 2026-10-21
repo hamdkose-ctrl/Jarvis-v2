@@ -30,7 +30,7 @@ def news_report_requested(request,instruction,dependencies,*,allow_source_only=T
     return requested
 
 
-def article(response):
+def article(response, *, rss_receipt=None):
     """Conservative single-article extraction; listing dates are never article dates."""
     from modules import publisher_news
     direct=publisher_news.article(response)
@@ -120,6 +120,14 @@ def article(response):
         if m:=re.match(r'^(\d{4}-\d{2}-\d{2})(?:T|\s|$)',value):
             try:days.add(date.fromisoformat(m[1]).isoformat())
             except ValueError:pass
+    if not days and rss_receipt is not None:
+        from modules import news_rss_receipts
+        if not isinstance(rss_receipt,dict) or rss_receipt.get('article_url')!=url:
+            raise ValueError('RSS makbuzu tekil haber bağlantısıyla eşleşmiyor.')
+        published=rss_receipt.get('published')
+        if not isinstance(published,str):raise ValueError('RSS makbuzu yayın tarihi geçersiz.')
+        try:days.add(date.fromisoformat(published).isoformat())
+        except ValueError:raise ValueError('RSS makbuzu yayın tarihi geçersiz.') from None
     if len(days)!=1:raise ValueError('Haberin kendisine ait tek bir yayın tarihi doğrulanamadı; başka tarihli kaynak seç.')
     text=public_sources.readable_text(node)
     if len(text)<80 or not title:raise ValueError('Tekil haber metni yeterli değil.')
