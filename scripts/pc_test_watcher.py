@@ -90,6 +90,11 @@ def safe_name(ref: str) -> str:
     return ref.replace("refs/remotes/origin/", "").replace("/", "_")
 
 
+def branch_from_ref(ref: str) -> str:
+    prefix = "refs/remotes/origin/"
+    return ref[len(prefix):] if ref.startswith(prefix) else ref
+
+
 def add_worktree(root: Path, sha: str, target: Path) -> None:
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
@@ -113,6 +118,68 @@ def acceptance_details(worktree: Path) -> list[dict]:
         return []
     checks = data.get("checks") if isinstance(data, dict) else None
     return checks if isinstance(checks, list) else []
+
+
+def _brief(value, limit: int = 600) -> str:
+    text = " ".join(str(value or "").split())
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def pr_comment_body(report: dict) -> str:
+    validation = report.get("validation") if isinstance(report.get("validation"), dict) else {}
+    desktop = report.get("desktop_acceptance") if isinstance(report.get("desktop_acceptance"), dict) else {}
+    checks = desktop.get("checks") if isinstance(desktop.get("checks"), list) else []
+    selected = {row.get("check"): row for row in checks if isinstance(row, dict)}
+    lines = [
+        "<!-- jarvis-pc-acceptance -->",
+        "### Gerçek Windows PC kabul sonucu",
+        f"- Commit: `{str(report.get('sha') or '')[:12]}`",
+        f"- Genel durum: **{report.get('status', 'unknown')}**",
+        f"- Validation: **{'passed' if validation.get('exit_code') == 0 else 'failed'}**",
+    ]
+    for name in ("calculator", "news_chat_resume"):
+        row = selected.get(name)
+        if not row:
+            continue
+        state = row.get("state", "unknown")
+        lines.append(f"- `{name}`: **{state}**")
+        if name == "news_chat_resume" and row.get("detail"):
+            lines.append(f"  - {_brief(row.get('detail'))}")
+    lines.append("\nBu yorum gerçek iş PC'sindeki watcher tarafından otomatik üretildi; anahtarlar ve kişisel içerik gönderilmez.")
+    return "\n".join(lines)
+
+
+def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
+    if not shutil.which("gh"):
+        return {"state": "skipped", "reason": "gh_cli_missing"}
+    branch = branch_from_ref(ref)
+    listed = run(
+        ["gh", "pr", "list", "--head", branch, "--state", "open", "--limit", "1", "--json", "number,url"],
+        cwd=root,
+        check=False,
+        capture=True,
+    )
+    if listed.returncode != 0:
+        return {"state": "skipped", "reason": "gh_unavailable_or_not_authenticated"}
+    try:
+        prs = json.loads(listed.stdout or "[]")
+    except ValueError:
+        return {"state": "failed", "reason": "gh_pr_list_invalid_json"}
+    if not isinstance(prs, list) or not prs:
+        return {"state": "skipped", "reason": "open_pr_not_found"}
+    pr = prs[0] if isinstance(prs[0], dict) else {}
+    number = pr.get("number")
+    if not isinstance(number, int):
+        return {"state": "failed", "reason": "open_pr_number_missing"}
+    posted = run(
+        ["gh", "pr", "comment", str(number), "--body", pr_comment_body(report)],
+        cwd=root,
+        check=False,
+        capture=True,
+    )
+    if posted.returncode != 0:
+        return {"state": "failed", "reason": "gh_pr_comment_failed", "pr": number}
+    return {"state": "published", "pr": number, "url": pr.get("url")}
 
 
 def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool) -> dict:
@@ -174,6 +241,7 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     try:
         add_worktree(root, target["sha"], worktree)
         result = run_suite(root, worktree, target["ref"], target["sha"], desktop=desktop)
+        result["github_pr_comment"] = publish_pr_comment(root, target["ref"], result)
         save_json(report_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     finally:
