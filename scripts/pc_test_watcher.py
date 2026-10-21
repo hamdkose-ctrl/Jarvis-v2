@@ -107,6 +107,9 @@ def branch_from_ref(ref: str) -> str:
 def add_worktree(root: Path, sha: str, target: Path) -> None:
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
+    # Önceki watcher kesildiyse Git, fiziksel klasör silinmiş olsa bile worktree
+    # kaydını tutabilir. Güvenli prune yalnız eksik/stale kayıtları temizler.
+    run(["git", "worktree", "prune"], cwd=root, check=False)
     run(["git", "worktree", "add", "--detach", str(target), sha], cwd=root)
 
 
