@@ -11,6 +11,7 @@ import pc_test_watcher as watcher
 from codex_followup import run_followup
 
 CODEX_STATE_NAME = "codex_followup_state.json"
+QUOTA_RETRY_SECONDS = 300
 
 
 def failure_hint(report: dict) -> str:
@@ -30,20 +31,35 @@ def failure_signature(report: dict) -> str:
     return hashlib.sha256(failure_hint(report).lower().encode("utf-8", errors="replace")).hexdigest()[:20]
 
 
-def should_run_codex(report: dict, state: dict) -> tuple[bool, str]:
+def _result_state(state: dict) -> str:
+    result = state.get("result") if isinstance(state.get("result"), dict) else {}
+    return str(result.get("state") or "")
+
+
+def should_run_codex(report: dict, state: dict, *, now: float | None = None) -> tuple[bool, str]:
     sha = str(report.get("sha") or "")
     if not sha:
         return False, "sha_missing"
+    current_time = time.time() if now is None else now
     if state.get("sha") == sha:
+        if _result_state(state) == "pending_quota":
+            retry_after = float(state.get("retry_after") or 0)
+            if current_time >= retry_after:
+                return True, "quota_retry"
+            return False, "quota_wait"
         return False, "same_sha_already_handled"
     signature = failure_signature(report)
-    if signature and state.get("last_failure_signature") == signature:
+    if signature and state.get("last_failure_signature") == signature and _result_state(state) != "pending_quota":
         return False, "repeated_failure_stopped"
     return True, "new_result"
 
 
 def next_state(report: dict, result: dict) -> dict:
-    state = {"sha": str(report.get("sha") or ""), "time": time.time(), "result": result}
+    now = time.time()
+    state = {"sha": str(report.get("sha") or ""), "time": now, "result": result}
+    if str(result.get("state") or "") == "pending_quota":
+        state["retry_after"] = now + QUOTA_RETRY_SECONDS
+        return state
     signature = failure_signature(report)
     if signature:
         state["last_failure_signature"] = signature
@@ -68,6 +84,34 @@ def run_news_final(root: Path, report: dict) -> dict:
         watcher.remove_worktree(root, worktree)
 
 
+def run_terra_if_needed(root: Path, report_path: Path, codex_state_path: Path, report: dict) -> None:
+    codex_state = watcher.load_state(codex_state_path)
+    run_it, reason = should_run_codex(report, codex_state)
+    if run_it:
+        label = "kota sonrasi yeniden deneniyor" if reason == "quota_retry" else str(report.get("status") or "unknown")
+        print(f"[3/4] Terra cagriliyor: {label}", flush=True)
+        result = run_followup(
+            root,
+            str(report.get("ref") or ""),
+            str(report.get("sha") or ""),
+            str(report.get("status") or "unknown"),
+            failure_hint(report),
+        )
+        report["codex_followup"] = result
+        watcher.save_json(report_path, report)
+        watcher.save_json(codex_state_path, next_state(report, result))
+        if result.get("state") == "pending_quota":
+            print(f"Terra kotasi dolu; {QUOTA_RETRY_SECONDS // 60} dk sonra otomatik tekrar denenecek.", flush=True)
+        else:
+            print(f"[3/4] Terra tamamlandi: {result.get('state')}", flush=True)
+    elif reason == "repeated_failure_stopped":
+        result = {"state": "stopped", "reason": reason}
+        report["codex_followup"] = result
+        watcher.save_json(report_path, report)
+        watcher.save_json(codex_state_path, next_state(report, result))
+        print("Terra durdu: aynı hata tekrarlandı; kota koruması devrede.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Windows PC kabul + Terra takip döngüsü")
     parser.add_argument("--interval", type=int, default=30)
@@ -87,36 +131,16 @@ def main() -> int:
     while True:
         try:
             changed = watcher.once(root, state_path, report_path, args.pattern, desktop=True, news=False)
+            report = watcher.load_state(report_path)
             if not changed:
+                run_terra_if_needed(root, report_path, codex_state_path, report)
                 print("Yeni test adayı yok.")
             else:
-                report = watcher.load_state(report_path)
                 if report.get("status") == "passed":
                     report = run_news_final(root, report)
                     report["github_pr_comment"] = watcher.publish_pr_comment(root, str(report.get("ref") or ""), report)
                     watcher.save_json(report_path, report)
-
-                codex_state = watcher.load_state(codex_state_path)
-                run_it, reason = should_run_codex(report, codex_state)
-                if run_it:
-                    print(f"[3/4] Terra cagriliyor: {report.get('status')}", flush=True)
-                    result = run_followup(
-                        root,
-                        str(report.get("ref") or ""),
-                        str(report.get("sha") or ""),
-                        str(report.get("status") or "unknown"),
-                        failure_hint(report),
-                    )
-                    report["codex_followup"] = result
-                    watcher.save_json(report_path, report)
-                    watcher.save_json(codex_state_path, next_state(report, result))
-                    print(f"[3/4] Terra tamamlandi: {result.get('state')}", flush=True)
-                elif reason == "repeated_failure_stopped":
-                    result = {"state": "stopped", "reason": reason}
-                    report["codex_followup"] = result
-                    watcher.save_json(report_path, report)
-                    watcher.save_json(codex_state_path, next_state(report, result))
-                    print("Terra durdu: aynı hata tekrarlandı; kota koruması devrede.")
+                run_terra_if_needed(root, report_path, codex_state_path, report)
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
