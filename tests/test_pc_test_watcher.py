@@ -11,13 +11,41 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
-    def test_choose_candidate_skips_seen_sha(self):
+    def test_choose_candidate_skips_resolved_sha(self):
         candidates = [
             {'ref': 'refs/remotes/origin/gpt/new', 'sha': 'bbb', 'time': 2},
             {'ref': 'refs/remotes/origin/gpt/old', 'sha': 'aaa', 'time': 1},
         ]
-        seen = {'refs/remotes/origin/gpt/new': 'bbb'}
-        self.assertEqual(watcher.choose_candidate(candidates, seen), candidates[1])
+        seen = {
+            'refs/remotes/origin/gpt/new': {
+                'sha': 'bbb', 'status': 'passed', 'last_attempt': 100.0
+            }
+        }
+        self.assertEqual(watcher.choose_candidate(candidates, seen, now=200.0), candidates[1])
+
+    def test_legacy_seen_sha_is_rechecked_once(self):
+        candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'abc', 'time': 1}
+        seen = {candidate['ref']: candidate['sha']}
+        self.assertEqual(watcher.choose_candidate([candidate], seen, now=1000.0), candidate)
+
+    def test_unresolved_same_sha_waits_then_retries(self):
+        candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'abc', 'time': 1}
+        seen = {
+            candidate['ref']: {
+                'sha': 'abc', 'status': 'pending_retry', 'last_attempt': 100.0
+            }
+        }
+        self.assertIsNone(watcher.choose_candidate([candidate], seen, now=500.0, retry_seconds=900))
+        self.assertEqual(watcher.choose_candidate([candidate], seen, now=1000.0, retry_seconds=900), candidate)
+
+    def test_new_sha_runs_even_if_previous_sha_passed(self):
+        candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'new', 'time': 2}
+        seen = {
+            candidate['ref']: {
+                'sha': 'old', 'status': 'passed', 'last_attempt': 100.0
+            }
+        }
+        self.assertEqual(watcher.choose_candidate([candidate], seen, now=101.0), candidate)
 
     def test_suite_reports_missing_venv_without_running_another_python(self):
         with mock.patch.object(watcher, 'python_exe', return_value=None), \
