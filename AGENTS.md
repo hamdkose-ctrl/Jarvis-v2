@@ -112,6 +112,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hedef durum özeti hem goal_executor.handle hem engine_queue.submit girişinde kullanılır; açık ayrıntılar komutu render kullanır. Gerçek arayüz kabulü ayrıca ölçülür.
 
+- PC kabul hata özeti yalnız gerçekten çalıştırılan kabul bloklarını raporlar; çalıştırılmamış haber kabulü masaüstü denetimini `missing` diye gölgelemez. Test: `tests/test_pc_test_loop.py`.
+
 - Hedef planlama turu toplam 120 sn bütçeyi model beklemesinde ve yeni planlama turundan önce denetler; doğrulanmış yeni çıktı olmadan üç geçersiz karar duraklatır. Kayıt/çıktı korunur, yeni açık devam yeni tur bütçesi alır. Devam eden senkron dış işlem zorla kesilmez; bu sınır fiziksel işlem iptali garantisi değildir.
 
 - Açık hedef komutu öneki görev metnine dahil edilmez: hedef … ve hedef: … kontrol komutlarından sonra, eski soru cevabından önce ayrılır. Görev içindeki gerçek hedef sözcükleri korunur; kaynak/konu/izin doğrulaması gevşetilmez.

@@ -102,4 +102,6 @@ Resmî koşular her kökün kendi `python -m modules.validation` girişini ayrı
 
 Watcher doğrulamayı yalnız gözetleyen kökteki `.venv\\Scripts\\python.exe` ile başlatır. Bu yorumlayıcı yoksa sistem Python'una düşmez; çalışma başlatılmadan "ortam eksik" sonucu kaydedilir. Böylece eksik paketli farklı bir Python'un yanıltıcı test hatası kabul sonucu sayılmaz.
 
+`pc_test_loop.failure_hint`, yalnız raporda bulunan kabul bloklarını değerlendirir. Böylece çalıştırılmamış haber kabulü `missing` diye masaüstü kabulünün gerçek eksik denetimini gölgelemez. Test: `tests/test_pc_test_loop.py`.
+
 İşlem başarıyla çıkmış olsa bile zorunlu kabul kontrolü `failed` ya da `missing` ise takipçi özetinde yalnız sabit kontrol adı ve durumu yer alır (ör. `calculator=failed`); ham kabul çıktısı, istek veya kaynak eklenmez. Böylece otomatik düzeltme genel `acceptance failed` yerine güvenli kök neden sinyali alır.

@@ -54,7 +54,9 @@ def failure_hint(report: dict) -> str:
     if validation.get("exit_code") not in (None, 0):
         return "validation: " + " ".join(str(validation.get("tail") or "").split())[-1200:]
     for key, check in (("news_acceptance", "news_chat_resume"), ("desktop_acceptance", "calculator")):
-        block = report.get(key) if isinstance(report.get(key), dict) else {}
+        block = report.get(key)
+        if not isinstance(block, dict):
+            continue
         hint = acceptance_failure_hint(block, key, check)
         if hint:
             return hint
