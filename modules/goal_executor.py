@@ -449,6 +449,15 @@ def _loop_steps(runtime,job,answer=None):
                 if not isinstance(goals,list) or not 1<=len(goals)<=8 or any(not isinstance(g,str) or not g.strip() or len(g)>800 for g in goals):
                     raise ValueError('1-8 somut sonuç gerekli.')
                 job['goals']=[{'text':g,'state':'pending','evidence':[]} for g in goals]
+                # A generic fileless news request has no topic for the planner to turn into
+                # an article URL. Try the bounded publisher recovery immediately after its
+                # durable plan is recorded; a partial result still falls through to planner.
+                from modules import research_evidence,model_free_news
+                if (research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request'])
+                        and not model_free_news.terms(job['request'])):
+                    from modules import news_recovery
+                    news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+                    if _finish_completed(job):return render(job)
             elif action=='ask':
                 question=call.get('question')
                 if not isinstance(question,str) or not question.strip():raise ValueError('Eksik somut bilgiyi belirt.')

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 from modules import acceptance_checks
 
@@ -33,6 +33,16 @@ class NewsAcceptanceHelperTests(unittest.TestCase):
         self.assertEqual(publishers,{'a','b'})
         self.assertEqual(receipt.call_count,2)
         self.assertEqual(news_date.call_count,2)
+
+    def test_news_chat_resume_is_pending_when_live_sources_do_not_close_the_goal(self):
+        job={'state':'paused','blocker':'Tarihli haber kanıtı bulunamadı.'}
+        runtime=Mock();runtime._prefetch_pool=None
+        with patch('modules.engine_runtime.EngineContext',return_value=runtime), \
+                patch('modules.goal_executor.latest',return_value=job):
+            state,detail=acceptance_checks._news_chat_resume('alice')
+        self.assertEqual(state,'pending')
+        self.assertIn('devam denetimi yapılmadı',detail)
+        runtime.handle.assert_called_once_with('hedef son dakika haberleri')
 
 
 if __name__=='__main__':

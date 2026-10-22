@@ -59,6 +59,19 @@ class NewsChatWriterTests(unittest.TestCase):
         self.assertNotEqual(job['state'],'done');self.assertEqual(case.ask.call_count,2)
         work.assert_not_called();self.assertNotIn('✓',reply)
 
+    def test_generic_fileless_news_tries_publisher_recovery_after_initial_plan(self):
+        case=fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        case.responses(case.plan('Son dakika haberlerini araştır'),RuntimeError('Planlayıcıya geri dön'))
+        observed=[]
+        def deliver(runtime,job,**kwargs):
+            observed.append((list(job['goals']),list(job['steps']),kwargs))
+        with patch('modules.news_recovery.deliver',side_effect=deliver):
+            goals.run(case.runtime,'Son dakika haberleri')
+        self.assertEqual(case.ask.call_count,2)
+        self.assertEqual(observed[0][0][0]['text'],'Son dakika haberlerini araştır')
+        self.assertEqual(observed[0][1],[])
+        self.assertEqual(observed[0][2]['max_new_steps'],24)
+
     def test_explicit_file_request_still_writes_and_verifies_file(self):
         case,job,reply,work=self.run_case(file=True)
         self.assertEqual(job['state'],'done',reply)

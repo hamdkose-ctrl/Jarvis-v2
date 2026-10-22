@@ -76,7 +76,7 @@ def _news_chat_resume(owner):
                 blocker=str(job.get('blocker') or '')[:240]
                 detail=f"Haber hedefi tamamlanmadı: {job.get('state','unknown')}"
                 if blocker:detail+='; '+blocker
-                return 'failed',detail
+                return 'pending',detail+' Canlı kaynak kanıtı olmadan kapalı hedefte devam denetimi yapılmadı.'
             if any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
                    for step in job.get('steps') or []):
                 return 'failed','Dosya istenmeyen haber hedefinde writer çalıştı.'
