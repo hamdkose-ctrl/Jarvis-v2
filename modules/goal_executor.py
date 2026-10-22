@@ -417,7 +417,13 @@ def _loop_steps(runtime,job,answer=None):
             job['goals']=[recovery_goal]
             _save(job)
             from modules import news_recovery
-            news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+            try:
+                news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+            except (requests_state.Cancelled,PermissionError):raise
+            except Exception as exc:
+                _record_failure('modules/goal_executor.py:pre_news_recovery')
+                job.setdefault('feedback',[]).append(
+                    'Ön kaynak kurtarma tamamlanamadı: '+privacy.redact(str(exc),force=True)[:600])
             if _finish_completed(job):return render(job)
             # The target must exist while bounded recovery records its attempts, but
             # it is not a planner-produced plan. Leave no synthetic target behind

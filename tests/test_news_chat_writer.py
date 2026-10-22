@@ -74,6 +74,16 @@ class NewsChatWriterTests(unittest.TestCase):
         self.assertEqual(observed[0][3]['max_new_steps'],24)
         self.assertEqual(observed[1][1][0]['text'],'Haberler için normal plan')
 
+    def test_generic_fileless_news_recovery_error_falls_back_to_planner(self):
+        case=fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        case.responses(case.plan('Haberler için normal plan'),RuntimeError('Planlayıcıya geri dön'))
+        with patch('modules.news_recovery.deliver',side_effect=RuntimeError('Dizin erişilemedi')):
+            goals.run(case.runtime,'Son dakika haberleri')
+        job=goals.latest('alice')
+        self.assertEqual(case.ask.call_count,2)
+        self.assertEqual(job['goals'][0]['text'],'Haberler için normal plan')
+        self.assertTrue(any('Ön kaynak kurtarma tamamlanamadı' in item for item in job['feedback']))
+
     def test_explicit_file_request_still_writes_and_verifies_file(self):
         case,job,reply,work=self.run_case(file=True)
         self.assertEqual(job['state'],'done',reply)
