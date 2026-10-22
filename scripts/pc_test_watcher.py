@@ -13,6 +13,7 @@ from pathlib import Path
 DEFAULT_PATTERN = "refs/remotes/origin/gpt/*"
 STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
+RETRY_SECONDS = 900
 
 
 def run(cmd, *, cwd: Path, check: bool = True, capture: bool = False):
@@ -81,8 +82,30 @@ def remote_heads(root: Path, pattern: str) -> list[dict]:
     return rows
 
 
-def choose_candidate(candidates: list[dict], seen: dict) -> dict | None:
-    return next((item for item in candidates if seen.get(item["ref"]) != item["sha"]), None)
+def _seen_entry(seen: dict, ref: str) -> dict | None:
+    raw = seen.get(ref)
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw:
+        # Legacy watcher state only remembered the SHA. It did not prove that
+        # the branch was resolved, so recheck it once under the structured state.
+        return {"sha": raw, "status": "legacy_seen", "last_attempt": 0.0}
+    return None
+
+
+def choose_candidate(candidates: list[dict], seen: dict, *, now: float | None = None, retry_seconds: int = RETRY_SECONDS) -> dict | None:
+    current = time.time() if now is None else now
+    for item in candidates:
+        entry = _seen_entry(seen, item["ref"])
+        if not entry or entry.get("sha") != item["sha"]:
+            return item
+        status = str(entry.get("status") or "")
+        if status == "passed":
+            continue
+        last_attempt = float(entry.get("last_attempt") or 0.0)
+        if current - last_attempt >= retry_seconds:
+            return item
+    return None
 
 
 def safe_name(ref: str) -> str:
@@ -224,6 +247,7 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     if not target:
         return False
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
+    attempted_at = time.time()
     try:
         add_worktree(root, target["sha"], worktree)
         print("[1/4] Testler basladi...", flush=True)
@@ -235,7 +259,13 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
         print(json.dumps(result, ensure_ascii=False, indent=2))
     finally:
         remove_worktree(root, worktree)
-    seen[target["ref"]] = target["sha"]
+    status = "passed" if result.get("status") == "passed" else "pending_retry"
+    seen[target["ref"]] = {
+        "sha": target["sha"],
+        "status": status,
+        "last_attempt": attempted_at,
+        "last_result": str(result.get("status") or "unknown"),
+    }
     state["updated"] = time.time()
     save_json(state_path, state)
     return True
@@ -261,7 +291,7 @@ def main() -> int:
         try:
             changed = once(root, state_path, report_path, args.pattern, desktop=not args.no_desktop, news=args.news)
             if not changed:
-                print("Yeni test adayı yok.")
+                print("Yeni test adayı yok; çözülmemiş adaylar retry süresini bekliyor olabilir.")
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
