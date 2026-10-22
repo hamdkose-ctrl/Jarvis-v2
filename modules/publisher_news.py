@@ -14,11 +14,13 @@ SOURCES=(
 GENERAL_SOURCES=(
     {'name':'Mynet Haber','url':'https://www.mynet.com/haber/'},
     {'name':'Investing.com Türkçe','url':'https://tr.investing.com/news/'},
-    {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
+    {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem',
+     'chat_recovery_url':'https://www.aa.com.tr/tr/rss/default?cat=guncel','chat_recovery_priority':3},
     {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
     {'name':'DW Türkçe','url':'https://www.dw.com/tr/'},
     {'name':'Euronews Türkçe','url':'https://tr.euronews.com/'},
-    {'name':'NTV','url':'https://www.ntv.com.tr/'},
+    {'name':'NTV','url':'https://www.ntv.com.tr/',
+     'chat_recovery_url':'https://www.ntv.com.tr/turkiye.rss','chat_recovery_priority':1},
     {'name':'T24','url':'https://t24.com.tr/'},
     {'name':'Bloomberg HT','url':'https://www.bloomberght.com/'},
     {'name':'Ekonomim','url':'https://www.ekonomim.com/'},
@@ -26,7 +28,8 @@ GENERAL_SOURCES=(
      'scope':'Resmî şirket açıklamaları; genel haber bülteni değildir'},
     {'name':'DonanımHaber','url':'https://www.donanimhaber.com/'},
     {'name':'Webtekno','url':'https://www.webtekno.com/'},
-    {'name':'TRT Haber','url':'https://www.trthaber.com/'},
+    {'name':'TRT Haber','url':'https://www.trthaber.com/',
+     'chat_recovery_url':'https://www.trthaber.com/sondakika_articles.rss','chat_recovery_priority':2},
 )
 
 
@@ -55,6 +58,24 @@ def recovery_indexes(request,seeds):
     excluded={host(s['url']) for s in SOURCES+GENERAL_SOURCES}
     discovered=[] if broad else [url for url in seeds if host(url) not in excluded]
     return list(dict.fromkeys(discovered+preferred+known))[:4]
+
+
+def chat_recovery_index(url):
+    """Use a registered publisher feed for generic chat only; scope remains unchanged."""
+    for source in GENERAL_SOURCES:
+        if source['url']==url:
+            return source.get('chat_recovery_url',url)
+    return url
+
+
+def chat_recovery_indexes(request,seeds):
+    """Prioritize registered dated feeds without increasing the four-index limit."""
+    selected=recovery_indexes(request,seeds)
+    if not multiple_publishers(request):return [chat_recovery_index(url) for url in selected]
+    registered=[source['url'] for source in sorted(GENERAL_SOURCES,key=lambda source:source.get('chat_recovery_priority',99))
+                if source.get('chat_recovery_url')]
+    ordered=list(dict.fromkeys(registered+selected))[:4]
+    return [chat_recovery_index(url) for url in ordered]
 
 
 def publisher_key(url):

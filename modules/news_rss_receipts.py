@@ -1,12 +1,15 @@
 """Immutable, registered RSS publication-date receipts for news articles."""
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
 from modules import public_sources
 
 
 PROVIDERS = {
-    'trt_haber': {'feed_url': 'https://www.trthaber.com/rss.xml', 'host': 'www.trthaber.com'},
+    'anadolu_ajansi': {'feed_url': 'https://www.aa.com.tr/tr/rss/default?cat=guncel', 'host': 'www.aa.com.tr'},
+    'ntv': {'feed_url': 'https://www.ntv.com.tr/turkiye.rss', 'host': 'www.ntv.com.tr'},
+    'trt_haber': {'feed_url': 'https://www.trthaber.com/sondakika_articles.rss', 'host': 'www.trthaber.com'},
 }
 
 
@@ -38,9 +41,10 @@ def receipt(*, provider_id, feed_url, entry, article_url):
     if not isinstance(title, str) or not title.strip() or not isinstance(published, str):
         raise ValueError('RSS başlığı veya yayın tarihi geçersiz.')
     try:
-        day = datetime.fromisoformat(published.replace('Z', '+00:00')).date().isoformat()
-    except ValueError as exc:
-        raise ValueError('RSS yayın tarihi ISO-8601 olmalı.') from exc
+        try:day=datetime.fromisoformat(published.replace('Z', '+00:00')).date().isoformat()
+        except ValueError:day=parsedate_to_datetime(published).date().isoformat()
+    except (TypeError,ValueError) as exc:
+        raise ValueError('RSS yayın tarihi ISO-8601 veya RFC 2822 olmalı.') from exc
     return {'provider_id': provider_id, 'feed_url': expected_feed, 'article_url': url,
             'title': title.strip(), 'published': day}
 

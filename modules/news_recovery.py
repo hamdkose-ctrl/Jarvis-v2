@@ -28,13 +28,16 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         url=raw.rstrip(".,!?)\"'”")
         if url not in seeds:seeds.append(url)
     from modules import publisher_news
-    seeds=publisher_news.recovery_indexes(request,seeds)
+    terms=model_free_news.terms(request)
+    # Only a topic-free chat request needs publisher-independent dated receipts.
+    # Topic requests retain their normal configured-index ordering.
+    seeds=(publisher_news.chat_recovery_indexes(request,seeds) if not terms else
+           publisher_news.recovery_indexes(request,seeds))
     sources={}
     for step in job['steps']:
         output=job['outputs'].get(step['id'],{})
         if output.get('state')=='done' and output.get('news_article') and output.get('source_quotes'):
             goal_tools.verify(output,job['owner']);sources[step['id']]=output
-    terms=model_free_news.terms(request)
     plural=bool(re.search(r'\bhaberler\w*|\bgelişmeler\w*|\bgelismeler\w*|\bgündem\b|\bgundem\b',request,re.I))
     needed=2 if plural else 1
     broad=publisher_news.broad_research(request)
@@ -83,7 +86,7 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
             url=row.get('url')
             if not url or url in attempted:continue
             attempted.add(url)
-            rid,result=tool('research',{'url':url,'question':request})
+            rid,result=tool('research',{'url':url,'question':request},[ident])
             if result.get('state')=='done' and result.get('news_article'):
                 sources[rid]=result
                 if enough():break
