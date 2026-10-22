@@ -4,12 +4,13 @@ import json
 import re
 import sqlite3
 from config import DATA_DIR
-from modules import llm, requests_state
+from modules import requests_state
 
 ROOT = DATA_DIR / 'service_work'
 
 
 def identity(owner):
+    from modules import llm
     if not isinstance(owner, str) or not re.fullmatch(r'[\w-]{1,100}', owner) or llm._key_context.get() != owner:
         raise PermissionError('İşlem için açık kullanıcı bağlamı gerekli.')
     request = requests_state._current.get()

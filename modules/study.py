@@ -11,7 +11,17 @@ from datetime import datetime
 from pathlib import Path
 
 from config import DATA_DIR
-from modules import docs, llm
+from modules import docs
+
+
+class _LazyLLM:
+    """Avoid requiring optional model providers when only source helpers are loaded."""
+    def __getattr__(self, name):
+        from modules import llm
+        return getattr(llm, name)
+
+
+llm = _LazyLLM()
 
 ROOT = DATA_DIR / "study"
 _CHUNK = 1800

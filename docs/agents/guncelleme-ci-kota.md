@@ -1,6 +1,7 @@
 # Güncelleme, CI, model ve kota (AGENTS.md alan notları)
 
 - Test izolasyonu: `test_execution_policy_stability` hem DNS hem çevrimdışı mesajını kontrollü ağ durumuyla doğrular. `test_publish_batch` STATE ve PR_STATE için aynı temizlenen geçici klasörü kullanır; kullanıcının `.jarvis` verisine yazmaz. Üretim davranışı değişmez.
+- Hafif import: `modules.docs`, LLM istemcisini yalnız özet veya içgörü istendiğinde yükler. Çalışma modu ve medya yardımcıları opsiyonel Google Gemini paketi olmadan içe aktarılabilir; `tests/test_warning_acceptance.py` bunu ayrı süreçte doğrular.
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
@@ -94,3 +95,11 @@ Resmî koşular her kökün kendi `python -m modules.validation` girişini ayrı
 
 - PC bekleme bulgusu (20 Ekim 2026): engine_tools.route içindeki model sınıflandırma çağrısı mevcut model_wait ile sınırlandırılır (varsayılan 60 sn). Enjekte edilen runtime.ask korunur; hızlı router kuralları model beklemez. İptal/zaman aşımı bekleyen soruyu tüketmez, geç karar handler'a dönmez ve aynı kullanıcının bitmemiş geç çağrısı varken ikinci model başlatılmaz. ModelWaitTimeout, mevcut failure_policy tarafından timeout sınıfına ayrılır; yeni ağ/sağlayıcı sırası veya izin yolu yoktur. Bu, çalışan HTTP çağrısını fiziksel olarak kesme veya tüm ses/araç yollarını sınırlandırma garantisi değildir. Gerçek PC, canlı sağlayıcı, iptal düğmesi kabulü Denenmedi.
 - Aynı PC günlüğünde haber görevi yaklaşık beş dakikada 13 model çağrısı, uyumsuz uzman ve geçersiz bağımlılık/araç girdileri üretti. Bu tekrar bütçesi ayrı çekirdek işidir; açık #213 goal_executor.py sahibiyken aynı dosyada ikinci görev açılmaz. Ham kullanıcı günlüğü depoya eklenmez. AGENTS.md üzerinde açık #215, BEKLEYEN_ISLER.md üzerinde açık #214 bulunduğu için bu PR o dosyaları eşzamanlı değiştirmez; durum bu alan notu ve PR gövdesinde tutulur.
+
+## PC watcher haber kabul seçeneği — 22 Ekim 2026
+
+`pc_test_watcher` haber final aşamasını `modules.acceptance_checks --news --skip-suite` ile çalıştırır. Bu seçenek dosyasız canlı haber hedefinde iki tarihli bağımsız yayıncı makbuzunu, writer çalışmamasını ve tamamlanmış hedefe `devam` yanıtının kalıcı kaydı değiştirmediğini izole geçici hedef deposunda doğrular. Başarısız özet yalnız sınırlı, maskelenmiş karar/kurtarma sayaçlarını taşır; ham istek, kaynak veya kişisel veri yazılmaz. `--news` verilmezse kontrol pending kalır; watcher kabulü passed saymaz. Test: `tests/test_acceptance_news.py`, `tests/test_pc_test_watcher.py`; gerçek Windows haber kabulü ayrıca çalıştırılmalıdır.
+
+Watcher doğrulamayı yalnız gözetleyen kökteki `.venv\\Scripts\\python.exe` ile başlatır. Bu yorumlayıcı yoksa sistem Python'una düşmez; çalışma başlatılmadan "ortam eksik" sonucu kaydedilir. Böylece eksik paketli farklı bir Python'un yanıltıcı test hatası kabul sonucu sayılmaz.
+
+Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adını ve passed/failed durumunu taşır; ham kabul çıktısı, istek veya kaynak eklenmez. Çalıştırılmamış haber kabulü masaüstü denetimini `missing` diye gölgelemez; yalnız raporda bulunan bloklar yazılır. Test: `tests/test_pc_test_watcher.py`.

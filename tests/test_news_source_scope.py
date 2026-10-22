@@ -49,6 +49,9 @@ class NewsSourceScopeTests(unittest.TestCase):
     def test_old_institution_seed_does_not_trap_general_news(self):
         self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://tubitak.gov.tr/tr/haberler']), GENERAL[:4])
 
+    def test_unknown_seed_does_not_displace_general_news_publishers(self):
+        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://example.org/haberler']), GENERAL[:4])
+
     def test_planner_receives_request_scoped_sources(self):
         rows = goal_tools.planner_catalog('son dakika haberleri')['known_news_sources']
         self.assertEqual([r['url'] for r in rows], GENERAL)
