@@ -15,15 +15,37 @@ SPEC.loader.exec_module(loop)
 
 
 class PcTestLoopTests(unittest.TestCase):
-    def test_news_final_pass_is_required_before_completion(self):
-        base = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'a'*40, 'status': 'passed'}
-        news = {'exit_code': 1, 'tail': 'fail', 'checks': [{'check': 'news_chat_resume', 'state': 'failed'}]}
+    def test_news_branch_uses_news_focus_first(self):
+        profile = loop.focus_profile('refs/remotes/origin/gpt/rss-news-receipts')
+        self.assertEqual(profile, ('news', '--news', 'news_chat_resume'))
+
+    def test_mail_branch_uses_mail_focus_first(self):
+        profile = loop.focus_profile('refs/remotes/origin/gpt/gmail-attachment-fix')
+        self.assertEqual(profile, ('gmail', '--gmail', 'gmail_attachment'))
+
+    def test_unknown_branch_falls_back_to_full_validation(self):
+        self.assertIsNone(loop.focus_profile('refs/remotes/origin/gpt/parser-cleanup'))
+
+    def test_focus_gate_failure_does_not_claim_pass(self):
+        target = {'ref': 'refs/remotes/origin/gpt/rss-news-receipts', 'sha': 'a'*40}
+        failed = {'exit_code': 1, 'tail': 'news failed', 'checks': [{'check': 'news_chat_resume', 'state': 'failed'}]}
         with mock.patch.object(loop.watcher, 'add_worktree'), \
                 mock.patch.object(loop.watcher, 'remove_worktree'), \
                 mock.patch.object(loop.watcher, 'python_exe', return_value=Path('python.exe')), \
-                mock.patch.object(loop.watcher, 'run_acceptance', return_value=news):
-            result = loop.run_news_final(Path('repo'), dict(base))
+                mock.patch.object(loop.watcher, 'run_acceptance', return_value=failed):
+            result = loop.run_focus_gate(Path('repo'), target, ('news', '--news', 'news_chat_resume'))
         self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['focus_profile'], 'news')
+
+    def test_focus_gate_passes_only_expected_check(self):
+        target = {'ref': 'refs/remotes/origin/gpt/rss-news-receipts', 'sha': 'a'*40}
+        passed = {'exit_code': 0, 'tail': '', 'checks': [{'check': 'news_chat_resume', 'state': 'passed'}]}
+        with mock.patch.object(loop.watcher, 'add_worktree'), \
+                mock.patch.object(loop.watcher, 'remove_worktree'), \
+                mock.patch.object(loop.watcher, 'python_exe', return_value=Path('python.exe')), \
+                mock.patch.object(loop.watcher, 'run_acceptance', return_value=passed):
+            result = loop.run_focus_gate(Path('repo'), target, ('news', '--news', 'news_chat_resume'))
+        self.assertEqual(result['status'], 'focus_passed')
 
     def test_repeated_same_failure_stops_extra_terra_call(self):
         report = {'sha': 'b'*40, 'status': 'failed', 'desktop_acceptance': {'exit_code': 1, 'tail': 'same failure'}}
