@@ -35,13 +35,32 @@ def job_completed(report: dict) -> bool:
     return str(report.get("status") or "") == "passed"
 
 
+def _check_detail(block: dict, expected_check: str | None) -> tuple[str, str]:
+    if not expected_check:
+        return "", ""
+    for item in block.get("checks") or []:
+        if not isinstance(item, dict) or str(item.get("check") or "") != expected_check:
+            continue
+        state = str(item.get("state") or "")
+        detail = " ".join(str(item.get("detail") or "").split())[:700]
+        return state, detail
+    return "", ""
+
+
 def acceptance_failure_hint(block: dict, label: str, expected_check: str | None = None) -> str | None:
+    state, detail = _check_detail(block, expected_check)
     if block.get("exit_code") not in (None, 0):
-        return label + ": " + " ".join(str(block.get("tail") or "").split())[-1200:]
-    if expected_check:
-        state = watcher._check_state(block.get("checks") or [], expected_check)
-        if state != "passed":
-            return f"{label}: {expected_check}={state or 'missing'}"
+        hint = label + ": " + " ".join(str(block.get("tail") or "").split())[-900:]
+        if expected_check and state != "passed":
+            hint += f"; {expected_check}={state or 'missing'}"
+            if detail:
+                hint += "; detail=" + detail
+        return hint
+    if expected_check and state != "passed":
+        hint = f"{label}: {expected_check}={state or 'missing'}"
+        if detail:
+            hint += "; detail=" + detail
+        return hint
     return None
 
 
@@ -136,6 +155,8 @@ def run_focus_gate(root: Path, target: dict, profile: tuple[str, str, str]) -> d
             passed = result.get("exit_code") == 0 and check_state == "passed"
             report["status"] = "focus_passed" if passed else "failed"
             print(f"[F] Odak kabulü bitti: {profile_name} -> {report['status']}", flush=True)
+            if not passed:
+                print(f"[DIAG] {failure_hint(report)}", flush=True)
         report["finished"] = time.time()
         return report
     finally:
