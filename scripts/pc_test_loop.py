@@ -57,6 +57,9 @@ def _result_state(state: dict) -> str:
 
 
 def should_run_codex(report: dict, state: dict, *, now: float | None = None) -> tuple[bool, str]:
+    status = str(report.get("status") or "")
+    if status in {"passed", "focus_passed"}:
+        return False, "already_passed"
     sha = str(report.get("sha") or "")
     if not sha:
         return False, "sha_missing"
@@ -153,6 +156,8 @@ def run_terra_if_needed(root: Path, report_path: Path, codex_state_path: Path, r
             print(f"Terra kotasi dolu; {QUOTA_RETRY_SECONDS // 60} dk sonra otomatik tekrar denenecek.", flush=True)
         else:
             print(f"[3/4] Terra tamamlandi: {result.get('state')}", flush=True)
+    elif reason == "already_passed":
+        print("Terra atlandi: bu SHA tum gerekli kapilardan gecti.", flush=True)
 
 
 def main() -> int:
