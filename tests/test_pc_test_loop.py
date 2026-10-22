@@ -47,6 +47,18 @@ class PcTestLoopTests(unittest.TestCase):
             result = loop.run_focus_gate(Path('repo'), target, ('news', '--news', 'news_chat_resume'))
         self.assertEqual(result['status'], 'focus_passed')
 
+    def test_passed_report_never_calls_terra(self):
+        report = {'sha': 'a'*40, 'status': 'passed'}
+        run_it, reason = loop.should_run_codex(report, {'sha': 'other'})
+        self.assertFalse(run_it)
+        self.assertEqual(reason, 'already_passed')
+
+    def test_focus_passed_report_never_calls_terra(self):
+        report = {'sha': 'a'*40, 'status': 'focus_passed'}
+        run_it, reason = loop.should_run_codex(report, {'sha': 'other'})
+        self.assertFalse(run_it)
+        self.assertEqual(reason, 'already_passed')
+
     def test_same_sha_is_not_sent_to_terra_twice(self):
         report = {'sha': 'b'*40, 'status': 'failed', 'desktop_acceptance': {'exit_code': 1, 'tail': 'same failure'}}
         run_it, reason = loop.should_run_codex(report, {
