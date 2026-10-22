@@ -30,7 +30,7 @@ $trigger = New-ScheduledTaskTrigger -AtLogOn -User $CurrentUser
 $principal = New-ScheduledTaskPrincipal -UserId $CurrentUser -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Jarvis-v2 gpt/* dallarini gercek Windows PC kabulunden gecirir ve Terra takip dongusunu calistirir.' -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Jarvis-v2 gpt/* dallarini gercek Windows PC kabulunden gecirir ve sonucu ilgili PR a yorumlar.' -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName
 Write-Host "Kuruldu: $TaskName"
 Write-Host "Kullanici: $CurrentUser"

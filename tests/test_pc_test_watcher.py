@@ -79,5 +79,19 @@ class PcTestWatcherTests(unittest.TestCase):
         self.assertEqual(result['news_acceptance']['exit_code'], 1)
 
 
+    def test_pr_comment_reports_only_blocks_that_ran(self):
+        report = {
+            'sha': 'b' * 40,
+            'status': 'failed',
+            'validation': {'exit_code': 1, 'tail': 'traceback'},
+            'desktop_acceptance': {'exit_code': 0, 'tail': 'ok', 'checks': []},
+        }
+        body = watcher.pr_comment_body(report)
+        self.assertIn('Validation: **failed**', body)
+        self.assertIn('Desktop: **passed**', body)
+        self.assertNotIn('Haber', body)
+        self.assertNotIn('traceback', body)
+
+
 if __name__ == '__main__':
     unittest.main()
