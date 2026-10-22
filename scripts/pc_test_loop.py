@@ -35,17 +35,29 @@ def job_completed(report: dict) -> bool:
     return str(report.get("status") or "") == "passed"
 
 
+def acceptance_failure_hint(block: dict, label: str, expected_check: str | None = None) -> str | None:
+    if block.get("exit_code") not in (None, 0):
+        return label + ": " + " ".join(str(block.get("tail") or "").split())[-1200:]
+    if expected_check:
+        state = watcher._check_state(block.get("checks") or [], expected_check)
+        if state != "passed":
+            return f"{label}: {expected_check}={state or 'missing'}"
+    return None
+
+
 def failure_hint(report: dict) -> str:
     focus = report.get("focus_acceptance") if isinstance(report.get("focus_acceptance"), dict) else {}
-    if focus.get("exit_code") not in (None, 0):
-        return "focus_acceptance: " + " ".join(str(focus.get("tail") or "").split())[-1200:]
+    focus_hint = acceptance_failure_hint(focus, "focus_acceptance", str(report.get("focus_check") or "") or None)
+    if focus_hint:
+        return focus_hint
     validation = report.get("validation") if isinstance(report.get("validation"), dict) else {}
     if validation.get("exit_code") not in (None, 0):
         return "validation: " + " ".join(str(validation.get("tail") or "").split())[-1200:]
-    for key in ("news_acceptance", "desktop_acceptance"):
+    for key, check in (("news_acceptance", "news_chat_resume"), ("desktop_acceptance", "calculator")):
         block = report.get(key) if isinstance(report.get(key), dict) else {}
-        if block.get("exit_code") not in (None, 0):
-            return key + ": " + " ".join(str(block.get("tail") or "").split())[-1200:]
+        hint = acceptance_failure_hint(block, key, check)
+        if hint:
+            return hint
     return "acceptance failed"
 
 
@@ -102,6 +114,7 @@ def run_focus_gate(root: Path, target: dict, profile: tuple[str, str, str]) -> d
         "started": time.time(),
         "status": "failed",
         "focus_profile": profile_name,
+        "focus_check": check_name,
     }
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (watcher.safe_name(ref) + "-focus-" + sha[:8])
     try:

@@ -37,6 +37,24 @@ class PcTestLoopTests(unittest.TestCase):
         self.assertEqual(result['status'], 'failed')
         self.assertEqual(result['focus_profile'], 'news')
 
+    def test_failure_hint_reports_focus_check_state_when_process_succeeds(self):
+        report = {
+            'status': 'failed',
+            'focus_check': 'calculator',
+            'focus_acceptance': {
+                'exit_code': 0,
+                'checks': [{'check': 'calculator', 'state': 'failed'}],
+            },
+        }
+        self.assertEqual(loop.failure_hint(report), 'focus_acceptance: calculator=failed')
+
+    def test_failure_hint_reports_missing_desktop_check_when_process_succeeds(self):
+        report = {
+            'status': 'failed',
+            'desktop_acceptance': {'exit_code': 0, 'checks': []},
+        }
+        self.assertEqual(loop.failure_hint(report), 'desktop_acceptance: calculator=missing')
+
     def test_focus_gate_passes_only_expected_check(self):
         target = {'ref': 'refs/remotes/origin/gpt/rss-news-receipts', 'sha': 'a'*40}
         passed = {'exit_code': 0, 'tail': '', 'checks': [{'check': 'news_chat_resume', 'state': 'passed'}]}
