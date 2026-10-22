@@ -68,9 +68,8 @@ def should_run_codex(report: dict, state: dict, *, now: float | None = None) -> 
                 return True, "quota_retry"
             return False, "quota_wait"
         return False, "same_sha_already_handled"
-    signature = failure_signature(report)
-    if signature and state.get("last_failure_signature") == signature and _result_state(state) != "pending_quota":
-        return False, "repeated_failure_stopped"
+    # A new SHA is a new repair attempt. Even if it exposes the same failure
+    # signature, Terra must get another turn because the code changed.
     return True, "new_result"
 
 
@@ -154,12 +153,6 @@ def run_terra_if_needed(root: Path, report_path: Path, codex_state_path: Path, r
             print(f"Terra kotasi dolu; {QUOTA_RETRY_SECONDS // 60} dk sonra otomatik tekrar denenecek.", flush=True)
         else:
             print(f"[3/4] Terra tamamlandi: {result.get('state')}", flush=True)
-    elif reason == "repeated_failure_stopped":
-        result = {"state": "stopped", "reason": reason}
-        report["codex_followup"] = result
-        watcher.save_json(report_path, report)
-        watcher.save_json(codex_state_path, next_state(report, result))
-        print("Terra durdu: aynı hata tekrarlandı; kota koruması devrede.")
 
 
 def main() -> int:
