@@ -199,6 +199,12 @@ def _turn_check(runtime,job):
         raise _TurnBudget('Bu turun toplam '+str(TURN_SECONDS)+' saniyelik bekleme süresi doldu; hedef ve mevcut sonuçlar korundu. Devam etmek istersen “hedef devam” diyebilirsin.')
 
 
+def _turn_remaining():
+    """Seconds still available in this turn, or None outside a goal loop."""
+    deadline=_TURN_DEADLINE.get()
+    return None if deadline is None else max(0,deadline-time.monotonic())
+
+
 def _context(job):
     recent=set(list(job['outputs'])[-6:]);outputs={}
     for key,value in job['outputs'].items():
@@ -408,7 +414,7 @@ def _loop_steps(runtime,job,answer=None):
     # article URL. Persist its one bounded delivery goal before trying configured
     # publisher indexes, so a slow or unavailable planner cannot consume the
     # recovery window. If the sources are insufficient, normal planning continues.
-    if answer is None and not job['goals']:
+    if answer is None and not job['goals'] and not job.get('pre_recovery_deferred'):
         from modules import research_evidence,model_free_news
         if (research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request'])
                 and not model_free_news.terms(job['request'])):
@@ -425,6 +431,19 @@ def _loop_steps(runtime,job,answer=None):
                 job.setdefault('feedback',[]).append(
                     'Ön kaynak kurtarma tamamlanamadı: '+privacy.redact(str(exc),force=True)[:600])
             if _finish_completed(job):return render(job)
+            # A planner can wait for up to 60 seconds and a following source read
+            # can take up to 20. Do not begin that fallback after bounded live
+            # recovery has left less than that: it can only end as the generic
+            # 120-second timeout seen by the Windows acceptance. Defer the normal
+            # planner to an explicit resume with a fresh turn budget instead.
+            if (len(job['steps'])>started_steps and
+                    (_turn_remaining() or 0)<PLANNER_SECONDS+20):
+                job['goals']=[];job['pre_recovery_deferred']=True
+                job['state']='paused'
+                job['blocker']=('Sınırlı haber kaynakları bu turda yeterli kanıt üretmedi; '
+                                'planlayıcı ve olası kaynak okuması için yeterli süre kalmadı. '
+                                'Kayıtlı denemeler korundu; devam etmek istersen “hedef devam” diyebilirsin.')
+                _save(job);return render(job)
             # The target must exist while bounded recovery records its attempts, but
             # it is not a planner-produced plan. Leave no synthetic target behind
             # when recovery has insufficient evidence, or the normal planner is
