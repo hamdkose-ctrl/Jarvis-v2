@@ -61,17 +61,18 @@ class NewsChatWriterTests(unittest.TestCase):
 
     def test_generic_fileless_news_tries_publisher_recovery_before_planner(self):
         case=fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
-        case.responses(RuntimeError('Planlayıcıya geri dön'))
+        case.responses(case.plan('Haberler için normal plan'),RuntimeError('Planlayıcıya geri dön'))
         observed=[]
         def deliver(runtime,job,**kwargs):
             observed.append((case.ask.call_count,list(job['goals']),list(job['steps']),kwargs))
         with patch('modules.news_recovery.deliver',side_effect=deliver):
             goals.run(case.runtime,'Son dakika haberleri')
-        self.assertEqual(case.ask.call_count,1)
+        self.assertEqual(case.ask.call_count,2)
         self.assertEqual(observed[0][0],0)
         self.assertEqual(observed[0][1][0]['text'],'Güncel haberleri tarihli kaynak kanıtlarıyla sohbetten teslim et')
         self.assertEqual(observed[0][2],[])
         self.assertEqual(observed[0][3]['max_new_steps'],24)
+        self.assertEqual(observed[1][1][0]['text'],'Haberler için normal plan')
 
     def test_explicit_file_request_still_writes_and_verifies_file(self):
         case,job,reply,work=self.run_case(file=True)

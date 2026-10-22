@@ -412,11 +412,20 @@ def _loop_steps(runtime,job,answer=None):
         from modules import research_evidence,model_free_news
         if (research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request'])
                 and not model_free_news.terms(job['request'])):
-            job['goals']=[{'text':'Güncel haberleri tarihli kaynak kanıtlarıyla sohbetten teslim et','state':'pending','evidence':[]}]
+            recovery_goal={'text':'Güncel haberleri tarihli kaynak kanıtlarıyla sohbetten teslim et','state':'pending','evidence':[],
+                           'pre_recovery':True}
+            job['goals']=[recovery_goal]
             _save(job)
             from modules import news_recovery
             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
             if _finish_completed(job):return render(job)
+            # The target must exist while bounded recovery records its attempts, but
+            # it is not a planner-produced plan. Leave no synthetic target behind
+            # when recovery has insufficient evidence, or the normal planner is
+            # forbidden from creating the plan it needs for the fallback.
+            if job['goals']==[recovery_goal] and recovery_goal['state']=='pending':
+                job['goals']=[]
+                _save(job)
     if answer is None:
         resumed=_resume_news_recovery(runtime,job,started_steps)
         if _finish_completed(job) or resumed:return render(job)
