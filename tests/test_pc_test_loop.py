@@ -48,6 +48,24 @@ class PcTestLoopTests(unittest.TestCase):
         }
         self.assertEqual(loop.failure_hint(report), 'focus_acceptance: calculator=failed')
 
+    def test_failure_hint_includes_safe_check_detail(self):
+        report = {
+            'status': 'failed',
+            'focus_check': 'news_chat_resume',
+            'focus_acceptance': {
+                'exit_code': 0,
+                'checks': [{
+                    'check': 'news_chat_resume',
+                    'state': 'failed',
+                    'detail': 'iki yayıncı makbuzu eksik',
+                }],
+            },
+        }
+        self.assertEqual(
+            loop.failure_hint(report),
+            'focus_acceptance: news_chat_resume=failed; detail=iki yayıncı makbuzu eksik',
+        )
+
     def test_failure_hint_reports_missing_desktop_check_when_process_succeeds(self):
         report = {
             'status': 'failed',
