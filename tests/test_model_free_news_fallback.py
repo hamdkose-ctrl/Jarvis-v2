@@ -50,7 +50,7 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
              patch('modules.goal_tools.execute',side_effect=AssertionError('normal model worker çağrıldı')):
             result=specialist_orchestrator.execute_step(runtime,job,step,{'source_only':False})
         self.assertIs(result,expected)
-        direct.assert_called_once_with('hamdi',step['input'],job['request'],source_only=False)
+        direct.assert_called_once_with('hamdi',step['input'],job['request'],source_only=False,rss_receipt=None)
 
     def test_chat_recovery_uses_failed_directory_as_headlines_and_finishes_with_two_articles(self):
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))

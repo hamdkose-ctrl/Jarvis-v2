@@ -405,6 +405,20 @@ def _loop_steps(runtime,job,answer=None):
                 job.setdefault('feedback',[]).append(str(exc));_save(job)
     if _finish_completed(job):return render(job)
     if answer is None:
+        # A generic current-news request has no subject that needs a model to
+        # select it. Try the bounded publisher path first, so a live chat
+        # delivery is not held behind an unrelated provider quota or delay.
+        # Specific topics still start with the normal planner.
+        from modules import research_evidence,model_free_news
+        if (not job['goals'] and not job['steps'] and
+                research_evidence.news_requested(job['request']) and
+                not research_evidence.file_requested(job['request']) and
+                not model_free_news.terms(job['request'])):
+            job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
+            _save(job)
+            from modules import news_recovery
+            news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
+            if _finish_completed(job):return render(job)
         resumed=_resume_news_recovery(runtime,job,started_steps)
         if _finish_completed(job) or resumed:return render(job)
     for _ in range(MAX_TURNS):
