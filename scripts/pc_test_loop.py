@@ -13,8 +13,28 @@ from codex_followup import run_followup
 CODEX_STATE_NAME = "codex_followup_state.json"
 QUOTA_RETRY_SECONDS = 300
 
+FOCUS_PROFILES = (
+    (("news", "rss", "haber"), "news", "--news", "news_chat_resume"),
+    (("gmail", "mail"), "gmail", "--gmail", "gmail_attachment"),
+    (("video",), "video", "--video", "video_runtime"),
+    (("narration", "voice", "ses"), "narration", "--narration", "speaker_voice_quality"),
+    (("public-data", "public_data"), "public_data", "--public-data", "public_news_report"),
+    (("desktop", "windows-pc", "pc-control", "pc_control"), "desktop", "--desktop", "calculator"),
+)
+
+
+def focus_profile(ref: str) -> tuple[str, str, str] | None:
+    name = str(ref or "").casefold()
+    for tokens, profile, flag, check in FOCUS_PROFILES:
+        if any(token in name for token in tokens):
+            return profile, flag, check
+    return None
+
 
 def failure_hint(report: dict) -> str:
+    focus = report.get("focus_acceptance") if isinstance(report.get("focus_acceptance"), dict) else {}
+    if focus.get("exit_code") not in (None, 0):
+        return "focus_acceptance: " + " ".join(str(focus.get("tail") or "").split())[-1200:]
     validation = report.get("validation") if isinstance(report.get("validation"), dict) else {}
     if validation.get("exit_code") not in (None, 0):
         return "validation: " + " ".join(str(validation.get("tail") or "").split())[-1200:]
@@ -66,22 +86,52 @@ def next_state(report: dict, result: dict) -> dict:
     return state
 
 
-def run_news_final(root: Path, report: dict) -> dict:
-    ref = str(report.get("ref") or "")
-    sha = str(report.get("sha") or "")
-    worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (watcher.safe_name(ref) + "-news-" + sha[:8])
+def run_focus_gate(root: Path, target: dict, profile: tuple[str, str, str]) -> dict:
+    profile_name, flag, check_name = profile
+    ref = str(target.get("ref") or "")
+    sha = str(target.get("sha") or "")
+    report = {
+        "ref": ref,
+        "sha": sha,
+        "started": time.time(),
+        "status": "failed",
+        "focus_profile": profile_name,
+    }
+    worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (watcher.safe_name(ref) + "-focus-" + sha[:8])
     try:
         watcher.add_worktree(root, sha, worktree)
-        print("[C] Haber final acceptance basladi...", flush=True)
-        result = watcher.run_acceptance(watcher.python_exe(root), worktree, "--news")
-        print(f"[C] Haber final acceptance bitti: exit={result['exit_code']}", flush=True)
-        report["news_acceptance"] = result
-        news_state = watcher._check_state(result.get("checks") or [], "news_chat_resume")
-        report["status"] = "passed" if result["exit_code"] == 0 and news_state == "passed" else "failed"
+        py = watcher.python_exe(root)
+        if py is None:
+            report["focus_acceptance"] = {
+                "exit_code": 2,
+                "tail": "Odak kabulü çalıştırılmadı: .venv\\Scripts\\python.exe bulunamadı.",
+                "checks": [],
+            }
+        else:
+            print(f"[F] Odak kabulü basladi: {profile_name}", flush=True)
+            result = watcher.run_acceptance(py, worktree, flag)
+            report["focus_acceptance"] = result
+            check_state = watcher._check_state(result.get("checks") or [], check_name)
+            passed = result.get("exit_code") == 0 and check_state == "passed"
+            report["status"] = "focus_passed" if passed else "failed"
+            print(f"[F] Odak kabulü bitti: {profile_name} -> {report['status']}", flush=True)
         report["finished"] = time.time()
         return report
     finally:
         watcher.remove_worktree(root, worktree)
+
+
+def mark_focus_failure(state_path: Path, target: dict, report: dict) -> None:
+    state = watcher.load_state(state_path)
+    seen = state.setdefault("seen", {})
+    seen[str(target["ref"])] = {
+        "sha": str(target["sha"]),
+        "status": "pending_retry",
+        "last_attempt": time.time(),
+        "last_result": str(report.get("status") or "failed"),
+    }
+    state["updated"] = time.time()
+    watcher.save_json(state_path, state)
 
 
 def run_terra_if_needed(root: Path, report_path: Path, codex_state_path: Path, report: dict) -> None:
@@ -113,7 +163,7 @@ def run_terra_if_needed(root: Path, report_path: Path, codex_state_path: Path, r
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Windows PC kabul + Terra takip döngüsü")
+    parser = argparse.ArgumentParser(description="Windows PC odak kabul + genel doğrulama + Terra takip döngüsü")
     parser.add_argument("--interval", type=int, default=30)
     parser.add_argument("--pattern", default=watcher.DEFAULT_PATTERN)
     parser.add_argument("--once", action="store_true")
@@ -126,21 +176,37 @@ def main() -> int:
     codex_state_path = local_dir / CODEX_STATE_NAME
 
     print(f"Jarvis PC test + Terra döngüsü başladı: {root}")
-    print("Aşamalar: validation -> desktop -> ayrı haber finali -> Terra")
+    print("Aşamalar: işin odak kabulü -> geçerse validation + desktop -> Terra")
 
     while True:
         try:
-            changed = watcher.once(root, state_path, report_path, args.pattern, desktop=True, news=False)
+            state = watcher.load_state(state_path)
+            seen = state.setdefault("seen", {})
+            target = watcher.choose_candidate(watcher.remote_heads(root, args.pattern), seen)
             report = watcher.load_state(report_path)
-            if not changed:
+
+            if target:
+                profile = focus_profile(str(target.get("ref") or ""))
+                if profile:
+                    focus_report = run_focus_gate(root, target, profile)
+                    if focus_report.get("status") != "focus_passed":
+                        focus_report["github_pr_comment"] = watcher.publish_pr_comment(root, str(target.get("ref") or ""), focus_report)
+                        watcher.save_json(report_path, focus_report)
+                        mark_focus_failure(state_path, target, focus_report)
+                        run_terra_if_needed(root, report_path, codex_state_path, focus_report)
+                        if args.once:
+                            return 0
+                        time.sleep(max(10, args.interval))
+                        continue
+                    print("[F] Odak geçti; genel doğrulamaya geçiliyor.", flush=True)
+
+                changed = watcher.once(root, state_path, report_path, args.pattern, desktop=True, news=False)
+                report = watcher.load_state(report_path)
+                if changed:
+                    run_terra_if_needed(root, report_path, codex_state_path, report)
+            else:
                 run_terra_if_needed(root, report_path, codex_state_path, report)
                 print("Yeni test adayı yok.")
-            else:
-                if report.get("status") == "passed":
-                    report = run_news_final(root, report)
-                    report["github_pr_comment"] = watcher.publish_pr_comment(root, str(report.get("ref") or ""), report)
-                    watcher.save_json(report_path, report)
-                run_terra_if_needed(root, report_path, codex_state_path, report)
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
