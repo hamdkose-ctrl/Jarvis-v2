@@ -31,6 +31,10 @@ def focus_profile(ref: str) -> tuple[str, str, str] | None:
     return None
 
 
+def job_completed(report: dict) -> bool:
+    return str(report.get("status") or "") == "passed"
+
+
 def failure_hint(report: dict) -> str:
     focus = report.get("focus_acceptance") if isinstance(report.get("focus_acceptance"), dict) else {}
     if focus.get("exit_code") not in (None, 0):
@@ -174,7 +178,7 @@ def main() -> int:
     codex_state_path = local_dir / CODEX_STATE_NAME
 
     print(f"Jarvis PC test + Terra döngüsü başladı: {root}")
-    print("Aşamalar: işin odak kabulü -> geçerse validation + desktop -> Terra")
+    print("Aşamalar: işin odak kabulü -> geçerse validation + desktop -> PASS ise sıradaki iş -> FAIL ise Terra")
 
     while True:
         try:
@@ -201,6 +205,11 @@ def main() -> int:
                 changed = watcher.once(root, state_path, report_path, args.pattern, desktop=True, news=False)
                 report = watcher.load_state(report_path)
                 if changed:
+                    if job_completed(report):
+                        print("[NEXT] Genel kontrol PASS; sıradaki çözülmemiş işe geçiliyor.", flush=True)
+                        if args.once:
+                            return 0
+                        continue
                     run_terra_if_needed(root, report_path, codex_state_path, report)
             else:
                 run_terra_if_needed(root, report_path, codex_state_path, report)
