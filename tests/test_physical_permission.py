@@ -44,7 +44,7 @@ class PhysicalPermissionTests(unittest.TestCase):
             self.assertEqual(classify.classify_detail('system', 'oku', action_class=value), ('system_config', False))
 
     def test_previous_classes_and_unknown_fallback_remain(self):
-        self.assertEqual(gate.CLASSES - {'physical'}, {'read', 'local_reversible', 'local_destructive',
+        self.assertEqual(gate.CLASSES - {'physical', 'external_write'}, {'read', 'local_reversible', 'local_destructive',
                          'message_out', 'publish', 'money_credential', 'system_config'})
         self.assertEqual(classify.classify_detail('system', 'belirsiz işlem'), ('system_config', False))
 

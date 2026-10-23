@@ -1,4 +1,5 @@
 # Görev çekirdeği, hedef yürütücüsü ve araçlar (AGENTS.md alan notları)
+- `external_write`, kullanıcının özel dış hesabındaki kesin kaydı oluşturma/değiştirme/silme sınıfıdır; varsayılanı her zaman `ask`tır ve süreli grant ile açılamaz. Açık `action_class` dış silmede `local_destructive`e çevrilmez; yıkıcılık capability Effect Policy'sinde taşınır. Para/kimlik, sistem ve fiziksel güvenlik sınıfları önceliğini korur.
 - Sohbet haber teslimi yanlış writer seçimini yürütmeden mevcut bağımlı haber makbuzlarına çevirir. Kısmi teslim için chat_evidence yalnız görünüm referansıdır; hedefin tamamlanma kanıtı değildir. Kaynak eksikse hedef açık kalır; diğer hedefler ve gerçek dosya üretimi korunur.
 - Araştırma son görünümünde aynı kanıt kimliği bir kez basılır. Aynı hedefte başarılı research varsa data sources/headlines/news_search keşif dökümleri son bulgulara karıştırılmaz; yalnız keşif hedefi, başka veri sonuçları ve dosya yolları korunur. Genel araştırmada kısa yanıt sonrası kaynak URL'si kesilmeden gösterilir. Kayıt/kanıt/planlama ve tamamlanma kuralları değişmez.
 - `public_sources.address` veri taşıyan `data/payload/report/body/content/text/message` sorgu anahtarlarını tam adla reddeder; mevcut kimlik bilgisi filtresi ve meşru `date/city` sorguları korunur.
@@ -38,6 +39,12 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - Her denemede kullanıcı/görev/adım/yetenek/risk/deneme kaydı dış çağrıdan önce diske yazılır. Modelin verdiği `execution` alanı kullanılmaz. Bu kayıt yetki veya onay sağlamaz; mevcut tarayıcı onayı, gizlilik ve geliştirme kilidi geçerlidir.
 - `effect_unknown` tarayıcı/kod başarısızlığını ihtiyatlı sınıflandırır; dış işlem kesin gerçekleşti demek değildir. Bu adımlar otomatik tekrar edilmez. Araştırma/rapor/doğrulama yeniden yürütme sınıfı mevcut davranıştır; rapor yeni dosya üretebilir.
 - Yeni test: `tests/test_task_tools.py`. Mevcut motor/JSON kayıtları korunur; LangGraph/Hindsight/Paperclip kurulmadı. Android, arayüz ve ses değişmez.
+
+## Capability Manifest uyumluluk görünümü — 23 Ekim 2026
+
+- `modules/capability_manifest.py`, mevcut `tool_contract`, `task_tools` ve `goal_tools` kataloglarını salt-okunur, JSON-uyumlu Capability Manifest görünümüne taşır; callable/binding ayrıntıları dispatcher ve mevcut kaynak modüllerde kalır.
+- Bu adaptör yeni execution engine, planner veya araç kataloğu değildir. Yinelenen capability ID ile bilinmeyen sürüm, permission veya effect politikası fail-closed reddedilir; mevcut tool discovery ve yürütme davranışı değişmez.
+- Test: `tests/test_capability_manifest.py`; read ve yan-etkili görünüm, JSON sınırı ve discovery uyumluluğu denetlenir.
 
 ## Hesap araçları başlangıcı — 13 Ekim 2026
 
