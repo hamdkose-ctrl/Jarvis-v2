@@ -66,16 +66,11 @@ def run(runtime, request, tasks):
 
 
 def execute_step(runtime,job,step,identity,*,approval=None):
-    """A specialist executes inside the durable journal and transitional decision gate."""
+    """A specialist executes inside the durable journal and runtime safety gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
-
-    # First runtime slice: enforce the new decision line for read/reversible task
-    # workers and the existing publish approval staging path. Browser/coder keep
-    # their old internal gates until their preparation/result contracts carry the
-    # WorkerResult fence in the next slice.
     gated={'media','publish','account','research','writer','verify'}
-    plan=None
+    plan=None;expected=None
     if step['tool'] in gated:
         from modules import runtime_execution_gate
         plan=runtime_execution_gate.plan_task(
@@ -83,16 +78,31 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
+        if plan['phase']=='execute':
+            from modules import runtime_worker_result
+            if runtime_worker_result.durable_identity(identity):
+                identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
 
     if step['tool']=='research':
         from modules import research_evidence
         if research_evidence.news_requested(job['request']):
             from modules import model_free_news
             output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
+            if expected is not None:
+                from modules import runtime_worker_result,worker_result_hook
+                output=worker_result_hook.wrap_output(output,identity)
+                output=runtime_worker_result.accept_output(output,expected)
             return output
 
-    output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+    if expected is not None:
+        from modules import runtime_worker_result,worker_result_hook
+        output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+    else:
+        output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
     if plan and plan['phase']=='prepare':
         from modules import runtime_execution_gate
         return runtime_execution_gate.accept_prepare_result(plan,output)
+    if expected is not None:
+        from modules import runtime_worker_result
+        output=runtime_worker_result.accept_output(output,expected)
     return output
