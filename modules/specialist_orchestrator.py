@@ -91,7 +91,7 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             if expected is not None:
                 from modules import runtime_worker_result,worker_result_hook
                 output=worker_result_hook.wrap_output(output,identity)
-                output=runtime_worker_result.accept_output(output,expected)
+                output=runtime_worker_result.accept_and_commit(output,expected)
             return output
 
     if expected is not None:
@@ -104,5 +104,5 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         return runtime_execution_gate.accept_prepare_result(plan,output)
     if expected is not None:
         from modules import runtime_worker_result
-        output=runtime_worker_result.accept_output(output,expected)
+        output=runtime_worker_result.accept_and_commit(output,expected)
     return output
