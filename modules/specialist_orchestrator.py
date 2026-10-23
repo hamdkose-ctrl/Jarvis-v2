@@ -93,6 +93,9 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             from modules import runtime_worker_result
             if runtime_worker_result.durable_identity(identity):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
+                if step['tool']=='publish':
+                    from modules import effect_recovery_runtime
+                    effect_recovery_runtime.record_intent(expected)
 
     if step['tool']=='research':
         from modules import research_evidence
@@ -121,6 +124,9 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             return output
         return runtime_execution_gate.accept_prepare_result(plan,output)
     if expected is not None:
+        if step['tool']=='publish' and isinstance(output,dict) and output.get('state')=='done':
+            from modules import effect_recovery_runtime
+            effect_recovery_runtime.record_receipt(expected,output)
         from modules import runtime_worker_result
         output=runtime_worker_result.accept_and_commit(output,expected)
     return output
