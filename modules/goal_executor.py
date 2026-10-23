@@ -180,6 +180,16 @@ def _identity(job,step):
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
 
 
+def _reconcile(runtime,job,step):
+    """Read back one interrupted effect; never retry it from this recovery path."""
+    identity=_identity(job,step)
+    recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint'))
+    if isinstance(recovered,dict) and recovered.get('state')=='done':
+        from modules import reconcile_worker_result
+        return reconcile_worker_result.accept_and_commit(recovered,identity,step['tool'],step['input'])
+    return recovered
+
+
 def _ensure(runtime,job):
     requests_state.check()
     with _LOCK:
@@ -252,7 +262,7 @@ def _record(runtime,job,step,approval=None):
         output={'state':'failed','text':privacy.redact(str(exc),force=True)[:2000]}
         try:
             _ensure(runtime,job)
-            recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],_identity(job,step),step.get('checkpoint')) if step['started'] else None
+            recovered=_reconcile(runtime,job,step) if step['started'] else None
             if recovered:
                 if recovered['state']=='done':goal_tools.verify(recovered,job['owner'])
                 output=recovered
@@ -363,7 +373,7 @@ def _loop_steps(runtime,job,answer=None):
     for step in job['steps']:
         if step['state']=='running':
             if step.get('started',True) and not goal_tools.replay_safe(step['tool'],step['input']):
-                recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],_identity(job,step),step.get('checkpoint'))
+                recovered=_reconcile(runtime,job,step)
                 if recovered and recovered['state']=='done':
                     goal_tools.verify(recovered,job['owner']);job['outputs'][step['id']]=recovered;step['state']='done';_save(job);continue
                 safe_code=False
