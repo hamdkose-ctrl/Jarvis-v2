@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 import release_guard
+from modules.diagnostics import record_failure as _record_failure
 
 _JOB_FILE = re.compile(r'([a-f0-9]{16})\.json\Z')
 _REQUIRED = frozenset({'id', 'owner', 'request', 'state', 'goals', 'steps', 'outputs'})
@@ -50,11 +51,13 @@ def _atomic(path, data):
     try:
         return _ORIGINAL_ATOMIC(path, data)
     except Exception as legacy_error:
+        _record_failure('modules/goal_state_save_hook.py:_atomic:legacy_write')
         try:
             goal_state_store.compensate(
                 canonical, expected_state=synced, previous_bytes=before,
             )
         except Exception as compensation_error:
+            _record_failure('modules/goal_state_save_hook.py:_atomic:compensate')
             raise RuntimeError(
                 'Legacy goal kaydı yazılamadı ve canonical GoalState geri alınamadı.'
             ) from compensation_error
