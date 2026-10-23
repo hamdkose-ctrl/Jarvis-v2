@@ -80,7 +80,8 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
         if plan['phase']=='execute':
             from modules import runtime_worker_result
-            identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
+            if runtime_worker_result.durable_identity(identity):
+                identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
 
     if step['tool']=='research':
         from modules import research_evidence
