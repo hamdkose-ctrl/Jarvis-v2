@@ -1,12 +1,16 @@
 import copy
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 
 class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
     def setUp(self):
-        from modules import goal_state, goal_state_compat, runtime_worker_result, worker_result_hook
+        from modules import goal_state, goal_state_compat, goal_state_store, runtime_worker_result, worker_result_hook
         self.goal_state = goal_state
         self.compat = goal_state_compat
+        self.store = goal_state_store
         self.runtime = runtime_worker_result
         self.hook = worker_result_hook
 
@@ -34,6 +38,28 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
         output['_worker_result']['command_id'] = 'foreign'
         with self.assertRaises(ValueError):
             self.runtime.accept_output(output, expected)
+
+    def test_per_call_wrapper_never_replaces_global_goal_tools_execute(self):
+        from modules import goal_tools
+        original = goal_tools.execute
+        identity, expected = self.runtime.prepare(
+            self.identity(), 'research', {'url': 'https://example.test', 'question': 'x'}, expected_job_version=3,
+        )
+        fake = {'state': 'failed', 'text': 'x'}
+        with patch.object(goal_tools, 'execute', return_value=fake) as execute:
+            wrapped = self.hook.execute(None, 'research', {'url': 'https://example.test', 'question': 'x'}, {}, identity)
+            execute.assert_called_once()
+            self.runtime.accept_output(wrapped, expected)
+        self.assertIs(goal_tools.execute, original)
+
+    def test_canonical_version_reads_owner_scoped_goalstate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / 'goals' / 'alice' / '0123456789abcdef.goalstate.json'
+            state = self.goal_state.new(owner='alice', job_id='0123456789abcdef', goal='hedef', execution_mode='agent')
+            self.store.create(path, state)
+            with patch.object(self.runtime, 'DATA_DIR', root):
+                self.assertEqual(self.runtime.canonical_version(self.identity()), 0)
 
     def test_accepted_worker_result_becomes_goalstate_reducer_evidence(self):
         identity, expected = self.runtime.prepare(
