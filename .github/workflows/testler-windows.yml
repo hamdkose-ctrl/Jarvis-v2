@@ -1,10 +1,9 @@
 name: Windows testleri
 
-# Actions dakikası kısıtlı: Windows testi her PR push'unda değil, yalnız main'e birleşmede
-# ve elle (Actions > Windows testleri > Run workflow, birleşmeden önce istenen dalda) çalışır.
+# Windows self-hosted runner PR doğrulamasını çalıştırır; aynı iş main'e birleşmede
+# yeniden otomatik çalışmaz. Elle başlatma seçeneği korunur.
 on:
-  push:
-    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -16,40 +15,41 @@ concurrency:
 
 jobs:
   testler-windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 40
     env:
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: pip
-          cache-dependency-path: |
-            requirements.lock.txt
-            requirements-bundle.txt
-            requirements-browser.txt
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Sistem Python ve Node sürümlerini doğrula
+        run: |
+          $pythonVersion = py -3.13 --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($pythonVersion -notmatch '^Python 3\.13\.') {
+            throw "Python 3.13 gerekli; bulunan: $pythonVersion"
+          }
+          $nodeVersion = node --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($nodeVersion -notmatch '^v24\.') {
+            throw "Node 24 gerekli; bulunan: $nodeVersion"
+          }
       - name: Sabit Windows paketleri ve ekleri
         run: |
-          python -m pip install --upgrade pip
+          py -3.13 -m pip install --upgrade pip
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install --no-deps -r requirements.lock.txt
+          py -3.13 -m pip install --no-deps -r requirements.lock.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip install -c requirements.lock.txt -r requirements-bundle.txt
+          py -3.13 -m pip install -c requirements.lock.txt -r requirements-bundle.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pip check
+          py -3.13 -m pip check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sözdizimi kontrolü
-        run: python -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
+        run: py -3.13 -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
       - name: Tam doğrulama (Python, JavaScript ve smoke)
         env:
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
-        run: python -X utf8 -m modules.validation
+        run: py -3.13 -X utf8 -m modules.validation

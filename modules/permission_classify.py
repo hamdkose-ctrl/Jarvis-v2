@@ -52,6 +52,10 @@ def classify_detail(via: str, name: str, target: str = '', *, action_class=None)
         return 'system_config', True
     if action_class == 'physical' or _has(name, _PHYSICAL) or _has(target, _PHYSICAL):
         return 'physical', True
+    # Dış kaydı silmek permission sınıfını yerel yıkıcıya çevirmez; yıkıcılık
+    # capability Effect Policy'sinde ayrıca taşınır.
+    if action_class == 'external_write':
+        return 'external_write', True
     if _has(name, _DESTROY):
         return 'local_destructive', True
     if _has(name, _PUBLISH):

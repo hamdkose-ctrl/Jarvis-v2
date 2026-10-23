@@ -1,11 +1,8 @@
 name: Testler
 
-# Her PR'da ve main'e her birleştirmede tüm test takımı çalışır.
-# Geçici workflow ekleyip silmeye gerek yoktur; dal koruması bu işin adını zorunlu tutabilir.
+# Linux uyumluluk testi yalnız elle başlatılır; PR doğrulamasını Windows self-hosted
+# runner üstlenir.
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

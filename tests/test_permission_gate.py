@@ -10,6 +10,7 @@ class PermissionGateTests(unittest.TestCase):
             (gate.READ, gate.ALLOW),
             (gate.LOCAL_REVERSIBLE, gate.ALLOW),
             (gate.LOCAL_DESTRUCTIVE, gate.ASK),
+            (gate.EXTERNAL_WRITE, gate.ASK),
             (gate.MESSAGE_OUT, gate.ASK),
             (gate.PUBLISH, gate.ASK),
             (gate.MONEY_CREDENTIAL, gate.DENY),
