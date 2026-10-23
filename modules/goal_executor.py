@@ -183,6 +183,13 @@ def _identity(job,step):
 def _reconcile(runtime,job,step):
     """Read back one interrupted effect; never retry it from this recovery path."""
     identity=_identity(job,step)
+    if step['tool']=='publish':
+        from modules import runtime_worker_result
+        if runtime_worker_result.durable_identity(identity):
+            from modules import effect_recovery_runtime
+            _enriched,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
+            return effect_recovery_runtime.reconcile(
+                expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')))
     recovered=goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint'))
     if isinstance(recovered,dict) and recovered.get('state')=='done':
         from modules import reconcile_worker_result
