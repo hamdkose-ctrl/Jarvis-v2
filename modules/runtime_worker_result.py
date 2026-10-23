@@ -4,10 +4,18 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
 
-from config import DATA_DIR
 from modules import capability_manifest, goal_state_store, worker_result
+
+
+def durable_identity(identity: dict) -> bool:
+    """True only for the versioned execution identity emitted by goal_executor.
+
+    Older/direct specialist calls do not carry this runtime policy metadata and
+    remain outside this migration slice.  A versioned identity is fail-closed:
+    prepare() still validates every required field before a worker is called.
+    """
+    return isinstance(identity, dict) and isinstance(identity.get('version'), int)
 
 
 def canonical_version(identity: dict) -> int:
@@ -15,7 +23,11 @@ def canonical_version(identity: dict) -> int:
     job_id = identity.get('job_id') if isinstance(identity, dict) else None
     if not isinstance(owner, str) or not owner or not isinstance(job_id, str) or not job_id:
         raise ValueError('Worker execution kimliği eksik.')
-    path = Path(DATA_DIR) / 'goals' / owner / (job_id + '.goalstate.json')
+    # Use the executor's active STORE/root rather than config.DATA_DIR. Tests and
+    # isolated runtimes intentionally relocate STORE; the canonical sidecar is
+    # created beside the legacy job by goal_state_save_hook.
+    from modules import goal_executor
+    path = goal_executor._root(owner) / (job_id + '.goalstate.json')
     state = goal_state_store.load(path)
     if state['owner'] != owner or state['job_id'] != job_id:
         raise ValueError('Canonical GoalState worker kimliğiyle eşleşmiyor.')
@@ -60,4 +72,9 @@ def accept_output(output: dict, expected: dict) -> dict:
     if not isinstance(envelope, dict):
         raise ValueError('WorkerResult fence kaydı eksik.')
     worker_result.accept(envelope, expected)
-    return copy.deepcopy(output)
+    # This slice is a runtime acceptance gate only.  Do not leak migration
+    # metadata into existing task-result schemas; reducer evidence is a later,
+    # separate integration once the state path has its own accepted sidecar.
+    clean = copy.deepcopy(output)
+    clean.pop('_worker_result', None)
+    return clean
