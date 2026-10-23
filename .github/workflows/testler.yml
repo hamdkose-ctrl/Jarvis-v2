@@ -17,18 +17,40 @@ concurrency:
 
 jobs:
   testler:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 40
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
+          cache-dependency-path: |
+            requirements.lock.txt
+            requirements-bundle.txt
+            requirements-browser.txt
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Sözdizimi kontrolü
-        run: python -m compileall -q -x '(^|/)(\.venv|\.ci-venv|android|tmp)/' .
-      - name: Linux kurulumu ve tüm testler
-        run: bash scripts/linux_test_kurulum.sh --test .ci-venv
+        run: python -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
+      - name: Sabit Windows paketleri ve ekleri
+        run: |
+          python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install --no-deps -r requirements.lock.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -c requirements.lock.txt -r requirements-bundle.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Tam doğrulama (Python, JavaScript ve smoke)
+        env:
+          JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
+        run: python -X utf8 -m modules.validation
