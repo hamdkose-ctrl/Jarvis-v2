@@ -1,10 +1,7 @@
-"""Narrow runtime hook that emits WorkerResult v1 at the goal-tool execution boundary."""
+"""Narrow runtime wrapper that emits WorkerResult v1 at the goal-tool boundary."""
 from __future__ import annotations
 
 import copy
-
-_INSTALLED = False
-_ORIGINAL = None
 
 
 def wrap_output(output: dict, identity: dict) -> dict:
@@ -34,16 +31,8 @@ def wrap_output(output: dict, identity: dict) -> dict:
     return wrapped
 
 
-def install():
-    global _INSTALLED, _ORIGINAL
-    if _INSTALLED:
-        return
+def execute(runtime, kind, data, dependencies, identity, *, approval=None):
+    """Call the current goal_tools adapter and fence only this invocation's result."""
     from modules import goal_tools
-    _ORIGINAL = goal_tools.execute
-
-    def guarded(runtime, kind, data, dependencies, identity, *, approval=None):
-        result = _ORIGINAL(runtime, kind, data, dependencies, identity, approval=approval)
-        return wrap_output(result, identity)
-
-    goal_tools.execute = guarded
-    _INSTALLED = True
+    result = goal_tools.execute(runtime, kind, data, dependencies, identity, approval=approval)
+    return wrap_output(result, identity)
