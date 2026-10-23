@@ -39,11 +39,26 @@ def _legacy_job(path: Path, data) -> dict | None:
 def _atomic(path, data):
     path = Path(path)
     job = _legacy_job(path, data)
-    if job is not None:
-        from modules import goal_state_compat
-        canonical = path.with_name(job['id'] + '.goalstate.json')
-        goal_state_compat.sync(job, canonical)
-    return _ORIGINAL_ATOMIC(path, data)
+    if job is None:
+        return _ORIGINAL_ATOMIC(path, data)
+
+    from modules import goal_state_compat, goal_state_store
+
+    canonical = path.with_name(job['id'] + '.goalstate.json')
+    before = canonical.read_bytes() if canonical.exists() else None
+    synced = goal_state_compat.sync(job, canonical)
+    try:
+        return _ORIGINAL_ATOMIC(path, data)
+    except Exception as legacy_error:
+        try:
+            goal_state_store.compensate(
+                canonical, expected_state=synced, previous_bytes=before,
+            )
+        except Exception as compensation_error:
+            raise RuntimeError(
+                'Legacy goal kaydı yazılamadı ve canonical GoalState geri alınamadı.'
+            ) from compensation_error
+        raise legacy_error
 
 
 def install():
