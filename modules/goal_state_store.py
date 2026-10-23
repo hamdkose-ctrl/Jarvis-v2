@@ -84,3 +84,27 @@ def compare_and_swap(path, *, expected_version: int, next_state: dict) -> dict:
             raise PersistedStateConflict('GoalState audit geçmişi CAS sırasında yeniden yazılamaz.')
         release_guard.atomic(path, json.dumps(next_state, ensure_ascii=False).encode('utf-8'))
     return next_state
+
+
+def compensate(path, *, expected_state: dict, previous_bytes: bytes | None) -> None:
+    """Restore the pre-write snapshot only if our just-written state is still current."""
+    path = Path(path)
+    expected_state = goal_state.validate(expected_state)
+    previous_state = None
+    if previous_bytes is not None:
+        try:
+            previous_state = goal_state.validate(json.loads(previous_bytes.decode('utf-8')))
+        except (UnicodeDecodeError, ValueError, TypeError):
+            raise PersistedStateConflict('Önceki GoalState snapshot geri yüklenemiyor.') from None
+    with _exclusive(path):
+        if not path.exists():
+            raise PersistedStateConflict('GoalState compensation kaydı bulunamadı.')
+        current = _read(path)
+        if current != expected_state:
+            raise PersistedStateConflict('GoalState compensation sırasında başka writer ilerledi.')
+        if previous_bytes is None:
+            path.unlink()
+        else:
+            release_guard.atomic(path, previous_bytes)
+            if _read(path) != previous_state:
+                raise PersistedStateConflict('GoalState compensation doğrulanamadı.')
