@@ -39,7 +39,7 @@ class EffectCrashRestartE2ETests(unittest.TestCase):
 
         self.assertEqual(sent, ['one external effect'])
         self.assertEqual(restarted, recovered)
-        self.assertEqual(duplicate, recovered)
+        self.assertIsNone(duplicate)
         state = self.store.load(path)
         self.assertEqual(state['version'], 1)
         self.assertEqual(len(state['evidence']), 1)
@@ -56,6 +56,21 @@ class EffectCrashRestartE2ETests(unittest.TestCase):
         with patch.object(goal_executor, 'STORE', root):
             self.assertIsNone(self.runtime.reconcile(expected, lambda: called.append(True)))
         self.assertEqual(called, [])
+
+    def test_verified_receipt_never_reconciles_or_bumps_evidence_again(self):
+        from modules import goal_executor
+        root = Path(self.tmp.name)
+        path = root/'alice'/'0123456789abcdef.goalstate.json'
+        self.store.create(path, self.state.new(owner='alice', job_id='0123456789abcdef', goal='gönder', execution_mode='durable'))
+        _enriched, expected = self.worker.prepare(self.identity(), 'publish', self.data(), expected_job_version=0)
+        called=[]
+        with patch.object(goal_executor, 'STORE', root):
+            self.runtime.record_intent(expected)
+            self.runtime.record_receipt(expected, {'receipt': {'service':'gmail', 'remote_id':'r-1'}})
+            self.assertIsNone(self.runtime.reconcile(expected, lambda: called.append(True)))
+            self.assertEqual(self.runtime.status(expected), 'succeeded')
+        self.assertEqual(called, [])
+        self.assertEqual(self.store.load(path)['version'], 0)
 
 
 if __name__ == '__main__':
