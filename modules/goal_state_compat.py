@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from modules import core_state_reducer, goal_state, goal_state_store, worker_result
+from modules import core_state_reducer, goal_state, goal_state_store
 
 
 _STATE_MAP = {
@@ -36,50 +36,10 @@ def _blocker(job: dict):
     return {'code': code, 'text': str(text)[:1200]}
 
 
-def _worker_evidence(job: dict):
-    rows = []
-    outputs = job.get('outputs', {})
-    if not isinstance(outputs, dict):
-        return rows
-    for output in outputs.values():
-        if not isinstance(output, dict) or '_worker_result' not in output:
-            continue
-        envelope = worker_result.validate(output['_worker_result'])
-        rows.append({
-            'kind': 'worker_result',
-            'command_id': envelope['command_id'],
-            'step_id': envelope['step_id'],
-            'attempt': envelope['attempt'],
-            'status': envelope['status'],
-            'capability_id': envelope['capability_id'],
-            'capability_version': envelope['capability_version'],
-            'input_digest': envelope['input_digest'],
-            'expected_job_version': envelope['expected_job_version'],
-        })
-    return rows
-
-
-def _append_worker_evidence(state: dict, job: dict) -> dict:
-    existing = {(row.get('kind'), row.get('command_id')) for row in state['evidence'] if isinstance(row, dict)}
-    for evidence in _worker_evidence(job):
-        key = (evidence['kind'], evidence['command_id'])
-        if key in existing:
-            continue
-        state = core_state_reducer.apply(state, {
-            'expected_version': state['version'],
-            'op': 'append_evidence',
-            'evidence': evidence,
-            'reason_code': 'WORKER_RESULT_ACCEPTED',
-        })
-        existing.add(key)
-    return state
-
-
 def project(job: dict) -> dict:
     state = goal_state.new(
         owner=job['owner'], job_id=job['id'], goal=job['request'], execution_mode='agent'
     )
-    state = _append_worker_evidence(state, job)
     target = _target(job)
     if target != 'pending':
         state = core_state_reducer.apply(state, {
@@ -100,7 +60,7 @@ def advance(current: dict, job: dict) -> dict:
     target = _target(job)
     if goal_state.terminal(current):
         return current
-    state = _append_worker_evidence(current, job)
+    state = current
     if state['state'] != target:
         proposal = {
             'expected_version': state['version'], 'op': 'set_state',
