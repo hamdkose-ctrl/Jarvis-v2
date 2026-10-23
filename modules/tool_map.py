@@ -7,10 +7,12 @@ _LABELS = {
     'read': ('Okuma', 'Salt okunur işlemler.'),
     'local_reversible': ('Geri alınabilir', 'Yerel geri alınabilir işlemler.'),
     'local_destructive': ('Yıkıcı', 'Yerel yıkıcı işlemler.'),
+    'external_write': ('Dış hesap yazısı', 'Özel dış hesaptaki kesin kaydı oluşturur, değiştirir veya siler.'),
     'message_out': ('Gönderim', 'Alıcıya bağlı gönderim izni ayrıca gerekir.'),
     'publish': ('Yayın', 'Yayın onayı ayrıca gerekir.'),
     'money_credential': ('Para ve kimlik', 'Bu sınıfın politikası kilitlidir.'),
     'system_config': ('Sistem ayarı', 'Bu sınıfın politikası kilitlidir.'),
+    'physical': ('Fiziksel işlem', 'Gerçek cihaz etkisi her seferinde somut onay ister.'),
 }
 _BUILTINS = {'desktop': ('Masaüstü', 'cihaz', 'monitor'),
              'browser': ('Tarayıcı', 'cihaz', 'globe'),
