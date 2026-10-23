@@ -17,7 +17,7 @@ _EFFECT_POLICIES = frozenset({
     'read_only', 'local_reversible', 'local_destructive', 'external_write',
     'physical_effect',
 })
-_AUTHORITIES = frozenset({'execute', 'ask_required'})
+_AUTHORITIES = frozenset({'execute', 'ask_required', 'suggest_only', 'forbidden'})
 _FIELDS = frozenset({
     'id', 'version', 'source', 'permission_class', 'effect_policy',
     'decision_authority', 'replay', 'reconciliation', 'evidence_contract',
