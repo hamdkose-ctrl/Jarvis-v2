@@ -15,7 +15,7 @@ def canonical_version(identity: dict) -> int:
     job_id = identity.get('job_id') if isinstance(identity, dict) else None
     if not isinstance(owner, str) or not owner or not isinstance(job_id, str) or not job_id:
         raise ValueError('Worker execution kimliği eksik.')
-    path = Path(DATA_DIR) / 'goals' / (job_id + '.goalstate.json')
+    path = Path(DATA_DIR) / 'goals' / owner / (job_id + '.goalstate.json')
     state = goal_state_store.load(path)
     if state['owner'] != owner or state['job_id'] != job_id:
         raise ValueError('Canonical GoalState worker kimliğiyle eşleşmiyor.')
