@@ -13,6 +13,26 @@ from modules import goal_tools, requests_state, team_center
 from modules.diagnostics import record_failure as _record_failure
 
 
+def _decision_context(job: dict, step: dict) -> dict:
+    """Derive the durable gate inputs from the active job, never gate defaults."""
+    if not isinstance(job, dict) or not isinstance(step, dict):
+        raise ValueError('Durable DecisionContext geçersiz.')
+    owner = job.get('owner'); request = job.get('request')
+    active_job = job.get('state') in {None, 'running'}
+    active_step = step.get('state') in {None, 'running'}
+    identity_ok = all(isinstance(value, str) and value for value in (owner, request))
+    allowed = identity_ok and active_job and active_step
+    return {
+        'domain_invariant': 'pass' if allowed else 'block',
+        'domain_authority': 'execute' if identity_ok else 'forbidden',
+        'user_authority': 'execute' if isinstance(request, str) and request.strip() else 'forbidden',
+        'job_authority': 'execute' if active_job and active_step else 'forbidden',
+        # Recovery never re-enters execute_step(); it has its own effect-journal
+        # route in goal_executor, so a fresh worker call is only ready here.
+        'effect_state': 'ready',
+    }
+
+
 def validate(owner, request, tasks):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:
         raise ValueError('Uzman hedefi gerekli.')
@@ -83,6 +103,7 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
         plan=runtime_execution_gate.plan_task(
             step['tool'],step['input'],approval_verified=approval is not None,
+            **_decision_context(job, step),
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
