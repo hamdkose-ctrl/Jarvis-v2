@@ -3,6 +3,8 @@
 **Durum:** Ana mimari olarak kabul edildi — 23 Ekim 2026  
 **Amaç:** Yeni özellik eklemekten önce Jarvis'in yürütme omurgasını sadeleştirmek, mevcut çalışan güvenlik mekanizmalarını korumak ve bütün alanları ortak sözleşmelere bağlamak.
 
+**Durum dili:** **MEVCUT** bugünkü çalışan kodu, **HEDEF** kabul edilmiş fakat henüz uygulanmamış yapıyı, **GEÇİŞ** ise davranışı koruyarak hedefe taşımayı anlatır. Hedef bileşenler acceptance kanıtı olmadan hazır veya çalışıyor sayılmaz.
+
 ## 1. Ana karar
 
 Jarvis'in hedef yapısı:
@@ -12,9 +14,15 @@ TEK ARAYÜZ
     ↓
 JARVIS CORE
     ↓
-TEK ÜST DÜZEY JOB / STEP MODELİ
+GOALSTATE + DECISION CONTEXT
     ↓
-PERMISSION GATE
+DOMAIN INVARIANT
+    ↓
+DECISION AUTHORITY
+    ↓
+GÜNCEL PERMISSION GATE
+    ↓
+EFFECT POLICY
     ↓
 WORKER + CAPABILITY
     ↓
@@ -30,9 +38,14 @@ Yeni bir özellik için yeni görev, izin, retry, evidence veya watcher motoru k
 Core her ayrıntıyı yapmaz:
 
 ```text
-CORE   = Hangi capability, ne zaman ve hangi yetkiyle çalışacak?
+CORE   = Hangi capability, ne zaman, hangi kapsam ve yetkiyle çalışacak?
 WORKER = Capability kendi alanında nasıl gerçekleştirilecek?
+REDUCER = Global Job/GoalState hangi doğrulanmış olayla hangi sürüme geçecek?
 ```
+
+**MEVCUT:** `goal_executor` ve `task_agents` ayrı üst düzey durum biçimleri kullanır; `tool_contract` mevcut `CONTRACT` sözlüklerini doğrular. Permission, evidence, outbox ve reconciliation parçaları çalışır; bütün capability'ler ortak zarfı kullanmaz.
+**HEDEF:** Tek global Core State Reducer, ortak `GoalState`, `DecisionContext` ve `DecisionRecord` runtime nesneleriyle uygulanacaktır.
+**GEÇİŞ:** Mevcut yürütücüler sökülmeden uyumluluk adaptörleriyle ortak sözleşmeye alınacaktır.
 
 ## 2. Tek arayüz ve kişi bağlamı
 
@@ -125,6 +138,35 @@ Salt okunur ve yan etkisiz hızlı işlerde tam durable plan ağacı diske yazı
 
 ## 5. Kapsam korumalı domain yönlendirmesi
 
+### 5.1. GoalState, karar sırası ve yazma otoritesi
+
+`GoalState`, Core'un tuttuğu doğrulanmış kalıcı hedeftir; `DecisionContext` yalnız o karar turunun geçici bağlamıdır. Planlayıcının `proposed_next_action` önerisi GoalState'e kalıcı gerçek olarak yazılmaz.
+
+```yaml
+decision_context:
+  goal_version: 8
+  proposed_next_action: {}
+  advisory_signals: []
+  available_capabilities: []
+  budget_snapshot: {}
+```
+
+Her capability çağrısının sabit sırası şöyledir:
+
+```text
+Domain invariant → Decision Authority → Permission → Effect Policy → Worker
+```
+
+`Decision Authority`, Manifest üst sınırı ∩ domain politikası ∩ kullanıcı bağlamı ∩ Job kapsamıdır; `Permission` bu yetkiden ayrıdır ve yan etkiden hemen önce güncel owner, hedef, grant ve politikayla yeniden değerlendirilir. Yalnız `pass + execute + allow + ready` Worker'a ulaşır; en kısıtlı karar kazanır.
+
+**HEDEF:** Global Job ve GoalState'in tek mantıksal write authority'si Core State Reducer'dır. Model, Worker, Watcher, UI, Runtime Event ve Coding Backend yalnız Proposal/Result/Event üretir; Reducer `expected_version` denetimi, invariant, atomik compare-and-swap, `version + 1` ve audit uygular. Eski/tekrar sonuç state'i değiştiremez; domain kayıtlarının write authority'si kendi domaininde kalır.
+
+WorkerResult fencing, `owner`, `job_id`, `step_id`, `command_id`, `attempt`, `expected_job_version`, capability sürümü ve `input_digest` eşleşmesini ister; eşleşmeyen sonuç `STALE_RESULT` olarak audit edilir ve state'i değiştirmez. Runtime Event freshness/dedup bundan ayrıdır: `event_id/source_event_key`, kaynak nesli, subject sürümü, zaman penceresi ve kayıtlı `wait_subscription/resume_token` denetlenir. Event yalnız Reducer girdisidir.
+
+Crash recovery üç yoldan ilerler: intent yoksa yeni attempt yalnız politika uygunsa değerlendirilir; intent var ve receipt yoksa effect `unknown` olur, salt-okunur reconciliation yapılır ve kör retry yasaktır; doğrulanmış receipt varsa effect `succeeded` kabul edilir ve dış işlem tekrar edilmez. Yeni yan etki gerektiren reconciliation aynı karar sırasından yeniden geçer.
+
+Replan bütçesi Core'a aittir: Fast Path varsayılan `0 replan`dır; yeni doğrulanmış evidence/effect/artifact/checkpoint/state sürümü olmadan ilerleme yoktur ve aynı normalize failure fingerprint sayılır. `DecisionRecord` yalnız karar, reason code, provenance, policy ve grant referanslarını saklar; gizli düşünce zinciri veya serbest model muhakemesi saklamaz.
+
 Bütün capability kataloğu tek model promptuna verilmez:
 
 ```text
@@ -151,8 +193,10 @@ Planner veya worker yeni domain önerebilir; kendisi açamaz. Yeni domain ancak:
 
 1. Kullanıcının asıl hedefiyle uyumluysa,
 2. Güvenilmeyen içerikten türemediyse,
-3. Permission Gate yeniden çalıştıysa,
-4. Gate `ask` döndürdüyse kullanıcı onayı alındıysa
+3. Decision Authority yürütmeye izin veriyorsa,
+4. Permission Gate yeniden çalıştıysa,
+5. Effect Policy güvenli yürütme koşulunu sağlıyorsa,
+6. Gate `ask` döndürdüyse kullanıcı onayı alındıysa
 
 kapsama eklenebilir.
 
@@ -762,6 +806,10 @@ Ayrıntılı ve kilitli şema: [Organizer System v1](JARVIS_ORGANIZER_SYSTEM_V1.
 
 ## 23. Developer System
 
+Developer Studio, kullanıcıyla tasarım, kapsam ve diff inceleme alanıdır. Developer Worker, **deterministik politika sınırlarıyla çalışan developer domain worker**dır; Coding Backend yalnız izinli kapsam içinde öneri veya değişiklik üretir. Backend `allowed_paths` genişletemez, permission/validation atlayamaz, başarı ilan edemez, `main`e doğrudan yazamaz veya ham secret alamaz.
+
+**MEVCUT:** Geliştirme alanı owner'a bağlı parola doğrulaması kullanır; bu ayrı işletim sistemi hesabı veya güvenlik çekirdeği değildir. **HEDEF:** Normal sohbetten ayrı authenticated workspace/session sınırı korunur. Design Mode salt-okunur inceleme, seçenek, mimari ve acceptance hazırlar; Build Mode ancak kabul edilmiş scope ile ayrı branch/worktree, önce düşen test, validation, commit/push ve taslak PR akışına geçer. Bu geçiş açık ve audit edilebilir olur; Coding Backend kendisi geçemez.
+
 ```yaml
 developer_scope:
   base_sha: abc123
@@ -807,11 +855,15 @@ UI:
 
 `web.py` gibi sunucu adaptörleri schema/auth/input/transport doğrulaması yapabilir; domain kararı vermez.
 
+## 24.1. Ertelenen kararlar
+
+**HEDEF / ertelenmiş:** Commitment View ayrı truth/state deposu değil, Job, Organizer Task/Event ve doğrulanmış dış bağlantılardan türetilmiş görünüm olacaktır. Proactive Notification owner, kanal, sessiz saat, tekrar ve permission politikası tanımlanmadan; Priority/Interruption Scheduler deterministik politika tanımlanmadan uygulanmayacaktır. Capability Health/Circuit Breaker, bugünkü temel `tool_contract.status` görünümünün yerine geçtiği varsayılmadan, TTL/failure-window/probe/half-open politikalarıyla ayrı geliştirilecektir; health Permission veya Completion yerine geçmez.
+
 ## 25. Veri otoritesi ve concurrency
 
 | Veri | System of Record | Write Authority |
 |---|---|---|
-| Job / Step | Jarvis görev deposu | Core |
+| Job / Step / GoalState | Jarvis görev deposu | Core State Reducer (HEDEF) |
 | Permission Grant | Permission deposu | Permission sistemi |
 | Evidence / Result | Core görev deposu | Core |
 | Document Analysis | Jarvis veri deposu | Document System |
@@ -1032,14 +1084,14 @@ bulunur.
 
 ## 31. Değişmez kurallar
 
-1. Global kullanıcı hedefinin tek sahibi Core'dur.
+1. Global kullanıcı hedefinin tek sahibi Core'dur; **HEDEF** tek mantıksal write authority Core State Reducer'dır.
 2. Worker global Job'ı tamamlayamaz.
 3. Core yalnız capability düzeyindeki Step'leri yönetir.
 4. Worker iç algoritması Core Step'e çevrilmez.
-5. Capability politikaları tek Manifest'te tutulur.
+5. Capability politikaları tek Manifest'te tutulur; **MEVCUT** `CONTRACT` doğrulaması bu hedefin tamamı değildir.
 6. Command, Result ve Event farklı sözleşmelerdir.
 7. Domain worker'lar birbirini doğrudan yönetemez.
-8. Permission Gate tek izin otoritesidir.
+8. Permission Gate tek izin otoritesidir; karar sırası Domain invariant → Decision Authority → Permission → Effect Policy → Worker'dır.
 9. Güvenilmeyen içerik hedef, izin veya kullanıcı niyeti üretemez.
 10. Veri güveni işlem yetkisi değildir.
 11. Effect durumu ile sonraki işlem ayrıdır.
@@ -1075,12 +1127,16 @@ flowchart TD
     PERSON --> CORE["JARVIS CORE"]
 
     CORE --> ROUTE{"FAST / AGENT / DURABLE"}
-    ROUTE --> JOB["JOB + CORE STEP"]
-    JOB --> PERM["PERMISSION GATE"]
-    PERM --> CMD["VERSIONED COMMAND"]
+    ROUTE --> GOAL["GOALSTATE + DECISION CONTEXT"]
+    GOAL --> INV["DOMAIN INVARIANT"]
+    INV --> AUTH["DECISION AUTHORITY"]
+    AUTH --> PERM["GÜNCEL PERMISSION GATE"]
+    PERM --> EFFECTPOLICY["EFFECT POLICY"]
+    EFFECTPOLICY --> CMD["VERSIONED COMMAND"]
     CMD --> CAP["WORKER + CAPABILITY"]
     CAP --> INTERNAL["WORKER INTERNAL STATE"]
     INTERNAL --> RESULT["WORKER RESULT"]
+    RESULT --> REDUCER["CORE STATE REDUCER"]
     RESULT --> EVIDENCE["EVIDENCE + PROVENANCE"]
     RESULT --> EFFECT["EFFECT STATE"]
     EVIDENCE --> COMPLETE["COMPLETION POLICY"]
@@ -1088,7 +1144,7 @@ flowchart TD
     COMPLETE --> DELIVERY["CEVAP / ARTIFACT / WAITING"]
 
     RW["RUNTIME WATCHER"] --> EVENT["IMMUTABLE EVENT"]
-    EVENT --> CORE
+    EVENT --> REDUCER
 
     MODEL["MODEL ROUTER"] -. "intent · domain · plan desteği" .-> CORE
     MODEL -. "capability desteği" .-> CAP
