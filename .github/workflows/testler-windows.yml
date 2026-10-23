@@ -22,7 +22,7 @@ jobs:
       PYTHONIOENCODING: utf-8
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - uses: actions/checkout@v4
       - name: Sistem Python ve Node sürümlerini doğrula
