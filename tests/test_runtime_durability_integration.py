@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class RuntimeDurabilityIntegrationTests(unittest.TestCase):
@@ -81,6 +82,15 @@ class RuntimeDurabilityIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.effect_journal.PersistentJournal(path)
 
+    def test_effect_journal_memory_does_not_advance_when_atomic_write_fails(self):
+        path = self.root / 'effects.json'
+        journal = self.effect_journal.PersistentJournal(path)
+        with patch('modules.effect_journal.release_guard.atomic', side_effect=OSError('disk failure')):
+            with self.assertRaisesRegex(OSError, 'disk failure'):
+                journal.record_intent(self.intent())
+        self.assertEqual(journal.status('effect-1'), 'not_started')
+        self.assertFalse(path.exists())
+
     def test_runtime_event_dedup_survives_restart(self):
         path = self.root / 'events.json'
         seen = self.runtime_event.PersistentSeen(path)
@@ -97,6 +107,15 @@ class RuntimeDurabilityIntegrationTests(unittest.TestCase):
         path.write_text(json.dumps({'schema': 'wrong', 'event_ids': []}), encoding='utf-8')
         with self.assertRaises(ValueError):
             self.runtime_event.PersistentSeen(path)
+
+    def test_runtime_event_memory_does_not_advance_when_atomic_write_fails(self):
+        path = self.root / 'events.json'
+        seen = self.runtime_event.PersistentSeen(path)
+        with patch('modules.runtime_event.release_guard.atomic', side_effect=OSError('disk failure')):
+            with self.assertRaisesRegex(OSError, 'disk failure'):
+                self.runtime_event.accept(self.event(), self.subscription(), seen)
+        self.assertNotIn('event-1', seen)
+        self.assertFalse(path.exists())
 
 
 if __name__ == '__main__':
