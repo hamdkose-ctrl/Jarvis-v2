@@ -4,13 +4,29 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
 
-from modules import capability_manifest, worker_result
+from config import DATA_DIR
+from modules import capability_manifest, goal_state_store, worker_result
 
 
-def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int):
+def canonical_version(identity: dict) -> int:
+    owner = identity.get('owner') if isinstance(identity, dict) else None
+    job_id = identity.get('job_id') if isinstance(identity, dict) else None
+    if not isinstance(owner, str) or not owner or not isinstance(job_id, str) or not job_id:
+        raise ValueError('Worker execution kimliği eksik.')
+    path = Path(DATA_DIR) / 'goals' / (job_id + '.goalstate.json')
+    state = goal_state_store.load(path)
+    if state['owner'] != owner or state['job_id'] != job_id:
+        raise ValueError('Canonical GoalState worker kimliğiyle eşleşmiyor.')
+    return state['version']
+
+
+def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None):
     if not isinstance(identity, dict):
         raise ValueError('Worker kimliği geçersiz.')
+    if expected_job_version is None:
+        expected_job_version = canonical_version(identity)
     if not isinstance(expected_job_version, int) or isinstance(expected_job_version, bool) or expected_job_version < 0:
         raise ValueError('Beklenen GoalState sürümü geçersiz.')
     row = capability_manifest.from_task_tool(kind)
