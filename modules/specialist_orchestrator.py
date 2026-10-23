@@ -79,9 +79,8 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
         if plan['phase']=='execute':
-            from modules import runtime_worker_result,worker_result_hook
+            from modules import runtime_worker_result
             identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
-            worker_result_hook.install()
 
     if step['tool']=='research':
         from modules import research_evidence
@@ -94,7 +93,11 @@ def execute_step(runtime,job,step,identity,*,approval=None):
                 output=runtime_worker_result.accept_output(output,expected)
             return output
 
-    output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+    if expected is not None:
+        from modules import runtime_worker_result,worker_result_hook
+        output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+    else:
+        output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
     if plan and plan['phase']=='prepare':
         from modules import runtime_execution_gate
         return runtime_execution_gate.accept_prepare_result(plan,output)
