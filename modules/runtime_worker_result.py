@@ -65,16 +65,27 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
     return enriched, expected
 
 
-def accept_output(output: dict, expected: dict) -> dict:
+def _accepted_and_clean(output: dict, expected: dict):
     if not isinstance(output, dict):
         raise ValueError('Worker çıktısı sözlük olmalı.')
     envelope = output.get('_worker_result')
     if not isinstance(envelope, dict):
         raise ValueError('WorkerResult fence kaydı eksik.')
-    worker_result.accept(envelope, expected)
-    # This slice is a runtime acceptance gate only.  Do not leak migration
-    # metadata into existing task-result schemas; reducer evidence is a later,
-    # separate integration once the state path has its own accepted sidecar.
+    accepted = worker_result.accept(envelope, expected)
     clean = copy.deepcopy(output)
     clean.pop('_worker_result', None)
+    return accepted, clean
+
+
+def accept_output(output: dict, expected: dict) -> dict:
+    """Validate one WorkerResult fence without mutating GoalState."""
+    _accepted, clean = _accepted_and_clean(output, expected)
+    return clean
+
+
+def accept_and_commit(output: dict, expected: dict) -> dict:
+    """Validate the exact fence, persist reducer evidence, then return clean output."""
+    accepted, clean = _accepted_and_clean(output, expected)
+    from modules import worker_result_commit
+    worker_result_commit.commit(accepted)
     return clean
