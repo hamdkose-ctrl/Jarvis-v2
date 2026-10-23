@@ -39,6 +39,12 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - `effect_unknown` tarayıcı/kod başarısızlığını ihtiyatlı sınıflandırır; dış işlem kesin gerçekleşti demek değildir. Bu adımlar otomatik tekrar edilmez. Araştırma/rapor/doğrulama yeniden yürütme sınıfı mevcut davranıştır; rapor yeni dosya üretebilir.
 - Yeni test: `tests/test_task_tools.py`. Mevcut motor/JSON kayıtları korunur; LangGraph/Hindsight/Paperclip kurulmadı. Android, arayüz ve ses değişmez.
 
+## Capability Manifest uyumluluk görünümü — 23 Ekim 2026
+
+- `modules/capability_manifest.py`, mevcut `tool_contract`, `task_tools` ve `goal_tools` kataloglarını salt-okunur, JSON-uyumlu Capability Manifest görünümüne taşır; callable/binding ayrıntıları dispatcher ve mevcut kaynak modüllerde kalır.
+- Bu adaptör yeni execution engine, planner veya araç kataloğu değildir. Yinelenen capability ID ile bilinmeyen sürüm, permission veya effect politikası fail-closed reddedilir; mevcut tool discovery ve yürütme davranışı değişmez.
+- Test: `tests/test_capability_manifest.py`; read ve yan-etkili görünüm, JSON sınırı ve discovery uyumluluğu denetlenir.
+
 ## Hesap araçları başlangıcı — 13 Ekim 2026
 
 - `account_tools` ortak servis sınırıdır; ilk uygulanan işlem Gmail `list_unread`. Mevcut kullanıcıya özel `google_api._service(..., interactive=False)` yolunu kullanır. Gövde okumaz, mail göndermez, okunmuş işaretlemez ve kendiliğinden OAuth ekranı açmaz.
