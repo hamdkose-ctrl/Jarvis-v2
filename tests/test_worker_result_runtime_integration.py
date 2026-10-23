@@ -1,4 +1,3 @@
-import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,15 +18,23 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
             'attempt': 1, 'request': 'örnek',
         }
 
-    def test_worker_boundary_emits_real_fence_and_accepts_exact_match(self):
+    def durable_identity(self):
+        return {
+            **self.identity(), 'version': 1, 'capability': 'research',
+            'risk': 'network_read', 'replay_safe': True, 'outcome': 'pending',
+        }
+
+    def test_worker_boundary_emits_real_fence_and_accepts_exact_match_without_output_pollution(self):
         identity, expected = self.runtime.prepare(
             self.identity(), 'research', {'url': 'https://example.test', 'question': 'x'}, expected_job_version=3,
         )
         output = {'state': 'done', 'verification': {'version': 1, 'agent': 'research', 'scope': 'execution_evidence', 'outcome': 'x'}}
         wrapped = self.hook.wrap_output(output, identity)
+        self.assertEqual(wrapped['_worker_result']['expected_job_version'], 3)
+        self.assertEqual(wrapped['_worker_result']['capability_id'], 'task.research')
         accepted = self.runtime.accept_output(wrapped, expected)
-        self.assertEqual(accepted['_worker_result']['expected_job_version'], 3)
-        self.assertEqual(accepted['_worker_result']['capability_id'], 'task.research')
+        self.assertEqual(accepted, output)
+        self.assertNotIn('_worker_result', accepted)
 
     def test_foreign_or_stale_worker_fence_is_rejected(self):
         identity, expected = self.runtime.prepare(
@@ -48,17 +55,22 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
         with patch.object(goal_tools, 'execute', return_value=fake) as execute:
             wrapped = self.hook.execute(None, 'research', {'url': 'https://example.test', 'question': 'x'}, {}, identity)
             execute.assert_called_once()
-            self.runtime.accept_output(wrapped, expected)
+            self.assertEqual(self.runtime.accept_output(wrapped, expected), fake)
         self.assertIs(goal_tools.execute, original)
 
-    def test_canonical_version_reads_owner_scoped_goalstate(self):
+    def test_canonical_version_reads_active_goal_executor_store(self):
+        from modules import goal_executor
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            path = root / 'goals' / 'alice' / '0123456789abcdef.goalstate.json'
+            store = Path(tmp) / 'goals'
+            path = store / 'alice' / '0123456789abcdef.goalstate.json'
             state = self.goal_state.new(owner='alice', job_id='0123456789abcdef', goal='hedef', execution_mode='agent')
             self.store.create(path, state)
-            with patch.object(self.runtime, 'DATA_DIR', root):
+            with patch.object(goal_executor, 'STORE', store):
                 self.assertEqual(self.runtime.canonical_version(self.identity()), 0)
+
+    def test_only_versioned_runtime_identity_enters_durable_fence_slice(self):
+        self.assertFalse(self.runtime.durable_identity(self.identity()))
+        self.assertTrue(self.runtime.durable_identity(self.durable_identity()))
 
 
 if __name__ == '__main__':
