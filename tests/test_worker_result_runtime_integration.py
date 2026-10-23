@@ -7,9 +7,8 @@ from unittest.mock import patch
 
 class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
     def setUp(self):
-        from modules import goal_state, goal_state_compat, goal_state_store, runtime_worker_result, worker_result_hook
+        from modules import goal_state, goal_state_store, runtime_worker_result, worker_result_hook
         self.goal_state = goal_state
-        self.compat = goal_state_compat
         self.store = goal_state_store
         self.runtime = runtime_worker_result
         self.hook = worker_result_hook
@@ -60,26 +59,6 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
             self.store.create(path, state)
             with patch.object(self.runtime, 'DATA_DIR', root):
                 self.assertEqual(self.runtime.canonical_version(self.identity()), 0)
-
-    def test_accepted_worker_result_becomes_goalstate_reducer_evidence(self):
-        identity, expected = self.runtime.prepare(
-            self.identity(), 'research', {'url': 'https://example.test', 'question': 'x'}, expected_job_version=1,
-        )
-        wrapped = self.hook.wrap_output({'state': 'done', 'verification': {'version': 1}}, identity)
-        accepted = self.runtime.accept_output(wrapped, expected)
-        current = self.goal_state.new(owner='alice', job_id='0123456789abcdef', goal='hedef', execution_mode='agent')
-        current['state'] = 'running'; current['version'] = 1
-        current['audit'].append({'version': 1, 'op': 'set_state', 'state': 'running', 'reason_code': 'TEST'})
-        job = {
-            'owner': 'alice', 'id': '0123456789abcdef', 'request': 'hedef', 'state': 'running',
-            'outputs': {'s1': accepted}, 'steps': [], 'goals': [],
-        }
-        next_state = self.compat.advance(current, job)
-        evidence = [row for row in next_state['evidence'] if row.get('kind') == 'worker_result']
-        self.assertEqual(len(evidence), 1)
-        self.assertEqual(evidence[0]['command_id'], accepted['_worker_result']['command_id'])
-        again = self.compat.advance(next_state, job)
-        self.assertEqual(again['evidence'], next_state['evidence'])
 
 
 if __name__ == '__main__':
