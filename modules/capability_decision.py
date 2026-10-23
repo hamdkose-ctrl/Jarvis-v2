@@ -1,9 +1,8 @@
 """Pure manifest-bound decision line before capability execution.
 
-This module does not dispatch workers or mutate GoalState.  It combines static
+This module does not dispatch workers or mutate GoalState. It combines static
 manifest authority with domain/user/job authority, evaluates the current
-Permission Gate input and records the caller-provided effect state.  Only the
-fully permissive combination can be handed to a worker by a later integration.
+Permission Gate input and records the caller-provided effect state.
 """
 from __future__ import annotations
 
@@ -36,29 +35,40 @@ def _permission_mismatch(row: dict, action: dict) -> dict | None:
 def decide(capability: dict, *, domain_invariant: str,
            domain_authority: str, user_authority: str, job_authority: str,
            action: dict, effect_state: str, grants: dict | None = None,
-           now: float | None = None) -> dict:
+           now: float | None = None, approval_verified: bool = False) -> dict:
     """Return a fail-closed decision snapshot; never calls a worker.
 
-    Fixed order is Domain Invariant -> Decision Authority -> Permission ->
-    Effect Policy.  The manifest authority is always included in the authority
-    intersection, so callers cannot raise a capability above its static limit.
+    A verified approval satisfies an ``ask_required`` capability/permission,
+    but never overrides a domain block, a more restrictive authority, a DENY,
+    or a non-ready effect state.
     """
     row = capability_manifest.validate_catalog([capability])[0]
     if domain_invariant not in DOMAIN_INVARIANTS:
         raise ValueError('Bilinmeyen domain invariant sonucu.')
     if effect_state not in EFFECT_STATES:
         raise ValueError('Bilinmeyen effect policy sonucu.')
+    if not isinstance(approval_verified, bool):
+        raise ValueError('Approval doğrulaması boolean olmalı.')
+
+    manifest_authority = row['decision_authority']
+    if approval_verified and manifest_authority == 'ask_required':
+        manifest_authority = 'execute'
 
     if domain_invariant == 'block':
         authority = 'forbidden'
     else:
         authority = _authority(
-            row['decision_authority'], domain_authority,
-            user_authority, job_authority,
+            manifest_authority, domain_authority, user_authority, job_authority,
         )
 
     mismatch = _permission_mismatch(row, action)
     permission = mismatch or permission_gate.decide(action, grants=grants, now=now)
+    if approval_verified and permission['decision'] == permission_gate.ASK:
+        permission = {
+            'decision': permission_gate.ALLOW,
+            'class': permission['class'],
+            'reason': 'Doğrulanmış kullanıcı onayı mevcut.',
+        }
 
     worker_allowed = (
         domain_invariant == 'pass'
@@ -89,4 +99,5 @@ def decide(capability: dict, *, domain_invariant: str,
         'effect': effect_state,
         'worker_allowed': worker_allowed,
         'reason_code': reason_code,
+        'approval_verified': approval_verified,
     }
