@@ -69,8 +69,8 @@ def create(path, state: dict) -> dict:
 def compare_and_swap(path, *, expected_version: int, next_state: dict) -> dict:
     path = Path(path)
     next_state = goal_state.validate(next_state)
-    if next_state['version'] != expected_version + 1:
-        raise PersistedStateConflict('GoalState yeni sürümü expected_version + 1 olmalı.')
+    if next_state['version'] <= expected_version:
+        raise PersistedStateConflict('GoalState yeni sürümü expected_version değerinden büyük olmalı.')
     with _exclusive(path):
         if not path.exists():
             raise PersistedStateConflict('GoalState kaydı bulunamadı.')
@@ -80,5 +80,7 @@ def compare_and_swap(path, *, expected_version: int, next_state: dict) -> dict:
         for field in ('owner', 'job_id', 'goal', 'execution_mode'):
             if current[field] != next_state[field]:
                 raise PersistedStateConflict('GoalState kimliği CAS sırasında değiştirilemez.')
+        if next_state['audit'][:len(current['audit'])] != current['audit']:
+            raise PersistedStateConflict('GoalState audit geçmişi CAS sırasında yeniden yazılamaz.')
         release_guard.atomic(path, json.dumps(next_state, ensure_ascii=False).encode('utf-8'))
     return next_state
