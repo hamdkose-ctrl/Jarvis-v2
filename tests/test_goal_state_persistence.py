@@ -89,6 +89,45 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertFalse((root / '0123456789abcdef.json').exists())
             self.assertFalse((root / 'latest.json').exists())
 
+    def test_goal_executor_save_rolls_back_new_canonical_when_legacy_write_fails(self):
+        from modules import goal_state_save_hook
+        original = goal_state_save_hook._ORIGINAL_ATOMIC
+
+        def fail_legacy(path, data):
+            if Path(path).name == '0123456789abcdef.json':
+                raise OSError('legacy write failed')
+            return original(path, data)
+
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
+                with self.assertRaisesRegex(OSError, 'legacy write failed'):
+                    self.goal_executor._save(self.job())
+            root = self.root / 'alice'
+            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+            self.assertFalse((root / '0123456789abcdef.json').exists())
+            self.assertFalse((root / 'latest.json').exists())
+
+    def test_goal_executor_save_restores_previous_canonical_when_legacy_update_fails(self):
+        from modules import goal_state_save_hook
+        original = goal_state_save_hook._ORIGINAL_ATOMIC
+
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            self.goal_executor._save(self.job())
+            root = self.root / 'alice'
+            canonical = root / '0123456789abcdef.goalstate.json'
+            before = canonical.read_bytes()
+
+            def fail_legacy(path, data):
+                if Path(path).name == '0123456789abcdef.json':
+                    raise OSError('legacy write failed')
+                return original(path, data)
+
+            with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
+                with self.assertRaisesRegex(OSError, 'legacy write failed'):
+                    self.goal_executor._save(self.job('paused'))
+            self.assertEqual(canonical.read_bytes(), before)
+            self.assertEqual(json.loads(canonical.read_text(encoding='utf-8'))['state'], 'running')
+
 
 if __name__ == '__main__':
     unittest.main()
