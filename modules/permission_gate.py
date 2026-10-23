@@ -4,6 +4,7 @@ import time
 READ = 'read'
 LOCAL_REVERSIBLE = 'local_reversible'
 LOCAL_DESTRUCTIVE = 'local_destructive'
+EXTERNAL_WRITE = 'external_write'
 MESSAGE_OUT = 'message_out'
 PUBLISH = 'publish'
 MONEY_CREDENTIAL = 'money_credential'
@@ -15,7 +16,7 @@ ASK = 'ask'
 DENY = 'deny'
 
 CLASSES = {
-    READ, LOCAL_REVERSIBLE, LOCAL_DESTRUCTIVE, MESSAGE_OUT,
+    READ, LOCAL_REVERSIBLE, LOCAL_DESTRUCTIVE, EXTERNAL_WRITE, MESSAGE_OUT,
     PUBLISH, MONEY_CREDENTIAL, SYSTEM_CONFIG, PHYSICAL,
 }
 VIAS = {'outbox', 'desktop', 'browser', 'file', 'system'}
@@ -63,8 +64,8 @@ def decide(action: dict, grants: dict | None = None, now: float | None = None) -
         return _result(ASK, action_class, 'Hedef belirsiz; onay gerekli.')
     if via not in VIAS:
         return _result(ASK, action_class, 'İşlem yolu belirsiz; onay gerekli.')
-    if action_class in {MESSAGE_OUT, PUBLISH} and not target.strip():
-        return _result(ASK, action_class, 'Gönderim hedefi gerekli; onay gerekli.')
+    if action_class in {EXTERNAL_WRITE, MESSAGE_OUT, PUBLISH} and not target.strip():
+        return _result(ASK, action_class, 'Kesin hedef gerekli; onay gerekli.')
 
     if action_class == PHYSICAL:
         return _result(ASK, action_class, 'Fiziksel işlem her seferinde somut onay ister.')
@@ -74,6 +75,8 @@ def decide(action: dict, grants: dict | None = None, now: float | None = None) -
         return _result(ALLOW, action_class, 'Yerel geri alınabilir işlem.')
     if action_class == LOCAL_DESTRUCTIVE:
         return _result(ASK, action_class, 'Yıkıcı yerel işlem onay ister.')
+    if action_class == EXTERNAL_WRITE:
+        return _result(ASK, action_class, 'Özel dış hesap yazısı kesin hedef ve onay ister.')
     if action_class == MESSAGE_OUT:
         current = time.time() if now is None else now
         if _active_message_grant(grants, target, current):
