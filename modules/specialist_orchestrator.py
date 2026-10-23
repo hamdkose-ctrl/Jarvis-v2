@@ -69,15 +69,22 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the durable journal and runtime safety gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
-    gated={'media','publish','account','research','writer','verify'}
+    gated={'media','publish','account','research','writer','browser','coder','verify'}
     plan=None;expected=None
     if step['tool'] in gated:
         from modules import runtime_execution_gate
+        if step['tool']=='coder' and approval is not None:
+            from modules import runtime_prepare_approval
+            runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
         plan=runtime_execution_gate.plan_task(
             step['tool'],step['input'],approval_verified=approval is not None,
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
+        if plan['phase']=='prepare' and step['tool']=='coder':
+            from modules import runtime_prepare_approval
+            return runtime_execution_gate.accept_prepare_result(
+                plan,runtime_prepare_approval.prepare(identity,step['tool'],step['input']))
         if plan['phase']=='execute':
             from modules import runtime_worker_result
             if runtime_worker_result.durable_identity(identity):
@@ -101,6 +108,13 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
     if plan and plan['phase']=='prepare':
         from modules import runtime_execution_gate
+        if step['tool']=='browser' and isinstance(output,dict) and output.get('state')=='done':
+            from modules import runtime_worker_result,worker_result_hook
+            if runtime_worker_result.durable_identity(identity):
+                fenced_identity,browser_expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
+                fenced=worker_result_hook.wrap_output(output,fenced_identity)
+                return runtime_worker_result.accept_and_commit(fenced,browser_expected)
+            return output
         return runtime_execution_gate.accept_prepare_result(plan,output)
     if expected is not None:
         from modules import runtime_worker_result
