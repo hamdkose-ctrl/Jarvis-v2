@@ -34,6 +34,15 @@ class BrowserCoderRuntimeGateTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             specialist_orchestrator.execute_step(self.runtime(),self.job(),step,self.identity('coder'),approval=bad)
 
+    def test_browser_prepare_keeps_native_approval_contract(self):
+        from modules import specialist_orchestrator
+        step={'id':'s1','tool':'browser','input':{'url':'https://example.com','instruction':'formu doldur'},'depends':[]}
+        native={'state':'approval','text':'Tarayıcı işlemi onay bekliyor.','id':'browser-approval-1'}
+        with patch('modules.goal_tools.execute',return_value=native) as execute:
+            output=specialist_orchestrator.execute_step(self.runtime(),self.job(),step,self.identity('browser'))
+        execute.assert_called_once()
+        self.assertEqual(output,native)
+
 
 if __name__=='__main__':
     unittest.main()
