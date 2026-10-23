@@ -1,10 +1,9 @@
 name: Windows testleri
 
-# Actions dakikası kısıtlı: Windows testi her PR push'unda değil, yalnız main'e birleşmede
-# ve elle (Actions > Windows testleri > Run workflow, birleşmeden önce istenen dalda) çalışır.
+# Windows self-hosted runner PR doğrulamasını çalıştırır; aynı iş main'e birleşmede
+# yeniden otomatik çalışmaz. Elle başlatma seçeneği korunur.
 on:
-  push:
-    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -16,7 +15,7 @@ concurrency:
 
 jobs:
   testler-windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 40
     env:
       PYTHONUTF8: '1'
