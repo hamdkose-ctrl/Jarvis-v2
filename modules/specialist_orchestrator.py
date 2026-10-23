@@ -69,15 +69,22 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the durable journal and runtime safety gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
-    gated={'media','publish','account','research','writer','verify'}
+    gated={'media','publish','account','research','writer','browser','coder','verify'}
     plan=None;expected=None
     if step['tool'] in gated:
         from modules import runtime_execution_gate
+        if step['tool']=='coder' and approval is not None:
+            from modules import runtime_prepare_approval
+            runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
         plan=runtime_execution_gate.plan_task(
             step['tool'],step['input'],approval_verified=approval is not None,
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
+        if plan['phase']=='prepare' and step['tool']=='coder':
+            from modules import runtime_prepare_approval
+            return runtime_execution_gate.accept_prepare_result(
+                plan,runtime_prepare_approval.prepare(identity,step['tool'],step['input']))
         if plan['phase']=='execute':
             from modules import runtime_worker_result
             if runtime_worker_result.durable_identity(identity):
