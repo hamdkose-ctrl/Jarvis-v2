@@ -49,6 +49,13 @@ def _reason(proposal):
     return reason.strip()
 
 
+def _state_reason(proposal):
+    reason = proposal.get('reason_code')
+    if not isinstance(reason, str) or not reason.strip():
+        raise InvalidTransitionError('State geçişi reason_code olmadan uygulanamaz.')
+    return reason.strip()
+
+
 def _audit(state, *, op, reason_code):
     state['version'] += 1
     state['audit'].append({
@@ -82,7 +89,7 @@ def apply(current: dict, proposal: dict) -> dict:
             raise InvalidTransitionError(
                 f"Geçersiz state geçişi: {state['state']} -> {target}."
             )
-        reason = _reason(proposal)
+        reason = _state_reason(proposal)
         next_state = copy.deepcopy(state)
         next_state['state'] = target
         if target not in {'waiting', 'paused'}:
