@@ -25,7 +25,7 @@ class InvalidTransitionError(ValueError):
 
 
 _TRANSITIONS = {
-    'pending': frozenset({'running', 'waiting', 'paused', 'failed', 'cancelled'}),
+    'pending': frozenset({'running', 'waiting', 'paused', 'failed', 'done', 'cancelled'}),
     'running': frozenset({'waiting', 'paused', 'failed', 'done', 'cancelled'}),
     'waiting': frozenset({'running', 'paused', 'failed', 'cancelled'}),
     'paused': frozenset({'running', 'waiting', 'failed', 'cancelled'}),
