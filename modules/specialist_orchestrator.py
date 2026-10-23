@@ -39,6 +39,11 @@ def validate(owner, request, tasks):
 
 def run(runtime, request, tasks):
     owner=runtime.profile.slug;tasks=validate(owner,request,tasks);outputs={};journal=[]
+    # This legacy convenience path has no durable identity, DecisionContext,
+    # WorkerResult fence or effect journal.  It must never become a second
+    # executor for effects whose replay/recovery policy is conditional.
+    if any(not goal_tools.replay_safe(task['tool'], task['input']) for task in tasks):
+        raise PermissionError('Koşullu veya yan etkili uzman adımı durable yürütme hattından çalıştırılmalı.')
     for task in tasks:
         requests_state.check()
         deps={key:outputs[key] for key in task['depends']}
