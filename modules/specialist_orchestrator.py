@@ -82,6 +82,10 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
         if plan['phase']=='prepare' and step['tool']=='coder':
+            from modules import developer
+            state=developer.status(runtime.profile.slug)
+            if not state.get('enabled') or not state.get('unlocked'):
+                raise goal_tools.NotStarted('Kod geliştirme alanı kilitli; hiçbir kod işlemi başlatılmadı. Rapor için writer, sahne/video için media kullan. Yalnız gerçekten kod geliştirmek gerekiyorsa kullanıcıdan geliştirme alanını açmasını iste.')
             from modules import runtime_prepare_approval
             return runtime_execution_gate.accept_prepare_result(
                 plan,runtime_prepare_approval.prepare(identity,step['tool'],step['input']))

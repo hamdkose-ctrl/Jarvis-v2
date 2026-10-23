@@ -20,6 +20,7 @@ class BrowserCoderRuntimeGateTests(unittest.TestCase):
         step={'id':'s1','tool':'coder','input':{'request':'bir modül taslağı hazırla'},'depends':[]}
         artifact={'state':'approval','capability_id':'task.coder','job_id':'job-1','step_id':'s1','input_digest':'abc'}
         with patch('modules.runtime_execution_gate.plan_task',return_value={'phase':'prepare'}) as plan, \
+             patch('modules.developer.status',return_value={'enabled':True,'unlocked':True}), \
              patch('modules.runtime_prepare_approval.prepare',return_value=artifact) as prepare, \
              patch('modules.runtime_execution_gate.accept_prepare_result',side_effect=lambda _plan,output:output), \
              patch('modules.goal_tools.execute') as execute:
@@ -28,6 +29,18 @@ class BrowserCoderRuntimeGateTests(unittest.TestCase):
         plan.assert_called_once()
         prepare.assert_called_once()
         self.assertEqual(output,artifact)
+
+    def test_locked_coder_does_not_create_approval_or_run_worker(self):
+        from modules import goal_tools, specialist_orchestrator
+        step={'id':'s1','tool':'coder','input':{'request':'bir modül taslağı hazırla'},'depends':[]}
+        with patch('modules.runtime_execution_gate.plan_task',return_value={'phase':'prepare'}), \
+             patch('modules.developer.status',return_value={'enabled':False,'unlocked':False}), \
+             patch('modules.runtime_prepare_approval.prepare') as prepare, \
+             patch('modules.goal_tools.execute') as execute:
+            with self.assertRaises(goal_tools.NotStarted):
+                specialist_orchestrator.execute_step(self.runtime(),self.job(),step,self.identity('coder'))
+        prepare.assert_not_called()
+        execute.assert_not_called()
 
     def test_coder_approval_must_match_prepare_artifact(self):
         from modules import specialist_orchestrator
