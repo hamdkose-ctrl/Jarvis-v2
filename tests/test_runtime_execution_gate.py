@@ -8,7 +8,7 @@ class RuntimeExecutionGateTests(unittest.TestCase):
         self.manifest = capability_manifest
         self.gate = runtime_execution_gate
 
-    def test_verified_approval_satisfies_ask_required_without_bypassing_deny(self):
+    def test_verified_approval_satisfies_ask_required_without_bypassing_block(self):
         row = self.manifest.from_task_tool('publish')
         result = self.decision.decide(
             row,
@@ -24,22 +24,18 @@ class RuntimeExecutionGateTests(unittest.TestCase):
         self.assertEqual(result['authority'], 'execute')
         self.assertEqual(result['permission']['decision'], 'allow')
 
-        denied = self.manifest.from_tool_contract({
-            'id': 'money', 'version': 1,
-            'actions': [{'id': 'pay', 'class': 'money_credential'}],
-        })
-        result = self.decision.decide(
-            denied,
-            domain_invariant='pass',
+        blocked = self.decision.decide(
+            row,
+            domain_invariant='block',
             domain_authority='execute',
             user_authority='execute',
             job_authority='execute',
-            action={'class': 'money_credential', 'target': 'x', 'via': 'browser'},
+            action={'class': 'publish', 'target': 'friend@example.com', 'via': 'outbox'},
             effect_state='ready',
             approval_verified=True,
         )
-        self.assertFalse(result['worker_allowed'])
-        self.assertEqual(result['permission']['decision'], 'deny')
+        self.assertFalse(blocked['worker_allowed'])
+        self.assertEqual(blocked['authority'], 'forbidden')
 
     def test_ask_required_without_approval_is_prepare_only(self):
         plan = self.gate.plan_task(
