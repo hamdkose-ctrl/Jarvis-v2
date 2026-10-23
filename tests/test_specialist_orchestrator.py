@@ -59,6 +59,18 @@ class SpecialistOrchestratorTests(unittest.TestCase):
              patch('modules.specialist_orchestrator.goal_tools.reconcile',return_value=None):
             with self.assertRaises(PermissionError):orchestrator.run(self.runtime,'taslak hazırla; gönderme',tasks)
 
+    def test_non_durable_run_rejects_conditional_capability_before_worker(self):
+        members=[{'id':'social','name':'Sosyal','tags':[],'tools':['publish']}]
+        tasks=[{'id':'send','specialist':'social','tool':'publish',
+                'input':{'service':'gmail','destination':'a@b.com','subject':'x','text':'y'}}]
+        with patch('modules.specialist_orchestrator.team_center.members',return_value=members), \
+             patch('modules.specialist_orchestrator.goal_tools.validate',side_effect=lambda k,d:d), \
+             patch('modules.specialist_orchestrator.goal_tools.replay_safe',return_value=False), \
+             patch('modules.specialist_orchestrator.goal_tools.execute') as execute:
+            with self.assertRaisesRegex(PermissionError,'durable yürütme'):
+                orchestrator.run(self.runtime,'mail gönder',tasks)
+        execute.assert_not_called()
+
 
 if __name__=='__main__':
     unittest.main()
