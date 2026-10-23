@@ -77,3 +77,26 @@ class NewsChatWriterTests(unittest.TestCase):
             reply=goals.run(case.runtime,'devam',resume=True)
         self.assertEqual(goals.latest('alice')['state'],'done',reply)
         case.ask.assert_not_called()
+
+    def test_generic_fileless_news_defers_planner_when_recovery_used_its_budget(self):
+        case=fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        def deliver(runtime,job,**kwargs):
+            job['steps'].append({'id':'s1','goal':0,'tool':'data','input':{'operation':'headlines','url':'https://example.test/'},
+                                 'depends':[],'signature':'recovery','state':'failed','recovery':True})
+            job['outputs']['s1']={'state':'failed','text':'Kaynak zaman aşımı'}
+        with patch('modules.news_recovery.deliver',side_effect=deliver), \
+                patch.object(goals,'_turn_remaining',return_value=goals.PLANNER_SECONDS+19):
+            reply=goals.run(case.runtime,'Son dakika haberleri')
+        job=goals.latest('alice')
+        self.assertEqual(job['state'],'paused')
+        self.assertEqual(job['goals'],[])
+        self.assertTrue(job['pre_recovery_deferred'])
+        self.assertIn('yeterli süre kalmadı',reply)
+        case.ask.assert_not_called()
+        case.responses(case.plan('Haberler için normal plan'),RuntimeError('Planlayıcıya geri dön'))
+        with patch('modules.news_recovery.deliver') as recovery:
+            goals.run(case.runtime,'devam',resume=True)
+        self.assertEqual(goals.latest('alice')['goals'][0]['text'],'Haberler için normal plan')
+        self.assertGreaterEqual(case.ask.call_count,1)
+        self.assertTrue(all(call.args[1]['goals'][0]['text']=='Haberler için normal plan'
+                            for call in recovery.call_args_list))

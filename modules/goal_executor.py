@@ -199,6 +199,12 @@ def _turn_check(runtime,job):
         raise _TurnBudget('Bu turun toplam '+str(TURN_SECONDS)+' saniyelik bekleme süresi doldu; hedef ve mevcut sonuçlar korundu. Devam etmek istersen “hedef devam” diyebilirsin.')
 
 
+def _turn_remaining():
+    """Seconds still available in this turn, or None outside a goal loop."""
+    deadline=_TURN_DEADLINE.get()
+    return None if deadline is None else max(0,deadline-time.monotonic())
+
+
 def _context(job):
     recent=set(list(job['outputs'])[-6:]);outputs={}
     for key,value in job['outputs'].items():
@@ -408,25 +414,45 @@ def _loop_steps(runtime,job,answer=None):
         # A generic current-news request has no subject that needs a model to
         # select it. Try the bounded publisher path first, so a live chat
         # delivery is not held behind an unrelated provider quota or delay.
-        # Specific topics still start with the normal planner.
+        # Specific topics still start with the normal planner. Once this turn
+        # has deferred to the planner, a resume must not re-run pre-recovery.
         from modules import research_evidence,model_free_news
-        if (not job['goals'] and not job['steps'] and
+        if (not job['goals'] and not job['steps'] and not job.get('pre_recovery_deferred') and
                 research_evidence.news_requested(job['request']) and
                 not research_evidence.file_requested(job['request']) and
                 not model_free_news.terms(job['request'])):
-            job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
+            recovery_goal={'text':job['request'],'state':'pending','evidence':[]}
+            job['goals']=[recovery_goal]
             _save(job)
             from modules import news_recovery
             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
             if _finish_completed(job):return render(job)
-            # A generic request has no additional subject for the planner to
-            # resolve.  If the bounded source-only path could not establish
-            # enough evidence, preserve its pending goal instead of spending
-            # model turns on an invalid replacement plan.
-            job['state']='paused'
-            job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'
-            _save(job)
-            return render(job)
+            # Recovery recorded at least one bounded attempt but did not finish.
+            # A planner can wait up to PLANNER_SECONDS and a following source read
+            # up to 20; if live recovery left less than that, starting the planner
+            # now can only end as the generic 120-second turn timeout. Keep the
+            # recorded attempts, pause with a fresh budget and let "hedef devam"
+            # hand control to the planner instead.
+            if len(job['steps'])>started_steps:
+                if (_turn_remaining() or 0)<PLANNER_SECONDS+20:
+                    job['goals']=[];job['pre_recovery_deferred']=True
+                    job['state']='paused'
+                    job['blocker']=('Sınırlı haber kaynakları bu turda yeterli kanıt üretmedi; '
+                                    'planlayıcı ve olası kaynak okuması için yeterli süre kalmadı. '
+                                    'Kayıtlı denemeler korundu; devam etmek istersen “hedef devam” diyebilirsin.')
+                    _save(job);return render(job)
+                # Enough time remains: drop the synthetic goal so the normal planner
+                # can build its own first plan for this same turn.
+                if job['goals']==[recovery_goal] and recovery_goal['state']=='pending':
+                    job['goals']=[];_save(job)
+            else:
+                # No attempt was recorded and no evidence established: there is no
+                # additional subject for the planner to resolve, so preserve the
+                # pending goal instead of spending model turns on an invalid plan.
+                job['state']='paused'
+                job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'
+                _save(job)
+                return render(job)
         resumed=_resume_news_recovery(runtime,job,started_steps)
         if _finish_completed(job) or resumed:return render(job)
     for _ in range(MAX_TURNS):
