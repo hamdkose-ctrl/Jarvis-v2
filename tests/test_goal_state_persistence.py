@@ -2,11 +2,13 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class GoalStatePersistenceTests(unittest.TestCase):
     def setUp(self):
-        from modules import goal_state_compat, goal_state_store
+        from modules import goal_executor, goal_state_compat, goal_state_store
+        self.goal_executor = goal_executor
         self.compat = goal_state_compat
         self.store = goal_state_store
         self.tmp = tempfile.TemporaryDirectory()
@@ -63,6 +65,29 @@ class GoalStatePersistenceTests(unittest.TestCase):
         reopened = self.compat.sync(self.job('paused'), path)
         self.assertEqual(terminal['state'], 'done')
         self.assertEqual(reopened, terminal)
+
+    def test_goal_executor_save_writes_canonical_before_legacy_record(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            job = self.job()
+            self.goal_executor._save(job)
+            root = self.root / 'alice'
+            canonical = root / '0123456789abcdef.goalstate.json'
+            legacy = root / '0123456789abcdef.json'
+            self.assertTrue(canonical.exists())
+            self.assertTrue(legacy.exists())
+            state = json.loads(canonical.read_text(encoding='utf-8'))
+            self.assertEqual(state['state'], 'running')
+            self.assertEqual(state['job_id'], job['id'])
+
+    def test_goal_executor_save_is_fail_closed_when_canonical_sync_fails(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            job = self.job()
+            with patch('modules.goal_state_compat.sync', side_effect=RuntimeError('cas failed')):
+                with self.assertRaisesRegex(RuntimeError, 'cas failed'):
+                    self.goal_executor._save(job)
+            root = self.root / 'alice'
+            self.assertFalse((root / '0123456789abcdef.json').exists())
+            self.assertFalse((root / 'latest.json').exists())
 
 
 if __name__ == '__main__':
