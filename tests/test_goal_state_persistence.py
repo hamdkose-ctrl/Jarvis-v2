@@ -2,13 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 class GoalStatePersistenceTests(unittest.TestCase):
     def setUp(self):
-        from modules import goal_executor, goal_state_compat, goal_state_store
-        self.goal_executor = goal_executor
+        from modules import goal_state_compat, goal_state_store
         self.compat = goal_state_compat
         self.store = goal_state_store
         self.tmp = tempfile.TemporaryDirectory()
@@ -32,9 +30,13 @@ class GoalStatePersistenceTests(unittest.TestCase):
         current = self.compat.project(self.job())
         self.store.create(path, current)
         next_state = self.compat.advance(current, self.job('paused'))
-        self.store.compare_and_swap(path, expected_version=0, next_state=next_state)
+        self.store.compare_and_swap(
+            path, expected_version=current['version'], next_state=next_state,
+        )
         with self.assertRaises(self.store.PersistedStateConflict):
-            self.store.compare_and_swap(path, expected_version=0, next_state=next_state)
+            self.store.compare_and_swap(
+                path, expected_version=current['version'], next_state=next_state,
+            )
 
     def test_legacy_projection_is_idempotent_for_same_state(self):
         path = self.root / 'state.json'
@@ -55,17 +57,12 @@ class GoalStatePersistenceTests(unittest.TestCase):
         on_disk = json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(on_disk, state)
 
-    def test_goal_executor_save_writes_canonical_shadow_before_legacy_record(self):
-        with patch.object(self.goal_executor, 'STORE', self.root):
-            job = self.job()
-            self.goal_executor._save(job)
-            canonical = self.root / 'alice' / '0123456789abcdef.goalstate.json'
-            legacy = self.root / 'alice' / '0123456789abcdef.json'
-            self.assertTrue(canonical.exists())
-            self.assertTrue(legacy.exists())
-            state = json.loads(canonical.read_text(encoding='utf-8'))
-            self.assertEqual(state['state'], 'running')
-            self.assertEqual(state['job_id'], job['id'])
+    def test_terminal_canonical_state_is_not_reopened_by_legacy_projection(self):
+        path = self.root / 'state.json'
+        terminal = self.compat.sync(self.job('done'), path)
+        reopened = self.compat.sync(self.job('paused'), path)
+        self.assertEqual(terminal['state'], 'done')
+        self.assertEqual(reopened, terminal)
 
 
 if __name__ == '__main__':
