@@ -110,6 +110,159 @@ class GoalStatePersistenceTests(unittest.TestCase):
         on_disk = json.loads(path.read_text(encoding='utf-8'))
         self.assertEqual(on_disk, state)
 
+    def test_legacy_state_sequence_preserves_state_blocker_and_audit_parity(self):
+        path = self.root / 'state.json'
+        sequence = []
+
+        running = self.job('running')
+        sequence.append(self.compat.sync(running, path))
+
+        approval = self.job('approval')
+        approval['blocker'] = 'Kullanıcı onayı gerekli.'
+        sequence.append(self.compat.sync(approval, path))
+
+        question = self.job('question')
+        question['question'] = 'Hangi belge kullanılmalı?'
+        sequence.append(self.compat.sync(question, path))
+
+        review = self.job('review')
+        review['blocker'] = 'Sonuç gözden geçirilmeli.'
+        sequence.append(self.compat.sync(review, path))
+
+        sequence.append(self.compat.sync(self.job('paused'), path))
+        sequence.append(self.compat.sync(self.job('failed'), path))
+        sequence.append(self.compat.sync(self.job('done'), path))
+
+        self.assertEqual(
+            [state['state'] for state in sequence],
+            ['running', 'waiting', 'waiting', 'paused', 'paused', 'failed', 'done'],
+        )
+        self.assertIsNone(sequence[0]['blocker'])
+        self.assertEqual(sequence[1]['blocker'], {
+            'code': 'LEGACY_APPROVAL', 'text': 'Kullanıcı onayı gerekli.',
+        })
+        self.assertEqual(sequence[2]['blocker'], {
+            'code': 'LEGACY_QUESTION', 'text': 'Hangi belge kullanılmalı?',
+        })
+        self.assertEqual(sequence[3]['blocker'], {
+            'code': 'LEGACY_BLOCKED', 'text': 'Sonuç gözden geçirilmeli.',
+        })
+        self.assertIsNone(sequence[4]['blocker'])
+        self.assertIsNone(sequence[5]['blocker'])
+        self.assertIsNone(sequence[6]['blocker'])
+
+        final = sequence[-1]
+        self.assertEqual(
+            [row['reason_code'] for row in final['audit']],
+            [
+                'CREATED', 'LEGACY_PROJECTED',
+                'LEGACY_STATE_SYNCED', 'LEGACY_BLOCKER_SYNCED',
+                'LEGACY_BLOCKER_SYNCED',
+                'LEGACY_STATE_SYNCED', 'LEGACY_BLOCKER_SYNCED',
+                'LEGACY_BLOCKER_CLEARED',
+                'LEGACY_STATE_SYNCED',
+                'LEGACY_RESUMED', 'LEGACY_STATE_SYNCED',
+            ],
+        )
+        self.assertEqual([row['version'] for row in final['audit']], list(range(final['version'] + 1)))
+        self.assertEqual(final['audit'][-1]['state'], 'done')
+
+    def test_waiting_blocker_changes_and_clears_only_before_terminal(self):
+        path = self.root / 'state.json'
+        approval = self.job('approval')
+        approval['blocker'] = 'İlk onay.'
+        first = self.compat.sync(approval, path)
+
+        changed = self.job('approval')
+        changed['blocker'] = 'İkinci onay.'
+        second = self.compat.sync(changed, path)
+        self.assertEqual(second['state'], 'waiting')
+        self.assertEqual(second['blocker'], {'code': 'LEGACY_APPROVAL', 'text': 'İkinci onay.'})
+        self.assertEqual(second['version'], first['version'] + 1)
+
+        question = self.job('question')
+        question['question'] = 'Devam edilsin mi?'
+        third = self.compat.sync(question, path)
+        self.assertEqual(third['blocker'], {'code': 'LEGACY_QUESTION', 'text': 'Devam edilsin mi?'})
+
+        paused = self.compat.sync(self.job('paused'), path)
+        self.assertIsNone(paused['blocker'])
+
+        terminal = self.compat.sync(self.job('done'), path)
+        terminal_bytes = path.read_bytes()
+        later = self.job('approval')
+        later['blocker'] = 'Terminalden sonra değişmemeli.'
+        unchanged = self.compat.sync(later, path)
+        self.assertEqual(unchanged, terminal)
+        self.assertEqual(path.read_bytes(), terminal_bytes)
+
+    def test_terminal_done_and_cancelled_are_immutable_under_later_legacy_states(self):
+        for terminal_state in ('done', 'cancelled'):
+            with self.subTest(terminal_state=terminal_state):
+                path = self.root / (terminal_state + '.json')
+                terminal = self.compat.sync(self.job(terminal_state), path)
+                before = path.read_bytes()
+                for later_state in ('running', 'paused', 'approval'):
+                    later = self.job(later_state)
+                    if later_state == 'approval':
+                        later['blocker'] = 'Yeni onay bekleniyor.'
+                    current = self.compat.sync(later, path)
+                    self.assertEqual(current, terminal)
+                    self.assertEqual(current['version'], terminal['version'])
+                    self.assertEqual(current['audit'], terminal['audit'])
+                    self.assertEqual(current['state'], terminal_state)
+                    self.assertEqual(current['blocker'], terminal['blocker'])
+                    self.assertEqual(path.read_bytes(), before)
+
+    def test_same_waiting_legacy_snapshot_is_fully_idempotent(self):
+        path = self.root / 'state.json'
+        job = self.job('approval')
+        job['blocker'] = 'Onay gerekiyor.'
+        first = self.compat.sync(job, path)
+        before = path.read_bytes()
+        second = self.compat.sync(dict(job), path)
+        self.assertEqual(second, first)
+        self.assertEqual(second['version'], first['version'])
+        self.assertEqual(second['audit'], first['audit'])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_unknown_legacy_state_never_creates_or_changes_canonical(self):
+        missing = self.root / 'missing.json'
+        unknown = self.job('mystery-state')
+        with self.assertRaisesRegex(ValueError, 'Legacy job state'):
+            self.compat.sync(unknown, missing)
+        self.assertFalse(missing.exists())
+
+        path = self.root / 'existing.json'
+        current = self.compat.sync(self.job('running'), path)
+        before = path.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'Legacy job state'):
+            self.compat.sync(unknown, path)
+        self.assertEqual(self.store.load(path), current)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_legacy_hook_rejects_job_id_path_and_owner_mismatch_for_projection(self):
+        from modules import goal_state_save_hook
+        owner_dir = self.root / 'alice'
+        owner_dir.mkdir()
+
+        wrong_owner = self.job('running')
+        wrong_owner['owner'] = 'bob'
+        owner_path = owner_dir / (wrong_owner['id'] + '.json')
+        goal_state_save_hook._atomic(
+            owner_path, json.dumps(wrong_owner, ensure_ascii=False).encode('utf-8'),
+        )
+        self.assertFalse(owner_path.with_name(wrong_owner['id'] + '.goalstate.json').exists())
+
+        wrong_id = self.job('running')
+        path_id = 'fedcba9876543210'
+        id_path = owner_dir / (path_id + '.json')
+        goal_state_save_hook._atomic(
+            id_path, json.dumps(wrong_id, ensure_ascii=False).encode('utf-8'),
+        )
+        self.assertFalse(id_path.with_name(path_id + '.goalstate.json').exists())
+        self.assertFalse(id_path.with_name(wrong_id['id'] + '.goalstate.json').exists())
+
     def test_terminal_canonical_state_is_not_reopened_by_legacy_projection(self):
         path = self.root / 'state.json'
         terminal = self.compat.sync(self.job('done'), path)
@@ -192,6 +345,31 @@ class GoalStatePersistenceTests(unittest.TestCase):
                     self.goal_executor._save(self.job('paused'))
             self.assertEqual(canonical.read_bytes(), before)
             self.assertEqual(json.loads(canonical.read_text(encoding='utf-8'))['state'], 'running')
+
+    def test_legacy_write_failure_leaves_no_new_or_reopened_canonical_state(self):
+        from modules import goal_state_save_hook
+        original = goal_state_save_hook._ORIGINAL_ATOMIC
+
+        def fail_legacy(path, data):
+            if Path(path).name == '0123456789abcdef.json':
+                raise OSError('legacy write failed')
+            return original(path, data)
+
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
+                with self.assertRaisesRegex(OSError, 'legacy write failed'):
+                    self.goal_executor._save(self.job('approval'))
+            root = self.root / 'alice'
+            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+
+            self.goal_executor._save(self.job('done'))
+            canonical = root / '0123456789abcdef.goalstate.json'
+            terminal_bytes = canonical.read_bytes()
+            with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
+                with self.assertRaisesRegex(OSError, 'legacy write failed'):
+                    self.goal_executor._save(self.job('running'))
+            self.assertEqual(canonical.read_bytes(), terminal_bytes)
+            self.assertEqual(self.store.load(canonical)['state'], 'done')
 
 
 if __name__ == '__main__':
