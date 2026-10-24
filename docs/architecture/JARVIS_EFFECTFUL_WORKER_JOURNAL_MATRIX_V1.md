@@ -138,3 +138,15 @@ Bu belge şunları eklemez veya değiştirmez:
 - CI/workflow/watcher/test/fixture.
 
 Amaç yalnız mevcut journal/recovery sözleşmesini effectful worker ailelerine kaynak-doğrulanmış ve fail-closed bir karar matrisi olarak uygulamaktır.
+
+## Regression testleri (bu matrisi kilitleyen)
+
+`tests/test_crash_recovery.py` ve `tests/test_effect_crash_restart_e2e.py` aşağıdaki garantileri manifest tabanlı olarak kilitler (yalnız `publish` değil, `replay=conditional` + `reconciliation=required` olan her capability için):
+
+- `effect_recovery_runtime.required()` her task capability için manifestteki `replay`/`reconciliation` alanlarıyla birebir eşleşir; read-only bir capability (`research`, `account`, `verify`) hiçbir zaman journal hattına girmez.
+- Normal effectful `execute_step` yolunda `record_intent()` worker çağrısından önce çalışır.
+- Doğrulanmış receipt sonrası effect tekrar çalıştırılmaz, journal `succeeded` kalır.
+- Intent var/receipt yok → yalnız salt-okunur reconcile; kör retry yok.
+- Intent yok → `reconcile`/effect hiç çağrılmaz.
+- `reconcile`'ın geri okuduğu sonuç da gerçek WorkerResult fence/Reducer-CAS kabul yolundan geçer; yabancı/bayat fence reddedilir.
+- Worker `state=done` döndürmesi tek başına GoalState'i terminal duruma geçirmez; global completion ayrı reducer kararıdır.
