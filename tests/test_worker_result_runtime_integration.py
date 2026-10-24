@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 
 class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
@@ -80,6 +81,30 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
         _enriched, expected = self.runtime.prepare(identity, 'research', step['input'], expected_job_version=0)
         self.assertEqual(expected['attempt'], 2)
         self.assertEqual(expected['command_id'], 's1:2')
+
+    def test_record_persists_incremented_attempt_before_each_worker_call(self):
+        from modules import goal_executor
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice'), emit=lambda *args: None)
+        job = {'owner':'alice','id':'0123456789abcdef','request':'örnek','outputs':{},
+               'goals':[{'text':'örnek'}], 'state':'running'}
+        step = {'id':'s1','goal':0,'tool':'research',
+                'input':{'url':'https://example.test','question':'x'},'depends':[]}
+        saved=[]; identities=[]
+        def execute(_runtime, _job, _step, identity, **_kwargs):
+            self.assertIn(identity['attempt'], saved)
+            identities.append(identity)
+            return {'state':'done'}
+        with patch('modules.goal_executor._save',side_effect=lambda value:saved.append(value['steps'][0].get('attempts'))), \
+             patch('modules.brain_delegate.assign',return_value='research'), \
+             patch('modules.goal_tools.checkpoint',return_value=None), \
+             patch('modules.goal_tools.verify',return_value=True), \
+             patch('modules.specialist_orchestrator.execute_step',side_effect=execute):
+            job['steps']=[step]
+            goal_executor._record(runtime,job,step)
+            goal_executor._record(runtime,job,step)
+        self.assertEqual([row['attempt'] for row in identities],[1,2])
+        self.assertIn(1,saved)
+        self.assertIn(2,saved)
 
 
 if __name__ == '__main__':
