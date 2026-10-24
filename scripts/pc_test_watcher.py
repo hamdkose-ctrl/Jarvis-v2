@@ -209,10 +209,14 @@ def pr_comment_body(report: dict) -> str:
         f"- Commit: `{str(report.get('sha') or '')[:12]}`",
         f"- Genel durum: **{report.get('status', 'unknown')}**",
     ]
+    required = {"desktop_acceptance": "calculator", "news_acceptance": "news_chat_resume"}
     for key, label in (("validation", "Validation"), ("desktop_acceptance", "Desktop"), ("news_acceptance", "Haber")):
         row = report.get(key)
         if isinstance(row, dict):
-            lines.append(f"- {label}: **{'passed' if row.get('exit_code') == 0 else 'failed'}**")
+            passed = row.get('exit_code') == 0
+            if key in required:
+                passed = passed and _check_state(row.get('checks') or [], required[key]) == 'passed'
+            lines.append(f"- {label}: **{'passed' if passed else 'failed'}**")
     lines.append("\nBu yorum gerçek iş PC'sindeki watcher tarafından otomatik üretildi; anahtarlar ve kişisel içerik gönderilmez.")
     return "\n".join(lines)
 

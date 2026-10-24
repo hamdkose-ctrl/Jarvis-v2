@@ -78,19 +78,59 @@ class PcTestWatcherTests(unittest.TestCase):
         self.assertEqual(result['status'], 'failed')
         self.assertEqual(result['news_acceptance']['exit_code'], 1)
 
+    def test_validation_failure_never_starts_desktop_or_news_acceptance(self):
+        validation = mock.Mock(returncode=1, stdout='validation failed')
+        with mock.patch.object(watcher, 'python_exe', return_value=Path('python.exe')), \
+                mock.patch.object(watcher, 'run', return_value=validation), \
+                mock.patch.object(watcher, 'run_acceptance') as acceptance:
+            result = watcher.run_suite(Path('repo'), Path('worktree'), 'ref', 'a'*40, desktop=True, news=True)
+        self.assertEqual(result['status'], 'failed')
+        self.assertNotIn('desktop_acceptance', result)
+        self.assertNotIn('news_acceptance', result)
+        acceptance.assert_not_called()
+
+    def test_desktop_exit_zero_without_calculator_evidence_fails_suite(self):
+        validation = mock.Mock(returncode=0, stdout='OK')
+        desktop = {'exit_code': 0, 'tail': 'incomplete', 'checks': []}
+        with mock.patch.object(watcher, 'python_exe', return_value=Path('python.exe')), \
+                mock.patch.object(watcher, 'run', return_value=validation), \
+                mock.patch.object(watcher, 'run_acceptance', return_value=desktop):
+            result = watcher.run_suite(Path('repo'), Path('worktree'), 'ref', 'a'*40, desktop=True, news=False)
+        self.assertEqual(result['status'], 'failed')
+
+    def test_news_exit_zero_without_required_evidence_fails_suite_and_comment(self):
+        validation = mock.Mock(returncode=0, stdout='OK')
+        desktop = {'exit_code': 0, 'tail': '', 'checks': [{'check':'calculator', 'state':'passed'}]}
+        news = {'exit_code': 0, 'tail': 'incomplete', 'checks': []}
+        with mock.patch.object(watcher, 'python_exe', return_value=Path('python.exe')), \
+                mock.patch.object(watcher, 'run', return_value=validation), \
+                mock.patch.object(watcher, 'run_acceptance', side_effect=[desktop, news]):
+            result = watcher.run_suite(Path('repo'), Path('worktree'), 'ref', 'a'*40, desktop=True, news=True)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('Haber: **failed**', watcher.pr_comment_body(result))
+
 
     def test_pr_comment_reports_only_blocks_that_ran(self):
         report = {
             'sha': 'b' * 40,
             'status': 'failed',
             'validation': {'exit_code': 1, 'tail': 'traceback'},
-            'desktop_acceptance': {'exit_code': 0, 'tail': 'ok', 'checks': []},
+            'desktop_acceptance': {'exit_code': 0, 'tail': 'ok', 'checks': [{'check':'calculator','state':'passed'}]},
         }
         body = watcher.pr_comment_body(report)
         self.assertIn('Validation: **failed**', body)
         self.assertIn('Desktop: **passed**', body)
         self.assertNotIn('Haber', body)
         self.assertNotIn('traceback', body)
+
+    def test_pr_comment_does_not_call_desktop_passed_without_calculator_evidence(self):
+        report = {
+            'sha': 'c' * 40,
+            'status': 'failed',
+            'validation': {'exit_code': 0, 'tail': 'ok'},
+            'desktop_acceptance': {'exit_code': 0, 'tail': 'ok', 'checks': []},
+        }
+        self.assertIn('Desktop: **failed**', watcher.pr_comment_body(report))
 
 
 if __name__ == '__main__':
