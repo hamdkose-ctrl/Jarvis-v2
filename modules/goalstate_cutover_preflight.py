@@ -29,10 +29,16 @@ IDENTITY_MISMATCH = 'IDENTITY_MISMATCH'
 STATE_DIVERGENCE = 'STATE_DIVERGENCE'
 TERMINAL_DIVERGENCE = 'TERMINAL_DIVERGENCE'
 
-REASON_CODES = frozenset({
-    OK, INVALID_LEGACY_RECORD, UNKNOWN_LEGACY_STATE, MISSING_CANONICAL,
-    CANONICAL_CORRUPT, IDENTITY_MISMATCH, STATE_DIVERGENCE, TERMINAL_DIVERGENCE,
-})
+REASON_CODES = (
+    OK,
+    INVALID_LEGACY_RECORD,
+    UNKNOWN_LEGACY_STATE,
+    MISSING_CANONICAL,
+    CANONICAL_CORRUPT,
+    IDENTITY_MISMATCH,
+    STATE_DIVERGENCE,
+    TERMINAL_DIVERGENCE,
+)
 
 _TERMINAL = frozenset({'done', 'cancelled'})
 
@@ -41,10 +47,9 @@ class PreflightScanError(ValueError):
     """Safe, content-free error for an invalid root/path or unexpected I/O failure."""
 
 
-def _row(job_id, owner=None, reason_code=None, legacy_state=None, canonical_state=None):
+def _row(job_id, reason_code, *, legacy_state=None, canonical_state=None):
     return {
         'job_id': job_id,
-        'owner': owner,
         'reason_code': reason_code,
         'legacy_state': legacy_state,
         'canonical_state': canonical_state,
@@ -97,11 +102,7 @@ def _legacy_target_state(job: dict):
 
 
 def _load_canonical(canonical_path: Path):
-    """Return (state, None) on success, or (None, reason_code) on a safe failure.
-
-    Never raises on a corrupt file and never includes raw bytes/exception text
-    in the returned reason.
-    """
+    """Return (state, None) on success, or (None, reason_code) on safe failure."""
     try:
         raw = canonical_path.read_bytes()
     except OSError:
@@ -115,50 +116,57 @@ def _load_canonical(canonical_path: Path):
 
 
 def _classify(job: dict, owner_dir: Path, job_id: str) -> dict:
-    owner = job.get('owner') if isinstance(job, dict) else None
-
     target_state = _legacy_target_state(job)
     if target_state is None:
-        return _row(job_id, owner, UNKNOWN_LEGACY_STATE, legacy_state=job.get('state'))
+        # Unknown state text is untrusted legacy content; never echo it.
+        return _row(job_id, UNKNOWN_LEGACY_STATE)
 
     canonical_path = owner_dir / (job_id + '.goalstate.json')
     if not canonical_path.exists():
-        return _row(job_id, owner, MISSING_CANONICAL, legacy_state=job['state'])
+        return _row(job_id, MISSING_CANONICAL, legacy_state=job['state'])
 
     canonical, corrupt_reason = _load_canonical(canonical_path)
     if corrupt_reason is not None:
-        return _row(job_id, owner, corrupt_reason, legacy_state=job['state'])
+        return _row(job_id, corrupt_reason, legacy_state=job['state'])
 
-    if (canonical['owner'] != job['owner']
-            or canonical['job_id'] != job['id']
-            or canonical['goal'] != job['request'].strip()):
+    if (
+        canonical['owner'] != job['owner']
+        or canonical['job_id'] != job['id']
+        or canonical['goal'] != job['request'].strip()
+        or canonical['execution_mode'] != 'agent'
+    ):
         return _row(
-            job_id, owner, IDENTITY_MISMATCH,
-            legacy_state=job['state'], canonical_state=canonical['state'],
+            job_id,
+            IDENTITY_MISMATCH,
+            legacy_state=job['state'],
+            canonical_state=canonical['state'],
         )
 
     canonical_state = canonical['state']
     if canonical_state == target_state:
-        return _row(job_id, owner, OK, legacy_state=job['state'], canonical_state=canonical_state)
+        return _row(job_id, OK, legacy_state=job['state'], canonical_state=canonical_state)
 
-    if canonical_state in _TERMINAL and target_state not in _TERMINAL:
+    if canonical_state in _TERMINAL or target_state in _TERMINAL:
         return _row(
-            job_id, owner, TERMINAL_DIVERGENCE,
-            legacy_state=job['state'], canonical_state=canonical_state,
+            job_id,
+            TERMINAL_DIVERGENCE,
+            legacy_state=job['state'],
+            canonical_state=canonical_state,
         )
 
     return _row(
-        job_id, owner, STATE_DIVERGENCE,
-        legacy_state=job['state'], canonical_state=canonical_state,
+        job_id,
+        STATE_DIVERGENCE,
+        legacy_state=job['state'],
+        canonical_state=canonical_state,
     )
 
 
 def scan(owner_root) -> dict:
     """Read-only scan of one owner directory for legacy/canonical GoalState pairs.
 
-    Returns a deterministic report: {'root': str, 'rows': [...], 'counts': {...},
-    'ok': bool}. Rows are sorted by job_id. No file under ``owner_root`` is ever
-    written, deleted or otherwise modified by this function.
+    Rows are deterministic and sorted by job_id. The returned report deliberately
+    omits owner paths, owner names, requests, blockers and raw snapshot content.
     """
     owner_dir = Path(owner_root)
     if not owner_dir.exists() or not owner_dir.is_dir():
@@ -179,20 +187,19 @@ def scan(owner_root) -> dict:
         except OSError:
             job = None
         if job is None:
-            rows.append(_row(job_id, reason_code=INVALID_LEGACY_RECORD))
+            rows.append(_row(job_id, INVALID_LEGACY_RECORD))
             continue
         try:
             rows.append(_classify(job, owner_dir, job_id))
         except OSError:
-            rows.append(_row(job_id, job.get('owner'), INVALID_LEGACY_RECORD))
+            rows.append(_row(job_id, INVALID_LEGACY_RECORD))
 
     rows.sort(key=lambda row: row['job_id'])
-    counts = {}
+    counts = {code: 0 for code in REASON_CODES}
     for row in rows:
-        counts[row['reason_code']] = counts.get(row['reason_code'], 0) + 1
+        counts[row['reason_code']] += 1
 
     return {
-        'root': str(owner_dir),
         'rows': rows,
         'counts': counts,
         'ok': all(row['reason_code'] == OK for row in rows),
