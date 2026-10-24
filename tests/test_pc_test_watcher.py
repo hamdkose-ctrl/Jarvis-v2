@@ -11,6 +11,45 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
+    def test_batch_does_not_force_news_acceptance(self):
+        batch = (MODULE_PATH.parents[0] / 'pc_test_watcher.bat').read_text(encoding='utf-8')
+        self.assertNotIn('pc_test_watcher.py --news', batch)
+
+    def test_acceptance_scope_keeps_docs_and_hook_changes_validation_only(self):
+        scope = watcher.acceptance_scope([
+            'docs/PC_TEST_WATCHER.md',
+            '.githooks/pre-push',
+            'scripts/git_hooks_kur.bat',
+        ])
+        self.assertFalse(scope['desktop'])
+        self.assertFalse(scope['news'])
+
+    def test_acceptance_scope_selects_desktop_runtime_changes(self):
+        scope = watcher.acceptance_scope([
+            'modules/desktop_uia.py',
+            'tests/test_desktop_agent.py',
+        ])
+        self.assertTrue(scope['desktop'])
+        self.assertFalse(scope['news'])
+
+    def test_acceptance_scope_selects_news_runtime_changes(self):
+        scope = watcher.acceptance_scope([
+            'modules/news_recovery.py',
+            'tests/test_news_recovery_catalog.py',
+        ])
+        self.assertFalse(scope['desktop'])
+        self.assertTrue(scope['news'])
+
+    def test_acceptance_scope_selects_both_for_shared_acceptance_runtime(self):
+        scope = watcher.acceptance_scope(['modules/acceptance_checks.py'])
+        self.assertTrue(scope['desktop'])
+        self.assertTrue(scope['news'])
+
+    def test_acceptance_scope_manual_flags_override_path_scope(self):
+        scope = watcher.acceptance_scope(['docs/architecture/example.md'], desktop=True, news=True)
+        self.assertTrue(scope['desktop'])
+        self.assertTrue(scope['news'])
+
     def test_choose_candidate_skips_resolved_sha(self):
         candidates = [
             {'ref': 'refs/remotes/origin/gpt/new', 'sha': 'bbb', 'time': 2},
@@ -62,6 +101,23 @@ class PcTestWatcherTests(unittest.TestCase):
             changed = watcher.once(Path('repo'), Path('state.json'), Path('report.json'), 'refs/remotes/origin/gpt/*', desktop=True, news=False)
         self.assertFalse(changed)
         self.assertEqual(choose.call_args.args[0], [open_item])
+
+    def test_once_runs_validation_only_for_docs_scope(self):
+        item = {'ref': 'refs/remotes/origin/gpt/docs', 'sha': 'a' * 40, 'time': 2}
+        result = {'status': 'passed', 'validation': {'exit_code': 0, 'tail': 'OK'}}
+        with mock.patch.object(watcher, 'load_state', return_value={'seen': {}}), \
+                mock.patch.object(watcher, 'remote_heads', return_value=[item]), \
+                mock.patch.object(watcher, 'open_pr_refs', return_value={item['ref']}), \
+                mock.patch.object(watcher, 'changed_paths', return_value=['docs/architecture/guide.md']), \
+                mock.patch.object(watcher, 'add_worktree'), \
+                mock.patch.object(watcher, 'remove_worktree'), \
+                mock.patch.object(watcher, 'run_suite', return_value=result) as suite, \
+                mock.patch.object(watcher, 'publish_pr_comment', return_value={'state': 'skipped'}), \
+                mock.patch.object(watcher, 'save_json'):
+            changed = watcher.once(Path('repo'), Path('state.json'), Path('report.json'), 'refs/remotes/origin/gpt/*', desktop=False, news=False)
+        self.assertTrue(changed)
+        self.assertFalse(suite.call_args.kwargs['desktop'])
+        self.assertFalse(suite.call_args.kwargs['news'])
 
     def test_new_sha_runs_even_if_previous_sha_passed(self):
         candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'new', 'time': 2}

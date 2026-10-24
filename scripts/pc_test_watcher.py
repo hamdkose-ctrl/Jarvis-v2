@@ -115,6 +115,44 @@ def open_pr_refs(root: Path) -> set[str] | None:
     return {"refs/remotes/origin/" + name for name in names}
 
 
+def changed_paths(root: Path, sha: str) -> list[str] | None:
+    """Return paths changed by a candidate relative to the current main tip.
+
+    The watcher already fetches origin before choosing a candidate.  Scope is
+    deliberately derived locally instead of making a second GitHub API call:
+    the acceptance decision must remain available whenever the open-PR check
+    itself has succeeded.
+    """
+    diff = run(["git", "diff", "--name-only", f"origin/main...{sha}"], cwd=root,
+               check=False, capture=True)
+    if diff.returncode != 0:
+        return None
+    return [line.strip().replace("\\", "/") for line in (diff.stdout or "").splitlines() if line.strip()]
+
+
+def acceptance_scope(paths: list[str], *, desktop: bool = False, news: bool = False) -> dict:
+    """Choose opt-in real-PC acceptances from runtime-relevant changed paths.
+
+    Validation always runs.  A documentation, hook, CI or watcher-only change
+    must not open applications or perform the live news flow.  ``--desktop``
+    and ``--news`` remain explicit operator overrides.
+    """
+    normalized = [str(path).lower().replace("\\", "/") for path in paths]
+    runtime_paths = [path for path in normalized if path.startswith(("modules/", "tests/"))]
+    desktop_markers = (
+        "desktop", "desktop_uia", "system_control",
+        "test_acceptance_desktop", "permission_gate_desktop",
+    )
+    news_markers = ("news", "publisher_news", "public_data_acceptance")
+    shared_acceptance = "modules/acceptance_checks.py" in runtime_paths
+    return {
+        "desktop": bool(desktop or shared_acceptance or any(marker in path for path in runtime_paths for marker in desktop_markers)),
+        "news": bool(news or shared_acceptance or any(marker in path for path in runtime_paths for marker in news_markers)),
+        "paths": paths,
+        "source": "manual" if desktop or news else "changed_paths",
+    }
+
+
 def _seen_entry(seen: dict, ref: str) -> dict | None:
     raw = seen.get(ref)
     if isinstance(raw, dict):
@@ -287,12 +325,19 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     target = choose_candidate(candidates, seen)
     if not target:
         return False
+    paths = changed_paths(root, target["sha"])
+    # Scope discovery never makes a desktop/news call on uncertainty.  The
+    # validation gate still gives the PR a useful, non-destructive result.
+    scope = acceptance_scope(paths or [], desktop=desktop, news=news)
+    if paths is None:
+        scope["source"] = "unavailable"
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
     attempted_at = time.time()
     try:
         add_worktree(root, target["sha"], worktree)
         print("[1/4] Testler basladi...", flush=True)
-        result = run_suite(root, worktree, target["ref"], target["sha"], desktop=desktop, news=news)
+        result = run_suite(root, worktree, target["ref"], target["sha"], desktop=scope["desktop"], news=scope["news"])
+        result["acceptance_scope"] = scope
         print(f"[2/4] Test sonucu: {result.get('status')}", flush=True)
         result["github_pr_comment"] = publish_pr_comment(root, target["ref"], result)
         print("[4/4] Rapor yaziliyor...", flush=True)
@@ -317,7 +362,7 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=30)
     parser.add_argument("--pattern", default=DEFAULT_PATTERN)
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--no-desktop", action="store_true")
+    parser.add_argument("--desktop", action="store_true", help="Kapsamdan bağımsız gerçek desktop kabulünü zorla")
     parser.add_argument("--news", action="store_true", help="Yavaş haber kabulünü ayrı final aşaması olarak çalıştır")
     args = parser.parse_args()
 
@@ -330,7 +375,7 @@ def main() -> int:
     print(f"Sonuç: {report_path}")
     while True:
         try:
-            changed = once(root, state_path, report_path, args.pattern, desktop=not args.no_desktop, news=args.news)
+            changed = once(root, state_path, report_path, args.pattern, desktop=args.desktop, news=args.news)
             if not changed:
                 print("Yalnız açık PR dallarında yeni test adayı yok.")
         except KeyboardInterrupt:
