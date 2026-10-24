@@ -22,6 +22,8 @@ Aşağıdaki ilkeler her seçenek değerlendirmesinde sabittir; bir seçenek bun
 
 ## Karar 1 — `execution_mode` otoriter mapping'i
 
+> **KABUL EDİLDİ — 2026-10-25.** Yukarıdaki **Seçenek A** bu karar için resmen kabul edilmiştir: canonical `execution_mode` kalıcı olarak sabit `'agent'`dir; legacy job şemasında `fast`/`durable` karşılığı yoktur ve legacy payload'daki bir `execution_mode` alanı projection tarafından okunmaz. `modules/goal_state_compat.py::PROJECTION_EXECUTION_MODE` kabul edilmiş sabitin adıdır; davranış `tests/test_goal_state_persistence.py` (RFC Karar 1 bloğu) ile kilitlidir: legacy alan yoksa, farklı değer taşıyorsa veya yanlış tipteyse canonical projection yine `'agent'` üretir, persist edilmiş ve `advance()` edilmiş state identity'yi korur, `goal_state.EXECUTION_MODES` kümesine yeni değer eklenmez. Kaynak dal/PR: `gpt/goalstate-rfc-decision1-execution-mode` (`main` hedefli; kesin PR numarası ve merge SHA'sı GitHub'dadır). **Bu kabul yalnız Karar 1 içindir; Karar 2, 3 ve 4 hâlâ öneri aşamasındadır.**
+
 **Bulgu (kaynak):** `modules/goal_state_compat.py::project` canonical `execution_mode` alanını doğrudan sabit `'agent'` olarak geçirir (satır 41). Legacy `goal_executor` job şemasında (`_REQUIRED = {'id','owner','request','state','goals','steps','outputs'}`, `modules/goal_state_save_hook.py`) `execution_mode` kavramı **hiç yoktur** — `modules/goal_executor.py` içinde bu alana dair hiçbir okuma/yazma bulunmuyor. `modules/goal_state.py::EXECUTION_MODES = {'fast','agent','durable'}` ve `execution_mode` canonical identity'nin immutable parçasıdır (`GOALSTATE_CUTOVER_V1.md` madde "Kilitli otorite sınırı" ve "Identity").
 
 ### Seçenekler

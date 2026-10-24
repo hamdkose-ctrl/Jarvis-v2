@@ -398,6 +398,48 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertEqual(canonical.read_bytes(), terminal_bytes)
             self.assertEqual(self.store.load(canonical)['state'], 'done')
 
+    # -- RFC Karar 1: projection execution_mode is permanently 'agent' -----
+
+    def test_projection_execution_mode_is_named_decision_constant(self):
+        self.assertEqual(self.compat.PROJECTION_EXECUTION_MODE, 'agent')
+        state = self.compat.project(self.job())
+        self.assertEqual(state['execution_mode'], self.compat.PROJECTION_EXECUTION_MODE)
+
+    def test_projection_execution_mode_is_agent_when_legacy_field_absent(self):
+        job = self.job()
+        self.assertNotIn('execution_mode', job)
+        state = self.compat.project(job)
+        self.assertEqual(state['execution_mode'], 'agent')
+
+    def test_projection_execution_mode_is_agent_for_other_legacy_values(self):
+        for legacy_mode in ('fast', 'durable', 'pending', '', 'AGENT'):
+            with self.subTest(legacy_mode=legacy_mode):
+                job = self.job()
+                job['execution_mode'] = legacy_mode
+                self.assertEqual(self.compat.project(job)['execution_mode'], 'agent')
+
+    def test_projection_execution_mode_is_agent_for_wrong_typed_field(self):
+        for legacy_mode in (None, 7, ['durable'], {'mode': 'fast'}):
+            with self.subTest(legacy_mode=legacy_mode):
+                job = self.job()
+                job['execution_mode'] = legacy_mode
+                self.assertEqual(self.compat.project(job)['execution_mode'], 'agent')
+
+    def test_persisted_and_advanced_state_keeps_agent_execution_mode(self):
+        path = self.root / 'state.json'
+        job = self.job()
+        job['execution_mode'] = 'durable'
+        first = self.compat.sync(job, path)
+        self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['execution_mode'], 'agent')
+        for later_state in ('approval', 'paused', 'done'):
+            advanced = self.compat.sync(self.job(later_state), path)
+            self.assertEqual(advanced['execution_mode'], 'agent')
+            self.assertEqual(json.loads(path.read_text(encoding='utf-8'))['execution_mode'], 'agent')
+
+    def test_goalstate_schema_execution_modes_gained_no_new_value(self):
+        from modules import goal_state
+        self.assertEqual(goal_state.EXECUTION_MODES, frozenset({'fast', 'agent', 'durable'}))
+
 
 if __name__ == '__main__':
     unittest.main()
