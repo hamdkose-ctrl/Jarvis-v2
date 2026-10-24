@@ -1,0 +1,35 @@
+{
+  "version": "v0",
+  "cases": [
+    {
+      "id": "research-public-article-read-only",
+      "kind": "read_only",
+      "tool": "research",
+      "expect": {
+        "evidence_required": true,
+        "safety_outcome": "allow",
+        "permission_outcome": "allow"
+      }
+    },
+    {
+      "id": "data-headlines-discovery-read-only",
+      "kind": "read_only",
+      "tool": "data:headlines",
+      "expect": {
+        "evidence_required": true,
+        "safety_outcome": "allow",
+        "permission_outcome": "allow"
+      }
+    },
+    {
+      "id": "account-list-unread-read-only",
+      "kind": "read_only",
+      "tool": "account:list_unread",
+      "expect": {
+        "evidence_required": true,
+        "safety_outcome": "allow",
+        "permission_outcome": "allow"
+      }
+    }
+  ]
+}
