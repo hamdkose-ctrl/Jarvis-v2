@@ -25,4 +25,6 @@ Durum: **Aşama 3a sözleşmesi**. Bu dilim runtime migration değildir.
 
 Aşama 3b'de mevcut yürütücüler için compatibility adapter yazılır. Adapter mevcut kayıt biçimini koruyarak Core State Reducer'a proposal üretir; doğrudan büyük-bang migration yapılmaz. Diskte state değiştiren adaptör, kaydedilmiş `version` üzerinde atomik compare-and-swap kanıtı olmadan devreye alınmaz.
 
+Compatibility katmanı artık mevcut olsa da bu, runtime authority cutover anlamına gelmez. Canonical GoalState'in global lifecycle authority olacağı ilk gerçek geçişten önce identity, terminal-state uyuşmazlığı, missing/corrupt state, legacy → canonical projection ve rollback/reconcile sınırları `docs/architecture/GOALSTATE_CUTOVER_V1.md` sözleşmesindeki preflight kapısından geçmelidir. Legacy goal JSON mevcut runtime boyunca write authority olarak kalır; big-bang migration yapılmaz. Yürütme ayrıntıları ileride ayrı ExecutionRecord sınırında tutulur.
+
 Test: `tests/test_core_state_reducer.py`.
