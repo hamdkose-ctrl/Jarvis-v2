@@ -441,5 +441,99 @@ class GoalStatePersistenceTests(unittest.TestCase):
         self.assertEqual(goal_state.EXECUTION_MODES, frozenset({'fast', 'agent', 'durable'}))
 
 
+class GoalStateRFCDecision34Tests(unittest.TestCase):
+    def setUp(self):
+        from modules import goal_state_compat, goal_state_store
+        self.compat = goal_state_compat
+        self.store = goal_state_store
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def job(self, state='running'):
+        return {
+            'id': '0123456789abcdef',
+            'owner': 'alice',
+            'request': 'Raporu hazırla',
+            'created': 1,
+            'state': state,
+            'goals': [],
+            'steps': [],
+            'outputs': {},
+        }
+
+    def test_terminal_canonical_wins_with_explicit_reconcile_decision(self):
+        for terminal_state in ('done', 'cancelled'):
+            with self.subTest(terminal_state=terminal_state):
+                current = self.compat.project(self.job(terminal_state))
+                result = self.compat.reconcile(current, self.job('running'))
+                self.assertEqual(result['decision'], 'CANONICAL_TERMINAL_WINS')
+                self.assertEqual(result['reason_code'], 'TERMINAL_DIVERGENCE')
+                self.assertFalse(result['changed'])
+                self.assertEqual(result['state'], current)
+
+    def test_different_terminal_states_still_choose_canonical_explicitly(self):
+        current = self.compat.project(self.job('done'))
+        result = self.compat.reconcile(current, self.job('cancelled'))
+        self.assertEqual(result['decision'], 'CANONICAL_TERMINAL_WINS')
+        self.assertEqual(result['reason_code'], 'TERMINAL_DIVERGENCE')
+        self.assertFalse(result['changed'])
+        self.assertEqual(result['state'], current)
+
+    def test_operator_backfill_once_requires_explicit_approval_and_creates_expected_snapshot(self):
+        path = self.root / 'state.goalstate.json'
+        with self.assertRaises(self.compat.OperatorApprovalRequired):
+            self.compat.operator_backfill_missing_canonical_once(self.job('paused'), path)
+        self.assertFalse(path.exists())
+
+        state = self.compat.operator_backfill_missing_canonical_once(
+            self.job('paused'), path, operator_approved=True,
+        )
+        self.assertEqual(state, self.store.load(path))
+        self.assertEqual(state['owner'], 'alice')
+        self.assertEqual(state['job_id'], '0123456789abcdef')
+        self.assertEqual(state['goal'], 'Raporu hazırla')
+        self.assertEqual(state['state'], 'paused')
+
+        with self.assertRaises(self.compat.BackfillAlreadyExists):
+            self.compat.operator_backfill_missing_canonical_once(
+                self.job('paused'), path, operator_approved=True,
+            )
+
+    def test_normal_sync_never_calls_operator_backfill_api(self):
+        path = self.root / 'compat.goalstate.json'
+        with patch.object(self.compat, 'operator_backfill_missing_canonical_once') as backfill:
+            state = self.compat.sync(self.job('running'), path)
+        backfill.assert_not_called()
+        self.assertEqual(state['state'], 'running')
+
+    def test_identity_mismatch_fails_closed_without_mutation(self):
+        cases = [
+            ('owner', 'bob'),
+            ('id', 'fedcba9876543210'),
+            ('request', 'Başka hedef'),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field):
+                path = self.root / (field + '.goalstate.json')
+                current = self.compat.sync(self.job('running'), path)
+                before = path.read_bytes()
+                legacy = self.job('paused')
+                legacy[field] = value
+                with self.assertRaises(self.compat.IdentityMismatchError) as caught:
+                    self.compat.sync(legacy, path)
+                self.assertEqual(caught.exception.reason_code, 'IDENTITY_MISMATCH')
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(self.store.load(path), current)
+
+    def test_compatible_nonterminal_reconcile_still_advances_normally(self):
+        current = self.compat.project(self.job('running'))
+        result = self.compat.reconcile(current, self.job('paused'))
+        self.assertEqual(result['decision'], 'LEGACY_COMPAT_APPLIED')
+        self.assertEqual(result['reason_code'], 'LEGACY_STATE_SYNCED')
+        self.assertTrue(result['changed'])
+        self.assertEqual(result['state']['state'], 'paused')
+
+
 if __name__ == '__main__':
     unittest.main()
