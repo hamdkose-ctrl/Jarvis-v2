@@ -34,6 +34,11 @@ def _legacy_job(path: Path, data) -> dict | None:
         return None
     if not isinstance(value.get('owner'), str) or not value['owner']:
         return None
+    # Goal executor journals are namespaced by owner.  A merely legacy-shaped
+    # JSON payload in another owner's directory is not an authority to project
+    # or advance canonical GoalState.
+    if path.parent.name != value['owner']:
+        return None
     return value
 
 
