@@ -200,8 +200,17 @@ def run(bridge,profile,action,args,*,confirmed=False):
         if isinstance(result,str):message=result
         elif not ok:message=spec['label']+': işlem tamamlanamadı.'
         elif result is True or result is None:message=spec['label']+': tamamlandı.'
+        elif action=='files_list' and isinstance(result,dict) and isinstance(result.get('files'),list):message=_files_text(result['files'])
         else:message=json.dumps(result,ensure_ascii=False,default=str)
     return {'ok':ok,'message':message,'result':result}
+
+def _files_text(files):
+    """Dosya listesini sohbette okunur metne çevirir (ham JSON göstermez)."""
+    rows=[f for f in files if isinstance(f,dict) and f.get('name')]
+    if not rows:return 'Listelenecek dosya yok.'
+    lines=['- '+str(f['name'])+(' ('+str(f['folder'])+')' if f.get('folder') else '') for f in rows[:10]]
+    more=len(rows)-10
+    return str(len(rows))+' dosya var. İlk '+str(len(lines))+':\n'+'\n'.join(lines)+('\n… ve '+str(more)+' dosya daha.' if more>0 else '')
 
 @contextmanager
 def _owned(profile):

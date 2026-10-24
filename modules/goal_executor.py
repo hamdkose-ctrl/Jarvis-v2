@@ -16,6 +16,7 @@ from modules import failure_policy, goal_tools, llm, privacy, requests_state, ta
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
+STATUS_LIMIT=1500
 _LOCK=threading.RLock()
 _ACTIVE=set()
 _ACTIVE_JOBS={}
@@ -687,7 +688,13 @@ def handle(runtime,command):
         return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',expected_job_id=bound[2],expected_control=bound[3])
     if job and job['state']=='approval' and low in {'evet','onaylıyorum','onayla'}:low='hedef onayla'
     if is_open(job) and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
-    if low in {'hedef durumu','işin durumu','hedef ayrıntıları'}:return render(job) if job else 'Kayıtlı hedef yok.'
+    if low in {'hedef durumu','işin durumu','hedef ayrıntıları'}:
+        if not job:return 'Kayıtlı hedef yok.'
+        text=render(job)
+        # "hedef durumu" sonucu gösterir ama makale gövdesini sohbete dökmez; tamamı "hedef ayrıntıları" ile.
+        if low!='hedef ayrıntıları' and len(text)>STATUS_LIMIT:
+            text=text[:STATUS_LIMIT].rstrip()+'\n… (kısaltıldı; tamamı için “hedef ayrıntıları” de)'
+        return text
     if low=='hedef iptal' and job:
         if job['state']=='approval':
             step=next(s for s in job['steps'] if s['id']==job['waiting'])

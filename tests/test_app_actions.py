@@ -21,6 +21,18 @@ class ActionTests(unittest.TestCase):
                               ('set_flag',{'name':'mic','value':'false'}),('nx_set',{'key':'nx_theme','value':'banana'})]:
             with self.assertRaises(ValueError):actions.run(self.b,self.p,action,params,confirmed=True)
         self.assertEqual(self.b.mock_calls,[])
+    def test_files_list_is_readable_text_not_raw_json(self):
+        rows=[{'path':'C:\\x\\a.log','name':'a.log','folder':'~\\Masaüstü','size':3}]+[{'name':'f%d.txt'%i} for i in range(12)]
+        self.b.files_list.return_value={'files':rows}
+        result=actions.run(self.b,self.p,'files_list',{},confirmed=True)
+        self.assertTrue(result['ok'])
+        self.assertNotIn('{"files"',result['message'])
+        self.assertNotIn('"path"',result['message'])
+        self.assertIn('13 dosya var',result['message'])
+        self.assertIn('- a.log (~\\Masaüstü)',result['message'])
+        self.assertIn('3 dosya daha',result['message'])
+        self.b.files_list.return_value={'files':[]}
+        self.assertEqual(actions.run(self.b,self.p,'files_list',{},confirmed=True)['message'],'Listelenecek dosya yok.')
     def test_confirmation_value_must_be_a_real_boolean(self):
         with self.assertRaises(ValueError):actions.run(self.b,self.p,'task_delete',{'tid':3},confirmed='false')
         self.b.task_delete.assert_not_called()
