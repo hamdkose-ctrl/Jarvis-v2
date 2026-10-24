@@ -52,7 +52,11 @@ def _atomic(path, data):
 
     canonical = path.with_name(job['id'] + '.goalstate.json')
     before = canonical.read_bytes() if canonical.exists() else None
-    synced = goal_state_compat.sync(job, canonical)
+    try:
+        synced = goal_state_compat.sync(job, canonical)
+    except Exception:
+        _record_failure('modules/goal_state_save_hook.py:_atomic:canonical_sync')
+        raise
     try:
         return _ORIGINAL_ATOMIC(path, data)
     except Exception as legacy_error:
