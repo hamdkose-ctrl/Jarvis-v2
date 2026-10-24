@@ -42,9 +42,15 @@ def _blocker(job: dict):
 
 
 def project(job: dict) -> dict:
+    # RFC Karar 2 flip point: a canonical record created now (no prior canonical
+    # file for this job) is a newly-created job and is canonical-authority from
+    # birth. A job that already had a canonical record before this field
+    # existed keeps no 'authority' key and stays legacy-authority via
+    # goal_state.authority()'s default; this function never touches it.
     state = goal_state.new(
         owner=job['owner'], job_id=job['id'], goal=job['request'],
         execution_mode=PROJECTION_EXECUTION_MODE,
+        authority='canonical',
     )
     target = _target(job)
     if target != 'pending':
