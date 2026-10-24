@@ -14,12 +14,45 @@ DNS = 'dns'
 TIMEOUT = 'timeout'
 NETWORK = 'network'
 PROVIDER_DOWN = 'provider_down'
+PROVIDER_EXHAUSTED = 'provider_exhausted'
 PERMISSION = 'permission'
 SOURCE_INVALID = 'source_invalid'
 ENVIRONMENT = 'environment'
 VALIDATION = 'validation'
 USER_INPUT = 'user_input_required'
 UNKNOWN = 'unknown'
+
+_PROVIDER_REASON_CODES = {
+    RATE_LIMIT: 'PROVIDER_RATE_LIMIT',
+    AUTH: 'PROVIDER_AUTH',
+    DNS: 'PROVIDER_DNS',
+    NETWORK: 'PROVIDER_NETWORK',
+    TIMEOUT: 'PROVIDER_TIMEOUT',
+    PROVIDER_DOWN: 'PROVIDER_DOWN',
+    ENVIRONMENT: 'PROVIDER_ENVIRONMENT',
+    PROVIDER_EXHAUSTED: 'PROVIDER_POOL_EXHAUSTED',
+}
+
+_PROVIDER_RECOVERY_CLASSES = {
+    RATE_LIMIT: 'fallback_possible',
+    AUTH: 'fallback_possible',
+    DNS: 'retryable',
+    NETWORK: 'retryable',
+    TIMEOUT: 'retryable',
+    PROVIDER_DOWN: 'fallback_possible',
+    ENVIRONMENT: 'user_action_required',
+    PROVIDER_EXHAUSTED: 'fail_closed',
+}
+
+
+class ProviderExhaustedError(RuntimeError):
+    """Safe aggregate failure after the bounded free-provider pool cannot answer."""
+
+    def __init__(self, message: str, *, reason_code: str = 'PROVIDER_POOL_EXHAUSTED',
+                 recovery_class: str = 'fail_closed'):
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.recovery_class = recovery_class
 
 
 def status_code(exc: BaseException) -> int | None:
@@ -32,6 +65,8 @@ def status_code(exc: BaseException) -> int | None:
 
 
 def classify(exc: BaseException) -> str:
+    if isinstance(exc, ProviderExhaustedError):
+        return PROVIDER_EXHAUSTED
     name = type(exc).__name__.casefold()
     text = (type(exc).__name__ + ' ' + str(exc)).casefold()
     code = status_code(exc)
@@ -67,6 +102,39 @@ def classify(exc: BaseException) -> str:
     return UNKNOWN
 
 
+def reason_code(exc_or_category) -> str | None:
+    """Stable machine-readable code for provider/runtime failures only."""
+    if isinstance(exc_or_category, BaseException):
+        explicit = getattr(exc_or_category, 'reason_code', None)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        category = classify(exc_or_category)
+    else:
+        category = exc_or_category
+    return _PROVIDER_REASON_CODES.get(category)
+
+
+def recovery_class(exc_or_category) -> str | None:
+    """Coarse recovery class; it never executes a retry or fallback itself."""
+    if isinstance(exc_or_category, BaseException):
+        explicit = getattr(exc_or_category, 'recovery_class', None)
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        category = classify(exc_or_category)
+    else:
+        category = exc_or_category
+    return _PROVIDER_RECOVERY_CLASSES.get(category)
+
+
+def structured_outcome(exc: BaseException) -> dict | None:
+    """Return safe provider failure metadata without changing WorkerResult/GoalState schemas."""
+    code = reason_code(exc)
+    recovery = recovery_class(exc)
+    if not code or not recovery:
+        return None
+    return {'reason_code': code, 'recovery_class': recovery}
+
+
 def recovery_action(category: str, *, context: str = '') -> str:
     """Return strategy name only; caller decides which safe adapter implements it."""
     if category in {RATE_LIMIT, PROVIDER_DOWN}:
@@ -81,6 +149,8 @@ def recovery_action(category: str, *, context: str = '') -> str:
         return 'request_user_input'
     if category == ENVIRONMENT:
         return 'alternate_environment'
+    if category == PROVIDER_EXHAUSTED:
+        return 'stop'
     if category == VALIDATION:
         return 'fix_input_or_code'
     if category == CANCELLED:
@@ -116,13 +186,17 @@ def network_unavailable(exc: BaseException) -> bool:
 
 def snapshot(exc: BaseException, *, provider: str = '', context: str = '') -> dict:
     category = classify(exc)
-    return {
+    row = {
         'category': category,
         'action': recovery_action(category, context=context),
         'provider': provider,
         'error_type': type(exc).__name__,
         'status': status_code(exc),
     }
+    structured = structured_outcome(exc)
+    if structured:
+        row.update(structured)
+    return row
 
 
 def failure_detail(provider: str, exc: BaseException) -> str:
@@ -134,6 +208,7 @@ def failure_detail(provider: str, exc: BaseException) -> str:
         TIMEOUT: 'zaman aşımı',
         NETWORK: 'bağlantı kurulamadı veya kesildi',
         PROVIDER_DOWN: 'servis geçici olarak kullanılamıyor',
+        PROVIDER_EXHAUSTED: 'uygun sağlayıcı kalmadı',
         PERMISSION: 'izin gerekli',
         ENVIRONMENT: 'yerel çalışma ortamı eksik',
         VALIDATION: 'çıktı veya girdi doğrulanamadı',
@@ -150,15 +225,15 @@ def short_text(exc: BaseException) -> str:
         TIMEOUT: 'zaman aşımına uğradı',
         NETWORK: 'ağ bağlantısı kurulamadı',
         PROVIDER_DOWN: 'servis geçici olarak yanıt vermedi',
+        PROVIDER_EXHAUSTED: 'uygun ücretsiz sağlayıcı kalmadı',
+        ENVIRONMENT: 'yerel çalışma ortamı eksik',
     }.get(classify(exc), 'yanıt vermedi')
 
 
 def explain(exc: BaseException) -> str:
     """User-facing diagnosis without leaking raw provider internals unnecessarily."""
-    name = type(exc).__name__
-    message = str(exc)
-    if name in ('LocalModelError', 'CloudError') and message:
-        return message
+    if isinstance(exc, ProviderExhaustedError):
+        return str(exc)
     category = classify(exc)
     if category in (DNS, NETWORK):
         from modules import ollama_hint

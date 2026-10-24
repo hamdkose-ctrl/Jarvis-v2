@@ -24,7 +24,7 @@ _ACTIVE_JOBS={}
 # (örn. ValueError, dosya bulunamadı) mevcut özgül mesaj korunur; bu dar değişiklik onları değiştirmez.
 _PROVIDER_CATEGORIES={failure_policy.RATE_LIMIT,failure_policy.AUTH,failure_policy.DNS,
                       failure_policy.NETWORK,failure_policy.TIMEOUT,failure_policy.PROVIDER_DOWN,
-                      failure_policy.ENVIRONMENT}
+                      failure_policy.ENVIRONMENT,failure_policy.PROVIDER_EXHAUSTED}
 _CANCEL_REQUESTED=set()
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
@@ -225,7 +225,7 @@ def _turn_check(runtime,job):
 def _context(job):
     recent=set(list(job['outputs'])[-6:]);outputs={}
     for key,value in job['outputs'].items():
-        view={k:value[k] for k in ('state','file','files','id','source','desktop_id') if k in value}
+        view={k:value[k] for k in ('state','file','files','id','source','desktop_id','reason_code','recovery_class') if k in value}
         if key in recent:
             view['text']=str(value.get('text') or value.get('message') or '')[:1600]
             if 'snapshot' in value:view['snapshot']=json.dumps(value['snapshot'],ensure_ascii=False)[:2000]
@@ -275,6 +275,8 @@ def _record(runtime,job,step,approval=None):
         if isinstance(exc,goal_tools.NotStarted):step['started']=False
         text=failure_policy.explain(exc) if failure_policy.classify(exc) in _PROVIDER_CATEGORIES else str(exc)
         output={'state':'failed','text':privacy.redact(text,force=True)[:2000]}
+        structured=failure_policy.structured_outcome(exc)
+        if structured:output.update(structured)
         try:
             _ensure(runtime,job)
             recovered=_reconcile(runtime,job,step) if step['started'] else None
@@ -430,10 +432,6 @@ def _loop_steps(runtime,job,answer=None):
                 job.setdefault('feedback',[]).append(decision['reason']);_save(job)
     if _finish_completed(job):return render(job)
     if answer is None:
-        # A generic current-news request has no subject that needs a model to
-        # select it. Try the bounded publisher path first, so a live chat
-        # delivery is not held behind an unrelated provider quota or delay.
-        # Specific topics still start with the normal planner.
         from modules import research_evidence,model_free_news
         if (not job['goals'] and not job['steps'] and
                 research_evidence.news_requested(job['request']) and
@@ -444,10 +442,6 @@ def _loop_steps(runtime,job,answer=None):
             from modules import news_recovery
             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
             if _finish_completed(job):return render(job)
-            # A generic request has no additional subject for the planner to
-            # resolve.  If the bounded source-only path could not establish
-            # enough evidence, preserve its pending goal instead of spending
-            # model turns on an invalid replacement plan.
             job['state']='paused'
             job['blocker']='Kayıtlı yayıncılardan doğrulanmış yeterli güncel haber kanıtı bulunamadı; hedef ve mevcut sonuçlar korundu.'
             _save(job)

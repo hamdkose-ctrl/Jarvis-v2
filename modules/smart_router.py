@@ -189,9 +189,15 @@ def run(owner, prompt, callback, image=False):
             _HEALTH.pop((owner,provider),None)
         return answer
     with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts,'skipped':skipped}
+    from modules import failure_policy
     detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar ve bekleme durumunu router durumu ile kontrol et.'
     omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
-    raise RuntimeError('Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.')
+    message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
+    missing_key = not attempts and any('anahtarı eksik' in row.get('reason','') for row in skipped)
+    if missing_key:
+        raise failure_policy.ProviderExhaustedError(
+            message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
+    raise failure_policy.ProviderExhaustedError(message)
 
 
 def openrouter(owner, messages, system, max_tokens, image_path=None):
