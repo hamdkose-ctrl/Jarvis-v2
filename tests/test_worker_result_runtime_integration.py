@@ -72,6 +72,15 @@ class WorkerResultRuntimeIntegrationTests(unittest.TestCase):
         self.assertFalse(self.runtime.durable_identity(self.identity()))
         self.assertTrue(self.runtime.durable_identity(self.durable_identity()))
 
+    def test_goal_step_attempt_changes_worker_command_identity(self):
+        from modules import goal_executor
+        job = {'owner':'alice','id':'0123456789abcdef','request':'örnek','outputs':{}}
+        step = {'id':'s1','tool':'research','input':{'url':'https://example.test','question':'x'},'attempts':2}
+        identity = goal_executor._identity(job, step)
+        _enriched, expected = self.runtime.prepare(identity, 'research', step['input'], expected_job_version=0)
+        self.assertEqual(expected['attempt'], 2)
+        self.assertEqual(expected['command_id'], 's1:2')
+
 
 if __name__ == '__main__':
     unittest.main()
