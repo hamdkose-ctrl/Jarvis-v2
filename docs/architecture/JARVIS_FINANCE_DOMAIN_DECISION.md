@@ -1,6 +1,6 @@
 # Jarvis Finance Domain kararı
 
-**Durum:** Karar kaydı  
+**Durum:** Karar kaydı
 **Tarih:** 24 Ekim 2026
 
 ## Karar
