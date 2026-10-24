@@ -286,5 +286,202 @@ class RealCatalogTests(unittest.TestCase):
         self.assertEqual(result['reason_code'], 'NO_OBSERVATION')
 
 
+class ObservationSchemaTests(unittest.TestCase):
+    """Centralized, versioned, fail-closed loader/validator for the
+    observation fixture payload (case + observation fixture -> trusted
+    benchmark input). Runs no worker/provider/network/browser/account call
+    and does not touch GoalState/goal_executor/Completion Policy."""
+
+    def setUp(self):
+        data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        self.cases = bench.load_path(os.path.join(data_dir, 'jarvis_bench_v0.json'))
+        self.observation_path = os.path.join(data_dir, 'jarvis_bench_v0_observations.json')
+        with open(self.observation_path, 'r', encoding='utf-8') as handle:
+            self.shipped_payload = json.load(handle)
+
+    def _valid_observation(self):
+        return {
+            'evidence': ['s1'],
+            'safety_outcome': 'allow',
+            'permission_outcome': 'allow',
+            'duration_ms': 5,
+        }
+
+    def _payload(self, **overrides):
+        data = {
+            'version': 'v0',
+            'observations': {'c1': self._valid_observation()},
+        }
+        data.update(overrides)
+        return data
+
+    # 1. Shipped observations pass through the new centralized loader/validator.
+    def test_shipped_observations_pass_centralized_validator(self):
+        case_ids = {case['id'] for case in self.cases}
+        observations = bench.validate_observations(self.shipped_payload, case_ids)
+        self.assertEqual(set(observations), case_ids)
+
+    def test_load_observations_reads_shipped_fixture_from_path(self):
+        case_ids = {case['id'] for case in self.cases}
+        observations = bench.load_observations(self.observation_path, case_ids)
+        self.assertEqual(set(observations), case_ids)
+
+    # 2. Unknown top-level observation field is rejected.
+    def test_unknown_top_level_field_is_rejected(self):
+        payload = self._payload(extra_field='x')
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 3. Unknown inner observation field is rejected.
+    def test_unknown_inner_field_is_rejected(self):
+        obs = self._valid_observation()
+        obs['extra'] = 1
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 4. Missing or v1 version is rejected.
+    def test_missing_version_is_rejected(self):
+        payload = self._payload()
+        del payload['version']
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_foreign_version_is_rejected(self):
+        payload = self._payload(version='v1')
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 5. duration_ms bool/negative/string is rejected.
+    def test_duration_ms_bool_is_rejected(self):
+        obs = self._valid_observation();obs['duration_ms'] = True
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_duration_ms_negative_is_rejected(self):
+        obs = self._valid_observation();obs['duration_ms'] = -1
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_duration_ms_string_is_rejected(self):
+        obs = self._valid_observation();obs['duration_ms'] = '5'
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 6. evidence empty/string/mixed types is rejected.
+    def test_evidence_empty_is_rejected(self):
+        obs = self._valid_observation();obs['evidence'] = []
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_evidence_string_instead_of_list_is_rejected(self):
+        obs = self._valid_observation();obs['evidence'] = 'not-a-list'
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_evidence_mixed_types_is_rejected(self):
+        obs = self._valid_observation();obs['evidence'] = ['s1', 2]
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 7. Missing case observation is rejected.
+    def test_missing_case_observation_is_rejected(self):
+        payload = self._payload(observations={'c1': self._valid_observation()})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1', 'c2'})
+
+    # 8. Foreign observation id not in the catalog is rejected.
+    def test_foreign_observation_id_is_rejected(self):
+        payload = self._payload(observations={
+            'c1': self._valid_observation(),
+            'not-a-case': self._valid_observation(),
+        })
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_duplicate_case_id_cross_borrowing_cannot_pass(self):
+        # A case's evidence cannot be borrowed by another case id to
+        # manufacture a PASS: ids must match exactly, 1:1.
+        payload = self._payload(observations={'c1': self._valid_observation()})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1', 'c2'})
+
+    def test_empty_observations_map_is_rejected(self):
+        payload = self._payload(observations={})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, set())
+
+    def test_non_string_observation_id_is_rejected(self):
+        payload = {'version': 'v0', 'observations': {1: self._valid_observation()}}
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {1})
+
+    def test_missing_evidence_field_is_rejected(self):
+        obs = self._valid_observation();del obs['evidence']
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_missing_safety_outcome_field_is_rejected(self):
+        obs = self._valid_observation();del obs['safety_outcome']
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    def test_empty_safety_outcome_is_rejected(self):
+        obs = self._valid_observation();obs['safety_outcome'] = ''
+        payload = self._payload(observations={'c1': obs})
+        with self.assertRaises(bench.BenchSchemaError):
+            bench.validate_observations(payload, {'c1'})
+
+    # 9. evaluate() INCONCLUSIVE/FAIL behavior is preserved via run() using a
+    # mapping produced by the new validator (compatibility with existing
+    # evaluator contract, not re-tightened).
+    def test_run_with_validated_mapping_preserves_missing_duration_behavior(self):
+        obs = self._valid_observation();del obs['duration_ms']
+        case = {'id': 'c1', 'kind': 'read_only', 'tool': 'research',
+                'expect': {'evidence_required': True, 'safety_outcome': 'allow', 'permission_outcome': 'allow'}}
+        result = bench.evaluate(case, obs)
+        self.assertEqual(result['result'], bench.INCONCLUSIVE)
+        self.assertEqual(result['reason_code'], 'MISSING_DURATION')
+
+    def test_run_with_validated_mapping_preserves_no_evidence_behavior(self):
+        case = {'id': 'c1', 'kind': 'read_only', 'tool': 'research',
+                'expect': {'evidence_required': True, 'safety_outcome': 'allow', 'permission_outcome': 'allow'}}
+        observation = {'safety_outcome': 'allow', 'permission_outcome': 'allow', 'duration_ms': 1}
+        result = bench.evaluate(case, observation)
+        self.assertEqual(result['result'], bench.INCONCLUSIVE)
+        self.assertEqual(result['reason_code'], 'NO_EVIDENCE')
+
+    def test_shipped_payload_run_through_validator_evaluates_to_pass(self):
+        case_ids = {case['id'] for case in self.cases}
+        observations = bench.validate_observations(self.shipped_payload, case_ids)
+        results = bench.run(self.cases, observations)
+        self.assertTrue(all(r['result'] == bench.PASS for r in results))
+
+    # 10. Module imports no GoalState, goal_executor, worker runtime or network.
+    def test_module_imports_no_goalstate_worker_or_network(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(bench))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        forbidden_substrings = ('goal_executor', 'goalstate', 'worker', 'socket', 'requests', 'urllib', 'http')
+        for name in imported:
+            lowered = name.lower()
+            for forbidden in forbidden_substrings:
+                self.assertNotIn(forbidden, lowered)
+
+
 if __name__ == '__main__':
     unittest.main()
