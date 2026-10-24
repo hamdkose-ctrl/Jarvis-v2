@@ -112,6 +112,90 @@ class ArchitectureGuardTests(unittest.TestCase):
         )
         self.assertIn('ARCH-001', {row['rule'] for row in report['blockers']})
 
+    # -- Canonical GoalState storage writer allowlists ---------------------
+
+    def test_direct_goalstate_create_outside_compat_is_blocker(self):
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.create(path, {'goal_id': 'g1'})\n"
+        )
+        self.assertIn('ARCH-004', {row['rule'] for row in report['blockers']})
+
+    def test_create_function_alias_outside_compat_is_blocker(self):
+        report = self._scan_source(
+            "from modules.goal_state_store import create as make\n"
+            "make(path, {'goal_id': 'g1'})\n"
+        )
+        self.assertIn('ARCH-004', {row['rule'] for row in report['blockers']})
+
+    def test_create_module_alias_outside_compat_is_blocker(self):
+        report = self._scan_source(
+            "import modules.goal_state_store as store\n"
+            "store.create(path, {'goal_id': 'g1'})\n"
+        )
+        self.assertIn('ARCH-004', {row['rule'] for row in report['blockers']})
+
+    def test_create_inside_compat_adapter_is_clean(self):
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.create(path, {'goal_id': 'g1'})\n",
+            name='goal_state_compat.py',
+        )
+        self.assertNotIn('ARCH-004', {row['rule'] for row in report['blockers']})
+
+    def test_direct_goalstate_compensate_outside_save_hook_is_blocker(self):
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.compensate(path, previous_state={}, new_state={})\n"
+        )
+        self.assertIn('ARCH-005', {row['rule'] for row in report['blockers']})
+
+    def test_compensate_module_alias_outside_save_hook_is_blocker(self):
+        report = self._scan_source(
+            "import modules.goal_state_store as store\n"
+            "store.compensate(path, previous_state={}, new_state={})\n"
+        )
+        self.assertIn('ARCH-005', {row['rule'] for row in report['blockers']})
+
+    def test_compensate_function_alias_outside_save_hook_is_blocker(self):
+        report = self._scan_source(
+            "from modules.goal_state_store import compensate as undo\n"
+            "undo(path, previous_state={}, new_state={})\n"
+        )
+        self.assertIn('ARCH-005', {row['rule'] for row in report['blockers']})
+
+    def test_compensate_inside_save_hook_is_clean(self):
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.compensate(path, previous_state={}, new_state={})\n",
+            name='goal_state_save_hook.py',
+        )
+        self.assertNotIn('ARCH-005', {row['rule'] for row in report['blockers']})
+
+    def test_writer_allowlists_are_not_cross_permission(self):
+        # Being inside the CAS adapter set does not authorize create().
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.create(path, {'goal_id': 'g1'})\n",
+            name='worker_result_commit.py',
+        )
+        self.assertIn('ARCH-004', {row['rule'] for row in report['blockers']})
+
+    def test_cas_allowlist_behavior_is_unchanged(self):
+        for name in ('worker_result_commit.py', 'runtime_event_commit.py'):
+            report = self._scan_source(
+                "from modules import goal_state_store\n"
+                "goal_state_store.compare_and_swap(path, expected_version=1, next_state={})\n",
+                name=name,
+            )
+            self.assertNotIn('ARCH-001', {row['rule'] for row in report['blockers']}, name)
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.compare_and_swap(path, expected_version=1, next_state={})\n",
+            name='goal_state_save_hook.py',
+        )
+        self.assertIn('ARCH-001', {row['rule'] for row in report['blockers']})
+
 
 if __name__ == '__main__':
     unittest.main()

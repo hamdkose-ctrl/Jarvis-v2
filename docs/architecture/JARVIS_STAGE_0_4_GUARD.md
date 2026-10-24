@@ -35,8 +35,11 @@ Domain invariant → Decision Authority → Permission → Effect Policy → Wor
 ### Aşama 3 — GoalState / Reducer / CAS
 - Canonical GoalState'in mantıksal write authority'si Core State Reducer'dır.
 - Canonical mutation yalnız izinli commit/compat adaptörleri üzerinden CAS ile yapılır.
+- Canonical storage writer'ları da statik olarak sabittir: `create` yalnız compat, `compare_and_swap` yalnız onaylı commit adaptörleri, `compensate` yalnız save hook rollback yolu (ARCH-001/004/005).
 - Worker, model, UI, watcher veya event kaynağı canonical state'i doğrudan değiştiremez.
 - Stale/foreign sonuç state değiştiremez.
+
+Storage writer kuralları "tek writer / tek Core / tek Reducer" hedefini mekanik olarak destekler: yeni bir modülün kendi başına projection üretmesi, state'i overwrite etmesi veya başarısız yazımı kendi geri-yazması ile düzeltmesi PR aşamasında blocker olur. Bu, mimari ihlali estatık olarak kanıtlar; GoalState'in runtime davranışını (doğru state geçişi, race/stale sonucu, recovery doğruluğu) kanıtlamaz. O doğrulama ayrı runtime/acceptance testlerinin işidir.
 
 ### Aşama 4 — WorkerResult / Event / Crash Recovery
 - Durable WorkerResult exact fence taşır: owner, job, step, command, attempt, expected job version, capability version ve input digest.
@@ -53,6 +56,20 @@ Domain invariant → Decision Authority → Permission → Effect Policy → Wor
 - `modules/goal_state_compat.py`
 - `modules/worker_result_commit.py`
 - `modules/runtime_event_commit.py`
+
+### ARCH-004 — Yeni canonical GoalState create writer yasak
+`goal_state_store.create(...)` canonical GoalState'in ilk projection yazımıdır. Bu yüzden yalnız tek dosyada kabul edilir:
+- `modules/goal_state_compat.py`
+
+Başka hiçbir production modülünün (commit adaptörleri dahil) doğrudan `create` çağırması BLOCKER'dır; yeni projection yolu compat üzerinden açılır.
+
+### ARCH-005 — Yeni canonical GoalState compensate writer yasak
+`goal_state_store.compensate(...)` legacy write başarısızlığında geri alma (rollback) yoludur. Yalnız tek dosyada kabul edilir:
+- `modules/goal_state_save_hook.py`
+
+Compensate'i başka bir yerden çağırmak, Reducer'ın write otoritesinin yanına ikinci bir geri-yazma otoritesi koyduğu için BLOCKER'dır.
+
+Üç kuralın allowlist'i ayrıdır ve birbirine izin vermez: `worker_result_commit.py` / `runtime_event_commit.py` CAS çağırabilir ama `create` veya `compensate` çağıramaz; `goal_state_save_hook.py` compensate çağırabilir ama CAS çağıramaz. Yeni bir writer gereksinimi allowlist'i genişleterek değil, compat/commit adaptörünün kendisiyle birlikte ayrıca onaylanarak çözülür.
 
 ### ARCH-002 — DecisionContext'siz durable gate yasak
 `runtime_execution_gate.plan_task(...)` production kodunda explicit DecisionContext olmadan çağrılamaz. Kabul edilen durable yol `_decision_context(job, step)` ile domain/user/job/effect alanlarını açıkça türetir. Generic `**kwargs` bu kuralı karşılamaz.
@@ -80,14 +97,16 @@ Durable Job/Core
 
 ## Alias tespiti
 
-ARCH-001/002/003, çağrıyı doğrudan `goal_tools.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
+ARCH-001/002/003/004/005, çağrıyı doğrudan `goal_tools.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` / `goal_state_store.create(...)` / `goal_state_store.compensate(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
 
 - `from modules.goal_tools import execute as run_tool` → `run_tool(...)`
 - `import modules.goal_tools as tools` → `tools.execute(...)`
 - `from modules.goal_state_store import compare_and_swap as cas` → `cas(...)`
 - `import modules.runtime_execution_gate as gate` → `gate.plan_task(...)`
+- `from modules.goal_state_store import create as make` → `make(...)`
+- `import modules.goal_state_store as store` → `store.compensate(...)`
 
-Allowlist kontrolü değişmez: alias'lı çağrı da mevcut `_CAS_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
+Allowlist kontrolü değişmez: alias'lı çağrı da ilgili kuralın `_CAS_ALLOWLIST` / `_CREATE_ALLOWLIST` / `_COMPENSATE_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
 
 ## Denetçinin kapsamı
 `modules/architecture_guard.py` yalnız deterministik, statik olarak kanıtlanabilen kuralları BLOCKER yapar. Yoruma açık roadmap sapmaları ayrı ajan/insan incelemesiyle değerlendirilir. Static guard birim testinin, Windows acceptance'ın veya gerçek effect testinin yerine geçmez.
