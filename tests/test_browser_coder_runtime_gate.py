@@ -30,6 +30,22 @@ class BrowserCoderRuntimeGateTests(unittest.TestCase):
         prepare.assert_called_once()
         self.assertEqual(output,artifact)
 
+    def test_durable_gate_receives_explicit_context_from_job_and_step(self):
+        from modules import specialist_orchestrator
+        step={'id':'s1','tool':'coder','input':{'request':'bir modül taslağı hazırla'},'depends':[],'state':'running'}
+        job={**self.job(),'state':'running'}
+        artifact={'state':'approval','capability_id':'task.coder','job_id':'job-1','step_id':'s1','input_digest':'abc'}
+        with patch('modules.runtime_execution_gate.plan_task',return_value={'phase':'prepare'}) as plan, \
+             patch('modules.developer.status',return_value={'enabled':True,'unlocked':True}), \
+             patch('modules.runtime_prepare_approval.prepare',return_value=artifact), \
+             patch('modules.runtime_execution_gate.accept_prepare_result',side_effect=lambda _plan,output:output):
+            specialist_orchestrator.execute_step(self.runtime(),job,step,self.identity('coder'))
+        self.assertEqual(plan.call_args.kwargs['domain_invariant'],'pass')
+        self.assertEqual(plan.call_args.kwargs['domain_authority'],'execute')
+        self.assertEqual(plan.call_args.kwargs['user_authority'],'execute')
+        self.assertEqual(plan.call_args.kwargs['job_authority'],'execute')
+        self.assertEqual(plan.call_args.kwargs['effect_state'],'ready')
+
     def test_locked_coder_does_not_create_approval_or_run_worker(self):
         from modules import goal_tools, specialist_orchestrator
         step={'id':'s1','tool':'coder','input':{'request':'bir modül taslağı hazırla'},'depends':[]}
