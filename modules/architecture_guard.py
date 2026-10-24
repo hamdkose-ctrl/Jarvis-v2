@@ -27,6 +27,14 @@ _CAS_ALLOWLIST = {
     'modules/runtime_event_commit.py',
 }
 
+_CREATE_ALLOWLIST = {
+    'modules/goal_state_compat.py',
+}
+
+_COMPENSATE_ALLOWLIST = {
+    'modules/goal_state_save_hook.py',
+}
+
 _DIRECT_EXECUTE_ALLOWLIST = {
     'modules/specialist_orchestrator.py',
     'modules/worker_result_hook.py',
@@ -167,6 +175,18 @@ def scan(root=None) -> dict:
                 blockers.append(_issue(
                     'ARCH-001', 'BLOCKER', relative, node.lineno,
                     'Canonical GoalState CAS yalnız onaylı Reducer/compat commit adaptörlerinden çağrılabilir.',
+                ))
+
+            if name == 'goal_state_store.create' and relative not in _CREATE_ALLOWLIST:
+                blockers.append(_issue(
+                    'ARCH-004', 'BLOCKER', relative, node.lineno,
+                    'Canonical GoalState ilk projection yazımı yalnız goal_state_compat adaptöründe yapılabilir.',
+                ))
+
+            if name == 'goal_state_store.compensate' and relative not in _COMPENSATE_ALLOWLIST:
+                blockers.append(_issue(
+                    'ARCH-005', 'BLOCKER', relative, node.lineno,
+                    'Canonical GoalState compensate yalnız goal_state_save_hook legacy write rollback yolunda kullanılabilir.',
                 ))
 
             if name == 'runtime_execution_gate.plan_task' and not _has_explicit_decision_context(node):
