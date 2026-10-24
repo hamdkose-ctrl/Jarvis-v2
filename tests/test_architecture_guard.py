@@ -48,6 +48,70 @@ class ArchitectureGuardTests(unittest.TestCase):
         self.assertIn('ARCH-W001', {row['rule'] for row in report['warnings']})
         self.assertNotIn('ARCH-W001', {row['rule'] for row in report['blockers']})
 
+    # -- Alias hardening -------------------------------------------------
+
+    def test_from_import_function_alias_direct_call_is_blocker(self):
+        report = self._scan_source(
+            "from modules.goal_tools import execute as run_tool\n"
+            "run_tool(runtime, 'publish', {}, {}, identity)\n"
+        )
+        self.assertIn('ARCH-003', {row['rule'] for row in report['blockers']})
+
+    def test_module_alias_attribute_call_is_blocker(self):
+        report = self._scan_source(
+            "import modules.goal_tools as tools\n"
+            "tools.execute(runtime, 'publish', {}, {}, identity)\n"
+        )
+        self.assertIn('ARCH-003', {row['rule'] for row in report['blockers']})
+
+    def test_cas_function_alias_direct_call_is_blocker(self):
+        report = self._scan_source(
+            "from modules.goal_state_store import compare_and_swap as cas\n"
+            "cas(path, expected_version=1, next_state={})\n"
+        )
+        self.assertIn('ARCH-001', {row['rule'] for row in report['blockers']})
+
+    def test_gate_module_alias_attribute_call_without_context_is_blocker(self):
+        report = self._scan_source(
+            "import modules.runtime_execution_gate as gate\n"
+            "gate.plan_task('coder', {}, approval_verified=False)\n"
+        )
+        self.assertIn('ARCH-002', {row['rule'] for row in report['blockers']})
+
+    def test_gate_module_alias_attribute_call_with_explicit_context_is_clean(self):
+        report = self._scan_source(
+            "import modules.runtime_execution_gate as gate\n"
+            "gate.plan_task(\n"
+            "    'coder', {}, approval_verified=False,\n"
+            "    domain_invariant=1, domain_authority=2, user_authority=3,\n"
+            "    job_authority=4, effect_state=5,\n"
+            ")\n"
+        )
+        self.assertNotIn('ARCH-002', {row['rule'] for row in report['blockers']})
+
+    def test_cas_alias_inside_allowlisted_adapter_is_not_blocker(self):
+        report = self._scan_source(
+            "from modules.goal_state_store import compare_and_swap as cas\n"
+            "cas(path, expected_version=1, next_state={})\n",
+            name='goal_state_compat.py',
+        )
+        self.assertNotIn('ARCH-001', {row['rule'] for row in report['blockers']})
+
+    def test_execute_alias_inside_allowlisted_caller_is_not_blocker(self):
+        report = self._scan_source(
+            "import modules.goal_tools as tools\n"
+            "tools.execute(runtime, 'publish', {}, {}, identity)\n",
+            name='worker_result_hook.py',
+        )
+        self.assertNotIn('ARCH-003', {row['rule'] for row in report['blockers']})
+
+    def test_direct_call_rules_still_detected_without_alias(self):
+        report = self._scan_source(
+            "from modules import goal_state_store\n"
+            "goal_state_store.compare_and_swap(path, expected_version=1, next_state={})\n"
+        )
+        self.assertIn('ARCH-001', {row['rule'] for row in report['blockers']})
+
 
 if __name__ == '__main__':
     unittest.main()
