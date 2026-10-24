@@ -78,9 +78,6 @@ Durable Job/Core
 → Reducer/CAS evidence
 ```
 
-### ARCH-W002 — Gerçek attempt sayacı
-`goal_executor` yürütme kimliğinde attempt hâlâ sabit `1` ise uyarı devam eder. Aynı step'in gerçek yeni execution denemesinde attempt atomik artmalıdır; read-only reconcile aynı attempt kimliğini kullanmalıdır.
-
 ## Denetçinin kapsamı
 `modules/architecture_guard.py` yalnız deterministik, statik olarak kanıtlanabilen kuralları BLOCKER yapar. Yoruma açık roadmap sapmaları ayrı ajan/insan incelemesiyle değerlendirilir. Static guard birim testinin, Windows acceptance'ın veya gerçek effect testinin yerine geçmez.
 
