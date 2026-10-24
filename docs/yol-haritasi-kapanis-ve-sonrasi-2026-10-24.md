@@ -60,7 +60,32 @@ Bu karar mevcut permission/effect politikasını gevşetmez. Salt-okuma finans v
 
 Finance domain'in kod göçü, Aşama 0–4 kapanışından ve yakın omurga aşamalarından bağımsız bir “hemen kodla” işi değildir. Burada yalnız mimari yeri sabitlenir; implementation kendi dikey dilim planıyla yapılır.
 
-## 5. Belgele, hemen kodlama: açık hedef eşleme tablosu
+## 5. Kendini geliştirme: ölçümlü ve insan onaylı ayrı dilim
+
+Jarvis'in kendini geliştirmesi yol haritasında kalır; ancak bu, kendi kendine sınırsız kod değiştirme veya kendi PR'ını birleştirme yetkisi değildir.
+
+Hedef akış:
+
+1. Gerçek kullanım veya testlerden zayıflığı gözle.
+2. Kök neden hipotezi üret.
+3. Sorunu tekrar üreten test/ölçüm oluştur.
+4. En küçük iyileştirmeyi ayrı dalda uygula.
+5. Tam validation ve ilgili gerçek kabulü çalıştır.
+6. Taslak PR ve kanıt paketi oluştur.
+7. İnsan incelemesi/onayı sonrası merge edilir.
+8. Aynı senaryo yeniden ölçülür; ölçülemeyen durumda “öğrendim/geliştim” iddiası yapılmaz.
+
+Sınırlar:
+
+- Jarvis kendi güvenlik otoritesini, Permission Gate'i, manifest yetkisini veya kullanıcı izinlerini genişletemez.
+- Kendi kendine merge/deploy/release yapamaz.
+- Testi zayıflatarak veya kaldırarak başarı üretemez.
+- Kişisel veri ve sırlar iyileştirme veri setine veya PR'a taşınmaz.
+- Self-improvement, mevcut Developer Worker/Coding Router hattını kullanır; ikinci bir kod yürütücüsü kurmaz.
+
+Bu iş 429/Ollama dayanıklılığı ve Finance domain yerinin netleşmesinden sonra, Aşama 5+ genişlemelerine geçerken ayrı dikey dilim olarak planlanır. İlk sürümün yalnız “zayıflık + tekrar üretme testi + öneri/PR taslağı” üretmesi yeterlidir; tam otonom kaynak değişikliği hedef değildir.
+
+## 6. Belgele, hemen kodlama: açık hedef eşleme tablosu
 
 Eski bütün PR'lar yeni mimariye tek tek eşlenmez. Yalnız bugün açık olan veya ileride tekrar gündeme gelecek başlıklar için küçük bir eşleme tablosu tutulur.
 
@@ -71,11 +96,12 @@ Eski bütün PR'lar yeni mimariye tek tek eşlenmez. Yalnız bugün açık olan 
 | Sosyal medya | ileride domain/capability genişlemesi | Şimdilik ertelenmiş |
 | WhatsApp/Telegram | communication altında servis/capability | Şimdilik ertelenmiş; alıcı/izin sınırları korunur |
 | Öğrenme/kişiye uyum | memory/personalization + study/organizer ile ilişkili | Ayrı genişleme; omurga kapanışına karıştırılmaz |
+| Kendini geliştirme | developer/self-improvement dikey dilimi | Ölçümlü, testli, taslak PR + insan onaylı; self-merge/deploy yok |
 | RuntimeEvent production subscription | durable runtime event hattı | #256 ile görünür borç; ayrı tasarım işi |
 
 Amaç “unutuldu mu, bilerek mi ertelendi?” sorusunu ortadan kaldırmaktır; tarihsel arşiv üretmek değildir.
 
-## 6. Bundan sonraki sıra
+## 7. Bundan sonraki sıra
 
 Yakın sıra şu şekilde kilitlenir:
 
@@ -83,12 +109,14 @@ Yakın sıra şu şekilde kilitlenir:
 2. **#256 RuntimeEvent roadmap notunu güncelle/temizle.**
 3. **429 / Ollama'sız çalışma dayanıklılık paketini yap.**
 4. **Finance = ayrı domain kararını ana mimari/domain haritasına işlerken yalnız sözleşmeyi sabitle; kod göçünü ayrı planla.**
-5. **Açık/ertelenmiş hedef eşleme tablosunu güncel tut.**
-6. **Bunlardan sonra Aşama 5 ve devamındaki omurga/alan işleri mevcut Execution Architecture sırasına göre yürür.**
+5. **Kendini geliştirme için ölçümlü/insan onaylı dikey dilimin sözleşmesini ve ilk küçük kabul senaryosunu tanımla.**
+6. **Açık/ertelenmiş hedef eşleme tablosunu güncel tut.**
+7. **Bunlardan sonra Aşama 5 ve devamındaki omurga/alan işleri mevcut Execution Architecture sırasına göre yürür.**
 
-## 7. Özellikle kapsam dışı
+## 8. Özellikle kapsam dışı
 
 - Ücretli GitHub planına geçiş bu yol haritasında açık iş değildir.
 - Eski bütün PR numaralarını yeni mimariye tek tek bağlamak hedef değildir.
 - Her push öncesi tam validation çalıştırmak yerel hook görevi değildir; resmî test kapısı Windows CI, gerçek PC kapısı watcher olarak kalır.
 - Repo-local Git hook/ruleset yardımcıları GitHub server-side enforcement eşdeğeri sayılmaz.
+- Kendini geliştirme, kendi kendine merge/deploy veya izin genişletme anlamına gelmez.
