@@ -186,9 +186,23 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_id['b']['result'], bench.FAIL)
         self.assertEqual(by_id['b']['reason_code'], 'NO_OBSERVATION')
 
-    def test_run_never_imports_or_touches_goal_executor(self):
-        import sys
-        self.assertNotIn('modules.goal_executor', sys.modules)
+    def test_module_never_imports_goal_executor_or_goalstate(self):
+        # sys.modules is shared across the whole unittest-discover process, so
+        # checking it would pass or fail depending on what other test files
+        # already imported, not on this module's own code. Parse the actual
+        # import statements instead: deterministic, independent of run order.
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(bench))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        for name in imported:
+            self.assertNotIn('goal_executor', name)
+            self.assertNotIn('goalstate', name.lower())
 
 
 class RealCatalogTests(unittest.TestCase):
