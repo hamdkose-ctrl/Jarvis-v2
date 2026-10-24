@@ -61,7 +61,7 @@ Aşağıdaki ilkeler her seçenek değerlendirmesinde sabittir; bir seçenek bun
 
 ## Karar 2 — Legacy → canonical write authority'nin devredileceği atomik nokta
 
-**KABUL EDİLDİ (kısmi — yalnız işaretleme, PR gpt/goalstate-authority-cutover-point):** Bu kararın "C" seçeneği, canonical GoalState'e eklenen opsiyonel `authority` alanıyla (job yaratılış/ilk `project()` anında `'canonical'`, önceden var olan kayıtlarda alan yokluğu = `'legacy'`) kodlandı. Bu PR SADECE bu işaretlemeyi ekler ve test eder; legacy JSON journal yazımının gerçekten durdurulması (authority'nin pratik sonucu) kapsam dışıdır ve ayrı, sonraki bir PR'a bırakılmıştır.
+**KABUL EDİLDİ (kısmi — yalnız işaretleme, PR #313):** Bu kararın "C" seçeneği, canonical GoalState'e eklenen opsiyonel `authority` alanıyla (job yaratılış/ilk `project()` anında `'canonical'`, önceden var olan kayıtlarda alan yokluğu = `'legacy'`) kodlandı. Bu PR SADECE bu işaretlemeyi ekler ve test eder; legacy JSON journal yazımının gerçekten durdurulması (authority'nin pratik sonucu) kapsam dışıdır ve ayrı, sonraki bir PR'a bırakılmıştır.
 
 **Bulgu (kaynak):** `GOALSTATE_CUTOVER_V1.md`: "Mevcut runtime boyunca legacy `goal_executor` JSON journal **write authority** olarak kalır. Canonical GoalState bugün compatibility projection/sync katmanıdır." `modules/goal_state_save_hook.py::_atomic` sırası: `goal_state_compat.sync(job, canonical)` **önce**, `_ORIGINAL_ATOMIC(path, data)` (legacy write) **sonra**; sync hata verirse legacy write'a hiç ulaşılmaz (fail-closed, gap register madde "KAPALI" #1). Gap register madde 29: "Gerçek cutover, hangi atomik sınırda legacy authority'nin sona ereceğini açıkça tanımlamadan başlayamaz."
 
