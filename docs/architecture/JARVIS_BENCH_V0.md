@@ -74,6 +74,27 @@ case'i taşır: `research`, `data:headlines` ve `account:list_unread`.
 - `tool`, case'in hangi gerçek Jarvis aracını/işlemini temsil ettiğini
   belirtir (`research`, `data:headlines`, `account:list_unread`); boş olamaz.
 
+## Case kataloğu şeması ile observation fixture şeması arasındaki ayrım
+
+Bu modülde iki ayrı, birbirine karışmayan şema vardır:
+
+- **Case kataloğu şeması** (yukarıdaki bölüm, `load_cases`/`load_path`):
+  hangi read-only yeteneklerin benchmark'a dahil olduğunu ve her birinin
+  beklediği (`expect`) sonucu tanımlar. Bunu değiştirmek yeni/eski bir
+  capability'yi teste dahil eder ya da çıkarır.
+- **Observation fixture şeması** (bu bölüm, `validate_observations`/
+  `load_observations`): bir case için **önceden üretilmiş** statik bir
+  gözlemin (evidence + safety/permission sonucu + duration_ms) biçimini
+  doğrular. Bunu değiştirmek hangi capability'lerin test edildiğini
+  değiştirmez; sadece o capability'ler için "girdi" kabul edilen gözlem
+  verisinin şeklini belirler.
+
+Bu iki şema kasıtlı olarak ayrıdır: bir case kataloğu değişmeden de
+observation fixture formatı sıkılaştırılabilir veya tersi. İkisi arasındaki
+tek bağ, case id kümesi ile observation id kümesinin **birebir** eşleşmesi
+zorunluluğudur (`validate_observations` bunu case id kümesine karşı
+denetler).
+
 ## Sürümlü read-only observation fixture'ları
 
 `tests/data/jarvis_bench_v0_observations.json`, yukarıdaki üç case için statik
@@ -91,7 +112,35 @@ Bu fixture'lar **gerçek canlı kabul/acceptance kanıtı değildir**. Üretim
 sisteminin gerçekten research yaptığı, haber çektiği veya okunmamış hesap
 verisi okuduğu iddia edilmez. Bunlar yalnız JarvisBench evaluator'ının mevcut
 read-only capability case'leri üzerinde sürümlü ve tekrarlanabilir girdilerle
-çalıştığını kilitleyen test verisidir.
+çalıştığını kilitleyen test verisidir. Bu fixture'ların validatörden PASS ile
+geçmesi yalnız **benchmark girdisinin** (statik observation JSON'unun)
+sözleşmeye uyduğunu gösterir; Core'un GoalState'ini, reducer'ını, CAS'ını ya
+da Completion Policy'sini hiçbir şekilde değiştirmez veya onlara dokunmaz —
+şema yükleyici bunların hiçbirini import etmez (`load_observations`/
+`validate_observations` yalnız yerel JSON okur/doğrular).
+
+### `validate_observations` / `load_observations`
+
+- `validate_observations(payload, case_ids)`: zaten belleğe okunmuş bir
+  observation payload'ını (dict) verilen case id kümesine karşı doğrular.
+  Üst seviyede yalnız `version` ve `observations` alanlarına izin verir;
+  `version` tam olarak `"v0"` olmalı. `observations` boş olmayan bir
+  nesne/map olmalı. Her observation id'si geçerli, boş olmayan bir string
+  olmalı ve yalnız `evidence`, `safety_outcome`, `permission_outcome`,
+  `duration_ms` alanlarını taşımalı — `evidence` boş olmayan string listesi,
+  `safety_outcome`/`permission_outcome` boş olmayan string, `duration_ms`
+  bool olmayan negatif olmayan bir sayı olmalı. Observation id kümesi,
+  verilen case id kümesiyle **birebir** eşleşmelidir; eksik, yabancı veya
+  (kümeler birbirine denk gelecek şekilde) başka bir case'e ödünç
+  verilmiş/taşınmış bir observation id'si fail-closed reddedilir —
+  `BenchSchemaError` fırlatılır, hiçbir şey sessizce atlanmaz veya
+  varsayılan bir değerle doldurulmaz.
+- `load_observations(path, case_ids)`: yukarıdakinin dosya yolundan okuyan
+  sürümü; sadece yerel dosya sistemini kullanır, ağ/model/hesap/worker
+  çağrısı yapmaz.
+- Bu fonksiyonlar worker çalıştırmaz, model/provider/ağ/browser/hesap
+  çağrısı yapmaz ve GoalState/Reducer/CAS/Completion Policy'ye dokunmaz;
+  yalnızca statik observation JSON'unu doğrular.
 
 Kimlik eşlemesi de güvenlik sözleşmesinin parçasıdır: observation başka bir
 case kimliği altında bulunursa hedef case `NO_OBSERVATION` ile FAIL olur;
