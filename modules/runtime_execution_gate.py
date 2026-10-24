@@ -31,9 +31,9 @@ def _action(kind: str, data: dict) -> dict:
 
 
 def plan_task(kind: str, data: dict, *, approval_verified: bool,
-              domain_invariant: str = 'pass', domain_authority: str = 'execute',
-              user_authority: str = 'execute', job_authority: str = 'execute',
-              effect_state: str = 'ready', grants: dict | None = None,
+              domain_invariant: str, domain_authority: str,
+              user_authority: str, job_authority: str,
+              effect_state: str, grants: dict | None = None,
               now: float | None = None) -> dict:
     row = capability_manifest.from_task_tool(kind)
     decision = capability_decision.decide(
