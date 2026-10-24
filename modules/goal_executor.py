@@ -19,6 +19,12 @@ STORE=DATA_DIR/'goals'
 _LOCK=threading.RLock()
 _ACTIVE=set()
 _ACTIVE_JOBS={}
+# Sağlayıcı/ağ kaynaklı sınıflar: bu sınıflarda kullanıcıya ham sağlayıcı/ağ metni değil,
+# failure_policy'nin sınıflandırılmış, güvenli açıklaması gösterilir. Diğer araç hatalarında
+# (örn. ValueError, dosya bulunamadı) mevcut özgül mesaj korunur; bu dar değişiklik onları değiştirmez.
+_PROVIDER_CATEGORIES={failure_policy.RATE_LIMIT,failure_policy.AUTH,failure_policy.DNS,
+                      failure_policy.NETWORK,failure_policy.TIMEOUT,failure_policy.PROVIDER_DOWN,
+                      failure_policy.ENVIRONMENT}
 _CANCEL_REQUESTED=set()
 _INSIDE=ContextVar('jarvis_goal_inside',default=False)
 MAX_TURNS=48
@@ -267,7 +273,8 @@ def _record(runtime,job,step,approval=None):
     except Exception as exc:
         _record_failure('modules/goal_executor.py:tool')
         if isinstance(exc,goal_tools.NotStarted):step['started']=False
-        output={'state':'failed','text':privacy.redact(str(exc),force=True)[:2000]}
+        text=failure_policy.explain(exc) if failure_policy.classify(exc) in _PROVIDER_CATEGORIES else str(exc)
+        output={'state':'failed','text':privacy.redact(text,force=True)[:2000]}
         try:
             _ensure(runtime,job)
             recovered=_reconcile(runtime,job,step) if step['started'] else None
