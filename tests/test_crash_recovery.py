@@ -26,3 +26,42 @@ class CrashRecoveryTests(unittest.TestCase):
         self.journal.record_intent(self.intent())
         self.journal.record_receipt({'schema':'effect_receipt.v1','effect_id':'e1','provider_receipt_ref':'r1','verified':True})
         self.assertEqual(self.recovery.decide(self.journal,'e1')['action'],'no_retry')
+
+
+class RequiredFollowsManifestPolicyTests(unittest.TestCase):
+    """required() must mirror the manifest's replay/reconciliation policy for
+    every task capability, not just 'publish': journal coverage is manifest-
+    driven, and a read-only capability must never enter the journal path."""
+
+    def setUp(self):
+        from modules import capability_manifest, effect_recovery_runtime, task_tools
+        self.manifest = capability_manifest
+        self.runtime = effect_recovery_runtime
+        self.task_tools = task_tools
+
+    def test_every_task_capability_matches_its_manifest_replay_reconciliation_policy(self):
+        checked = []
+        for kind in self.task_tools.CATALOG:
+            row = self.manifest.from_task_tool(kind)
+            expects_journal = row['replay'] == 'conditional' and row['reconciliation'] == 'required'
+            self.assertEqual(
+                self.runtime.required(kind), expects_journal,
+                f"{kind}: manifest replay={row['replay']!r} reconciliation={row['reconciliation']!r} "
+                f"but required()={self.runtime.required(kind)!r}",
+            )
+            checked.append(kind)
+        # Sanity: both a journal-required and a journal-exempt capability exist,
+        # otherwise this loop could pass vacuously.
+        self.assertTrue(any(self.runtime.required(kind) for kind in checked))
+        self.assertTrue(any(not self.runtime.required(kind) for kind in checked))
+
+    def test_read_only_capability_is_never_journal_required(self):
+        for kind in ('research', 'account', 'verify'):
+            row = self.manifest.from_task_tool(kind)
+            self.assertEqual(row['effect_policy'], 'read_only')
+            self.assertFalse(self.runtime.required(kind))
+
+    def test_external_write_capability_is_journal_required(self):
+        row = self.manifest.from_task_tool('publish')
+        self.assertEqual(row['effect_policy'], 'external_write')
+        self.assertTrue(self.runtime.required('publish'))
