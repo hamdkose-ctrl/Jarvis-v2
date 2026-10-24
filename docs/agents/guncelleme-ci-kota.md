@@ -103,3 +103,7 @@ Resmî koşular her kökün kendi `python -m modules.validation` girişini ayrı
 Watcher doğrulamayı yalnız gözetleyen kökteki `.venv\\Scripts\\python.exe` ile başlatır. Bu yorumlayıcı yoksa sistem Python'una düşmez; çalışma başlatılmadan "ortam eksik" sonucu kaydedilir. Böylece eksik paketli farklı bir Python'un yanıltıcı test hatası kabul sonucu sayılmaz.
 
 Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adını ve passed/failed durumunu taşır; ham kabul çıktısı, istek veya kaynak eklenmez. Çalıştırılmamış haber kabulü masaüstü denetimini `missing` diye gölgelemez; yalnız raporda bulunan bloklar yazılır. Test: `tests/test_pc_test_watcher.py`.
+
+## Araç adımı hatasında ham sağlayıcı/ağ metni sızmaz (24 Ekim 2026)
+
+`goal_executor._record`'un araç adımı hatası yakalama bloğu artık her hata için `str(exc)` basmaz: `failure_policy.classify` sonucu sağlayıcı/ağ sınıflarından biriyse (`RATE_LIMIT`, `AUTH`, `DNS`, `NETWORK`, `TIMEOUT`, `PROVIDER_DOWN`, `ENVIRONMENT`) adımın `text`'i `failure_policy.explain`'in sınıflandırılmış, güvenli açıklamasına döner; bu Ollama kurulu değil/çalışmıyor ayrımını (`ollama_hint`) de kapsar. Diğer araç hataları (ör. `ValueError`, eksik dosya, `goal_tools.NotStarted`) kendi özgül mesajını korur; bu dar değişiklik onları değiştirmez. Yeni sağlayıcı, ücretli yedek veya retry artışı eklenmedi; tanı kaydı (`diagnostics.record_failure`) ayrıca ham bağlamı tutar. Test: `tests/test_goal_failure_policy.py`.
