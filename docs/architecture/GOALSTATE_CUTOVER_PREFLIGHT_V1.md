@@ -12,25 +12,35 @@ disk durumunun o kararlara göre nerede uyuştuğunu/uyuşmadığını gösterir
 
 `modules.goalstate_cutover_preflight.scan(owner_root)`:
 
-- `owner_root` dizinindeki (örn. `~/.jarvis/.../<owner>/`) legacy `<16-hex-id>.json` job
-  kayıtlarını, `modules/goal_state_save_hook.py`'daki aynı isimlendirme ve owner-namespace
-  kuralıyla tarar.
+- `owner_root` dizinindeki legacy `<16-hex-id>.json` job kayıtlarını,
+  `modules/goal_state_save_hook.py`'daki aynı dosya adı ve owner-namespace kuralıyla tarar.
 - Her legacy kayıt için yanındaki canonical sidecar'ı (`<job_id>.goalstate.json`) arar ve
   `modules/goal_state_compat.py` ile `modules/goal_state.py` sözleşmesine göre karşılaştırır.
-- Job id'ye göre sıralanmış, deterministik bir rapor döndürür:
+- Job id'ye göre sıralanmış deterministik bir rapor döndürür:
 
 ```python
 {
-  'root': '<owner dizini>',
   'rows': [
-    {'job_id': '...', 'owner': '...', 'reason_code': '...',
+    {'job_id': '...', 'reason_code': '...',
      'legacy_state': '...', 'canonical_state': '...'},
     ...
   ],
-  'counts': {'OK': 3, 'MISSING_CANONICAL': 1, ...},
+  'counts': {
+    'OK': 0,
+    'INVALID_LEGACY_RECORD': 0,
+    'UNKNOWN_LEGACY_STATE': 0,
+    'MISSING_CANONICAL': 0,
+    'CANONICAL_CORRUPT': 0,
+    'IDENTITY_MISMATCH': 0,
+    'STATE_DIVERGENCE': 0,
+    'TERMINAL_DIVERGENCE': 0,
+  },
   'ok': bool,
 }
 ```
+
+Rapor `owner_root` yolunu veya owner adını içermez. `counts` anahtar sırası sabittir;
+`rows` her zaman `job_id` sırasındadır.
 
 ## Salt-okunur garanti
 
@@ -47,14 +57,14 @@ disk durumunun o kararlara göre nerede uyuştuğunu/uyuşmadığını gösterir
 
 | Kod | Anlamı |
 |---|---|
-| `OK` | Legacy hedef state ile canonical state eşleşiyor, identity tutuyor. |
+| `OK` | Legacy hedef state ile canonical state eşleşiyor ve canonical identity (`owner`, `job_id`, `goal`, `execution_mode='agent'`) compatibility projection ile uyumlu. |
 | `INVALID_LEGACY_RECORD` | Dosya adı `16-hex.json` desenine uysa da içerik okunamıyor/parse edilemiyor, zorunlu alanlar eksik, `id` dosya adıyla uyuşmuyor veya `owner` dizin adıyla uyuşmuyor. |
-| `UNKNOWN_LEGACY_STATE` | Legacy `state`, `goal_state_compat._STATE_MAP`'te karşılığı olmayan bir değer. |
+| `UNKNOWN_LEGACY_STATE` | Legacy `state`, `goal_state_compat._STATE_MAP`'te karşılığı olmayan bir değer. Bilinmeyen ham state değeri rapora yazılmaz. |
 | `MISSING_CANONICAL` | Legacy kayıt geçerli ama yanında `<job_id>.goalstate.json` yok. |
 | `CANONICAL_CORRUPT` | Canonical sidecar var ama UTF-8/JSON olarak çözülemiyor veya `goal_state.validate()` sözleşmesini geçemiyor. Ham bayt/istisna metni rapora yazılmaz. |
-| `IDENTITY_MISMATCH` | Canonical `owner`/`job_id`/`goal`, legacy `owner`/`id`/`request` ile birebir eşleşmiyor. |
-| `STATE_DIVERGENCE` | Identity tutuyor ama legacy hedef state ile canonical state farklı (terminal uyuşmazlığı hariç). |
-| `TERMINAL_DIVERGENCE` | Canonical state terminal (`done`/`cancelled`) iken legacy hedef state hâlâ aktif (terminal değil). `STATE_DIVERGENCE`'tan daha özel olarak raporlanır. |
+| `IDENTITY_MISMATCH` | Canonical `owner`/`job_id`/`goal` veya compatibility için beklenen `execution_mode='agent'` legacy projection ile uyuşmuyor. |
+| `STATE_DIVERGENCE` | Identity tutuyor ama legacy hedef state ile canonical state farklı ve iki taraf da terminal değil. |
+| `TERMINAL_DIVERGENCE` | State'ler farklı ve legacy hedef veya canonical state'ten en az biri terminal (`done`/`cancelled`). Terminal↔terminal farklılığı da bu sınıfa girer. |
 
 Legacy→canonical state eşlemesi tamamen `modules/goal_state_compat._STATE_MAP`'ten okunur;
 bu araç kendi eşleme tablosunu taşımaz, böylece iki yer birbirinden sapamaz.
@@ -64,16 +74,22 @@ bu araç kendi eşleme tablosunu taşımaz, böylece iki yer birbirinden sapamaz
 - Tek bir bozuk/geçersiz kayıt taramanın tamamını düşürmez; o kayıt için fail-closed bir
   satır (`INVALID_LEGACY_RECORD` veya `CANONICAL_CORRUPT`) üretilir, tarama diğer kayıtlarla
   devam eder.
-- Geçersiz/yok olan `owner_root` veya beklenmeyen bir I/O hatası
+- Geçersiz/yok olan `owner_root` veya owner dizininin taranamaması
   `goalstate_cutover_preflight.PreflightScanError` fırlatır; mesaj sabit ve güvenlidir, dosya
   içeriği veya ham istisna metni taşımaz.
 
 ## Rapor gizliliği
 
-Her satır yalnız `job_id`, `owner`, `reason_code` ve state **etiketlerini** (`legacy_state`,
-`canonical_state` — sabit enum değerleri) taşır. Legacy `request`/`blocker`/`question` metni,
-canonical `goal`/`blocker`/`audit` içeriği veya herhangi bir ham dosya baytı rapora hiçbir
-koşulda yazılmaz.
+Her satır yalnız güvenli metadata taşır: `job_id`, `reason_code` ve bilinen state etiketleri.
+Aşağıdakiler rapora yazılmaz:
+
+- owner adı veya owner dizin yolu,
+- legacy `request`, `blocker`, `question` veya bilinmeyen ham state değeri,
+- canonical `goal`, `blocker`, `evidence`, `audit` içeriği,
+- ham dosya baytları veya parse/validation exception metni.
+
+Identity karşılaştırması bu alanları bellekte okuyabilir; yalnız eşleşip eşleşmediği
+`IDENTITY_MISMATCH` reason-code'u olarak dışarı çıkar.
 
 ## Kapsam dışı
 
