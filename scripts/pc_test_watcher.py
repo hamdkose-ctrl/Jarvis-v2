@@ -119,7 +119,9 @@ def branch_from_ref(ref: str) -> str:
 
 def add_worktree(root: Path, sha: str, target: Path) -> None:
     if target.exists():
-        shutil.rmtree(target, ignore_errors=True)
+        # Never delete a registered worktree directly: its .git indirection
+        # must be removed first or a later detached checkout can be partial.
+        remove_worktree(root, target)
     run(["git", "worktree", "prune"], cwd=root, check=False)
     run(["git", "worktree", "add", "--detach", str(target), sha], cwd=root)
 
@@ -209,10 +211,14 @@ def pr_comment_body(report: dict) -> str:
         f"- Commit: `{str(report.get('sha') or '')[:12]}`",
         f"- Genel durum: **{report.get('status', 'unknown')}**",
     ]
+    required = {"desktop_acceptance": "calculator", "news_acceptance": "news_chat_resume"}
     for key, label in (("validation", "Validation"), ("desktop_acceptance", "Desktop"), ("news_acceptance", "Haber")):
         row = report.get(key)
         if isinstance(row, dict):
-            lines.append(f"- {label}: **{'passed' if row.get('exit_code') == 0 else 'failed'}**")
+            passed = row.get('exit_code') == 0
+            if key in required:
+                passed = passed and _check_state(row.get('checks') or [], required[key]) == 'passed'
+            lines.append(f"- {label}: **{'passed' if passed else 'failed'}**")
     lines.append("\nBu yorum gerçek iş PC'sindeki watcher tarafından otomatik üretildi; anahtarlar ve kişisel içerik gönderilmez.")
     return "\n".join(lines)
 
