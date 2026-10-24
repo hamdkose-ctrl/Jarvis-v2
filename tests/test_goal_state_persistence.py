@@ -293,6 +293,33 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertFalse((root / '0123456789abcdef.json').exists())
             self.assertFalse((root / 'latest.json').exists())
 
+    def test_sync_failure_is_recorded_and_never_reaches_legacy_write_or_compensation(self):
+        from modules import goal_state_save_hook
+
+        owner_dir = self.root / 'alice'
+        owner_dir.mkdir()
+        legacy = owner_dir / '0123456789abcdef.json'
+        canonical = owner_dir / '0123456789abcdef.goalstate.json'
+        current = self.compat.sync(self.job('running'), canonical)
+        before = canonical.read_bytes()
+        unknown = self.job('mystery-state')
+        payload = json.dumps(unknown, ensure_ascii=False).encode('utf-8')
+
+        with patch.object(goal_state_save_hook, '_record_failure') as record_failure, \
+             patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC') as legacy_write, \
+             patch('modules.goal_state_store.compensate') as compensate:
+            with self.assertRaisesRegex(ValueError, 'Legacy job state'):
+                goal_state_save_hook._atomic(legacy, payload)
+
+        record_failure.assert_called_once_with(
+            'modules/goal_state_save_hook.py:_atomic:canonical_sync'
+        )
+        legacy_write.assert_not_called()
+        compensate.assert_not_called()
+        self.assertFalse(legacy.exists())
+        self.assertEqual(self.store.load(canonical), current)
+        self.assertEqual(canonical.read_bytes(), before)
+
     def test_foreign_legacy_owner_never_projects_canonical_goalstate(self):
         """A legacy-shaped JSON file cannot advance another owner's GoalState."""
         with patch.object(self.goal_executor, 'STORE', self.root):

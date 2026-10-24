@@ -26,7 +26,7 @@ Durum: **preflight sözleşmesi**. Bu doküman runtime cutover değildir; `goal_
 
 Bilinmeyen legacy state fail-closed `ValueError` üretir. Projection `owner=job['owner']`, `job_id=job['id']`, `goal=job['request']`, `execution_mode='agent'` kullanır. Canonical state terminal ise compatibility advance onu yeniden açmaz.
 
-`modules/goal_state_save_hook.py`, yalnız biçimi ve owner namespace'i doğrulanan legacy goal-job kayıtlarını yakalar. Önce canonical GoalState'i sync eder, sonra legacy atomic write yapar. Legacy write başarısız olursa canonical yazıyı önceki byte'lara compensate etmeye çalışır; compensation da başarısızsa fail-closed hata verir. Bu mekanizma migration compatibility katmanıdır; canonical authority cutover değildir.
+`modules/goal_state_save_hook.py`, yalnız biçimi ve owner namespace'i doğrulanan legacy goal-job kayıtlarını yakalar. Önce canonical GoalState'i sync eder, sonra legacy atomic write yapar. Canonical sync başarısız olursa tanı noktası kaydedilir, aynı exception yukarı yayılır ve legacy write/compensation çalıştırılmaz. Legacy write başarısız olursa canonical yazıyı önceki byte'lara compensate etmeye çalışır; compensation da başarısızsa fail-closed hata verir. Bu mekanizma migration compatibility katmanıdır; canonical authority cutover değildir.
 
 ### Persisted canonical snapshot bozulması
 
@@ -75,6 +75,8 @@ Bugünkü compatibility davranışında canonical yoksa `project(job)` ile oluş
 ### 4. Legacy → canonical projection sınırı
 
 Projection yalnız global lifecycle için gerekli canonical alanları taşır. Legacy journal'daki `goals`, `steps`, `outputs` ve diğer yürütme ayrıntıları GoalState identity/lifecycle alanlarına sıkıştırılmaz. Bunlar ileride ExecutionRecord sınırında ele alınır.
+
+`approval_at` legacy runtime'da approval bekleme süresini takip eder ve mevcut akışta yaklaşık 120 saniyelik approval timeout kararına girdidir. Canonical GoalState şemasında bu alan yoktur. Gerçek cutover öncesinde `approval_at` ve benzeri yürütme-zamanı alanlarının GoalState dışında hangi ExecutionRecord/control sınırında yaşayacağı açıkça karara bağlanmalıdır; bu dokümantasyon runtime timeout semantiğini değiştirmez.
 
 Projection'ın mevcut state eşleme tablosu ilk cutover için başlangıç kanıtıdır; yeni state eşlemesi kod ve test kanıtı olmadan dokümana eklenmez.
 
