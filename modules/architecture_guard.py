@@ -1,25 +1,24 @@
 """Deterministic Stage 0-4 architecture guard.
 
 This module protects the accepted Jarvis execution architecture without using a
-model or network call.  It scans production Python modules and reports:
+model or network call. It scans production Python modules and reports:
 
 - BLOCKER: a mechanically provable architecture boundary violation.
 - WARNING: an accepted/deferred architecture gap that must stay visible.
 
-The guard intentionally does not try to prove product behavior.  Runtime and
+The guard intentionally does not try to prove product behavior. Runtime and
 acceptance tests remain authoritative for behavior.
 """
 from __future__ import annotations
 
 import ast
-import json
 from pathlib import Path
 
 SCOPE = 'stage-0-4'
 ROADMAP_SOURCES = (
     'docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md',
+    'docs/architecture/JARVIS_STAGE_0_4_GUARD.md',
     'docs/agents/gorev-cekirdegi.md',
-    'docs/roadmap-runtime-event-subscription-notu.md',
 )
 
 # Stage 3 canonical mutation adapters. New direct CAS writers are forbidden.
@@ -69,11 +68,41 @@ def _python_files(root: Path):
     return sorted(path for path in modules.rglob('*.py') if '__pycache__' not in path.parts)
 
 
+def _has_explicit_decision_context(node: ast.Call) -> bool:
+    supplied = {kw.arg for kw in node.keywords if kw.arg}
+    if _DECISION_CONTEXT_KEYS <= supplied:
+        return True
+    # The accepted durable caller derives all five fields in one local helper.
+    # A generic **kwargs is not accepted because it could silently reintroduce
+    # plan_task's permissive defaults.
+    for kw in node.keywords:
+        value = kw.value
+        if kw.arg is None and isinstance(value, ast.Call):
+            fn = value.func
+            if isinstance(fn, ast.Name) and fn.id == '_decision_context':
+                return True
+    return False
+
+
+def _has_fixed_attempt_one(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            if (
+                isinstance(key, ast.Constant) and key.value == 'attempts'
+                and isinstance(value, ast.Constant) and value.value == 1
+            ):
+                return True
+    return False
+
+
 def scan(root=None) -> dict:
     root = Path(root or Path(__file__).resolve().parents[1])
     blockers = []
     warnings = []
     runtime_event_producer_calls = 0
+    fixed_attempt_one = False
 
     for path in _python_files(root):
         relative = path.relative_to(root).as_posix()
@@ -86,6 +115,9 @@ def scan(root=None) -> dict:
             ))
             continue
 
+        if relative == 'modules/goal_executor.py' and _has_fixed_attempt_one(tree):
+            fixed_attempt_one = True
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -97,14 +129,11 @@ def scan(root=None) -> dict:
                     'Canonical GoalState CAS yalnız onaylı Reducer/compat commit adaptörlerinden çağrılabilir.',
                 ))
 
-            if name == 'runtime_execution_gate.plan_task':
-                supplied = {kw.arg for kw in node.keywords if kw.arg}
-                missing = sorted(_DECISION_CONTEXT_KEYS - supplied)
-                if missing:
-                    blockers.append(_issue(
-                        'ARCH-002', 'BLOCKER', relative, node.lineno,
-                        'Durable runtime gate explicit DecisionContext olmadan çağrıldı; eksik: ' + ', '.join(missing),
-                    ))
+            if name == 'runtime_execution_gate.plan_task' and not _has_explicit_decision_context(node):
+                blockers.append(_issue(
+                    'ARCH-002', 'BLOCKER', relative, node.lineno,
+                    'Durable runtime gate explicit DecisionContext olmadan çağrıldı.',
+                ))
 
             if name == 'goal_tools.execute' and relative not in _DIRECT_EXECUTE_ALLOWLIST:
                 blockers.append(_issue(
@@ -120,7 +149,13 @@ def scan(root=None) -> dict:
     if runtime_event_producer_calls == 0:
         warnings.append(_issue(
             'ARCH-W001', 'WARNING', 'modules/runtime_event_commit.py', 0,
-            'RuntimeEvent production subscription/producer entegrasyonu henüz yok; roadmapte deferred olarak tutulmalı.',
+            'RuntimeEvent production subscription/producer entegrasyonu henüz yok; durable subscription roadmap borcudur.',
+        ))
+
+    if fixed_attempt_one:
+        warnings.append(_issue(
+            'ARCH-W002', 'WARNING', 'modules/goal_executor.py', 0,
+            'Durable execution attempt kimliği hâlâ sabit 1; gerçek retry sayacı backlogda tutulmalı.',
         ))
 
     return {
