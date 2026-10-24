@@ -49,8 +49,18 @@ class LocalGitGuardTests(unittest.TestCase):
     def test_installer_uses_repo_local_hooks_path_only(self):
         installer = load(INSTALLER, 'install_git_hooks')
         calls = []
-        installer.configure_hooks(Path('C:/repo'), runner=lambda cmd, cwd: calls.append((cmd, cwd)))
-        self.assertEqual(calls, [(['git', 'config', '--local', 'core.hooksPath', '.githooks'], Path('C:/repo'))])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / '.git').mkdir()
+            (root / '.githooks').mkdir()
+            installer.configure_hooks(root, runner=lambda cmd, cwd: calls.append((cmd, cwd)))
+            self.assertEqual(calls, [(['git', 'config', '--local', 'core.hooksPath', '.githooks'], root)])
+
+    def test_hook_wrappers_are_versioned_in_repo(self):
+        for name in ('pre-commit', 'pre-push'):
+            path = ROOT / '.githooks' / name
+            self.assertTrue(path.is_file(), path)
+            self.assertIn('scripts/git_local_guard.py', path.read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
