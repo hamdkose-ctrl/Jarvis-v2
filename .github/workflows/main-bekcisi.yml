@@ -2,7 +2,9 @@ name: Main bekçisi
 
 # main'e PR'sız (doğrudan) giren her commit'i görünür yapar: iş kırmızı yanar. Hiçbir şeyi geri almaz.
 # PR ile giren commit'ler (squash, merge, rebase) meşrudur: GitHub her birini ilgili PR ile ilişkilendirir.
-# Checkout yok, test yok; yalnız birkaç API çağrısı. Dakika harcaması saniyeler.
+# Checkout yok, test yok; yalnız birkaç API çağrısı. GitHub'ın squash merge ile
+# commit-PR ilişkisini indekslemesi gecikebildiği için bu iş en fazla iki dakika
+# bekler; yanlış kırmızıdan sonra elle yeniden çalıştırma gerektirmez.
 on:
   push:
     branches: [main]
@@ -14,7 +16,7 @@ permissions:
 jobs:
   bekci:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: PR'sız commit var mı
         env:
@@ -23,7 +25,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
-          set -u
+          set -eu
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             echo "İlk push veya dal oluşturma; karşılaştırılacak önceki commit yok."; exit 0
           fi
@@ -31,11 +33,13 @@ jobs:
           bad=""
           for sha in $shas; do
             n=0
-            # PR ilişkisi birleştirmeden birkaç saniye sonra görünür; kısa bekleyip yeniden dene.
-            for try in 1 2 3 4; do
+            # Squash merge sonrası GitHub commit-PR ilişkisini gecikmeli
+            # indeksleyebilir. En fazla iki dakika bekle; API hatasını
+            # "PR yok" diye yorumlama.
+            for try in $(seq 1 12); do
               n=$(gh api "repos/$REPO/commits/$sha/pulls" --jq 'length')
               [ "$n" -gt 0 ] && break
-              sleep 6
+              [ "$try" -lt 12 ] && sleep 10
             done
             if [ "$n" -eq 0 ]; then bad="$bad $sha"; fi
           done
