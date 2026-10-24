@@ -14,6 +14,13 @@ class PersistedStateConflict(ValueError):
     pass
 
 
+class PersistedStateCorruption(ValueError):
+    """Persisted canonical GoalState bytes cannot be safely decoded/validated."""
+
+
+_CORRUPTION_MESSAGE = 'Persisted GoalState snapshot is corrupt or invalid.'
+
+
 @contextmanager
 def _exclusive(path: Path):
     lock = Path(str(path) + '.lock')
@@ -44,9 +51,16 @@ def _exclusive(path: Path):
             handle.close()
 
 
+def _decode_snapshot(raw: bytes) -> dict:
+    try:
+        parsed = json.loads(raw.decode('utf-8'))
+        return goal_state.validate(parsed)
+    except (UnicodeDecodeError, ValueError, TypeError):
+        raise PersistedStateCorruption(_CORRUPTION_MESSAGE) from None
+
+
 def _read(path: Path) -> dict:
-    raw = json.loads(path.read_text(encoding='utf-8'))
-    return goal_state.validate(raw)
+    return _decode_snapshot(path.read_bytes())
 
 
 def load(path) -> dict:
@@ -92,10 +106,7 @@ def compensate(path, *, expected_state: dict, previous_bytes: bytes | None) -> N
     expected_state = goal_state.validate(expected_state)
     previous_state = None
     if previous_bytes is not None:
-        try:
-            previous_state = goal_state.validate(json.loads(previous_bytes.decode('utf-8')))
-        except (UnicodeDecodeError, ValueError, TypeError):
-            raise PersistedStateConflict('Önceki GoalState snapshot geri yüklenemiyor.') from None
+        previous_state = _decode_snapshot(previous_bytes)
     with _exclusive(path):
         if not path.exists():
             raise PersistedStateConflict('GoalState compensation kaydı bulunamadı.')
