@@ -31,7 +31,7 @@ case + observed result + evidence + policy/safety outcome + duration_ms
   beklediğiyle tam eşleşiyorsa.
 - **INCONCLUSIVE**: `duration_ms` eksik/geçersizse (`MISSING_DURATION`)
   veya kanıt gerekiyorken yoksa (`NO_EVIDENCE`). Bunlar "başarısız" değil,
-  "ölçülemedi" anlamına gelir.
+  "ölçülemedi" anlamına gelir; hiçbirisi PASS değildir.
 - **FAIL**: gözlenen `safety_outcome` (`SAFETY_MISMATCH`) veya
   `permission_outcome` (`PERMISSION_MISMATCH`) case'in beklediğiyle
   uyuşmuyorsa, gözlem geçerli bir nesne değilse (`INVALID_OBSERVATION`)
@@ -42,7 +42,8 @@ case + observed result + evidence + policy/safety outcome + duration_ms
 
 ## Case kataloğu şeması (v0)
 
-`tests/data/jarvis_bench_v0.json`:
+`tests/data/jarvis_bench_v0.json` üç kaynak-doğrulanmış read-only capability
+case'i taşır: `research`, `data:headlines` ve `account:list_unread`.
 
 ```json
 {
@@ -71,25 +72,49 @@ case + observed result + evidence + policy/safety outcome + duration_ms
   (`kind` başka bir şey) yüklenirken reddedilir; hiçbir zaman sessizce
   çalıştırılmaz veya atlanmaz.
 - `tool`, case'in hangi gerçek Jarvis aracını/işlemini temsil ettiğini
-  belirtir (örn. `research`, `data:headlines`, `account:list_unread`);
-  boş olamaz — case'in kaynak koddaki gerçek bir read-only yetenekle
-  ilişkisi olduğunu zorunlu kılar.
+  belirtir (`research`, `data:headlines`, `account:list_unread`); boş olamaz.
+
+## Sürümlü read-only observation fixture'ları
+
+`tests/data/jarvis_bench_v0_observations.json`, yukarıdaki üç case için statik
+benchmark observation girdileri taşır. Her observation:
+
+- en az bir `evidence` girdisi,
+- `safety_outcome`,
+- `permission_outcome`,
+- `duration_ms`
+
+taşır ve case kimliğiyle eşlenir. Fixture dosyasını okumak canlı hesap, ağ,
+provider, model, browser veya worker çağrısı yapmaz.
+
+Bu fixture'lar **gerçek canlı kabul/acceptance kanıtı değildir**. Üretim
+sisteminin gerçekten research yaptığı, haber çektiği veya okunmamış hesap
+verisi okuduğu iddia edilmez. Bunlar yalnız JarvisBench evaluator'ının mevcut
+read-only capability case'leri üzerinde sürümlü ve tekrarlanabilir girdilerle
+çalıştığını kilitleyen test verisidir.
+
+Kimlik eşlemesi de güvenlik sözleşmesinin parçasıdır: observation başka bir
+case kimliği altında bulunursa hedef case `NO_OBSERVATION` ile FAIL olur;
+başka case'in evidence'ı ödünç alınarak PASS üretilemez. Fixture testleri ayrıca
+boş evidence'ın PASS olmadığını, yanlış safety/permission sonucunun FAIL
+olduğunu ve eksik observation'ın `NO_OBSERVATION` ile fail-closed kaldığını
+kilitler.
 
 ## Kapsam dışı
 
 - `modules/goal_executor.py`, GoalState/reducer, Completion Policy
 - CI/workflow/watcher entegrasyonu
-- provider/model karşılaştırması
+- yeni worker, provider veya planner
 - browser/CUA/Hermes
-- canlı model, hesap veya dış etki (effect) çalıştırma
+- canlı model, hesap, ağ veya dış etki (effect) çalıştırma
 
 ## Test
 
-`tests/test_jarvis_bench.py` (26 test): şema doğrulama (geçerli case,
-yinelenen id, effect-içeren case, bilinmeyen sürüm/alan — hepsi
-fail-closed), değerlendirme (kanıtsız/safety-uyuşmazlığında PASS yok,
-duration_ms tek başına yeterli değil, sonuç her zaman
-PASS/FAIL/INCONCLUSIVE'den biri) ve gerçek
-`tests/data/jarvis_bench_v0.json` kataloğunun kendisinin şemaya uyup
-sentetik eşleşen bir gözlemle PASS ürettiği. Hiçbir test ağ, model, hesap
-veya `goal_executor` importu gerektirmez.
+`tests/test_jarvis_bench.py` şema ve evaluator sözleşmesine ek olarak shipped
+case kataloğu ile `jarvis_bench_v0_observations.json` fixture'larının kimlik
+kümesini eşleştirir; üç read-only fixture'ın deterministik değerlendirmesini,
+case/observation kimliği uyuşmazlığını, eksik evidence'ı, yanlış safety ve
+permission sonucunu ve eksik observation'ı fail-closed olarak sınar.
+
+Bu testler fixture'ları canlı acceptance yerine koymaz ve ağ/model/hesap
+çağrısı yapmaz.

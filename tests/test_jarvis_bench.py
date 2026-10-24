@@ -3,6 +3,7 @@ browser, no goal_executor/GoalState/Completion Policy). It only classifies an
 already-captured observation against a versioned, read-only case catalog.
 These tests cover the required v0 contract directly, then check the real
 tests/data/jarvis_bench_v0.json catalog loads and evaluates as expected."""
+import json
 import os
 import unittest
 
@@ -133,8 +134,6 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(result['reason_code'], 'PERMISSION_MISMATCH')
 
     def test_duration_ms_is_recorded_but_not_sufficient_alone(self):
-        # duration_ms present and valid, but evidence missing and safety mismatched:
-        # the duration alone must not cause a PASS.
         observation = {'evidence': [], 'safety_outcome': 'block', 'permission_outcome': 'allow', 'duration_ms': 999}
         result = bench.evaluate(self.case, observation)
         self.assertNotEqual(result['result'], bench.PASS)
@@ -187,10 +186,6 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_id['b']['reason_code'], 'NO_OBSERVATION')
 
     def test_module_never_imports_goal_executor_or_goalstate(self):
-        # sys.modules is shared across the whole unittest-discover process, so
-        # checking it would pass or fail depending on what other test files
-        # already imported, not on this module's own code. Parse the actual
-        # import statements instead: deterministic, independent of run order.
         import ast
         import inspect
         tree = ast.parse(inspect.getsource(bench))
@@ -206,11 +201,21 @@ class RunTests(unittest.TestCase):
 
 
 class RealCatalogTests(unittest.TestCase):
-    """The shipped tests/data/jarvis_bench_v0.json must itself satisfy the v0
-    schema and evaluate deterministically with no network/model/account call."""
+    """Shipped case/observation fixtures are static versioned benchmark inputs,
+    not live acceptance evidence. Loading them performs no network/model/account call."""
 
     def setUp(self):
-        self.path = os.path.join(os.path.dirname(__file__), 'data', 'jarvis_bench_v0.json')
+        data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        self.path = os.path.join(data_dir, 'jarvis_bench_v0.json')
+        self.observation_path = os.path.join(data_dir, 'jarvis_bench_v0_observations.json')
+
+    def _load_observations(self):
+        with open(self.observation_path, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+        self.assertEqual(payload.get('version'), 'v0')
+        observations = payload.get('observations')
+        self.assertIsInstance(observations, dict)
+        return observations
 
     def test_shipped_catalog_loads_under_the_v0_schema(self):
         cases = bench.load_path(self.path)
@@ -221,19 +226,64 @@ class RealCatalogTests(unittest.TestCase):
             self.assertEqual(case['kind'], 'read_only')
             self.assertTrue(case['tool'])
 
-    def test_shipped_catalog_evaluates_with_a_synthetic_matching_observation(self):
+    def test_shipped_observation_fixtures_match_read_only_case_ids(self):
         cases = bench.load_path(self.path)
-        observations = {
-            case['id']: {
-                'evidence': ['s1'],
-                'safety_outcome': case['expect']['safety_outcome'],
-                'permission_outcome': case['expect']['permission_outcome'],
-                'duration_ms': 7,
-            }
-            for case in cases
-        }
-        results = bench.run(cases, observations)
+        observations = self._load_observations()
+        self.assertEqual(set(observations), {case['id'] for case in cases})
+        for observation in observations.values():
+            self.assertIsInstance(observation.get('evidence'), list)
+            self.assertTrue(observation['evidence'])
+            self.assertIn('safety_outcome', observation)
+            self.assertIn('permission_outcome', observation)
+            self.assertIn('duration_ms', observation)
+
+    def test_shipped_catalog_evaluates_with_versioned_read_only_fixtures(self):
+        cases = bench.load_path(self.path)
+        results = bench.run(cases, self._load_observations())
         self.assertTrue(all(r['result'] == bench.PASS for r in results))
+
+    def test_case_observation_id_mismatch_cannot_pass(self):
+        cases = bench.load_path(self.path)
+        observations = self._load_observations()
+        first_id = cases[0]['id']
+        wrong = dict(observations)
+        wrong['not-' + first_id] = wrong.pop(first_id)
+        result = {r['id']: r for r in bench.run(cases, wrong)}[first_id]
+        self.assertEqual(result['result'], bench.FAIL)
+        self.assertEqual(result['reason_code'], 'NO_OBSERVATION')
+
+    def test_fixture_missing_evidence_is_fail_closed_not_pass(self):
+        case = bench.load_path(self.path)[0]
+        observation = dict(self._load_observations()[case['id']])
+        observation['evidence'] = []
+        result = bench.evaluate(case, observation)
+        self.assertNotEqual(result['result'], bench.PASS)
+        self.assertEqual(result['reason_code'], 'NO_EVIDENCE')
+
+    def test_fixture_wrong_safety_is_fail_closed(self):
+        case = bench.load_path(self.path)[0]
+        observation = dict(self._load_observations()[case['id']])
+        observation['safety_outcome'] = 'block'
+        result = bench.evaluate(case, observation)
+        self.assertEqual(result['result'], bench.FAIL)
+        self.assertEqual(result['reason_code'], 'SAFETY_MISMATCH')
+
+    def test_fixture_wrong_permission_is_fail_closed(self):
+        case = bench.load_path(self.path)[0]
+        observation = dict(self._load_observations()[case['id']])
+        observation['permission_outcome'] = 'ask'
+        result = bench.evaluate(case, observation)
+        self.assertEqual(result['result'], bench.FAIL)
+        self.assertEqual(result['reason_code'], 'PERMISSION_MISMATCH')
+
+    def test_missing_fixture_observation_is_fail_closed(self):
+        cases = bench.load_path(self.path)
+        observations = self._load_observations()
+        missing_id = cases[-1]['id']
+        observations = {key: value for key, value in observations.items() if key != missing_id}
+        result = {r['id']: r for r in bench.run(cases, observations)}[missing_id]
+        self.assertEqual(result['result'], bench.FAIL)
+        self.assertEqual(result['reason_code'], 'NO_OBSERVATION')
 
 
 if __name__ == '__main__':

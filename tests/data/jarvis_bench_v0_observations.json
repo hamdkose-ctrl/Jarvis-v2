@@ -1,0 +1,23 @@
+{
+  "version": "v0",
+  "observations": {
+    "research-public-article-read-only": {
+      "evidence": ["fixture:research:public-source-with-title-url-and-published-date"],
+      "safety_outcome": "allow",
+      "permission_outcome": "allow",
+      "duration_ms": 18
+    },
+    "data-headlines-discovery-read-only": {
+      "evidence": ["fixture:data-headlines:headline-source-and-published-date"],
+      "safety_outcome": "allow",
+      "permission_outcome": "allow",
+      "duration_ms": 12
+    },
+    "account-list-unread-read-only": {
+      "evidence": ["fixture:account-list-unread:message-id-sender-subject-read-state"],
+      "safety_outcome": "allow",
+      "permission_outcome": "allow",
+      "duration_ms": 9
+    }
+  }
+}
