@@ -1,4 +1,6 @@
 import importlib.util
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -11,9 +13,24 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
-    def test_default_pattern_covers_all_remote_pr_branch_prefixes(self):
-        """Open-PR filtering, not an agent's branch prefix, limits runs."""
-        self.assertEqual(watcher.DEFAULT_PATTERN, 'refs/remotes/origin/*')
+    def test_default_pattern_covers_nested_remote_refs_with_real_git(self):
+        """The namespace root must include slash-containing remote branch names."""
+        self.assertEqual(watcher.DEFAULT_PATTERN, 'refs/remotes/origin')
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(['git', 'init', '--quiet'], cwd=repo, check=True)
+            blob = subprocess.check_output(
+                ['git', 'hash-object', '-w', '--stdin'], cwd=repo, input=b'nested-ref-test\n'
+            ).decode().strip()
+            subprocess.run(
+                ['git', 'update-ref', 'refs/remotes/origin/claude/jarvisbench-v0', blob],
+                cwd=repo, check=True,
+            )
+            refs = subprocess.check_output(
+                ['git', 'for-each-ref', '--format=%(refname)', watcher.DEFAULT_PATTERN],
+                cwd=repo, text=True,
+            ).splitlines()
+        self.assertIn('refs/remotes/origin/claude/jarvisbench-v0', refs)
 
     def test_batch_does_not_force_news_acceptance(self):
         batch = (MODULE_PATH.parents[0] / 'pc_test_watcher.bat').read_text(encoding='utf-8')
@@ -202,7 +219,6 @@ class PcTestWatcherTests(unittest.TestCase):
             result = watcher.run_suite(Path('repo'), Path('worktree'), 'ref', 'a'*40, desktop=True, news=True)
         self.assertEqual(result['status'], 'failed')
         self.assertIn('Haber: **failed**', watcher.pr_comment_body(result))
-
 
     def test_pr_comment_reports_only_blocks_that_ran(self):
         report = {

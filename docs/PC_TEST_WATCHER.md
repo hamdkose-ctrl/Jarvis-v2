@@ -1,6 +1,6 @@
 # Gerçek Windows PC kabul watcher'ı
 
-Amaç: yalnız GitHub'da **açık PR'ı bulunan** dallardaki yeni SHA'ları gerçek iş PC'sinde kabul sırasından geçirmek ve sonucu ilgili PR'a yorumlamak. Dal adı `gpt/*`, `claude/*` veya başka bir çalışma öneki olabilir; uygunluğu önek değil GitHub'daki açık PR listesi belirler. Watcher yalnız ölçer ve raporlar; kod değiştirmez. Otomatik düzeltme (Terra) döngüsü 22 Ekim 2026'da kaldırıldı: hata kök nedenini ayrı bir onaylı dal/PR ile insan düzeltir, watcher yeni SHA'yı yeniden kabulden geçirir. GitHub açık PR listesi doğrulanamazsa fail-closed davranır; eski/kapalı remote dalları test etmez.
+Amaç: yalnız GitHub'da **açık PR'ı bulunan** dallardaki yeni SHA'ları gerçek iş PC'sinde kabul sırasından geçirmek ve sonucu ilgili PR'a yorumlamak. Dal adı `gpt/*`, `claude/*` veya başka bir çalışma öneki olabilir; slash içeren `claude/jarvisbench-v0` gibi iç içe dal adları da `refs/remotes/origin` kökü altından listelenir ve uygunluğu önek değil GitHub'daki açık PR listesi belirler. Watcher yalnız ölçer ve raporlar; kod değiştirmez. Otomatik düzeltme (Terra) döngüsü 22 Ekim 2026'da kaldırıldı: hata kök nedenini ayrı bir onaylı dal/PR ile insan düzeltir, watcher yeni SHA'yı yeniden kabulden geçirir. GitHub açık PR listesi doğrulanamazsa fail-closed davranır; eski/kapalı remote dalları test etmez.
 
 Aşamalar:
 1. Her açık PR'ın yeni SHA'sında `.venv\Scripts\python.exe -X utf8 -m modules.validation`

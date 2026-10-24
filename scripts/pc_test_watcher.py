@@ -12,8 +12,9 @@ from pathlib import Path
 
 # The expensive run is restricted by ``open_pr_refs`` below.  Do not restrict
 # it further by an individual agent's branch prefix: draft PRs may originate
-# from Codex, Claude, a human hotfix branch, or a future worker.
-DEFAULT_PATTERN = "refs/remotes/origin/*"
+# from Codex, Claude, a human hotfix branch, or a future worker.  Pass the
+# remote namespace root to for-each-ref so nested names are included too.
+DEFAULT_PATTERN = "refs/remotes/origin"
 STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
 
