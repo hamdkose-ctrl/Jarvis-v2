@@ -17,6 +17,19 @@ _FENCE = ('owner', 'job_id', 'step_id', 'command_id', 'attempt',
           'expected_job_version', 'capability_id', 'capability_version', 'input_digest')
 
 
+def required(kind: str) -> bool:
+    """Whether this task capability needs write-ahead effect recovery.
+
+    The manifest is the policy source; this adapter never maintains a second
+    capability catalog.  A receipt remains optional only where the existing
+    worker has no verified receipt contract, in which case recovery stays
+    fail-closed as ``unknown``.
+    """
+    from modules import capability_manifest
+    row = capability_manifest.from_task_tool(kind)
+    return row['replay'] == 'conditional' and row['reconciliation'] == 'required'
+
+
 def _checked(expected: dict) -> dict:
     if not isinstance(expected, dict) or set(expected) != set(_FENCE):
         raise ValueError('Effect recovery WorkerResult fence geçersiz.')
@@ -86,6 +99,10 @@ def reconcile(expected: dict, read_only_reconcile):
     journal, effect_id = _journal(expected)
     decision = crash_recovery.decide(journal, effect_id)
     if decision['state'] == 'not_started':
+        return None
+    if decision['state'] == 'succeeded':
+        # A verified receipt proves the effect happened.  It is not itself a
+        # global completion decision and must not trigger a provider reread.
         return None
     output = read_only_reconcile()
     if not isinstance(output, dict) or output.get('state') != 'done':

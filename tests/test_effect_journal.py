@@ -36,3 +36,10 @@ class EffectJournalTests(unittest.TestCase):
         journal.record_receipt(self.receipt())
         with self.assertRaises(ValueError):
             journal.record_receipt(self.receipt())
+
+    def test_manifest_marks_only_conditional_reconcilable_task_capabilities(self):
+        from modules import effect_recovery_runtime
+        self.assertTrue(effect_recovery_runtime.required('publish'))
+        self.assertTrue(effect_recovery_runtime.required('browser'))
+        self.assertTrue(effect_recovery_runtime.required('coder'))
+        self.assertFalse(effect_recovery_runtime.required('writer'))

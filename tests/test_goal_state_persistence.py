@@ -89,6 +89,20 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertFalse((root / '0123456789abcdef.json').exists())
             self.assertFalse((root / 'latest.json').exists())
 
+    def test_foreign_legacy_owner_never_projects_canonical_goalstate(self):
+        """A legacy-shaped JSON file cannot advance another owner's GoalState."""
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            root = self.root / 'alice'
+            root.mkdir()
+            foreign = self.job()
+            foreign['owner'] = 'bob'
+            import release_guard
+            release_guard.atomic(
+                root / (foreign['id'] + '.json'),
+                json.dumps(foreign, ensure_ascii=False).encode('utf-8'),
+            )
+            self.assertFalse((root / (foreign['id'] + '.goalstate.json')).exists())
+
     def test_goal_executor_save_rolls_back_new_canonical_when_legacy_write_fails(self):
         from modules import goal_state_save_hook
         original = goal_state_save_hook._ORIGINAL_ATOMIC

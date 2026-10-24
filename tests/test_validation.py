@@ -26,11 +26,12 @@ class ValidationTests(unittest.TestCase):
             environments = []
             def run(cmd, **kwargs):
                 environments.append(kwargs['env']['JARVIS_DATA_DIR'])
-                return SimpleNamespace(returncode=0, stdout='Ran 1 test\nOK\n' if len(environments) == 1 else '', stderr='')
+                is_python_suite = 'unittest' in cmd
+                return SimpleNamespace(returncode=0, stdout='Ran 1 test\nOK\n' if is_python_suite else '', stderr='')
             with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', side_effect=run):
                 ok, log = validation.run_checks(root)
             self.assertTrue(ok)
-            self.assertEqual(len(environments), 1 + len(validation.JS_GROUPS) + len(validation.SMOKE_GROUPS))
+            self.assertEqual(len(environments), 2 + len(validation.JS_GROUPS) + len(validation.SMOKE_GROUPS))
             self.assertEqual(len(environments), len(set(environments)))
             self.assertTrue(all(not Path(p).exists() for p in environments))
             with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='', stderr='failure')):
@@ -48,8 +49,9 @@ class ValidationTests(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout='Ran 1 test\nOK', stderr='')
         with patch.object(validation.shutil, 'which', return_value='node'), patch.object(validation.subprocess, 'run', side_effect=fake_run):
             validation.run_checks()
-        self.assertGreaterEqual(calls[0], 600)       # Windows runner 180 sn'ye yaklaşıp düşüyordu
-        self.assertEqual(set(calls[1:]), {90})
+        self.assertEqual(calls[0], 90)               # Architecture Guard kısa/statik adımdır
+        self.assertGreaterEqual(calls[1], 600)       # Windows runner 180 sn'ye yaklaşıp düşüyordu
+        self.assertEqual(set(calls[2:]), {90})
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': '900'}):
             self.assertEqual(validation.python_timeout(), 900)
         with patch.dict(validation.os.environ, {'JARVIS_VALIDATION_TIMEOUT': 'x'}):

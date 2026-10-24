@@ -13,6 +13,26 @@ from modules import goal_tools, requests_state, team_center
 from modules.diagnostics import record_failure as _record_failure
 
 
+def _decision_context(job: dict, step: dict) -> dict:
+    """Derive the durable gate inputs from the active job, never gate defaults."""
+    if not isinstance(job, dict) or not isinstance(step, dict):
+        raise ValueError('Durable DecisionContext geçersiz.')
+    owner = job.get('owner'); request = job.get('request')
+    active_job = job.get('state') in {None, 'running'}
+    active_step = step.get('state') in {None, 'running'}
+    identity_ok = all(isinstance(value, str) and value for value in (owner, request))
+    allowed = identity_ok and active_job and active_step
+    return {
+        'domain_invariant': 'pass' if allowed else 'block',
+        'domain_authority': 'execute' if identity_ok else 'forbidden',
+        'user_authority': 'execute' if isinstance(request, str) and request.strip() else 'forbidden',
+        'job_authority': 'execute' if active_job and active_step else 'forbidden',
+        # Recovery never re-enters execute_step(); it has its own effect-journal
+        # route in goal_executor, so a fresh worker call is only ready here.
+        'effect_state': 'ready',
+    }
+
+
 def validate(owner, request, tasks):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:
         raise ValueError('Uzman hedefi gerekli.')
@@ -39,6 +59,11 @@ def validate(owner, request, tasks):
 
 def run(runtime, request, tasks):
     owner=runtime.profile.slug;tasks=validate(owner,request,tasks);outputs={};journal=[]
+    # This legacy convenience path has no durable identity, DecisionContext,
+    # WorkerResult fence or effect journal.  It must never become a second
+    # executor for effects whose replay/recovery policy is conditional.
+    if any(not goal_tools.replay_safe(task['tool'], task['input']) for task in tasks):
+        raise PermissionError('Koşullu veya yan etkili uzman adımı durable yürütme hattından çalıştırılmalı.')
     for task in tasks:
         requests_state.check()
         deps={key:outputs[key] for key in task['depends']}
@@ -78,6 +103,7 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
         plan=runtime_execution_gate.plan_task(
             step['tool'],step['input'],approval_verified=approval is not None,
+            **_decision_context(job, step),
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
@@ -93,8 +119,8 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             from modules import runtime_worker_result
             if runtime_worker_result.durable_identity(identity):
                 identity,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
-                if step['tool']=='publish':
-                    from modules import effect_recovery_runtime
+                from modules import effect_recovery_runtime
+                if effect_recovery_runtime.required(step['tool']):
                     effect_recovery_runtime.record_intent(expected)
 
     if step['tool']=='research':
@@ -124,9 +150,10 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             return output
         return runtime_execution_gate.accept_prepare_result(plan,output)
     if expected is not None:
-        if step['tool']=='publish' and isinstance(output,dict) and output.get('state')=='done':
+        if isinstance(output,dict) and output.get('state')=='done' and output.get('receipt') is not None:
             from modules import effect_recovery_runtime
-            effect_recovery_runtime.record_receipt(expected,output)
+            if effect_recovery_runtime.required(step['tool']):
+                effect_recovery_runtime.record_receipt(expected,output)
         from modules import runtime_worker_result
         output=runtime_worker_result.accept_and_commit(output,expected)
     return output

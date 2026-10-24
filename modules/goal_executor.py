@@ -174,7 +174,7 @@ def _parse(text):
 def _identity(job,step):
     tool=step['tool'];data=step['input']
     if tool in task_tools.CATALOG:
-        result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':1})
+        result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':step.get('attempts', 0)})
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
     return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
@@ -183,10 +183,10 @@ def _identity(job,step):
 def _reconcile(runtime,job,step):
     """Read back one interrupted effect; never retry it from this recovery path."""
     identity=_identity(job,step)
-    if step['tool']=='publish':
-        from modules import runtime_worker_result
-        if runtime_worker_result.durable_identity(identity):
-            from modules import effect_recovery_runtime
+    from modules import runtime_worker_result
+    if runtime_worker_result.durable_identity(identity):
+        from modules import effect_recovery_runtime
+        if effect_recovery_runtime.required(step['tool']):
             _enriched,expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
             return effect_recovery_runtime.reconcile(
                 expected,lambda:goal_tools.reconcile(runtime,step['tool'],step['input'],identity,step.get('checkpoint')))
@@ -255,6 +255,7 @@ def _record(runtime,job,step,approval=None):
     try:
         for dep in step['depends']:goal_tools.verify(job['outputs'][dep],job['owner'])
         step['checkpoint']=goal_tools.checkpoint(runtime,step['tool'],step['input']);_save(job)
+        step['attempts']=step.get('attempts',0)+1
         step['started']=True;_save(job)
         from modules import model_wait
         with model_wait.guard(lambda:_ensure(runtime,job)):
