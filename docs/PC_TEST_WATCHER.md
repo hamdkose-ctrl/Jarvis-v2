@@ -5,13 +5,14 @@ Amaç: yalnız GitHub'da **açık PR'ı bulunan** `gpt/*` dallarındaki yeni SHA
 Aşamalar:
 1. `.venv\Scripts\python.exe -X utf8 -m modules.validation`
 2. Normal masaüstü kabulü (`--desktop --skip-suite`)
-3. Ayrı haber final kabulü (`--news --skip-suite`)
+3. Yalnız açıkça `--news` istenirse ayrı haber final kabulü (`--news --skip-suite`)
 
 Her aşama yalnız bir önceki geçtiyse başlar. Haber normal desktop turuna gömülü değildir. Basit/odak test PASS sonucu haber görevini tamamlamaz; haber final kapısı ayrıca PASS olmalıdır.
 
 Başlatma:
-- Tek tur: `.venv\Scripts\python.exe -X utf8 scripts\pc_test_watcher.py --news --once`
-- Sürekli: `scripts\pc_test_watcher.bat`
+- Tek tur, haber dahil: `.venv\Scripts\python.exe -X utf8 scripts\pc_test_watcher.py --news --once`
+- Sürekli normal tur: `scripts\pc_test_watcher.bat` (validation + desktop)
+- Sürekli haber turu: `scripts\pc_test_watcher.bat --news`
 - Oturum açılışında otomatik: `powershell -ExecutionPolicy Bypass -File scripts\install_pc_test_watcher_task.ps1`
 
 Raporlar `%LOCALAPPDATA%\Jarvis\pc-acceptance` altında tutulur. Her SHA yalnız bir kez test edilir; PASS/FAIL sonrası otomatik tekrar yoktur, yeni SHA yeni kabul turu başlatır. Doğrulama yalnız gözetlenen kökteki `.venv\Scripts\python.exe` ile çalışır; bu yorumlayıcı yoksa sistem Python'una düşülmez, başlamadan "ortam eksik" sonucu kaydedilir.

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / 'scripts' / 'pc_test_watcher.py'
+WATCHER_BATCH_PATH = MODULE_PATH.with_name('pc_test_watcher.bat')
 SPEC = importlib.util.spec_from_file_location('pc_test_watcher', MODULE_PATH)
 watcher = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -11,6 +12,10 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
+    def test_continuous_batch_does_not_force_news_acceptance(self):
+        batch = WATCHER_BATCH_PATH.read_text(encoding='utf-8').lower()
+        self.assertNotIn('pc_test_watcher.py --news', batch)
+
     def test_choose_candidate_skips_resolved_sha(self):
         candidates = [
             {'ref': 'refs/remotes/origin/gpt/new', 'sha': 'bbb', 'time': 2},
