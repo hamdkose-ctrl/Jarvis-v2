@@ -28,15 +28,40 @@ class PcTestWatcherTests(unittest.TestCase):
         seen = {candidate['ref']: candidate['sha']}
         self.assertEqual(watcher.choose_candidate([candidate], seen, now=1000.0), candidate)
 
-    def test_unresolved_same_sha_waits_then_retries(self):
+    def test_unresolved_same_sha_is_not_automatically_retried(self):
         candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'abc', 'time': 1}
         seen = {
             candidate['ref']: {
                 'sha': 'abc', 'status': 'pending_retry', 'last_attempt': 100.0
             }
         }
-        self.assertIsNone(watcher.choose_candidate([candidate], seen, now=500.0, retry_seconds=900))
-        self.assertEqual(watcher.choose_candidate([candidate], seen, now=1000.0, retry_seconds=900), candidate)
+        self.assertIsNone(watcher.choose_candidate([candidate], seen, now=1000.0))
+
+    def test_open_pr_refs_returns_only_open_branch_refs(self):
+        listed = mock.Mock(returncode=0, stdout='[{"headRefName":"gpt/current"},{"headRefName":"feature/not-watched"}]')
+        with mock.patch.object(watcher, 'gh_exe', return_value='gh'), \
+                mock.patch.object(watcher, 'run', return_value=listed) as run:
+            refs = watcher.open_pr_refs(Path('repo'))
+        self.assertEqual(refs, {
+            'refs/remotes/origin/gpt/current',
+            'refs/remotes/origin/feature/not-watched',
+        })
+        self.assertEqual(run.call_args.args[0][:5], ['gh', 'pr', 'list', '--state', 'open'])
+
+    def test_open_pr_refs_fails_closed_without_github_cli(self):
+        with mock.patch.object(watcher, 'gh_exe', return_value=None):
+            self.assertIsNone(watcher.open_pr_refs(Path('repo')))
+
+    def test_once_considers_only_open_pr_heads(self):
+        open_item = {'ref': 'refs/remotes/origin/gpt/open', 'sha': 'open', 'time': 2}
+        closed_item = {'ref': 'refs/remotes/origin/gpt/closed', 'sha': 'closed', 'time': 1}
+        with mock.patch.object(watcher, 'load_state', return_value={'seen': {}}), \
+                mock.patch.object(watcher, 'remote_heads', return_value=[open_item, closed_item]), \
+                mock.patch.object(watcher, 'open_pr_refs', return_value={open_item['ref']}), \
+                mock.patch.object(watcher, 'choose_candidate', return_value=None) as choose:
+            changed = watcher.once(Path('repo'), Path('state.json'), Path('report.json'), 'refs/remotes/origin/gpt/*', desktop=True, news=False)
+        self.assertFalse(changed)
+        self.assertEqual(choose.call_args.args[0], [open_item])
 
     def test_new_sha_runs_even_if_previous_sha_passed(self):
         candidate = {'ref': 'refs/remotes/origin/gpt/task', 'sha': 'new', 'time': 2}

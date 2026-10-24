@@ -13,7 +13,6 @@ from pathlib import Path
 DEFAULT_PATTERN = "refs/remotes/origin/gpt/*"
 STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
-RETRY_SECONDS = 900
 
 
 def run(cmd, *, cwd: Path, check: bool = True, capture: bool = False):
@@ -82,6 +81,40 @@ def remote_heads(root: Path, pattern: str) -> list[dict]:
     return rows
 
 
+def open_pr_refs(root: Path) -> set[str] | None:
+    """Return remote refs whose GitHub PR is currently open.
+
+    A Windows acceptance run is expensive and can open desktop applications.
+    Remote ``gpt/*`` branches are not sufficient proof that somebody currently
+    needs a result: old, merged and abandoned branches remain on origin.  If
+    GitHub cannot be queried, fail closed instead of accepting an unrelated
+    branch.
+    """
+    gh = gh_exe()
+    if not gh:
+        return None
+    listed = run(
+        [gh, "pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName"],
+        cwd=root,
+        check=False,
+        capture=True,
+    )
+    if listed.returncode != 0:
+        return None
+    try:
+        prs = json.loads(listed.stdout or "[]")
+    except ValueError:
+        return None
+    if not isinstance(prs, list):
+        return None
+    names = {
+        row.get("headRefName")
+        for row in prs
+        if isinstance(row, dict) and isinstance(row.get("headRefName"), str) and row["headRefName"]
+    }
+    return {"refs/remotes/origin/" + name for name in names}
+
+
 def _seen_entry(seen: dict, ref: str) -> dict | None:
     raw = seen.get(ref)
     if isinstance(raw, dict):
@@ -93,17 +126,14 @@ def _seen_entry(seen: dict, ref: str) -> dict | None:
     return None
 
 
-def choose_candidate(candidates: list[dict], seen: dict, *, now: float | None = None, retry_seconds: int = RETRY_SECONDS) -> dict | None:
-    current = time.time() if now is None else now
+def choose_candidate(candidates: list[dict], seen: dict, *, now: float | None = None) -> dict | None:
     for item in candidates:
         entry = _seen_entry(seen, item["ref"])
+        # Her SHA yalnızca bir kez kabulden geçer. PASS/FAIL fark etmez;
+        # aynı commit otomatik tekrar edilmez, yeni SHA yeni adaydır.
         if not entry or entry.get("sha") != item["sha"]:
             return item
-        status = str(entry.get("status") or "")
-        if status == "passed":
-            continue
-        last_attempt = float(entry.get("last_attempt") or 0.0)
-        if current - last_attempt >= retry_seconds:
+        if entry.get("status") == "legacy_seen":
             return item
     return None
 
@@ -249,7 +279,12 @@ def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
 def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, desktop: bool, news: bool) -> bool:
     state = load_state(state_path)
     seen = state.setdefault("seen", {})
-    target = choose_candidate(remote_heads(root, pattern), seen)
+    open_refs = open_pr_refs(root)
+    if open_refs is None:
+        print("Açık PR listesi doğrulanamadı; fail-closed olarak test başlatılmadı.", flush=True)
+        return False
+    candidates = [item for item in remote_heads(root, pattern) if item["ref"] in open_refs]
+    target = choose_candidate(candidates, seen)
     if not target:
         return False
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
@@ -265,7 +300,7 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
         print(json.dumps(result, ensure_ascii=False, indent=2))
     finally:
         remove_worktree(root, worktree)
-    status = "passed" if result.get("status") == "passed" else "pending_retry"
+    status = "passed" if result.get("status") == "passed" else "failed"
     seen[target["ref"]] = {
         "sha": target["sha"],
         "status": status,
@@ -297,7 +332,7 @@ def main() -> int:
         try:
             changed = once(root, state_path, report_path, args.pattern, desktop=not args.no_desktop, news=args.news)
             if not changed:
-                print("Yeni test adayı yok; çözülmemiş adaylar retry süresini bekliyor olabilir.")
+                print("Yalnız açık PR dallarında yeni test adayı yok.")
         except KeyboardInterrupt:
             return 0
         except Exception as exc:
