@@ -40,7 +40,10 @@ def run_checks(root=None, *, python=None):
         required += [root / 'tests' / (n + '.py') for n in SMOKE_GROUPS]
         if not (root / 'tests').is_dir() or any(not f.is_file() for f in required):
             return False, 'Zorunlu test dosyaları eksik; doğrulama tamamlanmadı.'
-        commands = [('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-q'])]
+        commands = [
+            ('Architecture Guard', [executable, '-X', 'utf8', '-m', 'modules.architecture_guard']),
+            ('Python testleri', [executable, '-X', 'utf8', '-W', 'ignore::ResourceWarning', '-m', 'unittest', 'discover', '-s', 'tests', '-q']),
+        ]
         commands += [(str(f.relative_to(root)), [node, '--check', str(f)]) for f in sorted((root / 'webui').rglob('*.js'))]
         commands += [(n, [node, 'tests/' + n + '.js']) for n in JS_GROUPS]
         commands += [(n, [executable, '-X', 'utf8', 'tests/' + n + '.py']) for n in SMOKE_GROUPS]
@@ -54,12 +57,13 @@ def run_checks(root=None, *, python=None):
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['JARVIS_DATA_DIR'] = str(Path(scratch) / str(index))
                 env['JARVIS_TEST_PYTHON'] = executable
-                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=python_timeout() if index == 0 else 90)
+                timeout = python_timeout() if name == 'Python testleri' else 90
+                cp = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout)
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
                     return False, '\n'.join(logs)[-16000:]
-                if index == 0:
+                if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
                         return False, 'Python testleri çalışmadı; doğrulama tamamlanmadı.\n' + output
