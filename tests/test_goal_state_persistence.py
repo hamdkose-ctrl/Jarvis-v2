@@ -27,6 +27,57 @@ class GoalStatePersistenceTests(unittest.TestCase):
             'outputs': {},
         }
 
+    def test_load_rejects_truncated_json_with_stable_corruption_error(self):
+        path = self.root / 'state.json'
+        path.write_bytes(b'{"schema":"goal_state.v1",')
+        with self.assertRaises(self.store.PersistedStateCorruption) as caught:
+            self.store.load(path)
+        self.assertEqual(str(caught.exception), 'Persisted GoalState snapshot is corrupt or invalid.')
+        self.assertNotIn('schema', str(caught.exception))
+
+    def test_load_rejects_invalid_utf8_with_stable_corruption_error(self):
+        path = self.root / 'state.json'
+        path.write_bytes(b'\xff\xfe\xfa')
+        with self.assertRaises(self.store.PersistedStateCorruption) as caught:
+            self.store.load(path)
+        self.assertEqual(str(caught.exception), 'Persisted GoalState snapshot is corrupt or invalid.')
+
+    def test_load_rejects_schema_invalid_json_with_stable_corruption_error(self):
+        path = self.root / 'state.json'
+        path.write_text(json.dumps({'schema': 'goal_state.v1', 'secret': 'do-not-leak'}), encoding='utf-8')
+        with self.assertRaises(self.store.PersistedStateCorruption) as caught:
+            self.store.load(path)
+        self.assertEqual(str(caught.exception), 'Persisted GoalState snapshot is corrupt or invalid.')
+        self.assertNotIn('do-not-leak', str(caught.exception))
+
+    def test_compare_and_swap_rejects_corrupt_disk_without_changing_bytes(self):
+        path = self.root / 'state.json'
+        broken = b'{"owner":"alice","private":"do-not-leak"'
+        path.write_bytes(broken)
+        current = self.compat.project(self.job())
+        next_state = self.compat.advance(current, self.job('paused'))
+        with self.assertRaises(self.store.PersistedStateCorruption):
+            self.store.compare_and_swap(path, expected_version=current['version'], next_state=next_state)
+        self.assertEqual(path.read_bytes(), broken)
+
+    def test_compensate_rejects_corrupt_disk_without_changing_bytes(self):
+        path = self.root / 'state.json'
+        broken = b'{bad-json'
+        path.write_bytes(broken)
+        expected = self.compat.project(self.job())
+        with self.assertRaises(self.store.PersistedStateCorruption):
+            self.store.compensate(path, expected_state=expected, previous_bytes=None)
+        self.assertEqual(path.read_bytes(), broken)
+
+    def test_compensate_rejects_corrupt_previous_bytes_without_changing_current(self):
+        path = self.root / 'state.json'
+        current = self.compat.project(self.job())
+        self.store.create(path, current)
+        before = path.read_bytes()
+        with self.assertRaises(self.store.PersistedStateCorruption):
+            self.store.compensate(path, expected_state=current, previous_bytes=b'\xffbroken')
+        self.assertEqual(path.read_bytes(), before)
+
     def test_compare_and_swap_rejects_stale_persisted_version(self):
         path = self.root / 'state.json'
         current = self.compat.project(self.job())

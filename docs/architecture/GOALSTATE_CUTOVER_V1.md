@@ -28,6 +28,20 @@ Bilinmeyen legacy state fail-closed `ValueError` üretir. Projection `owner=job[
 
 `modules/goal_state_save_hook.py`, yalnız biçimi ve owner namespace'i doğrulanan legacy goal-job kayıtlarını yakalar. Önce canonical GoalState'i sync eder, sonra legacy atomic write yapar. Legacy write başarısız olursa canonical yazıyı önceki byte'lara compensate etmeye çalışır; compensation da başarısızsa fail-closed hata verir. Bu mekanizma migration compatibility katmanıdır; canonical authority cutover değildir.
 
+### Persisted canonical snapshot bozulması
+
+`modules/goal_state_store.py` için canonical dosya byte'larının UTF-8 olarak çözülememesi, JSON'un yarım/geçersiz olması veya JSON çözüldükten sonra `goal_state.validate()` sözleşmesini geçememesi tek bir persisted-state corruption sınırıdır. Bu durum normal CAS conflict veya kullanıcı girdisi hatası değildir.
+
+Bozuk canonical snapshot fail-closed kabul edilir:
+
+- `load()` bozuk snapshot'ı state olarak döndürmez.
+- `compare_and_swap()` bozuk mevcut snapshot üzerine yazmaz.
+- `compensate()` bozuk mevcut snapshot varken restore/delete yapmaz; `previous_bytes` bozuksa da mevcut state'e dokunmaz.
+- Bozuk dosya otomatik silinmez, sıfırlanmaz veya yeniden `create()` edilmez.
+- Kullanıcıya/çağırana dönen corruption mesajı snapshot içeriğini veya içindeki kişisel/gizli veriyi yansıtmaz.
+
+Bu sınır yalnız persistence bütünlüğünü sertleştirir. Worker/model/UI'ya GoalState yazma yetkisi vermez; reducer/CAS otorite modeli, identity/audit koruması, terminal state ve atomic write kuralları değişmez.
+
 ## İlk gerçek cutover'dan önce zorunlu preflight kararları
 
 ### 1. Identity
@@ -93,9 +107,9 @@ Bu kapı geçilmeden canonical dosyanın varlığı veya compatibility sync'in �
 ## Kapsam dışı
 
 - `modules/goal_executor.py` değişikliği veya yeniden yazımı
-- reducer/CAS davranış değişikliği
+- reducer/CAS otorite modeli değişikliği
 - dual-write authority
 - worker/effect/permission değişikliği
 - yeni runtime/planner/subscription
 - ExecutionRecord implementasyonu
-- test, CI veya watcher değişikliği
+- CI veya watcher değişikliği
