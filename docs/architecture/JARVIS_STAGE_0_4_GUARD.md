@@ -78,6 +78,17 @@ Durable Job/Core
 → Reducer/CAS evidence
 ```
 
+## Alias tespiti
+
+ARCH-001/002/003, çağrıyı doğrudan `goal_tools.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
+
+- `from modules.goal_tools import execute as run_tool` → `run_tool(...)`
+- `import modules.goal_tools as tools` → `tools.execute(...)`
+- `from modules.goal_state_store import compare_and_swap as cas` → `cas(...)`
+- `import modules.runtime_execution_gate as gate` → `gate.plan_task(...)`
+
+Allowlist kontrolü değişmez: alias'lı çağrı da mevcut `_CAS_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
+
 ## Denetçinin kapsamı
 `modules/architecture_guard.py` yalnız deterministik, statik olarak kanıtlanabilen kuralları BLOCKER yapar. Yoruma açık roadmap sapmaları ayrı ajan/insan incelemesiyle değerlendirilir. Static guard birim testinin, Windows acceptance'ın veya gerçek effect testinin yerine geçmez.
 

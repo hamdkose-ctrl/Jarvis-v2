@@ -41,11 +41,55 @@ _DECISION_CONTEXT_KEYS = {
 }
 
 
-def _call_name(node: ast.Call) -> str | None:
+def _call_name(node: ast.Call, module_alias: dict | None = None, func_alias: dict | None = None) -> str | None:
+    module_alias = module_alias or {}
+    func_alias = func_alias or {}
     fn = node.func
+    if isinstance(fn, ast.Name):
+        # Direct call through a `from X import Y as Z` function alias, e.g.
+        # `from modules.goal_tools import execute as run_tool; run_tool(...)`.
+        return func_alias.get(fn.id)
     if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-        return f'{fn.value.id}.{fn.attr}'
+        # Attribute call through a module alias, e.g.
+        # `import modules.goal_tools as tools; tools.execute(...)`.
+        base = module_alias.get(fn.value.id, fn.value.id)
+        return f'{base}.{fn.attr}'
     return None
+
+
+def _collect_aliases(tree: ast.AST) -> tuple[dict, dict]:
+    """Resolve static import aliases that could otherwise hide a guarded call.
+
+    Only `import X as Y` / `from X import Y as Z` forms are resolved (plain,
+    non-aliased imports already match the existing attribute-call checks).
+    Dynamic constructs (getattr, eval, import hooks, etc.) are intentionally
+    left unresolved — the guard stays limited to what mechanical AST analysis
+    can prove.
+    """
+    module_alias: dict[str, str] = {}
+    func_alias: dict[str, str] = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not alias.asname:
+                    continue
+                # `import modules.goal_tools as tools` -> tools -> goal_tools
+                module_alias[alias.asname] = alias.name.rsplit('.', 1)[-1]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ''
+            for alias in node.names:
+                if not alias.asname:
+                    continue
+                if module == 'modules' or module.endswith('.modules'):
+                    # `from modules import goal_state_store as gss` -> submodule alias.
+                    module_alias[alias.asname] = alias.name
+                else:
+                    # `from modules.goal_tools import execute as run_tool`.
+                    short_module = module.rsplit('.', 1)[-1] if module else ''
+                    func_alias[alias.asname] = f'{short_module}.{alias.name}'
+
+    return module_alias, func_alias
 
 
 def _issue(rule: str, severity: str, path: str, line: int, message: str) -> dict:
@@ -112,10 +156,12 @@ def scan(root=None) -> dict:
         if relative == 'modules/goal_executor.py' and _has_fixed_attempt_one(tree):
             fixed_attempt_one = True
 
+        module_alias, func_alias = _collect_aliases(tree)
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            name = _call_name(node)
+            name = _call_name(node, module_alias, func_alias)
 
             if name == 'goal_state_store.compare_and_swap' and relative not in _CAS_ALLOWLIST:
                 blockers.append(_issue(
