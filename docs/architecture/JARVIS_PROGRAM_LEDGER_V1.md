@@ -15,6 +15,7 @@ Her ajan yeni işe başlamadan önce şu sırayı uygular:
 Kurallar:
 
 - Aynı iş/branch/commit daha önce merge edilmiş mi kontrol edilmeden yeni görev açılmaz.
+- Dal başlangıç noktası güncel `origin/main` olmalıdır. `git diff --stat origin/main` silme gösteriyorsa dal bayattır; bu fark gerçek işten değil, dalın hiç görmediği merge’lerden gelir. Bayat dal PR’a açılmaz, `--force`/rebase ile de zorlanmaz; `origin/main`’den yeni dal açılır.
 - GitHub PR durumu canlı otoritedir; bu belge anlık PR numaralarını kalıcı gerçek gibi tutmaz.
 - Bu ledger karar ve yol haritası otoritesidir. Canlı uygulama durumu için GitHub; mimari karar/sıra için bu ledger + referans verilen sözleşmeler okunur.
 - Bir PR bu ledger’daki karar/sırayı değiştiriyorsa merge sonrası ledger güncellemesi ayrıca değerlendirilir.
@@ -26,7 +27,8 @@ Aşağıdaki sınırlar program boyunca değişmez kabul edilir; aksi ancak ayr�
 
 - **Core tek authority’dir.** Planner/model/worker/watcher/UI/external agent yalnız proposal/result/event üretir; global lifecycle ve completion kararı Core’dadır. Kaynak: `docs/architecture/JARVIS_STAGE_0_4_GUARD.md`, `docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md`.
 - **Worker yalnız WorkerResult/evidence döndürür.** Worker `succeeded` dese bile global `done` değildir. Fence alanları kabul edilmeden sonuç state’e işlenmez. Kaynak: `modules/worker_result.py`, `modules/worker_result_commit.py`.
-- **GoalState yalnız Reducer/CAS üzerinden ilerler.** Worker/model/UI/watcher doğrudan canonical state yazamaz. Stale version, identity ve audit-prefix korunur. Kaynak: `modules/core_state_reducer.py`, `modules/goal_state_store.py`, `docs/architecture/JARVIS_STAGE_0_4_GUARD.md`.
+- **GoalState yalnız Reducer/CAS üzerinden ilerler.** Worker/model/UI/watcher doğrudan canonical state yazamaz. Stale version, identity ve audit-prefix korunur. Canonical storage mutation API’lerinin her biri ayrı dosya allowlist’ine bağlıdır ve allowlist’ler birbirine izin vermez: `create` yalnız `goal_state_compat`, `compare_and_swap` yalnız onaylı commit adaptörleri (`goal_state_compat`, `worker_result_commit`, `runtime_event_commit`), `compensate` yalnız `goal_state_save_hook` rollback yolu. Kaynak: `modules/core_state_reducer.py`, `modules/goal_state_store.py`, `modules/architecture_guard.py` (ARCH-001/004/005), `docs/architecture/JARVIS_STAGE_0_4_GUARD.md`.
+- **Canonical sync başarısızsa işlem orada durur.** Save-hook önce canonical sync, sonra legacy write yapar; `goal_state_compat.sync()` hatası yutulmaz, legacy write ve compensation hiç başlamaz, hiçbir dosyada otomatik repair yapılmaz. Hata kendi tanı noktasıyla (`_atomic:canonical_sync`) legacy-write ve compensation kayıtlarından ayrıştırılır. Kaynak: `modules/goal_state_save_hook.py`, `docs/architecture/GOALSTATE_CUTOVER_GAP_REGISTER_V1.md`.
 - **Karar sırası:** Domain invariant → Decision Authority → JIT Permission → Effect Policy → Worker. Permission/effect kararları worker’dan önce ve gerektiğinde yan etkiden hemen önce tekrar doğrulanır. Kaynak: `modules/runtime_execution_gate.py`, `modules/permission_gate.py`, capability manifest sözleşmeleri.
 - **Effect/crash recovery:** journal-required effect dış çağrıdan önce durable intent ister; intent var/receipt yoksa `unknown`, blind retry yok, yalnız read-only reconcile. Receipt olsa bile global completion değildir. Kaynak: `modules/effect_journal.py`, `modules/crash_recovery.py`, `modules/effect_recovery_runtime.py`, `docs/architecture/JARVIS_EFFECTFUL_WORKER_JOURNAL_MATRIX_V1.md`.
 - **Hermes/external agent ikinci Core değildir.** Yalnız adapter/worker adayıdır; kendi planner/engine/permission/state otoritesini Jarvis Core’un yerine koyamaz. Kaynak: `docs/architecture/JARVIS_HERMES_ADAPTER_BOUNDARY_V1.md`, `docs/architecture/JARVIS_EXTERNAL_SKILL_ADOPTION_V1.md`.
@@ -41,33 +43,38 @@ Bu bölüm “program temeli mevcut” anlamına gelir; her madde ayrı acceptan
 | JarvisBench v0 + fixture schema | Deterministik read-only evaluator, v0 case kataloğu ve observation fixture şeması mevcut; canlı acceptance yerine geçmez. | `modules/jarvis_bench.py`, `docs/architecture/JARVIS_BENCH_V0.md`, `tests/test_jarvis_bench.py`; benchmark/fixture PR türü |
 | Provider structured failures | Provider/runtime hataları için stabil `reason_code` ve `recovery_class` üretimi goal failure sonucuna bağlanmış; raw provider secret kullanıcı metnine taşınmamalı. | `modules/failure_policy.py`, `modules/goal_executor.py`, `tests/test_goal_failure_policy.py`; provider-resilience PR türü |
 | Effect journal manifest coverage | `conditional + required` capability’lerde intent/receipt/reconcile kuralı tanımlı; blind retry yasak. | `modules/capability_manifest.py`, `modules/effect_recovery_runtime.py`, `docs/architecture/JARVIS_EFFECTFUL_WORKER_JOURNAL_MATRIX_V1.md`; effect-journal contract PR türü |
-| Architecture Guard | Canonical writer, DecisionContext ve direct-executor kaçaklarını statik BLOCKER olarak yakalayan guard mevcut; validation’a bağlı. | `modules/architecture_guard.py`, `docs/architecture/JARVIS_STAGE_0_4_GUARD.md`; architecture-guard PR türü |
+| Architecture Guard | Statik BLOCKER kuralları: ARCH-000 okunamayan modül, ARCH-001 canonical CAS, ARCH-002 DecisionContext’siz durable gate, ARCH-003 ikinci direct executor, ARCH-004 canonical `create`, ARCH-005 canonical `compensate`. Alias (`import X as Y`, `from X import Z as W`) çağrılarını da AST üzerinden çözer; dinamik `getattr`/`eval`/import hook kapsam dışı. ARCH-W001/W002 görünür backlog; `modules.validation` guard’ı zorunlu çalıştırır. | `modules/architecture_guard.py`, `tests/test_architecture_guard.py`, `docs/architecture/JARVIS_STAGE_0_4_GUARD.md`; architecture-guard PR türü |
 | Persisted GoalState corruption hardening | Bozuk UTF-8/JSON/şema snapshot’ı kararlı corruption sınırında fail-closed; CAS/compensation bozuk snapshot üzerine sessizce yazmaz. | `modules/goal_state_store.py`, `tests/test_goal_state_persistence.py`; persistence-hardening PR türü |
 | Dual-write parity testleri | Legacy→canonical state/blocker/terminal/idempotency/rollback parity’si persistence testleriyle karakterize edilmiş; bu gerçek cutover değildir. | `modules/goal_state_compat.py`, `modules/goal_state_save_hook.py`, `tests/test_goal_state_persistence.py`; compatibility/parity PR türü |
+| Canonical sync failure observability | Save-hook, legacy write’a geçmeden önceki `sync()` hatasında ayrı tanı noktası üretiyor, aynı exception’ı yeniden fırlatıyor; legacy write/compensation çağrılmıyor, canonical byte değişmiyor. PR #305. | `modules/goal_state_save_hook.py`, `tests/test_goal_state_persistence.py`; observability PR türü |
+| Salt-okunur cutover preflight checker | Owner dizinini olduğu gibi okur, değiştirmeden tarar; `OK`, `INVALID_LEGACY_RECORD`, `UNKNOWN_LEGACY_STATE`, `MISSING_CANONICAL`, `CANONICAL_CORRUPT`, `IDENTITY_MISMATCH`, `STATE_DIVERGENCE`, `TERMINAL_DIVERGENCE` reason kodlarını döndürür. Dosya yazmaz, CAS/create/compensate çağırmaz, repair yapmaz. PR #306. Bu aracın `OK` üretmesi cutover’ın yapıldığı anlamına gelmez; yalnız “güvenli mi?” sorusuna cevap verir. | `modules/goalstate_cutover_preflight.py`, `tests/test_goalstate_cutover_preflight.py`, `docs/architecture/GOALSTATE_CUTOVER_PREFLIGHT_V1.md`; preflight-tool PR türü |
+| Canonical authority RFC | Dört cutover blocker’ı (execution_mode mapping, authority flip noktası, missing-state/identity, state/terminal uyuşmazlığı) için somut seçenekler, önerilen kararlar, kabul kriterleri, rollback sınırları ve gereken testler yazılı. **RFC bir karar belgesidir; önerilen kararlar henüz kabul edilmiş sayılmaz.** PR #307. | `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`; authority-rfc PR türü |
 
 ## 4. Mevcut aktif şerit
 
 **Aktif şerit: GoalState canonical cutover hazırlığı. Gerçek cutover henüz yapılmadı.**
 
-Kaynak: `docs/architecture/GOALSTATE_CUTOVER_V1.md` ve `docs/architecture/GOALSTATE_CUTOVER_GAP_REGISTER_V1.md`. Bugünkü runtime’da legacy `goal_executor` JSON journal write authority olarak kalır; canonical GoalState compatibility projection/sync katmanıdır.
+Kaynak: `docs/architecture/GOALSTATE_CUTOVER_V1.md`, `docs/architecture/GOALSTATE_CUTOVER_GAP_REGISTER_V1.md`, `docs/architecture/GOALSTATE_CUTOVER_PREFLIGHT_V1.md`, `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`. Bugünkü runtime’da legacy `goal_executor` JSON journal write authority olarak kalır; canonical GoalState compatibility projection/sync katmanıdır.
 
-Cutover’a geçmeden önce sıra:
+Cutover’a geçmeden önce sıra (durum güncel `main` kaynaklarından doğrulanmıştır; canlı merge durumu GitHub’dadır):
 
-1. **Sync observability hardening:** canonical sync failure tanı noktası görünür olmalı; hata yutulmamalı, legacy write/compensation yanlışlıkla başlamamalı.
-2. **Read-only preflight checker:** legacy/canonical çiftleri değiştirmeden identity/missing/corrupt/divergence sınıflarını raporlamalı.
-3. **Authority RFC:** canonical authority’nin hangi atomik sınırda devralacağı, missing-state/identity/terminal divergence ve rollback/reconcile politikası açıkça kabul edilmeli.
-4. **Yalnız kabul edilmiş migration planı** üzerinden uygulama PR’ları açılmalı.
+1. **Sync observability hardening — kapandı.** Canonical sync hatası kendi tanı noktasıyla görünür, hata yutulmuyor, legacy write/compensation başlamıyor.
+2. **Canonical storage writer guard — kapandı.** `create`/`compare_and_swap`/`compensate` ayrı allowlist’lerle statik BLOCKER; ikinci projection veya geri-yazma otoritesi PR aşamasında yakalanıyor.
+3. **Read-only preflight checker — kapandı.** Identity/missing/corrupt/divergence/terminal sınıfları değiştirmeden raporlanıyor.
+4. **Authority RFC — belge olarak kapandı.** Dört blocker için seçenekler, önerilen kararlar, kabul kriterleri ve rollback sınırları yazılı; **ancak önerilen kararlar kabul edilmiş karar değildir.**
+5. **Açık adım — RFC kararlarının kabulü.** `execution_mode` mapping, authority flip noktası, missing-state/identity politikası ve state/terminal uyuşmazlığı otoritesi açık onayla kesinleşmeden migration başlamaz.
+6. **Yalnız kabul edilmiş migration planı** üzerinden uygulama PR’ları açılmalı.
 
-Bu aşamada “canonical dosya var” veya “compat sync çalışıyor” demek cutover tamamlandı anlamına gelmez.
+Bu aşamada “canonical dosya var”, “compat sync çalışıyor” veya “preflight `OK` verdi” demek cutover tamamlandı anlamına gelmez.
 
 ## 5. Sıradaki iş sırası
 
 Program sırası şudur:
 
-1. Küçük GoalState hardening işleri.
-2. Salt-okunur preflight checker ve testleri.
-3. Authority RFC / cutover karar sözleşmesi.
-4. Kabul edilmiş migration karar/uygulama PR’ları.
+1. Küçük GoalState hardening işleri — **kapanmış adımlar** (writer guard, sync observability, corruption sertliği, parity testleri).
+2. Salt-okunur preflight checker ve testleri — **kapanmış adım**.
+3. Authority RFC / cutover karar sözleşmesi — belge **yazıldı**, karar **kabulü bekliyor**.
+4. Kabul edilmiş migration karar/uygulama PR’ları — **ilk açık adım**, 3. madde kapanmadan başlamaz.
 5. Final Stage 0–4 acceptance: Architecture Guard BLOCKER=0, full `modules.validation`, current merged main SHA üzerinde gerekli Windows/PC acceptance ve temsilî durable E2E kanıtı.
 6. **Ancak bundan sonra** read-only worker/Hermes pilotları ve capability-adoption deneyleri.
 
@@ -106,3 +113,7 @@ Her PR öncesi ve devralmada şu kontrol yapılır:
 ```
 
 Handoff sohbet hafızasına dayanmaz. Yeni ajan bu beş satırı yalnız başlangıç ipucu olarak kullanır; işe başlamadan önce yine güncel `main`, açık PR listesi ve bu ledger’ı doğrular.
+
+## 8. Bu ledger’ın sınırı
+
+Ledger karar ve sırayı taşır; kanıt üretmez. Bir madde ancak kaynakta merge edilmiş ve ilgili test/validation sonucu exact head SHA ile gösterilmişse “kapanmış” sayılır; belge yazılmış olmak karar verilmiş demek değildir (§4/4). Ledger ile GitHub çelişirse GitHub’ın gösterdiği kaynak durumu, ledger ile bir mimari sözleşme çelişirse sözleşme kazanır ve ledger düzeltilir. Ledger’ı güncel tutmak her adımın kendi PR’sının işidir; bayat ledger, bayat daldan daha tehlikelidir çünkü sonraki ajan ona güvenerek iş seçer.
