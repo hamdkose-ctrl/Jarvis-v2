@@ -15,3 +15,5 @@ Başlatma:
 - Oturum açılışında otomatik: `powershell -ExecutionPolicy Bypass -File scripts\install_pc_test_watcher_task.ps1`
 
 Raporlar `%LOCALAPPDATA%\Jarvis\pc-acceptance` altında tutulur. Her SHA yalnız bir kez test edilir; PASS/FAIL sonrası otomatik tekrar yoktur, yeni SHA yeni kabul turu başlatır. Doğrulama yalnız gözetlenen kökteki `.venv\Scripts\python.exe` ile çalışır; bu yorumlayıcı yoksa sistem Python'una düşülmez, başlamadan "ortam eksik" sonucu kaydedilir.
+
+Masaüstü Calculator kabulü yalnız tek ve açıkça seçilebilir hedefte çalışır. Birden fazla Hesap Makinesi penceresi varsa watcher hiçbirini kapatmaz veya rastgele seçmez; yeni pencere de açmadan `pending` raporlar. Fazla pencereler kullanıcı tarafından kapatıldıktan sonra yeni SHA ile yeniden kabul çalıştırılır.

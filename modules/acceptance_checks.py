@@ -127,6 +127,33 @@ def _news_chat_resume(owner):
             goal_executor.STORE=previous_store
 
 
+def _desktop_calculator(owner):
+    """Run Calculator acceptance only when its target is unambiguous.
+
+    This check must never close or choose between user-visible Calculator
+    windows. In particular, a failed acceptance must not create another
+    ambiguous window for the next run.
+    """
+    if platform.system()!='Windows':return 'pending','Requires real Windows desktop'
+    from modules import desktop_agent,system_control
+    if desktop_agent._BUSY.locked():return 'pending','Another desktop task is running'
+    list_windows=getattr(system_control,'_app_windows',None)
+    select_window=getattr(system_control,'_select_window',None)
+    windows=(select_window('Hesap Makinesi',list_windows())
+             if callable(list_windows) and callable(select_window) else [])
+    if len(windows)>1:
+        return 'pending',f'Birden fazla Hesap Makinesi penceresi var ({len(windows)}); yeni pencere açmadım. Fazla pencereleri kapatıp kabulü yeniden başlat.'
+    previous=desktop_agent._load(owner)
+    previous_id=previous.get('id') if previous else None
+    if not windows:
+        opened=system_control.open_application('hesap makinesi')
+        if getattr(opened,'ok',False) is not True:return 'failed','Calculator window not verified'
+    desktop_agent.handle(owner,'PC görevi: Hesap Makinesi | 12 ile 7 topla',current=lambda:owner)
+    job=desktop_agent._load(owner)
+    if not job or job.get('id')==previous_id:return 'pending','No new Calculator task was accepted'
+    return ('passed' if job and job['status']=='done' else 'pending','Check Calculator 19 and desktop task status')
+
+
 def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,news=False,
         manual_confirm=(),manual_reset=()):
     from modules import llm,personalization,service_health,validation
@@ -169,19 +196,7 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
             check('gmail_attachment',lambda:_gmail_attachment(owner))
         else:report['checks'].append({'check':'gmail_attachment','state':'pending','detail':'Run with --gmail after connecting the account'})
         if desktop:
-            def calc():
-                if platform.system()!='Windows':return 'pending','Requires real Windows desktop'
-                from modules import desktop_agent,system_control
-                if desktop_agent._BUSY.locked():return 'pending','Another desktop task is running'
-                previous=desktop_agent._load(owner)
-                previous_id=previous.get('id') if previous else None
-                opened=system_control.open_application('hesap makinesi')
-                if getattr(opened,'ok',False) is not True:return 'failed','Calculator window not verified'
-                desktop_agent.handle(owner,'PC görevi: Hesap Makinesi | 12 ile 7 topla',current=lambda:owner)
-                job=desktop_agent._load(owner)
-                if not job or job.get('id')==previous_id:return 'pending','No new Calculator task was accepted'
-                return ('passed' if job and job['status']=='done' else 'pending','Check Calculator 19 and desktop task status')
-            check('calculator',calc)
+            check('calculator',lambda:_desktop_calculator(owner))
         else:report['checks'].append({'check':'calculator','state':'pending','detail':'Run with --desktop on Windows'})
         if news:check('news_chat_resume',lambda:_news_chat_resume(owner))
         else:report['checks'].append({'check':'news_chat_resume','state':'pending','detail':'Run with --news for live fileless news + completed-goal resume acceptance'})
