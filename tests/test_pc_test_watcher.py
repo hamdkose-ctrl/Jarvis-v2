@@ -56,6 +56,15 @@ class PcTestWatcherTests(unittest.TestCase):
         self.assertIn('.venv\\Scripts\\python.exe', result['validation']['tail'])
         run.assert_not_called()
 
+    def test_existing_worktree_is_git_removed_before_filesystem_cleanup(self):
+        root = Path('repo'); target = Path('existing-worktree')
+        with mock.patch.object(watcher.Path, 'exists', return_value=True), \
+                mock.patch.object(watcher, 'remove_worktree') as remove, \
+                mock.patch.object(watcher, 'run') as run:
+            watcher.add_worktree(root, 'a'*40, target)
+        remove.assert_called_once_with(root, target)
+        self.assertEqual(run.call_args_list[-1].args[0][:3], ['git', 'worktree', 'add'])
+
     def test_normal_suite_does_not_run_news(self):
         validation = mock.Mock(returncode=0, stdout='OK')
         desktop = {'exit_code': 0, 'tail': '', 'checks': [{'check': 'calculator', 'state': 'passed'}]}

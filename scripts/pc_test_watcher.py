@@ -119,7 +119,9 @@ def branch_from_ref(ref: str) -> str:
 
 def add_worktree(root: Path, sha: str, target: Path) -> None:
     if target.exists():
-        shutil.rmtree(target, ignore_errors=True)
+        # Never delete a registered worktree directly: its .git indirection
+        # must be removed first or a later detached checkout can be partial.
+        remove_worktree(root, target)
     run(["git", "worktree", "prune"], cwd=root, check=False)
     run(["git", "worktree", "add", "--detach", str(target), sha], cwd=root)
 
