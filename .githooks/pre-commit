@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+if command -v py >/dev/null 2>&1; then
+  exec py -3.13 -X utf8 scripts/git_local_guard.py pre-commit
+fi
+exec python -X utf8 scripts/git_local_guard.py pre-commit
