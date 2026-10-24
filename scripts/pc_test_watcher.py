@@ -10,7 +10,10 @@ import tempfile
 import time
 from pathlib import Path
 
-DEFAULT_PATTERN = "refs/remotes/origin/gpt/*"
+# The expensive run is restricted by ``open_pr_refs`` below.  Do not restrict
+# it further by an individual agent's branch prefix: draft PRs may originate
+# from Codex, Claude, a human hotfix branch, or a future worker.
+DEFAULT_PATTERN = "refs/remotes/origin/*"
 STATE_NAME = "pc_test_watcher_state.json"
 REPORT_NAME = "pc_test_watcher_last.json"
 
@@ -85,10 +88,12 @@ def open_pr_refs(root: Path) -> set[str] | None:
     """Return remote refs whose GitHub PR is currently open.
 
     A Windows acceptance run is expensive and can open desktop applications.
-    Remote ``gpt/*`` branches are not sufficient proof that somebody currently
+    Remote branches alone are not sufficient proof that somebody currently
     needs a result: old, merged and abandoned branches remain on origin.  If
     GitHub cannot be queried, fail closed instead of accepting an unrelated
-    branch.
+    branch.  This open-PR check is deliberately the sole branch eligibility
+    rule, independent of whether the author used ``gpt/``, ``claude/`` or
+    another branch prefix.
     """
     gh = gh_exe()
     if not gh:

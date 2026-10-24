@@ -11,6 +11,10 @@ SPEC.loader.exec_module(watcher)
 
 
 class PcTestWatcherTests(unittest.TestCase):
+    def test_default_pattern_covers_all_remote_pr_branch_prefixes(self):
+        """Open-PR filtering, not an agent's branch prefix, limits runs."""
+        self.assertEqual(watcher.DEFAULT_PATTERN, 'refs/remotes/origin/*')
+
     def test_batch_does_not_force_news_acceptance(self):
         batch = (MODULE_PATH.parents[0] / 'pc_test_watcher.bat').read_text(encoding='utf-8')
         self.assertNotIn('pc_test_watcher.py --news', batch)
