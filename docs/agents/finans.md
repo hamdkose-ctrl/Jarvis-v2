@@ -1,5 +1,9 @@
 # Finans takibi (AGENTS.md alan notları)
 
+## Domain sınırı — 24 Ekim 2026
+
+Finance, Communication'ın alt yolu değildir. Bugünkü kapsam kur/piyasa/varlık verisi ve kaynaklı **salt-okuma analiz** ile sınırlıdır; veri kaynağı veya model izin, hedef ya da para hareketi yetkisi vermez. Hesap bağlantısı, token/parola, emir, alım-satım, transfer ve dış portföy/finansal kayıt yazısı kapalıdır. `money_credential` Permission Gate'te `deny` kalır; `external_write` veya grant ile sessizce açılmaz. Bir kişiye finans bilgisi gönderme, Finance değil Communication'ın `message_out` hattıdır ve kesin alıcı/JIT onay ister. Ayrıntılı karar: [Finance Domain kararı](../architecture/JARVIS_FINANCE_DOMAIN_DECISION.md).
+
 Plan: `raporlar/finans-takibi-plan-2026-10-18.md`. Kapsam yalnız okuma: piyasa verisi, takip listesi, fiyat alarmı. Alım/satım, para hareketi, banka/borsa hesabı bağlantısı yok. Hamdi'nin kararı (2026-10-18): resmî kaynaklar + gayriresmî kaynaklar (BIST, gram altın) ayarsız, hazır açık; ~15 dk gecikme sorun değil, cevapta kaynak ve gecikme yazılır.
 
 ## Kur cevabı ve çevirisi — 18 Ekim 2026
