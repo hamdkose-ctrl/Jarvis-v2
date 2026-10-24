@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import failure_policy, goal_tools, llm, privacy, requests_state, task_tools
+from modules import completion_policy, failure_policy, goal_tools, llm, privacy, requests_state, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
@@ -349,10 +349,10 @@ def _finish_completed(job):
     for goal in job['goals']:
         if not goal.get('evidence'):return False
         for ident in goal['evidence']:goal_tools.verify(job['outputs'][ident],job['owner'])
-        try:_check_news_completion(job,goal,goal['evidence'],final=True)
-        except ValueError as exc:
+        decision=completion_policy.evaluate_evidence(_check_news_completion,job,goal,goal['evidence'],final=True)
+        if decision['decision']!=completion_policy.COMPLETE:
             goal.update(state='pending',evidence=[])
-            job.setdefault('feedback',[]).append(str(exc));_save(job);return False
+            job.setdefault('feedback',[]).append(decision['reason']);_save(job);return False
     job['state']='done';job.pop('blocker',None);_save(job)
     return True
 
@@ -424,10 +424,10 @@ def _loop_steps(runtime,job,answer=None):
     if job['state']=='review':return render(job)
     for goal in job['goals']:
         if goal['state']=='done':
-            try:_check_news_completion(job,goal,goal['evidence'])
-            except ValueError as exc:
+            decision=completion_policy.evaluate_evidence(_check_news_completion,job,goal,goal['evidence'])
+            if decision['decision']!=completion_policy.COMPLETE:
                 goal.update(state='pending',evidence=[])
-                job.setdefault('feedback',[]).append(str(exc));_save(job)
+                job.setdefault('feedback',[]).append(decision['reason']);_save(job)
     if _finish_completed(job):return render(job)
     if answer is None:
         # A generic current-news request has no subject that needs a model to
@@ -549,7 +549,8 @@ def _loop_steps(runtime,job,answer=None):
                         step=next((s for s in job['steps'] if s['id']==ident),None)
                         if not step or step['goal']!=goal or step['state']!='done':raise ValueError('Bu hedefin başarılı adımı değil.')
                         goal_tools.verify(job['outputs'][ident],job['owner'])
-                    _check_news_completion(job,job['goals'][goal],evidence)
+                    decision=completion_policy.evaluate_evidence(_check_news_completion,job,job['goals'][goal],evidence)
+                    if decision['decision']!=completion_policy.COMPLETE:raise ValueError(decision['reason'])
                     job['goals'][goal].update(state='done',evidence=evidence)
                 else:
                     kind=call.get('tool');data=goal_tools.validate(kind,call.get('input'))
@@ -660,7 +661,7 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
         llm.discard_success_routes()
         raise
     job=latest(owner)
-    if not job or job['state']!='done':llm.discard_success_routes()
+    if not job or completion_policy.job_decision(job)!=completion_policy.COMPLETE:llm.discard_success_routes()
     return result
 
 
@@ -683,10 +684,10 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             if not job:return 'Sürdürülecek kayıtlı hedef yok.'
             if job['state']=='done':
                 for goal in job['goals']:
-                    try:_check_news_completion(job,goal,goal['evidence'])
-                    except ValueError as exc:
+                    decision=completion_policy.evaluate_evidence(_check_news_completion,job,goal,goal['evidence'])
+                    if decision['decision']!=completion_policy.COMPLETE:
                         goal.update(state='pending',evidence=[]);job['state']='paused'
-                        job.setdefault('feedback',[]).append(str(exc));_save(job)
+                        job.setdefault('feedback',[]).append(decision['reason']);_save(job)
             if job['state'] in {'done','cancelled'}:return render(job)
             if job['state']=='approval':
                 step=next(s for s in job['steps'] if s['id']==job['waiting'])
@@ -718,8 +719,7 @@ def render(job):
         if goal['state']=='done' or chat:
             partial=goal['state']!='done'
             evidence=goal['evidence'] if goal['state']=='done' else chat
-            try:_check_news_completion(job,goal,evidence)
-            except ValueError:partial=True
+            if completion_policy.evaluate_evidence(_check_news_completion,job,goal,evidence)['decision']!=completion_policy.COMPLETE:partial=True
             lines.append(('Kısmi: ' if partial else '✓ ')+goal['text'])
             steps={step['id']:step for step in job.get('steps',[]) if isinstance(step,dict) and step.get('id')}
             has_findings=any(steps.get(ident,{}).get('tool')=='research' and job['outputs'].get(ident,{}).get('state')=='done'

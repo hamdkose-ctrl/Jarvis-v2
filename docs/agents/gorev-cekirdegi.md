@@ -7,6 +7,12 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## Tamamlanma kararı saf policy'ye bağlandı (24 Ekim 2026)
+
+`modules/completion_policy.py` yeni, bağımsız ve saf bir modüldür: sağlayıcı/ağ çağrısı yapmaz, dosya okumaz, hiçbir şeyi değiştirmez. `evaluate_evidence(check,*args,**kwargs)` var olan bir kanıt kontrolünü (örn. `_check_news_completion`/`news_policy.check_completion`) çalıştırır; kontrol normal dönerse `complete`, `ValueError` fırlatırsa `continue` (ve hatanın metnini `reason` olarak) döner, başka istisna türünü yutmaz. `job_decision(job)` ise `job['state']`'i salt okunur okuyup `done→complete`, `cancelled→terminal`, `question`/`approval→waiting`, diğerleri `continue` olarak sınıflandırır; yeni durum icat etmez.
+`goal_executor.py`'deki `_check_news_completion` etrafındaki beş tekrarlı try/except ValueError bloğu (`_finish_completed`, `_loop_steps`'in goal yeniden-doğrulaması, `complete` aksiyonu, `_run`'ın resume-done kontrolü, `render`'ın kısmi gösterimi) artık `completion_policy.evaluate_evidence` üzerinden geçer; davranış aynıdır, karar artık ayrı ve test edilebilir bir yerdedir. `run()`'daki başarı-rotası tutma kontrolü de `completion_policy.job_decision` kullanır.
+İlk gerçek örnek tek seferlik read-only haber/araştırma kanıtıdır (`news_policy.check_completion`); RSS subscription, cron, yeni planner veya GoalState cutover eklenmedi. Test: `tests/test_completion_policy.py` (saf fonksiyonlar, goal_executor importu gerekmez) ve mevcut `tests/test_goal_executor.py` regresyonsuz geçer.
+
 ## Kalıcı yürütmede toparlanma ve uzman seçimi — 17 Ekim 2026
 - Son kontrol: 1378 Python testi OK (1 Windows DPAPI atlaması), 25 Node grubu ve 6 smoke grubu başarılı; 11 yeni varyasyon testi geçti. Son salt okunur kural incelemesi geçti. Windows canlı kabulü bu sonuçlara dahil değildir.
 - Geniş Türkiye AI haber görevinde ilk, kaynak adımı başlamadan yapılan kısmi kurtarma iki yayıncıda durabilir; sonraki devam mevcut raporu koruyarak kalan kayıtlı dizinleri önce dener. Normal kaynak denemesi olan görevde de bütün dizinler önce denenir. İlk tekil aday başarısızsa aynı dizindeki ikinci gerçek bağlantı kalan bütçede denenir. 10 toplam kurtarma / 24 tur / 96 görev adımı ve 45 saniyeden sonra yeni ağ adımı başlatmama sınırları korunur; katalog taraması Türkiye'nin bütün haberlerini kapsadığı iddiası değildir.
