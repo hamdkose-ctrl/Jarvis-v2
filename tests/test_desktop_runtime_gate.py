@@ -92,6 +92,19 @@ class DesktopRuntimeGateTests(unittest.TestCase):
         self.assertFalse(identity['replay_safe'])
         self.assertEqual(identity['attempt'], 0)
 
+    def test_direct_desktop_intent_uses_durable_goal_path_not_native_adapter(self):
+        """The natural-language shortcut must not create a second executor."""
+        from modules import engine_intents
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice'))
+        with patch('modules.goal_executor.run', return_value='Onay bekliyor.') as run, \
+             patch('modules.desktop_agent.handle') as native:
+            output = engine_intents.dispatch(
+                runtime, 'desktop_task', {'target': 'Paint', 'goal': 'bir çizgi çiz'},
+                'Paint içinde bir çizgi çiz', 'paint içinde bir çizgi çiz')
+        self.assertEqual(output, 'Onay bekliyor.')
+        run.assert_called_once_with(runtime, 'PC görevi: Paint | bir çizgi çiz')
+        native.assert_not_called()
+
     def test_reconcile_accepts_only_verified_matching_completed_native_task(self):
         from modules import desktop_agent, goal_tools
         runtime = self.runtime()

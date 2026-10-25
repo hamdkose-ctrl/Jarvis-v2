@@ -127,14 +127,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import goal_executor
             return goal_executor.run(runtime,command)
         case "desktop_task":
-            from modules import desktop_agent
             target, goal = str(a.get('target') or '').strip(), str(a.get('goal') or '').strip()
             if not target or not goal or '|' in target or '|' in goal:
                 return 'Hangi açık uygulamada ne yapmamı istiyorsun?'
-            result = desktop_agent.handle(runtime.profile.slug, 'PC görevi: '+target+' | '+goal,
-                runtime.emit, current=lambda: runtime.pc_profile().slug, source=runtime._cur_source)
-            runtime._session().pending_desktop = True if desktop_agent.awaiting(runtime.profile.slug) else None
-            return result
+            # The router shortcut only normalizes the user's exact target.  It
+            # must not become a second native desktop executor: goal_executor
+            # owns the durable identity, Core prepare approval, fence and CAS
+            # evidence path before desktop_agent can be called.
+            from modules import goal_executor
+            return goal_executor.run(runtime, 'PC görevi: '+target+' | '+goal)
         case "open_url":
             url = str(a.get("url") or "").strip()
             if not url:

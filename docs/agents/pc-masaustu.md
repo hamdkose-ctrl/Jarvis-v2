@@ -36,3 +36,8 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Recovery yeni ses ayarı göndermez: yalnız mevcut ses/mute değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
 - `brightness` ve medya tuşları bu PR'da durable hatta alınmaz. Mevcut adapter davranışları korunur; bunlar için eşdeğer bir gerçek geri-okuma receipt sözleşmesi tanımlanmadan “başarılı” kanıtı uydurulmaz.
 
+## Doğal dil PC görevi tek yürütme hattı — 25 Ekim 2026
+
+- Router'ın `desktop_task` kısayolu native `desktop_agent.handle` çağrısı yapmaz. Açık hedef/iş metnini mevcut `goal_executor`a devreder; böylece masaüstü işi Core prepare onayı, identity/fence, receipt ve Reducer/CAS kabulünden ayrı ikinci bir yoldan başlayamaz.
+- Bu yönlendirme yeni PC motoru değildir ve uygulama içi UIA davranışını değiştirmez. Eksik/hedefi belirsiz PC isteği önceki gibi netleştirme sorusuna gider.
+
