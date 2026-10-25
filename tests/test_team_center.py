@@ -81,6 +81,8 @@ class TeamTests(unittest.TestCase):
         job=goal_executor.latest('alice')
         self.assertEqual(job['state'],'done');self.assertEqual(job['steps'][0]['specialist']['id'],'finance')
         self.assertTrue(self.bridge.team_verify('goal',job['id'])['ok'])
+        self.assertTrue((goal_executor._root('alice')/(job['id']+'.execution.json')).exists())
+        self.assertEqual([j['id'] for j in team.snapshot('alice')['jobs']],[job['id']])
         Path(job['outputs']['s1']['file']).write_text('changed')
         self.assertFalse(self.bridge.team_verify('goal',job['id'])['ok'])
 

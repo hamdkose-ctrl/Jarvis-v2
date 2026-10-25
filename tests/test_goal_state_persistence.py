@@ -634,5 +634,98 @@ class GoalStateRFCDecision34Tests(unittest.TestCase):
         self.assertEqual(result['state']['state'], 'paused')
 
 
+
+class ExecutionRecordTests(unittest.TestCase):
+    """ExecutionRecord: execution payload beside canonical GoalState."""
+
+    setUp = GoalStatePersistenceTests.setUp
+    job = GoalStatePersistenceTests.job
+
+    def _fail_on(self, name):
+        from modules import goal_state_save_hook
+        original = goal_state_save_hook._ORIGINAL_ATOMIC
+
+        def fail(path, data):
+            if Path(path).name == name:
+                raise OSError(name + ' write failed')
+            return original(path, data)
+        return patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail)
+
+    def test_goal_executor_save_writes_execution_record_with_full_payload(self):
+        from modules import execution_record
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            job = self.job()
+            job['steps'] = [{'id': 's1', 'tool': 'writer', 'state': 'done'}]
+            job['outputs'] = {'s1': {'state': 'done', 'text': 'ok'}}
+            self.goal_executor._save(job)
+            record = self.root / 'alice' / '0123456789abcdef.execution.json'
+            stored = json.loads(record.read_text(encoding='utf-8'))
+            self.assertEqual(stored['schema'], execution_record.SCHEMA)
+            self.assertEqual(stored['job'], job)
+            self.assertEqual(self.goal_executor.latest('alice'), job)
+
+    def test_latest_reads_execution_record_even_without_legacy_journal(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            self.goal_executor._save(self.job())
+            self.goal_executor._save(self.job('paused'))
+            (self.root / 'alice' / '0123456789abcdef.json').unlink()
+            self.assertEqual(self.goal_executor.latest('alice')['state'], 'paused')
+
+    def test_latest_falls_back_to_legacy_journal_saved_before_execution_record(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            root = self.goal_executor._root('alice')
+            legacy = {'id': '0123456789abcdef', 'owner': 'alice', 'state': 'paused', 'steps': []}
+            (root / '0123456789abcdef.json').write_text(json.dumps(legacy), encoding='utf-8')
+            (root / 'latest.json').write_text(json.dumps({'id': '0123456789abcdef'}))
+            self.assertEqual(self.goal_executor.latest('alice'), legacy)
+
+    def test_execution_record_owner_or_id_mismatch_is_rejected(self):
+        from modules import execution_record
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            self.goal_executor._save(self.job())
+            record = self.root / 'alice' / '0123456789abcdef.execution.json'
+            stored = json.loads(record.read_text(encoding='utf-8'))
+            stored['job']['owner'] = 'bob'
+            record.write_text(json.dumps(stored), encoding='utf-8')
+            with self.assertRaises(PermissionError):
+                self.goal_executor.latest('alice')
+        with self.assertRaises(ValueError):
+            execution_record.load(self.root, 'alice', '../escape')
+
+    def test_legacy_write_failure_rolls_back_new_execution_record(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            with self._fail_on('0123456789abcdef.json'):
+                with self.assertRaisesRegex(OSError, 'write failed'):
+                    self.goal_executor._save(self.job())
+            root = self.root / 'alice'
+            self.assertFalse((root / '0123456789abcdef.execution.json').exists())
+            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+
+    def test_legacy_write_failure_restores_previous_execution_record(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            self.goal_executor._save(self.job())
+            record = self.root / 'alice' / '0123456789abcdef.execution.json'
+            before = record.read_bytes()
+            with self._fail_on('0123456789abcdef.json'):
+                with self.assertRaisesRegex(OSError, 'write failed'):
+                    self.goal_executor._save(self.job('paused'))
+            self.assertEqual(record.read_bytes(), before)
+
+    def test_execution_record_write_failure_compensates_canonical_and_skips_legacy(self):
+        from modules import goal_state_save_hook
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            with self._fail_on('0123456789abcdef.execution.json'), \
+                 patch.object(goal_state_save_hook, '_record_failure') as record_failure:
+                with self.assertRaisesRegex(OSError, 'write failed'):
+                    self.goal_executor._save(self.job())
+            root = self.root / 'alice'
+            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+            self.assertFalse((root / '0123456789abcdef.json').exists())
+            self.assertFalse((root / 'latest.json').exists())
+            record_failure.assert_called_once_with(
+                'modules/goal_state_save_hook.py:_atomic:execution_record_write'
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

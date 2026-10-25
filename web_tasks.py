@@ -71,13 +71,13 @@ class WebTasks:
             job = task_agents._load(owner,identity)
             verify = lambda output: task_results.verify(output,owner=owner)
         elif kind == 'goal':
-            import json
-            path = goal_executor._root(owner)/(identity+'.json')
-            if path.is_symlink() or not path.is_file() or path.stat().st_size>16_000_000:
-                raise ValueError('Görev kaydı geçersiz.')
-            job = json.loads(path.read_text(encoding='utf-8'))
-            if job.get('owner')!=owner or job.get('id')!=identity:
-                raise ValueError('Görev sahibi eşleşmiyor.')
+            from modules import execution_record
+            try:
+                job = execution_record.load(goal_executor._root(owner),owner,identity)
+            except PermissionError:
+                raise ValueError('Görev sahibi eşleşmiyor.') from None
+            except (OSError,ValueError):
+                raise ValueError('Görev kaydı geçersiz.') from None
             verify = lambda output: goal_tools.verify(output,owner)
         else:
             raise ValueError('Görev türü geçersiz.')
