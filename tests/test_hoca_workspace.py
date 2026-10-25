@@ -194,5 +194,57 @@ class SourceReadingTests(unittest.TestCase):
         self.assertIsNone(hw.course_context(hw.get_course(p, c["id"])))
 
 
+SUBTASK_PLAN = '{"subtasks":[{"title":"Kaynak araştırması","due":"2026-11-01"},{"title":"Taslak yazımı","due":"2026-11-05"},{"title":"Son okuma","due":"2026-11-08"}]}'
+
+
+class DecomposeAssignmentTests(unittest.TestCase):
+    """4a: büyük ödev/projeyi alt görevlere bölme (tek model çağrısı, salt-okunur kaynak gerektirmez)."""
+
+    def test_unknown_course_id_raises(self):
+        p = _profile()
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.decompose_assignment(p, 999, "Dönem projesi")
+
+    def test_creates_parent_and_subtasks(self):
+        from modules import llm
+        p = _profile()
+        c = hw.add_course(p, "Tarih")
+        with patch.object(llm, "ask", return_value=SUBTASK_PLAN):
+            result = hw.decompose_assignment(p, c["id"], "Dönem projesi", due="2026-11-10")
+        self.assertEqual(result["parent"]["title"], "Dönem projesi")
+        self.assertEqual(result["parent"]["origin"], "manual")
+        self.assertEqual(len(result["subtasks"]), 3)
+        self.assertTrue(all(s["origin"] == "decomposed" for s in result["subtasks"]))
+        self.assertTrue(all(s["parent_id"] == result["parent"]["id"] for s in result["subtasks"]))
+        all_assignments = hw.list_assignments(p, c["id"])
+        self.assertEqual(len(all_assignments), 4)  # 1 asıl + 3 alt görev
+
+    def test_too_few_subtasks_raises_and_parent_still_recorded(self):
+        from modules import llm
+        p = _profile()
+        c = hw.add_course(p, "Tarih")
+        with patch.object(llm, "ask", return_value='{"subtasks":[{"title":"Tek adım"}]}'):
+            with self.assertRaises(hw.HocaWorkspaceError):
+                hw.decompose_assignment(p, c["id"], "Dönem projesi")
+        # Asıl ödev model hatasından önce eklendiği için kayıtta kalır (kullanıcı elle alt görev ekleyebilir).
+        self.assertEqual(len(hw.list_assignments(p, c["id"])), 1)
+
+    def test_malformed_model_answer_raises(self):
+        from modules import llm
+        p = _profile()
+        c = hw.add_course(p, "Tarih")
+        with patch.object(llm, "ask", return_value="bozuk cevap, json yok"):
+            with self.assertRaises(hw.HocaWorkspaceError):
+                hw.decompose_assignment(p, c["id"], "Dönem projesi")
+
+    def test_model_call_failure_raises_hoca_workspace_error(self):
+        from modules import llm
+        p = _profile()
+        c = hw.add_course(p, "Tarih")
+        with patch.object(llm, "ask", side_effect=RuntimeError("ağ hatası")):
+            with self.assertRaises(hw.HocaWorkspaceError):
+                hw.decompose_assignment(p, c["id"], "Dönem projesi")
+
+
 if __name__ == "__main__":
     unittest.main()

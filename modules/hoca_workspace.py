@@ -1,8 +1,10 @@
-"""Hoca çalışma alanı — domain sözleşmesi (1. adım).
+"""Hoca çalışma alanı — domain sözleşmesi (1. adım) + ödev parçalama (4a).
 
-Yalnız veri modeli: ders, oturum, kaynak, hedef (ödev/deadline) ve ilerleme kaydı/okuma.
-Model çağrısı, UI, dönem haritası/takvim hesaplaması ve onaylı takvim değişikliği
-yoktur — bunlar sonraki adımlar (bkz. docs/agents/hoca.md).
+Çoğunlukla veri modeli: ders, oturum, kaynak, hedef (ödev/deadline) ve ilerleme
+kaydı/okuma. Tek istisna `decompose_assignment` (4a, 25 Ekim 2026): büyük bir
+ödevi alt göreve bölmek için tek bir model çağrısı yapar. Dönem haritası/takvim
+hesaplaması ve onaylı takvim değişikliği henüz yok — bunlar sonraki adımlar
+(bkz. docs/agents/hoca.md).
 
 Mevcut `modules/hoca.py` (ders/adım anlatımı, zayıf konu/tekrar) bu modüle sonraki
 adımda bağlanacak; burada ona dokunulmadı, ikisi de `profile.data` üzerinde ayrı
@@ -23,8 +25,11 @@ Hamdi'nin kararları (25 Ekim 2026, bkz. docs/agents/hoca.md):
 """
 from __future__ import annotations
 
+import json
 import re
 import time
+
+from modules.diagnostics import record_failure as _record_failure
 
 LEVELS = ("lgs", "lise", "üniversite", "genel")
 SOURCE_TYPES = ("kitap", "pdf", "video", "web", "çıkmış_soru")
@@ -115,7 +120,11 @@ def add_source(profile, course_id: int, source_type: str, ref: str, label: str =
     return source
 
 
-def add_assignment(profile, course_id: int, title: str, due: str = "", origin: str = "manual") -> dict:
+_ASSIGNMENT_ORIGINS = ("manual", "syllabus", "decomposed")
+
+
+def add_assignment(profile, course_id: int, title: str, due: str = "", origin: str = "manual",
+                    parent_id: int | None = None) -> dict:
     course = _require_course(profile, course_id)
     title = _clip(title, _LABEL_MAX)
     if not title:
@@ -124,13 +133,65 @@ def add_assignment(profile, course_id: int, title: str, due: str = "", origin: s
         "id": _next_id(course["assignments"]),
         "title": title,
         "due": _clip(due, 40),  # serbest biçim (ör. "2026-11-03"); takvim bağlantısı sonraki adım
-        "origin": origin if origin in ("manual", "syllabus") else "manual",
+        "origin": origin if origin in _ASSIGNMENT_ORIGINS else "manual",
         "done": False,
         "created": int(time.time()),
     }
+    if parent_id is not None:
+        assignment["parent_id"] = parent_id  # yalnız "decomposed" alt görevlerinde dolu
     course["assignments"].append(assignment)
     profile.save()
     return assignment
+
+
+_DECOMPOSE_MIN = 2
+_DECOMPOSE_MAX = 6
+
+
+def decompose_assignment(profile, course_id: int, title: str, due: str = "", context: str = "") -> dict:
+    """Büyük bir ödevi/projeyi 2-6 küçük alt göreve böler (tek model çağrısı).
+    Asıl ödev normal (`manual`) olarak eklenir; alt görevler `decomposed` kökenli,
+    `parent_id`'si asıl ödeve işaret eden ayrı kayıtlardır — hiçbiri silinmez/birleştirilmez.
+    Henüz takvime yazmaz (bkz. docs/agents/hoca.md, 5. adım: onaylı takvim değişikliği)."""
+    from modules import llm
+    course = _require_course(profile, course_id)
+    parent = add_assignment(profile, course_id, title, due=due, origin="manual")
+    prompt = f"Ödev/proje: {parent['title']}\nDers: {course['name']}\nTeslim: {due or 'belirtilmedi'}"
+    if context:
+        prompt += f"\nEk bilgi: {_clip(context, 1000)}"
+    system = ("Sen bir çalışma planlayıcısısın. Verilen ödevi/projeyi 2-6 küçük, sıralı alt göreve böl. "
+              "Yalnız JSON ver: {\"subtasks\":[{\"title\":\"kısa başlık\",\"due\":\"YYYY-MM-DD veya boş\"}]}. "
+              "Teslim tarihi verildiyse alt görev tarihlerini ona göre geriye doğru makul aralıklarla dağıt; "
+              "verilmediyse tarihleri boş bırak.")
+    try:
+        answer = llm.ask(prompt, system, 500)
+    except Exception as exc:
+        _record_failure('modules/hoca_workspace.py:decompose_assignment')
+        raise HocaWorkspaceError(f"Ödev parçalanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
+    m = re.search(r"\{.*\}", str(answer or ""), re.S)
+    try:
+        data = json.loads(m.group(0)) if m else None
+    except ValueError:
+        data = None
+    items = data.get("subtasks") if isinstance(data, dict) else None
+    planned = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        sub_title = _clip(it.get("title"), _LABEL_MAX)
+        if not sub_title:
+            continue
+        planned.append((sub_title, _clip(it.get("due"), 40)))
+        if len(planned) >= _DECOMPOSE_MAX:
+            break
+    if len(planned) < _DECOMPOSE_MIN:
+        # Asıl ödev zaten eklendi (kullanıcı elle alt görev ekleyebilir); yarım-kayıt
+        # bırakmamak için hiçbir alt görev yazılmadan açık hata verilir.
+        raise HocaWorkspaceError("Ödev planı eksik geldi (en az 2 alt görev gerekir). Biraz sonra tekrar dene.")
+    subtasks = [add_assignment(profile, course_id, sub_title, due=sub_due,
+                                origin="decomposed", parent_id=parent["id"])
+                for sub_title, sub_due in planned]
+    return {"parent": parent, "subtasks": subtasks}
 
 
 def list_assignments(profile, course_id: int | None = None) -> list:

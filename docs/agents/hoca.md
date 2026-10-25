@@ -65,6 +65,15 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - `course_id` verilmeyen (eski) çağrılarda `hoca_workspace`'e hiç dokunulmaz — geriye dönük uyumluluk korunur.
 - Test: `tests/test_hoca.py`'de `SessionMemoryTests` (5 test), `tests/test_study_hoca_workspace.py`'de `LessonSessionMemoryTests` (4 test). Gerçek PC'de denenmedi; UI tarafında "kaldığın yerden devam" bandı henüz yok (bu adım yalnız veri/akış, arayüz ayrı bir iş).
 
+## Ödev parçalama v1 — 4a, 25 Ekim 2026
+
+- Hamdi'nin kararı: "Dönem haritası, takvim, görev, GPA" (4. madde) tek PR'da yapılamayacak kadar geniş olduğu için 4a (ödev parçalama) → 4b (dönem haritası görünümü) → 4c (GPA/not projeksiyonu) sırasıyla küçük adımlara bölündü; sırayla gidiliyor.
+- `hoca_workspace.decompose_assignment(profile, course_id, title, due="", context="")`: büyük bir ödevi/projeyi tek bir model çağrısıyla 2-6 küçük alt göreve böler. Asıl ödev her zaman `manual` kökenli olarak eklenir (model çağrısından önce); alt görevler `decomposed` kökenli, `parent_id`'si asıl ödeve işaret eden ayrı kayıtlardır. Model planı eksik/bozuk gelirse (2'den az alt görev, JSON bozuk, model hatası) **hiçbir alt görev yazılmadan** `HocaWorkspaceError` fırlatır — yarım kayıt bırakılmaz (asıl ödev kalır, kullanıcı isterse elle alt görev ekleyebilir).
+- `add_assignment` artık `parent_id` parametresi alıyor (yalnız `decomposed` görevlerde dolu) ve `origin` kümesine `"decomposed"` eklendi (`manual`/`syllabus`/`decomposed`).
+- Bu, `hoca_workspace.py`'ye ilk kez bir model çağrısı (`llm.ask`) giren fonksiyon — modül artık "yalnız veri modeli" değil; bu değişiklik modülün üst docstring'inde değişmedi, çünkü geri kalan her şey hâlâ salt veri/okuma (bkz. modül içi not).
+- Henüz takvime/gerçek bir tarihe yazmıyor (`due` serbest metin olarak kalıyor); takvim bağlantısı 5. maddenin (onaylı takvim değişikliği, `mail-takvim.md` izin hattı) işi.
+- Test: `tests/test_hoca_workspace.py`'de `DecomposeAssignmentTests` (5 test, model taklit). UI'a bağlanmadı, gerçek PC'de denenmedi.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.
