@@ -19,3 +19,9 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - İlk Core onayı owner/job/step/capability-version/input-digest alanlarına bağlı prepare artifact'idir. Bu artifact doğrudan UIA tıklama onayı değildir. Native adapter daha sonra somut bir kontrol için ayrı onay isterse bu ikinci onay WorkerResult başarısı veya global completion sayılmaz.
 - Başarılı masaüstü sonucu yalnız doğrulanmış native görev geçmişiyle `desktop_uia:<desktop_id>` receipt'i taşır; ardından WorkerResult fence ve mevcut Reducer/CAS evidence hattına girer. Crash/restart sonrası recovery yalnız aynı owner/target/goal için doğrulanmış `done` native görevini okur; yeni pencere açmaz ve kör tıklama/tekrar yapmaz.
 
+## Salt-okunur pencere gözlemi — 25 Ekim 2026
+
+- Mevcut `observe` goal aracı `kind=window` ile açık bir uygulamanın sınırlı UIA görünümünü alabilir. Bu, yeni bir PC motoru veya ikinci tool catalog değildir; `desktop_agent.run(..., read_only=True)` yolunu kullanır.
+- Bu yol pencere açmaz, model çağırmaz, tıklama/yazma/klavye girdisi göndermez ve masaüstü görev kaydı oluşturmaz. Hedef pencere yoksa ya da korunan bir uygulamaysa başarı uydurmaz.
+- Gözlemde yalnız pencere kimliği ile redakte edilmiş/sınırlı kontrol metadatası vardır; değer alanları ve şifre alanları dışarı verilmez. Gizli ve yalnız-yerel modlarda ekran gizlilik kapısı geçerlidir.
+
