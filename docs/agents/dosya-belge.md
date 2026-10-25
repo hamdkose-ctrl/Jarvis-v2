@@ -2,6 +2,15 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## FileWorker v1 — 25 Ekim 2026
+
+- `modules/file_worker.py`: dosya çalışma alanının ilk (salt-okunur) katmanı. `docs/architecture/JARVIS_FILEWORKER_READONLY_BENCHMARK_V1.md`'de tanımlı evidence sözleşmesine uyar; yeni parser/OCR/model eklemez, `docs.py`/`document_conversion.py`'nin mevcut okuyucularını orkestre eder.
+- `scan_folder(folder)`: yalnız `file_ops._roots()` ile aynı bilinen klasörler (Masaüstü, İndirilenler, Belgeler, Resimler, Jarvis Dosyaları) ve alt klasörleri taranır; dışındaki bir yol `PERMISSION_MISMATCH` ile reddedilir. En çok 500 dosya (`MAX_SCAN_FILES`); bilinen gürültü dosyaları (`files._IGNORE`/`_IGNORE_EXT`) atlanır.
+- `extract(path)`: PDF/DOCX/XLSX/CSV/TXT/MD için `document_conversion.read_source()` üzerinden sayfa/satır/sayfa adı/hücre konumlu evidence (`Location`) üretir; diğer desteklenen biçimler (PPTX/HTML/RTF/ODT/JSON/XLSM) `docs.read_document()` ile düz metin + (varsa) sayfa numarası verir. Her sonuç içerik `sha256` digest'i taşır (`MAX_DIGEST_BYTES` üstü dosyada digest hesaplanmaz, uydurma eşleşme üretilmez). Hiçbir yol yazma/silme/taşıma yapmaz.
+- `find_duplicates`/`find_similar_names`: içerik digest'i veya ad benzerliğiyle (sondaki `(1)` gibi sayaç ekleri yok sayılarak) dosya gruplar; salt öneri amaçlı, hiçbir dosyayı değiştirmez.
+- Hata/boşluk durumları sessiz başarı üretmez: `FILE_NOT_FOUND`, `PERMISSION_MISMATCH`, `UNSUPPORTED_FORMAT`, `ENCRYPTED_OR_PROTECTED`, `CORRUPT_DOCUMENT`, `READ_TIMEOUT`, `NO_TEXT_EXTRACTED` reason code'larından biriyle döner.
+- Test: `tests/test_file_worker.py` (13 test, izole tmp klasörle; gerçek Masaüstü/Belgeler'e dokunmaz). Bu PR yalnız çıkarım katmanıdır; klasör envanteri raporu, görsel komutlar, Dosyalar ekranı ve onaylı düzenleme effect'leri sonraki adımlardır (Hoca modu bağlantısı bu kapsamda değildir).
+
 ## Klasör analizi — 17 Ekim 2026
 - `modules/folder_analysis.py`: "İndirilenler klasörünü incele", "masaüstümde ne var", "belgeler klasörü ne hakkında", "indirilenlerdeki Proje klasörünü incele" (ASCII yazım dahil) ve tırnaklı klasör yolu (`main_documents._file_command`). Bağlantı `engine_tools._extra_commands` içinde tek satırdır, model yönlendirmesinden önce çalışır. Düzenle/aç/sil/taşı/izle, tek dosya ("… dosyasını özetle") ve "… geçiyor mu" aramaları bu yola girmez.
 - Yalnız `nxapi.allowed` klasörleri; en çok 2 alt klasör seviyesi, 60 belge / 50 MB okuma, 90 sn, 2000 dosya sayımı. Sembolik bağ ve kısayol izlenmez. Fazlası raporda "Sınırlar" satırında söylenir.
