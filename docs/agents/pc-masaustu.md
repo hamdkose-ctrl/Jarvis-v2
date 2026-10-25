@@ -36,6 +36,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Recovery yeni ayar göndermez: yalnız mevcut ses/mute ya da her okunabilir ekrandaki parlaklık değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
 - Medya tuşları eşdeğer bir gerçek geri-okuma receipt sözleşmesi olmadığı için durable hatta alınmaz; başarı kanıtı uydurulmaz.
 - Aynı geri-okuma şartı hedef yürütücüsü dışındaki hızlı doğal dil parlaklık komutlarında da kullanılır; sürücü çağrısı tek başına kullanıcıya “ayarladım” yanıtı verdirmez.
+- Hızlı doğal dilde uygulama kapatma da mutasyondur: pencereye `WM_CLOSE` göndermeden önce açık uygulama adıyla onay alınır. Bu yalnız var olan hızlı yolu güvenli kılar; native masaüstü işlerinin Core hattını değiştirmez.
 
 ## Doğal dil PC görevi tek yürütme hattı — 25 Ekim 2026
 

@@ -221,7 +221,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             name = str(a.get("name") or "").strip()
             if not name:
                 return "Hangi uygulamayı kapatayım?"
-            return runtime.system_control.close_application(name) or f"'{name}' adında açık bir uygulama bulamadım."
+            runtime._session().pending_confirm = {'action': 'close_app', 'name': name}
+            return (f"{name} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
+                    "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
         case "handoff":
             from modules import handoff
             text = runtime._plain(str(a.get("text") or ""))

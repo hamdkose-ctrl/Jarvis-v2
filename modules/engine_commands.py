@@ -133,6 +133,11 @@ def handle(runtime, command: str) -> str:
                     return 'Bilgisayarı kapatma komutu kabul edilmedi; kapatma zamanlandı demiyorum.'
                 runtime.privacy.audit("bilgisayarı kapatma", "60 sn zamanlandı")
                 return "Bilgisayarı 60 saniye içinde kapatmak üzere zamanladım. İptal için kapatmayı iptal et de."
+            if isinstance(action, dict) and action.get('action') == 'close_app':
+                name = str(action.get('name') or '').strip()
+                if name:
+                    return (runtime.system_control.close_application(name)
+                            or f"'{name}' adında açık bir uygulama bulamadım.")
         if approval is False:
             return "Tamam, vazgeçtim."
         # Başka bir komut geldi: onay iptal edildi, normal akışa devam et.
@@ -343,9 +348,10 @@ def handle(runtime, command: str) -> str:
     if cm and len(cm.group(1)) <= 40 and not runtime.re.match(
             r"^(?:ses|sesi|müzi|bilgisayar|pc|mikrofon|kamera|ekran|paylaşım|ışı|wifi|internet|bluetooth|"
             r"jarvis|telefon|uyku|alarm|hatırlat|bildirim|parlaklı)", cm.group(1)):
-        closed = runtime.system_control.close_application(cm.group(1))
-        if closed:
-            return closed
+        name = cm.group(1)
+        runtime._session().pending_confirm = {'action': 'close_app', 'name': name}
+        return (f"{name} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
+                "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
 
     # Uygulama açma: yalnızca izinli listedeki uygulamalar
     om = runtime.re.match(r"^(?:lütfen\s+)?(.+?)\s+(?:aç|açar mısın|açsana|başlat|çalıştır)$", cmd_lower)
