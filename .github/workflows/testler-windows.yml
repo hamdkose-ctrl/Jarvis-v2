@@ -1,9 +1,12 @@
 name: Windows testleri
 
-# Windows self-hosted runner PR doğrulamasını çalıştırır; aynı iş main'e birleşmede
-# yeniden otomatik çalışmaz. Elle başlatma seçeneği korunur.
+# Windows self-hosted runner PR doğrulamasını çalıştırır; main'e her push'ta da
+# aynı iş current main SHA'sı üzerinde ayrıca çalışır (Final Stage 0-4 acceptance
+# şartı: current merged main SHA'sında Windows CI kanıtı). Elle başlatma seçeneği korunur.
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
