@@ -99,11 +99,17 @@ class BuildReportTests(FileInventoryTestCase):
 class ExportXlsxTests(FileInventoryTestCase):
     """export_xlsx, workbench.write_output/unique_path'i çağırır ama bu testte
     workbench'in kendisini (ve dolayısıyla llm/google-genai zincirini) gerçekten
-    içeri almaz: sys.modules'te yalnız bu test süresince sahte bir workbench
-    konur (patch.dict ile test sonunda otomatik geri alınır, başka teste sızmaz).
-    Gerçek workbench.write_output'un doğru Excel ürettiği ayrıca elle, gerçek
-    modülle (google.genai kurulu bir ortamda) doğrulandı; bu test yalnız
-    export_xlsx'in doğru sheet/yol üretip var olan yazıcıyı çağırdığını sınar."""
+    içeri almaz: fonksiyona `_workbench=` parametresiyle sahte bir nesne verilir.
+    (Not: önce sys.modules'i patch.dict ile değiştirmeyi denedim; tek dosya
+    çalıştırınca geçti ama tüm paket testiyle birlikte çalışınca başka bir test
+    dosyası gerçek workbench'i önceden içeri almış olduğundan Python'un import
+    önbellekleme/öznitelik davranışı yüzünden sessizce atlanıyordu —
+    `test_builds_sheets_and_calls_existing_writer` o yüzden tek başına geçip tam
+    paket koşusunda gerçekten FAIL verdi. Doğrudan parametre vermek bu
+    kırılganlığı ortadan kaldırıyor.) Gerçek workbench.write_output'un doğru
+    Excel ürettiği ayrıca elle, gerçek modülle (google.genai kurulu bir
+    ortamda) doğrulandı; bu test yalnız export_xlsx'in doğru sheet/yol üretip
+    var olan yazıcıyı çağırdığını sınar."""
 
     def test_builds_sheets_and_calls_existing_writer(self):
         self.write('rapor.txt', 'aynı')
@@ -122,9 +128,7 @@ class ExportXlsxTests(FileInventoryTestCase):
             def write_output(destination, title, sheets):
                 calls.append((destination, title, sheets))
 
-        import sys
-        with patch.dict(sys.modules, {'modules.workbench': FakeWorkbench}):
-            path = fi.export_xlsx(report)
+        path = fi.export_xlsx(report, _workbench=FakeWorkbench)
 
         self.assertEqual(path, str(self.root / 'Klasor_Envanteri.xlsx'))
         self.assertEqual(len(calls), 1)
@@ -152,9 +156,7 @@ class ExportXlsxTests(FileInventoryTestCase):
             def write_output(destination, title, sheets):
                 pass
 
-        import sys
-        with patch.dict(sys.modules, {'modules.workbench': FakeWorkbench}):
-            fi.export_xlsx(report)
+        fi.export_xlsx(report, _workbench=FakeWorkbench)
         self.assertEqual(p.read_bytes(), before)
 
 

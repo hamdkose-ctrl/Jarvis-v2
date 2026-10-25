@@ -95,16 +95,26 @@ def _group_rows(groups: list[list[dict]], group_label: str) -> list[list]:
     return out
 
 
-def export_xlsx(report: InventoryReport) -> str:
+def export_xlsx(report: InventoryReport, *, _workbench=None) -> str:
     """Raporu, kaynak klasörün içine yeni bir `.xlsx` dosyası olarak yazar.
 
     Dosya adı `unique_path` ile çakışma yaşamaz (var olan bir adın üzerine
     yazılmaz). Döndürülen yol string'dir. Hiçbir taranan dosyaya dokunulmaz;
     yalnız yeni, tek bir özet dosyası eklenir.
+
+    `_workbench` yalnız testler içindir (gerçek `modules.workbench`'i tüm
+    `llm`/google-genai zincirine girmeden değiştirmek için doğrudan parametre
+    olarak verilir). `sys.modules` üzerinden gizlice değiştirmek, `workbench`
+    bu süreçte başka bir yerden önceden gerçekten içeri alınmışsa Python'un
+    import önbelleklemesi nedeniyle sessizce işe yaramaz — bu yüzden parametre
+    kullanılır, modül yama tekniği kullanılmaz.
     """
     from pathlib import Path
 
-    from . import workbench
+    if _workbench is not None:
+        workbench = _workbench
+    else:
+        from . import workbench
 
     sheets = [
         ("Özet", [["Alan", "Değer"],
