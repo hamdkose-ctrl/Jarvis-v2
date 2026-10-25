@@ -119,12 +119,15 @@ def _sensitive(action, item):
     return action['op'] in ('click','fill','select','press')
 
 
-def validate(actions):
+def validate(actions, *, read_only=False):
     if not isinstance(actions,list) or not 1<=len(actions)<=20: raise ValueError('1–20 tarayıcı adımı gerekli.')
+    if not isinstance(read_only,bool): raise ValueError('Salt-okunur modu geçersiz.')
     result=[]
     for a in actions:
         if not isinstance(a,dict) or a.get('op') not in _ALLOWED: raise ValueError('Tarayıcı aracı geçersiz.')
         a=dict(a)
+        if read_only and a['op'] not in ('goto','read'):
+            raise ValueError('Salt-okunur tarayıcı modunda yalnız goto ve read adımları kullanılabilir.')
         if a['op']=='goto': _url(a.get('url',''))
         if a['op'] in ('click','select','press') and not (a.get('expect_text') or a.get('expect_url')):
             raise ValueError('Düğme/tuş/seçim işlemi için beklenen metin veya URL doğrulaması gerekli.')
@@ -146,12 +149,12 @@ def _save_pending(root, page, actions, item, permission_asks=None):
             'message':f"İşlem planı hazır: {json.dumps(actions,ensure_ascii=False)}.{note} Bu planı uygulamak için ‘tarayıcı onayla {token}’, vazgeçmek için ‘tarayıcı iptal’ yaz."}
 
 
-def _execute(page, root, actions, approved=None, *, owner=None):
+def _execute(page, root, actions, approved=None, *, owner=None, read_only=False):
     log=[]
     plan_approved=False
     explicit_owner=owner is not None
     owner=owner or root.name
-    for i,a in enumerate(validate(actions)):
+    for i,a in enumerate(validate(actions,read_only=read_only)):
         requests_state.check()
         op=a['op']; item=None
         if op in ('click','fill','select','press'):
@@ -185,22 +188,21 @@ def _execute(page, root, actions, approved=None, *, owner=None):
         if op in ('click','press') and page.url==before_url and not (a.get('expect_text') and a['expect_text'] not in before_text):
             raise ValueError('İşlem uygulandı fakat beklenen yeni sonuç doğrulanamadı; otomatik tekrar uygulanmadı.')
         log.append({'op':op,'url':page.url,'verified':bool(a.get('expect_text') or a.get('expect_url') or op in ('read','goto','fill','screenshot'))})
-    path=root/('screen-'+uuid.uuid4().hex[:12]+'.png'); page.screenshot(path=str(path),full_page=False)
-    return {'state':'done','steps':log,'page':snapshot(page),'image':str(path)}
+    result={'state':'done','steps':log,'page':snapshot(page)}
+    if not read_only:
+        path=root/('screen-'+uuid.uuid4().hex[:12]+'.png'); page.screenshot(path=str(path),full_page=False)
+        result['image']=str(path)
+    return result
 
 
-def run(owner, actions=None, approval=None, *, headless=False):
+def run(owner, actions=None, approval=None, *, headless=False, read_only=False):
     with _LOCK:
-        return _run(owner,actions,approval,headless=headless)
+        return _run(owner,actions,approval,headless=headless,read_only=read_only)
 
 
-def _run(owner, actions=None, approval=None, *, headless=False):
+def _run(owner, actions=None, approval=None, *, headless=False, read_only=False):
     if blocked:=privacy.blocked('web'): return {'state':'blocked','message':blocked}
     root=_root(owner)
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return {'state':'unavailable','message':'Tarayıcı ajanını hazırlamak için Jarvis kökündeki kurulum.bat dosyasını çalıştır.'}
     pending=None
     if not approval and (root/'pending.json').exists():
         raise ValueError('Önce bekleyen tarayıcı planını onayla veya tarayıcı iptal yaz.')
@@ -210,7 +212,11 @@ def _run(owner, actions=None, approval=None, *, headless=False):
         except (OSError,ValueError): raise ValueError('Bekleyen tarayıcı işlemi yok.')
         if pending['id']!=approval or time.time()-pending['created']>600: raise ValueError('Onay eşleşmiyor veya süresi dolmuş.')
         actions=pending['actions']
-    else: actions=validate(actions)
+    actions=validate(actions,read_only=read_only)
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {'state':'unavailable','message':'Tarayıcı ajanını hazırlamak için Jarvis kökündeki kurulum.bat dosyasını çalıştır.'}
     requests_state.check()
     with _LOCK, sync_playwright() as pw:
         try:
@@ -224,7 +230,7 @@ def _run(owner, actions=None, approval=None, *, headless=False):
                 page.goto(pending['url'],wait_until='domcontentloaded',timeout=25000)
                 # Consume before any effect: a retry must never send/submit twice.
                 (root/'pending.json').unlink()
-            result=_execute(page,root,actions,pending,owner=owner)
+            result=_execute(page,root,actions,pending,owner=owner,read_only=read_only)
             privacy.audit('tarayıcı ajanı',result['state'])
             return result
         finally: context.close()

@@ -141,6 +141,33 @@ class BrowserTests(unittest.TestCase):
         for actions in [[{'op':'evaluate','script':'x'}],[{'op':'click','selector':'#send'}],[{'op':'press','selector':'#x','key':'Control+C','expect_text':'ok'}]]:
             with self.assertRaises(ValueError):browser.validate(actions)
 
+    def test_read_only_mode_allows_only_goto_and_read(self):
+        allowed = [{'op':'goto','url':'https://example.com/'},{'op':'read'}]
+        self.assertEqual(browser.validate(allowed,read_only=True), allowed)
+        for action in [
+            {'op':'click','selector':'#send','expect_text':'Sent'},
+            {'op':'fill','selector':'#name','value':'Ada'},
+            {'op':'select','selector':'#choice','value':'one','expect_text':'One'},
+            {'op':'press','selector':'#name','key':'Enter','expect_text':'Sent'},
+            {'op':'screenshot'},
+        ]:
+            with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'Salt-okunur'):
+                browser.validate([action],read_only=True)
+
+    def test_read_only_run_rejects_effect_before_browser_setup(self):
+        action = [{'op':'click','selector':'#send','expect_text':'Sent'}]
+        with patch.object(browser.privacy, 'blocked', return_value=None), \
+             self.assertRaisesRegex(ValueError, 'Salt-okunur'):
+            browser.run('alice', action, headless=True, read_only=True)
+
+    def test_read_only_execution_does_not_write_screenshot_artifact(self):
+        page, _ = self.page()
+        with patch.object(browser, '_permission_decision', return_value={'decision':'allow'}):
+            result = browser._execute(page, browser._root('alice'), [{'op':'read'}], owner='alice', read_only=True)
+        self.assertEqual(result['state'], 'done')
+        self.assertNotIn('image', result)
+        page.screenshot.assert_not_called()
+
     def page(self):
         page=Mock();page.url='https://example.com/form';page.title.return_value='Form'
         item=Mock();item.count.return_value=1;item.is_visible.return_value=True
