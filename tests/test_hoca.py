@@ -510,3 +510,52 @@ class HocaWorkspaceIntegrationTests(unittest.TestCase):
             lesson = hoca.start(self.p, 'Hücre', source=manual, course_id=course['id'])
         self.assertIn('Elle verilen video dökümü', ask.call_args[0][0])
         self.assertEqual(lesson['source']['label'], 'Video')
+
+
+class SessionMemoryTests(unittest.TestCase):
+    """3. adım: ders bitince/yanlış cevapta otomatik oturum kaydı, derse dönünce resume hint."""
+
+    def setUp(self):
+        self.p = Profile()
+
+    def test_finishing_lesson_records_next_step(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            hoca.start(self.p, 'Hücre', course_id=course['id'])
+        for _ in range(len(hoca.active(self.p)['steps'])):
+            hoca.advance(self.p)
+        session = hoca_workspace.get_session(self.p, course['id'], 'Hücre')
+        self.assertIn('tamamlandı', session['next_step'])
+
+    def test_wrong_answer_records_unclear_step(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            hoca.start(self.p, 'Hücre', course_id=course['id'])
+        step_title = hoca.current_step(self.p)['title']
+        with patch.object(hoca.llm, 'ask', return_value='{"question":"Soru?","answer":"Cevap"}'):
+            hoca.check_question(self.p)
+        with patch.object(hoca.llm, 'ask', return_value='{"correct": false, "feedback": "Hayır"}'):
+            hoca.grade(self.p, 'yanlış cevap')
+        session = hoca_workspace.get_session(self.p, course['id'], 'Hücre')
+        self.assertIn(step_title, session['unclear'])
+
+    def test_start_surfaces_prior_session_as_resume(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        hoca_workspace.record_session(self.p, course['id'], 'Hücre', unclear='Zar yapısı',
+                                       next_step='Zar yapısını tekrar et.')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            lesson = hoca.start(self.p, 'Hücre', course_id=course['id'])
+        self.assertEqual(lesson['resume']['unclear'], ['Zar yapısı'])
+
+    def test_start_without_prior_session_has_no_resume_key(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            lesson = hoca.start(self.p, 'Hücre', course_id=course['id'])
+        self.assertNotIn('resume', lesson)
+
+    def test_no_course_id_does_not_touch_session_memory(self):
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            hoca.start(self.p, 'Hücre')
+        for _ in range(len(hoca.active(self.p)['steps'])):
+            hoca.advance(self.p)
+        self.assertEqual(self.p.data.get('hoca_courses', []), [])

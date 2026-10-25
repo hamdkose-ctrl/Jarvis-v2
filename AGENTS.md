@@ -35,7 +35,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (7 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
-- `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (9 bölüm)
+- `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (10 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (3 bölüm)
 - `docs/agents/gorsel-komutlar.md`: Doğal dil ile tetiklenen görsel üretimi (4 bölüm)
 
