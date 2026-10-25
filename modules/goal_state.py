@@ -12,6 +12,14 @@ import re
 SCHEMA = 'goal_state.v1'
 STATES = frozenset({'pending', 'running', 'waiting', 'paused', 'failed', 'done', 'cancelled'})
 EXECUTION_MODES = frozenset({'fast', 'agent', 'durable'})
+# `authority` marks, per GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md Karar 2, whether
+# this job's lifecycle write authority is the legacy JSON journal ('legacy') or
+# this canonical GoalState record itself ('canonical'). It is OPTIONAL and
+# additive-only: a snapshot persisted before this field existed has no
+# 'authority' key and is treated as 'legacy' by authority() below. This keeps
+# the required-field schema check exact for every pre-existing snapshot.
+AUTHORITY_VALUES = frozenset({'legacy', 'canonical'})
+_OPTIONAL = frozenset({'authority'})
 _TERMINAL = frozenset({'done', 'cancelled'})
 _OWNER = re.compile(r'[\w-]{1,100}\Z')
 _JOB_ID = re.compile(r'[a-zA-Z0-9_.-]{1,100}\Z')
@@ -24,7 +32,10 @@ def _json_only(value, message='GoalState JSON uyumlu değil.'):
         raise ValueError(message) from None
 
 
-def new(*, owner: str, job_id: str, goal: str, execution_mode: str = 'agent') -> dict:
+def new(
+    *, owner: str, job_id: str, goal: str, execution_mode: str = 'agent',
+    authority: str = 'legacy',
+) -> dict:
     """Create an immutable-identity, version-zero GoalState snapshot."""
     if not isinstance(owner, str) or not _OWNER.fullmatch(owner):
         raise ValueError('GoalState sahibi geçersiz.')
@@ -34,6 +45,8 @@ def new(*, owner: str, job_id: str, goal: str, execution_mode: str = 'agent') ->
         raise ValueError('GoalState hedefi boş olamaz.')
     if execution_mode not in EXECUTION_MODES:
         raise ValueError('GoalState execution_mode geçersiz.')
+    if authority not in AUTHORITY_VALUES:
+        raise ValueError('GoalState authority geçersiz.')
     state = {
         'schema': SCHEMA,
         'owner': owner,
@@ -50,6 +63,7 @@ def new(*, owner: str, job_id: str, goal: str, execution_mode: str = 'agent') ->
             'state': 'pending',
             'reason_code': 'CREATED',
         }],
+        'authority': authority,
     }
     _json_only(state)
     return state
@@ -63,8 +77,11 @@ def validate(state: dict) -> dict:
         'schema', 'owner', 'job_id', 'goal', 'execution_mode', 'version', 'state',
         'evidence', 'blocker', 'audit',
     }
-    if set(state) != required:
+    present = set(state)
+    if not required.issubset(present) or present - required - _OPTIONAL:
         raise ValueError('GoalState şeması geçersiz.')
+    if 'authority' in state and state['authority'] not in AUTHORITY_VALUES:
+        raise ValueError('GoalState authority geçersiz.')
     if state.get('schema') != SCHEMA:
         raise ValueError('GoalState sürümü desteklenmiyor.')
     if not isinstance(state.get('owner'), str) or not _OWNER.fullmatch(state['owner']):
@@ -104,3 +121,12 @@ def validate(state: dict) -> dict:
 
 def terminal(state: dict) -> bool:
     return validate(state)['state'] in _TERMINAL
+
+
+def authority(state: dict) -> str:
+    """Return this job's lifecycle write-authority side ('legacy'/'canonical').
+
+    Per GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md Karar 2, a snapshot with no
+    'authority' key predates this marker and is treated as 'legacy'.
+    """
+    return validate(state).get('authority', 'legacy')

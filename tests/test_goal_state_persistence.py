@@ -1,8 +1,33 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+
+try:
+    from google import genai as _genai_probe  # noqa: F401
+except ImportError:
+    # Cloud/offline sandboxes without pypi access cannot install google-genai.
+    # modules.llm imports it at module load time purely to build a client;
+    # nothing in this file's tests touches a real model. Install a minimal
+    # stand-in so the import chain (goal_executor -> ... -> llm) resolves,
+    # without changing any production module or faking real behaviour.
+    _google_pkg = sys.modules.get('google') or ModuleType('google')
+    _genai_mod = ModuleType('google.genai')
+    _genai_mod.errors = ModuleType('google.genai.errors')
+    _genai_mod.types = ModuleType('google.genai.types')
+
+    class _StubClient:
+        def __init__(self, *a, **k): pass
+
+    _genai_mod.Client = _StubClient
+    _google_pkg.genai = _genai_mod
+    sys.modules.setdefault('google', _google_pkg)
+    sys.modules['google.genai'] = _genai_mod
+    sys.modules['google.genai.errors'] = _genai_mod.errors
+    sys.modules['google.genai.types'] = _genai_mod.types
 
 
 class GoalStatePersistenceTests(unittest.TestCase):
@@ -351,6 +376,65 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
             self.assertFalse((root / '0123456789abcdef.json').exists())
             self.assertFalse((root / 'latest.json').exists())
+
+    def test_new_job_canonical_state_is_marked_canonical_authority(self):
+        from modules import goal_state
+        path = self.root / 'state.json'
+        state = self.compat.sync(self.job(), path)
+        self.assertEqual(goal_state.authority(state), 'canonical')
+        self.assertEqual(self.store.load(path)['authority'], 'canonical')
+
+    def test_preexisting_legacy_record_without_authority_field_stays_legacy(self):
+        from modules import goal_state
+        legacy_shaped = goal_state.new(
+            owner='alice', job_id='0123456789abcdef', goal='Raporu hazırla',
+        )
+        del legacy_shaped['authority']
+        validated = goal_state.validate(legacy_shaped)
+        self.assertNotIn('authority', validated)
+        self.assertEqual(goal_state.authority(legacy_shaped), 'legacy')
+
+        path = self.root / 'preexisting.json'
+        self.store.create(path, legacy_shaped)
+        advanced = self.compat.advance(self.store.load(path), self.job('paused'))
+        self.assertEqual(goal_state.authority(advanced), 'legacy')
+        self.assertNotIn('authority', advanced)
+
+    def test_authority_field_does_not_break_json_only_version_or_audit_invariants(self):
+        from modules import goal_state
+        path = self.root / 'state.json'
+        state = self.compat.sync(self.job(), path)
+        self.assertEqual(goal_state.authority(state), 'canonical')
+        json.dumps(state, ensure_ascii=False, allow_nan=False)
+        self.assertEqual(len(state['audit']), state['version'] + 1)
+        on_disk = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(on_disk, state)
+        advanced = self.compat.sync(self.job('paused'), path)
+        self.assertEqual(goal_state.authority(advanced), 'canonical')
+        self.assertEqual(len(advanced['audit']), advanced['version'] + 1)
+
+    def test_authority_marking_does_not_change_terminal_behavior(self):
+        from modules import goal_state
+        path = self.root / 'state.json'
+        terminal = self.compat.sync(self.job('done'), path)
+        self.assertEqual(goal_state.authority(terminal), 'canonical')
+        before = path.read_bytes()
+        reopened = self.compat.sync(self.job('paused'), path)
+        self.assertEqual(reopened, terminal)
+        self.assertEqual(goal_state.authority(reopened), 'canonical')
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_invalid_authority_value_is_rejected(self):
+        from modules import goal_state
+        with self.assertRaisesRegex(ValueError, 'authority'):
+            goal_state.new(
+                owner='alice', job_id='0123456789abcdef', goal='Raporu hazırla',
+                authority='both',
+            )
+        tampered = goal_state.new(owner='alice', job_id='0123456789abcdef', goal='Raporu hazırla')
+        tampered['authority'] = 'both'
+        with self.assertRaisesRegex(ValueError, 'authority'):
+            goal_state.validate(tampered)
 
     def test_goal_executor_save_restores_previous_canonical_when_legacy_update_fails(self):
         from modules import goal_state_save_hook
