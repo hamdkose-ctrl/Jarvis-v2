@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   bekci:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
       - name: PR'sız commit var mı
@@ -24,6 +24,7 @@ jobs:
           REPO: ${{ github.repository }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
+        shell: bash
         run: |
           set -eu
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
