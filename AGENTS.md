@@ -25,7 +25,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
-- `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (11 bölüm)
+- `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (12 bölüm)
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (18 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)

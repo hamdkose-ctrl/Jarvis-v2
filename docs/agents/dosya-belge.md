@@ -2,6 +2,14 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## PC Worker ile kapsam ayrımı — son karar, 25 Ekim 2026
+
+Hamdi'nin ayrıca kurduğu "PC Worker" ajanı, uygulama kontrolü (UIA/Office adapter/Browser/Hermes-CUA/native) yanında genel dosya işlerini de (bulma, oluşturma, taşıma, yeniden adlandırma, silme, geri alma; dağınık klasör/masaüstü düzenleme) kapsıyor. Bu, `modules/file_ops.py`'nin tek dosya taşıma/yeniden adlandırma/oluşturma/geri alma işiyle ve dosya çalışma alanı planının "5. adım" olarak düşünülen onaylı toplu düzenleme (taşıma/yeniden adlandırma/arşivleme) fikriyle doğrudan örtüşüyor.
+
+**Karar:** `file_ops.py` burada kalıyor — basit, tek dosyalı, UIA/ekran açmadan çalışan, zaten test edilmiş bir katman; genişletilmeyecek. Toplu/karmaşık dosya düzenleme (klasör düzenleme, çoklu taşıma, "masaüstümü düzenle" gibi onaylı toplu işlemler) bu depoda **açılmayacak**, PC Worker'ın kapsamında kalacak. Dosya çalışma alanı planının 5. adımı (`docs/agents/dosya-belge.md`'deki "Klasör envanteri v1" ve "FileWorker v1" bölümlerinde "sonraki adım" olarak anılan onaylı düzenleme effect'i) bu nedenle iptal edilmedi, PC Worker'a devredildi — burada yeniden açılmayacak.
+
+İki sistem aynı `modules/permission_policy.py` izin dosyasını (`yol:sınıf` → Sor/İzin ver/Engelle) paylaşıyor; bu, aralarında çakışma riskini azaltıyor ama PC Worker'ın hangi depoda/katmanda çalıştığı burada izlenmiyor — gerektiğinde Hamdi'ye sorulur.
+
 ## FileWorker v1 — 25 Ekim 2026
 
 - `modules/file_worker.py`: dosya çalışma alanının ilk (salt-okunur) katmanı. `docs/architecture/JARVIS_FILEWORKER_READONLY_BENCHMARK_V1.md`'de tanımlı evidence sözleşmesine uyar; yeni parser/OCR/model eklemez, `docs.py`/`document_conversion.py`'nin mevcut okuyucularını orkestre eder.
