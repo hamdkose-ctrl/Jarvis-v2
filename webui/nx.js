@@ -1567,7 +1567,7 @@ const FACTS={pdf:[['analiz','Analiz Et','b'],['excel','PDF → Excel','g'],['cev
   excel:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Rapor Oluştur','p']],image:[['metin','Metne Çevir','p'],['gorsel','Analiz Et','b']],other:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o']]};
 PAGES.files=pg=>{
   pg.innerHTML=`<section class="card glow"><div class="ftool"><button class="btn pri" data-act="attach">${ic('up')} Dosya Yükle</button><button class="btn" data-act="fupdir" title="Bir klasördeki bütün dosyaları Jarvis'e yükler">${ic('up')} Klasör Yükle</button><button class="btn" data-act="fdir" title="Yüklediğin dosyaların durduğu klasörü (Belgeler › Jarvis Dosyaları) açar">${ic('folder')} Jarvis Klasörü</button>
-     <div class="search">${ic('search')}<input id="fq" placeholder="Dosya adında ve belge içinde ara…" value="${esc(S.fq)}"></div><button class="btn" data-act="frefresh" title="Yenile">${ic('refresh')}</button></div>
+     <div class="search">${ic('search')}<input id="fq" placeholder="Dosya adında ve belge içinde ara…" value="${esc(S.fq)}"></div><button class="btn" data-act="frefresh" title="Yenile">${ic('refresh')}</button><button class="btn" data-act="fhelp" title="Bu bölüm ne işe yarar, nasıl çalışır">${ic('help')} Nasıl çalışır?</button></div>
     <div class="chips" id="fchips"></div>
     <div class="fgrid"><section class="card" style="padding:14px"><div class="ct" style="margin-bottom:12px">Yapay Zekâ Araçları</div>
       ${[['green','scan','Kapsamlı Dosya Analizi','İçeriği analiz et, özetle, içgörü çıkar','analiz'],['red','file','PDF → Excel','Tablo verilerini Excel’e dönüştür','excel'],['blue','file','PDF → Word','PDF’i düzenlenebilir Word’e çevir','word'],['purple','chart','Rapor Oluştur','Dosyadan profesyonel rapor hazırla','pdf'],['orange','folder','Klasör Analizi','Klasördeki dosyaları özetle','#folder'],['purple','image','Görselden Metin','Resim ve taramaları metne çevir','metin']]
@@ -1623,6 +1623,28 @@ ACT.fupdir=async()=>{const owner=((S.snap||{}).user||{}).slug||((S.snap||{}).use
   if(!await ask(`“${r.name}” klasöründeki ${r.count} dosya Jarvis'e yüklensin mi?`))return;
   toast(`${r.count} dosya yükleniyor…`);const x=await tryApi('folder_import',r.path);if(x)toast(`${x.ok}/${x.total} dosya yüklendi → Jarvis Dosyaları › ${r.name}`);S.files=null;S.fcat='mine';S.fq='';if(S.page==='files')render()};
 ACT.frefresh=async()=>{S.files=null;drawFiles();await loadFiles(true);drawFiles();toast('Dosya listesi yenilendi.')};
+const FHELP=[
+  ['up','Dosya Yükle / Klasör Yükle','Bilgisayarından tek bir dosya ya da bir klasördeki bütün dosyaları Jarvis’e yükler. Yüklenenler kendi klasörüne kopyalanır, aslına dokunulmaz.'],
+  ['folder','Jarvis Klasörü','Yüklediğin dosyaların gerçekte durduğu klasörü açar (Belgeler › Jarvis Dosyaları). Oraya elle dosya da atabilirsin, liste kendiliğinden görür.'],
+  ['search','Arama','Yazdığın kelimeyi hem dosya adında hem belge İÇERİĞİNDE arar (en az 3 harf). Eşleşen cümle, satırın altında küçük bir alıntı olarak görünür.'],
+  ['spark','Yapay Zekâ Araçları','Soldaki panel: seçili dosya üzerinde toplu işlem yapar — Kapsamlı Analiz, PDF → Excel, PDF → Word, Rapor Oluştur, Klasör Analizi, Görselden Metin.'],
+  ['list','Dosya Listesi','Her satırda o dosya türüne uygun hızlı düğmeler (Analiz Et, Özetle, Çevir…) ve sağdaki ••• menüsünde Aç / Klasörde göster / Telefona gönder seçenekleri var.'],
+  ['eye','Detay Paneli','Bir dosyaya tıklayınca sağda açılır: Genel Bakış (boyut, tarih, konum) ve Yapay Zekâ Analizi sekmeleri arasında geçiş yapabilirsin.'],
+  ['grid','Üstteki Kategoriler','Yüklediklerim / Tümü / PDF / Word / Excel / Görsel / Diğer — listeyi türe göre süzer, yanındaki sayı o kategorideki dosya adedidir.'],
+];
+ACT.fhelp=()=>{
+  const overlay=document.createElement('div');overlay.className='jdlg';
+  overlay.innerHTML=`<div class="jbox" style="width:min(640px,94vw);max-height:80vh;overflow:auto"><div class="jt"><b>Dosyalar sayfası nasıl çalışır?</b></div>
+    <p class="mut" style="margin:0 0 12px">Bu sayfa yüklediğin dosyaları, Jarvis’in onlarla yapabileceği yapay zekâ işlemlerini ve dosya aramasını tek yerde toplar.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">${FHELP.map(([i,t,s])=>`<div style="display:flex;gap:10px;align-items:flex-start"><span class="ib blue sm" style="flex:none">${ic(i)}</span><div><b>${esc(t)}</b><div class="mut" style="font-size:13px">${esc(s)}</div></div></div>`).join('')}</div>
+    <div class="jbtn"><button class="jok">Anladım</button></div></div>`;
+  document.body.appendChild(overlay);
+  const close=()=>overlay.remove();
+  overlay.querySelector('.jok').onclick=close;
+  overlay.onclick=e=>{if(e.target===overlay)close()};
+  const key=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',key,true);close()}};
+  document.addEventListener('keydown',key,true);
+};
 ACT.fmenu=(el,e)=>{e.stopPropagation();const p=el.dataset.p,r=el.getBoundingClientRect();menu(r.left-170,r.bottom+4,[['eye','Aç',()=>api('file_open',p,false)],['folder','Klasörde göster',()=>api('file_open',p,true)],['phone','Telefona gönder',()=>doFile(p,'telefon')],'-',['spark','Özetle',()=>doFile(p,'ozet')],['lang','İngilizceye çevir',()=>doFile(p,'cevir')]])};
 ACT.ftool=el=>{const a=el.dataset.a;if(a==='#folder'){say('İndirilenler klasöründeki dosyaları listele ve kısaca özetle');return}
   const f=((S.files&&S.files.files)||[]).find(x=>x.path===S.fsel);if(!f){toast('Önce listeden bir dosya seç.');return}doFile(f.path,a)};
