@@ -440,7 +440,7 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
         return file_reply
     # Klasör düzenleme (onaylı) ve geri alma
     if runtime.re.search(r"düzenlemey[ie] geri al|düzenlemeyi iptal et|taşıdıklarını geri", cmd_lower):
-        back = runtime.files.undo_organize()
+        back = runtime.files.undo_organize(runtime.profile.slug)
         return "Geri alınacak bir düzenleme kaydı yok." if back is None else f"{back} dosyayı eski yerine taşıdım."
     target = runtime.files.wants_organize(cmd_lower)
     if target:
