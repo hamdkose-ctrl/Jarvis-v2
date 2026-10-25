@@ -56,6 +56,15 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Test: `tests/test_study_hoca_workspace.py` (5 test, model taklit, izole tmp klasör). Gerçek kitap/PDF ve gerçek PC'de denenmedi.
 - Hoca'nın iki motoru (adım-adım `hoca.py` + uzun anlatım `study.py:lesson()`) artık ikisi de per-ders kaynağa bağlı; sırada oturum hafızası/soru-alıştırma/tekrar planının (3. madde) UI ve akış tarafı var.
 
+## Oturum hafızası v1 — otomatik kayıt (Seçenek A), 25 Ekim 2026
+
+- Hamdi'nin kararı (A): oturum notu her zaman otomatik kaydedilir, kullanıcıdan bir şey istenmez — "soru/alıştırma akışına bağlı" (B) seçeneği kitapsız/sınavsız genel derslerde hiç tetiklenmeyeceği için elenmiş oldu.
+- `modules/hoca.py` (adım-adım motor): `course_id` verilen ders artık `lesson["course_id"]`'de saklanıyor. Son adım bitince (`advance`) `hoca_workspace.record_session(..., next_step="Ders tamamlandı; yeni konu seçilebilir.")` otomatik çağrılır. Kontrol sorusu yanlış cevaplanınca (`grade`) mevcut zayıf-konu işaretlemesine ek olarak `unclear=<adım başlığı>` ve `next_step=<"bu adımı tekrar et">` kaydedilir.
+- `modules/study.py:lesson()` (uzun anlatım motoru): normal anlatım bitince `next_step=<"konu anlatıldı">`; `simpler=True` (öğrenci anlamadı, sadeleştirilmiş tekrar) çağrısında `unclear=<konu>` kaydedilir.
+- **Resume hint:** derse (aynı `course_id`+konu) tekrar girildiğinde önceki oturum `hoca.start()`'ın döndürdüğü sözlükte `resume` anahtarı olarak (varsa) geri verilir; UI bunu "kaldığın yerden devam" olarak gösterebilir. `study.py:lesson()` ayrıca önceki `unclear` notu varsa (ve `simpler` değilse) bunu modele "şurası net değildi" notu olarak otomatik ekliyor — kullanıcıdan tekrar sorulmuyor.
+- `course_id` verilmeyen (eski) çağrılarda `hoca_workspace`'e hiç dokunulmaz — geriye dönük uyumluluk korunur.
+- Test: `tests/test_hoca.py`'de `SessionMemoryTests` (5 test), `tests/test_study_hoca_workspace.py`'de `LessonSessionMemoryTests` (4 test). Gerçek PC'de denenmedi; UI tarafında "kaldığın yerden devam" bandı henüz yok (bu adım yalnız veri/akış, arayüz ayrı bir iş).
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.

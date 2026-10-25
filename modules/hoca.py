@@ -116,6 +116,12 @@ def start(profile, topic: str, level: str = "", source: dict | None = None, cour
               "started": int(time.time())}
     if source:
         lesson["source"] = {"label": _clip(source.get("label"), 120), "full": bool(source.get("full")), "chunks": parts}
+    if course_id is not None:
+        lesson["course_id"] = course_id
+        from modules import hoca_workspace
+        prior = hoca_workspace.get_session(profile, course_id, topic)
+        if prior:
+            lesson["resume"] = prior
     _state(profile)["lesson"] = lesson
     profile.save()
     return lesson
@@ -174,6 +180,14 @@ def advance(profile) -> dict | None:
     if lesson["active"] >= len(lesson.get("steps") or []):
         lesson["done"] = True
         lesson.pop("source", None)
+        course_id = lesson.get("course_id")
+        if course_id is not None:
+            from modules import hoca_workspace
+            try:
+                hoca_workspace.record_session(profile, course_id, lesson.get("topic", ""),
+                                               next_step="Ders tamamlandı; yeni konu seçilebilir.")
+            except hoca_workspace.HocaWorkspaceError:
+                pass
     profile.save()
     return current_step(profile)
 
@@ -265,6 +279,15 @@ def grade(profile, reply: str, now: float | None = None) -> dict:
         advance(profile)
     else:
         _mark_weak(profile, lesson.get("topic"), step, now)
+        course_id = lesson.get("course_id")
+        if course_id is not None:
+            from modules import hoca_workspace
+            try:
+                hoca_workspace.record_session(profile, course_id, lesson.get("topic", ""),
+                                               unclear=_clip(step.get("title"), _TITLE_MAX),
+                                               next_step=f"'{_clip(step.get('title'), _TITLE_MAX)}' adımını tekrar et.")
+            except hoca_workspace.HocaWorkspaceError:
+                pass
     profile.save()
     return {"correct": ok, "feedback": _clip(data.get("feedback"), 300), "expected": expected}
 

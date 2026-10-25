@@ -619,6 +619,7 @@ def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = 
     Eski genel kaynak deposu (bu modülün kendi `docs` listesi) ayrıca ve değişmeden kullanılmaya devam eder."""
     from modules import studyexam, hoca_workspace
     course_ctx = None
+    resume = None
     if course_id is not None:
         hoca_course = hoca_workspace.get_course(profile, course_id)
         if not hoca_course:
@@ -629,6 +630,10 @@ def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = 
             course_ctx = hoca_workspace.course_context(hoca_course)
         except hoca_workspace.HocaWorkspaceError:
             course_ctx = None
+        try:
+            resume = hoca_workspace.get_session(profile, course_id, topic)
+        except hoca_workspace.HocaWorkspaceError:
+            resume = None
     book_hits = _search_items(profile, topic + " " + course, top=5, kind="book")
     qs = studyexam.related_questions(profile, topic, k=4, mk=mk or None, topic=topic)
     blocks = [f"[KİTAP · {x['title']}" + (f" · Sayfa {x['page']}" if x.get("page") else "") + f"]\n{x['chunk']}" for x in book_hits]
@@ -648,6 +653,8 @@ def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = 
                    "Bu adımda öğrenciye soru sorma.")
     if no_book:
         ask_txt += " Not: Kitap yüklenmedi; MEB lise müfredatına uygun genel bilgiyle anlat."
+    if resume and not simpler and resume.get("unclear"):
+        ask_txt += f" Not: öğrenci bu konuyu daha önce çalıştı, şurası net değildi: {resume['unclear'][-1]}. Bu noktayı ayrıca netleştir."
     prompt = (("İLGİLİ MALZEMELER:\n" + "\n\n".join(blocks) + "\n\n") if blocks else "") + "İSTEK: " + ask_txt
     system = ("Sen sabırlı, anlaşılır anlatan bir lise öğretmenisin. Türkçe anlat. Kitap parçası verildiyse bilgiyi oradan al; "
               "kitapta olmayanı uydurma, genel bilgi kullanıyorsan doğru ve müfredata uygun olsun. Başlıkları ## ile yaz, önemli "
@@ -666,10 +673,23 @@ def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = 
     s['lesson_context']={'topic':topic,'course':course,'mk':mk}
     profile.save()
     _LAST_TOPIC[profile.slug] = topic
-    return {"text": text, "topic": topic, "no_book": no_book, "topic_locked": True,
-            "sources": [x["title"] + (f" · Sayfa {x['page']}" if x.get("page") else "") for x in book_hits]
-                       + [f"{x.get('exam_label') or x.get('year')} çıkmış soru" for x in qs]
-                       + ([course_ctx["label"]] if course_ctx else [])}
+    if course_id is not None:
+        try:
+            if simpler:
+                hoca_workspace.record_session(profile, course_id, topic, unclear=topic,
+                                               next_step=f"'{topic}' sadeleştirilerek yeniden anlatıldı.")
+            else:
+                hoca_workspace.record_session(profile, course_id, topic,
+                                               next_step=f"'{topic}' konusu anlatıldı.")
+        except hoca_workspace.HocaWorkspaceError:
+            pass
+    result = {"text": text, "topic": topic, "no_book": no_book, "topic_locked": True,
+              "sources": [x["title"] + (f" · Sayfa {x['page']}" if x.get("page") else "") for x in book_hits]
+                         + [f"{x.get('exam_label') or x.get('year')} çıkmış soru" for x in qs]
+                         + ([course_ctx["label"]] if course_ctx else [])}
+    if resume:
+        result["resume"] = resume
+    return result
 
 
 _LAST_TOPIC: dict[str, str] = {}      # son anlatılan konu (yan paneldeki görsel/video araması için)

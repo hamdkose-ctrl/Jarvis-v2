@@ -69,5 +69,45 @@ class LessonCourseLinkTests(unittest.TestCase):
         self.assertEqual(lesson["sources"], [])
 
 
+class LessonSessionMemoryTests(unittest.TestCase):
+    """3. adım (Seçenek A): ders anlatımı bitince otomatik oturum notu, tekrar girişte resume hint."""
+
+    def setUp(self):
+        self.p = Profile()
+
+    def test_normal_lesson_records_next_step(self):
+        course = hoca_workspace.add_course(self.p, "Biyoloji")
+        with patch.object(llm, "ask", return_value="## Konu nedir?\nHücre.") as ask, \
+             patch.object(llm, "embed", side_effect=ValueError("no embed")):
+            study.lesson(self.p, "Hücre", course_id=course["id"])
+        session = hoca_workspace.get_session(self.p, course["id"], "Hücre")
+        self.assertIn("anlatıldı", session["next_step"])
+        self.assertEqual(session["unclear"], [])
+
+    def test_simpler_lesson_records_unclear(self):
+        course = hoca_workspace.add_course(self.p, "Biyoloji")
+        with patch.object(llm, "ask", return_value="## Sade anlatım") as ask, \
+             patch.object(llm, "embed", side_effect=ValueError("no embed")):
+            study.lesson(self.p, "Hücre", course_id=course["id"], simpler=True)
+        session = hoca_workspace.get_session(self.p, course["id"], "Hücre")
+        self.assertIn("Hücre", session["unclear"])
+
+    def test_second_call_surfaces_prior_session_as_resume(self):
+        course = hoca_workspace.add_course(self.p, "Biyoloji")
+        with patch.object(llm, "ask", return_value="## Konu nedir?\nHücre."), \
+             patch.object(llm, "embed", side_effect=ValueError("no embed")):
+            study.lesson(self.p, "Hücre", course_id=course["id"], simpler=True)
+            with patch.object(llm, "ask", return_value="## Konu nedir?\nHücre.") as ask:
+                lesson = study.lesson(self.p, "Hücre", course_id=course["id"])
+        self.assertEqual(lesson["resume"]["unclear"], ["Hücre"])
+        self.assertIn("net değildi", ask.call_args[0][0])
+
+    def test_no_course_id_does_not_touch_session_memory(self):
+        with patch.object(llm, "ask", return_value="## Konu nedir?\nHücre."), \
+             patch.object(llm, "embed", side_effect=ValueError("no embed")):
+            study.lesson(self.p, "Hücre", "Biyoloji")
+        self.assertEqual(self.p.data.get("hoca_courses", []), [])
+
+
 if __name__ == "__main__":
     unittest.main()
