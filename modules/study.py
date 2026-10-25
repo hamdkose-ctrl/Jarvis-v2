@@ -610,15 +610,32 @@ def _system(mode, has_recent_exams=False):
     return common+extra.get(mode,extra["teacher"])
 
 
-def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = False) -> dict:
+def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = False, course_id: int | None = None) -> dict:
     """Konu anlatımı (ders gibi, uzun ve düzenli). Kaynak: yüklenen kitap + o konunun çıkmış soruları.
-    Soru sormaz; öğrenci 'anladım' deyince soru çözümüne geçilir."""
-    from modules import studyexam
+    Soru sormaz; öğrenci 'anladım' deyince soru çözümüne geçilir.
+
+    course_id verilirse (yeni Hoca çalışma alanı), dersin hoca_workspace'teki kitap/pdf
+    kaynakları da anlatıma eklenir ve ders adı belirtilmemişse dersin kayıtlı adı kullanılır.
+    Eski genel kaynak deposu (bu modülün kendi `docs` listesi) ayrıca ve değişmeden kullanılmaya devam eder."""
+    from modules import studyexam, hoca_workspace
+    course_ctx = None
+    if course_id is not None:
+        hoca_course = hoca_workspace.get_course(profile, course_id)
+        if not hoca_course:
+            raise ValueError("Böyle bir ders bulunamadı.")
+        if not course:
+            course = hoca_course["name"]
+        try:
+            course_ctx = hoca_workspace.course_context(hoca_course)
+        except hoca_workspace.HocaWorkspaceError:
+            course_ctx = None
     book_hits = _search_items(profile, topic + " " + course, top=5, kind="book")
     qs = studyexam.related_questions(profile, topic, k=4, mk=mk or None, topic=topic)
     blocks = [f"[KİTAP · {x['title']}" + (f" · Sayfa {x['page']}" if x.get("page") else "") + f"]\n{x['chunk']}" for x in book_hits]
     blocks += [f"[ÇIKMIŞ SORU · {x.get('exam_label') or x.get('year')}]\n{x['chunk']}" for x in qs]
-    no_book = not any(d.get("kind") != "exam" for d in _state(profile).get("docs", []))
+    if course_ctx:
+        blocks.append(f"[DERS KAYNAĞI · {course_ctx['label']}]\n{course_ctx['text']}")
+    no_book = not course_ctx and not any(d.get("kind") != "exam" for d in _state(profile).get("docs", []))
     if simpler:
         ask_txt = (f"“{topic}” konusunu ({course}) daha önce anlattın ama öğrenci tam anlamadı. Şimdi çok sade, kısa cümlelerle, "
                    "günlük hayattan bir benzetmeyle ve adım adım yeniden anlat. En sonda 3 maddelik 'Aklında kalsın' özeti ver. Soru sorma.")
@@ -651,7 +668,8 @@ def lesson(profile, topic: str, course: str = "", mk: str = "", simpler: bool = 
     _LAST_TOPIC[profile.slug] = topic
     return {"text": text, "topic": topic, "no_book": no_book, "topic_locked": True,
             "sources": [x["title"] + (f" · Sayfa {x['page']}" if x.get("page") else "") for x in book_hits]
-                       + [f"{x.get('exam_label') or x.get('year')} çıkmış soru" for x in qs]}
+                       + [f"{x.get('exam_label') or x.get('year')} çıkmış soru" for x in qs]
+                       + ([course_ctx["label"]] if course_ctx else [])}
 
 
 _LAST_TOPIC: dict[str, str] = {}      # son anlatılan konu (yan paneldeki görsel/video araması için)
