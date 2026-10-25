@@ -35,6 +35,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - `system` aracının `volume`, `mute` ve `brightness` işlemleri, istenen sonucun işletim sisteminden kesin geri okuması bulunduğu için mevcut Core prepare onayı, WorkerResult fence, effect intent/receipt ve Reducer/CAS evidence hattına katılır. Core onayı owner/job/step/capability/version/input digest alanlarına bağlıdır.
 - Recovery yeni ayar göndermez: yalnız mevcut ses/mute ya da her okunabilir ekrandaki parlaklık değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
 - Medya tuşları eşdeğer bir gerçek geri-okuma receipt sözleşmesi olmadığı için durable hatta alınmaz; başarı kanıtı uydurulmaz.
+- Aynı geri-okuma şartı hedef yürütücüsü dışındaki hızlı doğal dil parlaklık komutlarında da kullanılır; sürücü çağrısı tek başına kullanıcıya “ayarladım” yanıtı verdirmez.
 
 ## Doğal dil PC görevi tek yürütme hattı — 25 Ekim 2026
 
