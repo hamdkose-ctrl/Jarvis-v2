@@ -65,7 +65,14 @@ def _is_within_allowed(path: Path) -> bool:
         resolved = path.resolve()
     except OSError:
         return False
-    return any(resolved == root or root in resolved.parents for root in allowed_roots())
+    for root in allowed_roots():
+        try:
+            resolved_root = root.resolve()
+        except OSError:
+            continue
+        if resolved == resolved_root or resolved_root in resolved.parents:
+            return True
+    return False
 
 
 def content_digest(path: Path) -> str | None:
