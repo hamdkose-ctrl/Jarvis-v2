@@ -97,6 +97,14 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Model çağrısı yok, yalnız hesap. 4c (GPA/not projeksiyonu) bu adımla tamamlandı; sıradaki 5. madde (onaylı takvim/görev değişikliği).
 - Test: `tests/test_hoca_workspace.py`'de `GpaProjectionTests` (8 test). UI'a bağlanmadı.
 
+## Sesli Hoca modu v1 — 6. adım, 25 Ekim 2026
+
+- Hamdi'nin kararı: 5. madde (onaylı takvim/görev değişikliği) ertelendi — Hoca'nın ders/ödev kayıtları henüz hiçbir sohbet komutuna/ekrana bağlı değil, yani onaylanacak bir "takvime yazma" eylemi yok. Sırada 6. madde (Sesli Hoca modu) var.
+- Sorun: genel sesli okuma sınırı (`engine_output._short_for_speech`, 400 karakter) ders anlatımını çoğu zaman yarıda keser — bir öğretmen modunda bu önemli bir kayıp.
+- Çözüm: yeni ayar `hoca_voice_full` (varsayılan **kapalı**, AGENTS.md'nin "yeni ses davranışı ayarla açılır olmalı" kuralı gereği). Açıkken `engine_tools._study_intent`, Hoca'dan gelen cevabı `runtime._session().speech_override`'a tam metin olarak yazar (`richtext.speakable` ile temizlenmiş); `engine_loop.py`'deki mevcut `speech_override` mekanizması (başka yerlerde de kullanılan, ör. çeviri bildirimi) bunu 400 karakterlik kısaltmayı atlayıp olduğu gibi okur. Kapalıyken davranış hiç değişmez.
+- Model çağrısı yok, ek Gemini/Groq isteği eklenmedi (kota). Ayar `web.py`'de `hoca_enabled` ile aynı yerde okunur/yazılır (`settings()`/`settings_save`); arayüzde henüz bir düğmesi yok (Hoca'nın hiç ekranı yok).
+- Test: `tests/test_hoca.py`'de `HocaEngineHookTests` içine 3 yeni test (ayar kapalı/açık/cevapsız) ve `HocaBridgeTests`'e 1 yeni test (ayar kaydı). Gerçek ses/PC'de denenmedi.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.

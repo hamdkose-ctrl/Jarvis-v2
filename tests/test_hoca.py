@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import file_worker, hoca, hoca_workspace
+from modules import file_worker, hoca, hoca_workspace, richtext
 
 
 class Profile:
@@ -260,13 +260,24 @@ class HocaEngineHookTests(unittest.TestCase):
     def _runtime(self, profile):
         import re
         from types import SimpleNamespace
+        from modules import richtext
+        session = SimpleNamespace(speech_override=None)
         return SimpleNamespace(profile=profile, re=re, emit=lambda *a: None, _record_failure=lambda *a: None,
-                               _MEDIA_Q=re.compile(r"(?!x)x"), _study_media_topic=lambda t: '')
+                               _MEDIA_Q=re.compile(r"(?!x)x"), _study_media_topic=lambda t: '',
+                               _session=lambda: session, richtext=richtext)
 
     def _call(self, profile, text, enabled=True):
         from modules import engine_tools
         with patch('config.load_settings', return_value={'hoca_enabled': enabled}):
             return engine_tools._study_intent(self._runtime(profile), text)
+
+    def _call_voice_full(self, profile, text):
+        """6. adım: hoca_voice_full açıkken sesli okuma tam metni alır mı (session.speech_override)."""
+        from modules import engine_tools
+        with patch('config.load_settings', return_value={'hoca_enabled': True, 'hoca_voice_full': True}):
+            runtime = self._runtime(profile)
+            reply = engine_tools._study_intent(runtime, text)
+            return reply, runtime._session()
 
     def test_hoca_closed_open_unrelated_and_active_rows(self):
         p = Profile()
@@ -284,6 +295,27 @@ class HocaEngineHookTests(unittest.TestCase):
         nxt = '{"text":"T2","question":"Q2?","answer":"A2"}'
         with patch.object(hoca.llm, 'ask', return_value=nxt):
             self.assertIn('Q2?', self._call(p, 'sonraki adıma geç'))
+
+    def test_voice_full_setting_off_leaves_speech_override_untouched(self):
+        p = Profile()
+        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
+            reply = self._call(p, 'hoca modu: hücre')
+        self.assertIn('Hücre neyin birimi?', reply)  # davranış değişmedi; override hiç ayarlanmadı
+
+    def test_voice_full_setting_on_sets_full_text_as_speech_override(self):
+        p = Profile()
+        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
+            reply, session = self._call_voice_full(p, 'hoca modu: hücre')
+        self.assertIsNotNone(session.speech_override)
+        self.assertEqual(session.speech_override, richtext.speakable(reply))  # kısaltma yok, tam metin (temizlenmiş)
+
+    def test_voice_full_setting_on_without_reply_leaves_override_none(self):
+        p = Profile()
+        with patch.object(hoca.llm, 'ask') as ask, patch('modules.study._state', return_value={'docs': []}):
+            reply, session = self._call_voice_full(p, 'hava nasıl')
+        self.assertIsNone(reply)
+        self.assertIsNone(session.speech_override)
+        ask.assert_not_called()
 
 
 class HocaSnapshotTests(unittest.TestCase):
@@ -318,6 +350,15 @@ class HocaBridgeTests(unittest.TestCase):
             save.assert_called_once_with(hoca_enabled=False)
             bridge.settings_save({'hoca_enabled': 1})
             save.assert_called_with(hoca_enabled=True)
+
+    def test_settings_save_stores_voice_full_flag_as_real_boolean(self):
+        import web
+        bridge = web.Bridge.__new__(web.Bridge)
+        with patch.object(web.config, 'save_settings') as save, patch.object(web, '_wakeword'):
+            bridge.settings_save({'hoca_voice_full': 1})
+            save.assert_called_once_with(hoca_voice_full=True)
+            bridge.settings_save({'hoca_voice_full': False})
+            save.assert_called_with(hoca_voice_full=False)
 
     def test_study_overview_carries_hoca_snapshot_without_model_call(self):
         from types import SimpleNamespace

@@ -108,8 +108,17 @@ def _study_intent(runtime, cmd_lower: str) -> str | None:
     try:
         from config import load_settings
         from modules import hoca
-        reply = hoca.handle(runtime.profile, cmd_lower, enabled=bool(load_settings().get("hoca_enabled", True)))
+        settings = load_settings()
+        reply = hoca.handle(runtime.profile, cmd_lower, enabled=bool(settings.get("hoca_enabled", True)))
         if reply:
+            if settings.get("hoca_voice_full"):
+                # Sesli Hoca modu (6. adım): genel kısa okuma sınırı (400 karakter) ders anlatımını
+                # yarıda keser; bu ayar açıkken tam metin okunur. En iyi çaba — başarısız olursa
+                # yazılı cevap etkilenmez, yalnız sesli okuma normal kısa haline döner.
+                try:
+                    runtime._session().speech_override = runtime.richtext.speakable(reply)
+                except Exception:
+                    runtime._record_failure('main.py:_study_intent')
             return reply
     except Exception:
         runtime._record_failure('main.py:_study_intent')
