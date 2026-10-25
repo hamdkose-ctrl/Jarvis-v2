@@ -52,7 +52,7 @@ def validate(kind, data):
     schemas={'action':({'action','params'},{'action','params'}),
              'desktop':({'target','goal'},{'target','goal','resume_id','answer'}),
              'document':({'operation','path'},{'operation','path','question','target','format'}),
-             'observe':({'kind','question'},{'kind','question'}),
+             'observe':({'kind','question'},{'kind','question','target'}),
              'application':({'operation'},{'operation','name'}), 'diagnose':({'kind'},{'kind'}),
              'sharing':({'mode'},{'mode'}),'schedule':({'tasks','request','seconds'},{'tasks','request','seconds','repeat_seconds'}),
              'system':({'operation'},{'operation','level','on','action'})}
@@ -78,12 +78,14 @@ def validate(kind, data):
         if any(not isinstance(v,str) or not v.strip() or '\x00' in v for v in data.values()):
             raise ValueError('Araç alanları dolu metin olmalı.')
         enums={'document':('operation',{'read','summarize','insights','translate','convert'}),
-               'observe':('kind',{'screen','camera'}),'application':('operation',{'list','open'}),
+               'observe':('kind',{'screen','camera','window'}),'application':('operation',{'list','open'}),
                'diagnose':('kind',{'system','accounts','media','narration'})}
         enums['sharing']=('mode',{'screen','camera','off'})
         if kind in enums:
             key,values=enums[kind]
             if data[key] not in values:raise ValueError('Araç işlemi geçersiz.')
+        if kind=='observe' and (data['kind']=='window') != ('target' in data):
+            raise ValueError('Pencere gözlemi için yalnız hedef uygulama adı gerekli.')
         if kind=='application' and data['operation']=='open' and not data.get('name'):raise ValueError('Uygulama adı gerekli.')
     return data
 
@@ -354,7 +356,21 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         return local_result(owner,kind,text,source_file=str(path),source_sha256=digest)
     if kind=='observe':
         _pc_owner(runtime,owner)
-        if blocked:=privacy.blocked(data['kind']):raise NotStarted(blocked)
+        if blocked:=privacy.blocked('screen' if data['kind']=='window' else data['kind']):raise NotStarted(blocked)
+        if data['kind']=='window':
+            # Reuse the existing UIA adapter in its bounded observation mode:
+            # no model call, no application launch, no input action, no task save.
+            from modules import desktop_agent
+            readback=desktop_agent.run(
+                {'owner':owner,'target':data['target'],'goal':data['question'],
+                 'history':[],'hwnd':None},
+                current=lambda:runtime.pc_profile().slug,read_only=True)
+            if not isinstance(readback,dict) or readback.get('state')!='done' or readback.get('read_only') is not True:
+                message=readback.get('message') if isinstance(readback,dict) else None
+                raise NotStarted(str(message or 'Hedef pencere salt-okunur olarak doğrulanamadı.'))
+            observation=readback.get('observation')
+            if not isinstance(observation,dict):raise ValueError('Pencere gözlemi geçerli kanıt üretmedi.')
+            return local_result(owner,kind,json.dumps(observation,ensure_ascii=False),window_observation=observation)
         if data['kind']=='camera':
             if runtime.vision.mode()!='camera':raise NotStarted('Kamera paylaşımı açık değil; kendiliğinden açılmadı.')
             image=runtime.vision.snapshot_path()
