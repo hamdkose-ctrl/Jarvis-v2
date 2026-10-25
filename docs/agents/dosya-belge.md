@@ -11,6 +11,12 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - Hata/boşluk durumları sessiz başarı üretmez: `FILE_NOT_FOUND`, `PERMISSION_MISMATCH`, `UNSUPPORTED_FORMAT`, `ENCRYPTED_OR_PROTECTED`, `CORRUPT_DOCUMENT`, `READ_TIMEOUT`, `NO_TEXT_EXTRACTED` reason code'larından biriyle döner.
 - Test: `tests/test_file_worker.py` (13 test, izole tmp klasörle; gerçek Masaüstü/Belgeler'e dokunmaz). Bu PR yalnız çıkarım katmanıdır; klasör envanteri raporu, görsel komutlar, Dosyalar ekranı ve onaylı düzenleme effect'leri sonraki adımlardır (Hoca modu bağlantısı bu kapsamda değildir).
 
+## Klasör envanteri v1 — 25 Ekim 2026
+
+- `modules/file_inventory.py`: dosya çalışma alanının 2. adımı. `file_worker.scan_folder/find_duplicates/find_similar_names` üzerine ince bir katman; `build_report(folder)` tek bir `InventoryReport` döndürür: toplam dosya sayısı, uzantıya göre dağılım, yineleme grupları, benzer ad grupları, boş dosya adayları, eski dosya adayları (`OLD_FILE_DAYS`=180 gün değişmemiş) ve geçici ad adayları (`~$...`, `.bak`, `.temp`, `.old`; `.tmp`/`.part`/`.crdownload` zaten `files._IGNORE_EXT`'te elenir, tekrar işaretlenmez).
+- Hiçbir dosyayı taşımaz, yeniden adlandırmaz, arşivlemez veya silmez — bu, planın 5. adımı (onaylı effect) ve bu modülün kapsamı dışındadır. İzin dışı/var olmayan klasör `scan_folder` ile aynı `FileWorkerError` (`FILE_NOT_FOUND`/`PERMISSION_MISMATCH`) ile reddedilir.
+- Test: `tests/test_file_inventory.py` (9 test, izole tmp klasörle). Önerilen klasör hiyerarşisi ve taşıma/yeniden adlandırma planı, tablo/rapor artifact'ları, görsel komutlar, Dosyalar ekranı ve Hoca modu bağlantısı sonraki adımlardır.
+
 ## Klasör analizi — 17 Ekim 2026
 - `modules/folder_analysis.py`: "İndirilenler klasörünü incele", "masaüstümde ne var", "belgeler klasörü ne hakkında", "indirilenlerdeki Proje klasörünü incele" (ASCII yazım dahil) ve tırnaklı klasör yolu (`main_documents._file_command`). Bağlantı `engine_tools._extra_commands` içinde tek satırdır, model yönlendirmesinden önce çalışır. Düzenle/aç/sil/taşı/izle, tek dosya ("… dosyasını özetle") ve "… geçiyor mu" aramaları bu yola girmez.
 - Yalnız `nxapi.allowed` klasörleri; en çok 2 alt klasör seviyesi, 60 belge / 50 MB okuma, 90 sn, 2000 dosya sayımı. Sembolik bağ ve kısayol izlenmez. Fazlası raporda "Sınırlar" satırında söylenir.
