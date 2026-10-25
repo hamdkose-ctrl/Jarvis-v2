@@ -142,6 +142,18 @@ class SystemRuntimeGateTests(unittest.TestCase):
             runtime, 'brightness', {'level': 70}, 'Parlaklığı 70 yap', 'parlaklığı 70 yap')
         self.assertEqual(output, 'Ekran parlaklığını doğrulayamadım.')
 
+    def test_close_app_intent_waits_for_explicit_confirmation(self):
+        from modules import engine_intents
+        close = unittest.mock.Mock()
+        session = SimpleNamespace(pending_confirm=None)
+        runtime = SimpleNamespace(system_control=SimpleNamespace(close_application=close),
+                                  _session=lambda: session)
+        output = engine_intents.dispatch(
+            runtime, 'close_app', {'name': 'Not Defteri'}, 'Not Defteri kapat', 'not defteri kapat')
+        self.assertIn('kaydedilmemiş', output)
+        self.assertEqual(session.pending_confirm, {'action': 'close_app', 'name': 'Not Defteri'})
+        close.assert_not_called()
+
     def test_brightness_verified_requires_set_then_exact_readback(self):
         from modules import system_control
         with patch.object(system_control, 'set_brightness', return_value=True) as set_value, \

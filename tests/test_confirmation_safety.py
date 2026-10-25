@@ -46,6 +46,28 @@ class ConfirmationTests(unittest.TestCase):
                 system.shutdown_pc.assert_not_called()
                 self.assertIsNone(session.pending_confirm)
 
+    def test_close_app_requires_clear_approval_before_window_close(self):
+        for text in ('evet ama kapatma', 'hayır evet', 'tamam kapatma'):
+            with self.subTest(text=text):
+                session = SessionState(pending_confirm={'action': 'close_app', 'name': 'Not Defteri'})
+                system = Mock()
+                self.branch('_session().pending_confirm', {
+                    '_session': lambda: session, 'cmd_lower': text, 'decision': decision,
+                    'system_control': system, 'privacy': Mock(),
+                })
+                system.close_application.assert_not_called()
+                self.assertIsNone(session.pending_confirm)
+
+        session = SessionState(pending_confirm={'action': 'close_app', 'name': 'Not Defteri'})
+        system = Mock()
+        system.close_application.return_value = 'Not Defteri pencerelerinin kapandığını doğruladım.'
+        result = self.branch('_session().pending_confirm', {
+            '_session': lambda: session, 'cmd_lower': 'evet', 'decision': decision,
+            'system_control': system, 'privacy': Mock(),
+        })
+        self.assertIn('kapandığını doğruladım', result)
+        system.close_application.assert_called_once_with('Not Defteri')
+
     def test_folder_denial_does_not_move_files(self):
         session = SessionState(pending_organize={'plan': [], 'label': 'Belgeler'})
         files = Mock()
