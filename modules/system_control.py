@@ -381,6 +381,22 @@ def set_brightness(level: int) -> bool:
         return False
 
 
+def brightness_matches(level: int) -> bool:
+    """True only if every readable display reports the requested percentage."""
+    try:
+        import screen_brightness_control as sbc
+        observed = sbc.get_brightness()
+        values = [observed] if isinstance(observed, (int, float)) and not isinstance(observed, bool) else observed
+        if not isinstance(values, (list, tuple)) or not values:
+            return False
+        target = max(0, min(100, int(level)))
+        return all(isinstance(value, (int, float)) and not isinstance(value, bool) and round(value) == target
+                   for value in values)
+    except Exception:
+        _record_failure('modules/system_control.py:brightness_matches')
+        return False
+
+
 def media_control(action: str) -> bool:
     """Müzik/medya tuşlarını simüle eder. Tanınan bir eylemse True döner."""
     actions = {

@@ -7,8 +7,8 @@ from unittest.mock import patch
 class SystemRuntimeGateTests(unittest.TestCase):
     """Verified system-state changes use the existing durable worker boundary.
 
-    Only volume and mute participate: both have a real readback contract.  Media
-    keys and brightness cannot yet produce an equivalent verified receipt.
+    Volume, mute and brightness participate only when their real readback
+    contract confirms the requested system state. Media keys remain excluded.
     """
 
     def setUp(self):
@@ -87,6 +87,20 @@ class SystemRuntimeGateTests(unittest.TestCase):
                                       {'operation': 'mute', 'on': True}, {}, identity)
         self.assertEqual(mute['receipt'], {'service': 'system_control', 'remote_id': 'mute:1'})
 
+    def test_brightness_receipt_requires_real_driver_readback(self):
+        from modules import goal_tools, system_control
+        identity = {'owner': 'alice', 'job_id': 'job-1', 'task_id': 's1'}
+        with patch.object(system_control, 'set_brightness', return_value=True), \
+             patch.object(system_control, 'brightness_matches', return_value=True):
+            output = goal_tools.execute(self.runtime(), 'system',
+                                        {'operation': 'brightness', 'level': 70}, {}, identity)
+        self.assertEqual(output['receipt'], {'service': 'system_control', 'remote_id': 'brightness:70'})
+        with patch.object(system_control, 'set_brightness', return_value=True), \
+             patch.object(system_control, 'brightness_matches', return_value=False):
+            with self.assertRaisesRegex(ValueError, 'doğrulanamadı'):
+                goal_tools.execute(self.runtime(), 'system',
+                                   {'operation': 'brightness', 'level': 70}, {}, identity)
+
     def test_reconcile_reads_matching_volume_without_replaying_effect(self):
         from modules import goal_tools, system_control
         identity = self.identity()
@@ -103,11 +117,22 @@ class SystemRuntimeGateTests(unittest.TestCase):
         from modules import goal_executor
         job = {**self.job(), 'outputs': {}}
         volume = goal_executor._identity(job, self.step())
+        brightness = goal_executor._identity(job, {**self.step(), 'input': {'operation': 'brightness', 'level': 70}})
         media = goal_executor._identity(job, {**self.step(), 'input': {'operation': 'media', 'action': 'next'}})
         self.assertEqual(volume['capability'], 'system')
         self.assertEqual(volume['risk'], 'local_destructive')
         self.assertFalse(volume['replay_safe'])
+        self.assertEqual(brightness['capability'], 'system')
         self.assertNotIn('version', media)
+
+    def test_brightness_match_requires_every_reported_display_to_match(self):
+        from modules import system_control
+        fake = SimpleNamespace(get_brightness=lambda: [70, 70])
+        with patch.dict(sys.modules, {'screen_brightness_control': fake}):
+            self.assertTrue(system_control.brightness_matches(70))
+        mismatch = SimpleNamespace(get_brightness=lambda: [70, 69])
+        with patch.dict(sys.modules, {'screen_brightness_control': mismatch}):
+            self.assertFalse(system_control.brightness_matches(70))
 
 
 if __name__ == '__main__':
