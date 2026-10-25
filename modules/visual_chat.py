@@ -73,7 +73,13 @@ def handle(context, command: str, normalized: str) -> str | None:
     if _RETRY.search(normalized) and last_visual:
         return _generate(context, owner, last_visual["text"], last_visual["content"], last_visual["kind"])
 
-    kind = visual_commands.detect_type(command)
+    # Yalnız ücretsiz kelime kalıbı: her sohbet mesajında çalışan bu otomatik
+    # tetikleme, model tabanlı tespite (`detect_type_via_model`) düşerse her
+    # normal cümle için fazladan bir Gemini çağrısı yapar — kota kuralına
+    # aykırı ve geliştirme modu testinin araç sırasını bozuyordu (Windows CI).
+    # Model fallback, Dosyalar ekranındaki "Görselleştir" düğmesi gibi tek
+    # seferlik, açık eylemler için ayrıca çağrılmaya devam ediyor.
+    kind = visual_commands.detect_type_by_keyword(command)
     if kind is None:
         return None
     session.pending_visual = {"text": command, "kind": kind, "stage": "source"}

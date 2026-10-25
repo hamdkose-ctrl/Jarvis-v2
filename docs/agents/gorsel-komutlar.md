@@ -139,6 +139,44 @@ alt-süreç testiydi. Normal (taklitsiz) ortamda tam paket tekrar 1
 failure/87 error'a döndü — PR açılmadan önceki orijinal baseline ile
 birebir aynı, hiç fazladan hata yok.
 
+### Sohbette gereksiz model çağrısı düzeltmesi — 25 Ekim 2026
+
+Yukarıdaki iki düzeltmeden sonra Windows CI'da farklı, daha önemli bir
+hata çıktı: `tests/developer_smoke.py` geliştirme modu testi, cevapta
+beklenen `\`\`\`diff` ve `data:image/svg+xml;base64,` metinlerini
+bulamayıp başarısız oldu.
+
+Kök neden: `visual_chat.handle`, `command_manager.dispatch`'in en
+başında HER sohbet mesajında çalışıyor. Sabit kelime kalıbı
+(`detect_type_by_keyword`) uymazsa `detect_type` otomatik olarak
+modele bir kez soruyordu ("bu bir görsel isteği mi?") —
+`gorsel-komutlar.md`'nin "Tür tespiti" bölümünde bu model çağrısı
+"nadiren" ve yalnız açık bir eylemde (Dosyalar ekranındaki
+"Görselleştir" düğmesi) harcanması amaçlanmıştı. Ama sohbete bağlanınca
+bu, kalıba uymayan HER normal cümle için (ör. geliştirme modunda model
+araç çağrısı üretirken) fazladan bir Gemini isteği anlamına geliyordu
+— hem `AGENTS.md`'deki "gereksiz Gemini çağrısı eklenmez (kota)"
+kuralına aykırı hem de geliştirme modunun kendi model çağrı sırasını
+bozup testi patlatıyordu (test, `dev.llm.ask`'i sahte sabit bir cevap
+listesiyle değiştiriyor; araya giren bu ekstra çağrı listeyi kaydırdı).
+
+Düzeltme: `visual_chat.handle`'daki otomatik sohbet tetiklemesi artık
+yalnız ücretsiz `detect_type_by_keyword`'ü kullanıyor, model
+fallback'ine (`detect_type_via_model`) hiç düşmüyor. Dosyalar
+ekranındaki "Görselleştir" düğmesi (`main_documents._file_command`)
+zaten sabit "görselleştir" kelimesiyle `visualize` türüne eşleştiği
+için bu değişiklikten etkilenmedi — model çağrısı o yolda zaten hiç
+tetiklenmiyordu.
+
+Doğrulama: `tests/developer_smoke.py` gerçekten çalıştırılıp (sahte
+`google.genai` ile) düzeltmeden önce başarısız, sonra geçtiği
+doğrulandı. `tests/test_visual_chat.py` + `tests/test_visual_commands.py`
+(33 test) hepsi geçti. Tam paket (`modules.validation`) bu sandbox'ta
+görsel/ses modülleriyle ilgisiz, önceden var olan sahte-modül
+eksikliklerinde (13 failure/25 error, hem düzeltme öncesi hem sonrası
+birebir aynı sayı) duruyor — bu değişiklikten kaynaklı yeni bir hata
+yok.
+
 ## Dosyalar ekranına açıklama sekmesi — 25 Ekim 2026
 
 `webui/nx.js` `PAGES.files`'a "Nasıl çalışır?" düğmesi eklendi
