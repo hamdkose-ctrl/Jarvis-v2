@@ -29,6 +29,8 @@ import json
 import re
 import time
 
+from modules.diagnostics import record_failure as _record_failure
+
 LEVELS = ("lgs", "lise", "üniversite", "genel")
 SOURCE_TYPES = ("kitap", "pdf", "video", "web", "çıkmış_soru")
 _EXAM_SOURCE_TYPES = {"çıkmış_soru"}
@@ -164,6 +166,7 @@ def decompose_assignment(profile, course_id: int, title: str, due: str = "", con
     try:
         answer = llm.ask(prompt, system, 500)
     except Exception as exc:
+        _record_failure('modules/hoca_workspace.py:decompose_assignment')
         raise HocaWorkspaceError(f"Ödev parçalanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
     m = re.search(r"\{.*\}", str(answer or ""), re.S)
     try:
