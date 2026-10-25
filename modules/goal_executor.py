@@ -181,7 +181,7 @@ def _identity(job,step):
     tool=step['tool'];data=step['input']
     if tool in task_tools.CATALOG:
         result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':step.get('attempts', 0)})
-    elif tool=='desktop' or (tool=='system' and data.get('operation') in {'volume','mute'}):
+    elif tool=='desktop' or (tool=='system' and data.get('operation') in {'volume','mute','brightness'}):
         # The desktop adapter is an existing local goal tool.  Give only this
         # effectful local path the durable execution identity needed by the
         # Core gate; this does not turn every legacy local helper into a worker.

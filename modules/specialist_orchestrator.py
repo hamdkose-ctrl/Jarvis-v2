@@ -96,10 +96,9 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
     # same Core gate before native UIA/CUA/C# adapters can be introduced.
-    # Volume/mute have an exact OS readback and can therefore enter the durable
-    # effect/receipt path.  Brightness and media keys remain on their existing
-    # adapter until they gain an equally strong receipt contract.
-    durable_system=(step['tool']=='system' and step['input'].get('operation') in {'volume','mute'})
+    # State setters enter the durable effect/receipt path only when they have
+    # exact OS readback. Media keys remain outside until they do.
+    durable_system=(step['tool']=='system' and step['input'].get('operation') in {'volume','mute','brightness'})
     gated={'media','publish','account','research','writer','browser','coder','verify','desktop'}
     if durable_system:
         gated.add('system')

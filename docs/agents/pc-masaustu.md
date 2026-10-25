@@ -32,9 +32,9 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 
 ## Doğrulanabilir ses durumu için durable Core hattı — 25 Ekim 2026
 
-- `system` aracının yalnız `volume` ve `mute` işlemleri, istenen sonucun işletim sisteminden kesin geri okuması bulunduğu için mevcut Core prepare onayı, WorkerResult fence, effect intent/receipt ve Reducer/CAS evidence hattına katılır. Core onayı owner/job/step/capability/version/input digest alanlarına bağlıdır.
-- Recovery yeni ses ayarı göndermez: yalnız mevcut ses/mute değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
-- `brightness` ve medya tuşları bu PR'da durable hatta alınmaz. Mevcut adapter davranışları korunur; bunlar için eşdeğer bir gerçek geri-okuma receipt sözleşmesi tanımlanmadan “başarılı” kanıtı uydurulmaz.
+- `system` aracının `volume`, `mute` ve `brightness` işlemleri, istenen sonucun işletim sisteminden kesin geri okuması bulunduğu için mevcut Core prepare onayı, WorkerResult fence, effect intent/receipt ve Reducer/CAS evidence hattına katılır. Core onayı owner/job/step/capability/version/input digest alanlarına bağlıdır.
+- Recovery yeni ayar göndermez: yalnız mevcut ses/mute ya da her okunabilir ekrandaki parlaklık değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
+- Medya tuşları eşdeğer bir gerçek geri-okuma receipt sözleşmesi olmadığı için durable hatta alınmaz; başarı kanıtı uydurulmaz.
 
 ## Doğal dil PC görevi tek yürütme hattı — 25 Ekim 2026
 

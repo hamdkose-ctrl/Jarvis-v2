@@ -201,6 +201,10 @@ def reconcile(runtime,kind,data,identity,check):
             return local_result(owner,kind,'Bilgisayar sesi '+('susturuldu.' if data['on'] else 'açıldı.'),
                                 receipt={'service':'system_control','remote_id':'mute:'+value},
                                 reconciled=True)
+        if op=='brightness' and system_control.brightness_matches(data.get('level')):
+            return local_result(owner,kind,'Parlaklık: '+str(data['level']),
+                                receipt={'service':'system_control','remote_id':'brightness:'+str(data['level'])},
+                                reconciled=True)
     if kind=='action' and check:
         before=check['before'];after=runtime.profile.data.get(check['field'],[])
         action=data['action'];params=data['params']
@@ -425,9 +429,10 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             text='Bilgisayar sesi '+('susturuldu.' if data['on'] else 'açıldı.')
             receipt={'service':'system_control','remote_id':'mute:'+('1' if data['on'] else '0')}
         elif op=='brightness':
-            if not system_control.set_brightness(data['level']):raise ValueError('Parlaklık ayarı kabul edilmedi.')
-            text='Parlaklık ayarı sürücü tarafından kabul edildi: '+str(data['level'])
-            receipt=None
+            if not system_control.set_brightness(data['level']) or not system_control.brightness_matches(data['level']):
+                raise ValueError('Parlaklık ayarı doğrulanamadı.')
+            text='Parlaklık: '+str(data['level'])
+            receipt={'service':'system_control','remote_id':'brightness:'+str(data['level'])}
         else:
             if not system_control.media_control(data['action']):raise ValueError('Medya komutu kabul edilmedi.')
             text='Medya komutu işletim sistemi tarafından kabul edildi.'
