@@ -162,7 +162,43 @@ def reconcile(current: dict, job: dict) -> dict:
 
 
 def advance(current: dict, job: dict) -> dict:
-    return reconcile(current, job)['state']
+    current = goal_state.validate(current)
+    target = _target(job)
+
+    if goal_state.terminal(current):
+        return current
+
+    state = current
+    if state['state'] != target:
+        proposal = {
+            'expected_version': state['version'], 'op': 'set_state',
+            'state': target, 'reason_code': 'LEGACY_STATE_SYNCED',
+        }
+        try:
+            state = core_state_reducer.apply(state, proposal)
+        except core_state_reducer.InvalidTransitionError:
+            if state['state'] == 'running' or target == 'running':
+                raise
+            state = core_state_reducer.apply(state, {
+                'expected_version': state['version'], 'op': 'set_state',
+                'state': 'running', 'reason_code': 'LEGACY_RESUMED',
+            })
+            state = core_state_reducer.apply(state, {
+                'expected_version': state['version'], 'op': 'set_state',
+                'state': target, 'reason_code': 'LEGACY_STATE_SYNCED',
+            })
+    blocker = _blocker(job)
+    if blocker is not None and state['blocker'] != blocker and not goal_state.terminal(state):
+        state = core_state_reducer.apply(state, {
+            'expected_version': state['version'], 'op': 'set_blocker',
+            'blocker': blocker, 'reason_code': 'LEGACY_BLOCKER_SYNCED',
+        })
+    elif blocker is None and state['blocker'] is not None and not goal_state.terminal(state):
+        state = core_state_reducer.apply(state, {
+            'expected_version': state['version'], 'op': 'clear_blocker',
+            'reason_code': 'LEGACY_BLOCKER_CLEARED',
+        })
+    return state
 
 
 def operator_backfill_missing_canonical_once(

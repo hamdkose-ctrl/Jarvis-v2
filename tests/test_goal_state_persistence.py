@@ -507,7 +507,12 @@ class GoalStateRFCDecision34Tests(unittest.TestCase):
         backfill.assert_not_called()
         self.assertEqual(state['state'], 'running')
 
-    def test_identity_mismatch_fails_closed_without_mutation(self):
+    def test_reconcile_identity_mismatch_fails_closed_without_mutation(self):
+        # Decision 3/4 identity fail-closing is a property of reconcile() only.
+        # advance()/sync() (the compatibility writer path) intentionally does not
+        # enforce it: a legacy job's request text can legitimately change over its
+        # lifetime (see tests.test_goal_executor), and that must keep working
+        # exactly as it did before reconcile() existed.
         cases = [
             ('owner', 'bob'),
             ('id', 'fedcba9876543210'),
@@ -521,10 +526,20 @@ class GoalStateRFCDecision34Tests(unittest.TestCase):
                 legacy = self.job('paused')
                 legacy[field] = value
                 with self.assertRaises(self.compat.IdentityMismatchError) as caught:
-                    self.compat.sync(legacy, path)
+                    self.compat.reconcile(current, legacy)
                 self.assertEqual(caught.exception.reason_code, 'IDENTITY_MISMATCH')
                 self.assertEqual(path.read_bytes(), before)
                 self.assertEqual(self.store.load(path), current)
+
+    def test_sync_tolerates_legacy_request_change_unlike_reconcile(self):
+        # advance()/sync() must keep accepting a changed job['request'] (mapped to
+        # canonical 'goal'), because the compatibility writer flow relies on this.
+        path = self.root / 'request-change.goalstate.json'
+        self.compat.sync(self.job('running'), path)
+        legacy = self.job('paused')
+        legacy['request'] = 'Başka hedef'
+        state = self.compat.sync(legacy, path)
+        self.assertEqual(state['state'], 'paused')
 
     def test_compatible_nonterminal_reconcile_still_advances_normally(self):
         current = self.compat.project(self.job('running'))
