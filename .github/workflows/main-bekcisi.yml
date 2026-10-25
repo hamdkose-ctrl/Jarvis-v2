@@ -24,29 +24,35 @@ jobs:
           REPO: ${{ github.repository }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
-        shell: bash
+        shell: powershell
         run: |
-          set -eu
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            echo "İlk push veya dal oluşturma; karşılaştırılacak önceki commit yok."; exit 0
-          fi
-          shas=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --paginate --jq '.commits[].sha')
-          bad=""
-          for sha in $shas; do
-            n=0
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrEmpty($env:BEFORE) -or $env:BEFORE -eq '0000000000000000000000000000000000000000') {
+            Write-Output "İlk push veya dal oluşturma; karşılaştırılacak önceki commit yok."
+            exit 0
+          }
+          $compareJson = gh api "repos/$env:REPO/compare/$env:BEFORE...$env:AFTER" --paginate
+          if ($LASTEXITCODE -ne 0) { throw "gh api compare çağrısı başarısız oldu." }
+          $shas = @(($compareJson | ConvertFrom-Json).commits) | ForEach-Object { $_.sha }
+          $bad = @()
+          foreach ($sha in $shas) {
+            $n = 0
             # Squash merge sonrası GitHub commit-PR ilişkisini gecikmeli
             # indeksleyebilir. En fazla iki dakika bekle; API hatasını
             # "PR yok" diye yorumlama.
-            for try in $(seq 1 12); do
-              n=$(gh api "repos/$REPO/commits/$sha/pulls" --jq 'length')
-              [ "$n" -gt 0 ] && break
-              [ "$try" -lt 12 ] && sleep 10
-            done
-            if [ "$n" -eq 0 ]; then bad="$bad $sha"; fi
-          done
-          if [ -n "$bad" ]; then
-            echo "::error title=main'e PR'sız commit girdi::Şu commit'ler hiçbir PR ile ilişkili değil:$bad"
-            echo "Bu iş yalnız uyarır, geri almaz. Commit'e bak: gerekirse PR ile geri al (git revert)."
+            for ($try = 1; $try -le 12; $try++) {
+              $pullsJson = gh api "repos/$env:REPO/commits/$sha/pulls"
+              if ($LASTEXITCODE -ne 0) { throw "gh api commits/$sha/pulls çağrısı başarısız oldu." }
+              $n = @($pullsJson | ConvertFrom-Json).Count
+              if ($n -gt 0) { break }
+              if ($try -lt 12) { Start-Sleep -Seconds 10 }
+            }
+            if ($n -eq 0) { $bad += $sha }
+          }
+          if ($bad.Count -gt 0) {
+            $badList = $bad -join ' '
+            Write-Output "::error title=main'e PR'sız commit girdi::Şu commit'ler hiçbir PR ile ilişkili değil:$badList"
+            Write-Output "Bu iş yalnız uyarır, geri almaz. Commit'e bak: gerekirse PR ile geri al (git revert)."
             exit 1
-          fi
-          echo "Tüm commit'ler bir PR ile ilişkili."
+          }
+          Write-Output "Tüm commit'ler bir PR ile ilişkili."
