@@ -53,7 +53,10 @@ def _generate(context, owner: str, text: str, content: str, kind: str) -> str:
 def handle(context, command: str, normalized: str) -> str | None:
     owner, session = context.profile.slug, context.session
 
-    pending = session.pending_visual
+    # `session` bazı testlerde hafif bir SimpleNamespace olabilir (yalnız o
+    # testin kullandığı alanlarla); bu alanlar orada hiç yoksa normal akışa
+    # düşülmeli, AttributeError ile patlamamalı.
+    pending = getattr(session, "pending_visual", None)
     if pending is not None:
         if pending.get("stage") == "source":
             if _SOURCE_SOHBET.search(normalized):
@@ -66,9 +69,9 @@ def handle(context, command: str, normalized: str) -> str | None:
             return 'Sohbetten mi, dosyadan mı? "sohbet" veya "dosya" yazabilirsin.'
         session.pending_visual = None   # tanınmayan aşama: kilitlenmesin, normal akışa düşsün
 
-    if _RETRY.search(normalized) and session.last_visual:
-        last = session.last_visual
-        return _generate(context, owner, last["text"], last["content"], last["kind"])
+    last_visual = getattr(session, "last_visual", None)
+    if _RETRY.search(normalized) and last_visual:
+        return _generate(context, owner, last_visual["text"], last_visual["content"], last_visual["kind"])
 
     kind = visual_commands.detect_type(command)
     if kind is None:

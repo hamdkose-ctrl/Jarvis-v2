@@ -112,6 +112,33 @@ izin vermiyor, PC'de denenmeli); sohbetten "dosya" cevabında dosya
 adını doğrudan chat'te yazdırıp otomatik çözme (şimdilik Dosyalar
 ekranına yönlendiriliyor).
 
+### Windows CI düzeltmesi — 25 Ekim 2026
+
+Gerçek Windows CI'da (bu sandbox'ta değil — orada `google-genai`
+gerçekten kurulu) iki gerçek hata çıktı, Hamdi'nin paylaştığı log'dan
+bulundu:
+
+1. `visual_chat.handle`, `session.pending_visual`/`last_visual`'e
+   doğrudan öznitelik erişimiyle bakıyordu. `test_command_manager.py`
+   gibi bazı eski testler `session`'ı hafif bir `SimpleNamespace` ile
+   taklit ediyor (yalnız o testin ihtiyacı olan alanlarla) — bu
+   alanlar orada yoktu, `AttributeError` fırlıyordu. Düzeltme:
+   `getattr(session, "...", None)`.
+2. Bu PR'ın kendi testindeki (`FileButtonGorsellestirTests._runtime`)
+   sahte `runtime` nesnesinde `tr` alanı unutulmuştu;
+   `_file_command` her eylemde `runtime.tr.target_from_command(act)`
+   çağırıyor (üretimde `runtime.tr` her zaman var, bu yalnız test
+   fixture'ının eksikliğiydi). Düzeltme: fixture'a gerçek
+   `modules.translate` eklendi.
+
+Doğrulama: bu sandbox'ta `google.genai`/`google.genai.types` sahte
+modüllerle (gerçek davranış değiştirilmeden, yalnız import zincirini
+açmak için) taklit edilip tüm paket (2446 test, `unittest discover`)
+çalıştırıldı — her iki düzeltmeden sonra kalan tek hata ilgisiz bir
+alt-süreç testiydi. Normal (taklitsiz) ortamda tam paket tekrar 1
+failure/87 error'a döndü — PR açılmadan önceki orijinal baseline ile
+birebir aynı, hiç fazladan hata yok.
+
 ## Dosyalar ekranına açıklama sekmesi — 25 Ekim 2026
 
 `webui/nx.js` `PAGES.files`'a "Nasıl çalışır?" düğmesi eklendi

@@ -130,6 +130,7 @@ class FileButtonGorsellestirTests(unittest.TestCase):
         import re
         from types import SimpleNamespace
         from unittest.mock import Mock
+        from modules import translate as tr
         session = SessionState()
         source = Mock()
         source.is_file.return_value = True
@@ -137,7 +138,7 @@ class FileButtonGorsellestirTests(unittest.TestCase):
         source.__str__ = Mock(return_value="rapor.docx")
         runtime = SimpleNamespace(
             _FILE_CMD=re.compile(r'^((?:"[^"]{4,400}"\s+){1,10})(.+)$'), _tr_lower=str.lower,
-            _IMG_EXT=(".png",), re=re,
+            _IMG_EXT=(".png",), re=re, tr=tr,
             profile=_Profile(), _session=lambda: session,
             docs=SimpleNamespace(summarize=Mock(return_value=summarize_result)),
         )
