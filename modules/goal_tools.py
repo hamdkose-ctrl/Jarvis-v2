@@ -186,6 +186,21 @@ def reconcile(runtime,kind,data,identity,check):
             return None
         return local_result(owner,kind,desktop_agent.render(native),desktop_id=native['id'],
                             receipt={'service':'desktop_uia','remote_id':native['id']},reconciled=True)
+    if kind=='system':
+        # Only operations with an exact local readback are recoverable.  Never
+        # replay the effect: if the requested state is not currently visible,
+        # recovery leaves the journal outcome unknown.
+        op=data.get('operation')
+        from modules import system_control
+        if op=='volume' and system_control.current_volume()==data.get('level'):
+            return local_result(owner,kind,'Ses seviyesi: '+str(data['level']),
+                                receipt={'service':'system_control','remote_id':'volume:'+str(data['level'])},
+                                reconciled=True)
+        if op=='mute' and system_control.is_muted() is data.get('on'):
+            value='1' if data['on'] else '0'
+            return local_result(owner,kind,'Bilgisayar sesi '+('susturuldu.' if data['on'] else 'açıldı.'),
+                                receipt={'service':'system_control','remote_id':'mute:'+value},
+                                reconciled=True)
     if kind=='action' and check:
         before=check['before'];after=runtime.profile.data.get(check['field'],[])
         action=data['action'];params=data['params']
@@ -404,16 +419,20 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
         if op=='volume':
             if not system_control.set_volume(data['level']) or system_control.current_volume()!=data['level']:raise ValueError('Ses seviyesi doğrulanamadı.')
             text='Ses seviyesi: '+str(data['level'])
+            receipt={'service':'system_control','remote_id':'volume:'+str(data['level'])}
         elif op=='mute':
             if not system_control.set_mute(data['on']) or system_control.is_muted() is not data['on']:raise ValueError('Susturma durumu doğrulanamadı.')
             text='Bilgisayar sesi '+('susturuldu.' if data['on'] else 'açıldı.')
+            receipt={'service':'system_control','remote_id':'mute:'+('1' if data['on'] else '0')}
         elif op=='brightness':
             if not system_control.set_brightness(data['level']):raise ValueError('Parlaklık ayarı kabul edilmedi.')
             text='Parlaklık ayarı sürücü tarafından kabul edildi: '+str(data['level'])
+            receipt=None
         else:
             if not system_control.media_control(data['action']):raise ValueError('Medya komutu kabul edilmedi.')
             text='Medya komutu işletim sistemi tarafından kabul edildi.'
-        return local_result(owner,kind,text)
+            receipt=None
+        return local_result(owner,kind,text,**({'receipt':receipt} if receipt is not None else {}))
     from modules import service_health,system_doctor,media_setup,local_narration
     which=data['kind']
     if which=='accounts':value=service_health.report(owner)
