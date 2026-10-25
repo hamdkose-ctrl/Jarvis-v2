@@ -36,3 +36,43 @@ uçtan uca akış (URL/Authorization header/yanıt çözümleme) çalıştırıl
 doğru PNG imzasıyla (`\x89PNG`) döndüğü doğrulandı. Gerçek Cloudflare
 API'sine canlı çağrı bu sandbox'ın ağ izin listesi dışında olduğu için
 yapılamadı — bu, Hamdi'nin PC'sinde ayrıca denenmeli.
+
+## Tür tespiti ve teslim v1 — 25 Ekim 2026
+
+`modules/visual_commands.py`: Hamdi ile konuşularak netleşen tasarım:
+
+- **Tetikleme — hibrit:** önce ücretsiz sabit kelime kalıbı
+  (`detect_type_by_keyword`); hiçbiri uymazsa modele bir kez sorulur
+  (`detect_type_via_model`, kota yalnız bu durumda harcanır).
+- **İçerik kaynağı:** Dosyalar ekranındaysa açık dosya/rapor otomatik
+  kullanılır; sohbetteyse Jarvis "sohbetten mi, dosyadan mı?" diye
+  sorar — bu soru-cevap akışı (`engine_commands.py`'ye bağlanma) henüz
+  yazılmadı, `create_visual()` şimdilik içeriği hazır metin olarak alır.
+- **Teslim:** üretilen PNG sohbete değil, mevcut Dosyalar ekranının
+  zaten taradığı `Jarvis Dosyaları/Görseller` klasörüne kaydedilir —
+  yeni bir ekran kurulmadı, var olan `PAGES.files` (nxapi.FILES_DIR)
+  aynen kullanıldı.
+- **Kalite:** kötü sonuçta kullanıcı yeniden deneyebilsin istendi;
+  "yeniden dene" düğmesi/akışı da sohbet entegrasyonuyla birlikte
+  yapılacak, henüz yok.
+
+**Kapsam dışı (bilinçli, bir sonraki iş):** `engine_commands.py`'nin
+pending-soru zincirine bağlanma (sohbet/dosya sorusu, yeniden dene),
+sohbet geçmişinden içerik özetleme. `docs/agents/gorsel-komutlar.md`
+bu notla güncel tutulacak.
+
+**Doğrulama:** `tests/test_visual_commands.py` (21 test, ağa/modele
+çıkmaz). Tam paket (`modules.validation`): değişiklik öncesi/sonrası
+aynı 1 failure/87 error (sandbox'ın önceden var olan `google-genai`
+eksikliği) — regresyon yok. Bir gerçek hata bu PR'da bulundu ve
+düzeltildi: `detect_type_via_model`'deki geniş `except Exception`
+tanılama kaydı (`_record_failure`) tutmuyordu (proje kuralı:
+`test_cleanup_security.test_every_broad_catch_has_diagnostic`).
+
+## Dosyalar ekranına açıklama sekmesi — 25 Ekim 2026
+
+`webui/nx.js` `PAGES.files`'a "Nasıl çalışır?" düğmesi eklendi
+(`ACT.fhelp`): dosya yükleme, arama, yapay zekâ araçları, dosya
+listesi/detay paneli ve kategori filtrelerini düz dilde açıklayan bir
+pencere açar. Saf arayüz değişikliği, backend'e dokunmadı;
+`node --check webui/nx.js` ile sözdizimi doğrulandı.

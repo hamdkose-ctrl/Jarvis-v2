@@ -1,0 +1,160 @@
+"""Doğal dille tetiklenen görsel komutlar — 7 tür (Hamdi'nin kararıyla hiçbiri
+literal bir komut adı değil: kullanıcı "/visualize" demez, "süreç özeti" gibi
+doğal bir şey söyler).
+
+Bu modül yalnız şu üç şeyi yapar:
+  1. Söylenen cümlenin hangi görsel türü olduğunu bulur (`detect_type`).
+  2. O tür + verilen içerik için `modules/image_gen.py`'ye gidecek metin
+     istemini (prompt) kurar (`build_prompt`).
+  3. Üretilen görseli, mevcut "Dosyalar" ekranının zaten taradığı
+     `Jarvis Dosyaları` klasörüne kaydeder (`create_visual`) — Hamdi'nin
+     kararı: "bütün dosya işlerim tek ekranda olsun" (sohbete resim
+     düşmez).
+
+Çizimi her zaman model yapar (`image_gen.generate_image`); bu modül hiçbir
+pikseli kendisi çizmez. İçeriğin NEREDEN geleceği (sohbet geçmişi mi, açık
+bir dosya mı) ve "sohbet mi dosya mı" sorusunun sorulması ayrı bir iş —
+motorun (`engine_commands.py`) sohbet/pending-soru akışına bağlanması henüz
+yapılmadı; bu modül o katmanın çağıracağı, kendi başına test edilebilir
+çekirdektir.
+"""
+from __future__ import annotations
+
+import re
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+from modules import image_gen
+from modules.diagnostics import record_failure as _record_failure
+
+# ------------------------------------------------------------------ tür tespiti
+# Sıra önemli: daha özel kalıplar önce. Her biri kök/gövde eşleşmesi yapar
+# (çekim ekleri için regex'te gövdeden sonra \w* bırakılır).
+_TYPE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "mindmap": (r"zihin\s*harita", r"mind\s*map"),
+    "flowchart": (r"akış\s*şema", r"süreç\s*şema", r"flowchart"),
+    "timeline": (r"zaman\s*çizelge", r"zaman\s*çizgi", r"kronoloji", r"timeline"),
+    "infographic": (r"infografik", r"bilgi\s*grafi", r"infographic"),
+    "handwritten": (r"el\s*yazı", r"elle\s*yazılmış"),
+    "blueprint": (r"teknik\s*çizim", r"şema\s*plan", r"blueprint", r"mimari\s*çizim"),
+    # "visualize" en genel olduğu için en sonda: diğerlerinden biri eşleşmediyse
+    # ve genel bir görselleştirme isteği varsa buraya düşer.
+    "visualize": (r"görselleştir", r"özet(?:i|ini)?\s+görsel", r"süreç\s+özet"),
+}
+TYPES = tuple(_TYPE_PATTERNS)
+
+_LABELS = {
+    "mindmap": "zihin haritası", "flowchart": "akış şeması", "infographic": "infografik",
+    "timeline": "zaman çizelgesi", "handwritten": "el yazısı notu", "blueprint": "teknik çizim",
+    "visualize": "görsel özet",
+}
+
+
+def _norm(text: str) -> str:
+    # Python'un .lower() Türkçe İ/I harflerini doğru çevirmiyor (İ -> combining
+    # dotted-i gibi tuhaf sonuçlar verebiliyor); kalıplarımız ascii 'i' ile
+    # yazıldığı için önce bu iki harfi elle normalize ediyoruz.
+    return (text or "").replace("İ", "i").replace("I", "i").lower()
+
+
+def detect_type_by_keyword(text: str) -> str | None:
+    """Sabit kalıp eşleşmesi — ücretsiz, model çağırmaz. Eşleşme yoksa None."""
+    norm = _norm(text)
+    for kind, patterns in _TYPE_PATTERNS.items():
+        for pat in patterns:
+            if re.search(pat, norm):
+                return kind
+    return None
+
+
+_MODEL_PROMPT = (
+    "Aşağıdaki cümle bir görsel üretim isteği mi, ve öyleyse şu 7 türden "
+    "hangisi: mindmap, flowchart, infographic, timeline, handwritten, "
+    "blueprint, visualize. Yalnız bu 8 kelimeden birini yaz (7 tür adı veya "
+    "'hicbiri'), başka hiçbir şey yazma.\n\nCümle: {text}"
+)
+
+
+def detect_type_via_model(text: str, *, _ask=None) -> str | None:
+    """Kalıp eşleşmediğinde modele bir kez sorar. `_ask` yalnız testler için."""
+    ask = _ask
+    if ask is None:
+        from modules import llm
+        ask = llm.ask
+    try:
+        answer = ask(_MODEL_PROMPT.format(text=text.strip()), max_tokens=20)
+    except Exception:
+        _record_failure('modules/visual_commands.py:detect_type_via_model')
+        return None
+    answer = _norm(answer).strip()
+    for kind in TYPES:
+        if kind in answer:
+            return kind
+    return None
+
+
+def detect_type(text: str, *, _ask=None) -> str | None:
+    """Hibrit tespit: önce ücretsiz kalıp, uymazsa (nadiren) modele sor."""
+    kind = detect_type_by_keyword(text)
+    if kind:
+        return kind
+    return detect_type_via_model(text, _ask=_ask)
+
+
+# ------------------------------------------------------------------ istem (prompt) kurma
+_PROMPT_TEMPLATES = {
+    "mindmap": "A clean, colorful mind map diagram. Central topic branching into labeled nodes. Content: {content}",
+    "flowchart": "A clear flowchart diagram with labeled boxes and directional arrows showing a process. Content: {content}",
+    "infographic": "A modern, colorful infographic with icons, short labels and simple charts. Content: {content}",
+    "timeline": "A horizontal timeline diagram with labeled dated milestones in order. Content: {content}",
+    "handwritten": "A photo-realistic handwritten note on paper, neat cursive handwriting, slightly textured paper. Content: {content}",
+    "blueprint": "A technical blueprint-style line drawing on a blue grid background, labeled parts. Content: {content}",
+    "visualize": "A clear, simple explanatory illustration summarizing the following. Content: {content}",
+}
+
+
+def build_prompt(kind: str, content: str) -> str:
+    if kind not in _PROMPT_TEMPLATES:
+        raise ValueError(f"Bilinmeyen görsel türü: {kind}")
+    content = (content or "").strip()
+    if not content:
+        raise ValueError("İçerik boş olamaz.")
+    return _PROMPT_TEMPLATES[kind].format(content=content[:1500])
+
+
+# ------------------------------------------------------------------ üretim + kayıt
+@dataclass
+class VisualResult:
+    kind: str
+    label: str
+    path: str
+
+
+def _destination(kind: str) -> Path:
+    from modules import nxapi
+    folder = nxapi.FILES_DIR / "Görseller"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    dest = folder / f"{kind}_{stamp}.png"
+    n = 1
+    while dest.exists():
+        dest = folder / f"{kind}_{stamp}_{n}.png"
+        n += 1
+    return dest
+
+
+def create_visual(text: str, content: str, *, slug: str, kind: str | None = None, _ask=None) -> VisualResult:
+    """Tetikleme cümlesinden türü bulur (gerekirse), görseli üretir ve
+    "Dosyalar" ekranının zaten taradığı `Jarvis Dosyaları/Görseller`
+    klasörüne kaydeder. `kind` dışarıdan biliniyorsa (örn. Dosyalar
+    ekranındaki bir butondan) tespit adımı atlanır.
+    """
+    resolved_kind = kind or detect_type(text, _ask=_ask)
+    if not resolved_kind:
+        raise ValueError("Bu bir görsel üretim isteği gibi görünmüyor.")
+    prompt = build_prompt(resolved_kind, content)
+    data = image_gen.generate_image(prompt, slug=slug)
+    dest = _destination(resolved_kind)
+    dest.write_bytes(data)
+    return VisualResult(kind=resolved_kind, label=_LABELS[resolved_kind], path=str(dest))

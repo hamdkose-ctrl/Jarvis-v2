@@ -37,7 +37,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca modu, adım adım ders (5 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (3 bölüm)
-- `docs/agents/gorsel-komutlar.md`: Doğal dil ile tetiklenen görsel üretimi (1 bölüm)
+- `docs/agents/gorsel-komutlar.md`: Doğal dil ile tetiklenen görsel üretimi (3 bölüm)
 
 ## Klasör haritası
 
@@ -50,7 +50,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `modules/system_control.py` | Windows ses, parlaklık, medya, uygulama ve pencere kontrolü |
 | `modules/pc_steps.py` | Motorun `system_control` çağrılarını sohbete "adım" olarak raporlayan ince sarmalayıcı |
 | `modules/llm.py`, `smart_router.py` | Model çağrıları ve otomatik model seçimi |
-| `modules/image_gen.py` | Görsel üretimi (Cloudflare Workers AI/FLUX, kullanıcıya özel anahtar) — yalnız üretim/iletişim katmanı, hangi görselin ne zaman isteneceği ayrı bir orkestrasyon katmanının işi |
+| `modules/image_gen.py` | Görsel üretimi (Cloudflare Workers AI/FLUX, kullanıcıya özel anahtar) — yalnız üretim/iletişim katmanı |
+| `modules/visual_commands.py` | 7 görsel türü için doğal dil tetikleme (kalıp + model fallback), istem kurma ve üretilen görseli "Jarvis Dosyaları/Görseller" altına kaydetme — sohbet motoruna (engine_commands) bağlanması henüz yapılmadı |
 | `modules/docs.py`, `document_conversion.py`, `kb.py` | Belge okuma, dönüştürme ve bilgi tabanı |
 | `modules/workbench.py` | Belge masası: belgeden tablo, karşılaştırma, Excel/CSV birleştirme ve gruplama |
 | `modules/watcher.py` | Klasör izleme kuralları ve 20 saniyelik arka plan taraması |
