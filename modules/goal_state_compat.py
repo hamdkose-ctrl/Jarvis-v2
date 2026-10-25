@@ -207,6 +207,30 @@ def advance(current: dict, job: dict) -> dict:
     return state
 
 
+def legacy_terminal_signal(job: dict, state: dict) -> dict | None:
+    """Return the legacy job rewritten to canonical's terminal state, or None.
+
+    RFC Karar 4a: canonical terminal always wins, and the legacy side must
+    learn it.  When canonical is already done/cancelled but the legacy journal
+    still shows another state, the legacy record is written with the canonical
+    terminal state so goal_executor.latest()/is_open() treat the job as closed.
+
+    A terminal state that canonical only copied from legacy (LEGACY_* reason)
+    is not a canonical decision; legacy keeps owning that record, including
+    its own "hedef devam" reopen path.
+    """
+    state = goal_state.validate(state)
+    if not goal_state.terminal(state) or job.get('state') == state['state']:
+        return None
+    if state['audit'][-1]['reason_code'].startswith('LEGACY_'):
+        return None
+    signalled = dict(job)
+    signalled['state'] = state['state']
+    signalled.pop('blocker', None)
+    signalled.pop('question', None)
+    return signalled
+
+
 def operator_backfill_missing_canonical_once(
     job: dict,
     path,

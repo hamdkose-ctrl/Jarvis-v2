@@ -295,6 +295,60 @@ class GoalStatePersistenceTests(unittest.TestCase):
         self.assertEqual(terminal['state'], 'done')
         self.assertEqual(reopened, terminal)
 
+    def canonical_terminal(self, path, terminal_state='done'):
+        from modules import core_state_reducer
+        current = self.compat.sync(self.job('running'), path)
+        next_state = core_state_reducer.apply(current, {
+            'expected_version': current['version'], 'op': 'set_state',
+            'state': terminal_state, 'reason_code': 'CANONICAL_COMPLETED',
+        })
+        return self.store.compare_and_swap(
+            path, expected_version=current['version'], next_state=next_state,
+        )
+
+    def test_legacy_terminal_signal_only_for_canonical_decided_terminal(self):
+        done = self.canonical_terminal(self.root / 'state.json')
+        running = self.compat.project(self.job('running'))
+        stale = dict(self.job('approval'), blocker='Onay bekliyor', question='Devam edeyim mi?')
+        signalled = self.compat.legacy_terminal_signal(stale, done)
+        self.assertEqual(signalled['state'], 'done')
+        self.assertNotIn('blocker', signalled)
+        self.assertNotIn('question', signalled)
+        self.assertEqual(stale['state'], 'approval')
+        self.assertIsNone(self.compat.legacy_terminal_signal(self.job('done'), done))
+        self.assertIsNone(self.compat.legacy_terminal_signal(self.job('paused'), running))
+
+    def test_legacy_copied_terminal_is_not_signalled_back_to_legacy(self):
+        # Legacy may reopen its own done job ("hedef devam"); canonical only
+        # mirrored that done, so it must not force legacy back to done.
+        copied = self.compat.project(self.job('done'))
+        self.assertIsNone(self.compat.legacy_terminal_signal(self.job('paused'), copied))
+
+    def test_goal_executor_save_signals_canonical_done_to_legacy_record(self):
+        for terminal_state in ('done', 'cancelled'):
+            with self.subTest(terminal_state=terminal_state), tempfile.TemporaryDirectory() as tmp:
+                store = Path(tmp)
+                with patch.object(self.goal_executor, 'STORE', store):
+                    root = store / 'alice'
+                    root.mkdir()
+                    canonical = root / '0123456789abcdef.goalstate.json'
+                    terminal = self.canonical_terminal(canonical, terminal_state)
+                    job = dict(self.job('running'), blocker='eski engel')
+                    self.goal_executor._save(job)
+                    legacy = json.loads((root / '0123456789abcdef.json').read_text(encoding='utf-8'))
+                    self.assertEqual(legacy['state'], terminal_state)
+                    self.assertNotIn('blocker', legacy)
+                    self.assertEqual(self.store.load(canonical), terminal)
+                    latest = self.goal_executor.latest('alice')
+                    self.assertFalse(self.goal_executor.is_open(latest))
+
+    def test_goal_executor_save_keeps_legacy_bytes_when_canonical_not_terminal(self):
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            job = dict(self.job('approval'), blocker='Onay bekliyor')
+            self.goal_executor._save(job)
+            legacy = self.root / 'alice' / '0123456789abcdef.json'
+            self.assertEqual(json.loads(legacy.read_text(encoding='utf-8')), job)
+
     def test_goal_executor_save_writes_canonical_before_legacy_record(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
             job = self.job()
