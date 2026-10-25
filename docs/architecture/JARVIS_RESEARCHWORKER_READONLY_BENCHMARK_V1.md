@@ -25,6 +25,10 @@ mimarisindeki (`WorkerResult + Evidence/Receipt` fence'li, `worker_result.py`
 belge, bu *henüz uygulanmamış* `ResearchWorker`'ın gelecekte karşılaması
 gereken benchmark sözleşmesini yazar; var olduğunu iddia etmez.
 
+**Mevcut yolun sınırı:** `'research'` specialist'i kaynak okuma ve evidence
+üretir; dosya artifact'ı oluşturma `writer`, dış gönderim/yayın ise `publish`
+specialist'ine ayrıdır.
+
 `JARVIS_CAPABILITY_INTAKE_V1.md`'nin ilk dalga listesindeki #5 madde
 ("Read-only research/news worker — Kaynak/tarih/publisher doğrulaması kısmi
 mevcut. `UYARLA`. Tek seferlik araştırma evidence veya waiting.") ve "Sıra"
