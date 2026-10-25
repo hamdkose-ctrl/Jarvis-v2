@@ -2,9 +2,8 @@
 
 Çoğunlukla veri modeli: ders, oturum, kaynak, hedef (ödev/deadline), not kaydı
 ve ilerleme kaydı/okuma. Tek istisna `decompose_assignment` (4a, 25 Ekim 2026):
-büyük bir ödevi alt göreve bölmek için tek bir model çağrısı yapar. Genel GPA
-projeksiyonu (kredi ağırlıklı) ve onaylı takvim değişikliği henüz yok — bunlar
-sonraki adımlar (bkz. docs/agents/hoca.md, 4c-2 ve 5).
+büyük bir ödevi alt göreve bölmek için tek bir model çağrısı yapar. Onaylı
+takvim değişikliği henüz yok — bu sonraki adım (bkz. docs/agents/hoca.md, 5. adım).
 
 Mevcut `modules/hoca.py` (ders/adım anlatımı, zayıf konu/tekrar) bu modüle sonraki
 adımda bağlanacak; burada ona dokunulmadı, ikisi de `profile.data` üzerinde ayrı
@@ -89,6 +88,22 @@ def add_course(profile, name: str, level: str = "genel") -> dict:
 
 def list_courses(profile) -> list:
     return list(_state(profile))
+
+
+def set_course_credit(profile, course_id: int, credit: float) -> dict:
+    """Dersin kredisini/AKTS'sini kaydeder (4c-2, genel ortalama için). 0 veya
+    pozitif olmalı; 0 "kredisiz/henüz girilmedi" anlamına gelir ve genel
+    ortalamaya katılmaz (bkz. `gpa_projection`)."""
+    course = _require_course(profile, course_id)
+    try:
+        credit = float(credit)
+    except (TypeError, ValueError):
+        raise HocaWorkspaceError("Kredi sayı olmalı.")
+    if credit < 0:
+        raise HocaWorkspaceError("Kredi negatif olamaz.")
+    course["credit"] = credit
+    profile.save()
+    return course
 
 
 def get_course(profile, course_id: int) -> dict | None:
@@ -245,6 +260,32 @@ def course_grade(profile, course_id: int) -> dict:
         graded_count += 1
     value = round(weighted_sum / total_weight, 2) if total_weight > 0 else None
     return {"value": value, "graded_count": graded_count, "total_count": len(course["assignments"])}
+
+
+def gpa_projection(profile) -> dict:
+    """Genel ortalama projeksiyonu (4c-2): kredisi girilmiş VE en az bir notu olan
+    derslerin kredi-ağırlıklı ortalaması (100 üzerinden). Model çağrısı yok.
+    Kredisi veya notu eksik dersler `excluded`'te nedeniyle birlikte ayrıca
+    görünür — sessizce atlanmaz, ortalamaya da katılmaz."""
+    included, excluded = [], []
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for course in _state(profile):
+        credit = float(course.get("credit") or 0)
+        grade = course_grade(profile, course["id"])
+        info = {"course_id": course["id"], "course_name": course["name"], "credit": credit,
+                "grade": grade["value"]}
+        if credit <= 0:
+            excluded.append({**info, "reason": "kredi_yok"})
+            continue
+        if grade["value"] is None:
+            excluded.append({**info, "reason": "not_yok"})
+            continue
+        included.append(info)
+        weighted_sum += grade["value"] * credit
+        total_weight += credit
+    value = round(weighted_sum / total_weight, 2) if total_weight > 0 else None
+    return {"value": value, "included": included, "excluded": excluded}
 
 
 def list_assignments(profile, course_id: int | None = None) -> list:
