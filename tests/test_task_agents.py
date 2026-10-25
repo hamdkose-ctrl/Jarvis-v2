@@ -1,10 +1,11 @@
 from pathlib import Path
+import json
 import tempfile
 import sys
 import types
 import unittest
 from unittest.mock import patch, Mock
-from modules import task_agents as agents, browser_agent as browser, requests_state
+from modules import task_agents as agents, browser_agent as browser, requests_state, task_workers
 
 
 class TaskTests(unittest.TestCase):
@@ -34,6 +35,23 @@ class TaskTests(unittest.TestCase):
         work=Mock(side_effect=[ValueError('not available'),{'state':'done','text':'ok'}])
         with patch.object(agents,'worker',work):job=agents.execute('alice',tasks)
         self.assertEqual(job['state'],'incomplete');self.assertEqual(job['tasks'][1]['state'],'blocked');self.assertEqual(work.call_count,2)
+
+    def test_research_specialist_returns_source_evidence_without_writing_an_artifact(self):
+        source = 'Doğrulanmış kaynak metni enerji verimliliği bulgusunu açıklar. ' * 3
+        answer = json.dumps({'supported': True, 'answer': 'Kaynak enerji verimliliği bulgusunu doğruluyor.',
+                             'quotes': [source[:120]]})
+        with patch('modules.browser.page_text', return_value=source), \
+             patch('modules.model_wait.ask', return_value=answer), \
+             patch.object(task_workers.privacy, 'blocked', return_value=None), \
+             patch.object(task_workers.Path, 'write_text', side_effect=AssertionError('research dosya yazmamalı')) as write_text:
+            result = agents.worker('alice', {'agent': 'research', 'input': {
+                'url': 'https://example.org/source', 'question': 'Enerji verimliliği ne diyor?'
+            }}, {})
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(result['source'], 'https://example.org/source')
+        self.assertNotIn('file', result)
+        self.assertNotIn('receipt', result)
+        write_text.assert_not_called()
 
     def test_browser_approval_stops_dependents_and_resumes_exact_job(self):
         tasks=[{'id':'a','agent':'browser'},{'id':'b','agent':'verify','depends':['a']}]
