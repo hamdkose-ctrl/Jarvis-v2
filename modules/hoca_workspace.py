@@ -168,3 +168,52 @@ def record_session(profile, course_id: int, topic: str, *, unclear: str | None =
 def get_session(profile, course_id: int, topic: str) -> dict | None:
     course = _require_course(profile, course_id)
     return course["sessions"].get(_clip(topic, _TOPIC_MAX))
+
+
+# ---- 2. adım: salt-okunur kaynak (kitap/pdf) ------------------------------
+# İkinci bir dosya okuyucu kurulmadı: mevcut, test edilmiş `modules/file_worker.py`
+# (salt-okunur, izin kapsamı `file_ops._roots()` ile aynı) kullanılıyor. Video
+# kaynağı `modules/hoca_video.py`'de ayrı kalıyor (resmî YouTube/altyazı yolu);
+# web kaynağı henüz yok (Tavily/Vikipedi paneli, metin bağlamı değil).
+
+_READABLE_SOURCE_TYPES = ("kitap", "pdf")
+DEFAULT_SOURCE_MAX_CHARS = 6000
+
+
+def read_source_text(ref: str, max_chars: int = DEFAULT_SOURCE_MAX_CHARS) -> str:
+    """Bilinen klasörler altındaki bir kitap/PDF'ten salt-okunur metin çıkarır.
+    `file_worker.extract` izin dışı/desteklenmeyen/okunamayan dosyada açıkça
+    `HocaWorkspaceError` fırlatır; sessiz boş sonuç üretmez."""
+    from modules import file_worker
+    try:
+        obs = file_worker.extract(ref)
+    except file_worker.FileWorkerError as exc:
+        raise HocaWorkspaceError(str(exc)) from exc
+    if obs.reason_code != "OK":
+        raise HocaWorkspaceError(f"Kaynak okunamadı ({obs.reason_code}): {ref}")
+    text = "\n".join(loc.text for loc in obs.locations if loc.text)
+    if not text:
+        raise HocaWorkspaceError(f"Kaynaktan okunabilir metin çıkmadı: {ref}")
+    return text[:max_chars]
+
+
+def course_context(course: dict, max_chars: int = DEFAULT_SOURCE_MAX_CHARS) -> dict | None:
+    """Dersin kitap/pdf kaynaklarından ders anlatımı için bağlam metni üretir.
+    Okunamayan tek tek kaynaklar sessizce atlanır (`warnings`'te görünür, işlemi
+    durdurmaz); hiçbiri okunamazsa `None` döner — çağıran "kaynak yok" yoluna düşer."""
+    parts, warnings = [], []
+    for src in course.get("sources", []):
+        if src.get("type") not in _READABLE_SOURCE_TYPES:
+            continue
+        label = src.get("label") or src.get("ref", "")
+        try:
+            text = read_source_text(src["ref"], max_chars=max_chars)
+        except HocaWorkspaceError as exc:
+            warnings.append(f"{label}: {exc}")
+            continue
+        parts.append(f"[{label}]\n{text}")
+    if not parts:
+        return None
+    labels = [src.get("label") or src.get("ref", "") for src in course.get("sources", [])
+              if src.get("type") in _READABLE_SOURCE_TYPES]
+    return {"text": "\n\n".join(parts)[:max_chars], "label": "; ".join(labels), "full": True, "warnings": warnings}

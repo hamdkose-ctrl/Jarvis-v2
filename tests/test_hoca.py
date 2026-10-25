@@ -1,7 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from modules import hoca
+from modules import file_worker, hoca, hoca_workspace
 
 
 class Profile:
@@ -450,3 +452,61 @@ class HocaContextTests(unittest.TestCase):
         self.assertNotIn('Geometri', alice_text)
         self.assertIn('Geometri', bob_text)
         self.assertNotIn('Biyoloji', bob_text)
+
+
+class HocaWorkspaceIntegrationTests(unittest.TestCase):
+    """modules/hoca.py:start()'ın course_id üzerinden hoca_workspace'e bağlanması."""
+
+    def setUp(self):
+        self.p = Profile()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._patch = patch.object(file_worker, 'allowed_roots', return_value=[self.root])
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_unknown_course_id_is_explicit_error(self):
+        with self.assertRaises(hoca.HocaError):
+            hoca.start(self.p, 'Hücre', course_id=999)
+
+    def test_course_level_used_when_level_not_given(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji', 'lgs')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN) as ask:
+            hoca.start(self.p, 'Hücre', course_id=course['id'])
+        self.assertIn('Seviye: lgs', ask.call_args[0][0])
+
+    def test_explicit_level_overrides_course_level(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji', 'lgs')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN) as ask:
+            hoca.start(self.p, 'Hücre', level='üniversite', course_id=course['id'])
+        self.assertIn('Seviye: üniversite', ask.call_args[0][0])
+
+    def test_course_book_source_is_used_as_lesson_source(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        book = self.root / 'kitap.txt'
+        book.write_text('Mitokondri hücrenin enerji santralidir.', encoding='utf-8')
+        hoca_workspace.add_source(self.p, course['id'], 'kitap', str(book), label='Biyoloji Kitabı')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN) as ask:
+            lesson = hoca.start(self.p, 'Mitokondri', course_id=course['id'])
+        self.assertIn('Mitokondri hücrenin enerji santralidir', ask.call_args[0][0])
+        self.assertEqual(lesson['source']['label'], 'Biyoloji Kitabı')
+
+    def test_no_course_source_falls_back_to_no_source_path(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        with patch.object(hoca.llm, 'ask', return_value=PLAN):
+            lesson = hoca.start(self.p, 'Hücre', course_id=course['id'])
+        self.assertNotIn('source', lesson)  # kaynak yok: anlatım modelin kendi bilgisiyle gider
+
+    def test_explicit_source_overrides_course_source(self):
+        course = hoca_workspace.add_course(self.p, 'Biyoloji')
+        book = self.root / 'kitap.txt'
+        book.write_text('Kitaptaki metin.', encoding='utf-8')
+        hoca_workspace.add_source(self.p, course['id'], 'kitap', str(book), label='Kitap')
+        manual = {'text': 'Elle verilen video dökümü.', 'label': 'Video', 'full': True}
+        with patch.object(hoca.llm, 'ask', return_value=PLAN) as ask:
+            lesson = hoca.start(self.p, 'Hücre', source=manual, course_id=course['id'])
+        self.assertIn('Elle verilen video dökümü', ask.call_args[0][0])
+        self.assertEqual(lesson['source']['label'], 'Video')

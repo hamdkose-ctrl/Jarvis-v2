@@ -79,10 +79,26 @@ def _source_note(source: dict) -> str:
             + _SOURCE_RULE)
 
 
-def start(profile, topic: str, level: str = "", source: dict | None = None) -> dict:
+def start(profile, topic: str, level: str = "", source: dict | None = None, course_id: int | None = None) -> dict:
+    """`course_id` verilirse (Hoca çalışma alanı, bkz. `modules/hoca_workspace.py`) ve
+    `level`/`source` açıkça verilmemişse, dersin seviyesi ve kitap/pdf kaynağı
+    kendiliğinden kullanılır. Kaynak okunamazsa (izin dışı/bozuk/vb.) sessizce
+    düşülmez: `HocaError` olarak kullanıcıya gösterilir."""
     topic = _clip(topic, _TOPIC_MAX)
     if not topic:
         raise HocaError("Hangi konuyu çalışmak istediğini söyler misin?")
+    if course_id is not None:
+        from modules import hoca_workspace
+        course = hoca_workspace.get_course(profile, course_id)
+        if not course:
+            raise HocaError("Böyle bir ders bulunamadı.")
+        if not level:
+            level = course.get("level", "") if course.get("level") != "genel" else ""
+        if source is None:
+            try:
+                source = hoca_workspace.course_context(course)
+            except hoca_workspace.HocaWorkspaceError as exc:
+                raise HocaError(str(exc))
     level = _clip(level, 40)
     prompt = f"Konu: {topic}\nSeviye: {level or 'belirtilmedi'}"
     parts = []

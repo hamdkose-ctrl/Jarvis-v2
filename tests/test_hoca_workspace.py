@@ -1,8 +1,11 @@
 """modules/hoca_workspace.py — domain sözleşmesi testleri (model/ağ gerektirmez)."""
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from modules import hoca_workspace as hw
+from modules import file_worker, hoca_workspace as hw
 
 
 def _profile():
@@ -132,6 +135,63 @@ class SessionTests(unittest.TestCase):
         c = hw.add_course(p, "Biyoloji")
         with self.assertRaises(hw.HocaWorkspaceError):
             hw.record_session(p, c["id"], "   ")
+
+
+class SourceReadingTests(unittest.TestCase):
+    """İkinci bir dosya okuyucu kurulmadı: file_worker.extract() yeniden kullanılıyor."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._patch = patch.object(file_worker, "allowed_roots", return_value=[self.root])
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_read_source_text_from_txt_file(self):
+        f = self.root / "ders-notu.txt"
+        f.write_text("Mitokondri ATP üretir.", encoding="utf-8")
+        self.assertIn("Mitokondri", hw.read_source_text(str(f)))
+
+    def test_read_source_text_missing_file_raises(self):
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.read_source_text(str(self.root / "yok.txt"))
+
+    def test_read_source_text_outside_allowed_root_raises(self):
+        outside = Path(tempfile.mkdtemp()) / "disari.txt"
+        outside.write_text("x", encoding="utf-8")
+        try:
+            with self.assertRaises(hw.HocaWorkspaceError):
+                hw.read_source_text(str(outside))
+        finally:
+            outside.unlink()
+
+    def test_course_context_none_when_no_readable_source(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.add_source(p, c["id"], "video", "https://youtube.com/watch?v=x")
+        self.assertIsNone(hw.course_context(c))
+
+    def test_course_context_joins_readable_sources(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        f = self.root / "kitap.txt"
+        f.write_text("Hücre zarı seçici geçirgendir.", encoding="utf-8")
+        hw.add_source(p, c["id"], "kitap", str(f), label="Biyoloji Kitabı")
+        ctx = hw.course_context(hw.get_course(p, c["id"]))
+        self.assertIsNotNone(ctx)
+        self.assertIn("Hücre zarı", ctx["text"])
+        self.assertIn("Biyoloji Kitabı", ctx["text"])
+        self.assertTrue(ctx["full"])
+        self.assertEqual(ctx["warnings"], [])
+
+    def test_course_context_skips_unreadable_and_reports_warning(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.add_source(p, c["id"], "kitap", str(self.root / "yok.pdf"), label="Eksik kitap")
+        self.assertIsNone(hw.course_context(hw.get_course(p, c["id"])))
 
 
 if __name__ == "__main__":

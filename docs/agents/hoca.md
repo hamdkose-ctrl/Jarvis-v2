@@ -37,6 +37,17 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - `record_session`/`get_session`: konu başına oturum hafızası — `unclear`/`solved` listeye eklenir (en çok 20, eski düşer), `next_step` üzerine yazılır (tek güncel durum). Tekrar aralığı mantığına dokunmadı.
 - Test: `tests/test_hoca_workspace.py` (18 test, model/ağ gerektirmez). Motora/UI'a bağlanmadı, gerçek PC'de denenmedi.
 
+## Salt-okunur kaynak v1 — modules/hoca.py bağlantısı, 25 Ekim 2026
+
+- Hamdi'nin kararı (C): hem `modules/hoca.py` (adım-adım) hem `modules/study.py:lesson()` (uzun anlatım) motoru kalıyor; kullanıcı mod seçiyor. Bu PR yalnız `hoca.py` tarafını `hoca_workspace`'e bağladı — `study.py:lesson()`'ın per-ders kaynağa bağlanması ayrı, yakın bir sonraki iş (bkz. aşağıdaki "Sırada" notu).
+- Eski genel kaynak deposu (`study.py`'nin `docs` listesi) **taşınmadı**: Hamdi'nin kararı, eski kaynaklarda hangi derse ait olduğu hiç kayıtlı olmadığı (tahmin edilemez) ve önemli bir veri olmadığı için taşıma/migrasyon yapılmayacak. Yeni Hoca ekranı sıfırdan, kendi per-ders deposuyla (`hoca_workspace.py`) başlıyor; eski depo olduğu yerde duruyor, kullanılmıyor.
+- `hoca_workspace.read_source_text(ref)`: ikinci bir dosya okuyucu kurulmadı, mevcut `modules/file_worker.extract()` (salt-okunur, `file_ops._roots()` izin kapsamı) yeniden kullanıldı. Okunamayan/izin dışı/desteklenmeyen dosya sessizce boş dönmez, `HocaWorkspaceError` fırlatır.
+- `hoca_workspace.course_context(course)`: dersin `kitap`/`pdf` türündeki kaynaklarını birleştirip `modules/hoca.py:start()`'ın beklediği `{"text","label","full"}` biçiminde döner; okunamayan tek tek kaynak sessizce atlanır (`warnings`), hiçbiri okunamazsa `None` (kaynaksız yola düşülür). Video (`hoca_video.py`, resmî YouTube yolu) ve web (henüz yok, Tavily/Vikipedi paneli ayrı) bu fonksiyona dahil değil.
+- `hoca.start(profile, topic, level="", source=None, course_id=None)`: `course_id` verilirse ve `level`/`source` açıkça verilmemişse, dersin seviyesi ve `course_context` kendiliğinden kullanılır. Açıkça verilen `level`/`source` her zaman önceliklidir (üzerine yazılmaz). Bilinmeyen `course_id` `HocaError` olarak patlar.
+- Test: `tests/test_hoca_workspace.py`'de `SourceReadingTests` (6 test, izole tmp klasör + `file_worker.allowed_roots` yaması), `tests/test_hoca.py`'de `HocaWorkspaceIntegrationTests` (6 test, model taklit). Gerçek kitap/PDF ve gerçek PC'de denenmedi.
+
+**Sırada:** `study.py:lesson()`'ın (uzun anlatım motoru) da `course_id` ile per-ders kaynağı kullanması — bu ayrı, yakın bir sonraki adım.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.
