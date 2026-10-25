@@ -264,6 +264,7 @@ ACTIONS = {
     "gorsel": "görselini analiz et",
     "metin": "görselindeki metni çıkar",
     "telefon": "dosyasını telefona gönder",
+    "gorsellestir": "dosyasını görselleştir",
 }
 
 

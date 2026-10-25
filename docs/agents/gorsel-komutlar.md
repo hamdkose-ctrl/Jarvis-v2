@@ -56,11 +56,6 @@ yapılamadı — bu, Hamdi'nin PC'sinde ayrıca denenmeli.
   "yeniden dene" düğmesi/akışı da sohbet entegrasyonuyla birlikte
   yapılacak, henüz yok.
 
-**Kapsam dışı (bilinçli, bir sonraki iş):** `engine_commands.py`'nin
-pending-soru zincirine bağlanma (sohbet/dosya sorusu, yeniden dene),
-sohbet geçmişinden içerik özetleme. `docs/agents/gorsel-komutlar.md`
-bu notla güncel tutulacak.
-
 **Doğrulama:** `tests/test_visual_commands.py` (21 test, ağa/modele
 çıkmaz). Tam paket (`modules.validation`): değişiklik öncesi/sonrası
 aynı 1 failure/87 error (sandbox'ın önceden var olan `google-genai`
@@ -68,6 +63,54 @@ eksikliği) — regresyon yok. Bir gerçek hata bu PR'da bulundu ve
 düzeltildi: `detect_type_via_model`'deki geniş `except Exception`
 tanılama kaydı (`_record_failure`) tutmuyordu (proje kuralı:
 `test_cleanup_security.test_every_broad_catch_has_diagnostic`).
+
+## Sohbet entegrasyonu v1 — 25 Ekim 2026
+
+`modules/visual_chat.py` (`command_manager.dispatch`'e bağlı, `desktop_agent`
+gibi aynı seviyede): önceki PR'da bilinçli olarak dışarıda bırakılan
+kısım tamamlandı.
+
+- **Sohbette tetikleme:** `visual_commands.detect_type` eşleşirse
+  `session.pending_visual` ile "sohbetten mi, dosyadan mı?" sorulur.
+  "sohbet" → son konuşma geçmişi (`context.history_read`) içerik olur.
+  "dosya" → kullanıcı Dosyalar ekranındaki "Görselleştir" düğmesine
+  yönlendirilir (dosya adı çözümleme burada tekrar kurulmadı, tek
+  yerde — Dosyalar ekranında — tutuldu).
+- **Dosyalar ekranından tetikleme:** `nxapi.ACTIONS['gorsellestir']`
+  ("dosyasını görselleştir") + `main_documents._file_command`: açık
+  dosyanın `runtime.docs.summarize()` özeti içerik olur, soru
+  sorulmaz (Hamdi'nin kararı: "Dosya kısmında olduğum için sohbeti
+  sormaması gerekmiyormuş"). Eylem metninde tür kelimesi geçiyorsa
+  ("...zaman çizelgesi olarak görselleştir") o tür zorlanır, yoksa
+  `visualize` (genel) türüne düşer.
+- **Yeniden dene:** `session.last_visual` son içerik+türü tutar;
+  "yeniden dene"/"tekrar dene" aynı parametrelerle yeniden üretir
+  (Hamdi: "tabii ki tekrar denesin, kota harcar ama sonuç olmadıktan
+  sonra ne işe yarar").
+- `webui/nx.js`: Dosyalar ekranına PDF/Word/Excel/Diğer satırlarına
+  ve detay panelinin Yapay Zekâ sekmesine "Görselleştir" düğmesi
+  eklendi; "Nasıl çalışır?" açıklamasına bir satır eklendi.
+
+**Doğrulama:** `tests/test_visual_chat.py` (12 test — pending-soru
+akışı, yeniden dene, hata yönetimi, Dosyalar ekranı eylemi; hepsi
+sahte `create_visual` ile, ağa çıkmaz). Bir gerçek hata bulundu ve
+düzeltildi: `detect_type_via_model`'de `from modules import llm`
+import'u `try` bloğunun DIŞINDaydı — bu sandbox'ta `google-genai`
+eksikliği yüzünden `ImportError` try/except'i atlayıp doğrudan
+patlıyordu; import artık `try` içinde. Ayrıca `visual_chat.py`'deki
+bir `except Exception`'da tanılama kaydı ilk ifade olmadığı için
+proje testi (`test_cleanup_security`) yakaladı, düzeltildi.
+
+Tam paket: `_file_command` üzerinden geçen 2 yeni test, bu sandbox'ta
+zaten var olan `modules.llm`/`google-genai` eksikliğine çarpıyor
+(`test_translation_regressions.py`'deki eşdeğer test de aynı şeyi
+yapıyor, kontrol edildi) — gerçek bir regresyon değil, PC'de sorun
+olmaz. 1 failure/89 error (87+2), öncekiyle aynı kategori.
+
+**Hâlâ kapsam dışı:** gerçek Cloudflare API'sine canlı çağrı (sandbox
+izin vermiyor, PC'de denenmeli); sohbetten "dosya" cevabında dosya
+adını doğrudan chat'te yazdırıp otomatik çözme (şimdilik Dosyalar
+ekranına yönlendiriliyor).
 
 ## Dosyalar ekranına açıklama sekmesi — 25 Ekim 2026
 

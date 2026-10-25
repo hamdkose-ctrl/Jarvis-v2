@@ -1563,8 +1563,8 @@ function filesHtml(){
 }
 async function loadFiles(force=false){S.files=await tryApi('files_list',force)||{files:[],counts:{}}}
 const FCATS=[['mine','Yüklediklerim',''],['all','Tümü',''],['pdf','PDF','pdf'],['word','Word','word'],['excel','Excel','excel'],['image','Görsel','image'],['other','Diğer','other']];
-const FACTS={pdf:[['analiz','Analiz Et','b'],['excel','PDF → Excel','g'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o']],word:[['cevir_tr','Türkçeye Çevir','b'],['cevir','İngilizceye Çevir','b'],['ozet','Özetle','o'],['pdf','Rapor','p']],
-  excel:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Rapor Oluştur','p']],image:[['metin','Metne Çevir','p'],['gorsel','Analiz Et','b']],other:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o']]};
+const FACTS={pdf:[['analiz','Analiz Et','b'],['excel','PDF → Excel','g'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']],word:[['cevir_tr','Türkçeye Çevir','b'],['cevir','İngilizceye Çevir','b'],['ozet','Özetle','o'],['pdf','Rapor','p'],['gorsellestir','Görselleştir','p']],
+  excel:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Rapor Oluştur','p'],['gorsellestir','Görselleştir','p']],image:[['metin','Metne Çevir','p'],['gorsel','Analiz Et','b']],other:[['analiz','Analiz Et','b'],['cevir_tr','Türkçeye Çevir','b'],['ozet','Özetle','o'],['gorsellestir','Görselleştir','p']]};
 PAGES.files=pg=>{
   pg.innerHTML=`<section class="card glow"><div class="ftool"><button class="btn pri" data-act="attach">${ic('up')} Dosya Yükle</button><button class="btn" data-act="fupdir" title="Bir klasördeki bütün dosyaları Jarvis'e yükler">${ic('up')} Klasör Yükle</button><button class="btn" data-act="fdir" title="Yüklediğin dosyaların durduğu klasörü (Belgeler › Jarvis Dosyaları) açar">${ic('folder')} Jarvis Klasörü</button>
      <div class="search">${ic('search')}<input id="fq" placeholder="Dosya adında ve belge içinde ara…" value="${esc(S.fq)}"></div><button class="btn" data-act="frefresh" title="Yenile">${ic('refresh')}</button><button class="btn" data-act="fhelp" title="Bu bölüm ne işe yarar, nasıl çalışır">${ic('help')} Nasıl çalışır?</button></div>
@@ -1607,7 +1607,7 @@ function drawDetail(){
    ${S.ftab==='genel'?`<div class="ct" style="font-size:15px;margin-bottom:10px">Dosya Bilgileri</div><div class="kv"><span>${ic('file')}Tür</span><b>${f.ext.toUpperCase()}</b><span>${ic('folder')}Boyut</span><b>${fmtSize(f.size)}</b>
      <span>${ic('clock')}Son Güncelleme</span><b>${fmtDate(f.mtime)} ${hm(f.mtime)}</b><span>${ic('folder')}Konum</span><b>${esc(f.where||f.folder)}</b></div>
      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn sm" data-act="fopen" data-p="${esc(f.path)}">${ic('eye')} Aç</button><button class="btn sm" data-act="freveal" data-p="${esc(f.path)}">${ic('folder')} Klasörde göster</button><button class="btn sm" data-act="fdo" data-a="telefon" data-p="${esc(f.path)}">${ic('phone')} Telefona</button></div>`
-   :`<div style="display:flex;flex-direction:column;gap:8px">${Object.entries({analiz:'Kapsamlı analiz et',ozet:'Özetle',cevir:'İngilizceye çevir',excel:'Excel’e dönüştür',word:'Word’e dönüştür',pdf:'PDF’e dönüştür',...(f.cat==='image'?{gorsel:'Görseli analiz et',metin:'Metni çıkar'}:{})})
+   :`<div style="display:flex;flex-direction:column;gap:8px">${Object.entries({analiz:'Kapsamlı analiz et',ozet:'Özetle',cevir:'İngilizceye çevir',excel:'Excel’e dönüştür',word:'Word’e dönüştür',pdf:'PDF’e dönüştür',...(f.cat==='image'?{gorsel:'Görseli analiz et',metin:'Metni çıkar'}:{gorsellestir:'Görselleştir'})})
        .map(([a,t])=>`<button class="tool" style="margin:0" data-act="fdo" data-a="${a}" data-p="${esc(f.path)}"><span class="ib sm blue">${ic('spark')}</span><b>${t}</b><span class="chev">${ic('chev')}</span></button>`).join('')}</div>`}
    <button class="aibig" data-act="fdo" data-a="${f.cat==='image'?'gorsel':'analiz'}" data-p="${esc(f.path)}"><span class="ib blue" style="width:44px;height:44px">${ic('spark')}</span><span><b>Yapay Zekâ ile Analiz Et</b><small>Bu dosyanın içeriğini detaylı analiz et, özet çıkar ve önemli noktaları belirle.</small></span><span class="chev" style="margin-left:auto">${ic('chev')}</span></button>`;
 }
@@ -1631,6 +1631,7 @@ const FHELP=[
   ['list','Dosya Listesi','Her satırda o dosya türüne uygun hızlı düğmeler (Analiz Et, Özetle, Çevir…) ve sağdaki ••• menüsünde Aç / Klasörde göster / Telefona gönder seçenekleri var.'],
   ['eye','Detay Paneli','Bir dosyaya tıklayınca sağda açılır: Genel Bakış (boyut, tarih, konum) ve Yapay Zekâ Analizi sekmeleri arasında geçiş yapabilirsin.'],
   ['grid','Üstteki Kategoriler','Yüklediklerim / Tümü / PDF / Word / Excel / Görsel / Diğer — listeyi türe göre süzer, yanındaki sayı o kategorideki dosya adedidir.'],
+  ['image','Görselleştir','Bir dosyanın "Görselleştir" düğmesine basınca, içeriğinden zihin haritası/akış şeması/infografik gibi bir görsel üretir ve bu sayfaya kaydeder. Sohbette de "zihin haritası çiz" gibi doğal bir şey söylersen Jarvis sohbetten mi dosyadan mı alacağını sorar.'],
 ];
 ACT.fhelp=()=>{
   const overlay=document.createElement('div');overlay.className='jdlg';

@@ -44,7 +44,7 @@ _TYPE_PATTERNS: dict[str, tuple[str, ...]] = {
 }
 TYPES = tuple(_TYPE_PATTERNS)
 
-_LABELS = {
+LABELS = {
     "mindmap": "zihin haritası", "flowchart": "akış şeması", "infographic": "infografik",
     "timeline": "zaman çizelgesi", "handwritten": "el yazısı notu", "blueprint": "teknik çizim",
     "visualize": "görsel özet",
@@ -78,11 +78,11 @@ _MODEL_PROMPT = (
 
 def detect_type_via_model(text: str, *, _ask=None) -> str | None:
     """Kalıp eşleşmediğinde modele bir kez sorar. `_ask` yalnız testler için."""
-    ask = _ask
-    if ask is None:
-        from modules import llm
-        ask = llm.ask
     try:
+        ask = _ask
+        if ask is None:
+            from modules import llm
+            ask = llm.ask
         answer = ask(_MODEL_PROMPT.format(text=text.strip()), max_tokens=20)
     except Exception:
         _record_failure('modules/visual_commands.py:detect_type_via_model')
@@ -157,4 +157,4 @@ def create_visual(text: str, content: str, *, slug: str, kind: str | None = None
     data = image_gen.generate_image(prompt, slug=slug)
     dest = _destination(resolved_kind)
     dest.write_bytes(data)
-    return VisualResult(kind=resolved_kind, label=_LABELS[resolved_kind], path=str(dest))
+    return VisualResult(kind=resolved_kind, label=LABELS[resolved_kind], path=str(dest))

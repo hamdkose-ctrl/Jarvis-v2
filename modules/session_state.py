@@ -18,6 +18,8 @@ class SessionState:
     pending_app: object = None
     pending_request: object = None
     pending_desktop: object = None
+    pending_visual: object = None
+    last_visual: object = None
     last_command: str = ''
     speech_override: object = None
     _in_macro: bool = False
