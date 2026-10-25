@@ -97,6 +97,17 @@ class DesktopTasksTests(unittest.TestCase):
         self.assertEqual(agent._load('alice')['status'], 'done')
         self.assertIn('19', self.ask.call_args.args[0])
 
+    def test_read_only_mode_observes_without_model_action_or_job_write(self):
+        before = copy.deepcopy(self.job)
+        result = self.run_job(read_only=True)
+        self.assertEqual(result['state'], 'done')
+        self.assertTrue(result['read_only'])
+        self.assertEqual(result['observation']['window']['app'], 'calculatorapp')
+        self.assertEqual(self.ui.calls, [])
+        self.ask.assert_not_called()
+        self.assertEqual(self.job, before)
+        self.assertTrue(all('value' not in control for control in result['observation']['controls']))
+
     def test_missing_result_stops_and_resume_never_blindly_replays(self):
         self.ui.changes = False
         self.plans(action())
@@ -726,6 +737,13 @@ class DesktopValidationTests(unittest.TestCase):
         with patch.object(pc, 'window_action', return_value={'ok': True, 'hwnd': 10}), \
              patch.object(ui, 'observe', return_value=changed), patch.object(uia, '_call') as call:
             with self.assertRaises(uia.NotSent): ui.act(original, action())
+        call.assert_not_called()
+
+    def test_read_only_adapter_never_calls_native_action_bridge(self):
+        ui = uia.DesktopUI()
+        with patch.object(uia, '_call') as call:
+            with self.assertRaisesRegex(uia.NotSent, 'Salt-okunur'):
+                ui.act(screen(), action(), read_only=True)
         call.assert_not_called()
 
     def test_spoken_task_does_not_require_punctuation(self):

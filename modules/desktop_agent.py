@@ -444,6 +444,22 @@ def _plan(job, snapshot):
     return json.loads(raw)
 
 
+def _read_only_observation(snapshot):
+    """Return bounded visible UI evidence without values or an action surface."""
+    controls=[]
+    for item in snapshot.get('controls',[]):
+        name=str(item.get('name') or '')
+        if item.get('password') or _PRIVATE.search(name):
+            name='[Gizli bilgi alanı]'
+        controls.append({key: item.get(key) for key in ('id','type','automation_id','patterns','enabled','offscreen','selected')}
+                        | {'name': privacy.redact(name[:300],force=True)})
+    return {'window': {'hwnd': snapshot['hwnd'], 'pid': snapshot.get('pid'),
+                       'app_pid': snapshot.get('app_pid',snapshot.get('pid')),
+                       'app': snapshot.get('app',''),
+                       'title': privacy.redact(str(snapshot.get('title',''))[:300],force=True)},
+            'controls': controls}
+
+
 def _ensure(owner, current):
     requests_state.check()
     if current and current() != owner:
@@ -520,7 +536,9 @@ def _perform(job, snapshot, action, ui, emit, current, *, approved=False):
     return None
 
 
-def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
+def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None, read_only=False):
+    if not isinstance(read_only,bool):
+        raise ValueError('Salt-okunur masaüstü modu geçersiz.')
     if not _BUSY.acquire(blocking=False):
         return 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
     ui = ui or desktop_uia.DesktopUI()
@@ -528,11 +546,13 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
     _ctx.owner = job['owner']
     try:
         requests_state.allow_long_operation(600)
-        llm.set_user_context(job['owner'])
         _ensure(job['owner'], current)
         try:
             snapshot = ui.observe(job['target'], job.get('hwnd'))
         except desktop_uia.WindowMissing:
+            if read_only:
+                return {'state':'blocked','read_only':True,'reason_code':'WINDOW_MISSING',
+                        'message':'Salt-okunur gözlem için hedef pencere açık değil.'}
             if job.get('hwnd'):
                 raise  # A resumed job must not recreate a lost window and replay its work.
             from modules import system_control
@@ -542,6 +562,12 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
                 raise ValueError(str(opened)) from None
             emit('step', 'Masaüstü hedef uygulaması açıldı', 'done|desktop-open|' + str(opened))
             snapshot = ui.observe(job['target'])
+        app = snapshot.get('app', '').casefold()
+        if read_only:
+            if app in _NEVER_APPS or 'jarvis' in snapshot['title'].casefold() or _SOURCE_TITLE.search(snapshot['title']):
+                return {'state':'blocked','read_only':True,'reason_code':'UNSUPPORTED_WINDOW',
+                        'message':'Bu pencere salt-okunur masaüstü gözlemi için desteklenmiyor.'}
+            return {'state':'done','read_only':True,'observation':_read_only_observation(snapshot)}
         if job.get('pid') and job['pid'] != snapshot.get('pid'):
             raise ValueError('Hedef pencere artık başka bir işleme ait; eski görevi çalıştırmadım.')
         job['hwnd'] = snapshot['hwnd']
@@ -549,7 +575,7 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None):
         if job.get('app_pid') and job['app_pid'] != snapshot.get('app_pid', snapshot.get('pid')):
             raise ValueError('Hedef uygulamanın işlemi değişti; eski görevi çalıştırmadım.')
         job['app_pid'] = snapshot.get('app_pid', snapshot.get('pid'))
-        app = snapshot.get('app', '').casefold()
+        llm.set_user_context(job['owner'])
         if not app_permitted(job['owner'], app):
             if app in _NEVER_APPS or 'jarvis' in snapshot['title'].casefold() or _SOURCE_TITLE.search(snapshot['title']):
                 raise ValueError('Masaüstü hedef kimliği desteklenmiyor: '+app+'; pencere: '+snapshot['title'][:120]+'. Terminal, kod editörü, tarayıcı, şifre yöneticisi ve Jarvis penceresi bu araçla kullanılmaz.')

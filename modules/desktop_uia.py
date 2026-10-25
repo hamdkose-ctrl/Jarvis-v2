@@ -131,9 +131,11 @@ class DesktopUI:
         return {'hwnd': handle, 'title': title, 'app': result.get('app', app), 'pid': result['pid'],
                 'app_pid': result.get('app_pid', result['pid']), 'controls': result['controls']}
 
-    def act(self, snapshot, action):
+    def act(self, snapshot, action, *, read_only=False):
         # Native UIA patterns address an element directly; no global input is sent.
         # Foreground activation is neither necessary nor reliable under Windows.
+        if read_only:
+            raise NotSent('Salt-okunur masaüstü modunda UIA işlemi yapılmaz.')
         fresh = self.observe(snapshot['title'], snapshot['hwnd'])
         if digest(fresh) != digest(snapshot):
             raise NotSent('Pencere veya kontroller değişti; eski hedefte işlem yapmadım.')
