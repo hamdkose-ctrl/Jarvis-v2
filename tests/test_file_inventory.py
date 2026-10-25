@@ -96,5 +96,67 @@ class BuildReportTests(FileInventoryTestCase):
         self.assertFalse(report.truncated)
 
 
+class ExportXlsxTests(FileInventoryTestCase):
+    """export_xlsx, workbench.write_output/unique_path'i çağırır ama bu testte
+    workbench'in kendisini (ve dolayısıyla llm/google-genai zincirini) gerçekten
+    içeri almaz: sys.modules'te yalnız bu test süresince sahte bir workbench
+    konur (patch.dict ile test sonunda otomatik geri alınır, başka teste sızmaz).
+    Gerçek workbench.write_output'un doğru Excel ürettiği ayrıca elle, gerçek
+    modülle (google.genai kurulu bir ortamda) doğrulandı; bu test yalnız
+    export_xlsx'in doğru sheet/yol üretip var olan yazıcıyı çağırdığını sınar."""
+
+    def test_builds_sheets_and_calls_existing_writer(self):
+        self.write('rapor.txt', 'aynı')
+        self.write('rapor_kopya.txt', 'aynı')
+        self.write('bos.txt', '')
+        report = fi.build_report(str(self.root))
+
+        calls = []
+
+        class FakeWorkbench:
+            @staticmethod
+            def unique_path(folder, stem, ext, sources=()):
+                return folder / f'{stem}{ext}'
+
+            @staticmethod
+            def write_output(destination, title, sheets):
+                calls.append((destination, title, sheets))
+
+        import sys
+        with patch.dict(sys.modules, {'modules.workbench': FakeWorkbench}):
+            path = fi.export_xlsx(report)
+
+        self.assertEqual(path, str(self.root / 'Klasor_Envanteri.xlsx'))
+        self.assertEqual(len(calls), 1)
+        destination, title, sheets = calls[0]
+        sheet_names = [name for name, _ in sheets]
+        self.assertEqual(sheet_names, ['Özet', 'Uzantı dağılımı', 'Yinelenenler', 'Benzer adlar',
+                                        'Boş dosya adayları', 'Eski dosya adayları', 'Geçici ad adayları'])
+        ozet = dict(sheets[0][1][1:])
+        self.assertEqual(ozet['Toplam dosya'], 3)
+        self.assertEqual(ozet['Yineleme grubu'], 1)
+        yinelenen_rows = sheets[2][1]
+        self.assertIn('rapor.txt', [r[1] for r in yinelenen_rows[1:]])
+
+    def test_never_writes_to_scanned_files_during_export(self):
+        p = self.write('korunan.txt', 'değişmeyecek')
+        before = p.read_bytes()
+        report = fi.build_report(str(self.root))
+
+        class FakeWorkbench:
+            @staticmethod
+            def unique_path(folder, stem, ext, sources=()):
+                return folder / f'{stem}{ext}'
+
+            @staticmethod
+            def write_output(destination, title, sheets):
+                pass
+
+        import sys
+        with patch.dict(sys.modules, {'modules.workbench': FakeWorkbench}):
+            fi.export_xlsx(report)
+        self.assertEqual(p.read_bytes(), before)
+
+
 if __name__ == '__main__':
     unittest.main()
