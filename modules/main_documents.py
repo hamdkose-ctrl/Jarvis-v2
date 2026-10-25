@@ -64,6 +64,24 @@ def _file_command(runtime, command: str) -> str | None:
         return (f'Dosyayı {fmt.upper()} biçiminde kaydettim: {saved["path"]}' + ('\n' + saved['note'] if saved['note'] else '')) if saved else 'Dönüştürme iptal edildi.'
     if 'çevir' in act or 'cevir' in act:
         return 'Hangi dile çevireyim? Örneğin: Türkçeye çevir.'
+    if 'görselleştir' in act or 'gorsellestir' in act:
+        from modules import visual_commands
+        from modules.image_gen import ImageGenError
+        kind = visual_commands.detect_type(act) or 'visualize'
+        try:
+            content = runtime.docs.summarize(path)
+        except Exception as exc:
+            _record_failure('modules/main_documents.py:_file_command:gorsellestir')
+            return f'Dosya özetlenemedi: {exc}'
+        try:
+            result = visual_commands.create_visual(act, content, slug=runtime.profile.slug, kind=kind)
+        except ImageGenError as exc:
+            return f'Görsel üretilemedi ({exc.reason_code}). Cloudflare hesap/anahtar ayarını kontrol et.'
+        except ValueError as exc:
+            return str(exc)
+        runtime._session().last_visual = {'text': act, 'content': content, 'kind': kind}
+        return (f'{result.label.capitalize()} hazır, Dosyalar sayfasına kaydettim: {result.path}\n'
+                'Beğenmezsen "yeniden dene" diyebilirsin.')
     if 'özetle' in act or 'özet' in act:
         result = runtime.docs.summarize(path)
         runtime._session().last_doc = (result, path, 'ozet')

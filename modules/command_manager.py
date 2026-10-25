@@ -19,7 +19,7 @@ class CommandContext:
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
-                        'pending_app', 'pending_request', 'pending_desktop')
+                        'pending_app', 'pending_request', 'pending_desktop', 'pending_visual')
 
 
 def awaiting_input(session):
@@ -31,6 +31,10 @@ def dispatch(context, command, normalized):
     """Return None to let existing legacy handlers continue; preserve priority."""
     from modules import app_actions
     owner, session = context.profile.slug, context.session
+    from modules import visual_chat
+    visual_result = visual_chat.handle(context, command, normalized)
+    if visual_result is not None:
+        return visual_result
     # Explicit desktop commands must not be interpreted as invented app actions.
     if re.match(r'^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)', command.strip(), re.I):
         from modules import desktop_agent
