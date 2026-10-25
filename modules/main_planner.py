@@ -371,6 +371,22 @@ def _reminder_or_confirm(runtime, title: str, when: str, repeat: str | None = No
                 f"'{title}' kaydını yine de ekleyeyim mi?")
     return _save_reminder(runtime, title, when, repeat)
 
+def _hoca_assignment_reminder(runtime, course_id: int, assignment_id: int, time: str = '09:00') -> str:
+    """Hoca'nın bir ödevini/deadline'ını hatırlatma olarak takvime ekler (5. adım, Hamdi'nin
+    kararı: mail-takvim.md'deki mevcut çakışma-sorma hattı (`_reminder_or_confirm`) aynen
+    kullanılır, Hoca'ya özel ayrı bir onay kuralı yazılmaz). Henüz bir sohbet komutuna/ekrana
+    bağlı değil; UI/komut yazılınca bu fonksiyon çağrılacak."""
+    from modules import hoca_workspace
+    assignment = hoca_workspace.get_assignment(runtime.profile, course_id, assignment_id)
+    hhmm = time if re.fullmatch(r'\d{2}:\d{2}', time or '') else '09:00'
+    when = f"{assignment.get('due', '')}T{hhmm}"
+    try:
+        datetime.strptime(when, '%Y-%m-%dT%H:%M')
+    except ValueError:
+        raise hoca_workspace.HocaWorkspaceError(
+            f"'{assignment['title']}' ödevinin geçerli bir tarihi yok (YYYY-MM-DD biçiminde olmalı).")
+    return _reminder_or_confirm(runtime, assignment['title'], when)
+
 _FOLD = str.maketrans('çğıöşüâî', 'cgiosuai')
 
 

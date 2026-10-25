@@ -105,6 +105,14 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Model çağrısı yok, ek Gemini/Groq isteği eklenmedi (kota). Ayar `web.py`'de `hoca_enabled` ile aynı yerde okunur/yazılır (`settings()`/`settings_save`); arayüzde henüz bir düğmesi yok (Hoca'nın hiç ekranı yok).
 - Test: `tests/test_hoca.py`'de `HocaEngineHookTests` içine 3 yeni test (ayar kapalı/açık/cevapsız) ve `HocaBridgeTests`'e 1 yeni test (ayar kaydı). Gerçek ses/PC'de denenmedi.
 
+## Ödev hatırlatma (5. madde) — "hazır olsun" sürümü, 25 Ekim 2026
+
+- Hamdi'nin kararı: 5. madde (onaylı takvim/görev değişikliği) daha önce "UI olmadan kullanılacak yer yok" diye ertelenmişti; Hamdi "ama hazır olsun bari" dedi — fonksiyon şimdi yazıldı, bir sohbet komutuna/ekrana henüz bağlanmadı.
+- `modules/main_planner.py::_hoca_assignment_reminder(runtime, course_id, assignment_id, time='09:00')`: bir Hoca ödevini gerçek hatırlatmaya çevirir. Ödevin kayıtlı `due` tarihini (YYYY-MM-DD) ve verilen saati birleştirip mevcut `_reminder_or_confirm`'e (bu dosyada zaten var olan, mail-takvim.md'nin çakışma-sorma hattı) devreder — **Hoca'ya özel ayrı bir onay kuralı yazılmadı**, Hamdi'nin kararına uygun. Saat biçimi geçersizse 09:00'a düşer; `due` boşsa/tanınmayan biçimdeyse (`YYYY-MM-DD` değilse) açık Türkçe hata verir, sessizce yanlış tarihe yazmaz.
+- `hoca_workspace.get_assignment(profile, course_id, assignment_id)`: tek bir ödev kaydına salt-okunur erişim (bu fonksiyon için eklendi).
+- Model çağrısı yok. Jarvis'in kendi hatırlatma kaydına yazar (Google Takvim'e değil — sistemin geri kalanıyla aynı).
+- Test: `tests/test_hoca.py`'de `HocaAssignmentReminderTests` (6 test, `_reminder_or_confirm` taklit edilerek yalnız yeni kod test edildi), `tests/test_hoca_workspace.py`'de `get_assignment` için 2 test. Hiçbir sohbet komutu/ekran düğmesi yok; gerçek PC'de denenmedi.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.

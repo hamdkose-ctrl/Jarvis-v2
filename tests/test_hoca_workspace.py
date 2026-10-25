@@ -100,6 +100,18 @@ class AssignmentTests(unittest.TestCase):
         a = hw.add_assignment(p, c["id"], "Ödev", origin="weird")
         self.assertEqual(a["origin"], "manual")
 
+    def test_get_assignment_returns_record(self):
+        p = _profile()
+        c = hw.add_course(p, "Kimya")
+        a = hw.add_assignment(p, c["id"], "Ödev 1", due="2026-11-03")
+        self.assertEqual(hw.get_assignment(p, c["id"], a["id"]), a)
+
+    def test_get_assignment_unknown_id_raises(self):
+        p = _profile()
+        c = hw.add_course(p, "Kimya")
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.get_assignment(p, c["id"], 999)
+
 
 class SessionTests(unittest.TestCase):
     def test_record_and_get_session(self):

@@ -288,6 +288,12 @@ def gpa_projection(profile) -> dict:
     return {"value": value, "included": included, "excluded": excluded}
 
 
+def get_assignment(profile, course_id: int, assignment_id: int) -> dict:
+    """Tek bir ödev/deadline kaydını döner (5. adım: takvime bağlama için salt-okunur erişim)."""
+    course = _require_course(profile, course_id)
+    return _find_assignment(course, assignment_id)
+
+
 def list_assignments(profile, course_id: int | None = None) -> list:
     if course_id is not None:
         return list(_require_course(profile, course_id)["assignments"])

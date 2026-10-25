@@ -600,3 +600,60 @@ class SessionMemoryTests(unittest.TestCase):
         for _ in range(len(hoca.active(self.p)['steps'])):
             hoca.advance(self.p)
         self.assertEqual(self.p.data.get('hoca_courses', []), [])
+
+
+class HocaAssignmentReminderTests(unittest.TestCase):
+    """5. adım: bir ödevi hatırlatmaya çevirme, mevcut çakışma-sorma hattı (_reminder_or_confirm) üzerinden."""
+
+    def setUp(self):
+        self.p = Profile()
+        self.course = hoca_workspace.add_course(self.p, 'Biyoloji')
+
+    def _runtime(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(profile=self.p)
+
+    def test_builds_when_and_delegates_to_reminder_or_confirm(self):
+        from modules import main_planner
+        a = hoca_workspace.add_assignment(self.p, self.course['id'], 'Vize', due='2026-12-01')
+        rt = self._runtime()
+        with patch.object(main_planner, '_reminder_or_confirm', return_value='Tamam.') as rc:
+            out = main_planner._hoca_assignment_reminder(rt, self.course['id'], a['id'])
+        rc.assert_called_once_with(rt, 'Vize', '2026-12-01T09:00')
+        self.assertEqual(out, 'Tamam.')
+
+    def test_custom_time_used_when_valid(self):
+        from modules import main_planner
+        a = hoca_workspace.add_assignment(self.p, self.course['id'], 'Final', due='2026-12-10')
+        rt = self._runtime()
+        with patch.object(main_planner, '_reminder_or_confirm', return_value='Tamam.') as rc:
+            main_planner._hoca_assignment_reminder(rt, self.course['id'], a['id'], time='14:30')
+        rc.assert_called_once_with(rt, 'Final', '2026-12-10T14:30')
+
+    def test_invalid_time_falls_back_to_default(self):
+        from modules import main_planner
+        a = hoca_workspace.add_assignment(self.p, self.course['id'], 'Final', due='2026-12-10')
+        rt = self._runtime()
+        with patch.object(main_planner, '_reminder_or_confirm', return_value='Tamam.') as rc:
+            main_planner._hoca_assignment_reminder(rt, self.course['id'], a['id'], time='saat 2 gibi')
+        rc.assert_called_once_with(rt, 'Final', '2026-12-10T09:00')
+
+    def test_missing_due_date_raises_clear_error(self):
+        from modules import main_planner
+        a = hoca_workspace.add_assignment(self.p, self.course['id'], 'Serbest ödev')  # due=''
+        rt = self._runtime()
+        with self.assertRaises(hoca_workspace.HocaWorkspaceError):
+            main_planner._hoca_assignment_reminder(rt, self.course['id'], a['id'])
+
+    def test_free_text_due_date_raises_clear_error(self):
+        from modules import main_planner
+        a = hoca_workspace.add_assignment(self.p, self.course['id'], 'Ödev', due='gelecek hafta')
+        rt = self._runtime()
+        with self.assertRaises(hoca_workspace.HocaWorkspaceError):
+            main_planner._hoca_assignment_reminder(rt, self.course['id'], a['id'])
+
+    def test_unknown_assignment_raises(self):
+        from modules import main_planner
+        rt = self._runtime()
+        with self.assertRaises(hoca_workspace.HocaWorkspaceError):
+            main_planner._hoca_assignment_reminder(rt, self.course['id'], 999)
