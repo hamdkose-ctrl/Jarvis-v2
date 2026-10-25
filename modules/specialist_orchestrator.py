@@ -94,24 +94,37 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the durable journal and runtime safety gates."""
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
-    gated={'media','publish','account','research','writer','browser','coder','verify'}
+    # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
+    # same Core gate before native UIA/CUA/C# adapters can be introduced.
+    gated={'media','publish','account','research','writer','browser','coder','verify','desktop'}
     plan=None;expected=None
+    worker_approval=approval
     if step['tool'] in gated:
         from modules import runtime_execution_gate
-        if step['tool']=='coder' and approval is not None:
+        if step['tool'] in {'coder','desktop'} and approval is not None and not step.get('runtime_approved'):
             from modules import runtime_prepare_approval
             runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
+            step['runtime_approved']=True
+            # A Core approval proves this execution identity, not a particular
+            # native UIA click.  Native adapters retain their own exact-action
+            # approval artifact when they need one.
+            worker_approval=None
+        # Browser keeps its existing native approval contract.  Desktop/coder
+        # use the bound Core prepare artifact tracked on the durable step.
+        approval_verified=(step.get('runtime_approved') is True
+                           if step['tool'] in {'coder','desktop'} else approval is not None)
         plan=runtime_execution_gate.plan_task(
-            step['tool'],step['input'],approval_verified=approval is not None,
+            step['tool'],step['input'],approval_verified=approval_verified,
             **_decision_context(job, step),
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
-        if plan['phase']=='prepare' and step['tool']=='coder':
-            from modules import developer
-            state=developer.status(runtime.profile.slug)
-            if not state.get('enabled') or not state.get('unlocked'):
-                raise goal_tools.NotStarted('Kod geliştirme alanı kilitli; hiçbir kod işlemi başlatılmadı. Rapor için writer, sahne/video için media kullan. Yalnız gerçekten kod geliştirmek gerekiyorsa kullanıcıdan geliştirme alanını açmasını iste.')
+        if plan['phase']=='prepare' and step['tool'] in {'coder','desktop'}:
+            if step['tool']=='coder':
+                from modules import developer
+                state=developer.status(runtime.profile.slug)
+                if not state.get('enabled') or not state.get('unlocked'):
+                    raise goal_tools.NotStarted('Kod geliştirme alanı kilitli; hiçbir kod işlemi başlatılmadı. Rapor için writer, sahne/video için media kullan. Yalnız gerçekten kod geliştirmek gerekiyorsa kullanıcıdan geliştirme alanını açmasını iste.')
             from modules import runtime_prepare_approval
             return runtime_execution_gate.accept_prepare_result(
                 plan,runtime_prepare_approval.prepare(identity,step['tool'],step['input']))
@@ -136,7 +149,7 @@ def execute_step(runtime,job,step,identity,*,approval=None):
 
     if expected is not None:
         from modules import runtime_worker_result,worker_result_hook
-        output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
+        output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=worker_approval)
     else:
         output=goal_tools.execute(runtime,step['tool'],step['input'],deps,identity,approval=approval)
     if plan and plan['phase']=='prepare':
@@ -150,6 +163,10 @@ def execute_step(runtime,job,step,identity,*,approval=None):
             return output
         return runtime_execution_gate.accept_prepare_result(plan,output)
     if expected is not None:
+        # Native desktop adapters may ask a second, action-specific question.
+        # That is neither a WorkerResult nor global completion.
+        if isinstance(output,dict) and output.get('state')=='approval':
+            return output
         if isinstance(output,dict) and output.get('state')=='done' and output.get('receipt') is not None:
             from modules import effect_recovery_runtime
             if effect_recovery_runtime.required(step['tool']):

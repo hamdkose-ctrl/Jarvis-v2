@@ -1,4 +1,8 @@
-"""Bound prepare approval artifacts for ask-required workers without native prepare receipts."""
+"""Bound prepare approval artifacts for ask-required workers without native prepare receipts.
+
+Only adapters explicitly listed in ``prepare`` may use this bridge.  It never
+grants a native action and never replaces an adapter's own exact-action approval.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -21,24 +25,35 @@ def expected(identity: dict, kind: str, data: dict) -> dict:
     owner=identity.get('owner');job_id=identity.get('job_id');step_id=identity.get('task_id')
     if not all(isinstance(value,str) and value for value in (owner,job_id,step_id)):
         raise ValueError('Prepare approval execution kimliği eksik.')
-    row=capability_manifest.from_task_tool(kind)
+    row=_capability(kind)
     return {'owner':owner,'job_id':job_id,'step_id':step_id,'capability_id':row['id'],
             'capability_version':str(row['version']),'input_digest':_digest(data)}
 
 
 def prepare(identity: dict, kind: str, data: dict) -> dict:
-    if kind!='coder':raise ValueError('Sentetik prepare approval yalnız coder için desteklenir.')
+    if kind not in {'coder','desktop'}:raise ValueError('Sentetik prepare approval bu capability için desteklenmez.')
     bound=expected(identity,kind,data)
-    return {'state':'approval','text':'Kod geliştirme adımı gerçek taslak üretmeden önce açık onay bekliyor.',
+    text = ('Kod geliştirme adımı gerçek taslak üretmeden önce açık onay bekliyor.'
+            if kind == 'coder' else
+            'PC görevi gerçek masaüstü işlemi başlatmadan önce açık onay bekliyor.')
+    return {'state':'approval','text':text,
             'id':bound['step_id'],'approval_schema':SCHEMA,**bound}
 
 
 def accept(approval: dict, identity: dict, kind: str, data: dict) -> bool:
-    if kind!='coder' or not isinstance(approval,dict) or set(approval)!=_FIELDS:
-        raise PermissionError('Coder prepare approval kaydı geçersiz.')
+    if kind not in {'coder','desktop'} or not isinstance(approval,dict) or set(approval)!=_FIELDS:
+        raise PermissionError('Prepare approval kaydı geçersiz.')
     if approval.get('state')!='approval' or approval.get('approval_schema')!=SCHEMA or approval.get('id')!=approval.get('step_id'):
-        raise PermissionError('Coder prepare approval kaydı geçersiz.')
+        raise PermissionError('Prepare approval kaydı geçersiz.')
     bound=expected(identity,kind,data)
     if any(approval.get(key)!=value for key,value in bound.items()):
-        raise PermissionError('Coder onayı mevcut job/step/input ile eşleşmiyor.')
+        raise PermissionError('Prepare onayı mevcut job/step/input ile eşleşmiyor.')
     return True
+
+
+def _capability(kind: str) -> dict:
+    """Read the existing manifest view; this is not a second catalog."""
+    try:
+        return capability_manifest.from_task_tool(kind)
+    except ValueError:
+        return capability_manifest.from_goal_tool(kind)

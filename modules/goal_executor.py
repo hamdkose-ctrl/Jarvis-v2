@@ -181,6 +181,13 @@ def _identity(job,step):
     tool=step['tool'];data=step['input']
     if tool in task_tools.CATALOG:
         result=task_tools.execution(job['owner'],job['id'],{'id':step['id'],'agent':tool,'attempts':step.get('attempts', 0)})
+    elif tool=='desktop':
+        # The desktop adapter is an existing local goal tool.  Give only this
+        # effectful local path the durable execution identity needed by the
+        # Core gate; this does not turn every legacy local helper into a worker.
+        result={'version':task_tools.VERSION,'owner':job['owner'],'job_id':job['id'],
+                'task_id':step['id'],'capability':'desktop','risk':'physical_effect',
+                'replay_safe':False,'attempt':step.get('attempts', 0),'outcome':'pending'}
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
     return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}

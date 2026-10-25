@@ -10,7 +10,7 @@ from modules import capability_decision, capability_manifest
 
 
 def _action(kind: str, data: dict) -> dict:
-    row = capability_manifest.from_task_tool(kind)
+    row = _capability(kind)
     permission = row['permission_class']
     if kind == 'publish':
         target = str(data.get('destination', ''))
@@ -24,6 +24,9 @@ def _action(kind: str, data: dict) -> dict:
     elif kind in {'writer', 'media', 'coder', 'verify'}:
         target = str(data.get('filename') or kind)
         via = 'file'
+    elif kind == 'desktop':
+        target = str(data.get('target', '')).strip()
+        via = 'desktop'
     else:
         target = kind
         via = 'file'
@@ -35,7 +38,7 @@ def plan_task(kind: str, data: dict, *, approval_verified: bool,
               user_authority: str, job_authority: str,
               effect_state: str, grants: dict | None = None,
               now: float | None = None) -> dict:
-    row = capability_manifest.from_task_tool(kind)
+    row = _capability(kind)
     decision = capability_decision.decide(
         row,
         domain_invariant=domain_invariant,
@@ -54,6 +57,14 @@ def plan_task(kind: str, data: dict, *, approval_verified: bool,
         else 'blocked'
     )
     return {**decision, 'phase': phase}
+
+
+def _capability(kind: str) -> dict:
+    """Adapt an existing task or local-goal capability without dispatching it."""
+    try:
+        return capability_manifest.from_task_tool(kind)
+    except ValueError:
+        return capability_manifest.from_goal_tool(kind)
 
 
 def accept_prepare_result(plan: dict, output: dict) -> dict:

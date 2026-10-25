@@ -41,7 +41,7 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         expected_job_version = canonical_version(identity)
     if not isinstance(expected_job_version, int) or isinstance(expected_job_version, bool) or expected_job_version < 0:
         raise ValueError('Beklenen GoalState sürümü geçersiz.')
-    row = capability_manifest.from_task_tool(kind)
+    row = _capability(kind)
     payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
     attempt = identity.get('attempt', 1)
     if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
@@ -89,3 +89,11 @@ def accept_and_commit(output: dict, expected: dict) -> dict:
     from modules import worker_result_commit
     worker_result_commit.commit(accepted)
     return clean
+
+
+def _capability(kind: str) -> dict:
+    """Use the read-only manifest projection; never introduce a runtime catalog."""
+    try:
+        return capability_manifest.from_task_tool(kind)
+    except ValueError:
+        return capability_manifest.from_goal_tool(kind)
