@@ -101,7 +101,7 @@ Aşağıdaki ilkeler her seçenek değerlendirmesinde sabittir; bir seçenek bun
 
 ---
 
-## Karar 3 — Missing-state / identity mismatch durumları
+## Karar 3 — KABUL EDİLDİ — Missing-state / identity mismatch durumları
 
 **Bulgu (kaynak):** `GOALSTATE_CUTOVER_V1.md` madde 3 "Missing state": legacy var/canonical yok, canonical var/legacy yok, identity mismatch, canonical dosya/şema geçersiz, legacy state projection tablosunda yok — bunlar ayrı ayrı tanımlanmadan cutover yoktur. Gap register madde 30 bunu **CUTOVER BLOCKER** işaretler. `GOALSTATE_CUTOVER_PREFLIGHT_V1.md` zaten bu durumları salt-okunur **reason_code** olarak tespit ediyor (`MISSING_CANONICAL`, `CANONICAL_CORRUPT`, `IDENTITY_MISMATCH`, `UNKNOWN_LEGACY_STATE`) ama **karar almıyor** — sadece raporluyor. Bugünkü `goal_state_compat.sync()`: canonical yoksa `project()`+`create()`; canonical varsa `load()`+`advance()`+CAS; identity mismatch'e özel bir dal yok (identity CAS seviyesinde `goal_state_store.compare_and_swap` tarafından reddedilir, ama bu "cutover authority" kararı değil, bugünkü compatibility sync davranışı).
 
@@ -159,7 +159,7 @@ Genel ilke: **hiçbir missing-state/mismatch durumu otomatik, insan onayı olmad
 
 ---
 
-## Karar 4 — Legacy/canonical state veya terminal uyuşmazlığında authority/reconcile politikası
+## Karar 4 — KABUL EDİLDİ — Legacy/canonical state veya terminal uyuşmazlığında authority/reconcile politikası
 
 **Bulgu (kaynak):** `modules/goal_state_compat.py::advance`: `if goal_state.terminal(current): return current` — canonical terminal ise legacy projection onu asla yeniden açmaz (gap register "KAPALI" madde, `test_terminal_canonical_state_is_not_reopened_by_legacy_projection` ile kilitli). Ancak bu sadece "terminal reopen engeli"dir; **hangi tarafın authority olacağı** ve **state divergence (terminal olmayan ama farklı state) durumunda ne yapılacağı** tanımlı değildir. `GOALSTATE_CUTOVER_V1.md` madde 2 "Terminal state": "İlk cutover, legacy ve canonical terminal uyuşmazlığında hangi tarafın otorite olacağını ve işlemin fail-closed mu, reconcile mı olacağını ayrıca tanımlamadan etkinleştirilemez." `GOALSTATE_CUTOVER_PREFLIGHT_V1.md` bu durumu `STATE_DIVERGENCE` ve `TERMINAL_DIVERGENCE` olarak ayrı raporluyor ama karar almıyor.
 
