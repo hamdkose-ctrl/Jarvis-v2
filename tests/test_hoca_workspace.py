@@ -299,5 +299,104 @@ class TermOverviewTests(unittest.TestCase):
         self.assertNotIn("course_name", a)
 
 
+class AssignmentGradeTests(unittest.TestCase):
+    """4c-1: ödev/sınav bazlı not kaydı + ağırlıklı ders notu."""
+
+    def test_set_grade_and_read_back(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Vize")
+        hw.set_assignment_grade(p, c["id"], a["id"], 80, max_score=100, weight=2)
+        course = hw.get_course(p, c["id"])
+        self.assertEqual(course["assignments"][0]["grade"], {"score": 80.0, "max": 100.0, "weight": 2.0})
+
+    def test_grade_defaults_to_100_max_and_weight_1(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Kısa sınav")
+        hw.set_assignment_grade(p, c["id"], a["id"], 45)
+        course = hw.get_course(p, c["id"])
+        self.assertEqual(course["assignments"][0]["grade"], {"score": 45.0, "max": 100.0, "weight": 1.0})
+
+    def test_unknown_assignment_id_raises(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_assignment_grade(p, c["id"], 999, 80)
+
+    def test_zero_or_negative_max_score_raises(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Vize")
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_assignment_grade(p, c["id"], a["id"], 80, max_score=0)
+
+    def test_negative_score_or_weight_raises(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Vize")
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_assignment_grade(p, c["id"], a["id"], -5)
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_assignment_grade(p, c["id"], a["id"], 80, weight=-1)
+
+    def test_resetting_grade_overwrites_not_accumulates(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Vize")
+        hw.set_assignment_grade(p, c["id"], a["id"], 50)
+        hw.set_assignment_grade(p, c["id"], a["id"], 90)
+        course = hw.get_course(p, c["id"])
+        self.assertEqual(course["assignments"][0]["grade"]["score"], 90.0)
+
+    def test_course_grade_none_when_no_grades(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.add_assignment(p, c["id"], "Ödev")
+        result = hw.course_grade(p, c["id"])
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["graded_count"], 0)
+        self.assertEqual(result["total_count"], 1)
+
+    def test_course_grade_weighted_average(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a1 = hw.add_assignment(p, c["id"], "Vize")
+        a2 = hw.add_assignment(p, c["id"], "Final")
+        hw.set_assignment_grade(p, c["id"], a1["id"], 60, max_score=100, weight=1)
+        hw.set_assignment_grade(p, c["id"], a2["id"], 90, max_score=100, weight=2)
+        # (60*1 + 90*2) / 3 = 80
+        result = hw.course_grade(p, c["id"])
+        self.assertEqual(result["value"], 80.0)
+        self.assertEqual(result["graded_count"], 2)
+        self.assertEqual(result["total_count"], 2)
+
+    def test_course_grade_normalizes_different_max_scores(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a1 = hw.add_assignment(p, c["id"], "Kısa sınav")  # 8/10 = %80
+        a2 = hw.add_assignment(p, c["id"], "Final")  # 70/100 = %70
+        hw.set_assignment_grade(p, c["id"], a1["id"], 8, max_score=10, weight=1)
+        hw.set_assignment_grade(p, c["id"], a2["id"], 70, max_score=100, weight=1)
+        result = hw.course_grade(p, c["id"])
+        self.assertEqual(result["value"], 75.0)
+
+    def test_ungraded_assignment_excluded_from_average(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a1 = hw.add_assignment(p, c["id"], "Vize")
+        hw.add_assignment(p, c["id"], "Henüz notsuz")
+        hw.set_assignment_grade(p, c["id"], a1["id"], 70)
+        result = hw.course_grade(p, c["id"])
+        self.assertEqual(result["value"], 70.0)
+        self.assertEqual(result["graded_count"], 1)
+        self.assertEqual(result["total_count"], 2)
+
+    def test_unknown_course_id_raises(self):
+        p = _profile()
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.course_grade(p, 999)
+
+
 if __name__ == "__main__":
     unittest.main()
