@@ -48,6 +48,14 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 
 **Sırada:** `study.py:lesson()`'ın (uzun anlatım motoru) da `course_id` ile per-ders kaynağı kullanması — bu ayrı, yakın bir sonraki adım.
 
+## Uzun anlatım motoru bağlantısı — 25 Ekim 2026
+
+- `study.py:lesson(profile, topic, course="", mk="", simpler=False, course_id=None)`: `course_id` verilirse dersin `hoca_workspace`'teki kitap/pdf kaynakları (`course_context`) anlatıma `[DERS KAYNAĞI · ...]` bloğu olarak eklenir; `course` adı açıkça verilmemişse dersin kayıtlı adı kullanılır. Bilinmeyen `course_id` `ValueError` olarak patlar (bu modülün diğer hataları gibi).
+- `no_book` artık ya `hoca_workspace` kaynağı ya da eski genel kitap deposu (`study.py`'nin kendi `docs` listesi) varsa `False`'tur — ikisi birbirinden bağımsız, biri yeterli. Eski genel depo bu adımda da taşınmadı/dokunulmadı; yalnız yeni per-ders kaynak eklendi.
+- `hoca.py:start()`'tan farklı olarak burada "açıkça verilen `source` her zaman öncelikli" kuralı yok — `lesson()`'ın zaten kendi `_search_items` tabanlı kitap arama mekanizması var, `course_ctx` ona ek bir blok olarak eklenir, onun yerine geçmez.
+- Test: `tests/test_study_hoca_workspace.py` (5 test, model taklit, izole tmp klasör). Gerçek kitap/PDF ve gerçek PC'de denenmedi.
+- Hoca'nın iki motoru (adım-adım `hoca.py` + uzun anlatım `study.py:lesson()`) artık ikisi de per-ders kaynağa bağlı; sırada oturum hafızası/soru-alıştırma/tekrar planının (3. madde) UI ve akış tarafı var.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.
