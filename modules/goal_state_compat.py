@@ -5,6 +5,11 @@ from pathlib import Path
 
 from modules import core_state_reducer, goal_state, goal_state_store
 
+# RFC Karar 1 (kabul edildi): legacy goal_executor şemasında fast/durable ayrımı
+# hiç yok; canonical projection bu yüzden kalıcı olarak 'agent' üretir ve
+# job['execution_mode'] alanını okumaz.
+PROJECTION_EXECUTION_MODE = 'agent'
+
 
 _STATE_MAP = {
     'running': 'running',
@@ -38,7 +43,8 @@ def _blocker(job: dict):
 
 def project(job: dict) -> dict:
     state = goal_state.new(
-        owner=job['owner'], job_id=job['id'], goal=job['request'], execution_mode='agent'
+        owner=job['owner'], job_id=job['id'], goal=job['request'],
+        execution_mode=PROJECTION_EXECUTION_MODE,
     )
     target = _target(job)
     if target != 'pending':
