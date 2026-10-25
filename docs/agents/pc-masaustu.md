@@ -25,3 +25,8 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Bu yol pencere açmaz, model çağırmaz, tıklama/yazma/klavye girdisi göndermez ve masaüstü görev kaydı oluşturmaz. Hedef pencere yoksa ya da korunan bir uygulamaysa başarı uydurmaz.
 - Gözlemde yalnız pencere kimliği ile redakte edilmiş/sınırlı kontrol metadatası vardır; değer alanları ve şifre alanları dışarı verilmez. Gizli ve yalnız-yerel modlarda ekran gizlilik kapısı geçerlidir.
 
+## Doğrulanmış açık uygulamayı yeniden kullanma — 25 Ekim 2026
+
+- `system_control.open_application`, hedef uygulamanın gerçek penceresi zaten doğrulanmışsa ikinci `start` çağrısı yapmaz. Bu, tekrar eden PC kabul koşularında Hesap Makinesi gibi UWP uygulamalarının pencere biriktirmesini önler.
+- Mevcut pencere yalnız “açık” isteğinin kanıtıdır; Jarvis pencereyi zorla öne getirmez veya kullanıcı odağını çalmaz. Pencere yoksa eski başlatma ve gerçek pencere doğrulama yolu değişmeden sürer.
+

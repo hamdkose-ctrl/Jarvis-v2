@@ -58,7 +58,7 @@ class NavigationCommandsTests(unittest.TestCase):
         import subprocess
         from unittest.mock import patch
         from modules import system_control
-        with patch.object(system_control.subprocess, 'run', return_value=Mock(returncode=0)) as run,              patch.object(system_control, '_visible_application', return_value=1),              patch.object(system_control.logging, 'getLogger'):
+        with patch.object(system_control.subprocess, 'run', return_value=Mock(returncode=0)) as run,              patch.object(system_control, '_visible_application', side_effect=[None, 1]),              patch.object(system_control.logging, 'getLogger'):
             self.assertTrue(system_control.open_application('paint').ok)
         kwargs = run.call_args.kwargs
         self.assertNotIn('capture_output', kwargs)

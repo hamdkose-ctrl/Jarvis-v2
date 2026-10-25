@@ -230,6 +230,12 @@ def open_application(app_name: str) -> str:
             message += ' Uygulamanın başka bir adını söyleyebilir misin?'
         return ApplicationResult(message, candidates=choices)
     try:
+        # Opening an already verified window again can create duplicate UWP
+        # instances (notably Calculator) during repeated PC acceptance runs.
+        # Existing visibility is sufficient evidence for an "open" request;
+        # do not manufacture another instance or steal its foreground focus.
+        if _visible_application(key):
+            return ApplicationResult(f'{key.capitalize()} zaten açık; yeni pencere başlatmadım.', ok=True)
         if key in APPS:
             logging.getLogger("jarvis").info("Uygulama açılıyor: %s (sabit: %s)", key, APPS[key])
             launched = subprocess.run(["cmd", "/c", "start", "", APPS[key]],

@@ -70,15 +70,26 @@ class ApplicationEvidenceTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn('doğrulayamadım', result)
 
+    def test_verified_open_window_is_reused_without_second_launch(self):
+        with patch.object(pc, '_visible_application', return_value=77), \
+             patch.object(pc.subprocess, 'run') as launch:
+            result = pc.open_application('paint')
+        self.assertTrue(result.ok)
+        self.assertIn('zaten açık', result)
+        launch.assert_not_called()
+
     def test_native_window_confirms_launch(self):
         with patch.object(pc.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0)), \
              patch.object(pc, '_app_windows', return_value=[(1, 'Adsız - Paint', 'mspaint')]):
             self.assertTrue(pc.open_application('paint').ok)
 
-    def test_windows_launch_error_is_not_success_even_with_existing_window(self):
-        with patch.object(pc.subprocess, 'run', return_value=types.SimpleNamespace(returncode=1)), \
-             patch.object(pc, '_app_windows', return_value=[(1, 'Paint', 'mspaint')]):
-            self.assertFalse(pc.open_application('paint').ok)
+    def test_existing_verified_window_does_not_depend_on_a_new_launch(self):
+        with patch.object(pc.subprocess, 'run', return_value=types.SimpleNamespace(returncode=1)) as launch, \
+             patch.object(pc, '_app_windows', return_value=[(1, 'Paint', 'mspaint')]) as windows:
+            result = pc.open_application('paint')
+        self.assertTrue(result.ok)
+        windows.assert_called()
+        launch.assert_not_called()
 
     def test_browser_title_is_not_native_application_evidence(self):
         with patch.object(pc, '_app_windows', return_value=[(1, 'Spotify - Google Chrome', 'chrome')]):
