@@ -167,6 +167,23 @@ def reconcile(runtime,kind,data,identity,check):
         output=outbox.recover(owner,identity['job_id']+':'+identity['task_id'])
         if output and output['state']=='done':return task_results.seal('publish',output)
         if output:return output
+    if kind=='desktop':
+        # A desktop task persists its own verified UIA history.  Recovery is a
+        # read-only inspection of that exact native task; it never creates a
+        # new task or replays a pending click/fill/select/toggle action.
+        from modules import desktop_agent
+        native=desktop_agent._load(owner)
+        matches=bool(native and native.get('owner')==owner and
+                     native.get('target')==str(data.get('target','')).strip()[:200] and
+                     native.get('goal')==str(data.get('goal','')).strip()[:2000])
+        if not matches or native.get('status')!='done':
+            return None
+        history=native.get('history')
+        if (not isinstance(history,list) or not history or
+                not all(isinstance(row,dict) and row.get('verified') is True for row in history)):
+            return None
+        return local_result(owner,kind,desktop_agent.render(native),desktop_id=native['id'],
+                            receipt={'service':'desktop_uia','remote_id':native['id']},reconciled=True)
     if kind=='action' and check:
         before=check['before'];after=runtime.profile.data.get(check['field'],[])
         action=data['action'];params=data['params']
@@ -306,7 +323,8 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
                     'retry_safe':bool(native and not native.get('pending_effect') and all(h.get('verified') is True for h in native.get('history',[])))}
         if not native.get('history') or not all(h.get('verified') is True for h in native['history']):
             raise ValueError('Masaüstü adımlarının sonuç kanıtı eksik.')
-        return local_result(owner,kind,str(result),desktop_id=native['id'])
+        return local_result(owner,kind,str(result),desktop_id=native['id'],
+                            receipt={'service':'desktop_uia','remote_id':native['id']})
     if kind=='document':
         from modules import docs,nxapi,conversion
         path=nxapi.allowed(data['path'])

@@ -26,7 +26,10 @@ def required(kind: str) -> bool:
     fail-closed as ``unknown``.
     """
     from modules import capability_manifest
-    row = capability_manifest.from_task_tool(kind)
+    try:
+        row = capability_manifest.from_task_tool(kind)
+    except ValueError:
+        row = capability_manifest.from_goal_tool(kind)
     return row['replay'] == 'conditional' and row['reconciliation'] == 'required'
 
 

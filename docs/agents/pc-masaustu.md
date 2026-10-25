@@ -13,3 +13,9 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 
 Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tanır; uygulama açmaya düşmez. İlk mailin ek komutları yalnız bir mail seçer ve sonuçlarını sade gösterir; hash/adım günlükleri kayıt ve açık görev durumunda korunur. Boş ek, okunacak ek yok şeklinde anlatılır. Kuyruk durumu işin adını, bekleme süresini ve açık iptal/sonuç komutlarını gösterir; bildirimi de sonuç özeti taşır. Masaüstü görevleri her mevcut kaydetme noktasında çalışma turu süresini ölçer; yeni UIA çağrısı/model çağrısı yoktur. Normal sonuçta ham kontrol kanıtı gizlenir; `PC görevi ayrıntıları` ile istenir.
 
+## Durable PC yürütme sınırı — 25 Ekim 2026
+
+- `goal.desktop`, mevcut `desktop_agent` adapter'ının Capability Manifest görünümüdür; yeni bir desktop dispatcher veya ikinci UIA motoru değildir. Durable hedef içindeki masaüstü işi, native UIA/CUA/C# backend'i başlatmadan önce Core'un Decision/Permission/Effect hattından geçer.
+- İlk Core onayı owner/job/step/capability-version/input-digest alanlarına bağlı prepare artifact'idir. Bu artifact doğrudan UIA tıklama onayı değildir. Native adapter daha sonra somut bir kontrol için ayrı onay isterse bu ikinci onay WorkerResult başarısı veya global completion sayılmaz.
+- Başarılı masaüstü sonucu yalnız doğrulanmış native görev geçmişiyle `desktop_uia:<desktop_id>` receipt'i taşır; ardından WorkerResult fence ve mevcut Reducer/CAS evidence hattına girer. Crash/restart sonrası recovery yalnız aynı owner/target/goal için doğrulanmış `done` native görevini okur; yeni pencere açmaz ve kör tıklama/tekrar yapmaz.
+
