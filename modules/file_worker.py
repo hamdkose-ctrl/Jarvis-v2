@@ -141,10 +141,10 @@ def find_similar_names(entries: list[dict]) -> list[list[dict]]:
 
 
 def _extractor_version(name: str) -> str:
+    import importlib.metadata as m
     try:
-        import importlib.metadata as m
         return m.version(name)
-    except Exception:
+    except m.PackageNotFoundError:
         return "bilinmiyor"
 
 
