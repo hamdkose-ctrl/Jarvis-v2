@@ -713,6 +713,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                 "wake_sensitivity": int(s.get("wake_sensitivity") or 3), "stt_engine": s.get("stt_engine") or "gemini",
                 "local_stt_enabled": bool(s.get('local_stt_enabled', False)), "local_stt_model": s.get('local_stt_model') or 'small', "local_stt_beam": local_stt.beam_size(),
                 "stt_words": s.get("stt_words") or "", "followup_no_wake": bool(s.get("followup_no_wake")), "hoca_enabled": bool(s.get("hoca_enabled", True)),
+                "hoca_voice_full": bool(s.get("hoca_voice_full")),
                 "live_mode": bool(s.get("live_mode", True)), "live_headphones": bool(s.get("live_headphones")), "live_beep": bool(s.get("live_beep", True)),
                 "live_idle_seconds": int(s.get("live_idle_seconds") or 90), "stt_fixes": s.get("stt_fixes") if s.get("stt_fixes") is not None else _live().DEFAULT_FIXES, "live_silence_ms": (lambda v: 1100 if v in (0, 700) else v)(int(s.get("live_silence_ms") or 0)),
                 "saved": public_saved, "data_dir": str(DATA_DIR)}
@@ -750,6 +751,8 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             ch["stt_engine"] = data["stt_engine"]
         if 'hoca_enabled' in data:
             ch['hoca_enabled'] = bool(data['hoca_enabled'])
+        if 'hoca_voice_full' in data:
+            ch['hoca_voice_full'] = bool(data['hoca_voice_full'])
         if 'local_stt_enabled' in data:
             ch['local_stt_enabled'] = bool(data['local_stt_enabled'])
         if 'local_stt_model' in data:
