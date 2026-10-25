@@ -1,10 +1,10 @@
 """Hoca çalışma alanı — domain sözleşmesi (1. adım) + ödev parçalama (4a).
 
-Çoğunlukla veri modeli: ders, oturum, kaynak, hedef (ödev/deadline) ve ilerleme
-kaydı/okuma. Tek istisna `decompose_assignment` (4a, 25 Ekim 2026): büyük bir
-ödevi alt göreve bölmek için tek bir model çağrısı yapar. Dönem haritası/takvim
-hesaplaması ve onaylı takvim değişikliği henüz yok — bunlar sonraki adımlar
-(bkz. docs/agents/hoca.md).
+Çoğunlukla veri modeli: ders, oturum, kaynak, hedef (ödev/deadline), not kaydı
+ve ilerleme kaydı/okuma. Tek istisna `decompose_assignment` (4a, 25 Ekim 2026):
+büyük bir ödevi alt göreve bölmek için tek bir model çağrısı yapar. Genel GPA
+projeksiyonu (kredi ağırlıklı) ve onaylı takvim değişikliği henüz yok — bunlar
+sonraki adımlar (bkz. docs/agents/hoca.md, 4c-2 ve 5).
 
 Mevcut `modules/hoca.py` (ders/adım anlatımı, zayıf konu/tekrar) bu modüle sonraki
 adımda bağlanacak; burada ona dokunulmadı, ikisi de `profile.data` üzerinde ayrı
@@ -192,6 +192,59 @@ def decompose_assignment(profile, course_id: int, title: str, due: str = "", con
                                 origin="decomposed", parent_id=parent["id"])
                 for sub_title, sub_due in planned]
     return {"parent": parent, "subtasks": subtasks}
+
+
+def _find_assignment(course: dict, assignment_id: int) -> dict:
+    for a in course["assignments"]:
+        if int(a.get("id", -1)) == int(assignment_id):
+            return a
+    raise HocaWorkspaceError("Böyle bir ödev/deadline bulunamadı.")
+
+
+def set_assignment_grade(profile, course_id: int, assignment_id: int, score: float,
+                          max_score: float = 100.0, weight: float = 1.0) -> dict:
+    """Bir ödeve/sınava not girer (4c-1). Var olan notun üzerine yazar — tek güncel
+    değer tutulur, geçmiş not tutulmaz. `max_score` 0'dan büyük olmalı; `score` ve
+    `weight` negatif olamaz. `score`, `max_score`'u aşabilir (bonus puan)."""
+    course = _require_course(profile, course_id)
+    assignment = _find_assignment(course, assignment_id)
+    try:
+        score = float(score)
+        max_score = float(max_score)
+        weight = float(weight)
+    except (TypeError, ValueError):
+        raise HocaWorkspaceError("Not, üzerinden ve ağırlık sayı olmalı.")
+    if max_score <= 0:
+        raise HocaWorkspaceError("Notun üzerinden kaç olduğu 0'dan büyük olmalı.")
+    if score < 0 or weight < 0:
+        raise HocaWorkspaceError("Not ve ağırlık negatif olamaz.")
+    assignment["grade"] = {"score": score, "max": max_score, "weight": weight}
+    profile.save()
+    return assignment
+
+
+def course_grade(profile, course_id: int) -> dict:
+    """Dersin güncel notu (4c-1): notu girilmiş ödevlerin ağırlıklı ortalaması,
+    100 üzerinden. Hiç not girilmemişse `value=None` döner — uydurma sayı üretmez.
+    `graded_count`: notu olan ödev sayısı; `total_count`: dersteki tüm ödev sayısı."""
+    course = _require_course(profile, course_id)
+    total_weight = 0.0
+    weighted_sum = 0.0
+    graded_count = 0
+    for a in course["assignments"]:
+        grade = a.get("grade")
+        if not isinstance(grade, dict):
+            continue
+        weight = float(grade.get("weight") or 0)
+        max_score = float(grade.get("max") or 0)
+        if weight <= 0 or max_score <= 0:
+            continue
+        pct = (float(grade.get("score") or 0) / max_score) * 100
+        weighted_sum += pct * weight
+        total_weight += weight
+        graded_count += 1
+    value = round(weighted_sum / total_weight, 2) if total_weight > 0 else None
+    return {"value": value, "graded_count": graded_count, "total_count": len(course["assignments"])}
 
 
 def list_assignments(profile, course_id: int | None = None) -> list:
