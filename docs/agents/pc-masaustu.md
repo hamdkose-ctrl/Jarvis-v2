@@ -30,3 +30,9 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - `system_control.open_application`, hedef uygulamanın gerçek penceresi zaten doğrulanmışsa ikinci `start` çağrısı yapmaz. Bu, tekrar eden PC kabul koşularında Hesap Makinesi gibi UWP uygulamalarının pencere biriktirmesini önler.
 - Mevcut pencere yalnız “açık” isteğinin kanıtıdır; Jarvis pencereyi zorla öne getirmez veya kullanıcı odağını çalmaz. Pencere yoksa eski başlatma ve gerçek pencere doğrulama yolu değişmeden sürer.
 
+## Doğrulanabilir ses durumu için durable Core hattı — 25 Ekim 2026
+
+- `system` aracının yalnız `volume` ve `mute` işlemleri, istenen sonucun işletim sisteminden kesin geri okuması bulunduğu için mevcut Core prepare onayı, WorkerResult fence, effect intent/receipt ve Reducer/CAS evidence hattına katılır. Core onayı owner/job/step/capability/version/input digest alanlarına bağlıdır.
+- Recovery yeni ses ayarı göndermez: yalnız mevcut ses/mute değeri istenen değerle aynıysa doğrulanmış receipt üretir; aksi durumda sonuç belirsiz kalır ve kör retry yoktur.
+- `brightness` ve medya tuşları bu PR'da durable hatta alınmaz. Mevcut adapter davranışları korunur; bunlar için eşdeğer bir gerçek geri-okuma receipt sözleşmesi tanımlanmadan “başarılı” kanıtı uydurulmaz.
+

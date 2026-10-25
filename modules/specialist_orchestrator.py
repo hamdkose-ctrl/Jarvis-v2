@@ -96,12 +96,19 @@ def execute_step(runtime,job,step,identity,*,approval=None):
     deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
     # same Core gate before native UIA/CUA/C# adapters can be introduced.
+    # Volume/mute have an exact OS readback and can therefore enter the durable
+    # effect/receipt path.  Brightness and media keys remain on their existing
+    # adapter until they gain an equally strong receipt contract.
+    durable_system=(step['tool']=='system' and step['input'].get('operation') in {'volume','mute'})
     gated={'media','publish','account','research','writer','browser','coder','verify','desktop'}
+    if durable_system:
+        gated.add('system')
+    prepare_bound={'coder','desktop','system'}
     plan=None;expected=None
     worker_approval=approval
     if step['tool'] in gated:
         from modules import runtime_execution_gate
-        if step['tool'] in {'coder','desktop'} and approval is not None and not step.get('runtime_approved'):
+        if step['tool'] in prepare_bound and approval is not None and not step.get('runtime_approved'):
             from modules import runtime_prepare_approval
             runtime_prepare_approval.accept(approval,identity,step['tool'],step['input'])
             step['runtime_approved']=True
@@ -112,14 +119,14 @@ def execute_step(runtime,job,step,identity,*,approval=None):
         # Browser keeps its existing native approval contract.  Desktop/coder
         # use the bound Core prepare artifact tracked on the durable step.
         approval_verified=(step.get('runtime_approved') is True
-                           if step['tool'] in {'coder','desktop'} else approval is not None)
+                           if step['tool'] in prepare_bound else approval is not None)
         plan=runtime_execution_gate.plan_task(
             step['tool'],step['input'],approval_verified=approval_verified,
             **_decision_context(job, step),
         )
         if plan['phase']=='blocked':
             raise PermissionError('Capability runtime decision gate tarafından engellendi: '+plan['reason_code'])
-        if plan['phase']=='prepare' and step['tool'] in {'coder','desktop'}:
+        if plan['phase']=='prepare' and step['tool'] in prepare_bound:
             if step['tool']=='coder':
                 from modules import developer
                 state=developer.status(runtime.profile.slug)
