@@ -397,6 +397,11 @@ def brightness_matches(level: int) -> bool:
         return False
 
 
+def set_brightness_verified(level: int) -> bool:
+    """Set brightness, then require an exact device readback before success."""
+    return set_brightness(level) and brightness_matches(level)
+
+
 def media_control(action: str) -> bool:
     """Müzik/medya tuşlarını simüle eder. Tanınan bir eylemse True döner."""
     actions = {

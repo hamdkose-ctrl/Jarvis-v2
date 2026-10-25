@@ -144,8 +144,8 @@ def handle(runtime, command: str) -> str:
             return f"Ses seviyesini yüzde {level} yaptım." if runtime.system_control.set_volume(level) \
                 else "Ses seviyesini ayarlayamadım."
         if runtime.re.search(r"parlak\w*|ekran", cmd_lower):
-            return f"Ekran parlaklığını yüzde {level} olarak ayarladım." if runtime.system_control.set_brightness(level) \
-                else "Ekran parlaklığını ayarlayamadım."
+            return f"Ekran parlaklığını yüzde {level} olarak ayarladım." if runtime.system_control.set_brightness_verified(level) \
+                else "Ekran parlaklığını doğrulayamadım."
         # başka bir komut geldi: soru iptal, normal akışa devam
 
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
@@ -252,9 +252,9 @@ def handle(runtime, command: str) -> str:
         nums = runtime._numbers(cmd_lower)
         if nums:
             level = min(nums[0], 100)
-            if runtime.system_control.set_brightness(level):
+            if runtime.system_control.set_brightness_verified(level):
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını ayarlayamadım."
+            return "Ekran parlaklığını doğrulayamadım."
 
     # Bilgisayarı kapatma: iptal komutu önce kontrol edilir, kapatma için onay istenir.
     if "kapatmayı iptal" in cmd_lower or "kapatma iptal" in cmd_lower:

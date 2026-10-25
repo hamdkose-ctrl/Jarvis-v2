@@ -134,6 +134,26 @@ class SystemRuntimeGateTests(unittest.TestCase):
         with patch.dict(sys.modules, {'screen_brightness_control': mismatch}):
             self.assertFalse(system_control.brightness_matches(70))
 
+    def test_direct_brightness_intent_does_not_claim_success_without_readback(self):
+        from modules import engine_intents
+        control = SimpleNamespace(set_brightness_verified=lambda _level: False)
+        runtime = SimpleNamespace(system_control=control)
+        output = engine_intents.dispatch(
+            runtime, 'brightness', {'level': 70}, 'Parlaklığı 70 yap', 'parlaklığı 70 yap')
+        self.assertEqual(output, 'Ekran parlaklığını doğrulayamadım.')
+
+    def test_brightness_verified_requires_set_then_exact_readback(self):
+        from modules import system_control
+        with patch.object(system_control, 'set_brightness', return_value=True) as set_value, \
+             patch.object(system_control, 'brightness_matches', return_value=True) as readback:
+            self.assertTrue(system_control.set_brightness_verified(70))
+        set_value.assert_called_once_with(70)
+        readback.assert_called_once_with(70)
+        with patch.object(system_control, 'set_brightness', return_value=False), \
+             patch.object(system_control, 'brightness_matches') as readback:
+            self.assertFalse(system_control.set_brightness_verified(70))
+        readback.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

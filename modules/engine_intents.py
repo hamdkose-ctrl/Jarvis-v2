@@ -158,9 +158,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 level = max(0, min(100, int(str(a.get("level")))))
             except ValueError:
                 return "Parlaklığı yüzde kaç yapayım?"
-            if runtime.system_control.set_brightness(level):
+            if runtime.system_control.set_brightness_verified(level):
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını ayarlayamadım."
+            return "Ekran parlaklığını doğrulayamadım."
         case "media":
             if runtime.system_control.media_control(str(a.get("action") or "play_pause")):
                 return "Medya komutunu uyguladım."
