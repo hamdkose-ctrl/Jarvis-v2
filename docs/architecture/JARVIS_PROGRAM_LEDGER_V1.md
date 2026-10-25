@@ -48,7 +48,8 @@ Bu bölüm “program temeli mevcut” anlamına gelir; her madde ayrı acceptan
 | Dual-write parity testleri | Legacy→canonical state/blocker/terminal/idempotency/rollback parity’si persistence testleriyle karakterize edilmiş; bu gerçek cutover değildir. | `modules/goal_state_compat.py`, `modules/goal_state_save_hook.py`, `tests/test_goal_state_persistence.py`; compatibility/parity PR türü |
 | Canonical sync failure observability | Save-hook, legacy write’a geçmeden önceki `sync()` hatasında ayrı tanı noktası üretiyor, aynı exception’ı yeniden fırlatıyor; legacy write/compensation çağrılmıyor, canonical byte değişmiyor. PR #305. | `modules/goal_state_save_hook.py`, `tests/test_goal_state_persistence.py`; observability PR türü |
 | Salt-okunur cutover preflight checker | Owner dizinini olduğu gibi okur, değiştirmeden tarar; `OK`, `INVALID_LEGACY_RECORD`, `UNKNOWN_LEGACY_STATE`, `MISSING_CANONICAL`, `CANONICAL_CORRUPT`, `IDENTITY_MISMATCH`, `STATE_DIVERGENCE`, `TERMINAL_DIVERGENCE` reason kodlarını döndürür. Dosya yazmaz, CAS/create/compensate çağırmaz, repair yapmaz. PR #306. Bu aracın `OK` üretmesi cutover’ın yapıldığı anlamına gelmez; yalnız “güvenli mi?” sorusuna cevap verir. | `modules/goalstate_cutover_preflight.py`, `tests/test_goalstate_cutover_preflight.py`, `docs/architecture/GOALSTATE_CUTOVER_PREFLIGHT_V1.md`; preflight-tool PR türü |
-| Canonical authority RFC | Dört cutover blocker’ı (execution_mode mapping, authority flip noktası, missing-state/identity, state/terminal uyuşmazlığı) için somut seçenekler, önerilen kararlar, kabul kriterleri, rollback sınırları ve gereken testler yazılı. **RFC bir karar belgesidir; önerilen kararlar henüz kabul edilmiş sayılmaz.** PR #307. | `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`; authority-rfc PR türü |
+| Canonical authority RFC | Dört cutover blocker’ı (execution_mode mapping, authority flip noktası, missing-state/identity, state/terminal uyuşmazlığı) için somut seçenekler, önerilen kararlar, kabul kriterleri, rollback sınırları ve gereken testler yazılı. PR #307. Karar 1, 3 ve 4 kabul edildi; Karar 2 kabul edildi, uygulaması kısmi (yalnız `authority` işaretleme, PR #313; legacy yazımın durması ayrı PR). | `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`; authority-rfc PR türü |
+| Operator onaylı cutover runner | RFC kararlarını guard tablosu olarak uygular: salt-okunur `plan()` + parmak izi, yalnız `MISSING_CANONICAL` için operatör onaylı tek seferlik backfill (`authority='legacy'`), owner genelinde fail-closed blocker, plan drift ve yazım sonrası doğrulama. Sync/save-hook'a bağlı değildir; legacy yazımı durdurmaz. | `modules/goalstate_cutover_runner.py`, `tests/test_goalstate_cutover_runner.py`, `docs/architecture/GOALSTATE_CUTOVER_RUNNER_V1.md`; cutover-runner PR türü |
 
 ## 4. Mevcut aktif şerit
 
@@ -61,9 +62,10 @@ Cutover’a geçmeden önce sıra (durum güncel `main` kaynaklarından doğrula
 1. **Sync observability hardening — kapandı.** Canonical sync hatası kendi tanı noktasıyla görünür, hata yutulmuyor, legacy write/compensation başlamıyor.
 2. **Canonical storage writer guard — kapandı.** `create`/`compare_and_swap`/`compensate` ayrı allowlist’lerle statik BLOCKER; ikinci projection veya geri-yazma otoritesi PR aşamasında yakalanıyor.
 3. **Read-only preflight checker — kapandı.** Identity/missing/corrupt/divergence/terminal sınıfları değiştirmeden raporlanıyor.
-4. **Authority RFC — belge olarak kapandı.** Dört blocker için seçenekler, önerilen kararlar, kabul kriterleri ve rollback sınırları yazılı; **ancak önerilen kararlar kabul edilmiş karar değildir.**
-5. **Açık adım — RFC kararlarının kabulü.** `execution_mode` mapping, authority flip noktası, missing-state/identity politikası ve state/terminal uyuşmazlığı otoritesi açık onayla kesinleşmeden migration başlamaz.
-6. **Yalnız kabul edilmiş migration planı** üzerinden uygulama PR’ları açılmalı.
+4. **Authority RFC — belge olarak kapandı.** Dört blocker için seçenekler, önerilen kararlar, kabul kriterleri ve rollback sınırları yazılı.
+5. **RFC kararlarının kabulü — kapandı.** Karar 1, 3, 4 kabul; Karar 2 kabul (flip noktası = job yaratılışı), uygulaması kısmi. Kabul notları RFC belgesindedir.
+6. **Operator onaylı cutover runner — PR'da.** Kabul edilmiş kararları guard olarak uygular; yalnız operatör elle çalıştırır. Açık kalan: legacy JSON yazımının durdurulması (Karar 2'nin pratik sonucu) ve legacy-terminal/canonical-aktif kayıtların takibi.
+7. **Yalnız kabul edilmiş migration planı** üzerinden uygulama PR’ları açılmalı.
 
 Bu aşamada “canonical dosya var”, “compat sync çalışıyor” veya “preflight `OK` verdi” demek cutover tamamlandı anlamına gelmez.
 
@@ -73,8 +75,8 @@ Program sırası şudur:
 
 1. Küçük GoalState hardening işleri — **kapanmış adımlar** (writer guard, sync observability, corruption sertliği, parity testleri).
 2. Salt-okunur preflight checker ve testleri — **kapanmış adım**.
-3. Authority RFC / cutover karar sözleşmesi — belge **yazıldı**, karar **kabulü bekliyor**.
-4. Kabul edilmiş migration karar/uygulama PR’ları — **ilk açık adım**, 3. madde kapanmadan başlamaz.
+3. Authority RFC / cutover karar sözleşmesi — belge **yazıldı**, kararlar **kabul edildi** (Karar 2 uygulaması kısmi).
+4. Kabul edilmiş migration karar/uygulama PR’ları — **açık adım**; ilki operator onaylı cutover runner.
 5. Final Stage 0–4 acceptance: Architecture Guard BLOCKER=0, full `modules.validation`, current merged main SHA üzerinde gerekli Windows/PC acceptance ve temsilî durable E2E kanıtı.
 6. **Ancak bundan sonra** read-only worker/Hermes pilotları ve capability-adoption deneyleri.
 

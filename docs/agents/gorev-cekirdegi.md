@@ -7,6 +7,10 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## GoalState operator onaylı cutover runner (25 Ekim 2026)
+
+`modules/goalstate_cutover_runner.py` RFC kararlarını guard tablosu olarak uygular (`docs/architecture/GOALSTATE_CUTOVER_RUNNER_V1.md`). `plan()` salt-okunurdur; `apply()` yalnız onaylı parmak izi + onaylı `MISSING_CANONICAL` job'lar için tek seferlik backfill yapar. Owner'da tek blocker (identity/corrupt/unknown/invalid) varsa hiçbir şey yazılmaz. Backfill kaydı `authority='legacy'` alır (flip noktası job yaratılışıdır). Runner `goal_executor`, save-hook veya `sync()`'e bağlanmaz; legacy yazımı durdurmaz. Test: `tests/test_goalstate_cutover_runner.py`.
+
 ## Tamamlanma kararı saf policy'ye bağlandı (24 Ekim 2026)
 
 `modules/completion_policy.py` yeni, bağımsız ve saf bir modüldür: sağlayıcı/ağ çağrısı yapmaz, dosya okumaz, hiçbir şeyi değiştirmez. `evaluate_evidence(check,*args,**kwargs)` var olan bir kanıt kontrolünü (örn. `_check_news_completion`/`news_policy.check_completion`) çalıştırır; kontrol normal dönerse `complete`, `ValueError` fırlatırsa `continue` (ve hatanın metnini `reason` olarak) döner, başka istisna türünü yutmaz. `job_decision(job)` ise `job['state']`'i salt okunur okuyup `done→complete`, `cancelled→terminal`, `question`/`approval→waiting`, diğerleri `continue` olarak sınıflandırır; yeni durum icat etmez.

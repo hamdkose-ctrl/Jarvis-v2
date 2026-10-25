@@ -82,10 +82,14 @@ def project(job: dict) -> dict:
     # birth. A job that already had a canonical record before this field
     # existed keeps no 'authority' key and stays legacy-authority via
     # goal_state.authority()'s default; this function never touches it.
+    return _project(job, authority='canonical')
+
+
+def _project(job: dict, *, authority: str) -> dict:
     state = goal_state.new(
         owner=job['owner'], job_id=job['id'], goal=job['request'],
         execution_mode=PROJECTION_EXECUTION_MODE,
-        authority='canonical',
+        authority=authority,
     )
     target = _target(job)
     if target != 'pending':
@@ -217,13 +221,18 @@ def operator_backfill_missing_canonical_once(
 
     Compatibility sync never calls this function automatically.  The caller must
     explicitly approve the action and the canonical path must still be absent.
+
+    A legacy job without a canonical record predates canonical sync, so it is an
+    in-flight job from before the RFC Karar 2 flip point (job creation).  The
+    backfilled record is therefore marked legacy-authority; backfill never flips
+    authority at runtime.
     """
     if not operator_approved:
         raise OperatorApprovalRequired('Canonical GoalState backfill requires operator approval.')
     path = Path(path)
     if path.exists():
         raise BackfillAlreadyExists('Canonical GoalState already exists; backfill refused.')
-    return goal_state_store.create(path, project(job))
+    return goal_state_store.create(path, _project(job, authority='legacy'))
 
 
 def sync(job: dict, path) -> dict:
