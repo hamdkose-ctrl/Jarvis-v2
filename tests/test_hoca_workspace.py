@@ -398,5 +398,82 @@ class AssignmentGradeTests(unittest.TestCase):
             hw.course_grade(p, 999)
 
 
+class GpaProjectionTests(unittest.TestCase):
+    """4c-2: kredi + ders notu olan derslerin kredi-ağırlıklı genel ortalaması."""
+
+    def test_set_credit_and_read_back(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.set_course_credit(p, c["id"], 4)
+        self.assertEqual(hw.get_course(p, c["id"])["credit"], 4.0)
+
+    def test_negative_credit_raises(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_course_credit(p, c["id"], -1)
+
+    def test_unknown_course_id_raises(self):
+        p = _profile()
+        with self.assertRaises(hw.HocaWorkspaceError):
+            hw.set_course_credit(p, 999, 4)
+
+    def test_no_courses_value_none(self):
+        p = _profile()
+        result = hw.gpa_projection(p)
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["included"], [])
+        self.assertEqual(result["excluded"], [])
+
+    def test_course_without_credit_excluded(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Vize")
+        hw.set_assignment_grade(p, c["id"], a["id"], 80)
+        result = hw.gpa_projection(p)
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["excluded"], [{"course_id": c["id"], "course_name": "Biyoloji",
+                                                "credit": 0.0, "grade": 80.0, "reason": "kredi_yok"}])
+
+    def test_course_without_grade_excluded(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.set_course_credit(p, c["id"], 4)
+        result = hw.gpa_projection(p)
+        self.assertIsNone(result["value"])
+        self.assertEqual(result["excluded"], [{"course_id": c["id"], "course_name": "Biyoloji",
+                                                "credit": 4.0, "grade": None, "reason": "not_yok"}])
+
+    def test_weighted_average_across_courses(self):
+        p = _profile()
+        bio = hw.add_course(p, "Biyoloji")
+        tarih = hw.add_course(p, "Tarih")
+        hw.set_course_credit(p, bio["id"], 3)
+        hw.set_course_credit(p, tarih["id"], 1)
+        a1 = hw.add_assignment(p, bio["id"], "Vize")
+        a2 = hw.add_assignment(p, tarih["id"], "Vize")
+        hw.set_assignment_grade(p, bio["id"], a1["id"], 90)
+        hw.set_assignment_grade(p, tarih["id"], a2["id"], 50)
+        # (90*3 + 50*1) / 4 = 80
+        result = hw.gpa_projection(p)
+        self.assertEqual(result["value"], 80.0)
+        self.assertEqual(len(result["included"]), 2)
+        self.assertEqual(result["excluded"], [])
+
+    def test_mixed_included_and_excluded(self):
+        p = _profile()
+        bio = hw.add_course(p, "Biyoloji")
+        tarih = hw.add_course(p, "Tarih")  # kredisiz, dahil edilmeyecek
+        hw.set_course_credit(p, bio["id"], 3)
+        a1 = hw.add_assignment(p, bio["id"], "Vize")
+        hw.add_assignment(p, tarih["id"], "Vize")  # notsuz
+        hw.set_assignment_grade(p, bio["id"], a1["id"], 70)
+        result = hw.gpa_projection(p)
+        self.assertEqual(result["value"], 70.0)
+        self.assertEqual(len(result["included"]), 1)
+        self.assertEqual(len(result["excluded"]), 1)
+        self.assertEqual(result["excluded"][0]["reason"], "kredi_yok")
+
+
 if __name__ == "__main__":
     unittest.main()

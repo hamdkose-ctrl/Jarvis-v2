@@ -90,6 +90,13 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - `hoca_workspace.course_grade(profile, course_id)`: notu girilmiş ödevlerin ağırlıklı ortalamasını (100 üzerinden, farklı `max_score`'lar yüzdeye çevrilip normalize edilir) döner. Hiç not girilmemişse `value=None` — uydurma sayı üretilmez. `graded_count`/`total_count` ile notu olan/dersteki toplam ödev sayısı ayrıca görünür (eksik veri sessizce gizlenmez).
 - Test: `tests/test_hoca_workspace.py`'de `AssignmentGradeTests` (11 test). UI'a bağlanmadı; sırada 4c-2 (kredi ile genel ortalama) var.
 
+## Kredi ile genel ortalama — 4c-2, 25 Ekim 2026
+
+- `hoca_workspace.set_course_credit(profile, course_id, credit)`: derse kredi/AKTS kaydeder (0 veya pozitif; 0 = "kredisiz/henüz girilmedi", genel ortalamaya katılmaz).
+- `hoca_workspace.gpa_projection(profile)`: kredisi girilmiş VE en az bir notu olan (`course_grade` ile) derslerin kredi-ağırlıklı genel ortalaması. Kredisi veya notu eksik dersler `excluded`'te nedeniyle (`kredi_yok` / `not_yok`) birlikte görünür — sessizce atlanmaz, ortalamayı da etkilemez. Hiçbir ders uygun değilse `value=None`.
+- Model çağrısı yok, yalnız hesap. 4c (GPA/not projeksiyonu) bu adımla tamamlandı; sıradaki 5. madde (onaylı takvim/görev değişikliği).
+- Test: `tests/test_hoca_workspace.py`'de `GpaProjectionTests` (8 test). UI'a bağlanmadı.
+
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
 - Model yanıtı bozuk/eksikse ya da çağrı hata verirse `HocaError` (Türkçe mesaj) fırlar ve hiçbir şey kaydedilmez; sessizce düşülmez. Ollama gerekmez, kaynak yüklemek gerekmez.
