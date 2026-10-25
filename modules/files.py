@@ -9,7 +9,11 @@ from pathlib import Path
 
 from config import DATA_DIR
 
-UNDO_FILE = DATA_DIR / "organize_undo.json"
+
+def _undo_file(owner: str = "") -> Path:
+    """Toplu düzenleme geri alması yalnız onaylayan kullanıcıya aittir."""
+    safe = re.sub(r"[^\\w-]", "_", owner)[:60] or "ortak"
+    return DATA_DIR / f"organize_undo_{safe}.json"
 
 # (söylenen kök) -> (klasör adaylar, klasör sözcüğü gerekir mi)
 _FOLDERS = (
@@ -136,7 +140,7 @@ def _free_name(dst: Path) -> Path:
     return dst
 
 
-def apply_organize(plan: list[tuple[Path, Path]]) -> int:
+def apply_organize(plan: list[tuple[Path, Path]], owner: str = "") -> int:
     """Dosyaları taşır ve geri alma kaydını yazar. Taşınan dosya sayısını döndürür."""
     moved = []
     for src, dst in plan:
@@ -147,14 +151,17 @@ def apply_organize(plan: list[tuple[Path, Path]]) -> int:
             moved.append([str(final), str(src)])
         except OSError:
             continue
-    UNDO_FILE.write_text(json.dumps(moved, ensure_ascii=False), encoding="utf-8")
+    undo_file = _undo_file(owner)
+    undo_file.parent.mkdir(parents=True, exist_ok=True)
+    undo_file.write_text(json.dumps(moved, ensure_ascii=False), encoding="utf-8")
     return len(moved)
 
 
-def undo_organize() -> int | None:
+def undo_organize(owner: str = "") -> int | None:
     """Son düzenlemeyi geri alır. Kayıt yoksa None."""
+    undo_file = _undo_file(owner)
     try:
-        moved = json.loads(UNDO_FILE.read_text(encoding="utf-8"))
+        moved = json.loads(undo_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     back = 0
@@ -171,7 +178,7 @@ def undo_organize() -> int | None:
         except OSError:
             pass
     try:
-        UNDO_FILE.unlink()
+        undo_file.unlink()
     except OSError:
         pass
     return back

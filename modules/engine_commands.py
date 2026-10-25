@@ -71,7 +71,7 @@ def handle(runtime, command: str) -> str:
         job, runtime._session().pending_organize = runtime._session().pending_organize, None
         approval = decision(cmd_lower, extra=('düzenle', 'duzenle', 'evet düzenle', 'evet duzenle'))
         if approval is True:
-            moved = runtime.files.apply_organize(job["plan"])
+            moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
             runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")
             return f"{job['label']} klasöründe {moved} dosyayı düzenledim. Beğenmezsen “düzenlemeyi geri al” de."
         if approval is False:

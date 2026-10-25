@@ -37,6 +37,7 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Medya tuşları eşdeğer bir gerçek geri-okuma receipt sözleşmesi olmadığı için durable hatta alınmaz; başarı kanıtı uydurulmaz.
 - Aynı geri-okuma şartı hedef yürütücüsü dışındaki hızlı doğal dil parlaklık komutlarında da kullanılır; sürücü çağrısı tek başına kullanıcıya “ayarladım” yanıtı verdirmez.
 - Hızlı doğal dilde uygulama kapatma da mutasyondur: pencereye `WM_CLOSE` göndermeden önce açık uygulama adıyla onay alınır. Bu yalnız var olan hızlı yolu güvenli kılar; native masaüstü işlerinin Core hattını değiştirmez.
+- Onaylı toplu klasör düzenlemesinin geri alma kaydı kullanıcıya özeldir; başka kullanıcının son düzenlemesi geri alınamaz. Plan/önizleme, açık onay ve çakışmasız geri alma davranışı korunur.
 
 ## Doğal dil PC görevi tek yürütme hattı — 25 Ekim 2026
 
