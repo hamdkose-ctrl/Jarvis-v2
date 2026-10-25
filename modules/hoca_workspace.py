@@ -203,6 +203,33 @@ def list_assignments(profile, course_id: int | None = None) -> list:
     return out
 
 
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def term_overview(profile, include_done: bool = False) -> list[dict]:
+    """Dönem haritası görünümü (4b): tüm derslerin ödev/deadline'larını tek listede,
+    tarihe göre sıralı döner. Model çağrısı yok, yalnız var olan veriyi düzenler.
+    Her öğe `course_id`/`course_name` ile zenginleştirilir (asıl kayıt değişmez).
+    Tanınabilir tarihliler (YYYY-MM-DD) önce ve kronolojik sırada; boş/serbest
+    biçimli tarihliler sonda, eklenme sırasıyla. `include_done=False` (varsayılan)
+    tamamlanmış ödevleri listeden düşürür."""
+    out = []
+    for c in _state(profile):
+        for a in c["assignments"]:
+            if not include_done and a.get("done"):
+                continue
+            out.append({**a, "course_id": c["id"], "course_name": c["name"]})
+
+    def sort_key(item):
+        due = item.get("due") or ""
+        if _ISO_DATE.match(due):
+            return (0, due, item.get("created", 0))
+        return (1, "", item.get("created", 0))
+
+    out.sort(key=sort_key)
+    return out
+
+
 def record_session(profile, course_id: int, topic: str, *, unclear: str | None = None,
                     solved: str | None = None, next_step: str | None = None) -> dict:
     """Oturum hafızası: konu başına anlaşılmayan nokta + çözülen soru + sonraki adım.

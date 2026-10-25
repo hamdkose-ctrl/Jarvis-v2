@@ -246,5 +246,58 @@ class DecomposeAssignmentTests(unittest.TestCase):
                 hw.decompose_assignment(p, c["id"], "Dönem projesi")
 
 
+class TermOverviewTests(unittest.TestCase):
+    """4b: tüm derslerin ödev/deadline'larını tarihe göre sıralı, salt-okunur gösterim."""
+
+    def test_empty_when_no_assignments(self):
+        p = _profile()
+        hw.add_course(p, "Biyoloji")
+        self.assertEqual(hw.term_overview(p), [])
+
+    def test_sorted_by_date_across_courses(self):
+        p = _profile()
+        bio = hw.add_course(p, "Biyoloji")
+        tarih = hw.add_course(p, "Tarih")
+        hw.add_assignment(p, bio["id"], "Geç ödev", due="2026-12-01")
+        hw.add_assignment(p, tarih["id"], "Erken ödev", due="2026-11-01")
+        overview = hw.term_overview(p)
+        self.assertEqual([x["title"] for x in overview], ["Erken ödev", "Geç ödev"])
+        self.assertEqual(overview[0]["course_name"], "Tarih")
+
+    def test_undated_items_come_last_in_creation_order(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.add_assignment(p, c["id"], "Tarihli", due="2026-11-01")
+        hw.add_assignment(p, c["id"], "Önce eklenen serbest")
+        hw.add_assignment(p, c["id"], "Sonra eklenen serbest")
+        overview = hw.term_overview(p)
+        self.assertEqual([x["title"] for x in overview], ["Tarihli", "Önce eklenen serbest", "Sonra eklenen serbest"])
+
+    def test_non_iso_due_text_treated_as_undated(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        hw.add_assignment(p, c["id"], "Serbest tarih", due="gelecek hafta")
+        hw.add_assignment(p, c["id"], "Gerçek tarih", due="2026-11-01")
+        overview = hw.term_overview(p)
+        self.assertEqual([x["title"] for x in overview], ["Gerçek tarih", "Serbest tarih"])
+
+    def test_done_excluded_by_default_and_included_on_request(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Bitmiş ödev", due="2026-11-01")
+        course = hw.get_course(p, c["id"])
+        next(x for x in course["assignments"] if x["id"] == a["id"])["done"] = True
+        self.assertEqual(hw.term_overview(p), [])
+        self.assertEqual(len(hw.term_overview(p, include_done=True)), 1)
+
+    def test_original_assignment_record_not_mutated(self):
+        p = _profile()
+        c = hw.add_course(p, "Biyoloji")
+        a = hw.add_assignment(p, c["id"], "Ödev", due="2026-11-01")
+        hw.term_overview(p)
+        self.assertNotIn("course_id", a)
+        self.assertNotIn("course_name", a)
+
+
 if __name__ == "__main__":
     unittest.main()

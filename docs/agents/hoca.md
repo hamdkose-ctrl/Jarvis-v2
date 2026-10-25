@@ -70,9 +70,18 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Hamdi'nin kararı: "Dönem haritası, takvim, görev, GPA" (4. madde) tek PR'da yapılamayacak kadar geniş olduğu için 4a (ödev parçalama) → 4b (dönem haritası görünümü) → 4c (GPA/not projeksiyonu) sırasıyla küçük adımlara bölündü; sırayla gidiliyor.
 - `hoca_workspace.decompose_assignment(profile, course_id, title, due="", context="")`: büyük bir ödevi/projeyi tek bir model çağrısıyla 2-6 küçük alt göreve böler. Asıl ödev her zaman `manual` kökenli olarak eklenir (model çağrısından önce); alt görevler `decomposed` kökenli, `parent_id`'si asıl ödeve işaret eden ayrı kayıtlardır. Model planı eksik/bozuk gelirse (2'den az alt görev, JSON bozuk, model hatası) **hiçbir alt görev yazılmadan** `HocaWorkspaceError` fırlatır — yarım kayıt bırakılmaz (asıl ödev kalır, kullanıcı isterse elle alt görev ekleyebilir).
 - `add_assignment` artık `parent_id` parametresi alıyor (yalnız `decomposed` görevlerde dolu) ve `origin` kümesine `"decomposed"` eklendi (`manual`/`syllabus`/`decomposed`).
-- Bu, `hoca_workspace.py`'ye ilk kez bir model çağrısı (`llm.ask`) giren fonksiyon — modül artık "yalnız veri modeli" değil; bu değişiklik modülün üst docstring'inde değişmedi, çünkü geri kalan her şey hâlâ salt veri/okuma (bkz. modül içi not).
+- Bu, `hoca_workspace.py`'ye ilk kez bir model çağrısı (`llm.ask`) giren fonksiyon — modülün üst docstring'i bunu yansıtacak şekilde güncellendi (geri kalan her şey hâlâ salt veri/okuma).
 - Henüz takvime/gerçek bir tarihe yazmıyor (`due` serbest metin olarak kalıyor); takvim bağlantısı 5. maddenin (onaylı takvim değişikliği, `mail-takvim.md` izin hattı) işi.
 - Test: `tests/test_hoca_workspace.py`'de `DecomposeAssignmentTests` (5 test, model taklit). UI'a bağlanmadı, gerçek PC'de denenmedi.
+- Düzeltme (aynı gün): `except Exception` bloğunda eksik olan `_record_failure` diagnostik çağrısı eklendi (`test_cleanup_security.py:test_every_broad_catch_has_diagnostic` bunu zorunlu kılıyor; PR #341'in ilk CI koşusu bu yüzden kırmızıydı).
+
+## Dönem haritası görünümü v1 — 4b, 25 Ekim 2026
+
+- `hoca_workspace.term_overview(profile, include_done=False)`: tüm derslerin ödev/deadline'larını tek listede, tarihe göre sıralı döner. Model çağrısı yok — yalnız var olan `list_assignments` verisini düzenler (4a'daki gibi yeni bir model çağrısı eklemedi).
+- Her öğe orijinal ödev kaydının bir **kopyası** + `course_id`/`course_name` ile zenginleştirilmiş hâli; asıl kayıt mutasyona uğramaz.
+- Sıralama: tanınabilir tarihliler (tam `YYYY-MM-DD`) önce ve kronolojik; serbest metin/boş tarihliler (ör. "gelecek hafta") sonda, eklenme sırasıyla — tarih ayrıştırma denemesi yok, yalnız biçim kontrolü.
+- `include_done=False` (varsayılan) tamamlanmış ödevleri listeden düşürür; `True` ile hepsi görünür.
+- Test: `tests/test_hoca_workspace.py`'de `TermOverviewTests` (6 test). UI'a bağlanmadı; sırada 4c (GPA/not projeksiyonu) var.
 
 ## Ders kaydı ve plan — 18 Ekim 2026
 - `modules/hoca.py`: ders = konu + 2-8 adım (`start` tek `llm.ask` çağrısı, `parse_plan` JSON doğrular). Kayıt kullanıcı profilinde (`profile.data["hoca"]["lesson"]`, tek aktif ders; yeni `start` bitmemiş dersin yerine geçer). `active/current_step/advance`.
