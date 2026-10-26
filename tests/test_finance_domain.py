@@ -80,7 +80,9 @@ class FinanceDomainContractTests(unittest.TestCase):
             self.assertIn('FIN-002', {row['rule'] for row in finance_domain.check(root)})
 
     def test_open_migration_requires_plan_location_to_exist(self):
-        with tempfile.TemporaryDirectory() as td:
+        open_migration = tuple(dict(row, status='open') for row in finance_domain.MIGRATION)
+        with tempfile.TemporaryDirectory() as td, \
+                patch.object(finance_domain, 'MIGRATION', open_migration):
             root = self._tree(td)
             (root / 'modules/watcher.py').write_text('', encoding='utf-8')
             rules = {row['rule'] for row in finance_domain.check(root)}
