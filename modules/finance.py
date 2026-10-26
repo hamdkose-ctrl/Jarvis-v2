@@ -380,6 +380,20 @@ def _yahoo(code: str):
     return {'last': last, 'when': when, 'daily': daily}
 
 
+def quote(kind: str, symbol: str) -> float:
+    """Read one TRY alarm price through Finance's existing source adapters."""
+    if kind == 'doviz':
+        table, _ = rates([symbol, 'TRY'])
+        return float(table[symbol])
+    if kind == 'hisse':
+        return float(_yahoo(symbol)['last'])
+    if kind in {'kripto', 'altin'}:
+        row = _market('PAXGTRY' if kind == 'altin' else symbol + 'TRY')
+        value = row['last']
+        return float(value / TROY_OUNCE_GRAMS if kind == 'altin' else value)
+    raise ValueError('Desteklenmeyen alarm fiyat türü.')
+
+
 def _bist_answer(request) -> str:
     from urllib3.exceptions import HTTPError
     from modules import ollama_hint
