@@ -203,6 +203,12 @@ def _photo_action(runtime, path: str, question: str) -> str:
 def _sys_prompt(runtime, command: str = "") -> str:
     """Sohbet talimatı. Soru sesle sorulduysa cevap kısa olsun (hızlı gelir, dinlemesi kolay); 'Detaylı' seçiliyse dokunma."""
     base = runtime.profile.system_prompt(command)
+    try:
+        from config import load_settings
+        from modules import advisory_router
+        base += (" " + advisory_router.prompt_for(command, load_settings())).strip()
+    except Exception:
+        runtime._record_failure("modules/engine_tools.py:_sys_prompt")
     base += (' Bu yanıt yalnızca sohbet metnidir; bu yolda bilgisayar işlemi, dosya değişikliği veya arka plan görevi çalıştırılmaz. '
              'İşlem yaptığını/yapacağını veya çalışmaya başladığını söyleme. Desteklenmeyen eylemde sınırı açıkla; '
              'belirsiz hedefte tek net soru sor. Yalnızca gerçekten ürettiğin metni/kodu hazır olarak sunabilirsin.')
