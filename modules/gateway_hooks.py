@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import time
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 EVENTS = frozenset({"request.accepted", "request.rejected", "gateway.error", "shell.blocked"})
 
@@ -21,8 +23,9 @@ def emit(name: str, payload: dict, observers) -> list[str]:
             continue
         try:
             observer(copy.deepcopy(event))
-        except Exception as exc:
-            result.append("failed:" + type(exc).__name__)
+        except Exception:
+            _record_failure("modules/gateway_hooks.py:emit")
+            result.append("failed")
         else:
             result.append("delivered")
     return result
