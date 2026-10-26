@@ -27,9 +27,9 @@ class ResearchProviderTests(unittest.TestCase):
             {"url": "https://b.test", "claim": "B", "published": "2026-10-02"},
         ])
         self.assertEqual(comparison["status"], "conflict")
-        context = ResearchContext(max_chars=80)
-        context.add({"url": "https://a.test", "topic": "yapay zeka", "text": "a" * 100})
-        self.assertLessEqual(context.characters, 80)
+        context = ResearchContext(max_chars=100)
+        context.add({"url": "https://a.test", "topic": "yapay zeka", "text": "a" * 150})
+        self.assertLessEqual(context.characters, 100)
         self.assertEqual(context.sources(), ["https://a.test"])
 
     def test_extraction_is_separate_and_weekly_request_is_bounded(self):
