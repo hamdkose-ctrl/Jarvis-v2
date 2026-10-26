@@ -12,6 +12,7 @@ SERVICES = {
     'whatsapp': {'operations': ('list_inbox',), 'implementation': 'signed_webhook_inbox'},
     'youtube': {'operations': ('channel_stats','list_comments'), 'implementation': 'google_oauth_readonly'},
     'instagram': {'operations': ('profile_stats','list_comments'), 'implementation': 'meta_professional'},
+    'drive': {'operations': ('list_files','read_document','read_sheet'), 'implementation': 'google_drive_readonly'},
 }
 
 
@@ -20,7 +21,7 @@ def _network_unavailable(exc):
     return failure_policy.network_unavailable(exc)
 
 def validate_input(data):
-    if not isinstance(data, dict) or set(data) - {'service', 'operation', 'limit', 'message_id', 'index','resource_id','attachment_index'}:
+    if not isinstance(data, dict) or set(data) - {'service', 'operation', 'limit', 'message_id', 'index','resource_id','attachment_index','query','file_id','cell_range'}:
         raise ValueError('Hesap aracı girdisi geçersiz.')
     for key in ('service', 'operation'):
         value = data.get(key)
@@ -28,6 +29,17 @@ def validate_input(data):
             raise ValueError('Servis/işlem adı geçersiz.')
     if data['service'] not in SERVICES:
         raise ValueError('Bilinmeyen hesap servisi.')
+    if data['service'] == 'drive':
+        operation = data['operation']
+        if operation == 'list_files':
+            if not isinstance(data.get('query', ''), str) or len(data.get('query', '')) > 500:
+                raise ValueError('Drive arama ifadesi geçersiz.')
+        elif operation == 'read_document':
+            if not isinstance(data.get('file_id'), str): raise ValueError('Drive dosya kimliği gerekli.')
+        elif operation == 'read_sheet':
+            if not isinstance(data.get('file_id'), str) or not isinstance(data.get('cell_range'), str):
+                raise ValueError('Sheets için dosya kimliği ve aralık gerekli.')
+        if operation != 'list_files' and 'query' in data: raise ValueError('Bu Drive işlemi arama ifadesi kabul etmez.')
     limit = data.get('limit', 5)
     if type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError('Mail listesi sınırı 1–20 olmalı.')
@@ -90,6 +102,23 @@ def run(owner, data, dependencies=None):
         return message_inbox.read(owner,data.get('limit',5))
     if blocked := privacy.blocked('web'):
         return {'state': 'blocked', 'text': blocked}
+    if service == 'drive':
+        from modules import drive_readonly
+        try:
+            drive, docs, sheets = drive_readonly.services(interactive=False)
+            if data['operation'] == 'list_files':
+                items = drive_readonly.list_files(drive, query=data.get('query', ''), limit=data.get('limit', 5))
+                snapshot = {'owner': owner, 'service': service, 'operation': data['operation'], 'items': items, 'fetched_at': time.time()}
+            elif data['operation'] == 'read_document':
+                document = drive_readonly.read_document(docs, data['file_id'])
+                snapshot = {'owner': owner, 'service': service, 'operation': data['operation'], 'document': document, 'fetched_at': time.time()}
+            else:
+                sheet = drive_readonly.read_sheet(sheets, data['file_id'], data['cell_range'], max_rows=data.get('limit', 5))
+                snapshot = {'owner': owner, 'service': service, 'operation': data['operation'], 'sheet': sheet, 'fetched_at': time.time()}
+            text = 'Drive okuma tamamlandı.' if data['operation'] == 'list_files' else 'Drive içeriği okundu.'
+            return {'state': 'done', 'text': text, 'snapshot': snapshot, 'sha256': digest(snapshot)}
+        except PermissionError:
+            return {'state': 'unavailable', 'text': 'Drive okuma izni gerekli; yalnız salt-okunur Drive bağlantısını yetkilendir.'}
     if service!='gmail':
         from modules import social_reads
         return social_reads.run(owner,data)
