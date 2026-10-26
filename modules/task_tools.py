@@ -44,7 +44,9 @@ def validate_input(kind, data, *, complete=True):
         raise ValueError('Araç girdisi desteklenmeyen alan içeriyor.')
     if complete and any(key not in data for key in spec['required']):
         raise ValueError('Araç için gerekli girdi eksik: ' + kind)
-    if kind == 'research' and (bool(data.get('url')) == bool(data.get('query'))):
+    # Planner pre-validation intentionally permits incomplete tool drafts; the
+    # worker-side validation below is the execution boundary.
+    if complete and kind == 'research' and (bool(data.get('url')) == bool(data.get('query'))):
         raise ValueError('Araştırma için tam olarak bir URL veya sorgu gerekli.')
     for key, value in data.items():
         limit = 2048 if key in ('url', 'query') else 120 if key == 'filename' else 20000
