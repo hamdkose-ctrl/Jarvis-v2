@@ -39,12 +39,12 @@ def extract_obligations(text: str, *, source: str = "") -> list[dict]:
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Yükümlülük çıkarımı için metin gerekli.")
     rows = []
-    date_pattern = r"(?:19|20)\\d{2}-\\d{2}-\\d{2}"
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\\s+", text) if part.strip()]
+    date_pattern = r"(?:19|20)\d{2}-\d{2}-\d{2}"
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
     for sentence in sentences:
         dates = re.findall(date_pattern, sentence)
         lower = sentence.casefold()
-        obligation = bool(re.search(r"\\b(?:gerekir|zorunlu|zorundasın|etmelisin|yapılmalı|yapmalısın|must|shall|required)\\b", lower))
+        obligation = bool(re.search(r"\b(?:gerekir|zorunlu|zorundasın|etmelisin|yapılmalı|yapmalısın|must|shall|required)\b", lower))
         if dates:
             rows.append({"kind": "deadline", "text": sentence, "due": dates[0], "source": source})
         if obligation or dates:
