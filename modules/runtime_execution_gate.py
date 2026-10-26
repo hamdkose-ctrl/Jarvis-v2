@@ -73,3 +73,18 @@ def accept_prepare_result(plan: dict, output: dict) -> dict:
     if not isinstance(output, dict) or output.get('state') != 'approval':
         raise PermissionError('Ask-required capability onaysız gerçek etki sonucu döndüremez.')
     return output
+
+
+def before_tool(kind: str, data: dict, **context) -> dict:
+    """The shared pre-worker gate; every uncertainty stops the tool."""
+    try:
+        decision = plan_task(kind, data, **context)
+    except Exception as exc:
+        raise PermissionError(
+            "Araç kapısı doğrulanamadı; işlem çalıştırılmadı."
+        ) from exc
+    if not decision.get('worker_allowed'):
+        raise PermissionError(
+            "Araç kapısı işlemi durdurdu: " + str(decision.get('reason_code') or 'GATE_BLOCKED')
+        )
+    return decision
