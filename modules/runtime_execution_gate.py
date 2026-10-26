@@ -7,6 +7,7 @@ After verified approval, the normal decision line must explicitly allow executio
 from __future__ import annotations
 
 from modules import capability_decision, capability_manifest
+from modules.diagnostics import record_failure as _record_failure
 
 
 def _action(kind: str, data: dict) -> dict:
@@ -80,6 +81,7 @@ def before_tool(kind: str, data: dict, **context) -> dict:
     try:
         decision = plan_task(kind, data, **context)
     except Exception as exc:
+        _record_failure('modules/runtime_execution_gate.py:before_tool')
         raise PermissionError(
             "Araç kapısı doğrulanamadı; işlem çalıştırılmadı."
         ) from exc
