@@ -212,6 +212,15 @@ class EventWebhookTests(OwnerFixture):
         with self.assertRaises(ValueError):
             event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1000)
 
+    def test_verified_signature_is_rejected_after_process_restart(self):
+        raw = b'{"a":1}'
+        signature = self.sign(raw, '1000')
+        self.assertEqual(event_webhooks.ingest('alice', 'github', raw, signature, '1000', now=1100), {'a': 1})
+        # Simulate a fresh webhook process: RAM cache is gone, durable replay record remains.
+        event_webhooks._SEEN.clear()
+        with self.assertRaises(PermissionError):
+            event_webhooks.ingest('alice', 'github', raw, signature, '1000', now=1101)
+
     def test_timestamp_is_signed_required_and_fresh(self):
         raw = b'{"a":1}'
         self.assertEqual(event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1100), {'a': 1})
