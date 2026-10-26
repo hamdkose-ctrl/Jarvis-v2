@@ -80,23 +80,10 @@ def csv_analysis(owner,kind,path,columns,decimal='.'):
             'scope':'Yalnız sağlanan CSV; canlı banka/mağaza bağlantısı veya stok/sipariş değişikliği yapılmadı.'}
 
 
-def exchange(owner,base,quote,on_date=None,*,fetcher=None):
-    service_store.identity(owner)
-    if any(not isinstance(v,str) or not re.fullmatch('[A-Za-z]{3}',v) for v in (base,quote)):raise ValueError('Üç harfli para birimi gerekli.')
-    if on_date is not None:
-        if not isinstance(on_date,str):raise ValueError('Tarih YYYY-MM-DD olmalı.')
-        date.fromisoformat(on_date)
-    url='https://api.frankfurter.dev/v2/rate/'+base.lower()+'/'+quote.lower()
-    if on_date:url+='?'+urlencode({'date':on_date})
-    response=(fetcher or public_sources.fetch)(url);data=json.loads(response['body'])
-    if not isinstance(data,dict) or data.get('base')!=base.upper() or data.get('quote')!=quote.upper():raise ValueError('Kur yanıtı para birimleriyle eşleşmiyor.')
-    rate=_amount(str(data.get('rate','')))
-    if rate<=0 or not isinstance(data.get('date'),str):raise ValueError('Kur/değer tarihi geçersiz.')
-    date.fromisoformat(data['date'])
-    if on_date and data['date']>on_date:raise ValueError('Kaynak istenen tarihten sonraki kuru döndürdü.')
-    return {'data':data,'source':response['url'],'fetched_at':time.time(),
-            'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Günlük kaynak kuru; anlık banka alış/satış fiyatı değildir.'}
-
+def exchange(owner, base, quote, on_date=None, *, fetcher=None):
+    """Compatibility wrapper; Finance owns dated FX source verification."""
+    from modules import finance
+    return finance.dated_rate(owner, base, quote, on_date, fetcher=fetcher)
 
 def headlines(owner,url,*,query=None,fetcher=None):
     from urllib3.exceptions import HTTPError
