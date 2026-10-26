@@ -7,6 +7,8 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 HOOK_NAMES = (
     "agent",
@@ -67,6 +69,7 @@ def emit(name: str, payload: dict, *, owner: str | None = None) -> list[str]:
         try:
             callback(copy.deepcopy(event))
         except Exception as exc:  # observer failure never changes execution
+            _record_failure('modules/hooks.py:emit')
             result.append("failed:" + type(exc).__name__)
         else:
             result.append("delivered")
