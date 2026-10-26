@@ -58,6 +58,12 @@ karşılık geldiği netleştirilmeli veya master liste kaydı güncellenmelidir
 Bu netleştirme olmadan hiçbir pilot, "doğrulanmış sürüm" iddiasıyla
 başlayamaz (madde 2, aşağıda).
 
+**Çözüldü (2026-10-26):** `v0.22.5` tag'i upstream'de bulundu ve commit
+`bf0203a794a07aac3ff764972ab9087baa4e4f4e`'ye sabitlendi. Lisans,
+`requires-python` ve tag kanıtı `JARVIS_CAPABILITY_INTAKE_WAVE2_V1.md`
+"Hermes sürüm referansı" bölümündedir. Yukarıdaki BLOCKED kaydı tarihçe
+olarak korunur.
+
 ### 1.3 Ref sabitleme kuralı (ileride yapılacak her pilot için)
 
 - `main` HEAD **asla** benchmark referansı olarak kullanılmaz: repo saatte
