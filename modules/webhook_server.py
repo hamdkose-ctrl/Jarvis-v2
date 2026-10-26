@@ -46,7 +46,8 @@ class Handler(BaseHTTPRequestHandler):
         token=llm._key_context.set(owner)
         try:
             self.allowed(owner)
-            payload=event_webhooks.ingest(owner,source,self.body(event_webhooks.MAX_BODY),self.headers.get('X-Jarvis-Signature',''))
+            payload=event_webhooks.ingest(owner,source,self.body(event_webhooks.MAX_BODY),self.headers.get('X-Jarvis-Signature',''),
+                                           self.headers.get('X-Jarvis-Timestamp',''))
             key='webhook:'+source
             try:
                 from modules import runtime_subscription

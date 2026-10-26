@@ -170,9 +170,14 @@ class EventWebhookTests(OwnerFixture):
         super().setUp()
         config = {'enabled': True, 'sources': {'github': {'secret': self.SECRET}}}
         p = patch.object(publish_services, 'configuration', return_value=config); p.start(); self.addCleanup(p.stop)
+        event_webhooks._SEEN.clear(); self.addCleanup(event_webhooks._SEEN.clear)
 
-    def sign(self, raw):
-        return 'sha256=' + hmac.new(self.SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    def sign(self, raw, timestamp):
+        return 'sha256=' + hmac.new(self.SECRET.encode(), timestamp.encode() + b'.' + raw, hashlib.sha256).hexdigest()
+
+    def headers(self, raw, timestamp=None, signature=None):
+        timestamp = str(int(time.time())) if timestamp is None else timestamp
+        return {'X-Jarvis-Timestamp': timestamp, 'X-Jarvis-Signature': signature or self.sign(raw, timestamp)}
 
     def test_signed_event_reaches_fanout_and_goalstate(self):
         server = ThreadingHTTPServer(('127.0.0.1', 0), webhook_server.Handler)
@@ -181,13 +186,17 @@ class EventWebhookTests(OwnerFixture):
         try:
             raw = json.dumps({'action': 'opened', 'text': 'Yeni PR açıldı'}).encode()
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
-            connection.request('POST', '/event/alice/github', raw, {'X-Jarvis-Signature': self.sign(raw)})
+            headers = self.headers(raw)
+            connection.request('POST', '/event/alice/github', raw, headers)
             response = connection.getresponse(); self.assertEqual(response.status, 200); response.read(); connection.close()
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
-            connection.request('POST', '/event/alice/github', raw, {'X-Jarvis-Signature': 'sha256=' + '0' * 64})
+            connection.request('POST', '/event/alice/github', raw, headers)
             response = connection.getresponse(); self.assertEqual(response.status, 403); response.read(); connection.close()
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
-            connection.request('POST', '/event/alice/unknown', raw, {'X-Jarvis-Signature': self.sign(raw)})
+            connection.request('POST', '/event/alice/github', raw, self.headers(raw, signature='sha256=' + '0' * 64))
+            response = connection.getresponse(); self.assertEqual(response.status, 403); response.read(); connection.close()
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+            connection.request('POST', '/event/alice/unknown', raw, self.headers(raw))
             response = connection.getresponse(); self.assertEqual(response.status, 403); response.read(); connection.close()
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
@@ -201,7 +210,19 @@ class EventWebhookTests(OwnerFixture):
     def test_body_must_be_one_json_object(self):
         raw = b'[1,2]'
         with self.assertRaises(ValueError):
-            event_webhooks.ingest('alice', 'github', raw, self.sign(raw))
+            event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1000)
+
+    def test_timestamp_is_signed_required_and_fresh(self):
+        raw = b'{"a":1}'
+        self.assertEqual(event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1100), {'a': 1})
+        with self.assertRaises(PermissionError):   # missing timestamp
+            event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '', now=1000)
+        with self.assertRaises(PermissionError):   # too old
+            event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1000 + event_webhooks.MAX_SKEW + 1)
+        with self.assertRaises(PermissionError):   # timestamp swapped under an old signature
+            event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1001', now=1001)
+        with self.assertRaises(PermissionError):   # same signed request again
+            event_webhooks.ingest('alice', 'github', raw, self.sign(raw, '1000'), '1000', now=1101)
 
 
 class AdvisoryTests(unittest.TestCase):
