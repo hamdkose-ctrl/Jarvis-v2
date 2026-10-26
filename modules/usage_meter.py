@@ -3,8 +3,10 @@
 Her gerçek sağlayıcı çağrısı (Gemini, Groq, Ollama, OpenRouter, ücretli, gömme, ses, Live bağlantısı)
 kullanıcıya özel `~/.jarvis/kota/<kullanıcı>.jsonl` dosyasına bir satır yazar: zaman, sağlayıcı, model,
 çağıran yer (modül.fonksiyon), giden/gelen karakter ve sonuç (ok, 429, hata kodu). İstem veya cevap
-metni yazılmaz. Karakter sayısı token değildir; yaklaşık büyüklük içindir. Sayaç hata verirse çağrı
-etkilenmez. `kota durumu` komutu modele gitmeden bugünün özetini verir.
+metni yazılmaz. Karakter sayısı token değildir; yaklaşık büyüklük içindir. Sağlayıcı yanıtında token sayısı
+bildirirse (Gemini usage_metadata, Groq usage, Ollama eval_count) satıra `ti`/`to` olarak eklenir. Groq'un
+yanıt başlıklarındaki kalan istek/token sınırı `<kullanıcı>.limits.json` dosyasına son görülen değer olarak
+yazılır. Sayaç hata verirse çağrı etkilenmez. `kota durumu` komutu modele gitmeden bugünün özetini verir.
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ import tempfile
 import threading
 import uuid
 from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -112,11 +115,13 @@ def _prune_archives(path: Path) -> None:
 
 
 def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0, result: str = 'ok',
-           source: str | None = None, owner: str | None = None) -> None:
+           source: str | None = None, owner: str | None = None, tokens: tuple | None = None) -> None:
     try:
         now = datetime.now(_TR)
         row = {'t': now.isoformat(timespec='seconds'), 'p': provider, 'm': str(model or '')[:60],
                's': source or caller(), 'i': int(chars_in or 0), 'o': int(chars_out or 0), 'r': str(result)[:20]}
+        if tokens and all(type(x) is int and x >= 0 for x in tokens[:2]) and len(tokens) == 2:
+            row['ti'], row['to'] = tokens        # sağlayıcının bildirdiği token; tahmin yazılmaz
         path = _dir() / (_slug(owner or _owner()) + '.jsonl')
         with _LOCK:
             if path.exists() and path.stat().st_size > _MAX_BYTES:
@@ -130,6 +135,95 @@ def record(provider: str, model: str = '', chars_in: int = 0, chars_out: int = 0
             _atomic_write(path, previous + separator + encoded)
     except Exception:
         _record_failure('modules/usage_meter.py:record')  # sayaç hatası çağrıyı etkilemez
+
+
+def tokens_from(data) -> tuple | None:
+    """Sağlayıcı yanıtından (giden, gelen) token sayısı; bildirilmemişse None."""
+    try:
+        usage = data.get('usage') if isinstance(data, dict) else None
+        if isinstance(usage, dict):                                   # Groq / OpenAI uyumlu
+            pair = usage.get('prompt_tokens'), usage.get('completion_tokens')
+        elif isinstance(data, dict):                                  # Ollama /api/chat
+            pair = data.get('prompt_eval_count'), data.get('eval_count')
+        else:                                                         # Gemini GenerateContentResponse
+            meta = getattr(data, 'usage_metadata', None)
+            pair = getattr(meta, 'prompt_token_count', None), getattr(meta, 'candidates_token_count', None)
+            if type(pair[0]) is int and pair[1] is None:
+                pair = pair[0], 0
+        return pair if all(type(x) is int and x >= 0 for x in pair) else None
+    except Exception:
+        _record_failure('modules/usage_meter.py:tokens_from')
+        return None
+
+
+_LIMIT_HEADERS = {'limit-requests': 'req_limit', 'remaining-requests': 'req_left', 'reset-requests': 'req_reset',
+                  'limit-tokens': 'tok_limit', 'remaining-tokens': 'tok_left', 'reset-tokens': 'tok_reset'}
+
+
+def observe_limits(provider: str, model: str, headers, owner: str | None = None) -> None:
+    """Sağlayıcının yanıt başlığında bildirdiği sınırı (x-ratelimit-*) son görülen değer olarak saklar.
+
+    Groq bu başlıkları verir: istek sınırı günlük, token sınırı dakikalıktır. Başlık yoksa hiçbir şey yazılmaz.
+    """
+    try:
+        if not isinstance(headers, Mapping):
+            return
+        seen = {}
+        for name, key in _LIMIT_HEADERS.items():
+            value = headers.get('x-ratelimit-' + name)
+            if value is None:
+                continue
+            value = str(value).strip()[:20]
+            seen[key] = int(value) if value.isdigit() else value
+        if not seen:
+            return
+        seen['t'] = datetime.now(_TR).isoformat(timespec='seconds')
+        path = _dir() / (_slug(owner or _owner()) + '.limits.json')
+        with _LOCK:
+            try:
+                data = json.loads(path.read_text(encoding='utf-8'))
+                if not isinstance(data, dict):
+                    data = {}
+            except (OSError, ValueError):
+                data = {}
+            data.setdefault(str(provider), {})[str(model or '')[:60]] = seen
+            _atomic_write(path, json.dumps(data, ensure_ascii=False).encode('utf-8'))
+    except Exception:
+        _record_failure('modules/usage_meter.py:observe_limits')
+
+
+def limits(owner: str | None = None) -> dict:
+    """Son görülen sağlayıcı sınırları: {sağlayıcı: {model: {...}}}."""
+    path = _dir() / (_slug(owner or _owner()) + '.limits.json')
+    try:
+        with _LOCK:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        _record_failure('modules/usage_meter.py:limits')
+        return {}
+
+
+_LOW = 0.1          # kalan sınır %10'un altına inerse uyarı satırı
+
+
+def _limit_lines(owner, day) -> list[str]:
+    out = []
+    for provider, models in limits(owner).items():
+        for model, seen in (models or {}).items():
+            if not isinstance(seen, dict) or not str(seen.get('t', '')).startswith(day):
+                continue
+            parts, low = [], False
+            for left, total, label in (('req_left', 'req_limit', 'istek (günlük)'), ('tok_left', 'tok_limit', 'token (dakikalık)')):
+                if type(seen.get(left)) is int and type(seen.get(total)) is int and seen[total] > 0:
+                    parts.append(f'kalan {seen[left]:,}/{seen[total]:,} {label}'.replace(',', '.'))
+                    low = low or seen[left] < seen[total] * _LOW
+            if parts:
+                out.append(f'- {_LABEL.get(provider, provider)} · {model}: ' + ', '.join(parts) +
+                           f' (son görülme {str(seen["t"])[11:16]})' + (' · sınıra yakın' if low else ''))
+    return out
 
 
 def size(*parts) -> int:
@@ -208,14 +302,26 @@ def summary(owner: str | None = None, day: str | None = None) -> str:
         limited = sum(1 for r in mine if r['r'] == '429')
         failed = sum(1 for r in mine if r['r'] not in ('ok', '429'))
         extra = ', '.join(x for x in (f'{limited} kez 429' if limited else '', f'{failed} hata' if failed else '') if x)
-        lines.append(f'- {_LABEL.get(name, name)}: {count} çağrı' + (f' ({extra})' if extra else ''))
+        counted = [r for r in mine if type(r.get('ti')) is int and type(r.get('to')) is int]
+        tokens = ''
+        if counted:
+            used = sum(r['ti'] + r['to'] for r in counted)
+            tokens = ', ' + f'{used:,}'.replace(',', '.') + ' token' + ('' if len(counted) == len(mine) else
+                                                                f' ({len(counted)} çağrıda bildirildi)')
+        lines.append(f'- {_LABEL.get(name, name)}: {count} çağrı{tokens}' + (f' ({extra})' if extra else ''))
     lines.append('')
     lines.append('En çok çağıran yerler:')
     for source, count in Counter(r['s'] for r in data).most_common(8):
         chars = sum(r['i'] for r in data if r['s'] == source)
         lines.append(f'- {source}: {count} çağrı, ~{chars:,} karakter'.replace(',', '.'))
+    limit_lines = _limit_lines(owner, day)
+    if limit_lines:
+        lines.append('')
+        lines.append('Sağlayıcının bildirdiği sınırlar:')
+        lines.extend(limit_lines)
     lines.append('')
-    lines.append('Karakter sayısı token değildir, yaklaşık büyüklüktür. Sağlayıcının kalan kotası buradan bilinmez.')
+    lines.append('Token sayısı yalnız sağlayıcı bildirdiğinde yazılır; karakter sayısı token değildir. '
+                 'Gemini kalan kotayı bildirmez, yalnız 429 sayısı görülür.')
     if partial:
         lines.append('Sayaç kısmi: eski rotasyon geçmişi eksik olabilir veya okunamayan/yarım kayıtlar var; '
                      'gösterilen toplam yalnız okunabilen çağrılardır.')

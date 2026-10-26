@@ -150,14 +150,21 @@ class ImageCapabilityError(LocalModelError):
     """Ollama modeli çalışıyor fakat görüntü girdisini desteklemiyor."""
 
 
+def _choice() -> dict:
+    """Aktif kullanıcının kendi sağlayıcı/model seçimi (yoksa boş: kurulum ayarı geçerli)."""
+    from modules import user_models
+    return user_models.choice(current_user())
+
+
 def _cfg() -> dict:
     s = load_settings()
-    configured = s.get("provider") or "gemini"
+    mine = _choice()
+    configured = mine.get("provider") or s.get("provider") or "gemini"
     if configured not in {"auto", "openrouter", "gemini", "groq", "ollama", "openai", "anthropic"}:
         configured = "gemini"
     return {"provider": configured,
             "url": (s.get("ollama_url") or "http://127.0.0.1:11434").rstrip("/"),
-            "model": s.get("ollama_model") or "llama3.2"}
+            "model": mine.get("local_model") or s.get("ollama_model") or "llama3.2"}
 
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
@@ -167,7 +174,7 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def groq_model() -> str:
     """Etkin Groq modeli. Eski/deprecated ücretsiz modelleri güvenli varsayılana taşır."""
-    model = (load_settings().get("groq_model") or "").strip()
+    model = (_choice().get("groq_model") or load_settings().get("groq_model") or "").strip()
     if not model or model in _DEPRECATED_GROQ:
         return GROQ_MODELS[0]
     return model
@@ -259,14 +266,36 @@ def set_provider(name: str, model: str | None = None, url: str | None = None) ->
         chosen=(model or state['candidate_model'] or state['model']).strip()
         if not chosen:raise ValueError('Önce model seç.')
         paid_providers.configure(owner,name,model=chosen)
-    ch = {"provider": name, "ai_mode": name}
-    if model and name == "groq":
-        ch["groq_model"] = model.strip()
-    elif model and name == "ollama":
-        ch["ollama_model"] = model.strip()
+    owner = current_user()
+    if owner:
+        # Seçim yalnız bu kullanıcıya yazılır; başka kullanıcının sağlayıcısı değişmez.
+        choose_model(owner, name if model and name in ("groq", "ollama") else "", model or "")
+        from modules import user_models
+        user_models.save_choice(owner, provider=name)
+        ch = {"ai_mode": name}
+    else:
+        ch = {"provider": name, "ai_mode": name}
+        if model and name == "groq":
+            ch["groq_model"] = model.strip()
+        elif model and name == "ollama":
+            ch["ollama_model"] = model.strip()
     if url:
         ch["ollama_url"] = url.strip()
     save_settings(**ch)
+
+
+def choose_model(owner, name: str, model: str) -> dict:
+    """Sağlayıcıyı değiştirmeden kullanıcının Groq veya yerel modelini kaydeder."""
+    from modules import user_models
+    if name not in ("", "groq", "ollama"):
+        raise ValueError("Model seçimi yalnız Groq ve yerel model için.")
+    if not owner:
+        raise ValueError("Kullanıcı bulunamadı.")
+    if not name or not model.strip():
+        return user_models.choice(owner)
+    if name == "groq":
+        return user_models.save_choice(owner, groq_model=model)
+    return user_models.save_choice(owner, local_model=model)
 
 
 def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str] | None = None,
@@ -294,11 +323,13 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
             raise ImageCapabilityError(ollama_hint.IMAGE)
         raise LocalModelError(f"Ollama hata verdi ({r.status_code}).")
     try:                     # başarı, yanıt gerçekten çözülünce yazılır; bozuk 200 yanıtı "ok" sayılmaz
-        text = (r.json().get("message") or {}).get("content", "")
+        data = r.json()
+        text = (data.get("message") or {}).get("content", "")
     except ValueError as e:
         usage_meter.record('ollama', model, sent, 0, 'bozuk')
         raise LocalModelError("Ollama yanıtı çözülemedi (geçersiz JSON).") from e
-    usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos')
+    usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos',
+                       tokens=usage_meter.tokens_from(data))
     _route.model = model
     return text
 
@@ -368,16 +399,19 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
                 time.sleep(attempt); continue
+            usage_meter.observe_limits('groq', model, getattr(r, 'headers', None))
             if r.status_code != 200:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
             if r.status_code == 200:
                 try:
-                    text = r.json()["choices"][0]["message"]["content"]
+                    data = r.json()
+                    text = data["choices"][0]["message"]["content"]
                     if not isinstance(text, str) or not text.strip(): raise ValueError('empty answer')
                 except (KeyError, IndexError, TypeError, ValueError) as e:
                     usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
                     last = 'boş/geçersiz yanıt'; break
-                usage_meter.record('groq', model, usage_meter.size(msgs), len(text))
+                usage_meter.record('groq', model, usage_meter.size(msgs), len(text),
+                                   tokens=usage_meter.tokens_from(data))
                 _route.model = model
                 with _fallback_lock: _fallback_states[identity] = (index, time.time())
                 return text
@@ -609,8 +643,10 @@ def _with_models(call):
         for attempt in range(1, _MAX_TRIES + 1):
             requests_state.check()
             try:
+                _route.tokens = None
                 result = call(model)
-                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0)
+                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0,
+                                   tokens=getattr(_route, 'tokens', None))
                 requests_state.check()
                 _route.model = model
                 if idx != active:
@@ -735,6 +771,7 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
     def call(model: str) -> str:
         chat_session = cli[0].chats.create(model=model, config=cfg, history=history)
         resp = chat_session.send_message(prompt)
+        _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
     try:
@@ -893,6 +930,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
 
         def call(model: str) -> str:
             resp = _cli().models.generate_content(model=model, contents=[image_part, prompt], config=cfg)
+            _route.tokens = usage_meter.tokens_from(resp)
             return resp.text or ""
 
         return _with_models(_metered(call, usage_meter.size(prompt, system)))
