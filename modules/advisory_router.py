@@ -7,6 +7,7 @@ back to the existing direct answer.
 from __future__ import annotations
 
 import json
+import re
 
 from modules import critique_advisor, decision_advisor, guidance_advisor, proactive_advisor
 from modules.diagnostics import record_failure as _record_failure
@@ -46,12 +47,41 @@ def prompt_for(command: str, settings: dict | None) -> str:
         )
     settings = settings if isinstance(settings, dict) else {}
     if proactive_advisor.SuggestionPolicy.from_settings(settings).enabled:
-        blocks.append(
-            'İlgili ve gerçekten yararlı bir risk/fırsat varsa JSON içine isteğe bağlı '
-            '"suggestion":{"kind":"risk|opportunity","title":"...","text":"..."} alanını ekle; '
-            'gereksizse ekleme. Öneri şema adı: proactive_suggestion.v1.'
-        )
+        if mode:
+            blocks.append(
+                'İlgili ve gerçekten yararlı bir risk/fırsat varsa JSON içine isteğe bağlı '
+                '"suggestion":{"kind":"risk|opportunity","title":"...","text":"..."} alanını ekle; '
+                'gereksizse ekleme. Öneri şema adı: proactive_suggestion.v1.'
+            )
+        else:
+            # Ordinary chat stays prose; a suggestion is one optional marked last line.
+            blocks.append(
+                'Konuyla ilgili gerçekten yararlı bir risk veya fırsat görürsen cevabın en sonuna tek satır ekle: '
+                '"Öneri (risk): ..." ya da "Öneri (fırsat): ...". Yoksa bu satırı hiç yazma; JSON kullanma.'
+            )
     return " ".join(blocks)
+
+
+_SUGGESTION_LINE = re.compile(r"\n?[ \t]*Öneri\s*\((risk|fırsat|firsat)\)\s*:\s*(.+?)\s*\Z", re.IGNORECASE | re.S)
+
+
+def _plain(value: dict) -> str:
+    """Readable text from a JSON answer that failed its schema; never raw JSON."""
+    lines = []
+
+    def walk(item, label=""):
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if key != "suggestion":
+                    walk(child, key)
+        elif isinstance(item, list):
+            for child in item:
+                walk(child, label)
+        elif isinstance(item, str) and item.strip():
+            lines.append(item.strip())
+
+    walk(value)
+    return "\n".join(dict.fromkeys(lines))
 
 
 def _json_object(raw: str) -> dict | None:
@@ -90,10 +120,27 @@ def _with_suggestion(answer: str, value: dict | None, settings: dict | None) -> 
     return answer + "\n\n" + proactive_advisor.render(item) if item else answer
 
 
+def _prose_suggestion(raw: str, settings: dict | None) -> str:
+    match = _SUGGESTION_LINE.search(raw) if isinstance(raw, str) else None
+    if not match:
+        return raw
+    answer = raw[:match.start()].rstrip()
+    if not answer:
+        return raw
+    kind = "risk" if match.group(1).casefold() == "risk" else "opportunity"
+    try:
+        item = proactive_advisor.suggest(kind, match.group(2), settings=settings)
+    except (TypeError, ValueError):
+        return answer
+    return answer + "\n\n" + proactive_advisor.render(item) if item else answer
+
+
 def finalize(command: str, raw: str, *, settings: dict | None = None) -> str:
     """Render a valid advisory response; preserve ordinary/raw answers."""
     value = _json_object(raw)
     mode = _mode(command)
+    if value is None:
+        return _prose_suggestion(raw, settings)
     try:
         if mode == "decision" and value is not None:
             result = decision_advisor.analyze(
@@ -120,9 +167,12 @@ def finalize(command: str, raw: str, *, settings: dict | None = None) -> str:
                 steps=value.get("steps"),
             )
             return _with_suggestion(guidance_advisor.render(result), value, settings)
+        # No advisory mode: a JSON answer may be what the user asked for.
         return _with_suggestion(raw, value, settings)
-    except (TypeError, ValueError, KeyError):
-        return raw
+    except (TypeError, ValueError, KeyError, AttributeError):
+        # The model returned JSON that does not fit the schema: show its text,
+        # never the raw JSON.
+        return _with_suggestion(_plain(value) or raw, value, settings)
     except Exception:
         _record_failure("modules/advisory_router.py:finalize")
-        return raw
+        return _plain(value) or raw

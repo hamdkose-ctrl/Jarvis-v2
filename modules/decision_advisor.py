@@ -5,11 +5,13 @@ import re
 
 
 _DECISION_WORDS = re.compile(
-    r"\b(?:hangisi|seçenek|secenek|tercih|karar|karşılaştır|karsilastir|"
-    r"artı\s*eksi|arti\s*eksi|avantaj|dezavantaj|pro.?con|daha\s+iyi)\b",
+    r"\b(?:hangisi\w*|hangisini|seçenek\w*|secenek\w*|tercih\s+et\w*|tercihim\w*|"
+    r"karar\s+ver(?!di|dik|din)\w*|karar\w*\s+veremiyorum|karşılaştır\w*|karsilastir\w*|"
+    r"artı\s*(?:ve\s*)?eksi\w*|arti\s*(?:ve\s*)?eksi\w*|avantaj\w*|dezavantaj\w*|pro.?con\w*)",
     re.IGNORECASE,
 )
-_CHOICE_PATTERN = re.compile(r"\bmi\b.*\bmi\b", re.IGNORECASE)
+# "A mı B mi", "gideyim mi kalayım mı": two yes/no particles = a choice.
+_CHOICE_PATTERN = re.compile(r"\bm[ıiuü]\b.+\bm[ıiuü]\b", re.IGNORECASE)
 
 
 def requested(text: str) -> bool:

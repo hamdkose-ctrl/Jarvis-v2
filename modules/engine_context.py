@@ -112,6 +112,8 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         runtime._guest = runtime.profile.name             # telefondan: yalnızca o telefonun kullanıcısı (bilgisayar etkilenmez)
     runtime._sessions.reset(runtime.profile.slug)
     runtime._sessions._owner.set(runtime.profile.slug)
+    from modules import hooks
+    hooks.observe("session", {"event": "user_switched", "created": bool(created)}, owner=runtime.profile.slug)
     runtime._session().last_doc = None            # bir kullanıcının analizi diğerine kaydedilmesin
     runtime._session().pending_level = None
     runtime._session().pending_confirm = None

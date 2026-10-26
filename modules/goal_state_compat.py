@@ -271,3 +271,42 @@ def sync(job: dict, path) -> dict:
     return goal_state_store.compare_and_swap(
         path, expected_version=current['version'], next_state=next_state
     )
+
+
+def open_subscription_state(path, *, owner: str, job_id: str, goal: str) -> dict:
+    """Canonical GoalState for a long-lived event subscription (e.g. a source watch).
+
+    Born canonical and parked in ``waiting`` so RuntimeEvent evidence can keep
+    arriving. An existing record is reused only when its identity matches.
+    """
+    path = Path(path)
+    if path.exists():
+        current = goal_state_store.load(path)
+        if current['owner'] != owner or current['job_id'] != job_id:
+            raise IdentityMismatchError('Abonelik GoalState kimliği eşleşmiyor.')
+        return current
+    state = goal_state.new(owner=owner, job_id=job_id, goal=goal,
+                           execution_mode=PROJECTION_EXECUTION_MODE, authority='canonical')
+    state = core_state_reducer.apply(state, {
+        'expected_version': state['version'], 'op': 'set_state',
+        'state': 'waiting', 'reason_code': 'SUBSCRIPTION_OPENED',
+    })
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return goal_state_store.create(path, state)
+
+
+def close_subscription_state(path) -> dict | None:
+    """Cancel a subscription GoalState when its source is removed; idempotent."""
+    path = Path(path)
+    if not path.exists():
+        return None
+    current = goal_state_store.load(path)
+    if current['state'] in {'done', 'cancelled'}:
+        return current
+    next_state = core_state_reducer.apply(current, {
+        'expected_version': current['version'], 'op': 'set_state',
+        'state': 'cancelled', 'reason_code': 'SUBSCRIPTION_CLOSED',
+    })
+    return goal_state_store.compare_and_swap(
+        path, expected_version=current['version'], next_state=next_state
+    )

@@ -1,4 +1,4 @@
-"""Low-noise, opt-in proactive risk/opportunity suggestions."""
+"""Low-noise proactive risk/opportunity suggestions (on by default, can be turned off)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,14 +10,15 @@ PRIORITIES = frozenset({"low", "normal"})
 
 @dataclass(frozen=True)
 class SuggestionPolicy:
-    enabled: bool = False
+    enabled: bool = True
     max_per_response: int = 1
     priority: str = "low"
 
     @classmethod
     def from_settings(cls, settings: dict | None) -> "SuggestionPolicy":
         settings = settings if isinstance(settings, dict) else {}
-        enabled = settings.get("proactive_suggestions", False) is True
+        # Roadmap: default on; only an explicit False in settings turns it off.
+        enabled = settings.get("proactive_suggestions", True) is not False
         max_per_response = settings.get("proactive_max_per_response", 1)
         if not isinstance(max_per_response, int) or isinstance(max_per_response, bool):
             max_per_response = 1

@@ -76,8 +76,13 @@ def accept_prepare_result(plan: dict, output: dict) -> dict:
     return output
 
 
-def before_tool(kind: str, data: dict, **context) -> dict:
-    """The shared pre-worker gate; every uncertainty stops the tool."""
+def before_tool(kind: str, data: dict, *, allow_prepare: bool = False, **context) -> dict:
+    """The shared pre-worker gate; every uncertainty stops the tool.
+
+    ``allow_prepare`` lets an ask-required worker run only its own approval
+    preparation step (publish/browser/coder); a domain or authority block
+    still stops it.
+    """
     try:
         decision = plan_task(kind, data, **context)
     except Exception as exc:
@@ -85,6 +90,8 @@ def before_tool(kind: str, data: dict, **context) -> dict:
         raise PermissionError(
             "Araç kapısı doğrulanamadı; işlem çalıştırılmadı."
         ) from exc
+    if allow_prepare is True and decision.get('phase') == 'prepare':
+        return decision
     if not decision.get('worker_allowed'):
         raise PermissionError(
             "Araç kapısı işlemi durdurdu: " + str(decision.get('reason_code') or 'GATE_BLOCKED')

@@ -112,32 +112,24 @@ def main(runtime, ui=None):
     from modules import perf
     perf.start(runtime.stop_event)
     from modules import task_queue
+    from modules import event_channels
     def queue_notice(owner,qid,state,job_id):
-        for name in runtime.list_users():
-            profile=runtime._get_profile(name)
-            if profile.slug==owner:
-                from modules import task_agents
-                try:job=task_agents._load(owner,job_id)
-                except ValueError:job=None
-                label={'done':'Zamanlanan görevin tamamlandı.','blocked':'Zamanlanan görev durdu.','cancelled':'Zamanlanan görev iptal edildi.'}.get(state,'Zamanlanan görev güncellendi.')
-                runtime._emit_for(profile,'assistant',label+'\n'+(task_agents.render_summary(job) if job else 'Görev sonuç kaydı oluşmadı; görev kuyruğu ile durumu kontrol edebilirsin.'))
-                break
+        from modules import task_agents
+        try:job=task_agents._load(owner,job_id)
+        except ValueError:job=None
+        label={'done':'Zamanlanan görevin tamamlandı.','blocked':'Zamanlanan görev durdu.','cancelled':'Zamanlanan görev iptal edildi.'}.get(state,'Zamanlanan görev güncellendi.')
+        text=label+'\n'+(task_agents.render_summary(job) if job else 'Görev sonuç kaydı oluşmadı; görev kuyruğu ile durumu kontrol edebilirsin.')
+        event_channels.deliver(runtime,owner,{'source':'task_queue','kind':state,'payload':{'text':text,'queue_id':qid,'job_id':job_id}},
+                               title='Jarvis zamanlanmış görev')
     def source_notice(owner,event_id,message):
-        for name in runtime.list_users():
-            profile=runtime._get_profile(name)
-            if profile.slug==owner:
-                runtime._emit_for(profile,'assistant',message)
-                break
+        event_channels.deliver(runtime,owner,{'source':'source_watch','kind':'source_update','payload':{'text':message,'event_id':event_id}},
+                               title='Jarvis kaynak takibi')
     task_queue.start(runtime.stop_event,queue_notice,
                      lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},source_notify=source_notice)
     from modules import webhook_server
-    def webhook_notice(owner,stored):
-        for name in runtime.list_users():
-            profile=runtime._get_profile(name)
-            if profile.slug==owner:
-                runtime._emit_for(profile,'assistant','WhatsApp: '+str(stored['messages'])+' yeni mesaj, '+str(stored['deliveries'])+' teslim kaydı. Gelen kutusu görevden okunabilir.')
-                break
-    webhook_server.start(runtime.stop_event,lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},notify=webhook_notice)
+    def webhook_event(owner,event):
+        event_channels.deliver(runtime,owner,event,title='Jarvis olay')
+    webhook_server.start(runtime.stop_event,lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},event_notify=webhook_event)
     runtime._start_hang_watch()
     if ui is None:
         runtime.threading.Thread(target=voice_session.read_keyboard, daemon=True).start()
