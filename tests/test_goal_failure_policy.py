@@ -68,9 +68,10 @@ class GoalFailurePolicyTests(unittest.TestCase):
         output = self.assert_provider_outcome(Down('PRIVATE service unavailable'), 'PROVIDER_DOWN', 'fallback_possible')
         self.assertNotIn('PRIVATE', output['text'])
 
-    def test_ollama_or_runtime_missing_is_environment_and_user_action(self):
+    def test_ollama_missing_is_local_model_and_user_action(self):
         raw = llm.LocalModelError('Ollama kurulu değil; secret-path=C:/PRIVATE')
-        output = self.assert_provider_outcome(raw, 'PROVIDER_ENVIRONMENT', 'user_action_required')
+        output = self.assert_provider_outcome(raw, 'PROVIDER_LOCAL_MODEL', 'user_action_required')
+        self.assertIn('Ollama', output['text'])
         self.assertNotIn('PRIVATE', output['text'])
         self.assertNotIn('secret-path', output['text'])
 

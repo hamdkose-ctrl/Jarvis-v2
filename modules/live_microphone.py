@@ -14,8 +14,11 @@ def _connection_timeout_message(self):
     category = getattr(self, '_session_error_category', None)
     if not ollama_hint.internet_up():
         return ollama_hint.NO_INTERNET, failure_policy.NETWORK
+    if category == failure_policy.QUOTA_EXHAUSTED:
+        return ('Gemini günlük kotası doldu; beklemek bugün açmaz. Yarın yenilenir, şimdilik yazarak devam edebilirsin.',
+                failure_policy.QUOTA_EXHAUSTED)
     if getattr(self, '_session_rate_limited', False):
-        return 'Gemini kotası dolmuş görünüyor, biraz sonra tekrar dene.', failure_policy.RATE_LIMIT
+        return 'Gemini geçici hız sınırına takıldı, bir dakika kadar sonra tekrar dene.', failure_policy.RATE_LIMIT
     return ('Canlı konuşmaya bağlanılamadı. İnternetini kontrol edip tekrar “Hey Jarvis” de.',
             category or failure_policy.UNKNOWN)
 

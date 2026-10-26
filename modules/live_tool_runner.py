@@ -60,7 +60,8 @@ async def run(self, session, fc, services) -> None:
                 result = await asyncio.get_running_loop().run_in_executor(None, self.handler, req)
     except Exception as exc:
         _record_failure('modules/live.py:_run_tool')
-        result = f'Yapamadım: {exc}'
+        from modules import failure_policy
+        result = 'Yapamadım: ' + failure_policy.user_message(exc)
     finally:
         self._tools_running = max(0, self._tools_running - 1)
     if self.wants_sleep():
