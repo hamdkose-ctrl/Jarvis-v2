@@ -79,12 +79,21 @@ class FinanceDomainContractTests(unittest.TestCase):
             root = self._tree(td, {'modules/tool_finance.py': "CONTRACT = {'actions': [{'class': 'money_credential'}]}\n"})
             self.assertIn('FIN-002', {row['rule'] for row in finance_domain.check(root)})
 
-    def test_moved_code_requires_plan_update(self):
+    def test_open_migration_requires_plan_location_to_exist(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._tree(td)
             (root / 'modules/watcher.py').write_text('', encoding='utf-8')
             rules = {row['rule'] for row in finance_domain.check(root)}
             self.assertIn('FIN-003', rules)
+
+    def test_completed_migration_is_not_a_live_static_obligation(self):
+        completed = ({'step': '3-D', 'branch': 'alarm',
+                      'location': 'modules/moved.py:old_entry',
+                      'target': 'modules/finance_alert_tick.py:tick',
+                      'status': 'completed'},)
+        with tempfile.TemporaryDirectory() as td, \
+                patch.object(finance_domain, 'MIGRATION', completed):
+            self.assertNotIn('FIN-003', {row['rule'] for row in finance_domain.check(td)})
 
     def test_check_does_not_import_or_run_finance_code(self):
         with patch('modules.finance.answer', side_effect=AssertionError('Canlı finans yasak')), \
