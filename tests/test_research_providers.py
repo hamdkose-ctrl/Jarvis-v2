@@ -46,7 +46,7 @@ class ResearchProviderTests(unittest.TestCase):
         with patch('modules.research_providers.public_sources.fetch',
                    return_value={'body': html, 'url': 'https://html.duckduckgo.com/html/', 'content_type': 'text/html'}):
             rows = search_public('enerji verimliligi')
-        self.assertEqual([(row['provider'], row['url'])], [('duckduckgo', 'https://example.com/article')])
+        self.assertEqual([(row['provider'], row['url']) for row in rows], [('duckduckgo', 'https://example.com/article')])
 
     def test_invalid_provider_and_source_are_rejected(self):
         with self.assertRaises(ValueError):
