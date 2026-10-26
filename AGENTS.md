@@ -33,7 +33,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (18 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
-- `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (7 bölüm)
+- `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (16 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (4 bölüm)

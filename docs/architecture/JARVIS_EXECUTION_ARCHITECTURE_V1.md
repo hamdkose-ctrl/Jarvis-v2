@@ -598,10 +598,36 @@ capability_version: 1
 deadline_at: ""
 idempotency_key: ""
 expected_observation_version: ""
+input_mode: uia_pattern   # uia_pattern | physical_input
+target:
+  app: ""
+  hwnd: 0
+  pid: 0
 input: {}
 ```
 
 C# Worker kendi başına kullanıcı hedefi veya global Job oluşturamaz.
+
+`target`, Core'un onayladığı pencere kimliğidir; Worker işlemden hemen önce aynı `app/hwnd/pid` üçlüsünü yeniden gözler, uyuşmazsa komutu göndermeden `NotSent` döner. Jarvis penceresi, terminal, kod editörü, tarayıcı, şifre yöneticisi ve uzak erişim uygulamaları (`desktop_agent._NEVER_APPS`) PC Worker için de hedef olamaz; bu liste Core politikasında tutulur, Worker'a güvenilmez.
+
+### IPC taşıma sınırı
+
+IPC yalnız aynı bilgisayarda ve aynı Windows kullanıcısında çalışır: kullanıcıya özel ACL'li named pipe veya standart giriş/çıkış. TCP portu, HTTP sunucusu veya ağdan erişilen uç açılmaz; bu, "Jarvis MCP/API sunucusu olmaz" ve "uzak PC yok" kararlarının PC Worker'daki karşılığıdır. Bağlantıda §6.1 sürüm uzlaşması yapılır; ortak sürüm yoksa `CONTRACT_MISMATCH` döner ve hiçbir komut gönderilmez.
+
+### Girdi modu ve lease sınıfı
+
+Kullanıcıyla aynı anda çalışma ile "kullanıcı girdisinde dur" kuralı iki ayrı girdi modunu gerektirir:
+
+| `input_mode` | Ne gönderir | Lease | Kullanıcı aynı anda çalışabilir mi |
+|---|---|---|---|
+| `uia_pattern` | Hedef kontrole doğrudan UIA pattern çağrısı (Invoke/Value/Toggle/Selection/Scroll); global fare/klavye yok, odak ve imleç çalınmaz | `window:<hwnd>` üzerinde exclusive, masaüstü geneli değil | Evet; yalnız hedef pencerede beklenmeyen değişim işlemi durdurur |
+| `physical_input` | Gerçek fare/klavye girdisi (tıklama koordinatı, yazma, kısayol, sürükleme) | `windows_interactive_desktop` exclusive | Hayır; doğrulanmış kullanıcı girdisinde durur |
+
+Core önce `uia_pattern` dener; `physical_input` yalnız manifestte o capability için açıkça izinliyse ve ayrı onayla seçilir. Bir mod diğerine Worker tarafından kendiliğinden yükseltilmez.
+
+### Yönetici yetkili hedefler
+
+Yükseltilmiş (yönetici) süreçteki pencereye normal yetkili Worker Windows UIPI nedeniyle girdi gönderemez. Bu durumda Worker `NotSent` + `elevated_target` döner; kendini yükseltmez, UAC istemini tıklamaz. Yönetici yetkili uygulama yolu ayrı capability ve her seferinde ayrı onay ister.
 
 ### Etkileşimli masaüstü lease
 
@@ -614,7 +640,7 @@ resource:
   interrupt_policy: stop_on_verified_human_input
 ```
 
-Core effect intent kaydını C# sürecine göndermeden önce kalıcılaştırır. Beklenmeyen odak, pencere veya fiziksel girdi değişiminde işlem durur ve yeniden gözlem ister. Kullanıcı girdisi teknik olarak ayırt edilemiyorsa fail-safe davranılır.
+Bu masaüstü geneli lease yalnız `physical_input` modu içindir; `uia_pattern` modu pencere lease'i kullanır (yukarıdaki tablo). Core effect intent kaydını C# sürecine göndermeden önce kalıcılaştırır. Beklenmeyen odak, pencere veya fiziksel girdi değişiminde işlem durur ve yeniden gözlem ister. Kullanıcı girdisi teknik olarak ayırt edilemiyorsa fail-safe davranılır.
 
 İlk C# dikey dilimi dar tutulur: `pc.application.open` veya `pc.window.control`. Sonra diğer PC capability'leri taşınır.
 
