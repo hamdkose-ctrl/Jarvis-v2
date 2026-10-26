@@ -1,10 +1,16 @@
 import json
 import unittest
 
-from modules import finance
+from modules import finance, llm
 
 
 class FinanceDatedRateTests(unittest.TestCase):
+    def setUp(self):
+        self._owner = llm._key_context.set('alice')
+
+    def tearDown(self):
+        llm._key_context.reset(self._owner)
+
     def test_dated_rate_returns_verified_finance_evidence(self):
         body = json.dumps({
             'base': 'USD', 'quote': 'TRY', 'rate': 34.25, 'date': '2026-01-15',
