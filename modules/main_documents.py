@@ -72,7 +72,8 @@ def _file_command(runtime, command: str) -> str | None:
             content = runtime.docs.summarize(path)
         except Exception as exc:
             _record_failure('modules/main_documents.py:_file_command:gorsellestir')
-            return f'Dosya özetlenemedi: {exc}'
+            from modules import failure_policy
+            return 'Dosya özetlenemedi: ' + failure_policy.user_message(exc)
         try:
             result = visual_commands.create_visual(act, content, slug=runtime.profile.slug, kind=kind)
         except ImageGenError as exc:

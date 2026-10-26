@@ -428,7 +428,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             "llm": {"models": llm.model_names(p.slug), "active": llm.model_names(p.slug).index(llm.active_model(p.slug)), "key": bool(key),
                     "key_tail": key[-4:] if len(key) > 8 else "", "provider": llm.provider(),
                     "sec": dict(getattr(llm, "LAST_SEC", {})),
-                    "ollama_up": _ollama_up(), **llm.local_info(),
+                    "ollama_up": _ollama_up(), **llm.local_info(), "local_model": llm.provider_configuration()["model"],
                     "paid": llm.paid_status(),
                     "groq": {"key": bool(llm.user_groq_key(p.slug)), "model": llm.groq_model(),
                              "tail": llm.user_groq_key(p.slug)[-4:]}},

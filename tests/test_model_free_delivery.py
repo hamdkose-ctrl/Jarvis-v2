@@ -49,7 +49,7 @@ class ModelFreeDeliveryTests(unittest.TestCase):
         case.responses(RuntimeError('HTTP 429 quota exceeded'))
         result = goals.run(case.runtime, 'Belgeyi özetle')
         self.assertEqual(goals.latest('alice')['model_free']['category'], 'rate_limit')
-        self.assertIn('kullanım sınırı doldu', result)
+        self.assertIn('kullanım sınırına takıldı', result)
 
     def test_unclassified_planner_error_keeps_old_behaviour(self):
         case = self.case()

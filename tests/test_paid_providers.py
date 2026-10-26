@@ -10,6 +10,8 @@ class PaidProviderTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.p=patch.object(paid,'DATA_DIR',self.root);self.p.start();self.addCleanup(self.p.stop)
+        from modules import user_models
+        self.models=patch.object(user_models,'DATA_DIR',self.root);self.models.start();self.addCleanup(self.models.stop)
         self.privacy=patch.object(paid.privacy,'mode',return_value='normal');self.privacy.start();self.addCleanup(self.privacy.stop)
         self.net=patch.object(paid.requests,'request');self.request=self.net.start();self.addCleanup(self.net.stop)
         self.response=Mock(status_code=200);self.request.return_value=self.response
@@ -93,6 +95,10 @@ class PaidProviderTests(unittest.TestCase):
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'save_settings') as save:
             with self.assertRaises(ValueError):llm.set_provider('openai')
             save.assert_not_called();self.configure();llm.set_provider('openai')
-            self.assertEqual(save.call_args.kwargs['provider'],'openai')
+            # Seçim yalnız bu kullanıcıya yazılır; kurulumun genel sağlayıcısı değişmez.
+            self.assertNotIn('provider',save.call_args.kwargs)
+            from modules import user_models
+            self.assertEqual(user_models.choice('alice')['provider'],'openai')
+            self.assertEqual(user_models.choice('bob'),{})
 
 if __name__=='__main__':unittest.main()

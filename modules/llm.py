@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jarvis.llm")
 from contextvars import ContextVar
-from modules import requests_state, usage_meter
+from modules import failure_policy, requests_state, usage_meter
 
 from google import genai
 from google.genai import errors, types
@@ -157,16 +157,23 @@ LOCAL_BACKENDS = {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.
 LOCAL_LABELS = {"ollama": "Ollama", "lmstudio": "LM Studio", "llamacpp": "llama.cpp"}
 
 
+def _choice() -> dict:
+    """Aktif kullanıcının kendi sağlayıcı/model seçimi (yoksa boş: kurulum ayarı geçerli)."""
+    from modules import user_models
+    return user_models.choice(current_user())
+
+
 def _cfg() -> dict:
     s = load_settings()
-    configured = s.get("provider") or "gemini"
+    mine = _choice()
+    configured = mine.get("provider") or s.get("provider") or "gemini"
     if configured not in {"auto", "openrouter", "gemini", "groq", "ollama", "openai", "anthropic"}:
         configured = "gemini"
     backend = s.get("local_backend") if s.get("local_backend") in LOCAL_BACKENDS else "ollama"
     if backend == "ollama":
-        url, model = s.get("ollama_url") or LOCAL_BACKENDS["ollama"], s.get("ollama_model") or "llama3.2"
+        url, model = s.get("ollama_url") or LOCAL_BACKENDS["ollama"], mine.get("local_model") or s.get("ollama_model") or "llama3.2"
     else:   # model boşsa sunucunun /models listesindeki ilk model kullanılır (_local_model)
-        url, model = s.get("local_url") or LOCAL_BACKENDS[backend], (s.get("local_model") or "").strip()
+        url, model = s.get("local_url") or LOCAL_BACKENDS[backend], (mine.get("local_model") or s.get("local_model") or "").strip()
     return {"provider": configured, "backend": backend, "url": url.rstrip("/"), "model": model}
 
 
@@ -200,7 +207,7 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def groq_model() -> str:
     """Etkin Groq modeli. Eski/deprecated ücretsiz modelleri güvenli varsayılana taşır."""
-    model = (load_settings().get("groq_model") or "").strip()
+    model = (_choice().get("groq_model") or load_settings().get("groq_model") or "").strip()
     if not model or model in _DEPRECATED_GROQ:
         return GROQ_MODELS[0]
     return model
@@ -317,11 +324,19 @@ def set_provider(name: str, model: str | None = None, url: str | None = None) ->
         chosen=(model or state['candidate_model'] or state['model']).strip()
         if not chosen:raise ValueError('Önce model seç.')
         paid_providers.configure(owner,name,model=chosen)
-    ch = {"provider": name, "ai_mode": name}
-    if model and name == "groq":
-        ch["groq_model"] = model.strip()
-    elif model and name == "ollama":
-        ch["ollama_model"] = model.strip()
+    owner = current_user()
+    if owner:
+        # Seçim yalnız bu kullanıcıya yazılır; başka kullanıcının sağlayıcısı değişmez.
+        choose_model(owner, name if model and name in ("groq", "ollama") else "", model or "")
+        from modules import user_models
+        user_models.save_choice(owner, provider=name)
+        ch = {"ai_mode": name}
+    else:
+        ch = {"provider": name, "ai_mode": name}
+        if model and name == "groq":
+            ch["groq_model"] = model.strip()
+        elif model and name == "ollama":
+            ch["ollama_model"] = model.strip()
     if url:
         ch["ollama_url"] = url.strip()
     save_settings(**ch)
@@ -378,6 +393,20 @@ def _openai_local(messages: list[dict], system: str, max_tokens: int, images: li
     return text
 
 
+def choose_model(owner, name: str, model: str) -> dict:
+    """Sağlayıcıyı değiştirmeden kullanıcının Groq veya yerel modelini kaydeder."""
+    from modules import user_models
+    if name not in ("", "groq", "ollama"):
+        raise ValueError("Model seçimi yalnız Groq ve yerel model için.")
+    if not owner:
+        raise ValueError("Kullanıcı bulunamadı.")
+    if not name or not model.strip():
+        return user_models.choice(owner)
+    if name == "groq":
+        return user_models.save_choice(owner, groq_model=model)
+    return user_models.save_choice(owner, local_model=model)
+
+
 def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str] | None = None,
             model: str | None = None) -> str:
     c = _cfg()
@@ -405,11 +434,13 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
             raise ImageCapabilityError(ollama_hint.IMAGE)
         raise LocalModelError(f"Ollama hata verdi ({r.status_code}).")
     try:                     # başarı, yanıt gerçekten çözülünce yazılır; bozuk 200 yanıtı "ok" sayılmaz
-        text = (r.json().get("message") or {}).get("content", "")
+        data = r.json()
+        text = (data.get("message") or {}).get("content", "")
     except ValueError as e:
         usage_meter.record('ollama', model, sent, 0, 'bozuk')
         raise LocalModelError("Ollama yanıtı çözülemedi (geçersiz JSON).") from e
-    usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos')
+    usage_meter.record('ollama', model, sent, len(text) if isinstance(text, str) else 0, 'ok' if text else 'bos',
+                       tokens=usage_meter.tokens_from(data))
     _route.model = model
     return text
 
@@ -481,17 +512,20 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             except requests.RequestException as e:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
-                time.sleep(attempt); continue
+                failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep); continue
+            usage_meter.observe_limits('groq', model, getattr(r, 'headers', None))
             if r.status_code != 200:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
             if r.status_code == 200:
                 try:
-                    text = r.json()["choices"][0]["message"]["content"]
+                    data = r.json()
+                    text = data["choices"][0]["message"]["content"]
                     if not isinstance(text, str) or not text.strip(): raise ValueError('empty answer')
                 except (KeyError, IndexError, TypeError, ValueError) as e:
                     usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
                     last = 'boş/geçersiz yanıt'; break
-                usage_meter.record('groq', model, usage_meter.size(msgs), len(text))
+                usage_meter.record('groq', model, usage_meter.size(msgs), len(text),
+                                   tokens=usage_meter.tokens_from(data))
                 _route.model = model
                 with _fallback_lock: _fallback_states[identity] = (index, time.time())
                 return text
@@ -500,13 +534,13 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             last = 'HTTP ' + str(r.status_code)
             if r.status_code == 429:
                 headers_in = getattr(r, 'headers', None) or {}
-                daily = 'per day' in str(getattr(r, 'text', '') or '').casefold()
+                daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
                 _mark_limited('groq', model, last, _limit_seconds(daily, headers_in.get('retry-after')))
                 break
             if r.status_code == 404: break
             if r.status_code not in (500, 502, 503, 504):
                 raise CloudError('Groq yanıt vermedi (' + last + ')')
-            if attempt < 2: time.sleep(attempt)
+            if attempt < 2: failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
         note_route('Groq · ' + model + ' yanıt vermedi (' + last + ')' +
                    (', diğer model deneniyor' if offset + 1 < len(models) else ''), False)
     raise CloudError('Groq yanıt vermedi (' + last + ')')
@@ -557,7 +591,7 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 _SWITCH_CODES = {404, 429, 500, 502, 503, 504}   # bunlarda bekleme/yedek modele geçiş denenir
 _MODELS = [MODEL, *[m for m in FALLBACK_MODELS if m != MODEL]]
-_MAX_TRIES = 3        # aynı modele en fazla kaç deneme (araya 1 ve 2 sn bekleme)
+_MAX_TRIES = failure_policy.MAX_RETRIES   # aynı modele en fazla kaç deneme (araya artan bekleme: ~1, ~2 sn)
 _MAX_TURNS = 8        # son kaç karşılıklı konuşma hatırlansın
 _histories: dict[str, list] = {}   # kullanıcı -> sohbet geçmişi (kullanıcılar karışmasın)
 _history_seed = None               # kullanıcı -> [(rol, metin)]: kalıcı geçmişten son konuşmalar (main ayarlar)
@@ -610,7 +644,7 @@ def _seed(user: str) -> None:
 
 def _daily_quota(e: Exception) -> bool:
     """Günlük kota dolduysa beklemek işe yaramaz, hemen yedek modele geçilir."""
-    return "PerDay" in str(e)
+    return failure_policy.quota_exhausted_text(e)
 
 
 def _gemini_retry_after(e: Exception):
@@ -725,8 +759,10 @@ def _with_models(call):
         for attempt in range(1, _MAX_TRIES + 1):
             requests_state.check()
             try:
+                _route.tokens = None
                 result = call(model)
-                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0)
+                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0,
+                                   tokens=getattr(_route, 'tokens', None))
                 requests_state.check()
                 _route.model = model
                 if idx != active:
@@ -747,9 +783,9 @@ def _with_models(call):
                     break
                 if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
                     break   # bu modelde ısrar etme, sıradakine geç
-                wait = 2 ** (attempt - 1)   # 1, 2 saniye
-                print(f"(Gemini {code} verdi, {wait} sn sonra tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
-                time.sleep(wait)
+                # artan bekleme (~1, ~2 sn, üst sınır 8 sn); iptal beklemenin ortasında da yakalanır
+                wait = failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
+                print(f"(Gemini {code} verdi, {wait:.1f} sn beklendi, tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
     if last is None:
         raise RuntimeError("Yanıt verecek model yapılandırılmamış.")
     raise last
@@ -860,6 +896,7 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
     def call(model: str) -> str:
         chat_session = cli[0].chats.create(model=model, config=cfg, history=history)
         resp = chat_session.send_message(prompt)
+        _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
     try:
@@ -995,7 +1032,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
             except LocalModelError as e:
                 if strict: raise
                 if privacy.mode() == "yerel" or _cli() is None:
-                    return str(e)
+                    return failure_policy.user_message(e)
         if privacy.mode() == "yerel":
             return "Yalnızca yerel modda görüntü, yerel görüntü modeline (örn. llava) gider; o da yanıt vermedi."
         if _cli() is None:
@@ -1018,6 +1055,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
 
         def call(model: str) -> str:
             resp = _cli().models.generate_content(model=model, contents=[image_part, prompt], config=cfg)
+            _route.tokens = usage_meter.tokens_from(resp)
             return resp.text or ""
 
         return _with_models(_metered(call, usage_meter.size(prompt, system)))
@@ -1026,7 +1064,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
     except Exception as e:
         _record_failure('modules/llm.py:ask_image')
         if strict: raise
-        return f"Ekran resmi okunurken hata oluştu: {e}"
+        return "Ekran resmi okunamadı: " + failure_policy.user_message(e)
 
 
 def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: bytes | None = None,

@@ -5,11 +5,15 @@ hata sınıfı, güvenli tanı özeti, cooldown ve bir sonraki yöntem türünü
 harici işlem yapmaz.
 """
 from __future__ import annotations
+import random
 import re
+import time
 
 CANCELLED = 'cancelled'
 AUTH = 'auth'
-RATE_LIMIT = 'rate_limit'
+RATE_LIMIT = 'rate_limit'            # geçici: dakikalık istek/token sınırı, kısa süre sonra açılır
+QUOTA_EXHAUSTED = 'quota_exhausted'  # kalıcı: günlük/hesap kotası bitti, beklemek bugün açmaz
+LOCAL_MODEL = 'local_model'          # Ollama kurulu/çalışır değil ya da istenen model indirilmemiş
 DNS = 'dns'
 TIMEOUT = 'timeout'
 NETWORK = 'network'
@@ -24,6 +28,8 @@ UNKNOWN = 'unknown'
 
 _PROVIDER_REASON_CODES = {
     RATE_LIMIT: 'PROVIDER_RATE_LIMIT',
+    QUOTA_EXHAUSTED: 'PROVIDER_QUOTA_EXHAUSTED',
+    LOCAL_MODEL: 'PROVIDER_LOCAL_MODEL',
     AUTH: 'PROVIDER_AUTH',
     DNS: 'PROVIDER_DNS',
     NETWORK: 'PROVIDER_NETWORK',
@@ -35,6 +41,8 @@ _PROVIDER_REASON_CODES = {
 
 _PROVIDER_RECOVERY_CLASSES = {
     RATE_LIMIT: 'fallback_possible',
+    QUOTA_EXHAUSTED: 'fallback_possible',
+    LOCAL_MODEL: 'user_action_required',
     AUTH: 'fallback_possible',
     DNS: 'retryable',
     NETWORK: 'retryable',
@@ -64,6 +72,17 @@ def status_code(exc: BaseException) -> int | None:
     return code if type(code) is int and 100 <= code <= 599 else None
 
 
+# Yalnız açık günlük/hesap kotası ifadesi kalıcı sayılır. Gemini her 429'da "exceeded your current quota"
+# yazdığı için bu cümle ve çıplak 429 kalıcı kota kanıtı değildir.
+_QUOTA_EXHAUSTED_RE = re.compile(r'per ?day|daily|günlük|insufficient_quota|\btpd\b|\brpd\b', re.I)
+_LOCAL_MODEL_TYPES = {'localmodelerror', 'imagecapabilityerror'}
+
+
+def quota_exhausted_text(text) -> bool:
+    """429 gövdesi günlük/hesap kotasının bittiğini açıkça söylüyor mu (kalıcı, beklemek bugün açmaz)?"""
+    return bool(_QUOTA_EXHAUSTED_RE.search(str(text or '')))
+
+
 def classify(exc: BaseException) -> str:
     if isinstance(exc, ProviderExhaustedError):
         return PROVIDER_EXHAUSTED
@@ -73,9 +92,12 @@ def classify(exc: BaseException) -> str:
     if name == 'cancelled':
         return CANCELLED
     if code == 429 or re.search(r'\b429\b|resource_exhausted|quota|rate[ _-]?limit|token sınır', text, re.I):
-        return RATE_LIMIT
-    if code in (401, 403) or re.search(r'api[_ -]?key|unauthenticated|invalid[_ -]?grant|revoked|kimlik|yetkisiz', text, re.I):
+        return QUOTA_EXHAUSTED if _QUOTA_EXHAUSTED_RE.search(text) else RATE_LIMIT
+    if code in (401, 403) or re.search(r'api[_ -]?key|unauthenticated|invalid[_ -]?grant|revoked|kimlik|yetkisiz'
+                                       r'|anahtar\w*\s+(?:geçersiz|yok)', text, re.I):
         return AUTH
+    if name in _LOCAL_MODEL_TYPES and any(server in text for server in ('ollama', 'lm studio', 'llama.cpp')):
+        return LOCAL_MODEL
     if name in {'servernotfounderror', 'gaierror'} or any(part in text for part in (
         'unable to find the server', 'name or service not known', 'temporary failure in name resolution',
         'getaddrinfo failed', 'name resolution', 'dns',
@@ -137,7 +159,7 @@ def structured_outcome(exc: BaseException) -> dict | None:
 
 def recovery_action(category: str, *, context: str = '') -> str:
     """Return strategy name only; caller decides which safe adapter implements it."""
-    if category in {RATE_LIMIT, PROVIDER_DOWN}:
+    if category in {RATE_LIMIT, QUOTA_EXHAUSTED, LOCAL_MODEL, PROVIDER_DOWN}:
         return 'alternate_provider'
     if category in {DNS, NETWORK, TIMEOUT}:
         return 'alternate_path'
@@ -162,6 +184,8 @@ def cooldown_seconds(provider: str, exc: BaseException) -> int:
     category = classify(exc)
     if category == AUTH:
         return 1800
+    if category == QUOTA_EXHAUSTED:
+        return 3600
     if category == RATE_LIMIT:
         return 300
     if provider == 'ollama':
@@ -175,7 +199,7 @@ def legacy_kind(exc: BaseException) -> str:
     category = classify(exc)
     if category == AUTH:
         return 'key'
-    if category == RATE_LIMIT:
+    if category in {RATE_LIMIT, QUOTA_EXHAUSTED}:
         return 'quota'
     return 'other'
 
@@ -203,7 +227,9 @@ def failure_detail(provider: str, exc: BaseException) -> str:
     category = classify(exc)
     reason = {
         AUTH: 'kimlik/erişim reddedildi',
-        RATE_LIMIT: 'kota veya hız sınırı',
+        RATE_LIMIT: 'geçici hız sınırı',
+        QUOTA_EXHAUSTED: 'günlük kota doldu',
+        LOCAL_MODEL: 'yerel model yok',
         DNS: 'DNS çözümlemesi başarısız',
         TIMEOUT: 'zaman aşımı',
         NETWORK: 'bağlantı kurulamadı veya kesildi',
@@ -221,6 +247,8 @@ def short_text(exc: BaseException) -> str:
     return {
         AUTH: 'anahtarı veya izni geçersiz',
         RATE_LIMIT: 'istek/token sınırına takıldı',
+        QUOTA_EXHAUSTED: 'günlük kotası doldu',
+        LOCAL_MODEL: 'yerel model kullanılamadı',
         DNS: 'DNS üzerinden sunucuya ulaşamadı',
         TIMEOUT: 'zaman aşımına uğradı',
         NETWORK: 'ağ bağlantısı kurulamadı',
@@ -228,6 +256,57 @@ def short_text(exc: BaseException) -> str:
         PROVIDER_EXHAUSTED: 'uygun ücretsiz sağlayıcı kalmadı',
         ENVIRONMENT: 'yerel çalışma ortamı eksik',
     }.get(classify(exc), 'yanıt vermedi')
+
+
+# Sağlayıcı/ağ/model hataları: kullanıcıya ham metin yerine sınıflandırılmış açıklama gider.
+PROVIDER_CATEGORIES = frozenset({RATE_LIMIT, QUOTA_EXHAUSTED, LOCAL_MODEL, AUTH, DNS, NETWORK, TIMEOUT,
+                                 PROVIDER_DOWN, ENVIRONMENT, PROVIDER_EXHAUSTED})
+
+
+def user_message(exc: BaseException) -> str:
+    """Sağlayıcı/ağ hatasında güvenli açıklama, diğer hatalarda kendi özgül mesajı (ör. 'Not metni boş')."""
+    if classify(exc) in PROVIDER_CATEGORIES:
+        return explain(exc)
+    return str(exc).strip() or explain(exc)
+
+
+# ------------------------------------------------------------------ sınırlı yeniden deneme
+MAX_RETRIES = 3          # aynı hedefe en fazla deneme sayısı (ilk deneme dahil)
+BACKOFF_BASE = 1.0       # ilk bekleme (sn); her denemede iki katına çıkar
+BACKOFF_CAP = 8.0        # tek beklemenin üst sınırı (sn)
+
+
+def is_transient(exc_or_category) -> bool:
+    """Aynı hedefte kısa beklemeyle yeniden denemeye değer mi? 429/kota/kimlik/yerel model hayır."""
+    category = classify(exc_or_category) if isinstance(exc_or_category, BaseException) else exc_or_category
+    return category in {DNS, NETWORK, TIMEOUT, PROVIDER_DOWN}
+
+
+def backoff_delay(attempt: int, *, base: float = BACKOFF_BASE, cap: float = BACKOFF_CAP, rand=None) -> float:
+    """attempt. başarısız denemeden sonra beklenecek saniye: base*2^(attempt-1), üstten cap ile sınırlı.
+
+    Yarım jitter (%50-%100) aynı anda düşen istekler aynı saniyede yeniden vurmasın diye eklenir.
+    """
+    attempt = max(1, int(attempt))
+    delay = min(cap, base * (2 ** (attempt - 1)))
+    return round(delay * (0.5 + 0.5 * (rand or random.random)()), 3)
+
+
+def backoff_sleep(attempt: int, *, check=None, sleep=None, **kwargs) -> float:
+    """backoff_delay kadar bekler; check verilirse (ör. requests_state.check) bekleme dilimlerle bölünür
+    ve iptal/zaman aşımı beklemenin ortasında da yakalanır."""
+    sleep = sleep or time.sleep
+    delay = backoff_delay(attempt, **kwargs)
+    left = delay
+    while left > 0:
+        if check is not None:
+            check()
+        step = min(0.25, left)
+        sleep(step)
+        left -= step
+    if check is not None:
+        check()
+    return delay
 
 
 def explain(exc: BaseException) -> str:
@@ -241,9 +320,22 @@ def explain(exc: BaseException) -> str:
         if offline:
             return offline
     if category == RATE_LIMIT:
-        return 'Yapay zekâ kullanım sınırı doldu; Jarvis uygun başka sağlayıcı veya modelsiz yolu denemeli.'
+        return ('Yapay zekâ geçici kullanım sınırına takıldı (dakikalık istek sınırı; günlük kota bitmedi). '
+                'Bir dakika kadar bekleyip tekrar dene.')
+    if category == QUOTA_EXHAUSTED:
+        return ('Yapay zekânın günlük kotası doldu; beklemek bugün açmaz. Kota yarın yenilenir; '
+                'şimdi devam etmek için Bağlantılar sayfasından kendi Groq anahtarını ekleyebilir ya da yerel modeli (Ollama) kullanabilirsin.')
+    if category == LOCAL_MODEL:
+        from modules import ollama_hint
+        model = re.search(r'“([\w.:/-]{1,80})” modeli yok', str(exc))
+        if model:
+            return f"Yerel modelde “{model.group(1)}” indirilmemiş. Terminalde `ollama pull {model.group(1)}` yaz."
+        if type(exc).__name__ == 'ImageCapabilityError':
+            return ollama_hint.IMAGE
+        return 'Yerel model (Ollama) kurulu değil ya da çalışmıyor: ' + ollama_hint.INSTALL + '.'
     if category == AUTH:
-        return 'Bağlantı veya hesap izni geçersiz. İlgili entegrasyonun bağlantısını kontrol et.'
+        return ('Kimlik doğrulama reddedildi: API anahtarı veya hesap izni geçersiz. '
+                'Bağlantılar sayfasından anahtarı ya da ilgili hesabın bağlantısını kontrol et.')
     if category == DNS:
         return 'Sunucu adı DNS üzerinden çözümlenemedi. Hesap izni korunur; ağ düzeldiğinde yeniden denenebilir.'
     if category == TIMEOUT:

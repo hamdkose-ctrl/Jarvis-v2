@@ -10,7 +10,8 @@ import time
 from modules import failure_policy, goal_tools
 
 # Planlayıcının hiç yanıt veremediği sağlayıcı/ortam hataları (araç ya da doğrulama hatası değil).
-MODEL_DOWN = {failure_policy.RATE_LIMIT, failure_policy.AUTH, failure_policy.DNS, failure_policy.NETWORK,
+MODEL_DOWN = {failure_policy.RATE_LIMIT, failure_policy.QUOTA_EXHAUSTED, failure_policy.LOCAL_MODEL,
+              failure_policy.AUTH, failure_policy.DNS, failure_policy.NETWORK,
               failure_policy.TIMEOUT, failure_policy.PROVIDER_DOWN, failure_policy.PROVIDER_EXHAUSTED,
               failure_policy.ENVIRONMENT}
 
@@ -25,7 +26,7 @@ def reason(exc):
     """Kullanıcıya gösterilecek güvenli neden; ham sağlayıcı metni, anahtar veya yol sızmaz."""
     from modules import llm
     category = failure_policy.classify(exc)
-    if category in MODEL_DOWN - {failure_policy.ENVIRONMENT}:
+    if category in MODEL_DOWN - {failure_policy.ENVIRONMENT, failure_policy.LOCAL_MODEL}:
         return failure_policy.explain(exc)
     if isinstance(exc, llm.LocalModelError):
         text = str(exc)

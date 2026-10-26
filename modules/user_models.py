@@ -1,4 +1,8 @@
-"""Per-user Gemini model preference; the existing installation models remain defaults."""
+"""Kullanıcıya özel model tercihi: Gemini model sırası, sağlayıcı, Groq modeli ve yerel model.
+
+Kayıt `~/.jarvis/models/<kullanıcı>.json`. Alan yoksa kurulumun genel ayarı (settings.json) geçerlidir.
+Ücretli sağlayıcı yalnız kullanıcı açıkça seçerse buraya yazılır; buradan otomatik geçiş yapılmaz.
+"""
 from pathlib import Path
 import re
 import threading
@@ -7,6 +11,11 @@ from config import DATA_DIR
 import release_guard
 
 _LOCK = threading.RLock()
+PROVIDERS = ('auto', 'openrouter', 'gemini', 'groq', 'ollama', 'openai', 'anthropic')
+_GEMINI_NAME = r'[A-Za-z0-9._/-]{1,150}'
+_MODEL_NAME = r'[A-Za-z0-9._:/@-]{1,150}'      # Ollama etiketi (llama3.2:3b) ve Groq kimliği (openai/gpt-oss-120b)
+_CHOICE_KEYS = ('provider', 'groq_model', 'local_model')
+
 
 def _path(owner):
     if not re.fullmatch(r'[\w-]{1,100}', str(owner or '')):
@@ -14,26 +23,82 @@ def _path(owner):
     return DATA_DIR / 'models' / (owner + '.json')
 
 
+def _read(owner) -> dict:
+    with _LOCK:
+        try:
+            value = json.loads(_path(owner).read_text(encoding='utf-8'))
+        except FileNotFoundError:
+            return {}
+    if not isinstance(value, dict):
+        raise ValueError('Model kaydı geçersiz.')
+    return value
+
+
 def get(owner, defaults):
     if not owner:
         return list(defaults)
     try:
-        with _LOCK:
-            value = json.loads(_path(owner).read_text(encoding='utf-8'))
-        names = value.get('models')
+        names = _read(owner).get('models')
+        if names is None:          # yalnız sağlayıcı seçimi kayıtlı: Gemini sırası kurulum varsayılanı
+            return list(defaults)
         if not isinstance(names, list) or not names or len(names)>8 or any(not isinstance(x,str) or not x.strip() for x in names):
             raise ValueError('Model kaydı geçersiz.')
         return list(dict.fromkeys(names))
-    except FileNotFoundError:
-        return list(defaults)
     except (OSError, ValueError, AttributeError):
         from modules.diagnostics import record_failure
         record_failure('modules/user_models.py:get')
         return list(defaults)
 
 
-def save(owner, names):
-    if not isinstance(names,list) or not names or len(names)>8 or any(not isinstance(x,str) or not re.fullmatch(r'[A-Za-z0-9._/-]{1,150}',x) for x in names):
-        raise ValueError('Geçerli ana model ve en fazla 7 yedek model seç.')
+def choice(owner) -> dict:
+    """Kullanıcının kayıtlı sağlayıcı/Groq/yerel model seçimi; geçersiz veya eksik alanlar dönmez."""
+    if not owner:
+        return {}
+    try:
+        value = _read(owner)
+    except (OSError, ValueError):
+        from modules.diagnostics import record_failure
+        record_failure('modules/user_models.py:choice')
+        return {}
+    out = {}
+    if value.get('provider') in PROVIDERS:
+        out['provider'] = value['provider']
+    for key in ('groq_model', 'local_model'):
+        if isinstance(value.get(key), str) and re.fullmatch(_MODEL_NAME, value[key]):
+            out[key] = value[key]
+    return out
+
+
+def _write(owner, **changes):
     with _LOCK:
-        release_guard.save(_path(owner), {'models':list(dict.fromkeys(names))})
+        try:
+            value = _read(owner)
+        except (OSError, ValueError):
+            value = {}     # bozuk kayıt yeni seçimle düzelir
+        value.update(changes)
+        release_guard.save(_path(owner), value)
+
+
+def save(owner, names):
+    if not isinstance(names,list) or not names or len(names)>8 or any(not isinstance(x,str) or not re.fullmatch(_GEMINI_NAME,x) for x in names):
+        raise ValueError('Geçerli ana model ve en fazla 7 yedek model seç.')
+    _write(owner, models=list(dict.fromkeys(names)))
+
+
+def save_choice(owner, provider=None, groq_model=None, local_model=None):
+    """Verilen alanları kullanıcıya yazar; None olan alan değişmez."""
+    changes = {}
+    if provider is not None:
+        if provider not in PROVIDERS:
+            raise ValueError('Sağlayıcı geçersiz.')
+        changes['provider'] = provider
+    for key, model in (('groq_model', groq_model), ('local_model', local_model)):
+        if model is None:
+            continue
+        model = str(model).strip()
+        if not re.fullmatch(_MODEL_NAME, model):
+            raise ValueError('Model adı geçersiz.')
+        changes[key] = model
+    if changes:
+        _write(owner, **changes)
+    return choice(owner)
