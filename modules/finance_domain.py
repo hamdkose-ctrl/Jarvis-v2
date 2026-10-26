@@ -30,7 +30,8 @@ BRANCHES = {
         'effect_policy': 'read_only',
         'modules': ('modules/finance.py', 'modules/tool_finance.py'),
         'entry_points': ('modules/finance.py:answer', 'modules/finance.py:parse',
-                         'modules/finance.py:rates', 'modules/finance.py:is_conversion'),
+                         'modules/finance.py:rates', 'modules/finance.py:dated_rate',
+                         'modules/finance.py:is_conversion'),
         'invariants': (
             'Yalnız kamuya açık, anahtarsız ve ücretsiz kaynak okunur; okuma public_sources.fetch üzerinden yapılır.',
             'Kaynak yanıtından yalnız sayı ve tarih alınır; kaynak metni modele gitmez.',
@@ -69,7 +70,7 @@ BRANCHES = {
         'permission_class': 'read',
         'effect_policy': 'read_only',
         'modules': (),
-        'entry_points': ('modules/domain_tools.py:exchange', 'modules/finance.py:_safe_xml'),
+        'entry_points': ('modules/finance.py:dated_rate', 'modules/finance.py:_safe_xml'),
         'invariants': (
             'Kaynak yanıtı istenen varlık/para birimi ve tarihle eşleşmezse sonuç reddedilir.',
             'Kanıt en az kaynak adresi, veri tarihi, okuma zamanı ve gövde özeti (sha256) taşır.',
@@ -96,9 +97,6 @@ MIGRATION = (
     {'step': '3-D', 'branch': 'alarm', 'location': 'modules/watcher.py:loop',
      'target': 'modules/watcher.py:loop',
      'note': 'Bildirim teslimi Communication tarafında kalır ama ntfy başlığı "Jarvis klasör izleme" yerine finans alarmı olarak ayrılır.'},
-    {'step': '3-E', 'branch': 'source_verification', 'location': 'modules/domain_tools.py:exchange',
-     'target': 'modules/finance.py:dated_rate',
-     'note': 'Tarihli kur Finance veri dalına taşınır; domain_tools.exchange ince sarmalayıcı kalır.'},
     {'step': '3-F', 'branch': 'analysis', 'location': 'modules/domain_tools.py:csv_analysis',
      'target': 'modules/finance_analysis.py:csv_summary',
      'note': "Yalnız kind='finance' kolu taşınır; mağaza CSV'si domain_tools'ta kalır."},
