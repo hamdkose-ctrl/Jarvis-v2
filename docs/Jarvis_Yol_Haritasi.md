@@ -133,6 +133,17 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 - RSS ve site izleyicisi tam kapsamlı olacak; haftalık haber otomasyonu ve uzun araştırmada bağlam yönetimi eklenecek. Şu an RSS dar, haftalık otomasyon zayıf.
 - Kaynak gösterimi biçimi ve konudan kopmama denetimi Hoca dışına yayılacak. Şu an kısmen Hoca'da var.
 
+#### Ek kabul kriterleri — Fable/Claude agent benchmark
+
+- **Tespit edildi — uygulama bekliyor: güncellik isteğini doğru yönlendirme.**
+  - **Kod kanıtı:** Uygulama PR'ında araştırma/worker yönlendirmesinde sorgunun güncellik ihtiyacını ayıran açık karar noktası ve bu kararı kilitleyen test gösterilecek.
+  - **Beklenen davranış:** "bugün", "son", "güncel", mevcut görev sahibi/fiyat/kural gibi değişken bilgi isteyen sorgu taze kaynağa yönlenecek; durağan bilgi gereksiz web aramasına zorlanmayacak.
+  - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu verildiğinde güncel olan doğrulanmış taze kaynak aramasına giderken durağan olanın gereksiz ağ çağrısı yapmadığı kanıtlanacak.
+- **Tespit edildi — uygulama bekliyor: kaynak çelişkisinde ek doğrulama.**
+  - **Kod kanıtı:** Uygulama PR'ında kaynak sıralama/karşılaştırma yolunun çelişkiyi algıladığında ek bir doğrulama adımı çalıştırdığı ve sonucu evidence zincirine eklediği gösterilecek.
+  - **Beklenen davranış:** Güvenilir iki kaynak aynı olgu için çelişirse Jarvis ilk sonucu sessizce seçmeyecek; ek kaynak veya birincil kaynakla doğrulama yapacak, çözülemeyen çelişkiyi açık bırakacak.
+  - **Kabul testi:** Enjekte edilmiş iki çelişkili kaynakla araştırma çalıştırıldığında ek doğrulama çağrısı veya "çelişki çözülemedi" sonucu zorunlu olacak; ilk kaynak doğrudan nihai gerçek kabul edilmeyecek.
+
 ### 4B — FileWorker sağlamlaştırma
 
 🟡 (#373) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
@@ -292,6 +303,17 @@ Her yazma işlemi kesin hedef, niyet kaydı, makbuz ve okuyup doğrulama ister.
 **Durum: başlanmadı.**
 
 Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini geliştirme eklenir. Tüm yetenekler çalışıyor; kişisel uyarlama ve büyüme bunların üstüne oturur.
+
+### Ek kabul kriterleri — Fable/Claude agent benchmark
+
+- **Tespit edildi — uygulama bekliyor: öğrenilmiş kurallar Core ve izin politikasını geçersiz kılamaz.**
+  - **Kod kanıtı:** İlk uygulama PR'ı learned-rule/memory uygulama noktasında açık precedence kontrolü göstermeli; öğrenilmiş kural yalnız advisory/context girdisi olabilir ve Domain invariant → Decision Authority → JIT Permission → Effect Policy sırasının sonucunu değiştirememelidir.
+  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştirmez.
+  - **Kabul testi:** Öğrenilmiş kuralın hedef/alıcıyı değiştirmeye veya gerekli onayı atlamaya çalıştığı senaryoda execution kararı değişmeden kalmalı ve işlem mevcut Core/Permission politikası uyarınca reddedilmeli ya da onay istemelidir.
+- **Tespit edildi — uygulama bekliyor: ilgisiz hafızayı bağlama almama (memory relevance gate).**
+  - **Kod kanıtı:** Uygulama PR'ında hafıza adaylarının bağlama girmeden önce görevle ilgililik filtresinden geçtiği ve filtre sonucunun testle kilitlendiği gösterilecek.
+  - **Beklenen davranış:** Hafıza yalnız mevcut sorunun sonucunu, önerisini veya gerekli bağlamını gerçekten değiştiriyorsa kullanılacak; alakasız geçmiş ayrıntılar yalnız "hatırlıyorum" göstermek için prompt/context'e eklenmeyecek.
+  - **Kabul testi:** Aynı kullanıcı için biri görevle ilgili, biri ilgisiz iki hafıza verildiğinde yalnız ilgili olanın oluşturulan bağlama girdiği; ilgisiz olanın model girdisine taşınmadığı kanıtlanacak.
 
 - Kullanıcı profilleri eklenecek. Jarvis tek örnek, tek oturum, tek arayüz kalır. Asıl kullanıcı Hamdi. Biri "ben Hasan" derse (sesle ya da yazarak) Jarvis Hasan'a göre çalışır; Hasan'ın kendi ayrı hafızası ve geçmişi olur. Kısıtlama yoktur, her profil her özelliği kullanır. Geliştirici menüsü şifresi olduğu gibi kalır. Şu an owner alanı ve kullanıcıya özel belirteç var, sözle profil geçişi yok.
 - Oturum arama, çapraz oturum hatırlama, oturum üst-alt ilişkisi, oturum meta verisi, geçmiş arama ve hafıza ön yükleme eklenecek. Şu an kalıcı sohbet geçmişi var, arama yok.
