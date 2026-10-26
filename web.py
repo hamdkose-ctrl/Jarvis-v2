@@ -428,7 +428,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             "llm": {"models": llm.model_names(p.slug), "active": llm.model_names(p.slug).index(llm.active_model(p.slug)), "key": bool(key),
                     "key_tail": key[-4:] if len(key) > 8 else "", "provider": llm.provider(),
                     "sec": dict(getattr(llm, "LAST_SEC", {})),
-                    "ollama_up": _ollama_up(),
+                    "ollama_up": _ollama_up(), **llm.local_info(),
                     "paid": llm.paid_status(),
                     "groq": {"key": bool(llm.user_groq_key(p.slug)), "model": llm.groq_model(),
                              "tail": llm.user_groq_key(p.slug)[-4:]}},
@@ -1518,7 +1518,7 @@ def _capabilities() -> list:
     add(G, "Kişisel yapay zekâ işletim sistemi", "Personal AI operating system", "ready", "Komut merkezi, ajanlar, hafıza ve araçlar tek çatıda")
     add(G, "Windows yapay zekâ asistanı", "Windows AI assistant", "ready", "Uygulama, ses, parlaklık, kilit, kapatma")
     add(G, "Çoklu model yapay zekâ çalışma alanı", "Multi-model AI workspace", "ready",
-        f"Gemini {len(st['gemini_models'])} model (yedekli)" + (" + Groq" if st["groq_key"] else "") + (f" + Ollama {len(st['ollama_models'])} yerel model" if ollama else ""))
+        f"Gemini {len(st['gemini_models'])} model (yedekli)" + (" + Groq" if st["groq_key"] else "") + (f" + {st['local_label']} {len(st['ollama_models'])} yerel model" if ollama else ""))
     add(G, "Akıllı yapay zekâ ajanı", "Intelligent AI agent", "ready", "12 yetenek alanı, komutları kendisi sınıflandırır")
     add(G, "Yapay zekâ hafızası ve kişisel bağlam", "AI memory and personal context", "ready", f"{len(prof.data.get('facts') or [])} bilgi, hedefler, tercihler")
     add(G, "Bilgi erişimi (RAG)", "RAG knowledge retrieval", "ready", f"{len(prof.data.get('kb') or [])} belgeden yanıt")
@@ -1534,7 +1534,7 @@ def _capabilities() -> list:
     add(G, "Takvim ve e-posta desteği", "Calendar and email assistance", "ready" if google_ok else "setup",
         "Gmail ve Google Takvim (salt okuma)" if google_ok else "Menü › Yapay zekâ › Gmail ve Takvim bölümünden Google'ı bağla")
     add(G, "Ollama aracılığıyla yerel yapay zekâ", "Local AI through Ollama", "ready" if ollama else "off",
-        f"Model: {st['ollama_model']}" if ollama else "İsteğe bağlı: kurulu değil. Jarvis onsuz çalışır; yalnızca “Yalnızca yerel” mod ve yerel iş maili özeti için gerekir (ollama.com)")
+        f"{st['local_label']} · Model: {st['ollama_model'] or 'sunucudaki ilk model'}" if ollama else "İsteğe bağlı: kurulu değil. Jarvis onsuz çalışır; yalnızca “Yalnızca yerel” mod ve yerel iş maili özeti için gerekir (ollama.com)")
     cloud_names=(["Gemini"] if st["gemini_key"] else []) + (["Groq ("+st["groq_model"]+")"] if st["groq_key"] else [])
     cloud_names += [label for key,label in (("openai","OpenAI"),("anthropic","Claude")) if st.get("paid",{}).get(key,{}).get("key")]
     add(G, "Bulut yapay zekâ sağlayıcısı desteği", "Cloud AI provider support", "ready" if cloud_names else "setup",
@@ -1545,7 +1545,7 @@ def _capabilities() -> list:
     add(G, "Komuta Merkezi paneli", "Command Center dashboard", "ready", "Bu pencere")
     add(G, "Genişletilebilir entegrasyonlar", "Extensible integrations", "ready", f"{len(plugins.listing())} eklenti (~/.jarvis/plugins)")
     P = "Gizlilik ve kontrol"
-    add(P, "Yerel yapay zekâ (Ollama)", "Local AI", "ready" if ollama else "setup", "“Yalnızca yerel” modda hiçbir şey buluta gitmez")
+    add(P, f"Yerel yapay zekâ ({st['local_label']})", "Local AI", "ready" if ollama else "setup", "“Yalnızca yerel” modda hiçbir şey buluta gitmez")
     add(P, "Yerel ses tanıma ve ses seçenekleri", "Local speech options", "ready" if mic_ok else "setup",
         "Ses tanıma Google'ın çevrimiçi servisini kullanır; “Yalnızca yerel” modda konuşma sesi çevrimdışı Windows sesiyle okunur")
     add(P, "Gizli kişisel bilgi/hafıza depolama", "Private memory storage", "ready", "Yalnızca bu bilgisayarda ~/.jarvis içinde")

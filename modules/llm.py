@@ -150,14 +150,47 @@ class ImageCapabilityError(LocalModelError):
     """Ollama modeli çalışıyor fakat görüntü girdisini desteklemiyor."""
 
 
+# Yerel model sunucusu: "ollama" sağlayıcısı yuvası aynı kalır, arkadaki sunucu seçilebilir.
+# LM Studio ve llama.cpp (llama-server) OpenAI uyumlu /v1 uç noktası sunar; ikisi de isteğe bağlıdır.
+LOCAL_BACKENDS = {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234/v1",
+                  "llamacpp": "http://127.0.0.1:8080/v1"}
+LOCAL_LABELS = {"ollama": "Ollama", "lmstudio": "LM Studio", "llamacpp": "llama.cpp"}
+
+
 def _cfg() -> dict:
     s = load_settings()
     configured = s.get("provider") or "gemini"
     if configured not in {"auto", "openrouter", "gemini", "groq", "ollama", "openai", "anthropic"}:
         configured = "gemini"
-    return {"provider": configured,
-            "url": (s.get("ollama_url") or "http://127.0.0.1:11434").rstrip("/"),
-            "model": s.get("ollama_model") or "llama3.2"}
+    backend = s.get("local_backend") if s.get("local_backend") in LOCAL_BACKENDS else "ollama"
+    if backend == "ollama":
+        url, model = s.get("ollama_url") or LOCAL_BACKENDS["ollama"], s.get("ollama_model") or "llama3.2"
+    else:   # model boşsa sunucunun /models listesindeki ilk model kullanılır (_local_model)
+        url, model = s.get("local_url") or LOCAL_BACKENDS[backend], (s.get("local_model") or "").strip()
+    return {"provider": configured, "backend": backend, "url": url.rstrip("/"), "model": model}
+
+
+def _backend(c: dict | None = None) -> str:
+    return (c if c is not None else _cfg()).get("backend", "ollama")
+
+
+def local_info() -> dict:
+    """Ağ çağrısı yapmadan seçili yerel sunucu bilgisi (arayüz anlık görüntüsü için)."""
+    c = _cfg()
+    return {"local_backend": _backend(c), "local_label": LOCAL_LABELS[_backend(c)],
+            "ollama_url": c["url"], "ollama_model": c["model"]}
+
+
+def local_label() -> str:
+    return LOCAL_LABELS[_backend()]
+
+
+def local_hint() -> str:
+    """Seçili yerel sunucu yokken tek Türkçe çözüm cümlesi."""
+    backend = _backend()
+    if backend == "ollama":
+        return ollama_hint.need("Yerel model")
+    return ollama_hint.need_local(LOCAL_LABELS[backend], _cfg()["url"])
 
 
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
@@ -190,7 +223,9 @@ _ollama_tags_cache = {}
 
 
 def ollama_models(force=False) -> list[str]:
-    url = _cfg()['url']
+    """Seçili yerel sunucudaki modeller (Ollama /api/tags, LM Studio/llama.cpp /models); yoksa boş liste."""
+    c = _cfg()
+    url, openai_like = c['url'], _backend(c) != "ollama"
     with _ollama_tags_lock:
         cached = _ollama_tags_cache.get(url)
         # Kurulu olmayan (boş) sonuç daha uzun tutulur: kapalı yerel porta bağlanmak Windows'ta saniyeler sürebilir.
@@ -199,9 +234,12 @@ def ollama_models(force=False) -> list[str]:
         try:
             host = (urlparse(url).hostname or '').lower()
             connect = 0.4 if host in ('127.0.0.1', 'localhost', '::1') else 3   # yerel Ollama yoksa açılışı bekletme
-            r = requests.get(url + '/api/tags', timeout=(connect, 3))
+            r = requests.get(url + ('/models' if openai_like else '/api/tags'), timeout=(connect, 3))
             r.raise_for_status()
-            rows = sorted(m['name'] for m in r.json().get('models', []) if isinstance(m.get('name'), str))
+            if openai_like:
+                rows = sorted(m['id'] for m in r.json().get('data', []) if isinstance(m.get('id'), str))
+            else:
+                rows = sorted(m['name'] for m in r.json().get('models', []) if isinstance(m.get('name'), str))
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             rows = []
         if len(_ollama_tags_cache) >= 8:
@@ -243,7 +281,27 @@ def status() -> dict:
             "provider": provider(), "configured": c["provider"], "privacy": privacy.mode(),
             "model_validation": validation, "gemini_models": model_names(), "gemini_active": active_model(), "gemini_key": bool(user_key(current_user())),
             "paid": paid_status(),
-            "ollama_url": c["url"], "ollama_model": c["model"], "ollama_up": bool(om), "ollama_models": om}
+            "ollama_url": c["url"], "ollama_model": c["model"], "ollama_up": bool(om), "ollama_models": om,
+            "local_backend": _backend(c), "local_label": LOCAL_LABELS[_backend(c)], "local_backends": LOCAL_LABELS}
+
+
+def set_local_backend(backend: str, url: str = "", model: str = "") -> None:
+    """Yerel model sunucusunu seçer (Ollama, LM Studio, llama.cpp). Sağlayıcı seçimini değiştirmez."""
+    if backend not in LOCAL_BACKENDS:
+        raise ValueError("Yerel sunucu ollama, lmstudio veya llamacpp olmalı.")
+    url = (url or "").strip().rstrip("/")
+    if url:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("Yerel uç nokta http://adres:port biçiminde olmalı.")
+    ch = {"local_backend": backend}
+    if backend == "ollama":
+        if url: ch["ollama_url"] = url
+        if model.strip(): ch["ollama_model"] = model.strip()
+    else:
+        ch["local_url"] = url or LOCAL_BACKENDS[backend]
+        ch["local_model"] = model.strip() or None
+    save_settings(**ch)
 
 
 def set_provider(name: str, model: str | None = None, url: str | None = None) -> None:
@@ -269,9 +327,62 @@ def set_provider(name: str, model: str | None = None, url: str | None = None) ->
     save_settings(**ch)
 
 
+def _local_model(c: dict) -> str:
+    """LM Studio/llama.cpp: ayarlı model yoksa sunucunun yüklü ilk modeli."""
+    if c["model"]:
+        return c["model"]
+    rows = ollama_models()
+    if not rows:
+        raise LocalModelError(local_hint())
+    return rows[0]
+
+
+def _openai_local(messages: list[dict], system: str, max_tokens: int, images: list[str] | None = None,
+                  model: str | None = None) -> str:
+    """LM Studio ve llama.cpp: OpenAI uyumlu /chat/completions. Anahtar gerekmez, veri bilgisayardan çıkmaz."""
+    c = _cfg()
+    backend = _backend(c)
+    label = LOCAL_LABELS[backend]
+    model = model or _local_model(c)
+    msgs = ([{"role": "system", "content": system}] if system else []) + messages
+    if images:
+        msgs[-1] = {**msgs[-1], "content": [{"type": "text", "text": msgs[-1].get("content", "")}] + [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b}} for b in images]}
+    sent = usage_meter.size(messages) + len(system or "")
+    try:
+        r = requests.post(c["url"] + "/chat/completions", timeout=(5, 45),
+                          json={"model": model, "messages": msgs, "stream": False, "max_tokens": max_tokens})
+    except requests.RequestException as e:
+        usage_meter.record(backend, model, sent, 0, 'baglanti')
+        raise LocalModelError(local_hint()) from e
+    if r.status_code == 404:
+        usage_meter.record(backend, model, sent, 0, '404')
+        raise LocalModelError(f"{label} sunucusunda “{model}” modeli yok veya yüklenmemiş. Modeli {label} içinde yükle.")
+    if r.status_code >= 400:
+        usage_meter.record(backend, model, sent, 0, str(r.status_code))
+        try:
+            detail = str((r.json() if r.content else {}).get('error', '')).casefold()
+        except ValueError:
+            detail = ''
+        if images and any(word in detail for word in ('image', 'vision', 'multimodal', 'does not support', 'mmproj')):
+            raise ImageCapabilityError(ollama_hint.IMAGE)
+        raise LocalModelError(f"{label} hata verdi ({r.status_code}).")
+    try:
+        text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content", "")
+    except (ValueError, AttributeError, IndexError, TypeError) as e:
+        usage_meter.record(backend, model, sent, 0, 'bozuk')
+        raise LocalModelError(f"{label} yanıtı çözülemedi (geçersiz JSON).") from e
+    text = text if isinstance(text, str) else ""
+    usage_meter.record(backend, model, sent, len(text), 'ok' if text else 'bos')
+    _route.model = model
+    return text
+
+
 def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str] | None = None,
             model: str | None = None) -> str:
     c = _cfg()
+    if _backend(c) != "ollama":
+        return _openai_local(messages, system, max_tokens, images=images, model=model)
     model = model or c["model"]
     msgs = ([{"role": "system", "content": system}] if system else []) + messages
     if images:
@@ -282,7 +393,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
                                 "options": {"num_predict": max_tokens}})
     except requests.RequestException as e:
         usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
-        raise LocalModelError(ollama_hint.need("Yerel model")) from e
+        raise LocalModelError(local_hint()) from e
     sent = usage_meter.size(msgs)
     if r.status_code == 404:
         usage_meter.record('ollama', model, sent, 0, '404')
@@ -308,7 +419,10 @@ OLLAMA_BIG_MODEL = "qwen2.5:7b"
 
 def ollama_model_for(prompt: str) -> str:
     """Kod ve analizde yüklüyse büyük yerel model (qwen2.5:7b), sohbette ayarlı küçük model (llama3.2 = 3b)."""
-    base = _cfg()["model"]
+    c = _cfg()
+    base = c["model"]
+    if _backend(c) != "ollama":      # LM Studio/llama.cpp: kullanıcının yüklediği tek model
+        return base
     big = (load_settings().get("ollama_big_model") or OLLAMA_BIG_MODEL).strip()
     if not big or big == base:
         return base
@@ -322,14 +436,14 @@ def _ollama_task(messages: list[dict], system: str, max_tokens: int, prompt: str
     """Göreve uygun yerel modeli dener; büyük model çalışmazsa (bellek, bozuk model) küçük modele düşer."""
     base = _cfg()["model"]
     model = ollama_model_for(prompt)
-    if model != base:
+    if model != base and base:
         try:
             return _ollama(messages, system, max_tokens, model=model)
         except ImageCapabilityError:
             raise
         except LocalModelError:
             note_route(f"{model} yanıt vermedi, {base} kullanılıyor", False)
-    return _ollama(messages, system, max_tokens, model=base)
+    return _ollama(messages, system, max_tokens, model=base or None)
 
 
 
@@ -410,6 +524,8 @@ def embed(texts: list[str]) -> list[list[float]]:
     c = _cfg()
     out: list[list[float]] = []
     if provider() == "ollama":
+        if _backend(c) != "ollama":
+            raise ValueError("Yerel gömme (anlamsal arama) şimdilik yalnız Ollama ile çalışır.")
         model = load_settings().get("ollama_embed_model") or "nomic-embed-text"
         try:
             from modules import ollama_embed
@@ -649,7 +765,16 @@ _route = threading.local()   # bu iş parçacığındaki isteğin model izi; yal
 
 
 def provider_label(name: str) -> str:
+    if name == "ollama" and _backend() != "ollama":
+        return local_label() + " (yerel)"
     return _LABELS.get(name, name)
+
+
+def _local_unavailable(error: BaseException) -> str | None:
+    """Bağlantı reddi: seçili yerel sunucuya göre kurulum/başlatma cümlesi."""
+    if not ollama_hint.unavailable(error):
+        return None
+    return ollama_hint.unavailable(error) if _backend() == "ollama" else local_hint()
 
 
 def note_route(text: str, ok: bool) -> None:
@@ -719,7 +844,7 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
             if strict or privacy.mode() == "yerel" or _cli() is None:
                 raise                      # buluta düşmek yasak ya da bu kullanıcının Gemini anahtarı yok
             print("(Yerel model yok, Gemini'ye geçiliyor)")
-            note_route(ollama_hint.unavailable(e) or "Ollama yanıt vermedi, Gemini'ye geçildi", False)
+            note_route(_local_unavailable(e) or local_label() + " yanıt vermedi, Gemini'ye geçildi", False)
     prompt = _need_cloud(prompt)
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok ve seçili sağlayıcı kullanılamadı.")
@@ -757,7 +882,7 @@ def _after_gemini(prompt: str, system: str, max_tokens: int, history, error: Exc
             print("(Gemini yanıt vermedi, " + {"groq": "Groq'a", "ollama": "Ollama'ya"}[name] + " geçiliyor)")
             answer = _send(prompt, system, max_tokens, history, name, True)
         except (LocalModelError, CloudError) as e:
-            note_route((ollama_hint.unavailable(e) if name == 'ollama' else None) or provider_label(name) + " de yanıt vermedi", False)
+            note_route((_local_unavailable(e) if name == 'ollama' else None) or provider_label(name) + " de yanıt vermedi", False)
             continue
         if isinstance(answer, str) and answer.strip():
             return answer

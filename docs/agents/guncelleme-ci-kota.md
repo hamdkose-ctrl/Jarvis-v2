@@ -107,3 +107,12 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 ## Araç adımı hatasında ham sağlayıcı/ağ metni sızmaz (24 Ekim 2026)
 
 `goal_executor._record`'un araç adımı hatası yakalama bloğu artık her hata için `str(exc)` basmaz: `failure_policy.classify` sonucu sağlayıcı/ağ sınıflarından biriyse (`RATE_LIMIT`, `AUTH`, `DNS`, `NETWORK`, `TIMEOUT`, `PROVIDER_DOWN`, `ENVIRONMENT`) adımın `text`'i `failure_policy.explain`'in sınıflandırılmış, güvenli açıklamasına döner; bu Ollama kurulu değil/çalışmıyor ayrımını (`ollama_hint`) de kapsar. Diğer araç hataları (ör. `ValueError`, eksik dosya, `goal_tools.NotStarted`) kendi özgül mesajını korur; bu dar değişiklik onları değiştirmez. Yeni sağlayıcı, ücretli yedek veya retry artışı eklenmedi; tanı kaydı (`diagnostics.record_failure`) ayrıca ham bağlamı tutar. Test: `tests/test_goal_failure_policy.py`.
+
+## Yerel model sunucusu: Ollama, LM Studio, llama.cpp (26 Ekim 2026, Faz 1-B)
+
+- "ollama" sağlayıcı yuvası aynı kalır (Smart Router havuzu, "Yalnızca yerel" mod, Gemini yedeği değişmez); arkadaki sunucu `local_backend` ayarıyla seçilir: `ollama` (varsayılan, `ollama_url`/`ollama_model`), `lmstudio` (`http://127.0.0.1:1234/v1`) veya `llamacpp` (llama-server, `http://127.0.0.1:8080/v1`). İkisi için `local_url` ve isteğe bağlı `local_model` kullanılır; model boşsa sunucunun `/models` listesindeki ilk model seçilir (`llm._local_model`).
+- LM Studio/llama.cpp OpenAI uyumlu `/chat/completions` ile çağrılır (`llm._openai_local`; görüntü `image_url` data URI parçası). Model listesi `/models` (`data[].id`), aynı 0,4 sn yerel bağlantı zaman aşımı ve önbellek. Büyük model seçimi (`ollama_big_model`) yalnız Ollama'dadır. Anlamsal arama gömmesi şimdilik yalnız Ollama ile çalışır; diğerlerinde açık hata verir.
+- Hata metinleri seçili sunucuya göredir (`llm.local_hint`, `ollama_hint.need_local`); Ollama metinleri değişmedi. Sayaç satırının sağlayıcısı `lmstudio`/`llamacpp` olur.
+- Ayar yeri: Yapay zekâ › Ollama kartı (Ollama / LM Studio / llama.cpp seçimi, uç nokta, model, "Kaydet ve dene" → `local_backend_set`). Sağlayıcıyı değiştirmez; yerel modeli kullanmak için kartta ayrıca "Bunu kullan" gerekir.
+- Test: `tests/test_model_free_delivery.py` (`LocalBackendTests`, HTTP taklit). Gerçek LM Studio/llama.cpp sunucusuyla PC'de denenmedi.
+

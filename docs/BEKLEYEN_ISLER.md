@@ -333,3 +333,8 @@ Canlı PC'de genel duraklama mesajı ve araçsız hedefler görüldü. Modelin k
 - Denenmedi: canlı TCMB/Frankfurter yanıtı (TCMB'nin bot kullanıcı aracısını kabul edip etmediği dahil), Windows'ta sesli okuma ("4.192,54"), tam motor akışında daha önceki bir kuralın cümleyi yakalayıp yakalamadığı.
 - Kripto ve gram altın (BtcTurk) eklendi; canlı deneme için `scripts/finans_kaynak_testi.py` PC'de çalıştırılmalı (PAXG/TRY çifti doğrulanmadı).
 - Açık: BIST (gayriresmî kaynak, hazır açık), takip listesi, modelsiz fiyat alarmı, yazıyla tam sayı söyleyişlerinin genişletilmesi ("bin beş yüz", "iki buçuk" çalışır; "yarım", "çeyrek" çalışmaz).
+
+## Faz 1-B: modelsiz teslim ve LM Studio/llama.cpp — 26 Ekim 2026
+- Yapıldı ve testle doğrulandı (model/HTTP taklit): planlayıcı model yokken haber dışı hedeflerde doğrulanmış çıktıların modelsiz teslimi; Ollama yanında LM Studio ve llama.cpp yerel uç nokta ayarı.
+- Denenmedi: iş PC'sinde Ollama kurulu değilken gerçek hedef; gerçek LM Studio ve llama-server sunucusu; LM Studio'da görüntü modeli.
+
