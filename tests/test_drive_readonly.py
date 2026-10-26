@@ -27,7 +27,7 @@ class FakeDocs:
         return self
     def get(self, **kwargs):
         return FakeRequest({"title": "Not", "body": {"content": [
-            {"paragraph": {"elements": [{"textRun": {"content": "Merhaba\\n"}}]}}
+            {"paragraph": {"elements": [{"textRun": {"content": "Merhaba\n"}}]}}
         ]}})
 
 
