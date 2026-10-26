@@ -420,7 +420,7 @@ def short_summary(text: str) -> str:
     names = {"YANLIŞ DUYULMUŞ": "yanlış duyulmuş olabilecek söz", "CEVAPSIZ": "cevapsız kalan söz",
              "YAPAMADIĞI": "yapamadığım iş", "ARAÇ ÇAĞIRMADAN": "yapmadan 'yaptım' dediğim", "HATA": "hata kaydı"}
     parts = []
-    for h, n in re.findall(r"^([A-ZÇĞİÖŞÜ' ]{6,}) \((\d+)", text, re.M):
+    for h, n in re.findall(r"^([A-ZÇĞİÖŞÜ' ]{6,}) \((\d+)\", text, re.M):
         name = next((v for k, v in names.items() if h.startswith(k)), None)
         if name:
             parts.append(f"{n} {name}")
@@ -554,7 +554,7 @@ def observe(profile, text):
     return added
 
 def knowledge_prompt(profile, query='', limit=6500):
-    def tokens(s): return {w[:6] for w in re.findall(r'\w+', _low(s)) if len(w)>3} - {'bunun','şunun','hangi','hakkın','yardım','lütfen','söyle','nasıl'}
+    def tokens(s): return {w[:5] for w in re.findall(r'\w+', _low(s)) if len(w)>3} - {'bunun','şunun','hangi','hakkın','yardım','lütfen','söyle','nasıl'}
     qs=tokens(query)
     items=[('Onaylı bilgi',str(f)) for f in profile.data.get('facts',[])]
     items += [('Kayıtlı saha/iş notu',str(n.get('text',''))) for n in profile.data.get('items',[]) if isinstance(n,dict)]
