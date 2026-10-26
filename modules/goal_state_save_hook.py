@@ -4,10 +4,13 @@ The legacy executor still owns its JSON journal during migration. This hook
 recognizes only legacy goal-job records and synchronizes canonical GoalState
 before the legacy atomic write. The same payload is written to the job's
 ExecutionRecord (``modules/execution_record.py``) before the legacy journal, so
-readers can move off the legacy file before its write is stopped. When
-canonical is already terminal, both the ExecutionRecord and the legacy record
-are written with that terminal state so the legacy side learns it. Canonical
-writes and unrelated JSON writes are left untouched.
+readers can move off the legacy file. A job whose canonical GoalState is
+canonical-authority (RFC Karar 2: born after the flip) no longer gets a legacy
+journal write; only legacy-authority jobs (pre-flip or backfilled) keep it.
+When canonical is already terminal, the ExecutionRecord and, for a
+legacy-authority job, the legacy record are written with that terminal state so
+the legacy side learns it. Canonical writes and unrelated JSON writes are left
+untouched.
 """
 from __future__ import annotations
 
@@ -52,7 +55,7 @@ def _atomic(path, data):
     if job is None:
         return _ORIGINAL_ATOMIC(path, data)
 
-    from modules import execution_record, goal_state_compat
+    from modules import execution_record, goal_state, goal_state_compat
 
     canonical = path.with_name(job['id'] + '.goalstate.json')
     record = execution_record.path_for(path.parent, job['id'])
@@ -73,6 +76,9 @@ def _atomic(path, data):
         _record_failure('modules/goal_state_save_hook.py:_atomic:execution_record_write')
         _rollback(canonical, synced, before)
         raise record_error
+    if goal_state.authority(synced) == 'canonical':
+        # Canonical-authority job: ExecutionRecord is the only journal.
+        return None
     try:
         return _ORIGINAL_ATOMIC(path, data)
     except Exception as legacy_error:

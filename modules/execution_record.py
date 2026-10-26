@@ -2,11 +2,11 @@
 
 Canonical GoalState (``<id>.goalstate.json``) carries only lifecycle authority.
 The executor's working payload (goals, steps, outputs, approval, feedback and
-its own step/job progress) lives in ``<id>.execution.json``. During migration
-the save hook writes this record in the same transaction as the legacy
-``<id>.json`` journal; readers prefer this record and fall back to the legacy
-journal only for jobs saved before the record existed. Once every reader goes
-through ``load()``, the legacy journal write can stop without losing data.
+its own step/job progress) lives in ``<id>.execution.json``. The save hook
+writes this record for every goal job; the legacy ``<id>.json`` journal is
+still written in the same transaction only for legacy-authority (pre-flip or
+backfilled) jobs. Readers prefer this record and fall back to the legacy
+journal only for jobs saved before the record existed.
 """
 from __future__ import annotations
 
