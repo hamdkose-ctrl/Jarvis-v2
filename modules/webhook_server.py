@@ -1,11 +1,11 @@
-"""Opt-in loopback-only WhatsApp webhook receiver. Public HTTPS is external setup."""
+"""Opt-in loopback-only WhatsApp and signed generic event webhook receiver. Public HTTPS is external setup."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import re
 import threading
 import sqlite3
 from urllib.parse import urlsplit,parse_qs
-from modules import llm, message_inbox, service_store
+from modules import llm, message_inbox, service_store, event_hooks
 from modules.publish_services import _record_failure
 
 _LOCK=threading.Lock()
@@ -20,16 +20,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def owner(self):
         parsed=urlsplit(self.path)
-        match=re.fullmatch(r'/whatsapp/([\w-]{1,100})',parsed.path)
+        match=re.fullmatch(r'/whatsapp/([\w-]{1,100})',parsed.path) or re.fullmatch(r'/hook/([\w-]{1,100})/([a-z][a-z0-9_-]{0,39})',parsed.path)
         if not match or len(self.path)>4096:raise ValueError('Webhook yolu geçersiz.')
         allowed=getattr(self.server,'allowed_owners',None)
         if allowed is not None and match[1] not in (allowed() if callable(allowed) else allowed):raise PermissionError('Webhook kullanıcısı kayıtlı değil.')
+        self.hook_source=match[2] if match.re.pattern.startswith('/hook') else None
         return match[1],parse_qs(parsed.query)
 
     def do_GET(self):
         token=None
         try:
             owner,query=self.owner();token=llm._key_context.set(owner)
+            if self.hook_source:return self.reply(405)
             settings=message_inbox.config(owner)
             if query.get('hub.mode')!=['subscribe'] or len(query.get('hub.verify_token',[]))!=1 or not hmac.compare_digest(query['hub.verify_token'][0],settings['verify_token']):return self.reply(403)
             challenge=query.get('hub.challenge',[])
@@ -46,10 +48,11 @@ class Handler(BaseHTTPRequestHandler):
             owner,_=self.owner();token=llm._key_context.set(owner)
             if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length',[]))!=1:return self.reply(400)
             size=int(self.headers['Content-Length'])
-            if not 0<size<=message_inbox.MAX_BODY:return self.reply(413)
+            if not 0<size<=(event_hooks.MAX_BODY if self.hook_source else message_inbox.MAX_BODY):return self.reply(413)
             self.connection.settimeout(2)
             body=self.rfile.read(size)
             if len(body)!=size:return self.reply(400)
+            if self.hook_source:return self.hook(owner,body)
             stored=message_inbox.ingest(owner,body,self.headers.get('X-Hub-Signature-256',''))
             notify=getattr(self.server,'notify',None)
             event_notify=getattr(self.server,'event_notify',None)
@@ -68,6 +71,15 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             if token is not None:llm._key_context.reset(token)
 
+    def hook(self,owner,body):
+        event,channels=event_hooks.parse(owner,self.hook_source,body,self.headers.get('X-Jarvis-Timestamp',''),self.headers.get('X-Jarvis-Signature',''))
+        event_notify=getattr(self.server,'event_notify',None)
+        if not event_notify:return self.reply(503)
+        try:event_notify(owner,event,channels)
+        except Exception:
+            _record_failure('modules/webhook_server.py:hook')
+        return self.reply(200,b'OK')
+
 
 def start(stop_event,owners,port=9898,notify=None,event_notify=None):
     global _SERVER
@@ -76,8 +88,10 @@ def start(stop_event,owners,port=9898,notify=None,event_notify=None):
     for owner in (owners() if callable(owners) else owners):
         token=llm._key_context.set(owner)
         try:
-            message_inbox.config(owner);enabled=True
-        except (PermissionError,FileNotFoundError,ValueError):pass
+            for check in (message_inbox.config,event_hooks.config):
+                try:
+                    check(owner);enabled=True
+                except (PermissionError,FileNotFoundError,ValueError):pass
         finally:llm._key_context.reset(token)
     if not enabled:return
     with _LOCK:

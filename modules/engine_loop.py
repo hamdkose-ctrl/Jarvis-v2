@@ -137,7 +137,19 @@ def main(runtime, ui=None):
             if profile.slug==owner:
                 runtime._emit_for(profile,'assistant','WhatsApp: '+str(stored['messages'])+' yeni mesaj, '+str(stored['deliveries'])+' teslim kaydı. Gelen kutusu görevden okunabilir.')
                 break
-    webhook_server.start(runtime.stop_event,lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},notify=webhook_notice)
+    from modules import event_fanout, event_hooks
+    def event_notice(owner,event,channels=None):
+        for name in runtime.list_users():
+            profile=runtime._get_profile(name)
+            if profile.slug==owner:
+                if channels is None:   # WhatsApp: the chat notice above already covers ui
+                    try:channels=tuple(c for c in event_hooks.channels(event_hooks.config(owner)) if c!='ui')
+                    except (PermissionError,FileNotFoundError,ValueError):return
+                    if not channels:return
+                sinks=event_hooks.sinks(lambda text:runtime._emit_for(profile,'assistant',text,'olay'),
+                                        (profile.data.get('prefs') or {}).get('ntfy_topic'),runtime.notify.send,runtime.log.info)
+                return event_fanout.dispatch(event,sinks,channels)
+    webhook_server.start(runtime.stop_event,lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},notify=webhook_notice,event_notify=event_notice)
     runtime._start_hang_watch()
     if ui is None:
         runtime.threading.Thread(target=voice_session.read_keyboard, daemon=True).start()
