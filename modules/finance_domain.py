@@ -93,9 +93,6 @@ BOUNDARY = {
 # Finance kodunun bugün Finance modülü dışında duran parçaları ve göç adımı.
 # Her konum "dosya:sembol" biçimindedir; test sembolün hâlâ orada olduğunu doğrular.
 MIGRATION = (
-    {'step': '3-B', 'branch': 'data', 'location': 'modules/watcher.py:_finance_price',
-     'target': 'modules/finance.py:quote',
-     'note': "Watcher finance._yahoo/_market özel fonksiyonlarını çağırıyor; tek açık fiyat girişi olacak."},
     {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:finance_tick',
      'target': 'modules/finance_alert_tick.py:tick',
      'note': 'Klasör izleme dosyasındaki alarm turu ve kurtarma kaydı Finance modülüne taşınır.'},

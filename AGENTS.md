@@ -66,6 +66,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 ## Testler
 
+- Finance alarm fiyatları `finance.quote` ortak girişini kullanır; watcher kaynak sağlayıcıların özel fonksiyonlarını çağırmaz. Göç durumu `docs/agents/finans.md` içindedir.
+
 - JarvisBench v0 (`modules/jarvis_bench.py`, `docs/architecture/JARVIS_BENCH_V0.md`): yeni worker/planner/model/hesap çalıştırmayan, `goal_executor`/GoalState/Completion Policy'ye dokunmayan saf bir değerlendiricidir; versiyonlu, salt-okunur bir case kataloğunu (`tests/data/jarvis_bench_v0.json`) daha önce üretilmiş bir gözleme (evidence + safety/permission sonucu + duration_ms) karşı PASS/FAIL/INCONCLUSIVE + reason_code olarak sınıflandırır. Bilinmeyen sürüm/alan, yinelenen case id ve effect-içeren case fail-closed reddedilir; duration_ms tek başına PASS üretmez. Test: `tests/test_jarvis_bench.py` (26 test, ağ/model/hesap gerektirmez).
 
 - Ağ hata sınıflandırma testleri çevrimiçi/çevrimdışı durumunu açıkça taklit eder; yayın toplu işlem testi durumunu geçici klasöre yazar. Gerçek ağ ve kullanıcı ev dizini birim test önkoşulu değildir.

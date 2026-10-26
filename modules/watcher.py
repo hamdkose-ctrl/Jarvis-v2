@@ -334,16 +334,7 @@ def _finance_save(path, state):
 
 def _finance_price(kind, symbol):
     from modules import finance
-    if kind == 'doviz':
-        table,_ = finance.rates([symbol,'TRY'])
-        return float(table[symbol])
-    if kind == 'hisse':
-        return float(finance._yahoo(symbol)['last'])
-    if kind in {'kripto','altin'}:
-        row = finance._market('PAXGTRY' if kind == 'altin' else symbol + 'TRY')
-        value = row['last']
-        return float(value / finance.TROY_OUNCE_GRAMS if kind == 'altin' else value)
-    raise ValueError('Desteklenmeyen alarm fiyat türü.')
+    return finance.quote(kind, symbol)
 
 
 def _finance_recover(owner, path, state, current):
