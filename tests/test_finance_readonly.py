@@ -28,7 +28,7 @@ class FinanceReadonlyTests(unittest.TestCase):
         self.assertIn("fiyat", portfolio["assumptions"][0])
 
     def test_evidence_and_valuation_are_not_investment_advice(self):
-        pack = finance.evidence_pack("AAA", [{"source": "Yahoo", "observed_at": "2026-10-26T00:00:00+00:00"}])
+        pack = finance.evidence_pack("AAA", [{"source": "Yahoo Finance", "observed_at": "2026-10-26T00:00:00+00:00"}])
         self.assertEqual(pack["disclaimer"], finance.NOT_INVESTMENT_ADVICE)
         dcf = finance.dcf({"free_cash_flow": "100", "discount_rate": "0.1", "terminal_growth": "0.03"})
         self.assertGreater(dcf["enterprise_value"], Decimal("0"))
