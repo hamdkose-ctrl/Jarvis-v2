@@ -91,12 +91,12 @@ BOUNDARY = {
     'money_effect': {'owner': 'finance', 'permission_class': 'money_credential', 'state': 'closed'},
 }
 
-# Finance kodunun bugün Finance modülü dışında duran parçaları ve göç adımı.
-# Her konum "dosya:sembol" biçimindedir; test sembolün hâlâ orada olduğunu doğrular.
+# Finance kodunun geçmiş/açık göç kayıtları. Tamamlanan kayıtlar tarihi kanıttır;
+# yalnız açık kayıtların kaynak konumu FIN-003 ile zorunlu tutulur.
 MIGRATION = (
     {'step': '3-D', 'branch': 'alarm', 'location': 'modules/watcher.py:loop',
-     'target': 'modules/watcher.py:loop',
-     'note': 'Bildirim teslimi Communication tarafında kalır ama ntfy başlığı "Jarvis klasör izleme" yerine finans alarmı olarak ayrılır.'},
+     'target': 'modules/watcher.py:loop', 'status': 'completed',
+     'note': 'Bildirim teslimi Communication tarafında kalır; ntfy başlığı finans alarmı olarak ayrıldı.'},
 )
 
 # Finance modülleri bu modülleri içe aktaramaz: teslim/yayın/mesaj Communication'ındır.
@@ -156,6 +156,8 @@ def validate() -> list[str]:
     for row in MIGRATION:
         if row['branch'] not in BRANCHES:
             errors.append(f"{row['location']}: bilinmeyen dal.")
+        if row.get('status', 'open') not in {'open', 'completed'}:
+            errors.append(f"{row['location']}: bilinmeyen göç durumu.")
     return errors
 
 
@@ -205,11 +207,13 @@ def check(root=None) -> list[dict]:
                             issues.append({'rule': 'FIN-002', 'path': rel,
                                            'message': f'Finans aracı {value.value} sınıfında eylem açamaz.'})
     for row in MIGRATION:
+        if row.get('status', 'open') == 'completed':
+            continue
         rel, symbol = row['location'].split(':', 1)
         path = base / rel
         if not path.is_file() or symbol not in _defined(path):
             issues.append({'rule': 'FIN-003', 'path': rel,
-                           'message': f'Göç planındaki {row["location"]} artık yok; MIGRATION güncellenmeli.'})
+                           'message': f'Açık göç planındaki {row["location"]} artık yok; MIGRATION güncellenmeli.'})
     for name, branch in BRANCHES.items():
         for entry in branch['entry_points']:
             rel, symbol = entry.split(':', 1)
