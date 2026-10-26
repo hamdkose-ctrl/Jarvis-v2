@@ -1,6 +1,8 @@
 """Validated multi-channel delivery for incoming runtime events."""
 from __future__ import annotations
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 _CHANNELS = frozenset({"ui", "ntfy", "webhook", "telegram", "email", "log"})
 
@@ -42,6 +44,7 @@ def dispatch(event: dict, sinks: dict, channels) -> dict[str, str]:
         try:
             sink(event)
         except Exception as exc:  # channel isolation is deliberate
+            _record_failure('modules/event_fanout.py:dispatch')
             result[channel] = "failed:" + type(exc).__name__
         else:
             result[channel] = "delivered"
