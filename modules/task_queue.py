@@ -50,8 +50,10 @@ def render_rows(items):
         status=(f'{remaining} saniye sonra başlayacak' if remaining else 'Zamanı geldi; çalışma sırasını bekliyor') if row['state']=='queued' else labels.get(row['state'],'Durum bilinmiyor')
         text=privacy.redact(row.get('instruction','')).strip() or 'Zamanlanmış görev'
         result_id=row.get('last_job_id') if row['state']=='queued' else row['job_id']
-        lines.append(text+'\nDurum: '+status+(f"\nHer {row['repeat_seconds']} saniyede tekrar eder." if row['repeat_seconds'] else '')+
-                     ('\nSonuç: görev durumu '+result_id if result_id else '\nSonuç, iş çalıştıktan sonra oluşacak.')+'\nİptal: kuyruk iptal '+row['id'])
+        cadence = ('\\nCron: '+row['cron'] if row.get('cron') else
+                   (f"\\nHer {row['repeat_seconds']} saniyede tekrar eder." if row['repeat_seconds'] else ''))
+        lines.append(text+'\\nDurum: '+status+cadence+
+                     ('\\nSonuç: görev durumu '+result_id if result_id else '\\nSonuç, iş çalıştıktan sonra oluşacak.')+'\\nİptal: kuyruk iptal '+row['id'])
     return '\n\n'.join(lines)
 
 
