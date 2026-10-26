@@ -99,6 +99,13 @@ def _transition(job, task, state):
         events=job.setdefault('events',[])
         events.append({'ts':job['updated'],'task':task['id'] if task else '', 'from':previous,'to':state})
         del events[:-256]
+        from modules import hooks
+        owner=(task or {}).get('execution',{}).get('owner') if task else None
+        if task:
+            hooks.observe('kanban',{'job_id':job.get('id',''),'task_id':task['id'],'agent':task.get('agent',''),
+                                    'from':previous,'to':state},owner=owner)
+        else:
+            hooks.observe('agent',{'job_id':job.get('id',''),'from':previous,'to':state})
 
 
 def _artifact(output):
@@ -137,7 +144,33 @@ from modules.task_workers import json_text as _json, browser_task  # noqa: F401 
 def worker(owner, task, dependencies):
     task=copy.deepcopy(task)
     task['input']=task_tools.validate_input(task['agent'],task.get('input',{}))
-    return task_results.seal(task['agent'], _worker(owner, task, dependencies))
+    from modules import hooks
+    hooks.observe('tool',{'phase':'start','tool':task['agent'],'task_id':task.get('id','')},owner=owner)
+    state='failed'
+    try:
+        output=task_results.seal(task['agent'], _worker(owner, task, dependencies))
+        state=output.get('state','failed') if isinstance(output,dict) else 'failed'
+        return output
+    finally:
+        hooks.observe('tool',{'phase':'end','tool':task['agent'],'task_id':task.get('id',''),'state':state},owner=owner)
+
+
+def _gate(owner, job, task):
+    """Shared fail-closed gate before every queued/görev worker call."""
+    from modules import runtime_execution_gate
+    execution=task.get('execution',{})
+    identity_ok=execution.get('owner')==owner and execution.get('job_id')==job.get('id')
+    active=job.get('state')=='running' and task.get('state')=='running'
+    # The owner started this job with their own command (an empty instruction is
+    # still that owner's request), so user authority follows the job identity.
+    return runtime_execution_gate.before_tool(
+        task['agent'],task.get('input',{}),approval_verified=False,allow_prepare=True,
+        domain_invariant='pass' if identity_ok and active else 'block',
+        domain_authority='execute' if identity_ok else 'forbidden',
+        user_authority='execute' if identity_ok else 'forbidden',
+        job_authority='execute' if active else 'forbidden',
+        effect_state='ready',
+    )
 
 
 def _worker(owner, task, dependencies):
@@ -183,6 +216,9 @@ def _execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=N
     if parallel:job['strategy']='parallel'
     requests_state.allow_long_operation(600)
     _save(root,job)
+    from modules import hooks
+    hooks.observe('agent',{'phase':'start','job_id':job_id,'tasks':[t['agent'] for t in job['tasks']],
+                           'queue_id':queue_id or ''},owner=owner)
     return _run_pending(owner,job,emit)
 
 
@@ -216,6 +252,7 @@ def _run_pending(owner,job,emit=None):
                 for d in deps:
                     previous=job['outputs'][d]
                     if previous.get('verification'):task_results.verify(previous,owner=owner)
+                _gate(owner,job,task)
                 output=worker(owner,task,{d:job['outputs'][d] for d in deps})
                 if not isinstance(output,dict) or output.get('state') not in ('done','failed','blocked','approval','unavailable'):
                     raise ValueError('Araç geçerli bir görev sonucu döndürmedi.')
@@ -266,6 +303,7 @@ def _run_parallel(owner,job,emit=None):
                 futures=[]
                 def work(task,deps):
                     _check_job(owner,job)
+                    _gate(owner,job,task)
                     for output in deps.values():
                         if output.get('verification'):task_results.verify(output,owner=owner)
                     return worker(owner,task,deps)
@@ -510,6 +548,8 @@ def _resume(owner, approval, emit=None):
     task=next(t for t in job['tasks'] if t['state']=='approval')
     if task['agent']!='browser':raise ValueError('Bu onay tarayıcıya ait değil; işlem onayla komutunu kullan.')
     if job['outputs'][task['id']].get('id')!=approval: raise ValueError('Onay bu göreve ait değil.')
+    from modules import hooks
+    hooks.observe('approval',{'kind':'browser','decision':'onayla','job_id':job['id'],'approval_id':approval},owner=owner)
     try:
         output=task_results.seal('browser',browser_agent.run(owner,approval=approval))
     except requests_state.Cancelled:
@@ -616,6 +656,32 @@ def handle(owner, command, emit=None, *, summary=False):
         try:task_queue.cancel(owner,queue_cancel[1])
         finally:llm._key_context.reset(token)
         return 'Kuyruk işi iptal edildi.'
+    queue_run=re.fullmatch(r'kuyruk (?:çalıştır|calistir|şimdi çalıştır) ([a-f0-9]{16})',c)
+    if queue_run:
+        from modules import task_queue
+        token=llm._key_context.set(owner)
+        try:task_queue.run_now(owner,queue_run[1])
+        finally:llm._key_context.reset(token)
+        return 'Kuyruk işini öne aldım; Jarvis açıkken hemen başlayacak.\nDurum: görev kuyruğu'
+    cron_match=re.fullmatch(r'(görev|betik) cron ((?:\S+\s+){4}\S+)\s*:\s*(.+)',command.strip(),re.I|re.S)
+    if cron_match:
+        from modules import task_queue
+        from modules.cron_schedule import CronExpression
+        expression=CronExpression(cron_match[2]).expression
+        token=llm._key_context.set(owner)
+        try:
+            if cron_match[1].casefold()=='betik':
+                # Script schedules take an explicit task list; no planner/model call.
+                tasks=validate(_json(cron_match[3])['tasks'])
+                qid=task_queue.enqueue_script(owner,tasks,'Modelsiz betik görevi',cron=expression)
+                label='Modelsiz betik görevi'
+            else:
+                tasks=validate(_json(llm.ask(cron_match[3],system=_SYSTEM,max_tokens=2200))['tasks'])
+                qid=task_queue.enqueue(owner,tasks,cron_match[3],cron=expression)
+                label=cron_match[3]
+        finally:llm._key_context.reset(token)
+        return (f'İşi kaydettim: {label}\nCron: {expression} (Jarvis açıkken çalışır, her çalıştırma ayrı ve temiz bir görevdir.)'
+                '\nDurum: görev kuyruğu\nŞimdi çalıştır: kuyruk çalıştır '+qid+'\nİptal: kuyruk iptal '+qid)
     queue_match=re.fullmatch(r'görev (zamanla|tekrarla) ([0-9]{1,7})\s*:\s*(.+)',command.strip(),re.I|re.S)
     if queue_match:
         from modules import task_queue
@@ -634,6 +700,9 @@ def handle(owner, command, emit=None, *, summary=False):
             if not job or job['state']!='approval':raise ValueError('Onay bekleyen görev yok.')
             task=next(t for t in job['tasks'] if t['state']=='approval')
             if task['agent']!='publish' or job['outputs'][task['id']].get('id')!=publish_match[2]:raise ValueError('İşlem onayı bu göreve ait değil.')
+            from modules import hooks
+            hooks.observe('approval',{'kind':'publish','decision':publish_match[1],'job_id':job['id'],
+                                      'approval_id':publish_match[2]},owner=owner)
             output=outbox.cancel(owner,publish_match[2]) if publish_match[1]=='iptal' else outbox.dispatch(owner,publish_match[2],approve=publish_match[1]=='onayla')
             output=task_results.seal('publish',output)
             task['state']=output['state'];job['outputs'][task['id']]=output

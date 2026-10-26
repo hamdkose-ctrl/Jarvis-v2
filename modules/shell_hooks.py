@@ -17,7 +17,7 @@ class ShellHookResult:
 
 
 class ShellHook:
-    """Placeholder for the future Phase 3 sandbox; never executes commands."""
+    """Placeholder until the Faz 6 sandbox exists; never executes commands."""
 
     def execute(self, command: str, *, cwd: str | None = None, env: dict | None = None) -> ShellHookResult:
         if not isinstance(command, str) or not command.strip():

@@ -18,7 +18,8 @@ class AdvisoryRouterTests(unittest.TestCase):
         self.assertEqual(finalize("A mı B mi seçeyim?", raw, settings={}), raw)
 
     def test_prompt_is_only_added_for_explicit_advisory_or_enabled_proactive_mode(self):
-        self.assertEqual(prompt_for("Bugün hava nasıl?", {}), "")
+        self.assertEqual(prompt_for("Bugün hava nasıl?", {"proactive_suggestions": False}), "")
+        self.assertIn("Öneri (risk)", prompt_for("Bugün hava nasıl?", {}))
         self.assertIn("decision_analysis.v1", prompt_for("A mı B mi seçeyim?", {}))
         self.assertIn("proactive_suggestion.v1", prompt_for("Bugün ne yapmalıyım?", {"proactive_suggestions": True}))
 

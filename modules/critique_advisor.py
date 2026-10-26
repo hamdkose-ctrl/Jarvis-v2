@@ -4,7 +4,13 @@ from __future__ import annotations
 import re
 
 
-_REQUEST = re.compile(r"\b(?:eleştir|elestir|zayıf\s+nokta|zayif\s+nokta|dürüstçe|durustce|eksik\w*)\b", re.I)
+_REQUEST = re.compile(
+    r"\b(?:eleştir\w*|elestir\w*|zayıf\s+(?:nokta|yan|yön)\w*|zayif\s+(?:nokta|yan|yon)\w*|"
+    r"dürüstçe|durustce|dürüst\s+ol\w*|durust\s+ol\w*|açık\s+sözlü|acik\s+sozlu|"
+    r"eksikler\w*|eksik\s+(?:yan|yön|yon|nokta)\w*|neresi\s+(?:kötü|kotu|eksik|zayıf|zayif)|"
+    r"nerede\s+hata\s+yap\w*)",
+    re.I,
+)
 _UNSAFE = re.compile(
     r"\b(?:aptal|salak|gerizekalı|gerizekali|deli|narsist|depresif|başarısızsın|"
     r"basarisizsin|kesinlikle\s+(?:başarısız|basarisiz)|mutlaka\s+(?:böyle|boyle))\b",

@@ -5,8 +5,11 @@ import re
 
 
 _REQUEST = re.compile(
-    r"\b(?:adım\s+adım|adim\s+adim|rehber|yol\s+göster|yol\s+goster|"
-    r"nasıl\s+(?:yap|başla|basla|ilerle)|ne\s+yapmalıyım|ne\s+yapmalıyim)\b",
+    r"\b(?:adım\s+adım|adim\s+adim|rehber\w*|yol\s+göster\w*|yol\s+goster\w*|"
+    r"nasıl\s+(?:yap|başla|basla|ilerle|hazırla|hazirla|kur|öğren|ogren)\w*|"
+    r"nasil\s+(?:yap|basla|ilerle|hazirla|kur|ogren)\w*|"
+    r"ne\s+yapmal[ıi]y[ıi]m|ne\s+yapmam\s+(?:lazım|lazim|gerek)\w*|"
+    r"tavsiye\w*|önerin\s+ne|onerin\s+ne|ne\s+önerirsin|ne\s+onerirsin)",
     re.I,
 )
 

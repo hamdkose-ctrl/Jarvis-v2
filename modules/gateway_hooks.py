@@ -2,6 +2,8 @@
 
 Hooks observe validated gateway events; they do not dispatch workers or mutate
 GoalState. The caller remains responsible for any canonical RuntimeEvent path.
+Delivery goes through the shared observer system in ``modules.hooks``; every
+published event is also visible to global ``gateway`` observers there.
 """
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import copy
 import json
 from typing import Callable
 
-from modules.diagnostics import record_failure as _record_failure
+from modules import hooks
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,9 @@ class GatewayEvent:
     def snapshot(self) -> "GatewayEvent":
         return GatewayEvent(self.name, copy.deepcopy(self.payload), self.request_id)
 
+    def __deepcopy__(self, memo) -> "GatewayEvent":
+        return self.snapshot()
+
 
 class GatewayHooks:
     """Small observation boundary with no execution authority."""
@@ -53,15 +58,15 @@ class GatewayHooks:
     def publish(self, event: GatewayEvent) -> dict:
         if not isinstance(event, GatewayEvent):
             raise ValueError("Gateway yalnız doğrulanmış GatewayEvent kabul eder.")
-        delivered = 0
-        errors = []
-        for callback in tuple(self._hooks.get(event.name, ())):
-            try:
-                callback(event.snapshot())
-                delivered += 1
-            except Exception:
-                _record_failure("modules/gateway_hooks.py:publish")
-                errors.append({"reason_code": "HOOK_FAILED", "event": event.name})
+        outcomes = hooks.deliver(
+            tuple(self._hooks.get(event.name, ())), event, where="modules/gateway_hooks.py:publish"
+        )
+        hooks.observe("gateway", {
+            "event": event.name, "request_id": event.request_id, "payload": event.payload,
+        })
+        delivered = outcomes.count("delivered")
+        errors = [{"reason_code": "HOOK_FAILED", "event": event.name}
+                  for outcome in outcomes if outcome != "delivered"]
         return {
             "schema": "gateway_hook_result.v1",
             "event": event.name,

@@ -18,6 +18,7 @@ HOOK_NAMES = (
     "session",
     "sub_agent",
     "kanban",
+    "gateway",
 )
 
 _LOCK = threading.RLock()
@@ -64,13 +65,26 @@ def emit(name: str, payload: dict, *, owner: str | None = None) -> list[str]:
         "occurred_at": time.time(),
         "payload": copy.deepcopy(payload),
     }
+    return deliver(callbacks, event, where='modules/hooks.py:emit')
+
+
+def deliver(callbacks, event, *, where: str) -> list[str]:
+    """Shared isolated delivery; every observer gets its own copy."""
     result = []
     for callback in callbacks:
         try:
             callback(copy.deepcopy(event))
         except Exception as exc:  # observer failure never changes execution
-            _record_failure('modules/hooks.py:emit')
+            _record_failure(where)
             result.append("failed:" + type(exc).__name__)
         else:
             result.append("delivered")
     return result
+
+
+def observe(name: str, payload: dict, *, owner: str | None = None) -> None:
+    """Runtime call sites use this: a hook problem can never break the caller."""
+    try:
+        emit(name, payload, owner=owner)
+    except Exception:
+        _record_failure('modules/hooks.py:observe')

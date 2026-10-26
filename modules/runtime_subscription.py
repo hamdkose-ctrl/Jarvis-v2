@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from config import DATA_DIR
-from modules import goal_state_store, runtime_event, runtime_event_commit, service_store
+from modules import core_state_reducer, goal_state_compat, goal_state_store, runtime_event, runtime_event_commit, service_store
 from modules.diagnostics import record_failure as _record_failure
 
 
@@ -112,6 +112,52 @@ def close(owner: str, subscription_id: str) -> None:
             raise ValueError("Bu kullanıcıya ait Runtime Event aboneliği yok.")
 
 
+def _source_state_path(owner: str, source_event_key: str) -> tuple[Path, str]:
+    if not _OWNER.fullmatch(owner):
+        raise ValueError("Runtime Event sahibi geçersiz.")
+    digest = hashlib.sha256(source_event_key.encode("utf-8")).hexdigest()[:16]
+    job_id = "source-" + digest
+    return DATA_DIR / "runtime_events" / owner / (job_id + ".goalstate.json"), job_id
+
+
+def ensure_source(owner: str, source_event_key: str, *, goal: str, fresh_after: float) -> str:
+    """Idempotently open the canonical GoalState + subscription for one live source.
+
+    Production producers (source watch, event webhooks) call this before
+    publishing so every real source has exactly one active subscription.
+    """
+    service_store.identity(owner)
+    if not isinstance(source_event_key, str) or not source_event_key.strip():
+        raise ValueError("Runtime Event kaynak anahtarı gerekli.")
+    with service_store.database(owner) as db:
+        _schema(db)
+        row = db.execute(
+            "SELECT id FROM runtime_subscriptions WHERE active=1 AND source_event_key=? ORDER BY created LIMIT 1",
+            (source_event_key,),
+        ).fetchone()
+    if row:
+        return row["id"]
+    path, job_id = _source_state_path(owner, source_event_key)
+    state = goal_state_compat.open_subscription_state(path, owner=owner, job_id=job_id, goal=goal)
+    if state["state"] in {"done", "cancelled"}:
+        raise ValueError("Kaynak aboneliği kapatılmış; yeniden açılmadı.")
+    return subscribe(owner, source_event_key, goal_state_path=path, job_id=job_id, fresh_after=fresh_after)
+
+
+def close_source(owner: str, source_event_key: str) -> int:
+    """Close every active subscription of a removed source and cancel its GoalState."""
+    service_store.identity(owner)
+    with service_store.database(owner) as db:
+        _schema(db)
+        count = db.execute(
+            "UPDATE runtime_subscriptions SET active=0 WHERE active=1 AND source_event_key=?",
+            (source_event_key,),
+        ).rowcount
+    path, _ = _source_state_path(owner, source_event_key)
+    goal_state_compat.close_subscription_state(path)
+    return count
+
+
 def _event_id(subscription_id: str, source_event_key: str, payload: dict) -> str:
     raw = service_store.encode([subscription_id, source_event_key, payload]).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:32]
@@ -155,13 +201,28 @@ def publish(
         }
         seen = runtime_event.PersistentSeen(_seen_path(owner, row["id"]))
         try:
-            persisted = runtime_event_commit.commit(
-                row["goal_state_path"],
-                event,
-                _subscription(row),
-                seen,
-                expected_job_version=row["expected_job_version"],
-            )
+            try:
+                persisted = runtime_event_commit.commit(
+                    row["goal_state_path"], event, _subscription(row), seen,
+                    expected_job_version=row["expected_job_version"],
+                )
+            except core_state_reducer.StaleStateError:
+                # The goal moved on since subscribe/last event. Evidence append is
+                # order-independent, so re-read the version once and retry.
+                current = goal_state_store.load(row["goal_state_path"])
+                persisted = runtime_event_commit.commit(
+                    row["goal_state_path"], event, _subscription(row), seen,
+                    expected_job_version=current["version"],
+                )
+        except core_state_reducer.TerminalStateError:
+            # A finished/cancelled goal can never take evidence; stop retrying forever.
+            with service_store.database(owner) as db:
+                _schema(db)
+                db.execute(
+                    "UPDATE runtime_subscriptions SET active=0,error='TerminalStateError' WHERE id=?",
+                    (row["id"],),
+                )
+            continue
         except Exception as exc:
             _record_failure('modules/runtime_subscription.py:publish')
             with service_store.database(owner) as db:

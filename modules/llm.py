@@ -937,8 +937,32 @@ def _ohist_msgs(history) -> list[dict]:
     return out
 
 
+def _observed(call: str, fn):
+    """Model hook: metadata only (no prompt/answer text), never affects the call."""
+    from modules import hooks
+    started = time.time(); ok = False
+    try:
+        result = fn(); ok = True
+        return result
+    finally:
+        hooks.observe("model", {"call": call, "provider": _provider_name(), "ok": ok,
+                                "seconds": round(time.time() - started, 3)}, owner=current_user())
+
+
+def _provider_name() -> str:
+    try:
+        return provider()
+    except Exception:
+        _record_failure('modules/llm.py:_provider_name')
+        return "unknown"
+
+
 def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
     """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için)."""
+    return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator))
+
+
+def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
     if validator is not None:
         def checked(selected):
             for attempt in range(2):
@@ -977,7 +1001,7 @@ def chat_draft(prompt: str, system: str = "", max_tokens: int = 2000, user: str 
         drafts[user] = epoch
         _draft_epochs.set(drafts)
         history = list(_histories.get(user, []))
-    return _send(prompt, system, max_tokens, history)
+    return _observed("chat", lambda: _send(prompt, system, max_tokens, history))
 
 
 def commit_chat(prompt: str, text: str, user: str = "default") -> None:

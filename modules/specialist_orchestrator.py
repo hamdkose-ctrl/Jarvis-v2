@@ -92,6 +92,21 @@ def run(runtime, request, tasks):
 
 def execute_step(runtime,job,step,identity,*,approval=None):
     """A specialist executes inside the durable journal and runtime safety gates."""
+    from modules import hooks
+    specialist=step.get('specialist')
+    payload={'job_id':str(job.get('id','')),'step_id':str(step.get('id','')),'tool':str(step.get('tool','')),
+             'specialist':str(specialist.get('id','') if isinstance(specialist,dict) else specialist or '')}
+    hooks.observe('sub_agent',{**payload,'phase':'start'},owner=job.get('owner'))
+    state='failed'
+    try:
+        output=_execute_step(runtime,job,step,identity,approval=approval)
+        state=output.get('state','failed') if isinstance(output,dict) else 'failed'
+        return output
+    finally:
+        hooks.observe('sub_agent',{**payload,'phase':'end','state':state},owner=job.get('owner'))
+
+
+def _execute_step(runtime,job,step,identity,*,approval=None):
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
     deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the

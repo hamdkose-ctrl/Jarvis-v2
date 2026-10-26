@@ -17,7 +17,7 @@ class ObserverHooksTests(unittest.TestCase):
         hooks.emit("tool", {"tool": "read"}, owner="hamdi")
         self.assertEqual(seen, [("tool", {"tool": "read"})])
         self.assertEqual(set(hooks.HOOK_NAMES), {
-            "agent", "tool", "model", "approval", "session", "sub_agent", "kanban",
+            "agent", "tool", "model", "approval", "session", "sub_agent", "kanban", "gateway",
         })
 
     def test_observer_cannot_change_execution_and_failure_isolated(self):

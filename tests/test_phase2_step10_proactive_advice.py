@@ -4,8 +4,9 @@ from modules.proactive_advisor import suggest
 
 
 class ProactiveAdvisorTests(unittest.TestCase):
-    def test_default_is_off(self):
-        self.assertIsNone(suggest("risk", "Yedek almayı düşün.", settings={}))
+    def test_default_is_on_and_setting_turns_it_off(self):
+        self.assertEqual(suggest("risk", "Yedek almayı düşün.", settings={})["kind"], "risk")
+        self.assertIsNone(suggest("risk", "Yedek almayı düşün.", settings={"proactive_suggestions": False}))
 
     def test_enabled_returns_one_machine_readable_suggestion(self):
         result = suggest(

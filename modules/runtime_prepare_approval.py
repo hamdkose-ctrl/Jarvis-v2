@@ -48,6 +48,9 @@ def accept(approval: dict, identity: dict, kind: str, data: dict) -> bool:
     bound=expected(identity,kind,data)
     if any(approval.get(key)!=value for key,value in bound.items()):
         raise PermissionError('Prepare onayı mevcut job/step/input ile eşleşmiyor.')
+    from modules import hooks
+    hooks.observe('approval',{'kind':kind,'decision':'accepted','job_id':str(identity.get('job_id','')),
+                              'step_id':str(identity.get('step_id',''))},owner=identity.get('owner'))
     return True
 
 

@@ -66,6 +66,11 @@ def remove(owner,ident):
         if not db.execute('DELETE FROM source_watches WHERE id=?',(ident,)).rowcount:raise ValueError('Bu kullanıcıya ait kaynak takibi yok.')
         db.execute('DELETE FROM source_seen WHERE rule=?',(ident,));db.execute('DELETE FROM source_events WHERE rule=?',(ident,))
         db.execute('DELETE FROM source_versions WHERE rule=?',(ident,))
+    try:
+        from modules import runtime_subscription
+        runtime_subscription.close_source(owner,ident)
+    except Exception:
+        _record_failure('modules/source_watch.py:remove_subscription')
 
 
 def events(owner,limit=20):
@@ -169,8 +174,14 @@ def poll(owner,notify=None,*,now=None,fetcher=None,rule_id=None,force=False):
                     _schema(db);db.execute('UPDATE source_watches SET error=? WHERE id=?',(type(exc).__name__,row['id']))
         if subscription_payloads:
             from modules import runtime_subscription
-            for event in subscription_payloads:
-                runtime_subscription.publish(owner, row['id'], event, occurred_at=event.get('fetched_at'))
+            try:
+                runtime_subscription.ensure_source(owner, row['id'], goal='Kaynak takibi: '+(row.get('label') or row['url']),
+                                                   fresh_after=float(row.get('created') or 0))
+                for event in subscription_payloads:
+                    runtime_subscription.publish(owner, row['id'], event, occurred_at=event.get('fetched_at'))
+            except Exception:
+                # GoalState evidence is an extra record; the user notification path stays intact.
+                _record_failure('modules/source_watch.py:runtime_subscription')
         if notify:
             with service_store.database(owner) as db:
                 _schema(db)
