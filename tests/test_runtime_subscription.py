@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -21,7 +22,7 @@ class RuntimeSubscriptionTests(unittest.TestCase):
                         "hamdi", "source:demo", goal_state_path=state_path, job_id="job-1",
                     )
                     payload = {"url": "https://example.test/item", "title": "Yeni kayıt"}
-                    accepted = runtime_subscription.publish("hamdi", "source:demo", payload, occurred_at=10)
+                    accepted = runtime_subscription.publish("hamdi", "source:demo", payload, occurred_at=time.time())
                     self.assertEqual(accepted, [subscription_id])
                     state = goal_state_store.load(state_path)
                     self.assertEqual(state["version"], 1)
