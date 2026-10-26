@@ -10,6 +10,8 @@ import copy
 import json
 from typing import Callable
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 @dataclass(frozen=True)
 class GatewayEvent:
@@ -58,6 +60,7 @@ class GatewayHooks:
                 callback(event.snapshot())
                 delivered += 1
             except Exception:
+                _record_failure("modules/gateway_hooks.py:publish")
                 errors.append({"reason_code": "HOOK_FAILED", "event": event.name})
         return {
             "schema": "gateway_hook_result.v1",
