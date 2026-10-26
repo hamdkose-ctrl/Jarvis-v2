@@ -27,8 +27,8 @@ class FakeGmail:
 
 class GmailCalendarReadonlyTests(unittest.TestCase):
     def test_thread_reader_returns_bounded_metadata_and_snippets(self):
-        result = work.read_thread(FakeGmail(), "t1")
-        self.assertEqual(result["id"], "t1")
+        result = work.read_thread(FakeGmail(), "t11")
+        self.assertEqual(result["id"], "t11")
         self.assertEqual(result["messages"][1]["from"], "me@example.com")
         self.assertEqual(result["messages"][0]["snippet"], "İlk mesaj")
 
