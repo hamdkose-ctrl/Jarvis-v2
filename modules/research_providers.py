@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlsplit
 
 from modules import public_sources
 
@@ -44,6 +44,44 @@ def search_request(query: str, *, provider: str = "searxng", limit: int = 10) ->
         return {"provider": provider, "operation": "search", "method": "POST", "path": "/search", "json": {"query": query, "numResults": limit, "contents": {"text": {"maxCharacters": 4000}}}}
     return {"provider": provider, "operation": "search", "method": "GET", "path": "/api/query", "params": {"search_query": query, "start": 0, "max_results": limit}}
 
+
+
+def _duckduckgo_transport(request: dict) -> dict:
+    """Read bounded DuckDuckGo HTML and expose only public result URLs."""
+    if not isinstance(request, dict) or request.get("provider") != "duckduckgo":
+        raise ValueError("Salt-okunur arama taşıyıcısı geçersiz.")
+    params = request.get("params") if isinstance(request.get("params"), dict) else {}
+    query = _query(params.get("q"))
+    limit = _limit(params.get("limit"))
+    response = public_sources.fetch(
+        "https://html.duckduckgo.com/html/?q=" + quote_plus(query) + "&kl=tr-tr"
+    )
+    from bs4 import BeautifulSoup
+    page = BeautifulSoup(response["body"].decode("utf-8", errors="replace"), "html.parser")
+    results = []
+    for link in page.select("a.result__a"):
+        href = str(link.get("href") or "").strip()
+        title = link.get_text(" ", strip=True)
+        if href.startswith("//"):
+            href = "https:" + href
+        parsed = urlsplit(href)
+        if parsed.hostname and parsed.hostname.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+            href = (parse_qs(parsed.query).get("uddg") or [""])[0]
+        try:
+            target = public_sources.address(href)
+        except ValueError:
+            continue
+        if not title or any(row["url"] == target for row in results):
+            continue
+        results.append({"url": target, "title": title[:400], "snippet": ""})
+        if len(results) >= limit:
+            break
+    return {"results": results}
+
+
+def search_public(query: str) -> list[dict]:
+    """Search one keyless public provider through the bounded HTTPS reader."""
+    return search_all(query, providers=("duckduckgo",), transport=_duckduckgo_transport)
 
 def extract_request(url: str, *, provider: str = "public_sources") -> dict:
     """Build a separate extraction request; search results never imply article proof."""
