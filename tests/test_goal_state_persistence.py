@@ -295,9 +295,22 @@ class GoalStatePersistenceTests(unittest.TestCase):
         self.assertEqual(terminal['state'], 'done')
         self.assertEqual(reopened, terminal)
 
-    def canonical_terminal(self, path, terminal_state='done'):
+    def backfilled(self, store, state='running'):
+        """Legacy-authority canonical record, as the operator backfill creates it."""
+        root = Path(store) / 'alice'
+        root.mkdir(parents=True, exist_ok=True)
+        return self.compat.operator_backfill_missing_canonical_once(
+            self.job(state), root / '0123456789abcdef.goalstate.json', operator_approved=True,
+        )
+
+    def canonical_terminal(self, path, terminal_state='done', authority='canonical'):
         from modules import core_state_reducer
-        current = self.compat.sync(self.job('running'), path)
+        if authority == 'legacy':
+            current = self.compat.operator_backfill_missing_canonical_once(
+                self.job('running'), path, operator_approved=True,
+            )
+        else:
+            current = self.compat.sync(self.job('running'), path)
         next_state = core_state_reducer.apply(current, {
             'expected_version': current['version'], 'op': 'set_state',
             'state': terminal_state, 'reason_code': 'CANONICAL_COMPLETED',
@@ -332,7 +345,7 @@ class GoalStatePersistenceTests(unittest.TestCase):
                     root = store / 'alice'
                     root.mkdir()
                     canonical = root / '0123456789abcdef.goalstate.json'
-                    terminal = self.canonical_terminal(canonical, terminal_state)
+                    terminal = self.canonical_terminal(canonical, terminal_state, authority='legacy')
                     job = dict(self.job('running'), blocker='eski engel')
                     self.goal_executor._save(job)
                     legacy = json.loads((root / '0123456789abcdef.json').read_text(encoding='utf-8'))
@@ -342,8 +355,26 @@ class GoalStatePersistenceTests(unittest.TestCase):
                     latest = self.goal_executor.latest('alice')
                     self.assertFalse(self.goal_executor.is_open(latest))
 
+    def test_goal_executor_save_signals_canonical_done_without_legacy_for_canonical_authority(self):
+        for terminal_state in ('done', 'cancelled'):
+            with self.subTest(terminal_state=terminal_state), tempfile.TemporaryDirectory() as tmp:
+                store = Path(tmp)
+                with patch.object(self.goal_executor, 'STORE', store):
+                    root = store / 'alice'
+                    root.mkdir()
+                    canonical = root / '0123456789abcdef.goalstate.json'
+                    terminal = self.canonical_terminal(canonical, terminal_state)
+                    self.goal_executor._save(dict(self.job('running'), blocker='eski engel'))
+                    self.assertFalse((root / '0123456789abcdef.json').exists())
+                    self.assertEqual(self.store.load(canonical), terminal)
+                    latest = self.goal_executor.latest('alice')
+                    self.assertEqual(latest['state'], terminal_state)
+                    self.assertNotIn('blocker', latest)
+                    self.assertFalse(self.goal_executor.is_open(latest))
+
     def test_goal_executor_save_keeps_legacy_bytes_when_canonical_not_terminal(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root)
             job = dict(self.job('approval'), blocker='Onay bekliyor')
             self.goal_executor._save(job)
             legacy = self.root / 'alice' / '0123456789abcdef.json'
@@ -351,6 +382,7 @@ class GoalStatePersistenceTests(unittest.TestCase):
 
     def test_goal_executor_save_writes_canonical_before_legacy_record(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root)
             job = self.job()
             self.goal_executor._save(job)
             root = self.root / 'alice'
@@ -360,6 +392,22 @@ class GoalStatePersistenceTests(unittest.TestCase):
             self.assertTrue(legacy.exists())
             state = json.loads(canonical.read_text(encoding='utf-8'))
             self.assertEqual(state['state'], 'running')
+            self.assertEqual(state['job_id'], job['id'])
+
+    def test_canonical_authority_job_save_skips_legacy_journal(self):
+        from modules import goal_state
+        with patch.object(self.goal_executor, 'STORE', self.root):
+            job = self.job()
+            self.goal_executor._save(job)
+            self.goal_executor._save(self.job('paused'))
+            root = self.root / 'alice'
+            canonical = root / '0123456789abcdef.goalstate.json'
+            self.assertEqual(goal_state.authority(self.store.load(canonical)), 'canonical')
+            self.assertTrue((root / '0123456789abcdef.execution.json').exists())
+            self.assertFalse((root / '0123456789abcdef.json').exists())
+            self.assertEqual(self.goal_executor.latest('alice')['state'], 'paused')
+            state = json.loads(canonical.read_text(encoding='utf-8'))
+            self.assertEqual(state['state'], 'paused')
             self.assertEqual(state['job_id'], job['id'])
 
     def test_goal_executor_save_is_fail_closed_when_canonical_sync_fails(self):
@@ -413,7 +461,7 @@ class GoalStatePersistenceTests(unittest.TestCase):
             )
             self.assertFalse((root / (foreign['id'] + '.goalstate.json')).exists())
 
-    def test_goal_executor_save_rolls_back_new_canonical_when_legacy_write_fails(self):
+    def test_new_job_never_attempts_legacy_write(self):
         from modules import goal_state_save_hook
         original = goal_state_save_hook._ORIGINAL_ATOMIC
 
@@ -424,12 +472,12 @@ class GoalStatePersistenceTests(unittest.TestCase):
 
         with patch.object(self.goal_executor, 'STORE', self.root):
             with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
-                with self.assertRaisesRegex(OSError, 'legacy write failed'):
-                    self.goal_executor._save(self.job())
+                self.goal_executor._save(self.job())
             root = self.root / 'alice'
-            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+            self.assertTrue((root / '0123456789abcdef.goalstate.json').exists())
+            self.assertTrue((root / '0123456789abcdef.execution.json').exists())
             self.assertFalse((root / '0123456789abcdef.json').exists())
-            self.assertFalse((root / 'latest.json').exists())
+            self.assertTrue((root / 'latest.json').exists())
 
     def test_new_job_canonical_state_is_marked_canonical_authority(self):
         from modules import goal_state
@@ -495,6 +543,7 @@ class GoalStatePersistenceTests(unittest.TestCase):
         original = goal_state_save_hook._ORIGINAL_ATOMIC
 
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root)
             self.goal_executor._save(self.job())
             root = self.root / 'alice'
             canonical = root / '0123456789abcdef.goalstate.json'
@@ -521,14 +570,16 @@ class GoalStatePersistenceTests(unittest.TestCase):
             return original(path, data)
 
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root, 'approval')
+            root = self.root / 'alice'
+            canonical = root / '0123456789abcdef.goalstate.json'
+            approval_bytes = canonical.read_bytes()
             with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
                 with self.assertRaisesRegex(OSError, 'legacy write failed'):
-                    self.goal_executor._save(self.job('approval'))
-            root = self.root / 'alice'
-            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+                    self.goal_executor._save(self.job('running'))
+            self.assertEqual(canonical.read_bytes(), approval_bytes)
 
             self.goal_executor._save(self.job('done'))
-            canonical = root / '0123456789abcdef.goalstate.json'
             terminal_bytes = canonical.read_bytes()
             with patch.object(goal_state_save_hook, '_ORIGINAL_ATOMIC', side_effect=fail_legacy):
                 with self.assertRaisesRegex(OSError, 'legacy write failed'):
@@ -694,6 +745,7 @@ class ExecutionRecordTests(unittest.TestCase):
 
     setUp = GoalStatePersistenceTests.setUp
     job = GoalStatePersistenceTests.job
+    backfilled = GoalStatePersistenceTests.backfilled
 
     def _fail_on(self, name):
         from modules import goal_state_save_hook
@@ -722,7 +774,7 @@ class ExecutionRecordTests(unittest.TestCase):
         with patch.object(self.goal_executor, 'STORE', self.root):
             self.goal_executor._save(self.job())
             self.goal_executor._save(self.job('paused'))
-            (self.root / 'alice' / '0123456789abcdef.json').unlink()
+            self.assertFalse((self.root / 'alice' / '0123456789abcdef.json').exists())
             self.assertEqual(self.goal_executor.latest('alice')['state'], 'paused')
 
     def test_latest_falls_back_to_legacy_journal_saved_before_execution_record(self):
@@ -748,15 +800,19 @@ class ExecutionRecordTests(unittest.TestCase):
 
     def test_legacy_write_failure_rolls_back_new_execution_record(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root)
+            root = self.root / 'alice'
+            canonical = root / '0123456789abcdef.goalstate.json'
+            before = canonical.read_bytes()
             with self._fail_on('0123456789abcdef.json'):
                 with self.assertRaisesRegex(OSError, 'write failed'):
-                    self.goal_executor._save(self.job())
-            root = self.root / 'alice'
+                    self.goal_executor._save(self.job('paused'))
             self.assertFalse((root / '0123456789abcdef.execution.json').exists())
-            self.assertFalse((root / '0123456789abcdef.goalstate.json').exists())
+            self.assertEqual(canonical.read_bytes(), before)
 
     def test_legacy_write_failure_restores_previous_execution_record(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
+            self.backfilled(self.root)
             self.goal_executor._save(self.job())
             record = self.root / 'alice' / '0123456789abcdef.execution.json'
             before = record.read_bytes()
