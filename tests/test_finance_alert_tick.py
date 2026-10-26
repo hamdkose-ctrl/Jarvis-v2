@@ -4,14 +4,14 @@ import tempfile
 from datetime import datetime,timezone
 import unittest
 from unittest.mock import Mock,patch
-from modules import watcher, finance_alert_store as store, finance_alert_runner as runner
+from modules import watcher, finance_alert_tick as alert_tick, finance_alert_store as store, finance_alert_runner as runner
 
 class FinanceAlarmTickTests(unittest.TestCase):
     def setUp(self):
         td=tempfile.TemporaryDirectory();self.addCleanup(td.cleanup)
         root=Path(td.name)
         self.enterContext(patch.object(store,'_ROOT',root/'rules'))
-        self.enterContext(patch.object(watcher,'_FINANCE_ROOT',root/'ticks',create=True))
+        self.enterContext(patch.object(alert_tick,'_ROOT',root/'ticks',create=True))
         self.emit=Mock();self.price=Mock(return_value=34)
         self.day=datetime(2026,1,19,12,tzinfo=timezone.utc).timestamp()  # 15:00 Istanbul
         self.rule=store.add_rule('alice',{'kind':'doviz','symbol':'USD','op':'above','value':33})
@@ -36,7 +36,7 @@ class FinanceAlarmTickTests(unittest.TestCase):
         night=self.day+9*3600  # 00:00 Istanbul
         self.tick(night)
         self.emit.assert_not_called()
-        self.assertTrue(list(watcher._FINANCE_ROOT.glob('alice.json')))
+        self.assertTrue(list(alert_tick._ROOT.glob('alice.json')))
         self.emit.side_effect=OSError('ui')
         self.tick(night+8*3600)
         self.emit.side_effect=None
@@ -67,8 +67,8 @@ class FinanceAlarmTickTests(unittest.TestCase):
             market.assert_called_with('PAXGTRY')
             self.assertEqual(watcher._finance_price('hisse','THYAO'),60)
     def test_tick_path_and_corrupt_state_fail_closed(self):
-        watcher._FINANCE_ROOT.mkdir(parents=True)
-        (watcher._FINANCE_ROOT/'alice.json').write_text('{broken')
+        alert_tick._ROOT.mkdir(parents=True)
+        (alert_tick._ROOT/'alice.json').write_text('{broken')
         self.tick(self.day)
         self.price.assert_not_called()
         with self.assertRaises(ValueError):watcher.finance_tick('../bob',self.emit,now=self.day,price_getter=self.price)
@@ -78,19 +78,19 @@ class FinanceAlarmTickTests(unittest.TestCase):
         owner=SimpleNamespace(slug='alice',data={})
         runtime=SimpleNamespace(stop_event=SimpleNamespace(wait=Mock(side_effect=[False,True])),
             pc_profile=Mock(return_value=owner),_llm=Mock(),_emit_for=Mock())
-        with patch.object(watcher,'load',return_value=[]),patch.object(watcher,'_finance_price',return_value=34),patch.object(watcher.time,'time',return_value=self.day):
+        with patch.object(watcher,'load',return_value=[]),patch.object(alert_tick,'_price',return_value=34),patch.object(watcher.time,'time',return_value=self.day):
             watcher.loop(runtime)
         runtime._emit_for.assert_called_once()
         self.assertIs(runtime._emit_for.call_args.args[0],owner)
         runtime._llm.set_user_context.assert_not_called()
 
     def test_pending_write_failure_recovers_consumed_trigger(self):
-        original=watcher._finance_save
+        original=alert_tick._save
         def fail_pending(path,state):
             if state.get('pending'):
                 raise OSError('disk pending write')
             original(path,state)
-        with patch.object(watcher,'_finance_save',side_effect=fail_pending):
+        with patch.object(alert_tick,'_save',side_effect=fail_pending):
             self.tick(self.day)
         self.assertIsNotNone(store.get_state('alice',self.rule['id'])['fired_at'])
         self.emit.assert_not_called()
