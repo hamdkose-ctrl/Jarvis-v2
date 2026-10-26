@@ -57,6 +57,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `modules/docs.py`, `document_conversion.py`, `kb.py` | Belge okuma, dönüştürme ve bilgi tabanı |
 | `modules/workbench.py` | Belge masası: belgeden tablo, karşılaştırma, Excel/CSV birleştirme ve gruplama |
 | `modules/watcher.py` | Klasör izleme kuralları ve 20 saniyelik arka plan taraması |
+| `modules/runtime_event_subscription.py` | Hedef ↔ kaynak takibi kalıcı RuntimeEvent aboneliği; `source_watch` olaylarını Reducer/CAS ile GoalState evidence'ına ekler |
 | `modules/hoca_workspace.py` | Hoca çalışma alanı: ders, kaynak, ödev/deadline, oturum hafızası (domain sözleşmesi) |
 | `modules/requests_state.py` | İstek kimliği (`rid`), iptal ve arşiv |
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |

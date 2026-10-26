@@ -76,6 +76,16 @@ def events(owner,limit=20):
                 db.execute('SELECT * FROM source_events ORDER BY created DESC LIMIT ?',(limit,))]
 
 
+def rule_events(owner,rule_id,since,limit=50):
+    """Read-only, oldest-first stored events of one rule at/after `since` (RuntimeEvent producer)."""
+    if type(limit) is not int or not 1<=limit<=200:raise ValueError('Olay sınırı 1–200 olmalı.')
+    if not isinstance(since,(int,float)) or isinstance(since,bool):raise ValueError('Olay başlangıç zamanı geçersiz.')
+    with service_store.database(owner) as db:
+        _schema(db)
+        return [{'id':row['id'],'rule':row['rule'],'item':row['item'],'created':row['created'],'payload':json.loads(row['payload'])}
+                for row in db.execute('SELECT * FROM source_events WHERE rule=? AND created>=? ORDER BY created,id LIMIT ?',(rule_id,since,limit))]
+
+
 def _fold(value):return value.replace('I','ı').replace('İ','i').lower()
 
 

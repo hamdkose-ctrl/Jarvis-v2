@@ -152,6 +152,8 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
                         tick(path.stem,notify)
                         from modules import source_watch
                         source_watch.poll(path.stem,source_notify)
+                        from modules import runtime_event_subscription
+                        runtime_event_subscription.pump_safely(path.stem)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):
                             with task_agents._active(path.stem):results=outbox.poll(path.stem)
                             for result in results:

@@ -1,7 +1,22 @@
 # Yol haritası notu — Durable RuntimeEvent subscription
 
-**Durum:** Ertelendi / bilinçli mimari borç  
-**Tarih:** 24 Ekim 2026
+**Durum:** Kapandı (Faz 2-2, 26 Ekim 2026) — ilk production kaynak `source_watch`  
+**Tarih:** 24 Ekim 2026, güncelleme 26 Ekim 2026
+
+## Verilen kararlar (Faz 2-2)
+
+Modül: `modules/runtime_event_subscription.py`. Test: `tests/test_runtime_event_subscription.py`.
+
+- **Sahip:** Kaynak takibini (`monitor add`) çalıştıran hedef, yani `identity['job_id']`. Canonical GoalState yoksa veya hedef bitmişse abonelik açılmaz, takip yine eklenir.
+- **Kalıcılık:** Hedef klasöründe `runtime_event_subscriptions.json` (abonelikler) ve `runtime_event_seen.json` (dedup). Bellekte durum tutulmaz; yeniden başlatmada aynı dosyalar okunur. Bozuk kayıt fail-closed reddedilir.
+- **Kimlik alanları:** `source_event_key = source_watch:<kural>`. `source_generation`, aynı hedef/kaynak için her yeniden abonelikte bir artar. `subject_version`, bağlama anındaki GoalState sürümüdür (yalnız tazelik alanı, CAS sürümü değil). `resume_token` rastgele ve kalıcıdır. `fresh_after` abonelik zamanıdır; daha eski kaynak olayları bayat sayılır.
+- **Olay:** `source_events` satırı → `runtime_event.v1`, `kind = source_watch.item_changed`. `event_id` abonelik ve kaynak olay kimliğinden türetilir; yeniden taramada aynı kimlik çıkar ve dedup edilir.
+- **Akış:** `task_queue` döngüsü her `source_watch.poll` sonrası `pump_safely` çağırır; elle `monitor check` de aynısını yapar. `pump` → `runtime_event_commit` → Reducer `append_evidence` + CAS. CAS yarışında bir kez yeniden okur.
+- **Yaşam döngüsü:** Hedef `done/cancelled` olursa, GoalState kaybolursa ya da takip kuralı silinirse abonelik `closed` olur (nedeni kaydedilir). Duraklatılmış kural olay üretmediği için abonelik açık kalır.
+- **Fan-out:** Aynı kurala bağlı her hedef kendi aboneliğiyle ayrı evidence alır.
+- **Sınır:** Event hiçbir state/completion kararı vermez; yalnız evidence ekler.
+
+Aşağıdaki bölümler tarihsel tasarım notudur.
 
 ## Hazır altyapı, eksik production bağ
 

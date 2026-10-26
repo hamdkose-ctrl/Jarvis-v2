@@ -81,10 +81,10 @@ Yeni production modülü `goal_tools.execute(...)` çağırarak ikinci execution
 
 ## Otomatik WARNING backlog
 
-### ARCH-W001 — RuntimeEvent production subscription
-RuntimeEvent schema, freshness/dedup, persistent seen ve Reducer/CAS commit hazırdır; fakat gerçek production subscription producer henüz yoktur. `source_watch` yapay biçimde bir job'a bağlanmaz.
+### ARCH-W001 — RuntimeEvent production subscription (kapandı, 26 Ekim 2026, Faz 2-2)
+RuntimeEvent schema, freshness/dedup, persistent seen ve Reducer/CAS commit hattına gerçek üretici `modules/runtime_event_subscription.py` ile bağlandı. Kaynak takibini ekleyen hedef aboneliğin sahibidir; `source_watch` davranışı değişmedi, yalnız salt okunur `rule_events` eklendi. Uyarı, `modules/` altında production `runtime_event_commit.commit` çağrısı kalmazsa yeniden çıkar.
 
-Kapanış şartı:
+Kapanış şartı (karşılandı):
 
 ```text
 Durable Job/Core
