@@ -83,8 +83,9 @@ class EventHookTests(unittest.TestCase):
             raw, ts, sig = self.signed({"kind": "push", "payload": {"text": "merhaba"}})
             self.assertEqual(post("/hook/alice/github", raw, {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": sig}), 200)
             self.assertEqual(post("/hook/alice/github", raw, {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": "sha256=" + "0" * 64}), 403)
-            self.assertEqual(post("/hook/bob/github", raw, {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": sig}), 403)
-            self.assertEqual(post("/hook/alice/Bad!", raw, {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": sig}), 400)
+            # Path refusals answer before reading the body; an empty body avoids a Windows connection reset.
+            self.assertEqual(post("/hook/bob/github", b"", {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": sig}), 403)
+            self.assertEqual(post("/hook/alice/Bad!", b"", {"X-Jarvis-Timestamp": ts, "X-Jarvis-Signature": sig}), 400)
             server.event_notify.assert_called_once()
             owner, event, channels = server.event_notify.call_args.args
             self.assertEqual((owner, event["source"], channels), ("alice", "hook:github", ("ui", "ntfy", "log")))
