@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import re
+import sqlite3
 import threading
 import time
 
@@ -44,13 +45,32 @@ def config(owner: str) -> dict:
     return data
 
 
-def _accept_once(key: str, now: float) -> None:
-    """Remember a verified signature for the skew window; a second use is a replay."""
+def _accept_once(owner: str, source: str, signature: str, now: float) -> None:
+    """Atomically persist one verified signature so a restart cannot reaccept it."""
+    # Keep only a SHA-256 fingerprint of the already-verified signature in the
+    # per-owner journal; raw request bodies and secrets are never persisted.
+    fingerprint = hashlib.sha256(signature.encode('ascii')).hexdigest()
+    key = owner + '/' + source + '/' + fingerprint
     with _SEEN_LOCK:
-        for old in [k for k, seen in _SEEN.items() if now - seen > 2 * MAX_SKEW]:
+        for old in [item for item, seen in _SEEN.items() if now - seen > 2 * MAX_SKEW]:
             del _SEEN[old]
         if key in _SEEN:
             raise PermissionError('Olay isteği daha önce alındı (tekrar).')
+        from modules import service_store
+        with service_store.database(owner) as db:
+            db.execute(
+                'CREATE TABLE IF NOT EXISTS event_webhook_seen('
+                'source TEXT, fingerprint TEXT, seen REAL, '
+                'PRIMARY KEY(source, fingerprint))'
+            )
+            db.execute('DELETE FROM event_webhook_seen WHERE seen < ?', (now - 2 * MAX_SKEW,))
+            try:
+                db.execute(
+                    'INSERT INTO event_webhook_seen(source,fingerprint,seen) VALUES(?,?,?)',
+                    (source, fingerprint, now),
+                )
+            except sqlite3.IntegrityError:
+                raise PermissionError('Olay isteği daha önce alındı (tekrar).') from None
         _SEEN[key] = now
 
 
@@ -72,7 +92,7 @@ def ingest(owner: str, source: str, body: bytes, signature: str, timestamp: str 
     expected = 'sha256=' + hmac.new(item['secret'].encode('utf-8'), signed, hashlib.sha256).hexdigest()
     if not isinstance(signature, str) or not hmac.compare_digest(signature, expected):
         raise PermissionError('Olay imzası doğrulanamadı.')
-    _accept_once(owner + '/' + source + '/' + signature, now)
+    _accept_once(owner, source, signature, now)
     try:
         payload = json.loads(body.decode('utf-8'))
     except (UnicodeDecodeError, ValueError):
