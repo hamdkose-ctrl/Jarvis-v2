@@ -31,7 +31,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 ## Genel sıra
 
-- Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: eski JSON yazımı sürüyor, 3 madde başlanmadı)
+- Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: eski hata yolları duruyor, iş PC'sinde kabul bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🟡 kısmi: canlı akışa bağlandı, ikinci hook sistemi duruyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
@@ -49,14 +49,14 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 ## Faz 0 — Aşama 0–4 kapanışı
 
-**Durum: 🟡 kısmi `[1✓ 2🟡 3✓ 4✗]`. 3 PR merge edildi (#347, #348, #349) ama hiçbir madde dört koşulu birden sağlamıyor: eski işler hâlâ legacy `goal_executor` JSON'unda yürüyor ve kaydetme kancası (`goal_state_save_hook.py`) eski JSON'u yazmaya devam ediyor. Başlanmadı: eski JSON yazımının durdurulması, PC watcher kabulü, üç Guard kuralı.**
+**Durum: 🟡 kısmi `[1✓ 2🟡 3✓ 4✗]`. 4 PR merge edildi (#347, #348, #349, #385) ama hiçbir madde dört koşulu birden sağlamıyor: eski işler hâlâ legacy `goal_executor` JSON'unda yürüyor; kaydetme kancası (`goal_state_save_hook.py`) canonical işlerde eski JSON'u artık yazmıyor (#385), legacy-authority işlerde yazmaya devam ediyor. Başlanmadı: PC watcher kabulü, üç Guard kuralı.**
 
 Mimari borç ödenir: canonical GoalState geçişi tamamlanır, eski JSON yazımı durdurulur, Guard kuralları kod içine işlenir. Bu bitmeden sonraki hiçbir faz sağlam temele oturmuyor.
 
 Bu faz bitmeden yeni mimari genişleme açılmaz.
 
-- 🟡 (#349) `[1✓ 2🟡 3✓ 4✗]` Eski `goal_executor` kaydı canonical GoalState'e küçük adımlarla taşınacak: yeni işler doğrudan canonical yetkiyle açılacak, eski işler bitene kadar legacy kalacak. Şu an kaydetme kancası hâlâ önce canonical senkron, sonra eski JSON'u yazıyor.
-- Eski JSON yazımı durdurulacak. (#349 ExecutionRecord'u kurdu; eski yazımı kaldıracak PR henüz yok.) RFC'nin dört kararı da kabul edilmiş (sabit `agent` modu, authority işareti, geri doldurma politikası, terminal koruması), kalan iş kodlama.
+- 🟡 (#349) `[1✓ 2🟡 3✓ 4✗]` Eski `goal_executor` kaydı canonical GoalState'e küçük adımlarla taşınacak: yeni işler doğrudan canonical yetkiyle açılacak, eski işler bitene kadar legacy kalacak. Kaydetme kancası canonical işlerde yalnız canonical senkron ve ExecutionRecord yazıyor (#385); legacy-authority işlerde eski JSON'u da yazıyor.
+- 🟡 (#385) `[1✓ 2🟡 3✓ 4✗]` Eski JSON yazımı durdurulacak. Canonical-authority işlerde durduruldu; legacy-authority işler eski yazımı sürdürüyor, eski `<id>.json` dosyaları diskte duruyor. RFC'nin dört kararı da kabul edilmiş (sabit `agent` modu, authority işareti, geri doldurma politikası, terminal koruması), kalan iş kodlama.
 - 🟡 (#348) `[1✓ 2🟡 3✓ 4✗]` Eksik canonical kayıt için operatör onaylı geri doldurma akışı cutover'a bağlanacak. Fonksiyon ve testi var, akışa bağlı değil.
 - 🟡 (#347) `[1✓ 2✓ 3✓ 4✗]` Canonical tarafın "bitti" bilgisi eski tarafa iletilecek. Bugün canonical bitmiş işi yeniden açmıyor ama eski taraf bunu öğrenmiyor. Eski tarafa iletim çalışıyor; eski kayıt kaldırılınca bu köprü de kalkacak.
 - Gerçek PC watcher kabul kaydı main'in kendi SHA'sı için alınacak ve Aşama 0–4 kapanışı tek belgeyle ilan edilecek. Windows CI main'de yeşil, watcher kayıtları şimdilik yalnız PR bazlı.
