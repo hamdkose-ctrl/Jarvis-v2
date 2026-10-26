@@ -4,14 +4,16 @@ import math
 import threading
 import time
 import uuid
+from datetime import datetime
 from modules import llm, service_store
+from modules.cron_schedule import CronExpression
 from modules.diagnostics import record_failure as _record_failure
 
 _START_LOCK=threading.Lock()
 _THREAD=None
 
 
-def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0):
+def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0, cron=''):
     from modules import task_agents
     task_agents.validate(tasks)
     # Unattended queue never hides a browser/code/write-account approval step.
@@ -22,16 +24,21 @@ def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0):
     if not isinstance(instruction,str) or len(instruction)>20000:raise ValueError('Kuyruk isteği geçersiz.')
     if type(repeat_seconds) is not int or repeat_seconds!=0 and not 300<=repeat_seconds<=30*86400:
         raise ValueError('Tekrar aralığı en az 300 saniye olmalı.')
+    cron = cron.strip() if isinstance(cron, str) else ''
+    schedule = CronExpression(cron) if cron else None
+    if schedule and (delay or repeat_seconds):
+        raise ValueError('Cron görevi gecikme veya saniye tekrarıyla birlikte kullanılamaz.')
     qid=uuid.uuid4().hex[:16];job_id=uuid.uuid4().hex[:12]
+    due = schedule.next_after(datetime.now()).timestamp() if schedule else time.time()+delay
     with service_store.database(owner) as db:
-        db.execute('INSERT INTO queue(id,tasks,instruction,due,state,job_id,created,error,repeat_seconds) VALUES(?,?,?,?,?,?,?,?,?)',
-                   (qid,service_store.encode(tasks),instruction,time.time()+delay,'queued',job_id,time.time(),'',repeat_seconds))
+        db.execute('INSERT INTO queue(id,tasks,instruction,due,state,job_id,created,error,repeat_seconds,cron) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                   (qid,service_store.encode(tasks),instruction,due,'queued',job_id,time.time(),'',repeat_seconds,cron))
     return qid
 
 
 def rows(owner):
     with service_store.database(owner) as db:
-        return [dict(row) for row in db.execute('SELECT id,state,due,job_id,error,repeat_seconds,last_job_id,instruction FROM queue ORDER BY created DESC LIMIT 50')]
+        return [dict(row) for row in db.execute('SELECT id,state,due,job_id,error,repeat_seconds,last_job_id,cron,instruction FROM queue ORDER BY created DESC LIMIT 50')]
 
 def render_rows(items):
     from modules import privacy
@@ -46,6 +53,28 @@ def render_rows(items):
         lines.append(text+'\nDurum: '+status+(f"\nHer {row['repeat_seconds']} saniyede tekrar eder." if row['repeat_seconds'] else '')+
                      ('\nSonuç: görev durumu '+result_id if result_id else '\nSonuç, iş çalıştıktan sonra oluşacak.')+'\nİptal: kuyruk iptal '+row['id'])
     return '\n\n'.join(lines)
+
+
+
+def run_now(owner, qid):
+    """Put one queued schedule at the front without changing its definition."""
+    with service_store.database(owner) as db:
+        row = db.execute('SELECT * FROM queue WHERE id=?', (qid,)).fetchone()
+        if not row:
+            raise ValueError('Bu kullanıcıya ait kuyruk işi yok.')
+        if row['state'] == 'running':
+            raise ValueError('Görev zaten çalışıyor; ikinci bir çalışma başlatılmadı.')
+        new_job_id = uuid.uuid4().hex[:12]
+        db.execute(
+            "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0 WHERE id=?",
+            (time.time(), new_job_id, row['job_id'], qid),
+        )
+    return qid
+
+
+def enqueue_script(owner, tasks, instruction='', cron=''):
+    """Queue an explicit task DAG without invoking a planner/model."""
+    return enqueue(owner, tasks, instruction, cron=cron)
 
 
 def cancel(owner,qid):
@@ -123,7 +152,11 @@ def tick(owner, notify=None):
         count=db.execute("UPDATE queue SET state=?,error=? WHERE id=? AND state='running'",(state,error,row['id'])).rowcount
         if count:
             db.execute('INSERT OR IGNORE INTO queue_runs VALUES(?,?,?,?)',(row['id'],row['job_id'],state,time.time()))
-            if state=='done' and row['repeat_seconds']:
+            if state=='done' and row['cron']:
+                next_due = CronExpression(row['cron']).next_after(datetime.now()).timestamp()
+                db.execute("UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0 WHERE id=? AND state='done'",
+                           (next_due,uuid.uuid4().hex[:12],row['job_id'],row['id']))
+            elif state=='done' and row['repeat_seconds']:
                 db.execute("UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0 WHERE id=? AND state='done'",
                            (time.time()+row['repeat_seconds'],uuid.uuid4().hex[:12],row['job_id'],row['id']))
     if notify and count:notify(owner,row['id'],state,row['job_id'])
