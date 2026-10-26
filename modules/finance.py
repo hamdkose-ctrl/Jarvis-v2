@@ -9,6 +9,7 @@ ve tarih okunur, metin modele gitmez.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -246,6 +247,35 @@ def _safe_xml(body: bytes):
     body = re.sub(br'<!DOCTYPE[^\[>]*(\[[^\]]*\])?\s*>', b'', body, count=1)
     return ET.fromstring(body)
 
+
+
+def dated_rate(owner, base, quote, on_date=None, *, fetcher=None):
+    """Read one dated public FX rate with Finance-owned source validation."""
+    from urllib.parse import urlencode
+    from modules import public_sources, service_store
+    service_store.identity(owner)
+    if any(not isinstance(value, str) or not re.fullmatch('[A-Za-z]{3}', value) for value in (base, quote)):
+        raise ValueError('Üç harfli para birimi gerekli.')
+    if on_date is not None:
+        if not isinstance(on_date, str):
+            raise ValueError('Tarih YYYY-MM-DD olmalı.')
+        date.fromisoformat(on_date)
+    url = 'https://api.frankfurter.dev/v2/rate/' + base.lower() + '/' + quote.lower()
+    if on_date:
+        url += '?' + urlencode({'date': on_date})
+    response = (fetcher or public_sources.fetch)(url)
+    data = json.loads(response['body'])
+    if not isinstance(data, dict) or data.get('base') != base.upper() or data.get('quote') != quote.upper():
+        raise ValueError('Kur yanıtı para birimleriyle eşleşmiyor.')
+    rate = Decimal(str(data.get('rate', '')))
+    if not rate.is_finite() or rate <= 0 or not isinstance(data.get('date'), str):
+        raise ValueError('Kur/değer tarihi geçersiz.')
+    date.fromisoformat(data['date'])
+    if on_date and data['date'] > on_date:
+        raise ValueError('Kaynak istenen tarihten sonraki kuru döndürdü.')
+    return {'data': data, 'source': response['url'], 'fetched_at': time.time(),
+            'sha256': hashlib.sha256(response['body']).hexdigest(),
+            'scope': 'Günlük kaynak kuru; anlık banka alış/satış fiyatı değildir.'}
 
 def _tcmb():
     from modules import public_sources
