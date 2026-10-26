@@ -15,7 +15,7 @@ CATALOG = {
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
-                'required': ('url', 'instruction'), 'optional': ()},
+                'required': ('url', 'instruction'), 'optional': ('mode',)},
     'coder': {'risk': 'development_workspace', 'replay_safe': False,
               'required': ('request',), 'optional': ()},
     'verify': {'risk': 'local_evidence_read', 'replay_safe': True,
