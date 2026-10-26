@@ -1,7 +1,8 @@
 import unittest
+from unittest.mock import patch
 from modules.research_providers import (
     ResearchContext, compare_sources, extract_source, format_citation,
-    rank_results, search_request, weekly_research_request,
+    rank_results, search_public, search_request, weekly_research_request,
 )
 
 
@@ -38,6 +39,14 @@ class ResearchProviderTests(unittest.TestCase):
         request = weekly_research_request("Türkiye yapay zeka")
         self.assertEqual(request["window_days"], 7)
         self.assertEqual(request["cadence"], "weekly")
+
+    def test_public_search_reads_only_public_result_urls(self):
+        html = (b'<a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Farticle">'
+                b'Dogrulanmis kaynak</a><a class="result__a" href="http://invalid.example">Atla</a>')
+        with patch('modules.research_providers.public_sources.fetch',
+                   return_value={'body': html, 'url': 'https://html.duckduckgo.com/html/', 'content_type': 'text/html'}):
+            rows = search_public('enerji verimliligi')
+        self.assertEqual([(row['provider'], row['url'])], [('duckduckgo', 'https://example.com/article')])
 
     def test_invalid_provider_and_source_are_rejected(self):
         with self.assertRaises(ValueError):
