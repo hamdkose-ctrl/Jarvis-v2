@@ -160,7 +160,9 @@ def rules_prompt(profile, query=None) -> str:
         rs = [r for r in rs if rule_scope(r) in scopes]
     if not rs:
         return ""
-    return ("Kullanıcının sana öğrettiği ilgili davranış kuralları (diğer talimatlarla çelişirse bunlar geçerli): "
+    return ("Kullanıcının sana öğrettiği ilgili davranış kuralları aşağıdadır. "
+            "Bunlar yalnız davranış tercihi ve bağlamdır; Domain invariant, Decision Authority, JIT Permission ve Effect Policy kararlarının önüne geçemez; "
+            "hedefi/alıcıyı, izin sınıfını veya gerekli kullanıcı onayını değiştiremez: "
             + " ".join(f"{i}) {r}" for i, r in enumerate(rs, 1)))
 
 
@@ -191,7 +193,7 @@ def approve(profile, idx: int | None = None) -> int:
     pf = pending(profile)
     take = pf if idx is None else ([pf[idx]] if 0 <= idx < len(pf) else [])
     for f in take:
-        profile.add_fact(f)                        # add_fact kaydeder
+        profile.add_fact(f)
     profile.data["pending_facts"] = [] if idx is None else [x for i, x in enumerate(pf) if i != idx]
     profile.save()
     return len(take)
@@ -243,7 +245,7 @@ def extract_from_session(profile, convo: list[tuple[str, str]]) -> list[str]:
     """Bir konuşmanın (rol, metin) listesinden kalıcı bilgi adaylarını çıkarıp onay listesine koyar."""
     user_lines = [t for r, t in convo if r == "user" and t.strip()]
     if len(user_lines) < 2 or sum(len(t) for t in user_lines) < 40:
-        return []                                    # çok kısa konuşmadan öğrenilecek bir şey yok (kota harcama)
+        return []
     known = (profile.data.get("facts") or []) + pending(profile)
     text = "\n".join(f"Kullanıcı: {t.strip()[:2000]}" for r, t in convo[-40:] if r == 'user')
     prompt = (f"Kullanıcının adı: {profile.name}.\nZaten bilinenler: {'; '.join(known) if known else 'yok'}.\n\n"
@@ -252,7 +254,7 @@ def extract_from_session(profile, convo: list[tuple[str, str]]) -> list[str]:
         from modules import llm
         llm.set_user_context(profile.slug)
         out = llm.ask(prompt, _EXTRACT, 400)
-    except Exception:                                 # noqa: BLE001
+    except Exception:
         _record_failure('modules/learning.py:extract_from_session')
         profile.data["learning_status"] = {"state":"error", "error":"Model erişimi nedeniyle bilgi çıkarılamadı"}
         profile.save()
@@ -270,7 +272,6 @@ def extract_from_session(profile, convo: list[tuple[str, str]]) -> list[str]:
 
 # ------------------------------------------------------------------ 3) gelişim raporu
 _LINE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ (\w+) (.*)$")
-# Türkçe dışı yazı: Kore/Japon/Çin/Hint/Arap/Kiril harfleri ya da Türkçede olmayan Latin harfleri (å, ä, é, ñ, ß …)
 _FOREIGN = re.compile(r"[Ѐ-ӿ؀-ۿऀ-ॿ぀-ヿ一-鿿가-힯"
                       r"åäéèêëñãõøœßàáíóú¿¡]", re.I)
 
@@ -278,7 +279,7 @@ _FOREIGN = re.compile(r"[Ѐ-ӿ؀-ۿऀ-ॿ぀-ヿ一-鿿가-힯"
 def _log_lines(days: int) -> list[tuple[datetime, str, str]]:
     cut = datetime.now() - timedelta(days=days)
     rows = []
-    for name in ("jarvis.log.2", "jarvis.log.1", "jarvis.log"):          # eskiden yeniye
+    for name in ("jarvis.log.2", "jarvis.log.1", "jarvis.log"):
         p = DATA_DIR / name
         if not p.exists():
             continue
@@ -317,7 +318,7 @@ def report_data(days: int = 7) -> dict:
             if last_user:
                 d["unanswered"].append(last_user)
         elif msg.startswith("Araç (canlı): ") or msg.startswith("Özel araç: "):
-            last_req = msg.split(": ", 1)[-1].split(" -> ")[0]          # hangi istek (sonuç bununla eşleşir)
+            last_req = msg.split(": ", 1)[-1].split(" -> ")[0]
         elif msg.startswith("Araç sonucu") and re.search(r"bulamadım|yapamadım|Yapamadım|Geçersiz istek|açamadım|"
                                                          r"gönderemedim|Gönderemedim|bakamadım", msg):
             d["failed"].append((last_req or last_user, msg.split(": ", 1)[-1]))
@@ -341,7 +342,7 @@ def report_data(days: int = 7) -> dict:
 
 def _uniq(xs: list, n: int) -> list:
     seen, out = set(), []
-    for x in reversed(xs):                      # en yeniler önce
+    for x in reversed(xs):
         k = _low(str(x))
         if k not in seen:
             seen.add(k)
@@ -398,7 +399,7 @@ def report(days: int = 7, save: bool = True) -> str:
             REPORT_FILE.write_text(text, encoding="utf-8")
             save_settings(last_learning_report=datetime.now().isoformat(timespec="minutes"))
         except OSError:
-            _record_failure('modules/learning.py:report')  # privacy-safe diagnostic is emitted at the catch boundary
+            _record_failure('modules/learning.py:report')
     return text
 
 
@@ -442,10 +443,8 @@ def handle(cmd_lower: str, command: str, profile) -> str | None:
         if len(matches)!=1:return 'Kesin ve tek bir bilgi seçilemedi; önce “hafızamı göster” de ve kaydın tamamını yaz.'
         profile.edit_fact(matches[0],value,text)
         return 'Bilgiyi düzelttim.' if text is not None else 'Seçtiğin bilgiyi unuttum.'
-    # gelişim raporu
     if re.search(r"gelişim raporu|kendini (?:değerlendir|geliştir|analiz)|neleri? yapamadın|nerede hata yaptın", t):
         return short_summary(report())
-    # onay bekleyen bilgiler
     if re.search(r"öğrendi(?:k)?lerini(?:n)?\s+(?:hepsini\s+)?(?:kaydet|onayla|hatırla|sakla)\b|hepsini (?:kaydet|onayla|hatırla)\b", t):
         n = approve(profile)
         return f"{n} bilgiyi hafızama kaydettim." if n else "Onay bekleyen bir şey yok."
@@ -466,7 +465,6 @@ def handle(cmd_lower: str, command: str, profile) -> str | None:
         return "Hafızama kaydettim: " + fact
     m = re.match(r"^bundan sonra\s+(.+)$", command.strip(), re.I)
     if m: return add_rule(profile, m.group(1))
-    # kurallar
     if re.search(r"(?:kurallarını|kurallarımı|öğrettiklerimi|öğrendiklerini)\s+(?:say|söyle|oku|listele|göster)|neler öğrendin", t):
         rs, pf = rules(profile), pending(profile)
         parts = []
@@ -497,11 +495,10 @@ def startup_notice(profile) -> str | None:
         return None
     d = report_data()
     if d["sessions"] + d["commands"] < 10:
-        return None                                  # rapor için yeterli kullanım yok
+        return None
     return short_summary(report())
 
 
-# Shared, bounded learning for desktop, phone and voice.
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from modules.personalization import _LOCK as _PROFILE_LOCK
@@ -538,7 +535,6 @@ def observe(profile, text):
             with _PROFILE_LOCK:
                 if not enabled(profile): return
                 profile.data['learning_status']={'state':'extracting','pending':len(pending(profile))};profile.save()
-            # Extraction uses this captured owner's API context, never the current UI profile.
             extract_from_session(profile, [('user', t) for t in batch])
             with _PROFILE_LOCK:
                 profile.data['learning_status']={'state':'pending' if pending(profile) else 'ready','pending':len(pending(profile))};profile.save()
