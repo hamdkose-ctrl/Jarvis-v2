@@ -17,6 +17,12 @@ def need(feature: str) -> str:
     return f"{feature} için Ollama yüklemelisin: {INSTALL}."
 
 
+def need_local(label: str, url: str) -> str:
+    """LM Studio / llama.cpp seçiliyken sunucu yoksa."""
+    return (f"Yerel model için {label} sunucusu çalışmıyor ({url}). {label} içinde bir model yükleyip "
+            "yerel sunucuyu başlat ya da Yapay zekâ › Ollama panelinden uç noktayı düzelt.")
+
+
 def unavailable(error: BaseException) -> str | None:
     """Yalnız mevcut hata zincirindeki bağlantı reddi; ek ağ/servis yoklaması yapmaz."""
     pending, seen = [error], set()

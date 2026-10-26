@@ -125,7 +125,10 @@ def failure_status(exc):
 def failure_detail(attempt):
     reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı'}.get(attempt.get('kind'), 'çağrı başarısız')
     if attempt.get('hint') == 'ollama_missing':
-        reason = 'Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)'
+        from modules import llm
+        label = llm.local_label()
+        reason = ('Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)' if label == 'Ollama'
+                  else label + ' yerel sunucusu çalışmıyor (modeli yükleyip sunucuyu başlat)')
     error = attempt.get('error', '')
     if error in ('Timeout', 'ReadTimeout', 'ConnectTimeout', 'TimeoutError'):
         reason = 'zaman aşımı'
@@ -174,8 +177,8 @@ def run(owner, prompt, callback, image=False):
             attempt={'provider':provider,'ok':False,'error':type(exc).__name__,
                      'kind':failure_kind(exc),'status':failure_status(exc)}
             if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
-                from modules import ollama_hint
-                if str(exc) == ollama_hint.need('Yerel model'):
+                from modules import llm
+                if str(exc) == llm.local_hint():
                     attempt['hint'] = 'ollama_missing'
             attempts.append(attempt)
             from modules import llm

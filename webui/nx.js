@@ -2165,9 +2165,14 @@ async function drawSettings(){
         srow('home','Bu bilgisayar','Ev/iş devir listesi (Google Görevler) için',`<div class="seg">${[['is','İş'],['ev','Ev']].map(([v,t])=>`<button class="${ho.place===v?'on':''}" data-act="hoplace" data-v="${v}">${t}</button>`).join('')}</div>`)+
         pad18(`<button class="btn sm" data-act="hoconn">${ic('link')} Görevler iznini ver</button> <span class="mut">${esc(SX.ho||(ho.ready?'Görevler izni kayıtlı; düşerse buradan yenile.':''))}</span>`));
     const pOr=routerBox('openrouter');
-    const pOll=sbox('bolt','Ollama · Yerel model','Bilgisayarında çalışan yerel model; internet ve anahtar gerekmez.',
+    const lb=SX.lb||l.local_backend||'ollama',lbSame=lb===(l.local_backend||'ollama');
+    const LB_URL={ollama:'http://127.0.0.1:11434',lmstudio:'http://127.0.0.1:1234/v1',llamacpp:'http://127.0.0.1:8080/v1'};
+    const pOll=sbox('bolt',esc(l.local_label||'Ollama')+' · Yerel model','Bilgisayarında çalışan yerel model; internet ve anahtar gerekmez. Ollama, LM Studio veya llama.cpp (llama-server) seçilebilir; hepsi isteğe bağlıdır.',
       srow('spark','Durum',l.ollama_up?'Çalışıyor':'Kurulu değil veya çalışmıyor','')+
-      field('Yerel model · '+esc((sn.user||{}).name||'Kullanıcı'),inp('om','llama3.2',l.local_model),'Yalnız bu kullanıcı için. Ollama’da indirdiğin model adını yaz (ör. llama3.2, qwen2.5:7b).')+
+      srow('cpu','Yerel sunucu','LM Studio ve llama.cpp OpenAI uyumlu /v1 uç noktasıyla bağlanır',`<div class="seg">${[['ollama','Ollama'],['lmstudio','LM Studio'],['llamacpp','llama.cpp']].map(([v,t])=>`<button class="${lb===v?'on':''}" data-act="lbpick" data-v="${v}">${t}</button>`).join('')}</div>`)+
+      field('Uç nokta',inp('lburl',LB_URL[lb],lbSame?l.ollama_url:''))+
+      pad18(`<button class="btn sm pri" data-act="lbsave">Sunucuyu kaydet ve dene</button> <span class="mut">${esc(SX.lbm||'')}</span>`)+
+      field('Yerel model · '+esc((sn.user||{}).name||'Kullanıcı'),inp('om','llama3.2',l.local_model),'Yalnız bu kullanıcı için. Ollama’da indirdiğin model adını yaz (ör. llama3.2, qwen2.5:7b); LM Studio/llama.cpp’de boş bırakırsan sunucudaki ilk model kullanılır.')+
       pad18(`<button class="btn sm pri" data-act="omsave">Modeli kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>`));
     const pGroq=sbox('bolt','Groq · '+esc((sn.user||{}).name||'Kullanıcı')+' (isteğe bağlı)','Bu anahtar yalnız aktif kullanıcıya aittir. Anahtar: console.groq.com/keys',
         srow('bolt','Groq',q.key?'Kayıtlı …'+esc(q.tail||''):'Yok','')+field('Groq anahtarı',inp('qk','gsk_…','','password'))+field('Groq modeli',inp('qm','openai/gpt-oss-120b',q.model))+pad18(`<button class="btn sm pri" data-act="qsave">Kaydet ve dene</button> <span class="mut">${esc(SX.q||'')}</span>`));
@@ -2337,6 +2342,8 @@ ACT.deplock=async()=>{const r=await tryApi('dependency_lock_create');SX.gh=msgOf
 ACT.ghpublish=async el=>{if(!await ask('Bu bilgisayardaki kaynak değişiklikleri test edip ayrı bir dala yükleyeyim ve main için PR açayım mı? (main’e PR birleşince girer)'))return;el.disabled=true;SX.gh='Testler çalışıyor ve GitHub yayını hazırlanıyor…';if(settingsOpen())drawSettings();else toast(SX.gh);try{const r=await api('github_publish');SX.gh=msgOf(r);toast(r.msg,r.ok?'':'bad')}catch(e){SX.gh='✗ '+e.message;toast(e.message,'bad')}finally{await refresh();if(S.sset==='baglanti'||S.sset==='github')drawSettings()}};
 ACT.ghpull=async el=>{if(!await ask('GitHub main sürümünü bu bilgisayara alayım mı? Yerel değişiklik varsa işlem güvenlik için duracak.'))return;el.disabled=true;SX.gh='GitHub main doğrulanıyor ve güvenli güncelleme hazırlanıyor…';if(settingsOpen())drawSettings();else toast(SX.gh);try{const r=await api('github_pull');SX.gh=msgOf(r);toast(r.msg,r.ok?'':'bad')}catch(e){SX.gh='✗ '+e.message;toast(e.message,'bad')}finally{await refresh();if(S.sset==='baglanti'||S.sset==='github')drawSettings()}};
 ACT.upd=async()=>{const r=await tryApi('update_now');if(r){SX.gh=msgOf(r);toast(r.msg);if(S.sset==='baglanti'||S.sset==='github')drawSettings()}};
+ACT.lbpick=el=>{SX.lb=el.dataset.v;SX.lbm='';drawSettings()};
+ACT.lbsave=async el=>{el.disabled=true;SX.lbm='Deneniyor…';try{SX.lbm=msgOf(await api('local_backend_set',SX.lb||((S.snap||{}).llm||{}).local_backend||'ollama',$('#lburl').value,''));SX.lb=''}catch(e){SX.lbm='✗ '+e.message}sAfter(0)};
 ACT.omsave=async el=>{el.disabled=true;try{SX.om=msgOf(await api('model_choice_save','ollama',$('#om').value))}catch(e){SX.om='✗ '+e.message}sAfter(0)};
 ACT.qsave=async el=>{el.disabled=true;SX.q='Deneniyor…';try{SX.q=msgOf(await api('groq_key_save',$('#qk').value,$('#qm').value,false))}catch(e){SX.q='✗ '+e.message}sAfter(0)};
 ACT.gsopen=async el=>{const r=await tryApi('google_setup_open',el.dataset.v);SX.g=msgOf(r);drawSettings()};

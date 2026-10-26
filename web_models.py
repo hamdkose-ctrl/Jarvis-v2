@@ -67,6 +67,17 @@ class WebModels:
         runtime.privacy.audit('model sağlayıcı', f'{provider} {model}'.strip())
         return runtime.llm.status()
 
+    def local_backend_set(self, backend: str, url: str='', model: str='') -> dict:
+        """Yerel model sunucusu: Ollama, LM Studio veya llama.cpp (OpenAI uyumlu uç nokta). Sağlayıcı değişmez."""
+        runtime = self._runtime
+        runtime.llm.set_local_backend(backend, url, model)
+        st = runtime.llm.status()
+        label = st['local_label']
+        msg = (f'{label} çalışıyor, {len(st["ollama_models"])} model görüldü.' if st['ollama_up'] else
+               f'{label} kaydedildi ama şu an yanıt vermiyor ({st["ollama_url"]}).')
+        runtime.privacy.audit('yerel model sunucusu', f'{backend} {st["ollama_url"]}')
+        return {'ok': bool(st['ollama_up']), 'msg': msg, 'status': st}
+
     def smart_router_status(self) -> dict:
         runtime = self._runtime
         from modules import smart_router

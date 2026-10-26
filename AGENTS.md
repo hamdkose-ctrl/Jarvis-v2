@@ -26,11 +26,11 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (12 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (20 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (21 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (17 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (17 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (18 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (7 bölüm)
@@ -49,7 +49,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `webui/nx.js`, `nx.css`, `icons.js` | Masaüstü arayüzü. Sayfalar `PAGES.*`, düğmeler `ACT.*`, sunucu olayları `onEvent` içinde işlenir. |
 | `modules/system_control.py` | Windows ses, parlaklık, medya, uygulama ve pencere kontrolü |
 | `modules/pc_steps.py` | Motorun `system_control` çağrılarını sohbete "adım" olarak raporlayan ince sarmalayıcı |
-| `modules/llm.py`, `smart_router.py` | Model çağrıları ve otomatik model seçimi |
+| `modules/llm.py`, `smart_router.py` | Model çağrıları ve otomatik model seçimi; yerel sunucu Ollama, LM Studio veya llama.cpp (`local_backend`) |
+| `modules/model_free_delivery.py` | Planlayıcı model yokken haber dışı hedeflerde doğrulanmış çıktıların modelsiz teslimi |
 | `modules/image_gen.py` | Görsel üretimi (Cloudflare Workers AI/FLUX, kullanıcıya özel anahtar) — yalnız üretim/iletişim katmanı |
 | `modules/visual_commands.py` | 7 görsel türü için doğal dil tetikleme (kalıp + model fallback), istem kurma ve üretilen görseli "Jarvis Dosyaları/Görseller" altına kaydetme |
 | `modules/visual_chat.py` | Sohbette görsel tetiklenince "sohbetten mi, dosyadan mı?" sorusu + "yeniden dene"; `command_manager.dispatch`'e bağlı |

@@ -7,6 +7,12 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## Model yokken genel hedeflerin modelsiz teslimi (26 Ekim 2026, Faz 1-B)
+
+- Planlayıcı çağrısı modelin yokluğu yüzünden düşerse (`llm.LocalModelError` ya da `failure_policy` sınıfı kota, kimlik, DNS, ağ, zaman aşımı, servis kapalı, havuz bitti, ortam eksik) ve hedef haber değilse, tur sonunda `modules/model_free_delivery.attach` çalışır. Haber hedefleri `news_recovery` ile kendi yolunu kullanmaya devam eder; finans zaten motor düzeyinde modelsizdir.
+- Yeni araç çalıştırmaz, onay vermez, hedefi tamamlanmış saymaz: yalnız `done` durumundaki ve `goal_tools.verify` ile yeniden doğrulanan adım çıktılarını `job['model_free']` altında teslim eder; engel metni nedeni tek cümleyle söyler (yerel sunucuya göre kurulum/başlatma, kota, ağ). Render anında çıktı yeniden doğrulanır; değişen dosya teslim edilmez. Hedef açık kalır; planlayıcı yeniden yanıt verince `model_free` silinir ve iş normal sürer.
+- Sınıflandırılmamış planlayıcı hatası (ör. düz `RuntimeError`) eski davranışı korur. Test: `tests/test_model_free_delivery.py`. İş PC'sinde Ollama'sız gerçek kabul bekliyor.
+
 ## GoalState operator onaylı cutover runner (25 Ekim 2026)
 
 `modules/goalstate_cutover_runner.py` RFC kararlarını guard tablosu olarak uygular (`docs/architecture/GOALSTATE_CUTOVER_RUNNER_V1.md`). `plan()` salt-okunurdur; `apply()` yalnız onaylı parmak izi + onaylı `MISSING_CANONICAL` job'lar için tek seferlik backfill yapar. Owner'da tek blocker (identity/corrupt/unknown/invalid) varsa hiçbir şey yazılmaz. Backfill kaydı `authority='legacy'` alır (flip noktası job yaratılışıdır). Runner `goal_executor`, save-hook veya `sync()`'e bağlanmaz; legacy yazımı durdurmaz. Test: `tests/test_goalstate_cutover_runner.py`.

@@ -96,7 +96,7 @@ def classify(exc: BaseException) -> str:
     if code in (401, 403) or re.search(r'api[_ -]?key|unauthenticated|invalid[_ -]?grant|revoked|kimlik|yetkisiz'
                                        r'|anahtar\w*\s+(?:geçersiz|yok)', text, re.I):
         return AUTH
-    if name in _LOCAL_MODEL_TYPES and 'ollama' in text:
+    if name in _LOCAL_MODEL_TYPES and any(server in text for server in ('ollama', 'lm studio', 'llama.cpp')):
         return LOCAL_MODEL
     if name in {'servernotfounderror', 'gaierror'} or any(part in text for part in (
         'unable to find the server', 'name or service not known', 'temporary failure in name resolution',

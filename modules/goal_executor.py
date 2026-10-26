@@ -389,6 +389,7 @@ def _loop_steps(runtime,job,answer=None):
     rejected_sources=0
     rejected_questions=0
     invalid_decisions=0
+    model_down=None
     if answer:job.setdefault('answers',[]).append(answer[:2000])
     for step in job['steps']:
         if step['state']=='running':
@@ -463,6 +464,7 @@ def _loop_steps(runtime,job,answer=None):
         try:
             call=_planner(runtime,job,prompt,system)
             planner_pending=False
+            model_down=None;job.pop('model_free',None)
             _ensure(runtime,job)
             action=call['action']
             if action=='legacy_plan':
@@ -601,6 +603,8 @@ def _loop_steps(runtime,job,answer=None):
             _record_failure('modules/goal_executor.py:turn')
             job.setdefault('feedback',[]).append(privacy.redact(str(exc),force=True)[:1600])
             job.setdefault('failures',[]).append(failure_policy.snapshot(exc,context='planner'));job['failures']=job['failures'][-20:];_save(job)
+            from modules import model_free_delivery
+            if planner_pending and model_free_delivery.model_down(exc):model_down=exc
             if isinstance(exc,(ValueError,TypeError)):
                 invalid_decisions+=1
                 if invalid_decisions>=MAX_INVALID_DECISIONS:
@@ -630,6 +634,10 @@ def _loop_steps(runtime,job,answer=None):
     job['blocker']=('Planlayıcı kayıtlı hedefleri tekrar planlamaya çalıştığı için duraklatıldı; mevcut plan ve sonuçlar korundu.' if rejected_plans>=3 else 'Hedef tamamlanmadı; yapılanlar ve denenen yöntemler kaydedildi.')
     if job.get('partial_report'):
         job['blocker']='Modelsiz kısmi kaynak raporu oluşturuldu ve dosyası doğrulandı. İstenen araştırmanın tamamı doğrulanmadığı için hedef açık tutuldu.'
+    elif model_down is not None:
+        from modules import research_evidence,model_free_delivery
+        # Haber hedefleri news_recovery ile kendi modelsiz yolunu kullanır; diğer hedefler doğrulanmış çıktıyı alır.
+        if not research_evidence.news_requested(job['request']):model_free_delivery.attach(job,model_down)
     _save(job)
     return render(job)
 
@@ -756,6 +764,9 @@ def render(job):
             output=job['outputs'].get(step['id'],{})
             text=str(output.get('text') or output.get('message') or step['state'])
             if output.get('state')!='done' and not _internal_failure(text) and not seen_error(text[:500]):lines.append(step['tool']+': '+text[:500])
+        from modules import model_free_delivery
+        shown={ident for goal in job['goals'] if goal['state']=='done' for ident in goal.get('evidence',[])}
+        lines.extend(model_free_delivery.render_lines(job,shown))
         if job.get('feedback'):
             visible=next((str(item) for item in reversed(job['feedback']) if not _internal_failure(item)),None)
             if visible and not seen_error(visible[:500]):lines.append(visible[:500])
