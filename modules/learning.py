@@ -420,7 +420,7 @@ def short_summary(text: str) -> str:
     names = {"YANLIŞ DUYULMUŞ": "yanlış duyulmuş olabilecek söz", "CEVAPSIZ": "cevapsız kalan söz",
              "YAPAMADIĞI": "yapamadığım iş", "ARAÇ ÇAĞIRMADAN": "yapmadan 'yaptım' dediğim", "HATA": "hata kaydı"}
     parts = []
-    for h, n in re.findall(r"^([A-ZÇĞİÖŞÜ' ]{6,}) \((\d+)\", text, re.M):
+    for h, n in re.findall(r"^([A-ZÇĞİÖŞÜ' ]{6,}) \((\d+)", text, re.M):
         name = next((v for k, v in names.items() if h.startswith(k)), None)
         if name:
             parts.append(f"{n} {name}")
