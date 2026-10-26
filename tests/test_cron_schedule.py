@@ -58,6 +58,58 @@ class CronExpressionTests(unittest.TestCase):
         sql, params = db.execute.call_args_list[-1].args
         self.assertIn("due=?", sql)
         self.assertEqual(params[2], "old-job")
+    @patch("modules.task_queue.service_store.database")
+    def test_run_now_refuses_cancelled_job(self, database):
+        db = Mock()
+        database.return_value.__enter__.return_value = db
+        db.execute.return_value.fetchone.return_value = {"state": "cancelled", "job_id": "old-job"}
+        with self.assertRaises(ValueError):
+            task_queue.run_now("hamdi", "queue-id")
+        self.assertEqual(len(db.execute.call_args_list), 1)
+
+    def test_render_rows_uses_real_line_breaks_and_run_now_hint(self):
+        text = task_queue.render_rows([{
+            "id": "a" * 16, "state": "queued", "due": 0, "job_id": "j1", "error": "",
+            "repeat_seconds": 0, "last_job_id": "", "cron": "0 9 * * 1-5", "instruction": "sabah raporu",
+        }])
+        self.assertNotIn("\\n", text)
+        self.assertIn("\nCron: 0 9 * * 1-5", text)
+        self.assertIn("kuyruk çalıştır " + "a" * 16, text)
+
+
+class CronChatCommandTests(unittest.TestCase):
+    @patch("modules.task_queue.enqueue_script", return_value="b" * 16)
+    @patch("modules.task_agents.llm.ask")
+    def test_script_cron_command_skips_model(self, ask, enqueue_script):
+        from modules import task_agents
+        reply = task_agents.handle(
+            "hamdi",
+            'görev betik */30 * * * *: {"instruction": "kontrol", "tasks": '
+            '[{"id": "check", "agent": "verify", "depends": [], "input": {}}]}',
+        )
+        ask.assert_not_called()
+        owner, tasks, instruction, cron = enqueue_script.call_args.args
+        self.assertEqual((owner, instruction, cron), ("hamdi", "kontrol", "*/30 * * * *"))
+        self.assertEqual(tasks[0]["agent"], "verify")
+        self.assertIn("kuyruk çalıştır " + "b" * 16, reply)
+
+    @patch("modules.task_queue.enqueue", return_value="c" * 16)
+    @patch("modules.task_agents.llm.ask",
+           return_value='{"tasks": [{"id": "r", "agent": "research", "depends": [], "input": {}}]}')
+    def test_cron_command_plans_once_and_stores_expression(self, ask, enqueue):
+        from modules import task_agents
+        reply = task_agents.handle("hamdi", "görev cron 0 9 * * 1-5: sabah haber özeti")
+        ask.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["cron"], "0 9 * * 1-5")
+        self.assertEqual(enqueue.call_args.args[2], "sabah haber özeti")
+        self.assertIn("Cron: 0 9 * * 1-5", reply)
+
+    @patch("modules.task_queue.run_now")
+    def test_run_now_chat_command(self, run_now):
+        from modules import task_agents
+        reply = task_agents.handle("hamdi", "kuyruk çalıştır " + "d" * 16)
+        run_now.assert_called_once_with("hamdi", "d" * 16)
+        self.assertIn("temiz", reply)
 
 if __name__ == "__main__":
     unittest.main()

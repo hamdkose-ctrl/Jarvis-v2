@@ -616,6 +616,33 @@ def handle(owner, command, emit=None, *, summary=False):
         try:task_queue.cancel(owner,queue_cancel[1])
         finally:llm._key_context.reset(token)
         return 'Kuyruk işi iptal edildi.'
+    queue_run=re.fullmatch(r'kuyruk (?:çalıştır|şimdi çalıştır) ([a-f0-9]{16})',c)
+    if queue_run:
+        from modules import task_queue
+        token=llm._key_context.set(owner)
+        try:task_queue.run_now(owner,queue_run[1])
+        finally:llm._key_context.reset(token)
+        return 'Görevi sıranın başına aldım; Jarvis birkaç saniye içinde temiz bir oturumla çalıştıracak.\nDurum: görev kuyruğu'
+    cron_match=re.fullmatch(r'görev (cron|betik) ((?:\S+\s+){4}\S+?)\s*:\s*(.+)',command.strip(),re.I|re.S)
+    if cron_match:
+        from modules import task_queue
+        script=cron_match[1].casefold()=='betik'
+        token=llm._key_context.set(owner)
+        try:
+            if script:
+                # Model-free script task: the user's explicit task DAG is stored as-is.
+                data=_json(cron_match[3])
+                tasks=validate(data['tasks'] if isinstance(data,dict) else data)
+                instruction=(data.get('instruction') if isinstance(data,dict) else '') or 'Betik görevi'
+                qid=task_queue.enqueue_script(owner,tasks,instruction,cron_match[2])
+            else:
+                instruction=cron_match[3].strip()
+                tasks=validate(_json(llm.ask(instruction,system=_SYSTEM,max_tokens=2200))['tasks'])
+                qid=task_queue.enqueue(owner,tasks,instruction,cron=cron_match[2])
+        finally:llm._key_context.reset(token)
+        return (f'İşi kaydettim: {instruction}\nCron: {cron_match[2]} (Jarvis açıkken; her çalıştırma temiz oturumla).'
+                +(' Model çağrısı olmadan betik olarak saklandı.' if script else '')
+                +'\nDurum: görev kuyruğu\nŞimdi çalıştır: kuyruk çalıştır '+qid+'\nİptal: kuyruk iptal '+qid)
     queue_match=re.fullmatch(r'görev (zamanla|tekrarla) ([0-9]{1,7})\s*:\s*(.+)',command.strip(),re.I|re.S)
     if queue_match:
         from modules import task_queue
