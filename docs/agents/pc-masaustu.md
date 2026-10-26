@@ -44,3 +44,10 @@ Ekran paylaşım komutu ASCII ş/i yazımını da mevcut `set_share` yolunda tan
 - Router'ın `desktop_task` kısayolu native `desktop_agent.handle` çağrısı yapmaz. Açık hedef/iş metnini mevcut `goal_executor`a devreder; böylece masaüstü işi Core prepare onayı, identity/fence, receipt ve Reducer/CAS kabulünden ayrı ikinci bir yoldan başlayamaz.
 - Bu yönlendirme yeni PC motoru değildir ve uygulama içi UIA davranışını değiştirmez. Eksik/hedefi belirsiz PC isteği önceki gibi netleştirme sorusuna gider.
 
+
+## PC Worker sınırı — 26 Ekim 2026
+
+- Tam PC kontrolü (genel tıklama, yazma, kaydırma, sürükleme, kısayol, görüntü tabanlı yedek, C# Windows-native yürütücü) ayrı PC Worker'ın işidir; kodu bu depoda değildir. Mimari belgedeki `ComputerWorker` / "C# PC Worker" ile aynı worker'dır.
+- Jarvis-v2 yalnız Core tarafını yapar: capability manifesti, izin ve etki politikası, IPC sözleşmesi ve sürüm uzlaşması, lease, WorkerResult sınırı, makbuz ve salt-okunur benchmark (`docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md` §16–17).
+- `desktop_agent` ve `desktop_uia` UIA temeli olarak kalır, genel girdiye genişletilmez; PC Worker bu temele karşı ölçülür. `_NEVER_APPS` yalnız bu temelin listesidir. PC Worker için Core politikası (mimari §16): Jarvis penceresi ve uzak erişim uygulamaları yasak; terminal, kod editörü, tarayıcı, şifre yöneticisi ve sistem araçları hassas sınıftadır (her eylemde ayrı onay, kalıcı izin yok, makbuz zorunlu, şifre alanı değeri okunmaz).
+- IPC yalnız yerel ve aynı kullanıcıdır (ACL'li named pipe veya stdio); ağ portu açılmaz. Girdi modu `uia_pattern` (odak/imleç çalmaz, pencere lease'i) ve `physical_input` (masaüstü geneli lease, kullanıcı girdisinde durur) olarak ayrılır; Worker modu kendiliğinden yükseltmez. Yönetici yetkili hedefte Worker kendini yükseltmez, `elevated_target` ile reddeder.
