@@ -25,6 +25,9 @@ def _amount(value,separator='.'):
 
 
 def csv_analysis(owner,kind,path,columns,decimal='.'):
+    if kind == 'finance':
+        from modules import finance_analysis
+        return finance_analysis.csv_summary(owner, path, columns, decimal)
     service_store.identity(owner)
     from modules import nxapi
     original=Path(path);source=nxapi.allowed(path)
