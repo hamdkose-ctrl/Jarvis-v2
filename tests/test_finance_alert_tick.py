@@ -116,3 +116,15 @@ class FinanceAlarmTickTests(unittest.TestCase):
         self.tick(self.day+300)
         self.assertEqual(self.price.call_count,3)
         self.assertIn('EUR',self.emit.call_args.args[0])
+
+
+    def test_finance_alarm_uses_finance_notification_title(self):
+        from types import SimpleNamespace
+        owner=SimpleNamespace(slug='alice',data={'prefs': {'ntfy_topic': 'hamdi'}})
+        runtime=SimpleNamespace(stop_event=SimpleNamespace(wait=Mock(side_effect=[False,True])),
+            pc_profile=Mock(return_value=owner),_llm=Mock(),_emit_for=Mock(),
+            notify=SimpleNamespace(send=Mock()))
+        with patch.object(watcher,'load',return_value=[]),patch.object(alert_tick,'_price',return_value=34),patch.object(watcher.time,'time',return_value=self.day):
+            watcher.loop(runtime)
+        runtime.notify.send.assert_called_once()
+        self.assertEqual(runtime.notify.send.call_args.args[1], 'Jarvis finans alarmı')

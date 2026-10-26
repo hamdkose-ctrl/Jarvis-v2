@@ -317,11 +317,14 @@ def loop(runtime) -> None:
             owner = runtime.pc_profile()
             topic = (owner.data.get("prefs") or {}).get("ntfy_topic")
 
-            def emit(text, o=owner):
+            def emit(text, o=owner, notification_title="Jarvis klasör izleme"):
                 runtime._emit_for(o, "assistant", text, "izleme")
                 if topic:   # telefon bildirimi açıksa kısa haber
-                    runtime.notify.send(topic, "Jarvis klasör izleme", text.split("\n", 1)[0][:200])
-            finance_tick(owner.slug, emit)
+                    runtime.notify.send(topic, notification_title, text.split("\n", 1)[0][:200])
+            finance_tick(
+                owner.slug,
+                lambda text: emit(text, notification_title="Jarvis finans alarmı"),
+            )
             if load(owner.slug):
                 runtime._llm.set_user_context(owner.slug)       # bu iş parçacığında yalnız o kullanıcının anahtarı
                 tick(owner.slug, emit)
