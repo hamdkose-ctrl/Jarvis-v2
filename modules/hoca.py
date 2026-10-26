@@ -115,7 +115,8 @@ def start(profile, topic: str, level: str = "", source: dict | None = None, cour
     lesson = {"topic": topic, "level": level, "steps": steps, "active": 0, "done": False,
               "started": int(time.time())}
     if source:
-        lesson["source"] = {"label": _clip(source.get("label"), 120), "full": bool(source.get("full")), "chunks": parts}
+        lesson["source"] = {"label": _clip(source.get("label"), 120), "full": bool(source.get("full")),
+                            "url": _clip(source.get("url"), 2048), "chunks": parts}
     if course_id is not None:
         lesson["course_id"] = course_id
         from modules import hoca_workspace
@@ -433,6 +434,7 @@ _HINT = "(Cevap vermek için 'cevap: ...' yaz; bilmiyorsan 'bilmiyorum', geçmek
 
 
 _SOURCE_CMD = re.compile(r"(video(?=\s+(?:https?://|www\.|youtu))|(?:kaynak|altyazı)(?=\s*[:,\-]?\s*(?:[\"“]|[a-z]:[\\/]|[/~])))")
+_RESEARCH_CMD = re.compile(r"araştır\s*[:,\-]?\s*(?P<topic>.+)", re.S)
 
 
 def _source_from(kind: str, original: str) -> dict:
@@ -447,6 +449,20 @@ def _source_from(kind: str, original: str) -> dict:
     if not m:
         raise HocaError("Dosya yolunu tırnak içinde yaz: 'hoca modu: kaynak \"C:\\Users\\...\\ders.srt\"'.")
     return hoca_video.file_source(m.group(1))
+
+
+def _research_source(topic: str) -> dict:
+    """Turn an explicit Hoca research request into one bounded public source."""
+    from modules import research_providers
+    candidates = research_providers.search_public(topic)
+    if not candidates:
+        raise HocaError("Bu konu için açık ve güvenilir bir kaynak bulunamadı.")
+    candidate = candidates[0]
+    source = research_providers.extract_source(candidate["url"])
+    text = str(source.get("text") or "").strip()
+    if len(text) < 80:
+        raise HocaError("Seçilen araştırma kaynağında yeterli metin yok.")
+    return {"label": candidate.get("title") or topic, "url": source["url"], "text": text, "full": True}
 
 
 def _lesson_text(profile) -> str:
@@ -475,6 +491,15 @@ def handle(profile, text: str, enabled: bool = True) -> str | None:
             topic = m.group("t").strip(" .,:;")
             if not topic:
                 return "Hangi konuyu çalışalım? Örneğin: 'hoca modu: hücre'."
+            research = _RESEARCH_CMD.fullmatch(topic)
+            if research:
+                research_topic = _clip(research.group("topic"), _TOPIC_MAX)
+                if not research_topic:
+                    raise HocaError("Araştırılacak konuyu yaz: 'hoca modu: araştır hücre'.")
+                source = _research_source(research_topic)
+                lesson = start(profile, research_topic, source=source)
+                return (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım. "
+                        f"Kaynak: {source['url']}\n\n" + _lesson_text(profile))
             kind = _SOURCE_CMD.match(topic)
             if kind:
                 source = _source_from(kind.group(1), text)

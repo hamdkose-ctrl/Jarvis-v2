@@ -254,6 +254,20 @@ class HocaChatTests(unittest.TestCase):
         self.assertIn('Hücre nedir', out)
 
 
+    def test_research_hoca_uses_readonly_source_and_cites_it(self):
+        candidate = {'title': 'Hücre kaynağı', 'url': 'https://example.test/cell'}
+        source = {'url': candidate['url'], 'text': 'Hücre, canlıların temel yapı birimidir. Zar, sitoplazma ve genetik bilgi için temel işlevleri birlikte yürütür.'}
+        with patch('modules.research_providers.search_public', return_value=[candidate]) as search, \
+             patch('modules.research_providers.extract_source', return_value=source) as extract, \
+             patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
+            output = hoca.handle(self.p, 'hoca modu: araştır hücre')
+
+        search.assert_called_once_with('hücre')
+        extract.assert_called_once_with(candidate['url'])
+        self.assertIn(candidate['url'], output)
+        self.assertEqual(hoca.active(self.p)['source']['url'], candidate['url'])
+
+
 class HocaEngineHookTests(unittest.TestCase):
     """engine_tools._study_intent: hoca satırları, yalnız açık söyleniş ve aktif ders yakalanır."""
 
