@@ -1,7 +1,21 @@
 # Yol haritası notu — Durable RuntimeEvent subscription
 
-**Durum:** Ertelendi / bilinçli mimari borç  
-**Tarih:** 24 Ekim 2026
+**Durum:** Kapandı (Faz 2-2, 26 Ekim 2026) — ilk production kaynak `source_watch`  
+**Tarih:** 24 Ekim 2026, güncelleme 26 Ekim 2026
+
+## Verilen kararlar (Faz 2-2)
+
+Tek abonelik sistemi: `modules/runtime_subscription.py` (servis veritabanında `runtime_subscriptions` tablosu). Test: `tests/test_runtime_subscription.py`, `tests/test_runtime_subscription_jobs.py`.
+
+- **Sahip:** Kaynak takibini (`monitor add`) çalıştıran hedef, yani `identity['job_id']`; `bind_job` ile bağlanır. Canonical GoalState yoksa veya hedef bitmişse abonelik açılmaz, takip yine eklenir.
+- **Sahipsiz kaynak:** Aktif hedef aboneliği olmayan kaynak için `ensure_source` `source-<özet>` adlı ayrı bir GoalState açar (webhook kaynakları da böyle).
+- **Kimlik alanları:** `source_event_key` takip kuralının kimliği (webhook için `webhook:<kaynak>`). `fresh_after` abonelik zamanıdır; daha eski olaylar bayat sayılır. `resume_token` rastgele ve kalıcıdır.
+- **Akış:** `source_watch.poll` yeni öğeleri `publish` eder → `runtime_event_commit` → Reducer `append_evidence` + CAS. CAS yarışında bir kez yeniden okur. Dedup abonelik başına kalıcı seen dosyasıyla.
+- **Yaşam döngüsü:** Hedef `done/cancelled` olursa ilk olayda abonelik kapanır (`TerminalStateError`). Takip kuralı silinince `close_source` o kaynağın bütün aboneliklerini kapatır.
+- **Fan-out:** Aynı kurala bağlı her aktif abonelik kendi GoalState'ine ayrı evidence alır.
+- **Sınır:** Event hiçbir state/completion kararı vermez; yalnız evidence ekler.
+
+Aşağıdaki bölümler tarihsel tasarım notudur.
 
 ## Hazır altyapı, eksik production bağ
 

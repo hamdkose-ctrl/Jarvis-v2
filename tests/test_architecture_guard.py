@@ -48,6 +48,11 @@ class ArchitectureGuardTests(unittest.TestCase):
         self.assertIn('ARCH-W001', {row['rule'] for row in report['warnings']})
         self.assertNotIn('ARCH-W001', {row['rule'] for row in report['blockers']})
 
+    def test_current_repository_has_production_runtime_event_producer(self):
+        root = Path(__file__).resolve().parents[1]
+        report = self.guard.scan(root)
+        self.assertNotIn('ARCH-W001', {row['rule'] for row in report['warnings']})
+
     # -- Alias hardening -------------------------------------------------
 
     def test_from_import_function_alias_direct_call_is_blocker(self):

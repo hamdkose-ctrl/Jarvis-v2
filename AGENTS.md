@@ -57,6 +57,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `modules/docs.py`, `document_conversion.py`, `kb.py` | Belge okuma, dönüştürme ve bilgi tabanı |
 | `modules/workbench.py` | Belge masası: belgeden tablo, karşılaştırma, Excel/CSV birleştirme ve gruplama |
 | `modules/watcher.py` | Klasör izleme kuralları ve 20 saniyelik arka plan taraması |
+| `modules/runtime_subscription.py` | Tek kalıcı RuntimeEvent abonelik sistemi; kaynak takibi/webhook olaylarını Reducer/CAS ile GoalState evidence'ına ekler. Takibi ekleyen hedef `bind_job` ile sahibi olur |
 | `modules/hoca_workspace.py` | Hoca çalışma alanı: ders, kaynak, ödev/deadline, oturum hafızası (domain sözleşmesi) |
 | `modules/finance_domain.py` | Finance domain sözleşmesi: veri/alarm/analiz/kaynak doğrulama dalları, Communication sınırı, kod göçü planı ve statik sınır denetimi (FIN-001..004) |
 | `modules/requests_state.py` | İstek kimliği (`rid`), iptal ve arşiv |
