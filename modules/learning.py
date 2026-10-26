@@ -561,7 +561,7 @@ def knowledge_prompt(profile, query='', limit=6500):
     ranked=sorted(((len(qs & tokens(t)),i,k,t) for i,(k,t) in enumerate(items) if t),reverse=True)
     lines=[];size=0
     for score,i,kind,text in ranked[:20]:
-        if qs and not score and len(lines)>=5: continue
+        if qs and not score: continue
         line=f'{kind}: {text[:2000]}'
         if size+len(line)>limit: continue
         lines.append(line);size+=len(line)
