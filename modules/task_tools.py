@@ -11,7 +11,7 @@ CATALOG = {
     'account': {'risk': 'account_read', 'replay_safe': True,
                 'required': ('service', 'operation'), 'optional': ('limit', 'message_id', 'index','resource_id')},
     'research': {'risk': 'network_read', 'replay_safe': True,
-                 'required': ('url',), 'optional': ('question',)},
+                 'required': (), 'optional': ('url', 'query', 'question')},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
@@ -44,8 +44,12 @@ def validate_input(kind, data, *, complete=True):
         raise ValueError('Araç girdisi desteklenmeyen alan içeriyor.')
     if complete and any(key not in data for key in spec['required']):
         raise ValueError('Araç için gerekli girdi eksik: ' + kind)
+    # Planner pre-validation intentionally permits incomplete tool drafts; the
+    # worker-side validation below is the execution boundary.
+    if complete and kind == 'research' and (bool(data.get('url')) == bool(data.get('query'))):
+        raise ValueError('Araştırma için tam olarak bir URL veya sorgu gerekli.')
     for key, value in data.items():
-        limit = 2048 if key == 'url' else 120 if key == 'filename' else 20000
+        limit = 2048 if key in ('url', 'query') else 120 if key == 'filename' else 20000
         if not isinstance(value, str) or not value.strip() or len(value) > limit or '\x00' in value:
             raise ValueError('Araç girdi alanı geçersiz: ' + key)
     if 'url' in data:

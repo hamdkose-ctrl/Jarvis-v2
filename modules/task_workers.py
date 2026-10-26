@@ -61,16 +61,25 @@ def run(owner, task, dependencies):
     if kind=='research':
         if blocked:=privacy.blocked('web'): raise ValueError(blocked)
         from modules.browser_agent import _url
-        url=_url(data['url'])
-        from modules import research_evidence
-        news=research_evidence.news_requested(task.get('execution',{}).get('request','')+' '+data.get('question',''))
+        from modules import research_evidence, research_providers
+        requested = task.get('execution',{}).get('request','')+' '+data.get('question','')
+        news = research_evidence.news_requested(requested)
+        raw_url = data.get('url', '')
+        if raw_url:
+            url = _url(raw_url)
+        else:
+            if news:
+                raise ValueError('Güncel haber araştırması doğrulanmış makale URL’siyle başlamalı.')
+            candidates = research_providers.search_public(data['query'])
+            if not candidates:
+                raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
+            url = _url(candidates[0]['url'])
         article=None
         if news:
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
             research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
         else:
-            from modules import research_providers
             source = research_providers.extract_source(url)
             url = source['url']
             text = source['text']
