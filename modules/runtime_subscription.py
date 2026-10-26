@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config import DATA_DIR
 from modules import goal_state_store, runtime_event, runtime_event_commit, service_store
+from modules.diagnostics import record_failure as _record_failure
 
 
 _OWNER = re.compile(r"[\w-]{1,100}\Z")
@@ -162,6 +163,7 @@ def publish(
                 expected_job_version=row["expected_job_version"],
             )
         except Exception as exc:
+            _record_failure('modules/runtime_subscription.py:publish')
             with service_store.database(owner) as db:
                 _schema(db)
                 db.execute(
