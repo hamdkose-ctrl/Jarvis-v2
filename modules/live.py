@@ -568,7 +568,7 @@ class Live:
         from modules import failure_policy
         category = failure_policy.classify(exc)
         self._session_error_category = category
-        self._session_rate_limited = category == failure_policy.RATE_LIMIT
+        self._session_rate_limited = category in (failure_policy.RATE_LIMIT, failure_policy.QUOTA_EXHAUSTED)
         low = str(exc).lower()
         if "1011" in low or "internal error" in low:
             return ("Google'ın canlı konuşma servisi bağlantıyı üst üste kesti (sunucu tarafı hata, senden kaynaklı değil). "
@@ -578,7 +578,7 @@ class Live:
             return "Canlı konuşma kurulamadı: " + diagnose.explain(exc)
         except Exception:                             # noqa: BLE001
             _record_failure('modules/live.py:_explain')
-            return f"Canlı konuşma kurulamadı: {exc}"
+            return "Canlı konuşma kurulamadı; biraz sonra tekrar dene."
 
     async def _run_session(self, session) -> None:
         from modules.live_session import run

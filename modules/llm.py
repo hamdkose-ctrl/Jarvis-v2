@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jarvis.llm")
 from contextvars import ContextVar
-from modules import requests_state, usage_meter
+from modules import failure_policy, requests_state, usage_meter
 
 from google import genai
 from google.genai import errors, types
@@ -367,7 +367,7 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             except requests.RequestException as e:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
-                time.sleep(attempt); continue
+                failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep); continue
             if r.status_code != 200:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
             if r.status_code == 200:
@@ -386,13 +386,13 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
             last = 'HTTP ' + str(r.status_code)
             if r.status_code == 429:
                 headers_in = getattr(r, 'headers', None) or {}
-                daily = 'per day' in str(getattr(r, 'text', '') or '').casefold()
+                daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
                 _mark_limited('groq', model, last, _limit_seconds(daily, headers_in.get('retry-after')))
                 break
             if r.status_code == 404: break
             if r.status_code not in (500, 502, 503, 504):
                 raise CloudError('Groq yanıt vermedi (' + last + ')')
-            if attempt < 2: time.sleep(attempt)
+            if attempt < 2: failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
         note_route('Groq · ' + model + ' yanıt vermedi (' + last + ')' +
                    (', diğer model deneniyor' if offset + 1 < len(models) else ''), False)
     raise CloudError('Groq yanıt vermedi (' + last + ')')
@@ -441,7 +441,7 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 _SWITCH_CODES = {404, 429, 500, 502, 503, 504}   # bunlarda bekleme/yedek modele geçiş denenir
 _MODELS = [MODEL, *[m for m in FALLBACK_MODELS if m != MODEL]]
-_MAX_TRIES = 3        # aynı modele en fazla kaç deneme (araya 1 ve 2 sn bekleme)
+_MAX_TRIES = failure_policy.MAX_RETRIES   # aynı modele en fazla kaç deneme (araya artan bekleme: ~1, ~2 sn)
 _MAX_TURNS = 8        # son kaç karşılıklı konuşma hatırlansın
 _histories: dict[str, list] = {}   # kullanıcı -> sohbet geçmişi (kullanıcılar karışmasın)
 _history_seed = None               # kullanıcı -> [(rol, metin)]: kalıcı geçmişten son konuşmalar (main ayarlar)
@@ -494,7 +494,7 @@ def _seed(user: str) -> None:
 
 def _daily_quota(e: Exception) -> bool:
     """Günlük kota dolduysa beklemek işe yaramaz, hemen yedek modele geçilir."""
-    return "PerDay" in str(e)
+    return failure_policy.quota_exhausted_text(e)
 
 
 def _gemini_retry_after(e: Exception):
@@ -631,9 +631,9 @@ def _with_models(call):
                     break
                 if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
                     break   # bu modelde ısrar etme, sıradakine geç
-                wait = 2 ** (attempt - 1)   # 1, 2 saniye
-                print(f"(Gemini {code} verdi, {wait} sn sonra tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
-                time.sleep(wait)
+                # artan bekleme (~1, ~2 sn, üst sınır 8 sn); iptal beklemenin ortasında da yakalanır
+                wait = failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
+                print(f"(Gemini {code} verdi, {wait:.1f} sn beklendi, tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
     if last is None:
         raise RuntimeError("Yanıt verecek model yapılandırılmamış.")
     raise last
@@ -870,7 +870,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
             except LocalModelError as e:
                 if strict: raise
                 if privacy.mode() == "yerel" or _cli() is None:
-                    return str(e)
+                    return failure_policy.user_message(e)
         if privacy.mode() == "yerel":
             return "Yalnızca yerel modda görüntü, yerel görüntü modeline (örn. llava) gider; o da yanıt vermedi."
         if _cli() is None:
@@ -901,7 +901,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
     except Exception as e:
         _record_failure('modules/llm.py:ask_image')
         if strict: raise
-        return f"Ekran resmi okunurken hata oluştu: {e}"
+        return "Ekran resmi okunamadı: " + failure_policy.user_message(e)
 
 
 def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: bytes | None = None,
