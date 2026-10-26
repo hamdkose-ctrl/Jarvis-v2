@@ -60,7 +60,6 @@ def run(owner, task, dependencies):
         return account_tools.run(owner,data,dependencies)
     if kind=='research':
         if blocked:=privacy.blocked('web'): raise ValueError(blocked)
-        from modules.browser import page_text
         from modules.browser_agent import _url
         url=_url(data['url'])
         from modules import research_evidence
@@ -70,7 +69,11 @@ def run(owner, task, dependencies):
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
             research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
-        else:text=page_text(url)
+        else:
+            from modules import research_providers
+            source = research_providers.extract_source(url)
+            url = source['url']
+            text = source['text']
         if len(text)<80: raise ValueError('Sayfada yeterli metin bulunamadı.')
         from modules import model_wait,research_evidence
         from datetime import datetime, timezone, timedelta

@@ -56,7 +56,10 @@ def extract_request(url: str, *, provider: str = "public_sources") -> dict:
 def extract_source(url: str, *, fetcher=None) -> dict:
     """Read one public source through the existing bounded HTTPS reader."""
     request = extract_request(url)
-    fetcher = fetcher or public_sources.fetch
+    if fetcher is None:
+        # Preserve the existing browser reader's bounded, user-flow semantics.
+        from modules.browser import page_text
+        return {"url": request["url"], "text": page_text(request["url"]), "content_type": ""}
     response = fetcher(request["url"])
     if not isinstance(response, dict) or response.get("url") != request["url"] or not isinstance(response.get("body"), bytes):
         raise ValueError("Kaynak okuyucu geçerli yanıt üretmedi.")
