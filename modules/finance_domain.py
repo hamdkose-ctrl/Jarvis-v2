@@ -43,7 +43,7 @@ BRANCHES = {
         'effect_policy': 'local_reversible',
         'modules': ('modules/finance_alerts.py', 'modules/finance_alert_store.py',
                     'modules/finance_alert_schedule.py', 'modules/finance_alert_runner.py',
-                    'modules/finance_alert_commands.py', 'modules/finance_watchlist.py'),
+                    'modules/finance_alert_commands.py', 'modules/finance_watchlist.py', 'modules/finance_alert_tick.py'),
         'entry_points': ('modules/finance_alerts.py:evaluate', 'modules/finance_alert_runner.py:run_once',
                          'modules/finance_alert_commands.py:handle', 'modules/finance_alert_schedule.py:notification_text'),
         'invariants': (
@@ -93,15 +93,6 @@ BOUNDARY = {
 # Finance kodunun bugün Finance modülü dışında duran parçaları ve göç adımı.
 # Her konum "dosya:sembol" biçimindedir; test sembolün hâlâ orada olduğunu doğrular.
 MIGRATION = (
-    {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:finance_tick',
-     'target': 'modules/finance_alert_tick.py:tick',
-     'note': 'Klasör izleme dosyasındaki alarm turu ve kurtarma kaydı Finance modülüne taşınır.'},
-    {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:_finance_recover',
-     'target': 'modules/finance_alert_tick.py:_recover', 'note': 'finance_tick ile birlikte taşınır.'},
-    {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:_finance_save',
-     'target': 'modules/finance_alert_tick.py:_save', 'note': 'finance_tick ile birlikte taşınır.'},
-    {'step': '3-C', 'branch': 'alarm', 'location': 'modules/watcher.py:_finance_path',
-     'target': 'modules/finance_alert_tick.py:_path', 'note': 'finance_tick ile birlikte taşınır.'},
     {'step': '3-D', 'branch': 'alarm', 'location': 'modules/watcher.py:loop',
      'target': 'modules/watcher.py:loop',
      'note': 'Bildirim teslimi Communication tarafında kalır ama ntfy başlığı "Jarvis klasör izleme" yerine finans alarmı olarak ayrılır.'},

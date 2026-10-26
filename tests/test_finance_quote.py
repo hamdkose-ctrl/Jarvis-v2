@@ -6,6 +6,12 @@ from modules import finance, watcher
 
 
 class FinanceQuoteTests(unittest.TestCase):
+    def test_watcher_tick_delegates_to_finance_domain(self):
+        from modules import finance_alert_tick
+        with patch.object(finance_alert_tick, 'tick') as tick:
+            watcher.finance_tick('alice', print, now=123)
+        tick.assert_called_once_with('alice', print, now=123, price_getter=None)
+
     def test_public_price_entry_preserves_each_alarm_price_kind(self):
         with patch.object(finance, 'rates', return_value=({'USD': Decimal('34')}, {})), \
              patch.object(finance, '_yahoo', return_value={'last': Decimal('60')}), \
