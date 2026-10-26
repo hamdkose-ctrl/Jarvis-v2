@@ -32,6 +32,11 @@ class LearningInstallTests(unittest.TestCase):
   self.assertIn('sigorta',prompt);self.assertNotIn('Gizli aday',prompt)
   other=Profile.__new__(Profile);other.data={'facts':[],'items':[]}
   self.assertEqual(learning.knowledge_prompt(other,'A17'),'')
+ def test_memory_relevance_gate_excludes_unrelated_memory(self):
+  self.p.data['facts']=['A17 panosunda X200 sensörü kullanılıyor','Kahvede şekersiz içmeyi tercih ediyor']
+  prompt=learning.knowledge_prompt(self.p,'A17 sensörü hangisi?')
+  self.assertIn('X200',prompt)
+  self.assertNotIn('şekersiz',prompt)
  def test_observation_and_disable(self):
   with patch.object(learning,'load_settings',return_value={}):
    self.assertTrue(learning.observe(self.p,'A17 panosunda X200 sensörü kullanıyoruz.'))
