@@ -126,8 +126,11 @@ def validate(actions, *, read_only=False):
     for a in actions:
         if not isinstance(a,dict) or a.get('op') not in _ALLOWED: raise ValueError('Tarayıcı aracı geçersiz.')
         a=dict(a)
-        if read_only and a['op'] not in ('goto','read'):
-            raise ValueError('Salt-okunur tarayıcı modunda yalnız goto ve read adımları kullanılabilir.')
+        if read_only:
+            from modules import browser_readonly
+            browser_readonly.assert_readonly_action(a)
+            if a['op'] not in ('goto','read'):
+                raise ValueError('Salt-okunur tarayıcı modunda yalnız goto ve read adımları kullanılabilir.')
         if a['op']=='goto': _url(a.get('url',''))
         if a['op'] in ('click','select','press') and not (a.get('expect_text') or a.get('expect_url')):
             raise ValueError('Düğme/tuş/seçim işlemi için beklenen metin veya URL doğrulaması gerekli.')
