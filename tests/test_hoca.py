@@ -256,7 +256,7 @@ class HocaChatTests(unittest.TestCase):
 
     def test_research_hoca_uses_readonly_source_and_cites_it(self):
         candidate = {'title': 'Hücre kaynağı', 'url': 'https://example.test/cell'}
-        source = {'url': candidate['url'], 'text': 'Hücre, canlıların temel yapı birimidir.'}
+        source = {'url': candidate['url'], 'text': 'Hücre, canlıların temel yapı birimidir. Zar, sitoplazma ve genetik bilgi için temel işlevleri birlikte yürütür.'}
         with patch('modules.research_providers.search_public', return_value=[candidate]) as search, \
              patch('modules.research_providers.extract_source', return_value=source) as extract, \
              patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
