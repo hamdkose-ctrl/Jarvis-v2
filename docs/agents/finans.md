@@ -4,6 +4,11 @@
 
 Finance, Communication'ın alt yolu değildir. Bugünkü kapsam kur/piyasa/varlık verisi ve kaynaklı **salt-okuma analiz** ile sınırlıdır; veri kaynağı veya model izin, hedef ya da para hareketi yetkisi vermez. Hesap bağlantısı, token/parola, emir, alım-satım, transfer ve dış portföy/finansal kayıt yazısı kapalıdır. `money_credential` Permission Gate'te `deny` kalır; `external_write` veya grant ile sessizce açılmaz. Bir kişiye finans bilgisi gönderme, Finance değil Communication'ın `message_out` hattıdır ve kesin alıcı/JIT onay ister. Ayrıntılı karar: [Finance Domain kararı](../architecture/JARVIS_FINANCE_DOMAIN_DECISION.md).
 
+## Domain sözleşmesi — 26 Ekim 2026 (Faz 3-A)
+- `modules/finance_domain.py` dört dalı tanımlar: `data` (read), `alarm` + takip listesi (local_reversible, yalnız kullanıcının kendi kaydı), `analysis` (read), `source_verification` (read). `route(kind)` sınırı uygular: alarm teslimi, kişiye gönderme ve yayın Communication'ındır; `account_read` ve `money_effect` kapalıdır.
+- `check()` AST ile denetler: Finance modülü Communication/izin yazan modülü içe aktaramaz (FIN-001), `tool_finance` eylemi izinli sınıf dışında olamaz (FIN-002), göç planındaki konumlar ve dal giriş noktaları tanımlı kalır (FIN-003/004). Kod taşıyan PR `MIGRATION` satırını aynı PR'da günceller.
+- Göç sırası: 3-B `watcher._finance_price` → `finance.quote`; 3-C alarm turu `watcher` → `finance_alert_tick.py`; 3-D ntfy başlığı finans alarmı olarak ayrılır; 3-E `domain_tools.exchange` → `finance.dated_rate`; 3-F CSV gelir/gider → `finance_analysis.py`. Ayrıntı: [Finance Domain sözleşmesi v1](../architecture/JARVIS_FINANCE_DOMAIN_CONTRACT_V1.md).
+
 Plan: `raporlar/finans-takibi-plan-2026-10-18.md`. Kapsam yalnız okuma: piyasa verisi, takip listesi, fiyat alarmı. Alım/satım, para hareketi, banka/borsa hesabı bağlantısı yok. Hamdi'nin kararı (2026-10-18): resmî kaynaklar + gayriresmî kaynaklar (BIST, gram altın) ayarsız, hazır açık; ~15 dk gecikme sorun değil, cevapta kaynak ve gecikme yazılır.
 
 ## Kur cevabı ve çevirisi — 18 Ekim 2026
