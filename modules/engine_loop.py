@@ -20,7 +20,8 @@ def _queued_audio(runtime, event):
             except Exception as exc:
                 runtime._record_failure('main.py:queued_audio')
                 runtime.requests_state.check()
-                runtime.emit("assistant", f"Sesi yazıya çeviremedim: {exc}")
+                from modules import failure_policy
+                runtime.emit("assistant", "Sesi yazıya çeviremedim: " + failure_policy.user_message(exc))
                 return
             runtime.requests_state.check()
             if heard:
@@ -241,7 +242,8 @@ def main(runtime, ui=None):
                                 out = runtime._photo_action(kept, question)
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
-                            out = f"Fotoğrafı işleyemedim: {exc}"
+                            from modules import failure_policy
+                            out = "Fotoğrafı işleyemedim: " + failure_policy.user_message(exc)
                         out = runtime._finalize(out)
                         print("Jarvis:", out)
                         runtime.emit("assistant", out)

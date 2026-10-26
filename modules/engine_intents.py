@@ -192,7 +192,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return runtime.ask_image(image_path, question, runtime.profile.system_prompt())
             except Exception as e:
                 runtime._record_failure('main.py:handle')
-                return f"Ekran resmi işlenirken hata oluştu: {e}"
+                from modules import failure_policy
+                return "Ekran resmi işlenemedi: " + failure_policy.user_message(e)
             finally:
                 try:
                     runtime.os.remove(image_path)
@@ -270,7 +271,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         return runtime.ask_image(shot, command, runtime.profile.system_prompt())
                 except Exception as e:
                     runtime._record_failure('main.py:handle')
-                    return f"Görüntüyü işleyemedim: {e}"
+                    from modules import failure_policy
+                    return "Görüntüyü işleyemedim: " + failure_policy.user_message(e)
                 finally:
                     if shot:
                         try:

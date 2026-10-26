@@ -54,7 +54,7 @@ class LiveErrorMessageTests(unittest.TestCase):
 
         services = self._timeout(obj, internet_up=True)
         message = next(call.args[1] for call in obj.emit.call_args_list if call.args[0] == 'system')
-        self.assertEqual(message, 'Gemini kotası dolmuş görünüyor, biraz sonra tekrar dene.')
+        self.assertEqual(message, 'Gemini geçici hız sınırına takıldı, bir dakika kadar sonra tekrar dene.')
         self.assertNotIn(secret, message)
         self.assertNotIn(secret, str(services.log.warning.call_args.args))
         self.assertEqual(services.log.warning.call_args.args[-1], failure_policy.RATE_LIMIT)
