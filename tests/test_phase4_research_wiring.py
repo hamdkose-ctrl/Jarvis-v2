@@ -8,7 +8,7 @@ class Phase4ResearchWiringTests(unittest.TestCase):
     def test_research_worker_reads_general_page_through_readonly_provider(self):
         source = {
             'url': 'https://example.test/article',
-            'text': 'Araştırma bulgusu enerji tüketimini anlamlı ölçüde azalttığını gösteriyor.',
+            'text': 'Araştırma bulgusu enerji tüketimini anlamlı ölçüde azalttığını gösteriyor. Bu sonuç bağımsız deneylerle tekrar doğrulandı ve ölçüm protokolü yayımlandı.',
             'content_type': 'text/html',
         }
         task = {
@@ -17,7 +17,7 @@ class Phase4ResearchWiringTests(unittest.TestCase):
             'input': {'url': source['url'], 'question': 'Ne bulundu?'},
             'execution': {'request': 'Enerji araştırması'},
         }
-        answer = '{"supported": true, "answer": "Enerji tüketimi azaldı.", "quotes": ["Araştırma bulgusu enerji tüketimini anlamlı ölçüde azalttığını gösteriyor."]}'
+        answer = '{"supported": true, "answer": "Enerji tüketimi azaldı.", "quotes": ["Araştırma bulgusu enerji tüketimini anlamlı ölçüde azalttığını gösteriyor. Bu sonuç bağımsız deneylerle tekrar doğrulandı ve ölçüm protokolü yayımlandı."]}'
         with patch('modules.privacy.blocked', return_value=None), \
              patch('modules.research_providers.extract_source', return_value=source) as extract, \
              patch('modules.model_wait.ask', return_value=answer):
