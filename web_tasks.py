@@ -11,9 +11,18 @@ class WebTasks:
         from modules import team_center
         return team_center.save_members(self._runtime._p().slug, members, revision)
 
-    def team_schedule(self, tasks: list, instruction: str, seconds: int=0, repeat_seconds: int=0) -> str:
+    def team_schedule(self, tasks: list, instruction: str, seconds: int=0, repeat_seconds: int=0, cron: str='') -> str:
         from modules import task_queue
-        return task_queue.enqueue(self._runtime._p().slug, tasks, instruction, seconds, repeat_seconds)
+        return task_queue.enqueue(self._runtime._p().slug, tasks, instruction, seconds, repeat_seconds, cron)
+
+    def team_script_schedule(self, tasks: list, instruction: str='', cron: str='') -> str:
+        """Schedule an explicit task DAG without a planner/model round-trip."""
+        from modules import task_queue
+        return task_queue.enqueue_script(self._runtime._p().slug, tasks, instruction, cron)
+
+    def team_queue_run_now(self, identity: str) -> str:
+        from modules import task_queue
+        return task_queue.run_now(self._runtime._p().slug, identity)
 
     def team_queue_cancel(self, identity: str) -> bool:
         from modules import task_queue
