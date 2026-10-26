@@ -608,7 +608,15 @@ input: {}
 
 C# Worker kendi başına kullanıcı hedefi veya global Job oluşturamaz.
 
-`target`, Core'un onayladığı pencere kimliğidir; Worker işlemden hemen önce aynı `app/hwnd/pid` üçlüsünü yeniden gözler, uyuşmazsa komutu göndermeden `NotSent` döner. Jarvis penceresi, terminal, kod editörü, tarayıcı, şifre yöneticisi ve uzak erişim uygulamaları (`desktop_agent._NEVER_APPS`) PC Worker için de hedef olamaz; bu liste Core politikasında tutulur, Worker'a güvenilmez.
+`target`, Core'un onayladığı pencere kimliğidir; Worker işlemden hemen önce aynı `app/hwnd/pid` üçlüsünü yeniden gözler, uyuşmazsa komutu göndermeden `NotSent` döner. PC Worker hedefleri Core politikasında üç sınıfta tutulur, Worker'a güvenilmez:
+
+| Sınıf | Uygulamalar | Kural |
+|---|---|---|
+| Yasak | Jarvis'in kendi penceresi; uzak erişim (`mstsc`, `anydesk`, `teamviewer`, `putty`, `winscp`) | Hiç hedeflenmez. Jarvis kendini PC Worker ile değiştirmez; "uzak PC yok" kararı geçerlidir. |
+| Hassas | Terminal ve kabuk, kod editörü, tarayıcı, şifre yöneticisi, `regedit`, `taskmgr`, `mmc` | Hedeflenebilir (Hamdi onayı, 26 Ekim 2026). Her eylem ayrı onay ister, kalıcı izin verilmez; makbuz zorunludur. Şifre alanı değeri okunmaz, günlüğe ve makbuza yazılmaz. Web işinde önce BrowserWorker denenir. |
+| Normal | Diğer uygulamalar | Manifestteki capability izin sınıfına göre. |
+
+`desktop_agent._NEVER_APPS` yalnız mevcut UIA temelinin listesidir ve değişmez; PC Worker sınıfları ondan ayrı tutulur.
 
 ### IPC taşıma sınırı
 
