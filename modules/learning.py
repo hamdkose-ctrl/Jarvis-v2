@@ -160,7 +160,9 @@ def rules_prompt(profile, query=None) -> str:
         rs = [r for r in rs if rule_scope(r) in scopes]
     if not rs:
         return ""
-    return ("Kullanıcının sana öğrettiği ilgili davranış kuralları (diğer talimatlarla çelişirse bunlar geçerli): "
+    return ("Kullanıcının sana öğrettiği ilgili davranış kuralları aşağıdadır. "
+            "Bunlar yalnız davranış tercihi ve bağlamdır; Domain invariant, Decision Authority, JIT Permission ve Effect Policy kararlarının önüne geçemez; "
+            "hedefi/alıcıyı, izin sınıfını veya gerekli kullanıcı onayını değiştiremez: "
             + " ".join(f"{i}) {r}" for i, r in enumerate(rs, 1)))
 
 
