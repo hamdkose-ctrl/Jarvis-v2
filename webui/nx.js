@@ -2128,6 +2128,7 @@ async function drawSettings(){
     srow('power','Başlangıçta aç','Bilgisayar açıldığında JARVIS’i başlat',sw('autostart',u.autostart))+
     srow('gear','Arka planda çalış','Pencere kapansa bile sistem tepsisinde çalışmaya devam et',sw('tray',u.tray))+
     srow('bell','Bildirimler','Ekranda kısa bilgi mesajları',sw('nx_notify',u.nx_notify!==false))+
+    srow('spark','Proaktif öneriler','İlgili bir risk ya da fırsat görünce “Burada dikkat et” / “Bunu da düşünebilirsin” der',sw('proactive_suggestions',u.proactive_suggestions!==false))+
     srow('spark','Ana ekran animasyonu','Hologram büst açılışta parçacıklardan kurulur; kapalıyken durağan görünür',sw('nx_bust',u.nx_bust!==false))+
     srow('spark','Hologram görünümü','Renk ve dağ seçimi bu tarayıcıda saklanır; turuncu yüz ve boğaz korunur',hologramChoices())+
     srow('grid','Küçük Jarvis','Pencereyi simge durumuna küçültünce köşede görünür',`<button class="sw ${u.widget_on!==false?'on':''}" data-act="wset" data-v="${u.widget_on!==false?0:1}"></button>`)+

@@ -3,7 +3,8 @@
 Bu belge, `Jarvis_Master_Hasat_Listesi`ndeki 705 adayın tamamını aynı anda
 uygulama planına çevirmek için değil, yakın dönemde ele alınacak adayları aynı
 ölçütle değerlendirmek içindir. Master liste korunur; bu belge yalnız ilk
-dalganın karar kaydıdır.
+dalganın karar kaydıdır. 705 maddenin tamamı ikinci dalgada
+`JARVIS_CAPABILITY_INTAKE_WAVE2_V1.md` içinde kayda geçmiştir.
 
 ## Değişmez Core sınırı
 
@@ -72,8 +73,9 @@ kapısından sonra bile yalnız bir adapter sınırından kullanılır.
 
 ## Hermes değerlendirmesi
 
-`NousResearch/hermes-agent` MIT lisanslıdır. Ancak master listedeki
-`v0.22.5` için bu depoda sabit commit/tag kanıtı henüz kaydedilmemiştir.
+`NousResearch/hermes-agent` MIT lisanslıdır. Master listedeki `v0.22.5`
+artık commit SHA'ya sabittir: `bf0203a794a07aac3ff764972ab9087baa4e4f4e`
+(kanıt: `JARVIS_CAPABILITY_INTAKE_WAVE2_V1.md`).
 Güncel Hermes ana dalı aktif değişir; kendi agent, gateway, Electron desktop,
 plugin, skill ve delegation runtime'ını birlikte taşır. Ayrıca güncel bağımlılık
 tanımları Python 3.14 merkezlidir; Jarvis Windows runtime'ı Python 3.13'tür.

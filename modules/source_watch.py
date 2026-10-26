@@ -66,6 +66,11 @@ def remove(owner,ident):
         if not db.execute('DELETE FROM source_watches WHERE id=?',(ident,)).rowcount:raise ValueError('Bu kullanıcıya ait kaynak takibi yok.')
         db.execute('DELETE FROM source_seen WHERE rule=?',(ident,));db.execute('DELETE FROM source_events WHERE rule=?',(ident,))
         db.execute('DELETE FROM source_versions WHERE rule=?',(ident,))
+    try:
+        from modules import runtime_subscription
+        runtime_subscription.close_source(owner,ident)
+    except Exception:
+        _record_failure('modules/source_watch.py:remove_subscription')
 
 
 def events(owner,limit=20):
@@ -114,6 +119,7 @@ def poll(owner,notify=None,*,now=None,fetcher=None,rule_id=None,force=False):
     if privacy.blocked('web') or not _LOCK.acquire(blocking=False):return None
     fetcher=fetcher or public_sources.fetch;now=time.time() if now is None else now
     produced=[]
+    subscription_payloads=[]
     try:
         with service_store.database(owner) as db:
             _schema(db)
@@ -167,13 +173,25 @@ def poll(owner,notify=None,*,now=None,fetcher=None,rule_id=None,force=False):
                             eid=uuid.uuid4().hex[:16]
                             count=db.execute('INSERT OR IGNORE INTO source_events(id,rule,item,payload,created) VALUES(?,?,?,?,?)',
                                 (eid,row['id'],item['url']+'#'+fingerprint,service_store.encode(payload),now)).rowcount
-                            if count:produced.append({**payload,'id':eid})
+                            if count:
+                                produced.append({**payload,'id':eid})
+                                subscription_payloads.append(payload)
                         db.execute('UPDATE source_watches SET error=\'\' WHERE id=?',(row['id'],))
             except requests_state.Cancelled:raise
             except Exception as exc:
                 _record_failure('modules/source_watch.py:poll')
                 with service_store.database(owner) as db:
                     _schema(db);db.execute('UPDATE source_watches SET error=? WHERE id=?',(type(exc).__name__,row['id']))
+        if subscription_payloads:
+            from modules import runtime_subscription
+            try:
+                runtime_subscription.ensure_source(owner, row['id'], goal='Kaynak takibi: '+(row.get('label') or row['url']),
+                                                   fresh_after=float(row.get('created') or 0))
+                for event in subscription_payloads:
+                    runtime_subscription.publish(owner, row['id'], event, occurred_at=event.get('fetched_at'))
+            except Exception:
+                # GoalState evidence is an extra record; the user notification path stays intact.
+                _record_failure('modules/source_watch.py:runtime_subscription')
         if notify:
             with service_store.database(owner) as db:
                 _schema(db)

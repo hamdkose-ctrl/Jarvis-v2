@@ -36,7 +36,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (7 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (16 bölüm)
-- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (3 bölüm)
+- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (4 bölüm)
 - `docs/agents/gorsel-komutlar.md`: Doğal dil ile tetiklenen görsel üretimi (4 bölüm)
 
 ## Klasör haritası
@@ -59,6 +59,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `modules/watcher.py` | Klasör izleme kuralları ve 20 saniyelik arka plan taraması |
 | `modules/runtime_event_subscription.py` | Hedef ↔ kaynak takibi kalıcı RuntimeEvent aboneliği; `source_watch` olaylarını Reducer/CAS ile GoalState evidence'ına ekler |
 | `modules/hoca_workspace.py` | Hoca çalışma alanı: ders, kaynak, ödev/deadline, oturum hafızası (domain sözleşmesi) |
+| `modules/finance_domain.py` | Finance domain sözleşmesi: veri/alarm/analiz/kaynak doğrulama dalları, Communication sınırı, kod göçü planı ve statik sınır denetimi (FIN-001..004) |
 | `modules/requests_state.py` | İstek kimliği (`rid`), iptal ve arşiv |
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |

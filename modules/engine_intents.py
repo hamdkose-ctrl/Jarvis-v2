@@ -279,4 +279,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                             runtime.os.remove(shot)
                         except OSError:
                             pass
-            return runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
+            raw = runtime.chat(command, runtime._sys_prompt(command), user=runtime.profile.slug)
+            from config import load_settings
+            from modules import advisory_router
+            return advisory_router.finalize(command, raw, settings=load_settings())

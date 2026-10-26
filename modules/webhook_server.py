@@ -1,11 +1,15 @@
-"""Opt-in loopback-only WhatsApp webhook receiver. Public HTTPS is external setup."""
+"""Opt-in loopback-only webhook receiver. Public HTTPS is external setup.
+
+``/whatsapp/<owner>``: Meta WhatsApp webhook.
+``/event/<owner>/<source>``: signed generic events (see ``event_webhooks``).
+"""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import re
 import threading
 import sqlite3
 from urllib.parse import urlsplit,parse_qs
-from modules import llm, message_inbox, service_store
+from modules import event_webhooks, llm, message_inbox, service_store
 from modules.publish_services import _record_failure
 
 _LOCK=threading.Lock()
@@ -22,9 +26,45 @@ class Handler(BaseHTTPRequestHandler):
         parsed=urlsplit(self.path)
         match=re.fullmatch(r'/whatsapp/([\w-]{1,100})',parsed.path)
         if not match or len(self.path)>4096:raise ValueError('Webhook yolu geçersiz.')
-        allowed=getattr(self.server,'allowed_owners',None)
-        if allowed is not None and match[1] not in (allowed() if callable(allowed) else allowed):raise PermissionError('Webhook kullanıcısı kayıtlı değil.')
+        self.allowed(match[1])
         return match[1],parse_qs(parsed.query)
+
+    def allowed(self,owner):
+        allowed=getattr(self.server,'allowed_owners',None)
+        if allowed is not None and owner not in (allowed() if callable(allowed) else allowed):raise PermissionError('Webhook kullanıcısı kayıtlı değil.')
+
+    def body(self,limit):
+        if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length',[]))!=1:raise ValueError('Gövde uzunluğu geçersiz.')
+        size=int(self.headers['Content-Length'])
+        if not 0<size<=limit:raise OverflowError('Gövde çok büyük.')
+        self.connection.settimeout(2)
+        body=self.rfile.read(size)
+        if len(body)!=size:raise ValueError('Gövde eksik.')
+        return body
+
+    def event_post(self,owner,source):
+        token=llm._key_context.set(owner)
+        try:
+            self.allowed(owner)
+            payload=event_webhooks.ingest(owner,source,self.body(event_webhooks.MAX_BODY),self.headers.get('X-Jarvis-Signature',''))
+            key='webhook:'+source
+            try:
+                from modules import runtime_subscription
+                runtime_subscription.ensure_source(owner,key,goal='Olay webhook kaynağı: '+source,fresh_after=0.0)
+                runtime_subscription.publish(owner,key,payload,kind='webhook_event')
+            except Exception:
+                _record_failure('modules/webhook_server.py:event_subscription')
+            event_notify=getattr(self.server,'event_notify',None)
+            if event_notify:
+                try:event_notify(owner,{'source':key,'kind':'incoming','payload':payload})
+                except Exception:
+                    _record_failure('modules/webhook_server.py:event_notify')
+            return self.reply(200,b'OK')
+        except OverflowError:return self.reply(413)
+        except (PermissionError,FileNotFoundError):return self.reply(403)
+        except (ValueError,TypeError,KeyError,AttributeError):return self.reply(400)
+        except (OSError,TimeoutError,sqlite3.Error):return self.reply(503)
+        finally:llm._key_context.reset(token)
 
     def do_GET(self):
         token=None
@@ -41,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             if token is not None:llm._key_context.reset(token)
 
     def do_POST(self):
+        event=re.fullmatch(r'/event/([\w-]{1,100})/([a-z0-9_-]{1,40})',urlsplit(self.path).path) if len(self.path)<=4096 else None
+        if event:return self.event_post(event[1],event[2])
         token=None
         try:
             owner,_=self.owner();token=llm._key_context.set(owner)
@@ -52,6 +94,11 @@ class Handler(BaseHTTPRequestHandler):
             if len(body)!=size:return self.reply(400)
             stored=message_inbox.ingest(owner,body,self.headers.get('X-Hub-Signature-256',''))
             notify=getattr(self.server,'notify',None)
+            event_notify=getattr(self.server,'event_notify',None)
+            if event_notify and stored['stored']:
+                try:event_notify(owner, {'source':'whatsapp','kind':'incoming_batch','payload':stored})
+                except Exception:
+                    _record_failure('modules/webhook_server.py:event_notify')
             if notify and stored['stored']:
                 try:notify(owner,stored)
                 except Exception:
@@ -64,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             if token is not None:llm._key_context.reset(token)
 
 
-def start(stop_event,owners,port=9898,notify=None):
+def start(stop_event,owners,port=9898,notify=None,event_notify=None):
     global _SERVER
     # No listening port unless an existing profile explicitly enables a webhook.
     enabled=False
@@ -72,6 +119,9 @@ def start(stop_event,owners,port=9898,notify=None):
         token=llm._key_context.set(owner)
         try:
             message_inbox.config(owner);enabled=True
+        except (PermissionError,FileNotFoundError,ValueError):pass
+        try:
+            event_webhooks.config(owner);enabled=True
         except (PermissionError,FileNotFoundError,ValueError):pass
         finally:llm._key_context.reset(token)
     if not enabled:return
@@ -82,7 +132,8 @@ def start(stop_event,owners,port=9898,notify=None):
         server.daemon_threads=True;_SERVER=server
         server.allowed_owners=owners
         server.notify=notify
-    threading.Thread(target=server.serve_forever,daemon=True,name='whatsapp-webhook').start()
+        server.event_notify=event_notify
+    threading.Thread(target=server.serve_forever,daemon=True,name='event-webhook').start()
     def close():
         global _SERVER
         stop_event.wait();server.shutdown();server.server_close()

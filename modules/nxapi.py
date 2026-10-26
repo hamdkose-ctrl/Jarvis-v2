@@ -512,6 +512,7 @@ def ui_settings() -> dict:
             pass
     out["nx_globe"] = s.get("nx_globe", True) is not False
     out["widget_on"] = s.get("widget_on", True) is not False
+    out["proactive_suggestions"] = s.get("proactive_suggestions", True) is not False
     return out
 
 
@@ -524,7 +525,7 @@ def ui_set(key: str, value) -> dict:
     elif key == "learn_from_chat":
         from modules import personalization
         personalization.Profile(personalization.get_active()).set_pref(key, bool(value))
-    elif key in ("nx_globe", "nx_notify", "nx_bust", "nx_advanced", "tray", "live_beep", "live_mode"):
+    elif key in ("nx_globe", "nx_notify", "nx_bust", "nx_advanced", "tray", "live_beep", "live_mode", "proactive_suggestions"):
         save_settings(**{key: bool(value)})
     elif key == "wake_sensitivity":
         save_settings(wake_sensitivity=max(1, min(5, int(value))))
