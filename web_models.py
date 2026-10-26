@@ -94,7 +94,7 @@ class WebModels:
             runtime.llm.set_user_groq_key(p.slug, key)
             runtime.llm.set_user_context(p.slug)
         if model.strip():
-            runtime.config.save_settings(groq_model=model.strip())
+            runtime.llm.choose_model(p.slug, 'groq', model)
         if not runtime.llm.user_groq_key(p.slug):
             return {'ok': False, 'msg': f'{p.name} için Groq anahtarı girilmedi.'}
         t0 = runtime.time.time()
@@ -106,6 +106,18 @@ class WebModels:
         if activate:
             runtime.llm.set_provider('groq')
         return {'ok': True, 'msg': f'Groq yanıt verdi ({round(runtime.time.time() - t0, 1)} sn).', 'status': runtime.llm.status()}
+
+    def model_choice_save(self, provider: str, model: str='') -> dict:
+        """Aktif kullanıcının Groq veya yerel modelini kaydeder; seçili sağlayıcıyı değiştirmez."""
+        runtime = self._runtime
+        p = runtime._p()
+        try:
+            runtime.llm.choose_model(p.slug, provider, model)
+        except ValueError as e:
+            return {'ok': False, 'msg': str(e)}
+        runtime.privacy.audit('model seçimi', f'{provider} {model}'.strip())
+        label = 'Groq' if provider == 'groq' else 'Yerel model'
+        return {'ok': True, 'msg': f'{label} için {model.strip()} kaydedildi ({p.name}).', 'status': runtime.llm.status()}
 
     def paid_provider_save(self, provider: str, key: str='', model: str='', workspace: str='') -> dict:
         runtime = self._runtime
