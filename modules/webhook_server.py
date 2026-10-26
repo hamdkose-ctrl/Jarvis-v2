@@ -52,6 +52,11 @@ class Handler(BaseHTTPRequestHandler):
             if len(body)!=size:return self.reply(400)
             stored=message_inbox.ingest(owner,body,self.headers.get('X-Hub-Signature-256',''))
             notify=getattr(self.server,'notify',None)
+            event_notify=getattr(self.server,'event_notify',None)
+            if event_notify and stored['stored']:
+                try:event_notify(owner, {'source':'whatsapp','kind':'incoming_batch','payload':stored})
+                except Exception:
+                    _record_failure('modules/webhook_server.py:event_notify')
             if notify and stored['stored']:
                 try:notify(owner,stored)
                 except Exception:
@@ -64,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
             if token is not None:llm._key_context.reset(token)
 
 
-def start(stop_event,owners,port=9898,notify=None):
+def start(stop_event,owners,port=9898,notify=None,event_notify=None):
     global _SERVER
     # No listening port unless an existing profile explicitly enables a webhook.
     enabled=False
@@ -82,6 +87,7 @@ def start(stop_event,owners,port=9898,notify=None):
         server.daemon_threads=True;_SERVER=server
         server.allowed_owners=owners
         server.notify=notify
+        server.event_notify=event_notify
     threading.Thread(target=server.serve_forever,daemon=True,name='whatsapp-webhook').start()
     def close():
         global _SERVER
