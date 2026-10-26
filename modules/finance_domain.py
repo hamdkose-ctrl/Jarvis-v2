@@ -57,8 +57,8 @@ BRANCHES = {
         'name': 'Analiz: hesaplama, karşılaştırma, CSV gelir/gider',
         'permission_class': 'read',
         'effect_policy': 'read_only',
-        'modules': (),
-        'entry_points': ('modules/domain_tools.py:csv_analysis',),
+        'modules': ('modules/finance_analysis.py',),
+        'entry_points': ('modules/finance_analysis.py:csv_summary',),
         'invariants': (
             'Girdi yalnız kullanıcının izinli alanındaki dosya veya Finance veri dalının çıktısıdır.',
             'Sonuç kişisel yatırım/ödeme kararı, öneri ya da kesin getiri iddiası değildir.',
@@ -97,9 +97,6 @@ MIGRATION = (
     {'step': '3-D', 'branch': 'alarm', 'location': 'modules/watcher.py:loop',
      'target': 'modules/watcher.py:loop',
      'note': 'Bildirim teslimi Communication tarafında kalır ama ntfy başlığı "Jarvis klasör izleme" yerine finans alarmı olarak ayrılır.'},
-    {'step': '3-F', 'branch': 'analysis', 'location': 'modules/domain_tools.py:csv_analysis',
-     'target': 'modules/finance_analysis.py:csv_summary',
-     'note': "Yalnız kind='finance' kolu taşınır; mağaza CSV'si domain_tools'ta kalır."},
 )
 
 # Finance modülleri bu modülleri içe aktaramaz: teslim/yayın/mesaj Communication'ındır.
