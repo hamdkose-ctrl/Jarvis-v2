@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import completion_policy, failure_policy, goal_tools, llm, privacy, requests_state, task_tools
+from modules import completion_policy, execution_record, failure_policy, goal_tools, llm, privacy, requests_state, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
@@ -136,10 +136,7 @@ def latest(owner):
     if not pointer.exists():return None
     ident=json.loads(pointer.read_text())['id']
     if not isinstance(ident,str) or not re.fullmatch('[a-f0-9]{16}',ident):raise ValueError('Hedef kimliği geçersiz.')
-    job=json.loads((root/(ident+'.json')).read_text(encoding='utf-8'))
-    if not isinstance(job,dict) or job.get('owner')!=owner or job.get('id')!=ident:
-        raise PermissionError('Hedef kaydı kullanıcıyla eşleşmiyor.')
-    return job
+    return execution_record.load(root,owner,ident)
 
 
 @contextmanager

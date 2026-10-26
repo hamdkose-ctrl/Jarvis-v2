@@ -161,10 +161,11 @@ def _job(owner, job, kind):
 def snapshot(owner):
     """Bounded local journal reads only; never polls a model, account or device."""
     _path(owner)
-    from modules import goal_executor, task_agents, task_queue
+    from modules import execution_record, goal_executor, task_agents, task_queue
     jobs, warnings = [], []
+    goal_root = goal_executor.STORE/owner
     for kind,root,loader in (
-        ('goal',goal_executor.STORE/owner, None),
+        ('goal',goal_root,lambda owner,ident:execution_record.load(goal_root,owner,ident)),
         ('task',task_agents.STORE/owner,task_agents._load),
     ):
         if not root.exists():
@@ -172,12 +173,17 @@ def snapshot(owner):
         if any(p.is_symlink() for p in (root,*root.parents)):
             raise ValueError('Görev klasörü sembolik bağ olamaz.')
         paths = sorted(root.glob('*.json'),key=lambda p:p.stat().st_mtime,reverse=True)
-        for path in [p for p in paths if p.stem!='latest'][:25]:
+        # A goal has an ExecutionRecord beside its legacy journal; list each job once.
+        entries = {}
+        for path in paths:
+            ident = path.name[:-len(execution_record.SUFFIX)] if kind=='goal' and path.name.endswith(execution_record.SUFFIX) else path.stem
+            if ident!='latest':entries.setdefault(ident,path)
+        for ident,path in list(entries.items())[:25]:
             try:
                 if path.is_symlink() or path.stat().st_size>16_000_000:
                     raise ValueError('Geçersiz görev kaydı.')
-                job = loader(owner,path.stem) if loader else json.loads(path.read_text(encoding='utf-8'))
-                if job.get('id')!=path.stem or (kind=='goal' and job.get('owner')!=owner):
+                job = loader(owner,ident)
+                if job.get('id')!=ident or (kind=='goal' and job.get('owner')!=owner):
                     raise ValueError('Görev sahibi veya kimliği eşleşmiyor.')
                 jobs.append(_job(owner,job,kind))
             except (OSError,ValueError,KeyError,TypeError):

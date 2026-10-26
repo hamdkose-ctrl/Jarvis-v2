@@ -2,9 +2,12 @@
 
 The legacy executor still owns its JSON journal during migration. This hook
 recognizes only legacy goal-job records and synchronizes canonical GoalState
-before the legacy atomic write. When canonical is already terminal, the legacy
-record is written with that terminal state so the legacy side learns it.
-Canonical writes and unrelated JSON writes are left untouched.
+before the legacy atomic write. The same payload is written to the job's
+ExecutionRecord (``modules/execution_record.py``) before the legacy journal, so
+readers can move off the legacy file before its write is stopped. When
+canonical is already terminal, both the ExecutionRecord and the legacy record
+are written with that terminal state so the legacy side learns it. Canonical
+writes and unrelated JSON writes are left untouched.
 """
 from __future__ import annotations
 
@@ -49,10 +52,12 @@ def _atomic(path, data):
     if job is None:
         return _ORIGINAL_ATOMIC(path, data)
 
-    from modules import goal_state_compat, goal_state_store
+    from modules import execution_record, goal_state_compat
 
     canonical = path.with_name(job['id'] + '.goalstate.json')
+    record = execution_record.path_for(path.parent, job['id'])
     before = canonical.read_bytes() if canonical.exists() else None
+    record_before = record.read_bytes() if record.exists() else None
     try:
         synced = goal_state_compat.sync(job, canonical)
     except Exception:
@@ -60,21 +65,39 @@ def _atomic(path, data):
         raise
     signalled = goal_state_compat.legacy_terminal_signal(job, synced)
     if signalled is not None:
+        job = signalled
         data = json.dumps(signalled, ensure_ascii=False).encode('utf-8')
+    try:
+        _ORIGINAL_ATOMIC(record, execution_record.encode(job))
+    except Exception as record_error:
+        _record_failure('modules/goal_state_save_hook.py:_atomic:execution_record_write')
+        _rollback(canonical, synced, before)
+        raise record_error
     try:
         return _ORIGINAL_ATOMIC(path, data)
     except Exception as legacy_error:
         _record_failure('modules/goal_state_save_hook.py:_atomic:legacy_write')
-        try:
-            goal_state_store.compensate(
-                canonical, expected_state=synced, previous_bytes=before,
-            )
-        except Exception as compensation_error:
-            _record_failure('modules/goal_state_save_hook.py:_atomic:compensate')
-            raise RuntimeError(
-                'Legacy goal kaydı yazılamadı ve canonical GoalState geri alınamadı.'
-            ) from compensation_error
+        _rollback(canonical, synced, before, record=record, record_before=record_before)
         raise legacy_error
+
+
+def _rollback(canonical, synced, before, *, record=None, record_before=None):
+    from modules import goal_state_store
+
+    try:
+        if record is not None:
+            if record_before is None:
+                record.unlink(missing_ok=True)
+            else:
+                _ORIGINAL_ATOMIC(record, record_before)
+        goal_state_store.compensate(
+            canonical, expected_state=synced, previous_bytes=before,
+        )
+    except Exception as compensation_error:
+        _record_failure('modules/goal_state_save_hook.py:_atomic:compensate')
+        raise RuntimeError(
+            'Legacy goal kaydı yazılamadı ve canonical GoalState geri alınamadı.'
+        ) from compensation_error
 
 
 def install():

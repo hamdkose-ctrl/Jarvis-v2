@@ -54,3 +54,11 @@ Bu sayılar yalnız bu register'daki karar maddelerini sayar; yeni tasarım üre
 Bugünkü kaynakta **“sync hata verince legacy write sessizce devam ediyor” iddiası doğru değildir**. Akış sırası nettir: `_legacy_job` kabulü → canonical path/before bytes → `goal_state_compat.sync()` → ancak başarılıysa legacy `_ORIGINAL_ATOMIC()`. Dolayısıyla sync failure güvenlik açısından fail-closed'dur. Açık küçük iş, bu pre-legacy-sync hatasının save-hook seviyesinde diagnostic/observability kaydının olmamasıdır.
 
 Gerçek cutover öncesi burada blocker olarak kalanlar; execution-mode identity kararı, authority cutover noktası, missing-state/authority mismatch politikası ve legacy-vs-canonical lifecycle/terminal conflict politikasıdır. Bu belge bunlar için yeni migration tasarımı önermez.
+
+## ExecutionRecord v1 (2026-10-25)
+
+Legacy JSON yazımını durdurmanın ön koşulu olarak `goals/steps/outputs` ve executor'ın kendi ilerleme alanları ayrı bir kayda taşındı: `modules/execution_record.py`, dosya `<id>.execution.json`. GoalState şeması değişmedi; canonical yalnız lifecycle taşımaya devam eder.
+
+- Yazım: `goal_state_save_hook._atomic` sırası artık canonical sync → ExecutionRecord → legacy journal. ExecutionRecord yazılamazsa canonical compensate edilir ve legacy'ye geçilmez; legacy yazılamazsa ExecutionRecord önceki baytlarına döner (yoksa silinir) ve canonical compensate edilir.
+- Okuma: `goal_executor.latest`, `web_tasks.team_verify` ve `team_center.snapshot` önce ExecutionRecord'u okur; ExecutionRecord'u olmayan eski işler için legacy `<id>.json` geri dönüş yoludur.
+- Kalan adım (ayrı PR): legacy `<id>.json` yazımının save hook'tan kaldırılması ve `goalstate_cutover_preflight`'ın ExecutionRecord'u tanıması.
