@@ -554,14 +554,14 @@ def observe(profile, text):
     return added
 
 def knowledge_prompt(profile, query='', limit=6500):
-    def tokens(s): return {w[:6] for w in re.findall(r'\w+', _low(s)) if len(w)>3} - {'bunun','şunun','hangi','hakkın','yardım','lütfen','söyle','nasıl'}
+    def tokens(s): return {w[:5] for w in re.findall(r'\w+', _low(s)) if len(w)>3} - {'bunun','şunun','hangi','hakkın','yardım','lütfen','söyle','nasıl'}
     qs=tokens(query)
     items=[('Onaylı bilgi',str(f)) for f in profile.data.get('facts',[])]
     items += [('Kayıtlı saha/iş notu',str(n.get('text',''))) for n in profile.data.get('items',[]) if isinstance(n,dict)]
     ranked=sorted(((len(qs & tokens(t)),i,k,t) for i,(k,t) in enumerate(items) if t),reverse=True)
     lines=[];size=0
     for score,i,kind,text in ranked[:20]:
-        if qs and not score and len(lines)>=5: continue
+        if qs and not score: continue
         line=f'{kind}: {text[:2000]}'
         if size+len(line)>limit: continue
         lines.append(line);size+=len(line)
