@@ -82,10 +82,14 @@ def project(job: dict) -> dict:
     # birth. A job that already had a canonical record before this field
     # existed keeps no 'authority' key and stays legacy-authority via
     # goal_state.authority()'s default; this function never touches it.
+    return _project(job, authority='canonical')
+
+
+def _project(job: dict, *, authority: str) -> dict:
     state = goal_state.new(
         owner=job['owner'], job_id=job['id'], goal=job['request'],
         execution_mode=PROJECTION_EXECUTION_MODE,
-        authority='canonical',
+        authority=authority,
     )
     target = _target(job)
     if target != 'pending':
@@ -207,6 +211,30 @@ def advance(current: dict, job: dict) -> dict:
     return state
 
 
+def legacy_terminal_signal(job: dict, state: dict) -> dict | None:
+    """Return the legacy job rewritten to canonical's terminal state, or None.
+
+    RFC Karar 4a: canonical terminal always wins, and the legacy side must
+    learn it.  When canonical is already done/cancelled but the legacy journal
+    still shows another state, the legacy record is written with the canonical
+    terminal state so goal_executor.latest()/is_open() treat the job as closed.
+
+    A terminal state that canonical only copied from legacy (LEGACY_* reason)
+    is not a canonical decision; legacy keeps owning that record, including
+    its own "hedef devam" reopen path.
+    """
+    state = goal_state.validate(state)
+    if not goal_state.terminal(state) or job.get('state') == state['state']:
+        return None
+    if state['audit'][-1]['reason_code'].startswith('LEGACY_'):
+        return None
+    signalled = dict(job)
+    signalled['state'] = state['state']
+    signalled.pop('blocker', None)
+    signalled.pop('question', None)
+    return signalled
+
+
 def operator_backfill_missing_canonical_once(
     job: dict,
     path,
@@ -217,13 +245,18 @@ def operator_backfill_missing_canonical_once(
 
     Compatibility sync never calls this function automatically.  The caller must
     explicitly approve the action and the canonical path must still be absent.
+
+    A legacy job without a canonical record predates canonical sync, so it is an
+    in-flight job from before the RFC Karar 2 flip point (job creation).  The
+    backfilled record is therefore marked legacy-authority; backfill never flips
+    authority at runtime.
     """
     if not operator_approved:
         raise OperatorApprovalRequired('Canonical GoalState backfill requires operator approval.')
     path = Path(path)
     if path.exists():
         raise BackfillAlreadyExists('Canonical GoalState already exists; backfill refused.')
-    return goal_state_store.create(path, project(job))
+    return goal_state_store.create(path, _project(job, authority='legacy'))
 
 
 def sync(job: dict, path) -> dict:

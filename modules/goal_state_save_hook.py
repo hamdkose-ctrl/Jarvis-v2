@@ -4,7 +4,9 @@ The legacy executor still owns its JSON journal during migration. This hook
 recognizes only legacy goal-job records and synchronizes canonical GoalState
 before the legacy atomic write. The same payload is written to the job's
 ExecutionRecord (``modules/execution_record.py``) before the legacy journal, so
-readers can move off the legacy file before its write is stopped. Canonical
+readers can move off the legacy file before its write is stopped. When
+canonical is already terminal, both the ExecutionRecord and the legacy record
+are written with that terminal state so the legacy side learns it. Canonical
 writes and unrelated JSON writes are left untouched.
 """
 from __future__ import annotations
@@ -61,6 +63,10 @@ def _atomic(path, data):
     except Exception:
         _record_failure('modules/goal_state_save_hook.py:_atomic:canonical_sync')
         raise
+    signalled = goal_state_compat.legacy_terminal_signal(job, synced)
+    if signalled is not None:
+        job = signalled
+        data = json.dumps(signalled, ensure_ascii=False).encode('utf-8')
     try:
         _ORIGINAL_ATOMIC(record, execution_record.encode(job))
     except Exception as record_error:
