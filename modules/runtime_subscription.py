@@ -144,6 +144,35 @@ def ensure_source(owner: str, source_event_key: str, *, goal: str, fresh_after: 
     return subscribe(owner, source_event_key, goal_state_path=path, job_id=job_id, fresh_after=fresh_after)
 
 
+def bind_job(owner: str, job_id, source_event_key: str) -> str | None:
+    """Subscribe the running goal that asked for a source (e.g. ``monitor add``).
+
+    The goal's own canonical GoalState then receives that source's events as
+    evidence. Idempotent per job/source; best effort: no live GoalState, a
+    finished goal or any error returns None and the source keeps working.
+    """
+    if not isinstance(job_id, str) or not job_id:
+        return None
+    try:
+        from modules import goal_executor, goal_state
+        path = goal_executor._root(owner) / (job_id + ".goalstate.json")
+        if not path.exists() or goal_state.terminal(goal_state_store.load(path)):
+            return None
+        service_store.identity(owner)
+        with service_store.database(owner) as db:
+            _schema(db)
+            row = db.execute(
+                "SELECT id FROM runtime_subscriptions WHERE active=1 AND source_event_key=? AND job_id=? LIMIT 1",
+                (source_event_key, job_id),
+            ).fetchone()
+        if row:
+            return row["id"]
+        return subscribe(owner, source_event_key, goal_state_path=path, job_id=job_id)
+    except Exception:
+        _record_failure('modules/runtime_subscription.py:bind_job')
+        return None
+
+
 def close_source(owner: str, source_event_key: str) -> int:
     """Close every active subscription of a removed source and cancel its GoalState."""
     service_store.identity(owner)

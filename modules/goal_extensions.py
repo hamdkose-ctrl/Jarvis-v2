@@ -135,7 +135,7 @@ def execute(runtime,kind,data,identity,approval=None):
         if not isinstance(value,str):extra['structured']=value
         return local_result(owner,kind,_human(kind,op,value),**extra)
     if kind=='monitor':
-        from modules import source_watch,runtime_event_subscription
+        from modules import source_watch,runtime_subscription
         if op in {'add','pause','resume','remove'} and not re.search(r'takip|izle|bildir|haber ver',request):
             raise NotStarted('Kullanıcının açık hedefinde kaynak takibi değişikliği yok.')
         if op=='add':
@@ -150,12 +150,12 @@ def execute(runtime,kind,data,identity,approval=None):
             existing=next((r for r in source_watch.rows(owner) if r['url']==target and r['terms']==data['terms']),None)
             if existing:
                 if existing['interval']!=data.get('interval',600):raise NotStarted('Aynı kaynak ve konu farklı sıklıkla kayıtlı; mevcut takip değiştirilmedi.')
-                runtime_event_subscription.bind_job(owner,identity.get('job_id'),existing['id'])
+                runtime_subscription.bind_job(owner,identity.get('job_id'),existing['id'])
                 return result({'message':'Bu kaynak/konu takibi zaten kayıtlı.','rule':existing})
             try:ident=source_watch.add(owner,data['url'],data['terms'],data.get('interval',600),data.get('label',''))
             except ValueError as exc:raise NotStarted(str(exc)) from None
             # The goal that asked for the watch owns its durable RuntimeEvent subscription.
-            runtime_event_subscription.bind_job(owner,identity.get('job_id'),ident)
+            runtime_subscription.bind_job(owner,identity.get('job_id'),ident)
             return result({'message':'Takip kaydedildi. İlk tarama mevcut içerikleri baz alır; yeni eşleşmeler Jarvis açıkken bildirilir.','id':ident})
         if op=='list':return result({'watches':source_watch.rows(owner)})
         if op=='events':return result({'events':source_watch.events(owner,data.get('limit',20))})
@@ -172,7 +172,6 @@ def execute(runtime,kind,data,identity,approval=None):
         current=next((r for r in source_watch.rows(owner) if r['id']==data['id']),None)
         if current is None:raise NotStarted('Takip kontrol sırasında kaldırıldı.')
         if current['error']:raise RuntimeError('Kaynak kontrolü tamamlanmadı: '+current['error'])
-        runtime_event_subscription.pump_safely(owner)
         return result({'rule':current,'events':source_watch.events(owner,20)})
     if kind=='capability':
         from modules import capability_hub,specialist_contracts

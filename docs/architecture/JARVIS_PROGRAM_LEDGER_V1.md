@@ -86,7 +86,7 @@ Bu sıra, aktif PR’ların merge sırası değildir; canlı mergeability/CI iç
 
 | Deferred konu | Neden şimdi değil? | Ne zaman yeniden açılır? |
 |---|---|---|
-| ~~RuntimeEvent durable subscription/producer~~ | Kapandı (26 Ekim 2026, Faz 2-2): `modules/runtime_event_subscription.py` kalıcı abonelik + `source_watch` üreticisi; ARCH-W001 temiz. Ayrıntı: `docs/roadmap-runtime-event-subscription-notu.md`. | Yeni olay kaynağı (webhook/queue) eklenince aynı abonelik modeline bağlanır. |
+| ~~RuntimeEvent durable subscription/producer~~ | Kapandı (26 Ekim 2026, Faz 2-2): `modules/runtime_subscription.py` kalıcı abonelik + `source_watch`/webhook üreticisi (#374), hedef sahipliği `bind_job` ile; ARCH-W001 temiz. Ayrıntı: `docs/roadmap-runtime-event-subscription-notu.md`. | Yeni olay kaynağı (webhook/queue) eklenince aynı abonelik modeline bağlanır. |
 | ExecutionRecord ayrıntıları | Step/output/waiting/retry gibi yürütme ayrıntıları GoalState global lifecycle’a doldurulmamalı. | Canonical authority RFC, hangi verinin GoalState dışında kalacağını kesinleştirince ayrı ExecutionRecord RFC/PR olarak. |
 | `created` / `approval_at` canonical taşıma kararı | `created` provenance; `approval_at` yaklaşık 120 sn approval timeout/control bağlamı taşır. Bunları GoalState’e zorla eklemek doğru kabul edilmedi. | Authority/ExecutionRecord sınırı kabul edilince; approval timeout’un kalıcı sahibi açıkça tanımlanınca. |
 | Gerçek worker/product capability genişlemesi | Core güvenlik ve cutover şeridi bitmeden yeni capability’ler ikinci motor/otorite riski yaratabilir. | Final Stage 0–4 acceptance tamamlandıktan sonra, read-only benchmark → adapter → manifest → evidence/receipt kabul hattıyla. |
