@@ -9,10 +9,11 @@ _DECISION_WORDS = re.compile(
     r"artı\s*eksi|arti\s*eksi|avantaj|dezavantaj|pro.?con|daha\s+iyi)\b",
     re.IGNORECASE,
 )
+_CHOICE_PATTERN = re.compile(r"\bmi\b.*\bmi\b", re.IGNORECASE)
 
 
 def requested(text: str) -> bool:
-    return isinstance(text, str) and bool(_DECISION_WORDS.search(text))
+    return isinstance(text, str) and bool(_DECISION_WORDS.search(text) or _CHOICE_PATTERN.search(text))
 
 
 def _list(value, field: str) -> list[str]:
