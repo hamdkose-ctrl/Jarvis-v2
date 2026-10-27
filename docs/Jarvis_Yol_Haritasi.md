@@ -32,7 +32,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 ## Genel sıra
 
 - Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
-- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: eski hata yolları duruyor, iş PC'sinde kabul bekliyor)
+- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🟡 kısmi: canlı akışa bağlandı, ikinci hook sistemi duruyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 sözleşme merge edildi, hiçbiri akışa bağlı değil)
@@ -67,11 +67,12 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği açık: `model_health.py` içindeki ayrı 401/403/429 ayrımı ve `image_gen.py` içindeki bağımsız HTTP/429 ayrımı ortak `failure_policy.classify` hattına taşınıyor; eski kopyalar kaldırılıyor. CI + gerçek PC watcher kabulü gelmeden bu temizlik tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor.**
+**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.
 
 - 🟡 (#350) `[1✓ 2✓ 3✓ 4✗]` 429, kota, ağ, kimlik doğrulama ve yerel model yokluğu kullanıcıya ayrı ve anlaşılır nedenlerle gösterilecek; kalıcı kota hatası geçici hatadan ayrılacak. Şu an hata sınıflandırması ve bekleme var, ama bazı hedeflerde ham hata gidiyor.
+- 🔄 (F-009) `[1✓ 2✓ 3✓ 4🔄]` Otomatik cloud rota yalnız exact provider/model için doğrulanmış, süresi geçmemiş, uygun, hard-stop garantili ve bilinen kota tükenmemiş free-tier evidence ile açılacak. Evidence yok/stale/unknown ise allow değil; ücretli fallback yapılmaz. `usage_meter` limit gözlemi kanıt yerine geçmez; mevcut cooldown/fallback korunur.
 - ✅ (#350) `[1✓ 2✓ 3✓ 4✓]` Sınırlı yeniden deneme ve artan bekleme (backoff) eklenecek. Şu an bekleme var, backoff yok.
 - 🟡 (#352) `[1✓ 2✓ 3✓ 4–]` Ollama kurulu değilken modelsiz kısmın doğrulanmış teslimi haber ve finans dışındaki hedeflere de yayılacak. Haber ve finans için modelsiz yol var. İş PC'sinde gerçek kabul gerekiyor; kabul gelmeden ✅ yazılmaz.
 - ✅ (#352) `[1✓ 2– 3✓ 4–]` LM Studio ve llama.cpp için yerel uç nokta ayarı eklenecek (opsiyonel). Şu an yalnız Ollama var.
