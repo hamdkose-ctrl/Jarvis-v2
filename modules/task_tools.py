@@ -14,6 +14,8 @@ CATALOG = {
                  'required': (), 'optional': ('url', 'query', 'question')},
     'file': {'risk': 'local_evidence_read', 'replay_safe': True,
              'required': ('path', 'operation'), 'optional': ()},
+    'finance': {'risk': 'local_evidence_read', 'replay_safe': True,
+                'required': ('operation', 'payload'), 'optional': ()},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
