@@ -46,6 +46,11 @@ class WebChat:
         runtime = self._runtime
         return [r for r in list(runtime.engine.event_log) if r.get('user') == runtime._p().name][-limit:]
 
+    def continuity(self, device_id: str='', session_id: str='') -> dict:
+        """Aktif kullanıcının Core-owned iş görünümünü bu istemci için salt-okunur döndürür."""
+        from modules import continuity
+        return continuity.snapshot(self._runtime._p().slug, device_id=device_id, session_id=session_id)
+
     def activity_clear(self) -> bool:
         """Canlı Aktivite geçmişini temizler; motorun normal loglarına dokunmaz."""
         runtime = self._runtime
