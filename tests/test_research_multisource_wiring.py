@@ -1,7 +1,9 @@
 import json
-from unittest.mock import Mock, patch
 import re
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from modules import research_evidence, task_workers
 
@@ -136,6 +138,122 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
         self.assertEqual(output['state'], 'done')
         urls = {claim['url'] for claim in output['source_claims']}
         self.assertEqual(urls, {first, third})
+
+    def test_differently_worded_same_value_sources_stay_conflict_free(self):
+        first, second, third = 'https://a.test/x', 'https://b.test/y', 'https://c.test/z'
+        output = self._run([first, second, third], {
+            first: 'Yapılan ölçümde enerji tüketimi yüzde 10 oranında azalmıştır ve sonuç tekrarlanmıştır.',
+            second: 'Ayrı bir çalışma tüketimin %10 oranında gerilediğini raporlamış ve ölçüm bağımsız olarak yinelenmiştir.',
+            third: 'Bağımsız değerlendirmede yaklaşık yüzde 10 düşüş ölçüldüğü belirtildi; ekip bulguyu ayrı bir tabloda yayımladı.',
+        })
+        self.assertEqual({claim['value'] for claim in output['source_claims']}, {'10'})
+        self.assertEqual(len(output['source_claims']), 3)
+        review_search, review_extract = Mock(), Mock()
+        self.assertIsNone(research_evidence.cross_source_review({'r1': output},
+            search=review_search, extract=review_extract))
+        review_search.assert_not_called()
+        review_extract.assert_not_called()
+
+    def test_research_worker_claims_reach_writer_report_end_to_end(self):
+        """Production path: the research worker's own output is handed to the writer as a dependency."""
+        first, second = 'https://a.test/x', 'https://b.test/y'
+        output = self._run([first, second], {
+            first: 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.',
+            second: 'Başka bir ekip aynı bölgede yaptığı bağımsız ölçümde tüketimin yüzde 45 düştüğünü raporlamıştır.',
+        })
+        self.assertGreaterEqual(len(output['source_claims']), 2)
+        writer = {
+            'id': 'writer-multi-1',
+            'agent': 'writer',
+            'input': {'instruction': 'Enerji araştırmasını raporla', 'filename': 'enerji.md'},
+            'execution': {'request': 'Enerji tüketimi araştırması'},
+        }
+        third = {'url': 'https://d.test/w', 'text': 'Kurum raporu düşüşün yüzde 40 olduğunu bağımsız doğruluyor.',
+                 'content_type': 'text/plain'}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('modules.nxapi.FILES_DIR', Path(tmp) / 'files'), \
+             patch('modules.model_wait.ask', return_value='Enerji raporu gövdesi.'), \
+             patch('modules.research_providers.search_public', return_value=[self._candidate(third['url'])]) as extra_search, \
+             patch('modules.research_providers.extract_source', return_value=third) as extra_extract:
+            report = task_workers.run('alice', writer, {'r1': output})
+            text = Path(report['file']).read_text(encoding='utf-8')
+        self.assertEqual(report['state'], 'done')
+        self.assertEqual(report['source_conflict'], 'resolved_conflict')
+        self.assertIn('Enerji raporu gövdesi.', text)
+        self.assertIn('Kaynak çelişkisi doğrulandı', text)
+        self.assertIn('40', text)
+        self.assertEqual(extra_search.call_count, 1)
+        self.assertEqual(extra_extract.call_count, 1)
+
+    def test_unresolved_conflict_reaches_writer_report_as_uncertainty(self):
+        first, second = 'https://a.test/x', 'https://b.test/y'
+        output = self._run([first, second], {
+            first: 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.',
+            second: 'Başka bir ekip aynı bölgede yaptığı bağımsız ölçümde tüketimin yüzde 45 düştüğünü raporlamıştır.',
+        })
+        writer = {
+            'id': 'writer-multi-2',
+            'agent': 'writer',
+            'input': {'instruction': 'Enerji araştırmasını raporla', 'filename': 'enerji.md'},
+            'execution': {'request': 'Enerji tüketimi araştırması'},
+        }
+        ambiguous = {'url': 'https://d.test/w', 'text': 'Bağımsız kaynak düşüşün yüzde 42 civarında olduğunu belirtiyor.',
+                     'content_type': 'text/plain'}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('modules.nxapi.FILES_DIR', Path(tmp) / 'files'), \
+             patch('modules.model_wait.ask', return_value='Enerji raporu gövdesi.'), \
+             patch('modules.research_providers.search_public', return_value=[self._candidate(ambiguous['url'])]), \
+             patch('modules.research_providers.extract_source', return_value=ambiguous):
+            report = task_workers.run('alice', writer, {'r1': output})
+            text = Path(report['file']).read_text(encoding='utf-8')
+        self.assertEqual(report['source_conflict'], 'unresolved_conflict')
+        self.assertIn('Kaynak çelişkisi çözülmedi', text)
+        self.assertIn('belirsizdir', text)
+
+    def test_independent_candidate_selection_is_host_distinct_and_bounded(self):
+        from modules import research_providers
+        rows = [self._candidate(u) for u in (
+            'https://a.test/1', 'https://a.test/2', 'https://b.test/1',
+            'https://c.test/1', 'https://d.test/1', 'https://e.test/1')]
+        chosen = research_providers.independent_candidates(rows)
+        self.assertEqual([row['url'] for row in chosen],
+                         ['https://a.test/1', 'https://b.test/1', 'https://c.test/1'])
+        self.assertEqual(chosen, research_providers.independent_candidates(rows))
+
+    def test_source_claim_is_structured_not_raw_prose(self):
+        first, second = 'https://a.test/x', 'https://b.test/y'
+        output = self._run([first, second], {
+            first: 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.',
+            second: 'Başka bir ekip aynı bölgede yaptığı bağımsız ölçümde tüketimin yüzde 45 düştüğünü raporlamıştır.',
+        })
+        for claim in output['source_claims']:
+            self.assertEqual(set(claim), {'subject', 'scope', 'as_of', 'value', 'url', 'evidence'})
+            self.assertTrue(claim['subject'] and claim['value'] and claim['url'] and claim['evidence'])
+            self.assertLess(len(claim['value']), len(claim['evidence']))
+
+    def test_invented_value_is_rejected_by_claim_parser(self):
+        source = 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.'
+        self.assertIsNone(research_evidence.parse_value_quote(
+            json.dumps({'value': '99', 'quote': 'Tüketim yüzde 99 azaldı ve bu bağımsız kaynakça doğrulandı'}), source))
+        self.assertIsNone(research_evidence.parse_value_quote('metin değil', source))
+        parsed = research_evidence.parse_value_quote(
+            json.dumps({'value': '40', 'quote': 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır'}), source)
+        self.assertEqual(parsed['value'], '40')
+
+    def test_three_distinct_values_never_pick_a_side(self):
+        first, second, third = 'https://a.test/x', 'https://b.test/y', 'https://c.test/z'
+        output = self._run([first, second, third], {
+            first: 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.',
+            second: 'Başka bir ekip aynı bölgede yaptığı bağımsız ölçümde tüketimin yüzde 45 düştüğünü raporlamıştır.',
+            third: 'Üçüncü çalışma tüketim azalmasını yüzde 42 olarak ölçtüğünü ayrı bir tabloda yayımlamıştır.',
+        })
+        self.assertEqual({claim['value'] for claim in output['source_claims']}, {'40', '45', '42'})
+        review = research_evidence.cross_source_review({'r1': output},
+            search=lambda q: [self._candidate('https://d.test/w')],
+            extract=lambda url, **kw: self._source(url, 'Kurum düşüşün yüzde 40 olduğunu bağımsız doğruluyor.'))
+        self.assertEqual(review['status'], 'unresolved_conflict')
+        self.assertIsNone(review['verdict'].get('supported'))
+        self.assertIn('belirsizdir', review['text'])
 
 
 def research_providers_compare(claims):
