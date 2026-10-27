@@ -37,6 +37,24 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         bridge._runtime = SimpleNamespace(llm=stub)
         return bridge.llm_status(), resolver
 
+    def _choice_bridge(self, *, backend="ollama", installed=None):
+        installed = list(installed or [])
+        choose = Mock(return_value={})
+        stub = SimpleNamespace(
+            status=lambda: {
+                "local_backend": backend,
+                "ollama_models": installed,
+            },
+            choose_model=choose,
+        )
+        bridge = WebModels()
+        bridge._runtime = SimpleNamespace(
+            llm=stub,
+            _p=lambda: SimpleNamespace(slug="hamdi", name="Hamdi"),
+            privacy=SimpleNamespace(audit=Mock()),
+        )
+        return bridge, choose
+
     def test_stale_user_model_falls_back_to_installed_ollama_model(self):
         posted = {}
         reply = Mock(status_code=200, content=b"{}")
@@ -137,6 +155,43 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertFalse(info["local_model_stale"])
         self.assertEqual(info["local_model_warning"], "")
         resolver.assert_not_called()
+
+    def test_status_exposes_canonical_installed_model_list(self):
+        info, _ = self._ui_status(
+            preference="llama3.2",
+            installed=["mistral:7b", "qwen2.5-coder:7b"],
+            effective="mistral:7b",
+        )
+        self.assertEqual(info["local_installed_models"], ["mistral:7b", "qwen2.5-coder:7b"])
+
+    def test_installed_local_model_can_be_saved(self):
+        bridge, choose = self._choice_bridge(installed=["qwen2.5-coder:7b"])
+        out = bridge.model_choice_save("ollama", "qwen2.5-coder:7b")
+        self.assertTrue(out["ok"])
+        choose.assert_called_once_with("hamdi", "ollama", "qwen2.5-coder:7b")
+
+    def test_uninstalled_local_model_cannot_be_saved(self):
+        bridge, choose = self._choice_bridge(installed=["qwen2.5-coder:7b"])
+        out = bridge.model_choice_save("ollama", "llama3.2")
+        self.assertFalse(out["ok"])
+        choose.assert_not_called()
+
+    def test_lmstudio_model_choice_keeps_existing_backend_behavior(self):
+        bridge, choose = self._choice_bridge(backend="lmstudio", installed=["server-model"])
+        out = bridge.model_choice_save("ollama", "configured-model")
+        self.assertTrue(out["ok"])
+        choose.assert_called_once_with("hamdi", "ollama", "configured-model")
+
+    def test_ui_render_contract_uses_backend_installed_models_dropdown(self):
+        src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
+        self.assertIn("local_installed_models", src)
+        self.assertIn("Aktif Model", src)
+        self.assertIn("Kurulu Modeller", src)
+        self.assertIn("<select", src)
+        self.assertIn('data-act="localmodelsave"', src)
+        self.assertIn("Modeli Kaydet", src)
+        self.assertNotIn("qwen2.5-coder:7b</option>", src)
+        self.assertNotIn("llama3.2</option>", src)
 
     def test_ui_render_contract_names_saved_and_active_models(self):
         src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
