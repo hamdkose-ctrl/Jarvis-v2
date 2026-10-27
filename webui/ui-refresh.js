@@ -31,5 +31,39 @@ ACT.deskhistory=()=>{const rows=S.snap?.study?.progress||[];deskDrawer('Geçmiş
 // Notlar mevcut not hizmeti üzerinden açılır; yeni kişisel veri deposu oluşturulmaz.
 ACT.desknotes=()=>{const notes=S.snap?.notes||[];deskDrawer('Notlar',`<input id="desk-note-title" placeholder="Not başlığı" maxlength="120"><textarea id="desk-note-text" placeholder="Çalışma notunu yaz…"></textarea><button class="btn pri" data-act="desknoteadd">Kaydet</button>${notes.map(n=>`<details class="desk-note"><summary>${esc(n.title||'Not')}</summary><p>${esc(n.text||'')}</p></details>`).join('')}`)};
 ACT.desknoteadd=async()=>{const who=owner(),text=document.querySelector('#desk-note-text')?.value.trim(),title=document.querySelector('#desk-note-title')?.value.trim();if(!text)return toast('Önce notunu yaz.');await api('note_add',text,'',title);if(owner()!==who)return;await refresh();if(owner()===who&&S.page==='study')ACT.desknotes()};
+ACT.deskanswer=()=>{S.deskAnswerClosed=!S.deskAnswerClosed;document.querySelector('.desk-canvas')?.classList.toggle('answer-collapsed',S.deskAnswerClosed)};
+ACT.deskresources=()=>{S.stab='resources';render()};
+function deskDrawer(title,body){const pg=document.querySelector('.p-study');if(!pg)return;pg.querySelector('.desk-drawer')?.remove();const el=document.createElement('aside');el.className='desk-drawer';el.innerHTML=`<div class="ch"><b>${title}</b><button data-act="deskclose" aria-label="Paneli kapat">×</button></div>${body}`;pg.append(el)}
+ACT.deskclose=()=>document.querySelector('.desk-drawer')?.remove();
+ACT.deskhistory=()=>{const rows=S.snap?.study?.progress||[];deskDrawer('Geçmiş',rows.slice().reverse().slice(0,30).map(x=>`<div class="srow"><div><b>${esc(x.q||'Çalışma')}</b><small>${esc(x.ts||'')}</small></div></div>`).join('')||'<p class="mut">Henüz çalışma kaydı yok.</p>')};
+// Notlar mevcut not hizmeti üzerinden açılır; yeni kişisel veri deposu oluşturulmaz.
+ACT.desknotes=()=>{const notes=S.snap?.notes||[];deskDrawer('Notlar',`<input id="desk-note-title" placeholder="Not başlığı" maxlength="120"><textarea id="desk-note-text" placeholder="Çalışma notunu yaz…"></textarea><button class="btn pri" data-act="desknoteadd">Kaydet</button>${notes.map(n=>`<details class="desk-note"><summary>${esc(n.title||'Not')}</summary><p>${esc(n.text||'')}</p></details>`).join('')}`)};
+ACT.desknoteadd=async()=>{const who=owner(),text=document.querySelector('#desk-note-text')?.value.trim(),title=document.querySelector('#desk-note-title')?.value.trim();if(!text)return toast('Önce notunu yaz.');await api('note_add',text,'',title);if(owner()!==who)return;await refresh();if(owner()===who&&S.page==='study')ACT.desknotes()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){ACT.filesclose();ACT.deskclose()}});
+
+const baseAiPage=aiPage;
+const localModelView={key:'',at:0,data:null,busy:false};
+function localModelKey(sn){const l=sn?.llm||{};return [sn?.user?.slug||sn?.user?.name||'',l.local_backend||'ollama',l.local_model||''].join('|')}
+function requestLocalModelStatus(sn){
+  const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return;
+  const key=localModelKey(sn),now=Date.now();
+  if(localModelView.key!==key){localModelView.key=key;localModelView.data=null;localModelView.at=0}
+  if(localModelView.busy||(localModelView.data&&now-localModelView.at<8000))return;
+  localModelView.busy=true;
+  api('llm_status').then(st=>{if(localModelView.key===key){localModelView.data=st||{};localModelView.at=Date.now()}}).catch(()=>{}).finally(()=>{localModelView.busy=false;if(S.snap&&localModelKey(S.snap)===key)render()});
+}
+function localModelPanel(panel,sn){
+  const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return panel;
+  requestLocalModelStatus(sn);
+  const key=localModelKey(sn),st=localModelView.key===key?localModelView.data:null;if(!st)return panel;
+  const pref=String(st.local_model_preference||l.local_model||''),effective=String(st.local_effective_model||'');
+  const stale=st.local_model_stale===true,noActive=st.local_models_checked===true&&!effective;
+  if(!stale&&!noActive)return panel;
+  const savedLabel=pref||'Kayıtlı tercih yok',activeLabel=effective||'Kurulu model yok';
+  const warning=stale?(st.local_model_warning||`Kayıtlı model kurulu değil; otomatik olarak ${effective} kullanılıyor.`):'Kurulu ve etkin bir Ollama modeli bulunamadı.';
+  const renamed=panel.replace('Yerel model · ','Kayıtlı tercih · ');
+  return renamed+sbox('cpu','Model kullanımı','Kayıtlı tercih ile gerçekten kullanılan runtime modeli birbirinden ayrıdır.',
+    srow('file','Kayıtlı tercih',esc(savedLabel),'')+srow('spark','Aktif model',esc(activeLabel),'')+pad18(`<span class="mut">${esc(warning)}</span>`));
+}
+aiPage=function(sn,panels,extra=''){const next={...panels};if(next.ollama)next.ollama=localModelPanel(next.ollama,sn);return baseAiPage(sn,next,extra)};
 })();
