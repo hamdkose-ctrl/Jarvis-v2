@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,7 @@ class CameraGoalObserveWiringTests(unittest.TestCase):
     def test_remote_camera_snapshot_uses_existing_strict_vision_path(self):
         runtime = self._runtime()
         fd, name = tempfile.mkstemp(suffix='.jpg')
+        os.close(fd)
         Path(name).write_bytes(b'jpeg')
         try:
             with patch('modules.camera_bridge.snapshot_path', return_value=name) as snapshot:
