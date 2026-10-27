@@ -45,8 +45,8 @@ def validate_input(data):
     if data['service'] == 'gmail' and data['operation'] == 'read_thread':
         if set(data) != {'service', 'operation', 'thread_id'} or not isinstance(data.get('thread_id'), str):
             raise ValueError('Gmail konuşma okuma için yalnız thread_id gerekli.')
-    if data['service'] == 'calendar':
-        if data['operation'] != 'suggest_slot' or set(data) != {'service', 'operation', 'window_start', 'window_end', 'minutes'}:
+    if data['service'] == 'calendar' and data['operation'] == 'suggest_slot':
+        if set(data) != {'service', 'operation', 'window_start', 'window_end', 'minutes'}:
             raise ValueError('Takvim önerisi için başlangıç, bitiş ve dakika gerekli.')
         if not all(isinstance(data.get(key), str) and len(data[key]) <= 80 for key in ('window_start', 'window_end')):
             raise ValueError('Takvim zaman aralığı geçersiz.')
