@@ -49,5 +49,55 @@ class GoalStateAuthorityPromotionTests(unittest.TestCase):
         )
 
 
+    def test_promoted_save_hook_cannot_change_canonical_lifecycle(self):
+        plan = runner.plan(self.owner_dir)
+        runner.promote(
+            self.owner_dir, approved_fingerprint=plan["fingerprint"],
+            approved_job_ids=[self.job["id"]],
+        )
+        before = goal_state_store.load(self.canonical)
+        goal_state_save_hook._atomic(
+            self.legacy, json.dumps({**self.job, "state": "running"}).encode("utf-8"),
+        )
+        self.assertEqual(goal_state_store.load(self.canonical), before)
+
+    def test_execution_record_write_failure_does_not_promote_authority(self):
+        from unittest.mock import patch
+        plan = runner.plan(self.owner_dir)
+        original_atomic = runner.release_guard.atomic
+
+        def fail_execution_record(path, data):
+            if str(path).endswith(".execution.json"):
+                raise OSError("simulated execution record write failure")
+            return original_atomic(path, data)
+
+        with patch.object(runner.release_guard, "atomic", side_effect=fail_execution_record):
+            with self.assertRaises(OSError):
+                runner.promote(
+                    self.owner_dir, approved_fingerprint=plan["fingerprint"],
+                    approved_job_ids=[self.job["id"]],
+                )
+        self.assertEqual(goal_state.authority(goal_state_store.load(self.canonical)), "legacy")
+        self.assertFalse((self.owner_dir / (self.job["id"] + ".execution.json")).exists())
+
+    def test_canonical_cas_failure_restores_execution_record(self):
+        from unittest.mock import patch
+        plan = runner.plan(self.owner_dir)
+        record = self.owner_dir / (self.job["id"] + ".execution.json")
+        original = b'{"preexisting":"record"}'
+        record.write_bytes(original)
+        with patch.object(
+            goal_state_compat, "operator_promote_legacy_authority_once",
+            side_effect=goal_state_store.PersistedStateConflict("simulated CAS conflict"),
+        ):
+            with self.assertRaises(goal_state_store.PersistedStateConflict):
+                runner.promote(
+                    self.owner_dir, approved_fingerprint=plan["fingerprint"],
+                    approved_job_ids=[self.job["id"]],
+                )
+        self.assertEqual(record.read_bytes(), original)
+        self.assertEqual(goal_state.authority(goal_state_store.load(self.canonical)), "legacy")
+
+
 if __name__ == "__main__":
     unittest.main()
