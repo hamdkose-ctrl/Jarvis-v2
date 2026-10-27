@@ -177,7 +177,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 🟡 (#381) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
 
-- Gmail konuşma (thread) okuma ve Takvim planlama önerisi genişleyecek. Şu an okuma ve arama var.
+- Gmail konuşma (thread) okuma ve Takvim planlama önerisi genişleyecek. Şu an okuma ve arama var, serbest/meşgul ve özet dar.
 
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
 
@@ -242,11 +242,11 @@ Alt-ajan yaşam döngüsü ve Kanban panosu eklenir. Sandbox hazır; paralel iş
 
 ## Faz 8 — MCP istemcisi ve güvenli eklenti
 
-**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı benchmark deseninden yeniden uygulanıyor; mevcut web Bridge yüzeyine bağlı. Vision/`observe(camera)` bağlantısı ve gerçek cihaz kabulü tamamlanmadan bu iş ✅ sayılmaz.**
+**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı mevcut web Bridge yüzeyine bağlı; uzak kamera karesi artık mevcut Vision/`observe(camera)` analiz yoluna da bağlanıyor. Gerçek cihaz kabulü ve gerçek WebRTC signaling tamamlanmadan bu iş ✅ sayılmaz.**
 
 MCP istemcisi ve güvenli eklenti sistemi eklenir. Kendi altyapımız sabit; dış araçlara ancak o zaman güvenle kapı açılır.
 
-- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı ve gerçek cihaz kabulü bekliyor.
+- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı yapıldı; gerçek cihaz kabulü ve gerçek WebRTC signaling bekliyor.
 - Sabit, salt okuma MCP istemcisi eklenecek: dinamik araç keşfi, sunucu bağlantıları, MCP olay istemcisi, yerel MCP bağlantıları. Sandbox'tan sonra. Şu an yalnız referans kataloğu var.
 - A2A ve harici ajan servislerine bağlanma en sona kalır.
 - Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.
@@ -309,7 +309,7 @@ Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini g
 
 - **Tespit edildi — uygulama bekliyor: öğrenilmiş kurallar Core ve izin politikasını geçersiz kılamaz.**
   - **Kod kanıtı:** İlk uygulama PR'ı learned-rule/memory uygulama noktasında açık precedence kontrolü göstermeli; öğrenilmiş kural yalnız advisory/context girdisi olabilir ve Domain invariant → Decision Authority → JIT Permission → Effect Policy sırasının sonucunu değiştirememelidir.
-  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştirmez.
+  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştirememelidir.
   - **Kabul testi:** Öğrenilmiş kuralın hedef/alıcıyı değiştirmeye veya gerekli onayı atlamaya çalıştığı senaryoda execution kararı değişmeden kalmalı ve işlem mevcut Core/Permission politikası uyarınca reddedilmeli ya da onay istemelidir.
 - **Tespit edildi — uygulama bekliyor: ilgisiz hafızayı bağlama almama (memory relevance gate).**
   - **Kod kanıtı:** Uygulama PR'ında hafıza adaylarının bağlama girmeden önce görevle ilgililik filtresinden geçtiği ve filtre sonucunun testle kilitlendiği gösterilecek.
