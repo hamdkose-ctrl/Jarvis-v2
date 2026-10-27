@@ -44,20 +44,24 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
     local_model_select_enabled:true,
   };
   const c2={
-    S:{snap:{user:{slug:'hamdi',name:'Hamdi'},llm:{provider:'ollama',local_backend:'ollama',local_model:'llama3.2',ollama_up:true},google:{},youtube:{}}},
+    S:{snap:{user:{slug:'hamdi',name:'Hamdi'},llm:{provider:'ollama',local_backend:'ollama',local_model:'llama3.2',ollama_up:true,ollama_url:'http://127.0.0.1:11434'},google:{},youtube:{}}},
     SX:{aiSel:'ollama'},ACT:{},$:()=>null,
     esc:x=>String(x).replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])),
-    srow:(i,t,s,ctl)=>`<div class="srow2"><b>${t}</b><small>${s}</small>${ctl}</div>`,
+    srow:(i,t,s,ctl)=>`<div class="srow2"><b>${t}</b><small>${s}</small>${ctl||''}</div>`,
+    sbox:(i,t,s,body)=>`<section class="sbox"><h3>${t}</h3><p>${s}</p>${body}</section>`,
     field:(label,input,hint)=>`<div class="field"><b>${label}</b>${input}<small>${hint||''}</small></div>`,
     pad18:h=>`<div class="pad">${h}</div>`,
+    inp:(id,ph,val)=>`<input id="${id}" placeholder="${ph||''}" value="${val||''}">`,
     api:async name=>{assert.equal(name,'llm_status');return status},
-    render:()=>{},sAfter:()=>{},msgOf:r=>String(r?.msg||''),
+    render:()=>{},sAfter:()=>{},msgOf:r=>String(r?.msg||''),refresh:async()=>{},
   };
   vm.createContext(c2);
   vm.runInContext(src.slice(src.indexOf('const AI_CARDS='),src.indexOf('\n',src.indexOf('ACT.aipick='))),c2);
   vm.runInContext(modelSlice,c2);
   const legacy={...panels,ollama:'<section><label>Yerel Model - Hamdi</label><input id="om" value="llama3.2"><button data-act="omsave">Modeli kaydet</button></section>'};
-  c2.aiPage(c2.S.snap,legacy);
+  const loading=c2.aiPage(c2.S.snap,legacy);
+  assert(!loading.includes('id="om"'),'status yüklenirken bile legacy serbest metin input görünmemeli');
+  assert(loading.includes('Kurulu Modeller'),'status yüklenirken canonical model paneli görünmeli');
   await new Promise(resolve=>setImmediate(resolve));
   const rendered=c2.aiPage(c2.S.snap,legacy);
   assert(rendered.includes('Aktif Model'),'gerçek render çıktısı aktif modeli göstermeli');
