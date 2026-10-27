@@ -33,13 +33,20 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertIn("modules", proc.stdout.splitlines())
 
-    def test_browser_acceptance_waits_for_real_settings_panel_before_ollama_render(self):
+    def test_browser_acceptance_uses_real_ai_menu_action_before_ollama_render(self):
         src = SCRIPT.read_text(encoding="utf-8")
+        menu_ready = 'page.wait_for_selector("[data-act=\\"mnopen\\"][data-k=\\"ai\\"]"'
+        open_ai = 'dispatch_event("click")'
         wait_panel = 'page.wait_for_selector("#spane"'
         select_ollama = "SX.aiSel='ollama'"
+        self.assertIn(menu_ready, src)
+        self.assertIn(open_ai, src)
         self.assertIn(wait_panel, src)
         self.assertIn(select_ollama, src)
+        self.assertLess(src.index(menu_ready), src.index(open_ai))
+        self.assertLess(src.index(open_ai), src.index(wait_panel))
         self.assertLess(src.index(wait_panel), src.index(select_ollama))
+        self.assertNotIn("go('settings')", src)
         self.assertNotIn("page.wait_for_timeout(800)", src)
 
 
