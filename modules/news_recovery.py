@@ -98,7 +98,11 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     ai=bool(re.search(r'yapay\s+zek[aâ]',request,re.I))
     file_report=bool(ai and re.search(r'rapor',request,re.I) and re.search(r'dosya|kaydet|markdown',request,re.I))
     if not file_report:
-        return _chat_deliver(runtime,job,max_new_steps=max_new_steps,existing_only=existing_only)
+        outcome=_chat_deliver(runtime,job,max_new_steps=max_new_steps,existing_only=existing_only)
+        # Modelsiz teslimin durumu işin kendi mühürlü kanıtından yazılır; yeni ağ çağrısı yapılmaz.
+        from modules import news_pipeline
+        news_pipeline.attach_job(job,model_status='unavailable')
+        return outcome
     previous_report=None
     previous_id=job.get('partial_report') or job.get('resume_partial_report')
     if previous_id:

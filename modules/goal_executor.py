@@ -367,10 +367,10 @@ def _resume_news_recovery(runtime,job,started_steps):
     return news_policy.resume_recovery(runtime,job,started_steps,_save)
 
 
-def _loop(runtime,job,answer=None):
+def _loop(runtime,job,answer=None,resume=False):
     token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
     try:
-        return _loop_steps(runtime,job,answer)
+        return _loop_steps(runtime,job,answer,resume=resume)
     except _TurnBudget as exc:
         job['state']='paused';job['blocker']=str(exc);_save(job)
         runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
@@ -379,7 +379,7 @@ def _loop(runtime,job,answer=None):
         _TURN_DEADLINE.reset(token)
 
 
-def _loop_steps(runtime,job,answer=None):
+def _loop_steps(runtime,job,answer=None,resume=False):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -622,6 +622,13 @@ def _loop_steps(runtime,job,answer=None):
             if isinstance(exc,RuntimeError):
                 if planner_pending:
                     _turn_check(runtime,job)
+                    from modules import news_pipeline,research_evidence
+                    if not resume and not job['goals'] and research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request']):
+                        # Plan hiç yapılamadı: haber keşif/doğrulama/teslimini model istemeden kendi yapar.
+                        try:news_pipeline.deliver_job(job,model_status='unavailable')
+                        except (requests_state.Cancelled,PermissionError):raise
+                        except Exception:
+                            _record_failure('modules/goal_executor.py:news_pipeline_delivery')
                     from modules import news_recovery
                     try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
                     except (requests_state.Cancelled,PermissionError):raise
@@ -657,7 +664,9 @@ def _quota_wait():
 
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     owner=runtime.profile.slug
-    if not resume and not approve and (wait:=_quota_wait())>0:
+    from modules import research_evidence
+    # Kota beklemesi yalnız model isteyen işleri durdurur: tarihli haber işi modelsiz hattını çalıştırır.
+    if not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.news_requested(request):
         return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
@@ -709,7 +718,8 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                  'state':'running','goals':[],'steps':[],'outputs':{}}
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
             _save(job)
-        try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None)
+        try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
+                         resume=resume)
         except requests_state.Cancelled:
             job['state']='cancelled';_save(job);raise
 
@@ -771,6 +781,11 @@ def render(job):
             visible=next((str(item) for item in reversed(job['feedback']) if not _internal_failure(item)),None)
             if visible and not seen_error(visible[:500]):lines.append(visible[:500])
     if job['state']=='cancelled':lines.append('Hedef iptal edildi.')
+    from modules import news_pipeline
+    for line in news_pipeline.render_lines(job):
+        if not any(line[:120] in existing for existing in lines):
+            # Haber sonucu ile model sentezinin yokluğu ayrı satırlarda: kota haberi durdurmaz.
+            lines.append(line)
     return '\n\n'.join(lines) or 'Hedef kaydedildi.'
 
 

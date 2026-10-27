@@ -4,7 +4,8 @@ Bu dosya news_pipeline'ın model sağlayıcılarından bağımsızlığını kil
 kullanılamazken bile keşif, doğrulama ve deterministik teslim çalışmalı; model hataları haber
 sonucundan ayrılmamalı. Ağ ve model çağrısı yoktur; yalnız taşıyıcılar taklit edilir.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from email.utils import format_datetime
 from unittest.mock import Mock, patch
 import unittest
 
@@ -16,13 +17,16 @@ GENERAL = [row['url'] for row in publisher_news.GENERAL_SOURCES]
 
 
 def feed(source_url, rows):
-    """Rows are (title, link, pubDate, category); None means the feed gives no value."""
+    """Rows are (title, path, pubDate, category); links are host-rooted like a real publisher feed."""
+    from urllib.parse import urlsplit
+    from xml.sax.saxutils import escape
+    root = 'https://' + urlsplit(source_url).hostname
     items = []
     for title, link, published, category in rows:
         items.append('<item><title>%s</title><link>%s</link>%s%s</item>' % (
-            title, source_url + link,
-            ('<pubDate>%s</pubDate>' % published) if published else '',
-            ('<category>%s</category>' % category) if category else ''))
+            escape(title), root + link,
+            ('<pubDate>%s</pubDate>' % escape(published)) if published else '',
+            ('<category>%s</category>' % escape(category)) if category else ''))
     body = ('<?xml version="1.0"?><rss version="2.0"><channel>' + ''.join(items) + '</channel></rss>')
     return {'url': source_url, 'body': body.encode('utf-8')}
 
@@ -39,25 +43,41 @@ BODY = ('Deprem sonrası ilgili kurumlar sahadaki incelemelerin sonuçlarını k
 AA = 'https://www.aa.com.tr'
 BBC = 'https://www.bbc.com'
 DW = 'https://www.dw.com'
+AA_INDEX = AA + '/tr/gundem'
+BBC_INDEX = BBC + '/turkce'
 
 
-def two_source_feeds(failing=(), *, published='Tue, 20 Oct 2026 09:00:00 GMT', article_body=BODY):
-    """Reader/fetcher pair: AA and BBC index + articles; optional source failure."""
+def istanbul_today():
+    """Goal-executor yolu araştırma adımında gerçek saati kullanır; o testte tarih gerçek bugüne sabitlenir."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone(timedelta(hours=3))).date()
+
+
+def two_source_feeds(failing=(), *, day=None, article_body=BODY):
+    """Reader/fetcher pair: AA and BBC index + articles; optional source failure.
+
+    Feed and article dates both come from `day`, so a test either pins a fixed reference date or
+    anchors to the real one; nothing is ever filled in with the current time by the pipeline.
+    """
+    day = day or DAY
+    published = format_datetime(datetime.combine(day, time(9, tzinfo=timezone.utc)), usegmt=True)
     rows = {
-        AA: feed(AA + '/tr/gundem', [('AA deprem haberi', '/tr/gundem/deprem-1', published, 'Gündem')]),
-        BBC: feed(BBC + '/turkce', [('BBC deprem haberi', '/turkce/deprem-2', published, 'Gündem')]),
+        AA_INDEX: feed(AA_INDEX, [('AA deprem haberi', '/tr/gundem/deprem-1', published, 'Gündem')]),
+        BBC_INDEX: feed(BBC_INDEX, [('BBC deprem haberi', '/turkce/deprem-2', published, 'Gündem')]),
     }
 
     def reader(url):
         if url in failing:
             raise OSError('taklit kaynak zaman aşımı')
+        if url not in rows:
+            return []
         return entries(rows[url])
 
     def fetcher(url):
         if url == AA + '/tr/gundem/deprem-1':
-            return article(url, 'AA deprem haberi', '2026-10-20', article_body)
+            return article(url, 'AA deprem haberi', day.isoformat(), article_body)
         if url == BBC + '/turkce/deprem-2':
-            return article(url, 'BBC deprem haberi', '2026-10-20', article_body)
+            return article(url, 'BBC deprem haberi', day.isoformat(), article_body)
         if url in rows:
             return rows[url]
         raise OSError('beklenmeyen adres: ' + url)
@@ -89,7 +109,7 @@ class AllProvidersUnavailableTests(unittest.TestCase):
         self.assertIn('Model tabanlı sentez kullanılamıyor', result['report'])
         for row in result['verified']:
             self.assertTrue(row['news_article']['url'].startswith('https://'))
-            self.assertEqual(row['news_article']['published'], '2026-10-20')
+            self.assertEqual(row['news_article']['published'], DAY.isoformat())
             self.assertTrue(row['quotes'])
 
     def test_no_model_is_called_by_the_pipeline(self):
@@ -103,19 +123,53 @@ class AllProvidersUnavailableTests(unittest.TestCase):
 
     def test_quota_cooldown_does_not_stop_a_news_request(self):
         import test_goal_executor as fixture
-        from modules import goal_executor as goals, llm
+        from modules import goal_executor as goals
         case = fixture.GoalTests()
         case.setUp()
         self.addCleanup(case.doCleanups)
-        reader, fetcher = two_source_feeds()
-        case.responses(RuntimeError('Taklit sağlayıcı kullanılamıyor'))
+        reader, fetcher = two_source_feeds(day=istanbul_today())
+        case.responses(case.plan('Son 7 gün deprem haberlerini araştır'), RuntimeError('Taklit sağlayıcı kullanılamıyor'))
         with patch('modules.llm.quota_wait_seconds', return_value=42), \
              patch('modules.public_sources.fetch', side_effect=fetcher), \
              patch('modules.domain_tools.headlines', side_effect=lambda owner, url, **kw: {'items': reader(url)}), \
              patch('modules.privacy.blocked', return_value=None):
             reply = goals.run(case.runtime, 'son 7 gün deprem haberleri')
-        self.assertIsNotNone(goals.latest('alice'), 'kota dolu diye haber işi hiç açılmadı')
+        job = goals.latest('alice')
+        self.assertIsNotNone(job, 'kota dolu diye haber işi hiç açılmadı')
         self.assertNotIn('kota', reply.casefold())
+        self.assertEqual(job['state'], 'done', reply)
+        self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
+        self.assertEqual(job['news_pipeline']['news_status'], 'complete')
+        self.assertGreaterEqual(job['news_pipeline']['sources_total'], 1)
+        self.assertGreaterEqual(job['news_pipeline']['articles_verified'], 2)
+        self.assertIn('Model tabanlı sentez kullanılamıyor', reply)
+        for row in job['news_pipeline']['evidence']:
+            self.assertTrue(row['url'].startswith('https://'))
+            self.assertTrue(row['published_at'])
+
+
+    def test_total_outage_delivers_news_without_a_plan(self):
+        """21. numara: plan hiç yapılamazsa haber hattı keşif, doğrulama ve teslimi modelsiz kendisi yapar."""
+        import test_goal_executor as fixture
+        from modules import goal_executor as goals
+        case = fixture.GoalTests()
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        reader, fetcher = two_source_feeds(day=istanbul_today())
+        case.responses(RuntimeError('Gemini kota; Groq kota; Ollama yok'),
+                       case.plan('Son 7 gün deprem haberlerini araştır'))
+        with patch('modules.llm.quota_wait_seconds', return_value=90), \
+             patch('modules.public_sources.fetch', side_effect=fetcher), \
+             patch('modules.domain_tools.headlines', side_effect=lambda owner, url, **kw: {'items': reader(url)}), \
+             patch('modules.privacy.blocked', return_value=None):
+            reply = goals.run(case.runtime, 'son 7 gün deprem haberleri')
+        job = goals.latest('alice')
+        self.assertIsNotNone(job, 'plan yok diye haber işi kaybolmadı')
+        self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
+        self.assertGreaterEqual(job['news_pipeline']['articles_verified'], 1)
+        self.assertIn('Model tabanlı sentez kullanılamıyor', reply)
+        self.assertIn(AA + '/tr/gundem/deprem-1', reply)
+        self.assertIn(istanbul_today().isoformat(), reply)
 
 
 class SourceIsolationTests(unittest.TestCase):
@@ -246,6 +300,10 @@ class RssSummaryTests(unittest.TestCase):
 class CategoryAndTimeFilterTests(unittest.TestCase):
     """6 ve 7. Kategori/zaman süzümü modelsiz ve deterministik."""
 
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
     def test_category_labels_and_unknown_fallback(self):
         cases = [('Fenerbahçe sahadan 3-1 ayrıldı', 'spor'),
                  ('Merkez Bankası faiz kararını açıkladı', 'ekonomi'),
@@ -275,9 +333,11 @@ class CategoryAndTimeFilterTests(unittest.TestCase):
             return article(url, title, '2026-10-20', BODY)
 
         sources = [{'name': 'AA', 'url': AA + '/tr/gundem'}]
+        # Açık daraltma ("sadece"/"hariç") modelsiz süzer; konu kelimesi tek başına aday haberleri discard etmez.
         for request, expected in (('spor hariç son 7 gün haberleri', {'ekonomi', 'teknoloji'}),
                                   ('sadece ekonomi haberleri', {'ekonomi'}),
-                                  ('yapay zekâ ve teknoloji haberleri', {'teknoloji'})):
+                                  ('sadece yapay zekâ ve teknoloji haberleri', {'teknoloji'}),
+                                  ('yapay zekâ ve teknoloji haberleri', {'spor', 'ekonomi', 'teknoloji'})):
             result = news_pipeline.run(request, reader=reader, fetcher=fetcher, sources=sources, now=NOW)
             self.assertEqual({row['category'] for row in result['candidates']}, expected, request)
 
@@ -392,14 +452,71 @@ class FailureSemanticsTests(unittest.TestCase):
     def test_model_failure_never_marks_news_unavailable(self):
         status = news_pipeline.status(
             [{'source': 'AA', 'status': 'ok', 'item_count': 3, 'reason': None}],
-            verified=[{'url': AA + '/x'}], news_found=True, model_status='unavailable')
+            verified=[{'url': AA + '/x'}], model_status='unavailable')
         self.assertEqual(status['news_status'], 'complete')
         self.assertEqual(status['model_synthesis_status'], 'unavailable')
 
     def test_network_wipe_is_unavailable_not_empty(self):
         status = news_pipeline.status([{'source': 'AA', 'status': 'failed', 'item_count': 0, 'reason': 'dns'}],
-                                      verified=[], news_found=False, model_status='unavailable')
+                                      verified=[], model_status='unavailable')
         self.assertEqual(status['news_status'], 'unavailable')
+
+
+class JobDeliveryTests(unittest.TestCase):
+    """11, 15 ve 16. İş kanıtından deterministik teslim: sağlık listesi, yeniden kullanım, ağ yok."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def job(self, reader, fetcher, *, day=DAY):
+        from modules import task_results
+        sources = [{'name': 'AA', 'url': AA_INDEX}, {'name': 'BBC Türkçe', 'url': BBC_INDEX}]
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=sources, now=day)
+        outputs = {}
+        for index, row in enumerate(result['verified'], 1):
+            outputs['s%d' % index] = task_results.seal('research', {
+                'state': 'done', 'text': row['title'], 'source': row['url'],
+                'source_chars': len(row['news_article']['text']), 'source_quotes': row['quotes'],
+                'source_only': True, 'news_article': row['news_article']})
+        steps = [{'id': 's%d' % index, 'tool': 'research', 'state': 'done',
+                  'input': {'url': row['url'], 'question': 'deprem'}}
+                 for index, row in enumerate(result['verified'], 1)]
+        steps.append({'id': 's9', 'tool': 'data', 'state': 'failed',
+                      'input': {'operation': 'headlines', 'url': DW + '/turkce'}})
+        outputs['s9'] = {'state': 'failed', 'text': 'taklit kaynak zaman aşımı'}
+        return {'owner': 'alice', 'request': 'son 7 gün deprem haberleri', 'state': 'paused',
+                'goals': [], 'steps': steps, 'outputs': outputs}, result
+
+    def test_attach_job_reports_source_health_without_a_second_crawl(self):
+        reader, fetcher = two_source_feeds()
+        job, result = self.job(reader, fetcher)
+        crawl = Mock(side_effect=AssertionError('modelsiz teslim yeniden ağa çıkmadı'))
+        with patch('modules.public_sources.fetch', crawl), patch('modules.domain_tools.headlines', crawl):
+            news_pipeline.attach_job(job, model_status='unavailable', now=DAY)
+            note = news_pipeline.delivery_note(job)
+        crawl.assert_not_called()
+        self.assertEqual(job['news_pipeline']['news_status'], 'partial')
+        self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
+        self.assertEqual(job['news_pipeline']['articles_verified'], len(result['verified']))
+        failed = [row for row in job['news_pipeline']['source_health'] if row['status'] == 'failed']
+        self.assertEqual([row['url'] for row in failed], [DW + '/turkce'])
+        self.assertIn('Model tabanlı sentez kullanılamıyor', note)
+        self.assertIn('haber durumu', note.lower())
+
+    def test_record_is_json_serialisable_and_bounded(self):
+        import json
+        reader, fetcher = two_source_feeds()
+        job, _ = self.job(reader, fetcher)
+        news_pipeline.attach_job(job, model_status='unavailable', now=DAY)
+        encoded = json.dumps(job['news_pipeline'], ensure_ascii=False, sort_keys=True)
+        self.assertLess(len(encoded), 20000)
+        self.assertNotIn('news_article', job['news_pipeline'])
+        self.assertTrue(job['news_pipeline']['report'].startswith('Son 7 günde'))
+
+    def test_delivery_note_is_empty_without_a_pipeline_record(self):
+        self.assertEqual(news_pipeline.delivery_note({'state': 'done'}), '')
 
 
 class BoundaryTests(unittest.TestCase):
