@@ -59,6 +59,7 @@ class WebModels:
         st = runtime.llm.status()
         backend = st.get('local_backend') or 'ollama'
         preference = str(st.get('ollama_model') or '').strip()
+        installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
         effective = preference
         stale = False
         warning = ''
@@ -67,16 +68,18 @@ class WebModels:
                 effective = runtime.llm._ollama_effective_model(runtime.llm.provider_configuration())
             except runtime.llm.LocalModelError:
                 effective = ''
-            installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
             stale = bool(preference and effective and preference not in installed)
             if stale:
-                warning = f'Kayıtlı model kurulu değil; otomatik olarak {effective} kullanılıyor.'
+                warning = 'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.'
         st.update({
             'local_model_preference': preference,
             'local_effective_model': effective,
             'local_model_stale': stale,
             'local_model_warning': warning,
             'local_models_checked': True,
+            'local_installed_models': installed,
+            'local_model_choice_provider': 'ollama',
+            'local_model_select_enabled': bool(installed),
         })
         return st
 
@@ -144,13 +147,20 @@ class WebModels:
         """Aktif kullanıcının Groq veya yerel modelini kaydeder; seçili sağlayıcıyı değiştirmez."""
         runtime = self._runtime
         p = runtime._p()
+        model = (model or '').strip()
+        if provider == 'ollama':
+            st = runtime.llm.status()
+            if (st.get('local_backend') or 'ollama') == 'ollama':
+                installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
+                if not model or model not in installed:
+                    return {'ok': False, 'msg': 'Yalnız bu bilgisayarda kurulu yerel modellerden biri seçilebilir.'}
         try:
             runtime.llm.choose_model(p.slug, provider, model)
         except ValueError as e:
             return {'ok': False, 'msg': str(e)}
         runtime.privacy.audit('model seçimi', f'{provider} {model}'.strip())
         label = 'Groq' if provider == 'groq' else 'Yerel model'
-        return {'ok': True, 'msg': f'{label} için {model.strip()} kaydedildi ({p.name}).', 'status': runtime.llm.status()}
+        return {'ok': True, 'msg': f'{label} için {model} kaydedildi ({p.name}).', 'status': runtime.llm.status()}
 
     def paid_provider_save(self, provider: str, key: str='', model: str='', workspace: str='') -> dict:
         runtime = self._runtime
