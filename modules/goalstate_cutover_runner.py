@@ -292,7 +292,7 @@ def promote(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
                 else:
                     release_guard.atomic(record, before)
                 if promoted_state is not None:
-                    goal_state_store.compensate(
+                    goal_state_compat.rollback_operator_promotion(
                         canonical_path, expected_state=promoted_state,
                         previous_bytes=canonical_before,
                     )
