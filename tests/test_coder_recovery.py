@@ -180,7 +180,10 @@ class CoderRecoveryTests(unittest.TestCase):
         with self.assertRaises(PermissionError):dev.deliver_code('alice',request)
 
     def test_no_eligible_provider_does_not_call_network_or_deliver_files(self):
-        with patch.object(router,'candidates',return_value=[]),patch.object(llm,'_send') as send:
+        empty={'candidates':[],'skipped':[]}
+        with patch.object(router,'selection',return_value=empty), \
+             patch.object(router,'_free_emergency',return_value=False), \
+             patch.object(llm,'_send') as send:
             job=agents.execute('alice',self.plan())
         self.assertEqual(job['state'],'incomplete');send.assert_not_called()
         self.assertFalse(list((self.root/'files').glob('**/*.py')))
