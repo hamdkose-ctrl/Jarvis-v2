@@ -58,9 +58,13 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
             page.on("pageerror", lambda exc: errors.append(str(exc)[:240]))
             page.goto(url, wait_until="domcontentloaded", timeout=20_000)
             page.wait_for_function("typeof S !== 'undefined' && !!S.snap", timeout=15_000)
+            page.wait_for_function(
+                "typeof ACT !== 'undefined' && typeof ACT.localmodelsave === 'function'",
+                timeout=15_000,
+            )
             page.evaluate("S.sset='ai'; go('settings')")
-            page.wait_for_timeout(800)
-            page.evaluate("SX.aiSel='ollama'; if(settingsOpen()) drawSettings()")
+            page.wait_for_selector("#spane", state="attached", timeout=15_000)
+            page.evaluate("SX.aiSel='ollama'; drawSettings()")
             page.wait_for_selector("#local-model-select", timeout=15_000)
             page.wait_for_function(
                 "document.querySelector('#local-model-select') && "
@@ -100,7 +104,10 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
             return False, "stale preference bilgi metni canlı DOM'da görünmedi"
         return True, f"active={observed['active']}; options={','.join(observed['options'])}; legacy_input=false"
     except Exception as exc:
-        return False, f"gerçek browser UI acceptance başarısız: {type(exc).__name__}: {str(exc)[:180]}"
+        detail = f"gerçek browser UI acceptance başarısız: {type(exc).__name__}: {str(exc)[:180]}"
+        if errors:
+            detail += f"; browser JS: {errors[0]}"
+        return False, detail
     finally:
         try:
             if browser is not None:
