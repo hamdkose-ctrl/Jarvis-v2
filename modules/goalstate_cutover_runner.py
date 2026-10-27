@@ -299,6 +299,7 @@ def promote(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
                         previous_bytes=canonical_before,
                     )
             except Exception as rollback_error:
+                _record_failure('modules/goalstate_cutover_runner.py:promote:rollback_failed')
                 raise CutoverVerificationFailed(
                     'Promotion başarısız oldu ve geri alma tamamlanamadı.'
                 ) from rollback_error
