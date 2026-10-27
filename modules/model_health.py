@@ -1,5 +1,6 @@
 """Cached model discovery. It never guesses replacements or changes settings."""
 from modules.diagnostics import record_failure as _record_failure
+from modules import failure_policy
 import hashlib
 import logging
 import threading
@@ -35,10 +36,11 @@ def check(owner, key, models, client_factory, force=False):
                     'message':('Models API listesinde bulunamadı: '+', '.join(missing)) if missing else 'Model adları Models API ile doğrulandı.'}
         except Exception as exc:
             _record_failure('modules/model_health.py:check')
-            code=getattr(exc,'code',None)
-            state='access_error' if code in (401,403) else 'quota_error' if code==429 else 'connection_error'
+            category = failure_policy.classify(exc)
+            state = ('access_error' if category == failure_policy.AUTH else
+                     'quota_error' if category in (failure_policy.RATE_LIMIT, failure_policy.QUOTA_EXHAUSTED) else
+                     'connection_error')
             result={'state':state,'message':{'access_error':'Model listesine erişim reddedildi.','quota_error':'Model listesi için kullanım sınırına ulaşıldı.','connection_error':'Model listesi şu an doğrulanamadı.'}[state]}
-            _record_failure('modules/model_health.py:check')
         finally:
             if client is not None:
                 try:client.close()
