@@ -67,7 +67,7 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Durum: 🟡 kısmi `[1✓ 2✓ 3✓ 4✗]`. 3 PR merge edildi (#350, #351, #352), yeni kod `llm.py`, `goal_executor`, canlı ses ve arayüze bağlı. Eksik temizlik: `model_health.py` kendi ayrı hata sınıflandırmasını (401/403/429) yapıyor, `image_gen.py` 429'u kendi başına ele alıyor; ikisi `failure_policy`'ye taşınıp eski kopyalar silinmeli. Ayrıca iş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi bekliyor.**
+**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği açık: `model_health.py` içindeki ayrı 401/403/429 ayrımı ve `image_gen.py` içindeki bağımsız HTTP/429 ayrımı ortak `failure_policy.classify` hattına taşınıyor; eski kopyalar kaldırılıyor. CI + gerçek PC watcher kabulü gelmeden bu temizlik tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.
 
@@ -316,7 +316,7 @@ Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini g
 
 - **Tespit edildi — uygulama bekliyor: öğrenilmiş kurallar Core ve izin politikasını geçersiz kılamaz.**
   - **Kod kanıtı:** İlk uygulama PR'ı learned-rule/memory uygulama noktasında açık precedence kontrolü göstermeli; öğrenilmiş kural yalnız advisory/context girdisi olabilir ve Domain invariant → Decision Authority → JIT Permission → Effect Policy sırasının sonucunu değiştirememelidir.
-  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştirmez.
+  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştiremez.
   - **Kabul testi:** Öğrenilmiş kuralın hedef/alıcıyı değiştirmeye veya gerekli onayı atlamaya çalıştığı senaryoda execution kararı değişmeden kalmalı ve işlem mevcut Core/Permission politikası uyarınca reddedilmeli ya da onay istemelidir.
 - **Tespit edildi — uygulama bekliyor: ilgisiz hafızayı bağlama almama (memory relevance gate).**
   - **Kod kanıtı:** Uygulama PR'ında hafıza adaylarının bağlama girmeden önce görevle ilgililik filtresinden geçtiği ve filtre sonucunun testle kilitlendiği gösterilecek.

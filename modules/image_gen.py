@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import time
 
-from modules import privacy
+from modules import failure_policy, privacy
 from modules.diagnostics import record_failure as _record_failure
 
 MODEL = "@cf/black-forest-labs/flux-1-schnell"
@@ -34,6 +34,13 @@ class ImageGenError(Exception):
     def __init__(self, message: str, reason_code: str):
         super().__init__(message)
         self.reason_code = reason_code
+
+
+class _HttpStatusError(RuntimeError):
+    """HTTP yanıtını ortak failure_policy'nin anlayacağı güvenli şekle taşır."""
+    def __init__(self, status_code: int, text: str = ""):
+        super().__init__(text or f"HTTP {status_code}")
+        self.status_code = status_code
 
 
 def _account_file(slug: str):
@@ -124,15 +131,22 @@ def generate_image(prompt: str, *, slug: str, steps: int = 4, _session=None) -> 
 
     try:
         resp = session.post(url, headers=headers, data=json.dumps(body), timeout=_TIMEOUT)
-    except Exception:
+    except Exception as exc:
         _record_failure('modules/image_gen.py:generate_image:request')
-        raise ImageGenError("Cloudflare'e ulaşılamadı.", "NETWORK_ERROR")
+        category = failure_policy.classify(exc)
+        reason = "NETWORK_ERROR" if category in {
+            failure_policy.DNS, failure_policy.NETWORK, failure_policy.TIMEOUT
+        } else "PROVIDER_ERROR"
+        message = "Cloudflare'e ulaşılamadı." if reason == "NETWORK_ERROR" else "Cloudflare isteği başarısız oldu."
+        raise ImageGenError(message, reason) from exc
 
-    if resp.status_code == 401 or resp.status_code == 403:
-        raise ImageGenError("Cloudflare kimlik doğrulaması başarısız (token/hesap kontrolü).", "AUTH_FAILED")
-    if resp.status_code == 429:
-        raise ImageGenError("Günlük ücretsiz Neuron kotası dolmuş olabilir.", "QUOTA_EXCEEDED")
     if resp.status_code != 200:
+        raw_text = getattr(resp, "text", "")
+        category = failure_policy.classify(_HttpStatusError(resp.status_code, raw_text))
+        if category == failure_policy.AUTH:
+            raise ImageGenError("Cloudflare kimlik doğrulaması başarısız (token/hesap kontrolü).", "AUTH_FAILED")
+        if category in (failure_policy.RATE_LIMIT, failure_policy.QUOTA_EXHAUSTED):
+            raise ImageGenError("Günlük ücretsiz Neuron kotası dolmuş olabilir.", "QUOTA_EXCEEDED")
         raise ImageGenError(f"Cloudflare hata döndürdü (HTTP {resp.status_code}).", "PROVIDER_ERROR")
 
     content_type = (resp.headers.get("content-type") or "").lower()
