@@ -135,7 +135,7 @@ def computer_task(owner, task):
                 'automation_id': item.get('automation_id', ''),
                 'name': item.get('name', ''),
                 'control_type': item.get('type', ''),
-                'bounds': item.get('bounds', [0, 0, 0, 0]),
+                'bounds': item.get('bounds'),
             })
         measured = computer_worker_contract.measure_uia(elements)
         evidence = {'window': window, **measured}
