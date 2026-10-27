@@ -32,7 +32,7 @@ class WebChat:
             if hasattr(self, '_development_previous_mic'):
                 previous=self._development_previous_mic
                 del self._development_previous_mic
-            self._runtime._set_mic(previous)
+                self._runtime._set_mic(previous)
         return result
 
     def development_password_change(self, old_password: str, new_password: str) -> dict:
