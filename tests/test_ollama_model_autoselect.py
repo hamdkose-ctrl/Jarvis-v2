@@ -146,18 +146,18 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertFalse(info["local_model_stale"])
         self.assertTrue(info["local_models_checked"])
 
-    def test_ui_status_openai_compatible_backend_keeps_existing_view(self):
+    def test_ui_status_openai_compatible_backend_uses_effective_resolver(self):
         info, resolver = self._ui_status(
             backend="lmstudio",
             preference="configured-model",
-            installed=["other-model"],
-            effective="should-not-be-used",
+            installed=["configured-model", "other-model"],
+            effective="configured-model",
         )
         self.assertEqual(info["local_effective_model"], "configured-model")
-        self.assertEqual(info["local_installed_models"], ["other-model"])
+        self.assertEqual(info["local_installed_models"], ["configured-model", "other-model"])
         self.assertFalse(info["local_model_stale"])
         self.assertEqual(info["local_model_warning"], "")
-        resolver.assert_not_called()
+        resolver.assert_called_once()
 
     def test_status_exposes_single_installed_model(self):
         info, _ = self._ui_status(
@@ -188,11 +188,23 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         choose.assert_not_called()
 
-    def test_lmstudio_model_choice_keeps_existing_backend_behavior(self):
-        bridge, choose = self._choice_bridge(backend="lmstudio", installed=["server-model"])
+    def test_lmstudio_installed_model_can_be_saved(self):
+        bridge, choose = self._choice_bridge(backend="lmstudio", installed=["configured-model", "server-model"])
         out = bridge.model_choice_save("ollama", "configured-model")
         self.assertTrue(out["ok"])
         choose.assert_called_once_with("hamdi", "ollama", "configured-model")
+
+    def test_llamacpp_installed_model_can_be_saved(self):
+        bridge, choose = self._choice_bridge(backend="llamacpp", installed=["gguf-model"])
+        out = bridge.model_choice_save("ollama", "gguf-model")
+        self.assertTrue(out["ok"])
+        choose.assert_called_once_with("hamdi", "ollama", "gguf-model")
+
+    def test_other_local_backend_uninstalled_model_is_rejected(self):
+        bridge, choose = self._choice_bridge(backend="lmstudio", installed=["server-model"])
+        out = bridge.model_choice_save("ollama", "missing-model")
+        self.assertFalse(out["ok"])
+        choose.assert_not_called()
 
     def test_ui_render_contract_uses_backend_installed_models_dropdown(self):
         src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
