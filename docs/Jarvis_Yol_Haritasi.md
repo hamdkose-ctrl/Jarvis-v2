@@ -1,6 +1,6 @@
 # Jarvis Yol Haritası — Hasat Listesi Yapım Sırası
 
-Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi)
+Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi)
 
 ## "Bitti" kuralı
 
@@ -32,7 +32,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 ## Genel sıra
 
 - Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
-- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor)
+- Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 sözleşme merge edildi, hiçbiri akışa bağlı değil)
@@ -67,7 +67,7 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor.**
+**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor. #437 ile tarihli haber isteği kota sırasını beklerken iş kaydı açılıyor ve keşif/doğrulama/teslim modelsiz yürüyor; bu fazın haber kolu kod+CI aşamasında, canlı PC kabulü ve `news_recovery` tohum döngüsünün paralel keşfe göçü açık.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.
 
@@ -75,6 +75,7 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 - 🔄 (F-009) `[1✓ 2✓ 3✓ 4🔄]` Otomatik cloud rota yalnız exact provider/model için doğrulanmış, süresi geçmemiş, uygun, hard-stop garantili ve bilinen kota tükenmemiş free-tier evidence ile açılacak. Evidence yok/stale/unknown ise allow değil; ücretli fallback yapılmaz. `usage_meter` limit gözlemi kanıt yerine geçmez; mevcut cooldown/fallback korunur.
 - ✅ (#350) `[1✓ 2✓ 3✓ 4✓]` Sınırlı yeniden deneme ve artan bekleme (backoff) eklenecek. Şu an bekleme var, backoff yok.
 - 🟡 (#352) `[1✓ 2✓ 3✓ 4–]` Ollama kurulu değilken modelsiz kısmın doğrulanmış teslimi haber ve finans dışındaki hedeflere de yayılacak. Haber ve finans için modelsiz yol var. İş PC'sinde gerçek kabul gerekiyor; kabul gelmeden ✅ yazılmaz.
+- 🔄 (#437) `[1✓ 2🟡 3✓ 4🟡]` Haber bulma / doğrulama / teslim yetkisi model sağlayıcılarından bağımsız olacak: `modules/news_pipeline.py` kota sırası ve Ollama yokluğunda keşif (`publisher_news` kataloğu + `domain_tools.headlines`), tarih (`research_evidence.article` ile `published_at`/`date_status`), kanıt (`model_free_news.quotes`, farklı-host `independent_candidates`) ve deterministik raporu modelsiz yürütür; `news_status` ile `model_synthesis_status` ayrılır ve model yokluğu haber sonucunu asla `unavailable` yapmaz. Bağlantı: `goal_executor` kota kapısı artık tarihli haberi durdurmaz, plan hiç yapılamayan haber işinde teslimi pipeline yapar, `news_recovery` sohbet teslimine iş özetini yazar, `render` durum satırını gösterir. Eksik koşullar: `news_recovery._chat_deliver` sıralı tohum döngüsü ve `publisher_news.catalog_attempted`/`require_catalog` sayımı paralel keşfe henüz taşınmadı (göç), `model_synthesis_status` model erişileirkenteki sentez hattına henüz bağlı değil. Kabul ölçütü: Gemini 429 + Groq 429 + Ollama erişilemezken son 7 günün gerçek haberleri kaynak/tarih/link/kanıtla teslim edilir ve yalnız model sentezinin kullanılamadığı açıkça söylenir — **canlı PC kabulü yapılmadı**, testler yalnız taşıyıcı taklitleridir.
 - ✅ (#352) `[1✓ 2– 3✓ 4–]` LM Studio ve llama.cpp için yerel uç nokta ayarı eklenecek (opsiyonel). Şu an yalnız Ollama var.
 - ✅ (#351) `[1✓ 2✓ 3✓ 4✓]` Kullanıcı başına model seçimi Gemini dışına, yani Groq ve yerel modele genişleyecek; kullanım sınırı gözlemi eklenecek. Şu an yalnız Gemini seçilebiliyor, sayaç karakter bazlı.
 - ✅ (#351) `[1✓ 2– 3✓ 4–]` Ücretli sağlayıcıya otomatik geçiş yapılmaz.
