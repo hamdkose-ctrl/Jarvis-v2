@@ -1,5 +1,6 @@
 """Chat page actions; dependencies are provided by the owning bridge."""
 from __future__ import annotations
+import base64
 
 class WebChat:
 
@@ -18,8 +19,6 @@ class WebChat:
         if result.get('ok'):
             if not hasattr(self, '_development_previous_mic'):
                 self._development_previous_mic = previous
-            # Geliştirme ekranında sesli giriş ve uyandırma devre dışı;
-            # yazı ve görsel ekleme kullanılmaya devam eder.
             self._runtime._set_mic(False)
         return result
 
@@ -42,17 +41,48 @@ class WebChat:
         return developer.export(self._runtime._p().slug)
 
     def recent(self, limit: int=40) -> list:
-        """Bu oturumun son konuşmaları (motor günlüğü)."""
         runtime = self._runtime
         return [r for r in list(runtime.engine.event_log) if r.get('user') == runtime._p().name][-limit:]
 
     def continuity(self, device_id: str='', session_id: str='') -> dict:
-        """Aktif kullanıcının Core-owned iş görünümünü bu istemci için salt-okunur döndürür."""
         from modules import continuity
         return continuity.snapshot(self._runtime._p().slug, device_id=device_id, session_id=session_id)
 
+    def camera_local_enable(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.local_enable(self._runtime._p().slug, device_id)
+
+    def camera_local_disable(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.local_disable(self._runtime._p().slug, device_id)
+
+    def camera_status(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.status(self._runtime._p().slug, device_id)
+
+    def camera_viewer_join(self, device_id: str, viewer_id: str) -> dict:
+        from modules import camera_bridge
+        return {'ok': True, 'viewers': camera_bridge.viewer_join(self._runtime._p().slug, device_id, viewer_id)}
+
+    def camera_viewer_leave(self, device_id: str, viewer_id: str) -> dict:
+        from modules import camera_bridge
+        return {'ok': True, 'viewers': camera_bridge.viewer_leave(self._runtime._p().slug, device_id, viewer_id)}
+
+    def camera_frame(self, device_id: str, frame_b64: str, transport: str, width: int, height: int) -> dict:
+        from modules import camera_bridge
+        try:
+            raw = base64.b64decode(str(frame_b64), validate=True)
+        except Exception as exc:
+            raise ValueError('Kamera karesi base64 olarak çözülemedi.') from exc
+        return camera_bridge.submit_frame(
+            self._runtime._p().slug, device_id, raw,
+            transport=str(transport), width=int(width), height=int(height))
+
+    def camera_observation(self, device_id: str, max_age: float=5.0) -> dict | None:
+        from modules import camera_bridge
+        return camera_bridge.latest(self._runtime._p().slug, device_id, max_age=float(max_age))
+
     def activity_clear(self) -> bool:
-        """Canlı Aktivite geçmişini temizler; motorun normal loglarına dokunmaz."""
         runtime = self._runtime
         runtime.hub.activity.clear()
         runtime.hub.publish('activity', 'Aktivite ekranı temizlendi', 'info|Sistem|')
@@ -64,7 +94,7 @@ class WebChat:
         accepted = runtime.engine.submit(text, 'yazı', runtime._p().name, rid=rid or None)
         if accepted is False:
             if text.replace('I', 'ı').replace('İ', 'i').lower().strip(' .!') in ('dur', 'sus', 'yeter', 'stop'):
-                return False  # Immediate control: no assistant response will follow.
+                return False
             raise ValueError('İstek kuyruğa alınmadı; boş veya daha önce gönderilmiş olabilir.')
         return True
 
@@ -79,7 +109,6 @@ class WebChat:
         return True
 
     def history_delete_conversation(self, day: str) -> dict:
-        """Delete only the selected sidebar entry for the current user."""
         runtime = self._runtime
         owner = runtime._p()
         deleted_ids = set()
@@ -94,7 +123,6 @@ class WebChat:
         return {'ok': True, 'removed': removed}
 
     def chat_reset(self) -> bool:
-        """Yeni sohbet: yazılı sohbetin kısa süreli hafızası sıfırlanır (kalıcı geçmiş silinmez)."""
         runtime = self._runtime
         from modules import chat_translation
         owner = runtime._p().slug
