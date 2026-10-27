@@ -28,6 +28,13 @@ class CoderRecoveryTests(unittest.TestCase):
              (llm,'current_user','alice'),(llm,'user_key','gem-key'),(llm,'user_groq_key','groq-key')]:
             p=patch.object(obj,name,return_value=value);p.start();self.addCleanup(p.stop)
         dev.unlock('alice','test-password');dev.enable('alice');router.configure('alice',True)
+        now=router.time.time()
+        for provider, model in [('gemini',llm.active_model('alice')),('groq',llm.groq_model())]:
+            router.set_free_tier_evidence(
+                'alice',provider=provider,model=model,free_tier_verified=True,source='test-fixture',
+                evidence_ref='test://official-free-tier',verified_at=now,ttl_seconds=3600,
+                eligibility='eligible',quota_state='available',quota_remaining=10,
+                hard_stop_guaranteed=True,verification_status='verified',reason='coder recovery fixture')
         llm.take_route()
         self.addCleanup(llm.take_route)
 
