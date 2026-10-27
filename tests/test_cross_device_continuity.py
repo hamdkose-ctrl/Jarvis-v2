@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -35,6 +36,18 @@ class CrossDeviceContinuityTests(unittest.TestCase):
         self.assertIsNone(snap["goal"])
         self.assertIsNone(snap["task"])
         self.assertFalse(snap["permission_granted"])
+
+    def test_web_bridge_uses_current_authenticated_profile(self):
+        from web_chat import WebChat
+
+        bridge = WebChat()
+        bridge._runtime = SimpleNamespace(_p=lambda: SimpleNamespace(slug="hamdi"))
+        expected = {"owner": "hamdi", "authority": "core", "permission_granted": False}
+        with patch("modules.continuity.snapshot", return_value=expected) as snapshot:
+            result = bridge.continuity("work-pc", "conversation-7")
+
+        snapshot.assert_called_once_with("hamdi", device_id="work-pc", session_id="conversation-7")
+        self.assertEqual(result, expected)
 
 
 if __name__ == "__main__":
