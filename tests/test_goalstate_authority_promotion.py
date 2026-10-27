@@ -99,5 +99,21 @@ class GoalStateAuthorityPromotionTests(unittest.TestCase):
         self.assertEqual(goal_state.authority(goal_state_store.load(self.canonical)), "legacy")
 
 
+    def test_post_promotion_verification_failure_restores_both_records(self):
+        from unittest.mock import patch
+        plan = runner.plan(self.owner_dir)
+        record = self.owner_dir / (self.job["id"] + ".execution.json")
+        original = b'{"preexisting":"record"}'
+        record.write_bytes(original)
+        with patch.object(runner, "_verify_promotion", side_effect=runner.CutoverVerificationFailed("simulated")):
+            with self.assertRaises(runner.CutoverVerificationFailed):
+                runner.promote(
+                    self.owner_dir, approved_fingerprint=plan["fingerprint"],
+                    approved_job_ids=[self.job["id"]],
+                )
+        self.assertEqual(record.read_bytes(), original)
+        self.assertEqual(goal_state.authority(goal_state_store.load(self.canonical)), "legacy")
+
+
 if __name__ == "__main__":
     unittest.main()
