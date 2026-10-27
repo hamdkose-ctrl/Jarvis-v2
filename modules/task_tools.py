@@ -9,7 +9,7 @@ CATALOG = {
     'publish': {'risk': 'external_publish', 'replay_safe': False,
                 'required': ('service','destination'), 'optional': ('text','subject','file','file_sha256','privacy','image_url','source_task','video_url','media_type','operation','parent_id','text_from_task')},
     'account': {'risk': 'account_read', 'replay_safe': True,
-                'required': ('service', 'operation'), 'optional': ('limit', 'message_id', 'index','resource_id','query','file_id','cell_range')},
+                'required': ('service', 'operation'), 'optional': ('limit', 'message_id', 'index','resource_id','query','file_id','cell_range','thread_id','window_start','window_end','minutes')},
     'research': {'risk': 'network_read', 'replay_safe': True,
                  'required': (), 'optional': ('url', 'query', 'question')},
     'file': {'risk': 'local_evidence_read', 'replay_safe': True,

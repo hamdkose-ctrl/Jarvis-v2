@@ -3,11 +3,13 @@ import hashlib
 import json
 import re
 import time
+from datetime import datetime
 from modules import llm, privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 SERVICES = {
-    'gmail': {'operations': ('list_unread', 'read_message','list_attachments','read_attachment'), 'implementation': 'google_oauth_readonly'},
+    'gmail': {'operations': ('list_unread', 'read_message','list_attachments','read_attachment','read_thread'), 'implementation': 'google_oauth_readonly'},
+    'calendar': {'operations': ('suggest_slot',), 'implementation': 'google_oauth_readonly'},
     'telegram': {'operations': ('list_updates',), 'implementation': 'telegram_bot'},
     'whatsapp': {'operations': ('list_inbox',), 'implementation': 'signed_webhook_inbox'},
     'youtube': {'operations': ('channel_stats','list_comments'), 'implementation': 'google_oauth_readonly'},
@@ -21,7 +23,7 @@ def _network_unavailable(exc):
     return failure_policy.network_unavailable(exc)
 
 def validate_input(data):
-    if not isinstance(data, dict) or set(data) - {'service', 'operation', 'limit', 'message_id', 'index','resource_id','attachment_index','query','file_id','cell_range'}:
+    if not isinstance(data, dict) or set(data) - {'service', 'operation', 'limit', 'message_id', 'index','resource_id','attachment_index','query','file_id','cell_range','thread_id','window_start','window_end','minutes'}:
         raise ValueError('Hesap aracı girdisi geçersiz.')
     for key in ('service', 'operation'):
         value = data.get(key)
@@ -40,6 +42,16 @@ def validate_input(data):
             if not isinstance(data.get('file_id'), str) or not isinstance(data.get('cell_range'), str):
                 raise ValueError('Sheets için dosya kimliği ve aralık gerekli.')
         if operation != 'list_files' and 'query' in data: raise ValueError('Bu Drive işlemi arama ifadesi kabul etmez.')
+    if data['service'] == 'gmail' and data['operation'] == 'read_thread':
+        if set(data) != {'service', 'operation', 'thread_id'} or not isinstance(data.get('thread_id'), str):
+            raise ValueError('Gmail konuşma okuma için yalnız thread_id gerekli.')
+    if data['service'] == 'calendar' and data['operation'] == 'suggest_slot':
+        if set(data) != {'service', 'operation', 'window_start', 'window_end', 'minutes'}:
+            raise ValueError('Takvim önerisi için başlangıç, bitiş ve dakika gerekli.')
+        if not all(isinstance(data.get(key), str) and len(data[key]) <= 80 for key in ('window_start', 'window_end')):
+            raise ValueError('Takvim zaman aralığı geçersiz.')
+        if type(data.get('minutes')) is not int or not 15 <= data['minutes'] <= 480:
+            raise ValueError('Takvim öneri süresi geçersiz.')
     limit = data.get('limit', 5)
     if type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError('Mail listesi sınırı 1–20 olmalı.')
@@ -102,6 +114,36 @@ def run(owner, data, dependencies=None):
         return message_inbox.read(owner,data.get('limit',5))
     if blocked := privacy.blocked('web'):
         return {'state': 'blocked', 'text': blocked}
+    if service in {'gmail', 'calendar'} and data['operation'] in {'read_thread', 'suggest_slot'}:
+        from modules import gmail_calendar_readonly, google_api
+        try:
+            if data['operation'] == 'read_thread':
+                gmail = google_api._service('gmail', 'v1', interactive=False)
+                thread = gmail_calendar_readonly.read_thread(gmail, data['thread_id'])
+                snapshot = {'owner': owner, 'service': service, 'operation': data['operation'],
+                            'thread': thread, 'fetched_at': time.time()}
+                return {'state': 'done', 'text': 'Gmail konuşması salt-okunur okundu.',
+                        'snapshot': snapshot, 'sha256': digest(snapshot)}
+            start = datetime.fromisoformat(data['window_start'].replace('Z', '+00:00'))
+            end = datetime.fromisoformat(data['window_end'].replace('Z', '+00:00'))
+            if start.tzinfo is None or end.tzinfo is None:
+                raise ValueError('Takvim zamanları saat dilimi içermeli.')
+            calendar = google_api._service('calendar', 'v3', interactive=False)
+            rows = calendar.events().list(calendarId='primary', timeMin=start.isoformat(),
+                timeMax=end.isoformat(), singleEvents=True, orderBy='startTime', maxResults=50).execute().get('items', [])
+            busy = []
+            for row in rows:
+                begin = row.get('start', {}).get('dateTime') if isinstance(row, dict) else None
+                finish = row.get('end', {}).get('dateTime') if isinstance(row, dict) else None
+                if begin and finish:
+                    busy.append((datetime.fromisoformat(begin), datetime.fromisoformat(finish), row.get('summary', '(adsız)')))
+            suggestion = gmail_calendar_readonly.suggest_slot(start, end, busy, minutes=data['minutes'])
+            suggestion = {key: value.isoformat() if isinstance(value, datetime) else value for key, value in suggestion.items()}
+            snapshot = {'owner': owner, 'service': service, 'operation': data['operation'],
+                        'suggestion': suggestion, 'fetched_at': time.time()}
+            return {'state': 'done', 'text': suggestion['note'], 'snapshot': snapshot, 'sha256': digest(snapshot)}
+        except PermissionError:
+            return {'state': 'unavailable', 'text': 'Gmail/Takvim okuma izni gerekli; yalnız salt-okunur bağlantıyı yetkilendir.'}
     if service == 'drive':
         from modules import drive_readonly
         try:
