@@ -175,7 +175,7 @@ def snapshot_path(owner: str, device_id: str, *, max_age: float = 5.0) -> str | 
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(raw)
-    except Exception:
+    except OSError:
         try:
             os.close(fd)
         except OSError:
