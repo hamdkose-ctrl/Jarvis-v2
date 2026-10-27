@@ -146,6 +146,33 @@ def rank_results(results: list[dict], *, preferred_kinds=("official", "academic"
     return sorted(clean, key=lambda row: (-preference.get(row.get("source_kind"), 0), -int(bool(row.get("verified"))), row["title"].casefold()))
 
 
+def independent_candidates(candidates: list[dict], *, limit: int = 3) -> list[dict]:
+    """Deterministic, host-distinct source selection bounded for a single research run.
+
+    Keeps the ranked candidate order and takes at most one row per hostname up to ``limit``, so a
+    normal research worker can gather a few independent sources for structured claims without ever
+    becoming a broad crawl. Sources are never fabricated; empty/invalid rows are skipped.
+    """
+    if not isinstance(candidates, list) or type(limit) is not int or limit < 1:
+        raise ValueError("Bağımsız aday listesi geçersiz.")
+    chosen: list[dict] = []
+    seen_hosts: set[str] = set()
+    for row in candidates:
+        if not isinstance(row, dict):
+            continue
+        url = str(row.get("url") or "").strip()
+        if not url:
+            continue
+        host = (urlsplit(url).hostname or url).casefold()
+        if host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        chosen.append(deepcopy(row))
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
 _TRANSLATE = str.maketrans({'ç': 'c', 'Ç': 'c', 'ğ': 'g', 'Ğ': 'g', 'ı': 'i', 'İ': 'i',
                             'ö': 'o', 'Ö': 'o', 'ş': 's', 'Ş': 's', 'ü': 'u', 'Ü': 'u',
                             'â': 'a', 'î': 'i', 'û': 'u', 'é': 'e'})

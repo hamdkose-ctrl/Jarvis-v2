@@ -272,6 +272,29 @@ def legacy_unsupported(answer):
     return bool(re.search(r'(kaynakta desteklenen bir yanıt verilemem|herhangi bir bilgi yer almamak|bu sayfa soruya yanıt vermiyor|no relevant information (?:was )?found)',str(answer),re.I))
 
 
+def parse_value_quote(answer,source_text):
+    """Parse one minimal structured claim ({'value','quote'}) from a source; never invent a value.
+
+    Returns a normalized claim only when a concrete value is present and its quote appears verbatim
+    in the read source; otherwise None so the caller skips that source instead of failing the whole
+    research run. Structural comparison later uses the value, never the raw prose wording.
+    """
+    try:
+        data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))
+    except (ValueError,TypeError):
+        return None
+    if not isinstance(data,dict) or set(data)!={'value','quote'}:
+        return None
+    value=str(data.get('value') or '').strip()
+    quote=str(data.get('quote') or '').strip()
+    if not value or not 20<=len(quote)<=800:
+        return None
+    normalized=lambda v:' '.join(str(v).split())
+    if normalized(quote) not in normalized(source_text):
+        return None
+    return {'value':value,'quote':quote}
+
+
 def source_claims(dependencies):
     """Flatten structured claims carried by done research outputs; never invent values here."""
     claims=[]
