@@ -50,7 +50,7 @@ def _render_check(root: Path, status: dict) -> tuple[bool, str]:
         timeout=30,
     )
     tail = "\n".join((proc.stdout or "").splitlines()[-20:])
-    marker = "production aiPage render yolunda canonical status ile deterministik render geçti."
+    marker = "canlı nx.html script zincirinde canonical status ile production render geçti."
     return proc.returncode == 0 and marker in (proc.stdout or ""), tail
 
 
