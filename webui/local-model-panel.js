@@ -21,7 +21,7 @@ function modelEditor(st){
     ?models.map(m=>`<option value="${esc(m)}" ${m===selected?'selected':''}>${esc(m)}</option>`).join('')
     :`<option value="">${checked?'Kurulu model yok':'Model listesi yükleniyor…'}</option>`;
   const info=st?.local_model_stale
-    ?`<div class="mut" style="font-size:12.5px;margin-top:5px">${esc(st.local_model_warning||'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.')}</div>`:'';
+    ?`<div class="mut" data-local-model-warning style="font-size:12.5px;margin-top:5px">${esc(st.local_model_warning||'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.')}</div>`:'';
   const activeText=active||(checked?'Kurulu model yok':'Yükleniyor…');
   const activeView=active?`<code class="model-id">${esc(activeText)}</code>`:esc(activeText);
   return srow('spark','Aktif Model',activeView,'')+
