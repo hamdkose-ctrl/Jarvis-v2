@@ -38,6 +38,27 @@ def browser_task(owner, data):
     return browser_agent.run(owner,[{'op':'goto','url':initial['page']['url']}]+actions,read_only=readonly_mode)
 
 
+def file_task(data):
+    """Read an allowed local file and return obligations with evidence, never writes."""
+    if data.get('operation') != 'extract_obligations':
+        raise ValueError('Dosya worker işlemi geçersiz.')
+    from modules import file_worker, file_worker_extensions
+    observation = file_worker.extract(data['path'])
+    if observation.reason_code != 'OK':
+        raise ValueError('Dosya okunamadı: ' + observation.reason_code)
+    text = '\n'.join(location.text for location in observation.locations if location.text)
+    obligations = file_worker_extensions.extract_obligations(text, source=observation.path) if text else []
+    evidence = {
+        'path': observation.path, 'identity': observation.file_identity,
+        'digest': observation.content_digest, 'reason_code': observation.reason_code,
+        'warnings': list(observation.warnings),
+        'locations': [{'page': row.page, 'line': row.line, 'sheet': row.sheet,
+                       'cell_or_range': row.cell_or_range} for row in observation.locations],
+    }
+    return {'state': 'done', 'text': 'Dosya salt-okunur incelendi.', 'obligations': obligations,
+            'file_evidence': evidence}
+
+
 def run(owner, task, dependencies):
     kind=task['agent']; data=task.get('input',{})
     if kind=='media':
@@ -67,6 +88,8 @@ def run(owner, task, dependencies):
     if kind=='account':
         from modules import account_tools
         return account_tools.run(owner,data,dependencies)
+    if kind=='file':
+        return file_task(data)
     if kind=='research':
         if blocked:=privacy.blocked('web'): raise ValueError(blocked)
         from modules.browser_agent import _url

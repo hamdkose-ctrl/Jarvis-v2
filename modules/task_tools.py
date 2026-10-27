@@ -12,6 +12,8 @@ CATALOG = {
                 'required': ('service', 'operation'), 'optional': ('limit', 'message_id', 'index','resource_id','query','file_id','cell_range')},
     'research': {'risk': 'network_read', 'replay_safe': True,
                  'required': (), 'optional': ('url', 'query', 'question')},
+    'file': {'risk': 'local_evidence_read', 'replay_safe': True,
+             'required': ('path', 'operation'), 'optional': ()},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
