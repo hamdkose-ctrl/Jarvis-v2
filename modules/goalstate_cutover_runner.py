@@ -275,18 +275,31 @@ def promote(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
     for job_id in sorted(approved):
         job = _load_legacy(owner_dir, job_id)
         record = execution_record.path_for(owner_dir, job_id)
+        canonical_path = owner_dir / (job_id + '.goalstate.json')
         before = record.read_bytes() if record.exists() else None
+        canonical_before = canonical_path.read_bytes()
+        promoted_state = None
         try:
             release_guard.atomic(record, execution_record.encode(job))
-            state = goal_state_compat.operator_promote_legacy_authority_once(
-                owner_dir / (job_id + '.goalstate.json'),
+            promoted_state = goal_state_compat.operator_promote_legacy_authority_once(
+                canonical_path,
             )
-            _verify_promotion(owner_dir, job, state)
+            _verify_promotion(owner_dir, job, promoted_state)
         except Exception:
-            if before is None:
-                record.unlink(missing_ok=True)
-            else:
-                release_guard.atomic(record, before)
+            try:
+                if before is None:
+                    record.unlink(missing_ok=True)
+                else:
+                    release_guard.atomic(record, before)
+                if promoted_state is not None:
+                    goal_state_store.compensate(
+                        canonical_path, expected_state=promoted_state,
+                        previous_bytes=canonical_before,
+                    )
+            except Exception as rollback_error:
+                raise CutoverVerificationFailed(
+                    'Promotion başarısız oldu ve geri alma tamamlanamadı.'
+                ) from rollback_error
             raise
         promoted.append(job_id)
     return {'fingerprint': approved_fingerprint, 'promoted': promoted, 'after': plan(owner_dir)}
