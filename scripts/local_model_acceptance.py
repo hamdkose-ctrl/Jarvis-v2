@@ -62,7 +62,17 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
                 "typeof ACT !== 'undefined' && typeof ACT.localmodelsave === 'function'",
                 timeout=15_000,
             )
-            page.evaluate("S.sset='ai'; go('settings')")
+
+            # Gerçek kullanıcı yolu: ana menüyü aç, ardından canlı nx.html'deki
+            # Yapay zekâ menü eylemini tetikle. Eski go('settings') deep-link'i
+            # ürünün güncel yan-panel yaşam döngüsünü temsil etmiyor.
+            page.evaluate("go('menu')")
+            ai_menu = page.wait_for_selector(
+                "[data-act=\"mnopen\"][data-k=\"ai\"]",
+                state="attached",
+                timeout=15_000,
+            )
+            ai_menu.dispatch_event("click")
             page.wait_for_selector("#spane", state="attached", timeout=15_000)
             page.evaluate("SX.aiSel='ollama'; drawSettings()")
             page.wait_for_selector("#local-model-select", timeout=15_000)
