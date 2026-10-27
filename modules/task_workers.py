@@ -104,6 +104,51 @@ def finance_task(data):
     }
 
 
+
+def computer_task(owner, task):
+    """Observe an already-open pilot app through the read-only desktop path."""
+    from modules import computer_worker_contract, desktop_agent
+    data = task['input']
+    granted = computer_worker_contract.capability(data['app'], data['operation'])
+    job_id = task.get('execution', {}).get('job_id')
+    if not isinstance(job_id, str):
+        raise ValueError('ComputerWorker için görev kimliği gerekli.')
+    result = desktop_agent.run(
+        {'owner': owner, 'target': data['app'], 'goal': 'Salt-okunur pencere gözlemi.',
+         'history': []},
+        read_only=True,
+    )
+    state = result.get('state') if isinstance(result, dict) else 'unavailable'
+    if state == 'done':
+        observation = result.get('observation')
+        if not isinstance(observation, dict):
+            raise ValueError('ComputerWorker gözlem kanıtı geçersiz.')
+        window = observation.get('window')
+        controls = observation.get('controls')
+        if not isinstance(window, dict) or not isinstance(controls, list):
+            raise ValueError('ComputerWorker gözlem kanıtı eksik.')
+        elements = []
+        for item in controls:
+            if not isinstance(item, dict):
+                continue
+            elements.append({
+                'automation_id': item.get('automation_id', ''),
+                'name': item.get('name', ''),
+                'control_type': item.get('type', ''),
+                'bounds': item.get('bounds', [0, 0, 0, 0]),
+            })
+        measured = computer_worker_contract.measure_uia(elements)
+        evidence = {'window': window, **measured}
+        receipt = computer_worker_contract.receipt(job_id, granted, 'observed', evidence=evidence)
+        return {'state': 'done', 'text': 'ComputerWorker salt-okunur pencere gözlemi tamamlandı.',
+                'observation': evidence, 'receipt': receipt}
+    if state not in {'blocked', 'unavailable'}:
+        state = 'unavailable'
+    message = result.get('message', 'ComputerWorker gözlemi kullanılamıyor.') if isinstance(result, dict) else 'ComputerWorker gözlemi kullanılamıyor.'
+    receipt = computer_worker_contract.receipt(job_id, granted, state, evidence={'reason': str(message)[:500]})
+    return {'state': state, 'text': str(message), 'receipt': receipt}
+
+
 def run(owner, task, dependencies):
     kind=task['agent']; data=task.get('input',{})
     if kind=='media':
@@ -137,6 +182,8 @@ def run(owner, task, dependencies):
         return file_task(data)
     if kind=='finance':
         return finance_task(data)
+    if kind=='computer':
+        return computer_task(owner, task)
     if kind=='research':
         if blocked:=privacy.blocked('web'): raise ValueError(blocked)
         from modules.browser_agent import _url
