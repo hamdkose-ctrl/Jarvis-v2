@@ -77,11 +77,12 @@ class UsageMeterTests(unittest.TestCase):
                 patch('modules.smart_router.settings', return_value={'cloud_free_confirmed': True}), \
                 patch.object(llm.requests, 'post', side_effect=[limited, ok]):
             self.assertEqual(llm._groq([{'role': 'user', 'content': 'soru'}], 'sistem', 50), 'tamam')
-        with patch.object(llm.requests, 'post', side_effect=llm.requests.ConnectionError('yok')):
+        with patch.object(llm, 'ollama_models', return_value=['meter-local']), \
+                patch.object(llm.requests, 'post', side_effect=llm.requests.ConnectionError('yok')):
             with self.assertRaises(llm.LocalModelError):
                 llm._ollama([{'role': 'user', 'content': 'soru'}], '', 50)
         self.assertEqual([(r['p'], r['m'], r['r']) for r in self.lines()],
-                         [('groq', 'g1', '429'), ('groq', 'g2', 'ok'), ('ollama', llm._cfg()['model'], 'baglanti')])
+                         [('groq', 'g1', '429'), ('groq', 'g2', 'ok'), ('ollama', 'meter-local', 'baglanti')])
 
     def test_ollama_success_is_recorded_after_reply_is_decoded(self):
         def bad_json():
