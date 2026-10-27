@@ -67,7 +67,7 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Durum: 🟡 kısmi `[1✓ 2✓ 3✓ 4✗]`. 3 PR merge edildi (#350, #351, #352), yeni kod `llm.py`, `goal_executor`, canlı ses ve arayüze bağlı. Eksik temizlik: `model_health.py` kendi ayrı hata sınıflandırmasını (401/403/429) yapıyor, `image_gen.py` 429'u kendi başına ele alıyor; ikisi `failure_policy`'ye taşınıp eski kopyalar silinmeli. Ayrıca iş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi bekliyor.**
+**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği açık: `model_health.py` içindeki ayrı 401/403/429 ayrımı ve `image_gen.py` içindeki bağımsız HTTP/429 ayrımı ortak `failure_policy.classify` hattına taşınıyor; eski kopyalar kaldırılıyor. CI + gerçek PC watcher kabulü gelmeden bu temizlik tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.
 
@@ -136,10 +136,11 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 #### Ek kabul kriterleri — Fable/Claude agent benchmark
 
-- **Tespit edildi — uygulama bekliyor: güncellik isteğini doğru yönlendirme.**
-  - **Kod kanıtı:** Uygulama PR'ında araştırma/worker yönlendirmesinde sorgunun güncellik ihtiyacını ayıran açık karar noktası ve bu kararı kilitleyen test gösterilecek.
-  - **Beklenen davranış:** "bugün", "son", "güncel", mevcut görev sahibi/fiyat/kural gibi değişken bilgi isteyen sorgu taze kaynağa yönlenecek; durağan bilgi gereksiz web aramasına zorlanmayacak.
-  - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu verildiğinde güncel olan doğrulanmış taze kaynak aramasına giderken durağan olanın gereksiz ağ çağrısı yapmadığı kanıtlanacak.
+- **Kısmen uygulandı (PR #424): güncellik isteğini doğru yönlendirme.**
+  - **Kod kanıtı:** `modules/freshness.py:fresh_request` tek karar noktası; router (`_fresh_research_request`) ve `work_modes` (`fresh_external`) buradan beslenir. Tanım kalıbı ("nedir/ne demek/tarihçe") artık yalnız açık tazelik işareti yoksa statik der; `mevcut` ve `bugunku` tazelik işaretleri eklendi. Kararı kilitleyen test: `tests/test_freshness_rule.py::test_explicit_freshness_wins_over_definition_pattern` ve `tests/test_quota_routing.py::test_explicit_freshness_beats_definition_phrasing`.
+  - **Beklenen davranış:** "bugün/son/güncel/mevcut/şu an" gibi açık tazelik işareti + konu ("kur/dolar/haber/...") varsa sorgu taze kaynağa (`intent=task`) yönlener; tazelik işareti olmayan sade tanım ("Dolar nedir?", "NVIDIA nedir?") statik/chat kalır ve gereksiz web aramasına zorlanmaz. Kanıtlandı: `Bugünkü dolar kuru nedir?`→task, `Güncel altın fiyatı nedir?`→task; `Dolar nedir?`→chat.
+  - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu `test_explicit_freshness_wins_over_definition_pattern` ile assert ediliyor (güncel → taze route, durağan → chat, ağ çağrısı yok).
+  - **Kalan:** "kural" gibi değişken-bilgi konuları freshness konu listesinde henüz yok; taze kaynak aramasının canlı kanıtı (gerçek yayıncı okuması) bu PR kapsamında ölçülmedi — routing kararı ve statik/taze ayrımı birim düzeyinde doğrulandı.
 - **Tespit edildi — uygulama bekliyor: kaynak çelişkisinde ek doğrulama.**
   - **Kod kanıtı:** Uygulama PR'ında kaynak sıralama/karşılaştırma yolunun çelişkiyi algıladığında ek bir doğrulama adımı çalıştırdığı ve sonucu evidence zincirine eklediği gösterilecek.
   - **Beklenen davranış:** Güvenilir iki kaynak aynı olgu için çelişirse Jarvis ilk sonucu sessizce seçmeyecek; ek kaynak veya birincil kaynakla doğrulama yapacak, çözülemeyen çelişkiyi açık bırakacak.
@@ -249,11 +250,11 @@ Alt-ajan yaşam döngüsü ve Kanban panosu eklenir. Sandbox hazır; paralel iş
 
 ## Faz 8 — MCP istemcisi ve güvenli eklenti
 
-**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı benchmark deseninden yeniden uygulanıyor; mevcut web Bridge yüzeyine bağlı. Vision/`observe(camera)` bağlantısı ve gerçek cihaz kabulü tamamlanmadan bu iş ✅ sayılmaz.**
+**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı mevcut web Bridge yüzeyine bağlı; uzak kamera karesi artık mevcut Vision/`observe(camera)` analiz yoluna da bağlanıyor. Gerçek cihaz kabulü ve gerçek WebRTC signaling tamamlanmadan bu iş ✅ sayılmaz.**
 
 MCP istemcisi ve güvenli eklenti sistemi eklenir. Kendi altyapımız sabit; dış araçlara ancak o zaman güvenle kapı açılır.
 
-- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı ve gerçek cihaz kabulü bekliyor.
+- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı yapıldı; gerçek cihaz kabulü ve gerçek WebRTC signaling bekliyor.
 - Sabit, salt okuma MCP istemcisi eklenecek: dinamik araç keşfi, sunucu bağlantıları, MCP olay istemcisi, yerel MCP bağlantıları. Sandbox'tan sonra. Şu an yalnız referans kataloğu var.
 - A2A ve harici ajan servislerine bağlanma en sona kalır.
 - Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.
@@ -308,15 +309,17 @@ Her yazma işlemi kesin hedef, niyet kaydı, makbuz ve okuyup doğrulama ister.
 
 ## Faz 11 — Profiller, hafıza, context
 
-**Durum: başlanmadı.**
+**Durum: 🔄 kısmi — #421 Physical Object Memory açık PR; CI/watcher kabulü bekleniyor. Fazın geri kalan maddeleri başlanmadı.**
 
 Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini geliştirme eklenir. Tüm yetenekler çalışıyor; kişisel uyarlama ve büyüme bunların üstüne oturur.
+
+- 🔄 (#421) `[1✓ 2– 3✓ 4–]` Physical Object Memory: kamera/Vision gözlemi `Observation -> CandidateFact -> kullanıcı onayı -> durable object memory` hattından geçer. Aday kayıtlar relevance prompt'a girmez; onaylı kayıt mevcut `facts` + relevance gate hattına bağlanır. Provenance tutulur, manuel düzeltme sonraki model taramasıyla ezilmez, bir taramada görülmeyen nesne silinmez (`location_unknown`), nesne/QR/etiket metni untrusted evidence olarak kalır. Güncel head için CI + gerçek PC watcher PASS gelmeden tamamlandı sayılmaz.
 
 ### Ek kabul kriterleri — Fable/Claude agent benchmark
 
 - **Tespit edildi — uygulama bekliyor: öğrenilmiş kurallar Core ve izin politikasını geçersiz kılamaz.**
   - **Kod kanıtı:** İlk uygulama PR'ı learned-rule/memory uygulama noktasında açık precedence kontrolü göstermeli; öğrenilmiş kural yalnız advisory/context girdisi olabilir ve Domain invariant → Decision Authority → JIT Permission → Effect Policy sırasının sonucunu değiştirememelidir.
-  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştirmez.
+  - **Beklenen davranış:** Daha önce öğrenilmiş bir tercih veya kural "bunu otomatik yap", "bu alıcıyı kullan" ya da "onay isteme" dese bile Core hedefi, izin sınıfını veya kullanıcı onayı gereksinimini değiştiremez.
   - **Kabul testi:** Öğrenilmiş kuralın hedef/alıcıyı değiştirmeye veya gerekli onayı atlamaya çalıştığı senaryoda execution kararı değişmeden kalmalı ve işlem mevcut Core/Permission politikası uyarınca reddedilmeli ya da onay istemelidir.
 - **Tespit edildi — uygulama bekliyor: ilgisiz hafızayı bağlama almama (memory relevance gate).**
   - **Kod kanıtı:** Uygulama PR'ında hafıza adaylarının bağlama girmeden önce görevle ilgililik filtresinden geçtiği ve filtre sonucunun testle kilitlendiği gösterilecek.
