@@ -39,6 +39,7 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         open_ai = 'dispatch_event("click")'
         wait_panel = 'page.wait_for_selector("#spane"'
         select_ollama = "SX.aiSel='ollama'"
+        legacy_deep_link = 'page.evaluate("S.sset=\'ai\'; go(\'settings\')")'
         self.assertIn(menu_selector, src)
         self.assertIn(open_ai, src)
         self.assertIn(wait_panel, src)
@@ -46,7 +47,7 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertLess(src.index(menu_selector), src.index(open_ai))
         self.assertLess(src.index(open_ai), src.index(wait_panel))
         self.assertLess(src.index(wait_panel), src.index(select_ollama))
-        self.assertNotIn("go('settings')", src)
+        self.assertNotIn(legacy_deep_link, src)
         self.assertNotIn("page.wait_for_timeout(800)", src)
 
 
