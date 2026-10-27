@@ -33,11 +33,28 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
                 self.assertEqual(router.classify(text, _no_model), {'intent': 'chat', 'args': {}})
 
     def test_fresh_or_tool_topics_keep_model_routing(self):
-        for text in ['dolar kuru nedir', 'hava durumu nedir', 'bu dosya nedir', 'son haber nedir']:
+        for text in ['dolar kuru nedir', 'hava durumu nedir', 'bu dosya nedir']:
             with self.subTest(text=text):
                 ask = Mock(return_value=CHAT)
                 router.classify(text, ask)
                 ask.assert_called_once()
+
+    def test_explicit_freshness_beats_definition_phrasing(self):
+        # Faz 4: "son/güncel/bugünkü" gibi açık tazelik işareti, "nedir" tanım kalıbını bastırır;
+        # soru güncel-görev yoluna gider, sade model sınıflandırmasına düşmez.
+        for text in ['son haber nedir', 'bugünkü dolar kuru nedir', 'güncel altın fiyatı nedir']:
+            with self.subTest(text=text):
+                self.assertEqual(work_modes.classify(text), 'do')
+                ask = Mock(return_value=CHAT)
+                self.assertEqual(router.classify(text, ask)['intent'], 'task')
+                ask.assert_not_called()
+
+    def test_pure_definition_without_freshness_stays_model_or_chat(self):
+        # Tazelik işareti olmayan sade tanım soruları güncel-görev yoluna zorlanmaz.
+        for text in ['dolar nedir', 'kur nedir', 'nvidia nedir']:
+            with self.subTest(text=text):
+                self.assertFalse(work_modes.fresh_external(text))
+                self.assertFalse(router._fresh_research_request(text))
 
     def test_real_action_requests_still_become_tasks(self):
         for text in ['Ayarları aç ve Bluetooth’u kapat', 'Araştırıp rapor hazırla', 'Araştır ve belge üret',
