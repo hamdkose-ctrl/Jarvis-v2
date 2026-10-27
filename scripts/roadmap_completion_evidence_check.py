@@ -55,9 +55,12 @@ def _run(args: list[str], cwd: Path = ROOT):
 
 def _is_completion_line(line: str) -> bool:
     stripped = line.strip()
-    if COMPLETION_MARKER not in stripped:
-        return False
-    return stripped.startswith("-") or stripped.startswith("**Durum:")
+    if stripped.startswith("- "):
+        return stripped[2:].lstrip().startswith(COMPLETION_MARKER)
+    if stripped.startswith("**Durum:"):
+        status = stripped[len("**Durum:"):].lstrip()
+        return status.startswith(COMPLETION_MARKER)
+    return False
 
 
 def _new_completion_indexes(base_text: str, current_text: str) -> list[int]:
