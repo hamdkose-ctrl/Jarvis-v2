@@ -32,49 +32,4 @@ ACT.deskhistory=()=>{const rows=S.snap?.study?.progress||[];deskDrawer('Geçmiş
 ACT.desknotes=()=>{const notes=S.snap?.notes||[];deskDrawer('Notlar',`<input id="desk-note-title" placeholder="Not başlığı" maxlength="120"><textarea id="desk-note-text" placeholder="Çalışma notunu yaz…"></textarea><button class="btn pri" data-act="desknoteadd">Kaydet</button>${notes.map(n=>`<details class="desk-note"><summary>${esc(n.title||'Not')}</summary><p>${esc(n.text||'')}</p></details>`).join('')}`)};
 ACT.desknoteadd=async()=>{const who=owner(),text=document.querySelector('#desk-note-text')?.value.trim(),title=document.querySelector('#desk-note-title')?.value.trim();if(!text)return toast('Önce notunu yaz.');await api('note_add',text,'',title);if(owner()!==who)return;await refresh();if(owner()===who&&S.page==='study')ACT.desknotes()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){ACT.filesclose();ACT.deskclose()}});
-
-const baseAiPage=aiPage;
-const localModelView={key:'',at:0,data:null,busy:false};
-const LOCAL_BACKEND_URL={ollama:'http://127.0.0.1:11434',lmstudio:'http://127.0.0.1:1234/v1',llamacpp:'http://127.0.0.1:8080/v1'};
-function localModelKey(sn){const l=sn?.llm||{};return [sn?.user?.slug||sn?.user?.name||'',l.local_backend||'ollama',l.local_model||''].join('|')}
-function requestLocalModelStatus(sn){
-  const key=localModelKey(sn),now=Date.now();
-  if(localModelView.key!==key){localModelView.key=key;localModelView.data=null;localModelView.at=0}
-  if(localModelView.busy||now-localModelView.at<8000)return;
-  localModelView.busy=true;localModelView.at=now;let changed=false;
-  api('llm_status').then(st=>{if(localModelView.key===key){localModelView.data=st||{};localModelView.at=Date.now();changed=true}}).catch(()=>{}).finally(()=>{localModelView.busy=false;if(changed&&S.snap&&localModelKey(S.snap)===key)render()});
-}
-function installedModelEditor(st){
-  const models=Array.isArray(st?.local_installed_models)?st.local_installed_models.map(String):[];
-  const active=String(st?.local_effective_model||''),pref=String(st?.local_model_preference||'');
-  const selected=models.includes(pref)?pref:(models.includes(active)?active:(models[0]||''));
-  const checked=st?.local_models_checked===true,disabled=st?.local_model_select_enabled===false||!models.length;
-  const opts=models.length?models.map(m=>`<option value="${esc(m)}" ${m===selected?'selected':''}>${esc(m)}</option>`).join(''):`<option value="">${checked?'Kurulu model yok':'Model listesi yükleniyor…'}</option>`;
-  const info=st?.local_model_stale?`<div class="mut" style="font-size:12.5px;margin-top:5px">${esc(st.local_model_warning||'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.')}</div>`:'';
-  return srow('spark','Aktif Model',esc(active||(checked?'Kurulu model yok':'Yükleniyor…')),'')+
-    field('Kurulu Modeller',`<select class="sel" style="width:100%" id="local-model-select" ${disabled?'disabled':''}>${opts}</select>`,models.length?'Yalnız backend tarafından bildirilen kurulu modeller seçilebilir.':checked?'Kurulu model bulunamadı; seçim kapalı.':'Backend model durumu okunuyor.')+
-    pad18(`<button class="btn sm pri" data-act="localmodelsave" data-provider="${esc(st?.local_model_choice_provider||'')}" ${disabled?'disabled':''}>Modeli Kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>${info}`);
-}
-function localProviderPanel(sn){
-  requestLocalModelStatus(sn);
-  const l=sn?.llm||{},key=localModelKey(sn),st=localModelView.key===key?localModelView.data:null;
-  const lb=SX.lb||l.local_backend||'ollama',lbSame=lb===(l.local_backend||'ollama');
-  const url=LOCAL_BACKEND_URL[lb]||LOCAL_BACKEND_URL.ollama;
-  const statusText=l.ollama_up?'Çalışıyor':'Kurulu değil veya çalışmıyor';
-  return sbox('bolt',esc(l.local_label||'Ollama')+' · Yerel model','Bilgisayarında çalışan yerel model; internet ve anahtar gerekmez. Ollama, LM Studio veya llama.cpp (llama-server) seçilebilir; hepsi isteğe bağlıdır.',
-    srow('spark','Durum',statusText,'')+
-    srow('cpu','Yerel sunucu','LM Studio ve llama.cpp OpenAI uyumlu /v1 uç noktasıyla bağlanır',`<div class="seg">${[['ollama','Ollama'],['lmstudio','LM Studio'],['llamacpp','llama.cpp']].map(([v,t])=>`<button class="${lb===v?'on':''}" data-act="lbpick" data-v="${v}">${t}</button>`).join('')}</div>`)+
-    field('Uç nokta',inp('lburl',url,lbSame?l.ollama_url:''))+
-    pad18(`<button class="btn sm pri" data-act="lbsave">Sunucuyu kaydet ve dene</button> <span class="mut">${esc(SX.lbm||'')}</span>`)+
-    installedModelEditor(st));
-}
-ACT.localmodelsave=async el=>{
-  const select=$('#local-model-select'),model=select?.value||'',provider=el.dataset.provider||'';
-  if(!model||!provider){SX.om='Kurulu model seçilemedi.';return sAfter(0)}
-  el.disabled=true;
-  try{const r=await api('model_choice_save',provider,model);SX.om=(r&&r.ok===false?'✗ ':'')+msgOf(r);if(r&&r.ok!==false){localModelView.data=null;localModelView.at=0;await refresh()}}
-  catch(e){SX.om='✗ '+e.message}
-  sAfter(0);
-};
-aiPage=function(sn,panels,extra=''){const next={...panels,ollama:localProviderPanel(sn)};return baseAiPage(sn,next,extra)};
 })();
