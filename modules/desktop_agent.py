@@ -451,7 +451,7 @@ def _read_only_observation(snapshot):
         name=str(item.get('name') or '')
         if item.get('password') or _PRIVATE.search(name):
             name='[Gizli bilgi alanı]'
-        controls.append({key: item.get(key) for key in ('id','type','automation_id','patterns','enabled','offscreen','selected')}
+        controls.append({key: item.get(key) for key in ('id','type','automation_id','patterns','enabled','offscreen','selected','bounds')}
                         | {'name': privacy.redact(name[:300],force=True)})
     return {'window': {'hwnd': snapshot['hwnd'], 'pid': snapshot.get('pid'),
                        'app_pid': snapshot.get('app_pid',snapshot.get('pid')),
