@@ -1,3 +1,10 @@
+## Model-bağımsız haber hattı — 28 Ekim 2026
+
+- `modules/news_pipeline.py` eklendi: kota/429 sırası tarihli haber isteğini artık durdurmaz, haber işi modelsiz açılır ve kayıtlı kanıtlarla teslim edilir; `news_status` ile `model_synthesis_status` ayrıldı, model yokluğu haber sonucunu ezmez. Davranış sözleşmesi `docs/agents/haber.md` içinde.
+- Bekleyen kabul (canlı PC, Hamdi): üç sağlayıcı da kapalıyken (`Gemini 429 + Groq 429 + Ollama erişilemez`) Jarvis'in son 7 gün gerçek haberlerini kaynak/tarih/link/kanıtla teslim etmesi ve sohbetin yalnız model sentezinin kullanılamadığını açıkça söylemesi. Testler taşıyıcı taklitleriyle çalışır; gerçek ağ, gerçek kota ve gerçek arayüz kabulü henüz yapılmadı.
+- Açık mimari karar: `news_pipeline.discover` paralel keşfi uyguladı ve test edildi; `news_recovery._chat_deliver` sıralı tohum döngüsü ile `publisher_news.catalog_attempted`/`require_catalog` sayımı korundu. Paralel keşfin o döngünün yerine taşınması ayrı karttır (sayım ve iki yayıncı kapısı yeniden tanımlanmadan yapılmaz).
+- `verify_synthesis` (uydurma sayı/alıntı düşürme, güvenli downgrade) ve `attach_job` modeller erişilemezkenki teslimi kilitler; model erişileirkenteki sentez hattına henüz bağlanmadı.
+
 ## 20 Ekim 2026 — uçtan uca kapsam ve güncel sıra
 
 - Güncel plan: [Birleşik yol planı](yol-haritasi-birlesik-2026-10-20.md). 14 alanın geniş kapsamı, ses/yazı ortak yürütmesi, bağlam sahipliği, adım başına izin ve gerçek kabul ölçütleri burada tutulur. Aşağıdaki tarihli kayıtlar tarihsel kanıttır; tümü güncel durum sayılmaz.
