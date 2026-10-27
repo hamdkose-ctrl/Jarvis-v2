@@ -37,25 +37,43 @@ const baseAiPage=aiPage;
 const localModelView={key:'',at:0,data:null,busy:false};
 function localModelKey(sn){const l=sn?.llm||{};return [sn?.user?.slug||sn?.user?.name||'',l.local_backend||'ollama',l.local_model||''].join('|')}
 function requestLocalModelStatus(sn){
-  const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return;
   const key=localModelKey(sn),now=Date.now();
   if(localModelView.key!==key){localModelView.key=key;localModelView.data=null;localModelView.at=0}
   if(localModelView.busy||now-localModelView.at<8000)return;
   localModelView.busy=true;localModelView.at=now;let changed=false;
   api('llm_status').then(st=>{if(localModelView.key===key){localModelView.data=st||{};localModelView.at=Date.now();changed=true}}).catch(()=>{}).finally(()=>{localModelView.busy=false;if(changed&&S.snap&&localModelKey(S.snap)===key)render()});
 }
+function installedModelEditor(st){
+  const models=Array.isArray(st.local_installed_models)?st.local_installed_models.map(String):[];
+  const active=String(st.local_effective_model||''),pref=String(st.local_model_preference||'');
+  const selected=models.includes(pref)?pref:(models.includes(active)?active:(models[0]||''));
+  const disabled=st.local_model_select_enabled===false||!models.length;
+  const opts=models.length?models.map(m=>`<option value="${esc(m)}" ${m===selected?'selected':''}>${esc(m)}</option>`).join(''):'<option value="">Kurulu model yok</option>';
+  const info=st.local_model_stale?`<div class="mut" style="font-size:12.5px;margin-top:5px">${esc(st.local_model_warning||'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.')}</div>`:'';
+  return srow('spark','Aktif Model',esc(active||'Kurulu model yok'),'')+
+    field('Kurulu Modeller',`<select class="sel" style="width:100%" id="local-model-select" ${disabled?'disabled':''}>${opts}</select>`,models.length?'Yalnız backend tarafından bildirilen kurulu modeller seçilebilir.':'Kurulu model bulunamadı; seçim kapalı.')+
+    pad18(`<button class="btn sm pri" data-act="localmodelsave" data-provider="${esc(st.local_model_choice_provider||'')}" ${disabled?'disabled':''}>Modeli Kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>${info}`);
+}
+function replaceLegacyModelEditor(panel,editor){
+  const labelAt=panel.indexOf('>Yerel model · ');if(labelAt<0)return panel;
+  const fieldAt=panel.lastIndexOf('<div style="padding:10px 18px">',labelAt);
+  const saveAt=panel.indexOf('data-act="omsave"',labelAt);if(fieldAt<0||saveAt<0)return panel;
+  const saveWrap=panel.lastIndexOf('<div style="padding:12px 18px">',saveAt),saveEnd=panel.indexOf('</div>',saveAt);
+  if(saveWrap<0||saveEnd<0)return panel;
+  return panel.slice(0,fieldAt)+editor+panel.slice(saveEnd+6);
+}
 function localModelPanel(panel,sn){
-  const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return panel;
   requestLocalModelStatus(sn);
   const key=localModelKey(sn),st=localModelView.key===key?localModelView.data:null;if(!st)return panel;
-  const pref=String(st.local_model_preference||l.local_model||''),effective=String(st.local_effective_model||'');
-  const stale=st.local_model_stale===true,noActive=st.local_models_checked===true&&!effective;
-  if(!stale&&!noActive)return panel;
-  const savedLabel=pref||'Kayıtlı tercih yok',activeLabel=effective||'Kurulu model yok';
-  const warning=stale?(st.local_model_warning||`Kayıtlı model kurulu değil; otomatik olarak ${effective} kullanılıyor.`):'Kurulu ve etkin bir Ollama modeli bulunamadı.';
-  const renamed=panel.replace('Yerel model · ','Kayıtlı tercih · ');
-  return renamed+sbox('cpu','Model kullanımı','Kayıtlı tercih ile gerçekten kullanılan runtime modeli birbirinden ayrıdır.',
-    srow('file','Kayıtlı tercih',esc(savedLabel),'')+srow('spark','Aktif model',esc(activeLabel),'')+pad18(`<span class="mut">${esc(warning)}</span>`));
+  return replaceLegacyModelEditor(panel,installedModelEditor(st));
 }
+ACT.localmodelsave=async el=>{
+  const select=$('#local-model-select'),model=select?.value||'',provider=el.dataset.provider||'';
+  if(!model||!provider){SX.om='Kurulu model seçilemedi.';return sAfter(0)}
+  el.disabled=true;
+  try{const r=await api('model_choice_save',provider,model);SX.om=(r&&r.ok===false?'✗ ':'')+msgOf(r);if(r&&r.ok!==false){localModelView.data=null;localModelView.at=0;await refresh()}}
+  catch(e){SX.om='✗ '+e.message}
+  sAfter(0);
+};
 aiPage=function(sn,panels,extra=''){const next={...panels};if(next.ollama)next.ollama=localModelPanel(next.ollama,sn);return baseAiPage(sn,next,extra)};
 })();
