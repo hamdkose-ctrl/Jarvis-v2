@@ -31,14 +31,6 @@ ACT.deskhistory=()=>{const rows=S.snap?.study?.progress||[];deskDrawer('Geçmiş
 // Notlar mevcut not hizmeti üzerinden açılır; yeni kişisel veri deposu oluşturulmaz.
 ACT.desknotes=()=>{const notes=S.snap?.notes||[];deskDrawer('Notlar',`<input id="desk-note-title" placeholder="Not başlığı" maxlength="120"><textarea id="desk-note-text" placeholder="Çalışma notunu yaz…"></textarea><button class="btn pri" data-act="desknoteadd">Kaydet</button>${notes.map(n=>`<details class="desk-note"><summary>${esc(n.title||'Not')}</summary><p>${esc(n.text||'')}</p></details>`).join('')}`)};
 ACT.desknoteadd=async()=>{const who=owner(),text=document.querySelector('#desk-note-text')?.value.trim(),title=document.querySelector('#desk-note-title')?.value.trim();if(!text)return toast('Önce notunu yaz.');await api('note_add',text,'',title);if(owner()!==who)return;await refresh();if(owner()===who&&S.page==='study')ACT.desknotes()};
-ACT.deskanswer=()=>{S.deskAnswerClosed=!S.deskAnswerClosed;document.querySelector('.desk-canvas')?.classList.toggle('answer-collapsed',S.deskAnswerClosed)};
-ACT.deskresources=()=>{S.stab='resources';render()};
-function deskDrawer(title,body){const pg=document.querySelector('.p-study');if(!pg)return;pg.querySelector('.desk-drawer')?.remove();const el=document.createElement('aside');el.className='desk-drawer';el.innerHTML=`<div class="ch"><b>${title}</b><button data-act="deskclose" aria-label="Paneli kapat">×</button></div>${body}`;pg.append(el)}
-ACT.deskclose=()=>document.querySelector('.desk-drawer')?.remove();
-ACT.deskhistory=()=>{const rows=S.snap?.study?.progress||[];deskDrawer('Geçmiş',rows.slice().reverse().slice(0,30).map(x=>`<div class="srow"><div><b>${esc(x.q||'Çalışma')}</b><small>${esc(x.ts||'')}</small></div></div>`).join('')||'<p class="mut">Henüz çalışma kaydı yok.</p>')};
-// Notlar mevcut not hizmeti üzerinden açılır; yeni kişisel veri deposu oluşturulmaz.
-ACT.desknotes=()=>{const notes=S.snap?.notes||[];deskDrawer('Notlar',`<input id="desk-note-title" placeholder="Not başlığı" maxlength="120"><textarea id="desk-note-text" placeholder="Çalışma notunu yaz…"></textarea><button class="btn pri" data-act="desknoteadd">Kaydet</button>${notes.map(n=>`<details class="desk-note"><summary>${esc(n.title||'Not')}</summary><p>${esc(n.text||'')}</p></details>`).join('')}`)};
-ACT.desknoteadd=async()=>{const who=owner(),text=document.querySelector('#desk-note-text')?.value.trim(),title=document.querySelector('#desk-note-title')?.value.trim();if(!text)return toast('Önce notunu yaz.');await api('note_add',text,'',title);if(owner()!==who)return;await refresh();if(owner()===who&&S.page==='study')ACT.desknotes()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){ACT.filesclose();ACT.deskclose()}});
 
 const baseAiPage=aiPage;
