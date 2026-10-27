@@ -34,6 +34,7 @@ from pathlib import Path
 
 from modules import goal_state, goal_state_compat, goal_state_store
 from modules import goalstate_cutover_preflight as preflight
+from modules.diagnostics import record_failure as _record_failure
 
 # RFC Karar 2: authority changes only when a job is created (goal_state_compat.project).
 AUTHORITY_FLIP_POINT = 'JOB_CREATION'
@@ -286,6 +287,7 @@ def promote(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
             )
             _verify_promotion(owner_dir, job, promoted_state)
         except Exception:
+            _record_failure('modules/goalstate_cutover_runner.py:promote:rollback')
             try:
                 if before is None:
                     record.unlink(missing_ok=True)
