@@ -22,7 +22,9 @@ function modelEditor(st){
     :`<option value="">${checked?'Kurulu model yok':'Model listesi yükleniyor…'}</option>`;
   const info=st?.local_model_stale
     ?`<div class="mut" style="font-size:12.5px;margin-top:5px">${esc(st.local_model_warning||'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.')}</div>`:'';
-  return srow('spark','Aktif Model',esc(active||(checked?'Kurulu model yok':'Yükleniyor…')),'')+
+  const activeText=active||(checked?'Kurulu model yok':'Yükleniyor…');
+  const activeView=active?`<code class="model-id">${esc(activeText)}</code>`:esc(activeText);
+  return srow('spark','Aktif Model',activeView,'')+
     field('Kurulu Modeller',`<select class="sel" style="width:100%" id="local-model-select" ${disabled?'disabled':''}>${options}</select>`,models.length?'Yalnız backend tarafından bildirilen kurulu modeller seçilebilir.':checked?'Kurulu model bulunamadı; seçim kapalı.':'Backend model durumu okunuyor.')+
     pad18(`<button class="btn sm pri" data-act="localmodelsave" data-provider="${esc(st?.local_model_choice_provider||'')}" ${disabled?'disabled':''}>Modeli Kaydet</button> <button class="btn sm" data-act="connecthelp" data-provider="ollama">Ollama Kurulumu</button> <span class="mut">${esc(SX.om||'')}</span>${info}`);
 }
