@@ -28,6 +28,8 @@ import argparse
 import hashlib
 import json
 import sys
+
+import release_guard
 from pathlib import Path
 
 from modules import goal_state, goal_state_compat, goal_state_store
@@ -158,7 +160,8 @@ def plan(owner_root) -> dict:
             'canonical_state': row['canonical_state'],
         })
         hasher.update(json.dumps(
-            [job_id, row['reason_code'], _digest(legacy_path), _digest(canonical_path)],
+            [job_id, row['reason_code'], _digest(legacy_path), _digest(canonical_path),
+             _digest(owner_dir / (job_id + '.execution.json'))],
         ).encode('utf-8'))
     blockers = [r['job_id'] for r in rows if r['action'] == ACTION_BLOCKED]
     return {
@@ -170,6 +173,10 @@ def plan(owner_root) -> dict:
         'blockers': blockers,
         'backfill_candidates': [
             r['job_id'] for r in rows if r['action'] == ACTION_OPERATOR_BACKFILL
+        ],
+        'promotion_candidates': [
+            r['job_id'] for r in rows
+            if r['reason_code'] == preflight.OK and r['authority'] == 'legacy'
         ],
     }
 
@@ -233,6 +240,58 @@ def apply(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
     }
 
 
+def _verify_promotion(owner_dir: Path, job: dict, state: dict) -> None:
+    canonical_path = owner_dir / (job['id'] + '.goalstate.json')
+    try:
+        on_disk = goal_state_store.load(canonical_path)
+        from modules import execution_record
+        payload = execution_record.load(owner_dir, job['owner'], job['id'])
+    except (OSError, ValueError):
+        raise CutoverVerificationFailed('Promotion sonrası canonical veya ExecutionRecord doğrulanamadı.') from None
+    if on_disk != state or goal_state.authority(on_disk) != 'canonical' or payload != job:
+        raise CutoverVerificationFailed('Promotion sonrası kayıtlar beklenen durumla eşleşmedi.')
+    if preflight._classify(job, owner_dir, job['id'])['reason_code'] != preflight.OK:
+        raise CutoverVerificationFailed('Promotion sonrası preflight OK vermedi; işlem durdu.')
+
+
+def promote(owner_root, *, approved_fingerprint: str, approved_job_ids) -> dict:
+    """Operator-approved promotion: migrate execution payload, then flip authority."""
+    from modules import execution_record
+
+    owner_dir = Path(owner_root)
+    approved = list(approved_job_ids or ())
+    if not approved_fingerprint or not approved or len(set(approved)) != len(approved):
+        raise OperatorApprovalRequired('Promotion için plan parmak izi ve tekil job onayı gerekli.')
+    current = plan(owner_dir)
+    if current['blocked']:
+        raise CutoverBlocked('Owner dizininde fail-closed engel var; hiçbir kayıt değişmedi.')
+    if current['fingerprint'] != approved_fingerprint:
+        raise PlanDrift('Disk durumu onaylanan plandan farklı; yeniden plan ve onay gerekli.')
+    candidates = set(current['promotion_candidates'])
+    if not set(approved) <= candidates:
+        raise OperatorApprovalRequired('Yalnız uyumlu legacy-authority job’lar promotion için onaylanabilir.')
+
+    promoted = []
+    for job_id in sorted(approved):
+        job = _load_legacy(owner_dir, job_id)
+        record = execution_record.path_for(owner_dir, job_id)
+        before = record.read_bytes() if record.exists() else None
+        try:
+            release_guard.atomic(record, execution_record.encode(job))
+            state = goal_state_compat.operator_promote_legacy_authority_once(
+                owner_dir / (job_id + '.goalstate.json'),
+            )
+            _verify_promotion(owner_dir, job, state)
+        except Exception:
+            if before is None:
+                record.unlink(missing_ok=True)
+            else:
+                release_guard.atomic(record, before)
+            raise
+        promoted.append(job_id)
+    return {'fingerprint': approved_fingerprint, 'promoted': promoted, 'after': plan(owner_dir)}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog='python -m modules.goalstate_cutover_runner',
@@ -241,10 +300,16 @@ def main(argv=None) -> int:
     parser.add_argument('owner_dir')
     parser.add_argument('--approve', metavar='FINGERPRINT')
     parser.add_argument('--job', action='append', default=[], metavar='JOB_ID')
+    parser.add_argument('--promote', action='store_true',
+                        help='Onaylı, uyumlu legacy-authority job’ları canonical authority’ye geçir.')
     args = parser.parse_args(argv)
     try:
         if args.approve is None:
             result = plan(args.owner_dir)
+        elif args.promote:
+            result = promote(
+                args.owner_dir, approved_fingerprint=args.approve, approved_job_ids=args.job,
+            )
         else:
             result = apply(
                 args.owner_dir, approved_fingerprint=args.approve, approved_job_ids=args.job,
