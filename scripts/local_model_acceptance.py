@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 import threading
 from types import SimpleNamespace
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+_repo_root_text = str(REPO_ROOT)
+if _repo_root_text not in sys.path:
+    sys.path.insert(0, _repo_root_text)
 
 EXPECTED_STALE = "llama3.2"
 EXPECTED_EFFECTIVE = "qwen2.5-coder:7b"
@@ -111,7 +117,7 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
 
 def run(root: Path | None = None) -> dict:
     """Gerçek PC'de stale Ollama preference -> browser UI + installed effective model + inference kabulü."""
-    root = Path(root or Path(__file__).resolve().parents[1])
+    root = Path(root or REPO_ROOT)
     from modules import llm, personalization
     from web_models import WebModels
 
