@@ -263,7 +263,7 @@ MCP istemcisi ve güvenli eklenti sistemi eklenir. Kendi altyapımız sabit; dı
 - 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı yapıldı; gerçek cihaz kabulü ve gerçek WebRTC signaling bekliyor.
 - Sabit, salt okuma MCP istemcisi eklenecek: dinamik araç keşfi, sunucu bağlantıları, MCP olay istemcisi, yerel MCP bağlantıları. Sandbox'tan sonra. Şu an yalnız referans kataloğu var.
 - A2A ve harici ajan servislerine bağlanma en sona kalır.
-- Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, fark gösterimi, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.
+- Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.
 - Sağlayıcı eklentileri eklenecek: model, hafıza, context motoru, bilgisayar kontrolü, yerel TTS, yerel STT, delegation, gateway.
 - Araç setleri eklenecek: birleşik, özel ve platforma özel setler, araç bazında aç / kapat, iş akışı kapılı araçlar, araç arama. Şu an merkezi araç kaydı ve izin politikası var.
 - Bağlantı katmanı eklenecek: kendi bağlayıcılarımız, adlandırılmış hesaplar, hesap yeniden adlandırma, bağlayıcı onay ekranı, aynı uygulamada çoklu hesap, kimlik bilgisi yalıtımı. Şu an kullanıcıya özel belirteç ve servis yapılandırması var.
