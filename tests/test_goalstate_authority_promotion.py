@@ -82,10 +82,10 @@ class GoalStateAuthorityPromotionTests(unittest.TestCase):
 
     def test_canonical_cas_failure_restores_execution_record(self):
         from unittest.mock import patch
-        plan = runner.plan(self.owner_dir)
         record = self.owner_dir / (self.job["id"] + ".execution.json")
         original = b'{"preexisting":"record"}'
         record.write_bytes(original)
+        plan = runner.plan(self.owner_dir)
         with patch.object(
             goal_state_compat, "operator_promote_legacy_authority_once",
             side_effect=goal_state_store.PersistedStateConflict("simulated CAS conflict"),
@@ -101,10 +101,10 @@ class GoalStateAuthorityPromotionTests(unittest.TestCase):
 
     def test_post_promotion_verification_failure_restores_both_records(self):
         from unittest.mock import patch
-        plan = runner.plan(self.owner_dir)
         record = self.owner_dir / (self.job["id"] + ".execution.json")
         original = b'{"preexisting":"record"}'
         record.write_bytes(original)
+        plan = runner.plan(self.owner_dir)
         with patch.object(runner, "_verify_promotion", side_effect=runner.CutoverVerificationFailed("simulated")):
             with self.assertRaises(runner.CutoverVerificationFailed):
                 runner.promote(
