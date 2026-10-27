@@ -177,6 +177,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 - 🟡 F-002 PR 2: planın stale/eksik kanıt, stop, hedef ve risk-getiri görünümü eksiklerini salt-okunur gözlem listesi olarak döndürür. Bu liste PASS/BLOCK, işlem kararı, onay veya yürütme yetkisi vermez. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
 - 🟡 F-002 PR 3: açık hesap değeri, risk bütçesi ve desteklenen birim/step metadata varsa TradePlan + RiskChecklist'ten deterministik pozisyon boyutu ve PASS/BLOCK üretir. Kritik veri yoksa BLOCK; PASS execution permission değildir. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
 
+- 🟡 F-002 PR 4: yalnız PASS RiskDecision’dan immutable TradeIntent ve owner-bağlı, süreli/revoke edilebilir/tek-kullanımlı JIT approval receipt sözleşmesi üretir. Intent veya plan fingerprint’i, entry/stop/hedef/pozisyon boyutu değişirse onay geçersizdir. ApprovedIntent yürütülebilir emir değildir; broker, order, effect dispatch ve permission grant yoktur. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
 - Günlük fiyat serisi (OHLCV), hisse karşılaştırma ve veri tazelik kontrolü tüm kaynaklara yayılacak. Kaynaklar yalnız TCMB, Frankfurter, CoinGecko Demo, BtcTurk ve yedekli Yahoo. Şu an anlık fiyat var, seri yok.
 - Portföy analizi, risk ve varsayım açıklaması, finans kanıt paketi, ticker arama, DCF, benzer şirket ve LBO becerileri ve finans araştırma ajanı eklenecek. Şu an izleme listesi ve alarm var. Yatırım tavsiyesi verilmez.
 

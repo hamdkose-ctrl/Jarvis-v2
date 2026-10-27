@@ -4,6 +4,11 @@
 
 Finance, Communication'ın alt yolu değildir. Bugünkü kapsam kur/piyasa/varlık verisi ve kaynaklı **salt-okuma analiz** ile sınırlıdır; veri kaynağı veya model izin, hedef ya da para hareketi yetkisi vermez. Hesap bağlantısı, token/parola, emir, alım-satım, transfer ve dış portföy/finansal kayıt yazısı kapalıdır. `money_credential` Permission Gate'te `deny` kalır; `external_write` veya grant ile sessizce açılmaz. Bir kişiye finans bilgisi gönderme, Finance değil Communication'ın `message_out` hattıdır ve kesin alıcı/JIT onay ister. Ayrıntılı karar: [Finance Domain kararı](../architecture/JARVIS_FINANCE_DOMAIN_DECISION.md).
 
+
+## F-002 TradeIntent + JIT approval (PR 4)
+- RiskDecision yalnız `PASS` ise immutable fingerprint ile TradeIntent üretilebilir; plan yeniden hesaplanmaz. Receipt owner, intent/plan fingerprint, onay zamanı, expiry, channel, revoke ve consume durumunu taşır; owner/fingerprint/süre uyuşmazlığı fail-closed reddedilir.
+- `ApprovedIntent` broker emri, execution permission veya para hareketi değildir. `money_effect` kapalı kalır; broker/exchange/order/effect dispatch eklenmez.
+
 ## Domain sözleşmesi — 26 Ekim 2026 (Faz 3-A)
 - `modules/finance_domain.py` dört dalı tanımlar: `data` (read), `alarm` + takip listesi (local_reversible, yalnız kullanıcının kendi kaydı), `analysis` (read), `source_verification` (read). `route(kind)` sınırı uygular: alarm teslimi, kişiye gönderme ve yayın Communication'ındır; `account_read` ve `money_effect` kapalıdır.
 - `check()` AST ile denetler: Finance modülü Communication/izin yazan modülü içe aktaramaz (FIN-001), `tool_finance` eylemi izinli sınıf dışında olamaz (FIN-002), göç planındaki konumlar ve dal giriş noktaları tanımlı kalır (FIN-003/004). Kod taşıyan PR `MIGRATION` satırını aynı PR'da günceller.
