@@ -270,3 +270,47 @@ def parse(answer,source,*,allow_unsupported=False):
 def legacy_unsupported(answer):
     """Invalidate the known old no-answer receipt without deleting its journal."""
     return bool(re.search(r'(kaynakta desteklenen bir yanıt verilemem|herhangi bir bilgi yer almamak|bu sayfa soruya yanıt vermiyor|no relevant information (?:was )?found)',str(answer),re.I))
+
+
+def source_claims(dependencies):
+    """Flatten structured claims carried by done research outputs; never invent values here."""
+    claims=[]
+    for output in (dependencies or {}).values():
+        if not isinstance(output,dict) or output.get('state')!='done':continue
+        for claim in output.get('source_claims') or []:
+            if isinstance(claim,dict):
+                row=dict(claim)
+                row.setdefault('url',str(output.get('source','')))
+                claims.append(row)
+    return claims
+
+
+def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1):
+    """Real research wiring: structural conflict → bounded extra verification → visible outcome.
+
+    Returns None when there is nothing comparable to review (fewer than two structured claims or no
+    genuine conflict), so existing single-source and agreement reports stay byte-for-byte unchanged.
+    On a genuine conflict it reuses the keyless search/extract flow for at most ``max_extra``
+    independent sources and surfaces a resolved value or an explicit unresolved note.
+    """
+    from modules import research_providers
+    claims=source_claims(dependencies)
+    if len(claims)<2:return None
+    comparison=research_providers.compare_sources(claims)
+    if comparison['status']!='conflict':return None
+    query=' '.join(sorted({str(claim.get('subject') or claim.get('metric') or '') for claim in claims})).strip()
+    if search is None or extract is None:
+        search=search or research_providers.search_public
+        extract=extract or research_providers.extract_source
+    verdict=research_providers.verify_conflict(query or 'doğrulama',comparison,search=search,extract=extract,max_extra=max_extra)
+    if verdict['status']=='resolved_conflict':
+        supported=verdict['supported'];value=supported['value']
+        label=format(value,'g') if isinstance(value,(int,float)) else str(value)
+        urls='; '.join(supported['urls']) or 'bağımsız kaynak'
+        return {'status':'resolved_conflict','verdict':verdict,
+                'text':('\n\n## Kaynak çelişkisi doğrulandı\n\nKaynaklar aynı olgu için çelişiyordu; sınırlı ek doğrulama '
+                        f'{label} değerini destekledi. Destekleyen bağımsız kaynak: {urls}.')}
+    return {'status':'unresolved_conflict','verdict':verdict,
+            'text':('\n\n## Kaynak çelişkisi çözülmedi\n\nKaynaklar aynı olgu için çelişiyor; ek doğrulama sonucu '
+                    'kesinleşmedi. Jarvis tek tarafı nihai gerçek olarak seçmedi; bu nokta belirsizdir.')}
+

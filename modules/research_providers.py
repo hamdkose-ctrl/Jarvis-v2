@@ -7,6 +7,7 @@ keeps credentials outside model/context payloads.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, quote_plus, urlsplit
 
@@ -145,12 +146,143 @@ def rank_results(results: list[dict], *, preferred_kinds=("official", "academic"
     return sorted(clean, key=lambda row: (-preference.get(row.get("source_kind"), 0), -int(bool(row.get("verified"))), row["title"].casefold()))
 
 
+_TRANSLATE = str.maketrans({'ç': 'c', 'Ç': 'c', 'ğ': 'g', 'Ğ': 'g', 'ı': 'i', 'İ': 'i',
+                            'ö': 'o', 'Ö': 'o', 'ş': 's', 'Ş': 's', 'ü': 'u', 'Ü': 'u',
+                            'â': 'a', 'î': 'i', 'û': 'u', 'é': 'e'})
+_NUMBER = re.compile(r'\d+(?:[.,]\d+)?')
+
+
+def _norm(text) -> str:
+    """Casefolded, Turkish-folded, whitespace-collapsed text used for structural keys."""
+    return ' '.join(str(text or '').translate(_TRANSLATE).casefold().split())
+
+
+def _token(text) -> str:
+    core = re.sub(r'[^0-9a-z ]+', ' ', _norm(text))
+    return ' '.join(core.split())
+
+
+def _numbers(text) -> list[str]:
+    out = []
+    for match in _NUMBER.finditer(str(text or '')):
+        raw = match.group(0).replace(',', '.')
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        out.append(f'{value:g}')
+    return out
+
+
+def _canon_value(value) -> tuple[str, str]:
+    if isinstance(value, bool):
+        return 'token', str(value).lower()
+    if isinstance(value, (int, float)):
+        return 'num', f'{float(value):g}'
+    token = _token(value)
+    numbers = _numbers(token)
+    if numbers and numbers[0] == token:
+        return 'num', numbers[0]
+    return 'token', token
+
+
+def _row_key(row: dict) -> tuple[str, str, str]:
+    """Comparable identity: same subject AND same scope AND same reference time."""
+    subject = _norm(row.get('subject') or row.get('entity') or row.get('metric') or '')
+    scope = _norm(row.get('scope') or '')
+    as_of = _norm(row.get('as_of') or row.get('date') or '')
+    return subject, scope, as_of
+
+
+def _row_value(row: dict) -> tuple[str, str]:
+    if row.get('value') is not None:
+        return _canon_value(row['value'])
+    text = _norm(row.get('claim') or row.get('text') or '')
+    numbers = _numbers(text)
+    if numbers:
+        return 'num', numbers[0]
+    return 'token', _token(text)
+
+
+def _float_or_str(canon: str):
+    try:
+        return float(canon)
+    except ValueError:
+        return canon
+
+
 def compare_sources(sources: list[dict]) -> dict:
+    """Structural cross-source verdict: wording, time and scope differences are not contradictions.
+
+    Two sources conflict only when they are comparable (same subject+scope+reference time) and carry
+    different values. Free-text claims fall back to numeric+unit extraction before a token compare so
+    'yüzde 10 arttı' vs 'yaklaşık %10 yükseldi' is agreement, while '%40' vs '%45' is a real conflict.
+    """
     if not isinstance(sources, list) or not sources:
         raise ValueError("Karşılaştırılacak kaynak gerekli.")
-    claims = {str(row.get("claim", "")).strip() for row in sources if isinstance(row, dict) and str(row.get("claim", "")).strip()}
-    status = "conflict" if len(claims) > 1 else "consistent" if claims else "insufficient"
-    return {"status": status, "sources": deepcopy(sources), "claim_count": len(claims), "needs_review": status != "consistent"}
+    rows = [row for row in sources if isinstance(row, dict)]
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        key = _row_key(row)
+        kind, canon = _row_value(row)
+        groups.setdefault(key, []).append({'kind': kind, 'canon': canon, 'url': str(row.get('url', ''))})
+    comparisons = []
+    for key in sorted(groups):
+        entries = groups[key]
+        distinct = sorted({(entry['kind'], entry['canon']) for entry in entries})
+        urls = sorted({entry['url'] for entry in entries if entry['url']})
+        comparisons.append({'subject': key[0], 'scope': key[1], 'as_of': key[2],
+                            'values': [canon for _kind, canon in distinct], 'urls': urls,
+                            'conflict': len(distinct) > 1})
+    has_claims = any(entries for entries in groups.values())
+    status = 'conflict' if any(group['conflict'] for group in comparisons) else 'agreement' if has_claims else 'insufficient'
+    distinct_values = {canon for group in comparisons for canon in group['values']}
+    return {'status': status, 'reason': ('Kaynaklar aynı olgu için farklı değer taşıyor.' if status == 'conflict'
+            else 'Kaynaklar çelişmiyor; farklı ifadeler aynı olguyu anlatıyor olabilir.' if status == 'agreement'
+            else 'Karşılaştırılacak yapılandırılmış iddia yok.'),
+            'sources': deepcopy(sources), 'claim_count': len(distinct_values),
+            'needs_review': status == 'conflict', 'comparisons': comparisons}
+
+
+def verify_conflict(query: str, comparison: dict, *, search, extract, read_value=None, max_extra: int = 1) -> dict:
+    """Bounded extra verification for a genuine conflict, reusing the keyless search/extract flow.
+
+    Reads at most ``max_extra`` independent sources. Resolves only when every independent source
+    confirms the same single disputed value; otherwise leaves the conflict explicitly unresolved and
+    never picks a side. No-op for non-conflict comparisons (agreement must not trigger any network).
+    """
+    base = deepcopy(comparison)
+    if base.get('status') != 'conflict':
+        return base
+    disputed = {canon for group in base.get('comparisons', []) if group.get('conflict') for canon in group['values']}
+    reader = read_value or (lambda source: _numbers(_norm(source.get('text') if isinstance(source, dict) else '')))
+    used = {row.get('url') for row in base.get('sources', []) if isinstance(row, dict) and row.get('url')}
+    candidates = [row for row in (search(query) or []) if isinstance(row, dict) and row.get('url') and row['url'] not in used]
+    candidates = candidates[:max(0, max_extra)]
+    if not candidates:
+        return {**base, 'status': 'unresolved_conflict', 'needs_review': True, 'supported': None,
+                'verification': {'performed': True, 'independent_sources': 0,
+                                 'reason': 'Bağımsız ek kaynak bulunamadı; çelişki taraf seçilmeden açık bırakıldı.'}}
+    votes: list[str] = []
+    supporting: list[str] = []
+    ambiguous = False
+    for candidate in candidates:
+        source = extract(candidate['url'])
+        hits = [canon for canon in (reader(source) or []) if canon in disputed]
+        if len(set(hits)) != 1:
+            ambiguous = True
+            continue
+        votes.append(hits[0])
+        supporting.append(candidate['url'])
+    if ambiguous or not votes or len(set(votes)) != 1 or len(disputed) != 2:
+        return {**base, 'status': 'unresolved_conflict', 'needs_review': True, 'supported': None,
+                'verification': {'performed': True, 'independent_sources': len(candidates),
+                                 'reason': 'Ek doğrulama çelişkiyi kesinleştirmedi; tek taraf nihai gerçek olarak seçilmedi.'}}
+    chosen = votes[0]
+    return {**base, 'status': 'resolved_conflict', 'needs_review': False,
+            'supported': {'value': _float_or_str(chosen), 'canon': chosen, 'urls': sorted(set(supporting))},
+            'verification': {'performed': True, 'independent_sources': len(candidates),
+                             'reason': 'Bağımsız kaynak çelişkili taraflardan birini doğruladı.'}}
 
 
 def format_citation(result: dict, number: int) -> str:

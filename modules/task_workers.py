@@ -270,10 +270,14 @@ def run(owner, task, dependencies):
         if not isinstance(text,str) or not text.strip():raise ValueError('Rapor boş; başarı sayılmadı.')
         if task.get('execution',{}).get('unavailable_sources') and not mails:
             text+=research_evidence.unavailable_footer(task['execution']['unavailable_sources'])
+        review=research_evidence.cross_source_review(dependencies)
+        if review:text+=review['text']
         root=Path(nxapi.FILES_DIR)/'Jarvis Görevler'/owner; root.mkdir(parents=True,exist_ok=True)
         path=root/(uuid.uuid4().hex[:8]+'-'+filename); path.write_text(text,encoding='utf-8')
         if path.read_text(encoding='utf-8')!=text: raise OSError('Rapor doğrulanamadı.')
-        return {'state':'done','text':text,'file':str(path),'verified':True,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),**({'news_report_evidence':{'sources':dependencies,'unavailable':task.get('execution',{}).get('unavailable_sources',[])}} if news_report else {})}
+        return {'state':'done','text':text,'file':str(path),'verified':True,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                **({'news_report_evidence':{'sources':dependencies,'unavailable':task.get('execution',{}).get('unavailable_sources',[])}} if news_report else {}),
+                **({'source_conflict':review['status']} if review else {})}
     if kind=='verify':
         if not dependencies: raise ValueError('Doğrulanacak bağımlı görev yok.')
         checks={}
