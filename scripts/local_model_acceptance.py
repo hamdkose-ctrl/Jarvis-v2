@@ -92,7 +92,7 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
                     options: sel ? [...sel.options].map(o=>o.value).filter(Boolean) : [],
                     legacyInput: !!document.querySelector('#om'),
                     legacySave: !!document.querySelector('[data-act="omsave"]'),
-                    warning: document.body.innerText.includes('Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.'),
+                    warning: !!document.querySelector('[data-local-model-warning]'),
                     panelScript: [...document.scripts].some(s=>s.src.endsWith('/local-model-panel.js')),
                 };
             }""")
@@ -124,7 +124,7 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
         if EXPECTED_STALE in observed.get("options", []):
             return False, "stale llama3.2 canlı dropdown seçeneğinde görünüyor"
         if status.get("local_model_stale") and not observed.get("warning"):
-            return False, "stale preference bilgi metni canlı DOM'da görünmedi"
+            return False, "stale preference bilgi işareti canlı DOM'da görünmedi"
         return True, f"active={observed['active']}; options={','.join(observed['options'])}; legacy_input=false"
     except Exception as exc:
         detail = f"gerçek browser UI acceptance başarısız: {type(exc).__name__}: {str(exc)[:180]}"
