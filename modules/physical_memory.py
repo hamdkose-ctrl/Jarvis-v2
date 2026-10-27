@@ -61,6 +61,29 @@ def _find(rows: list[dict], object_id: str):
     return next((row for row in rows if isinstance(row, dict) and row.get("object_id") == object_id), None)
 
 
+def _fact_text(row: dict) -> str:
+    label = _text(row.get("label"), "label", max_len=240, required=True)
+    location = _text(row.get("location"), "location", max_len=240)
+    text = f"Fiziksel nesne: {label}"
+    if location:
+        text += f"; son bilinen konum: {location}"
+    if row.get("status") == "location_unknown":
+        text += "; güncel konum doğrulanmadı"
+    return text
+
+
+def _sync_fact(profile, row: dict) -> None:
+    """Reuse the existing approved-facts relevance gate; never create a second prompt path."""
+    facts = profile.data.setdefault("facts", [])
+    old = row.get("fact_text")
+    new = _fact_text(row)
+    if old and old in facts:
+        facts[facts.index(old)] = new
+    elif new not in facts:
+        facts.append(new)
+    row["fact_text"] = new
+
+
 def _base_candidate(*, object_id, label, location, source_device, confidence, source, evidence_ref,
                     observed_at, evidence_text="") -> dict:
     when = _text(observed_at or _now(), "observed_at", max_len=80, required=True)
@@ -115,6 +138,7 @@ def observe(profile, *, object_id: str, label: str, location: str = "", source_d
                 existing["label"] = candidate["label"]
                 existing["location"] = candidate["location"]
                 existing["observed_at"] = candidate["observed_at"]
+            _sync_fact(profile, existing)
             profile.save()
             return deepcopy(existing)
 
@@ -161,6 +185,7 @@ def confirm(profile, object_id: str) -> dict:
         candidates[:] = [x for x in candidates if not (isinstance(x, dict) and x.get("object_id") == oid)]
         if len(objects) > _MAX_OBJECTS:
             del objects[:-_MAX_OBJECTS]
+        _sync_fact(profile, row)
         profile.save()
         return deepcopy(row)
 
@@ -179,6 +204,7 @@ def correct(profile, object_id: str, *, label: str | None = None, location: str 
         row["manually_corrected"] = True
         row["manual_corrected_at"] = _now()
         row["status"] = "confirmed"
+        _sync_fact(profile, row)
         profile.save()
         return deepcopy(row)
 
@@ -195,6 +221,7 @@ def mark_not_seen(profile, *, source_device: str, seen_object_ids: list[str], ob
                 continue
             row["status"] = "location_unknown"
             row["not_seen_at"] = when
+            _sync_fact(profile, row)
             changed += 1
         if changed:
             profile.save()
@@ -207,21 +234,9 @@ def get(profile, object_id: str) -> dict | None:
     return deepcopy(row) if row is not None else None
 
 
+def candidates(profile) -> list[dict]:
+    return [deepcopy(x) for x in _rows(profile, _CANDIDATES) if isinstance(x, dict)]
+
+
 def confirmed(profile) -> list[dict]:
     return [deepcopy(x) for x in _rows(profile, _OBJECTS) if isinstance(x, dict) and x.get("user_confirmed")]
-
-
-def context_items(profile) -> list[str]:
-    """Return confirmed object-memory text only; caller still applies relevance gate."""
-    out = []
-    for row in confirmed(profile):
-        label = _text(row.get("label"), "label", max_len=240)
-        if not label:
-            continue
-        location = _text(row.get("location"), "location", max_len=240)
-        status = row.get("status") or "confirmed"
-        suffix = f"; son bilinen konum: {location}" if location else ""
-        if status == "location_unknown":
-            suffix += "; güncel konum doğrulanmadı"
-        out.append(f"Fiziksel nesne: {label}{suffix}")
-    return out
