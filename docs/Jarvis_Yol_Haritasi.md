@@ -172,6 +172,8 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 🟡 (#378) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
 
+- 🟡 F-002 PR 1: doğrulanmış fiyat, kaynak kanıtı, freshness ve en az iki OHLCV mumu varsa mevcut Finance worker üzerinden salt-okunur yapılandırılmış giriş/stop/hedef taslağı üretilir. Seviye yöntemi yalnız son iki mumun gözlenen aralığıdır; veri eksik veya stale ise plan `incomplete` döner ve sayı uydurmaz. Pozisyon boyutu, PASS/BLOCK, kullanıcı onayı, broker ve emir yürütme kapsam dışıdır. PR kabulü bekleniyor; Faz 4E hâlâ 🟡.
+
 - Günlük fiyat serisi (OHLCV), hisse karşılaştırma ve veri tazelik kontrolü tüm kaynaklara yayılacak. Kaynaklar yalnız TCMB, Frankfurter, CoinGecko Demo, BtcTurk ve yedekli Yahoo. Şu an anlık fiyat var, seri yok.
 - Portföy analizi, risk ve varsayım açıklaması, finans kanıt paketi, ticker arama, DCF, benzer şirket ve LBO becerileri ve finans araştırma ajanı eklenecek. Şu an izleme listesi ve alarm var. Yatırım tavsiyesi verilmez.
 

@@ -42,6 +42,54 @@ class FinanceReadonlyTests(unittest.TestCase):
         with self.assertRaises(finance.FinanceReadonlyError):
             finance.validate_ticker("../../bad")
 
+    def test_trade_plan_uses_fresh_evidenced_prices_and_observed_range(self):
+        now = datetime(2026, 10, 27, 10, tzinfo=timezone.utc)
+        plan = finance.trade_plan_draft({
+            "ticker": "THYAO", "current_price": "105", "price_observed_at": now.isoformat(),
+            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": now.isoformat()}],
+            "candles": [
+                {"date": "2026-10-25T10:00:00+00:00", "open": "100", "high": "108", "low": "96", "close": "104", "volume": "10"},
+                {"date": "2026-10-26T10:00:00+00:00", "open": "104", "high": "112", "low": "99", "close": "106", "volume": "11"},
+            ],
+        }, now=now)
+        self.assertEqual(plan["state"], "ready")
+        self.assertEqual(plan["ticker"], "THYAO")
+        self.assertEqual(plan["used_price"], Decimal("105"))
+        self.assertEqual(plan["entry_zone"], {"low": Decimal("99"), "high": Decimal("106")})
+        self.assertEqual(plan["stop"], Decimal("96"))
+        self.assertEqual(plan["targets"], [Decimal("112")])
+        self.assertEqual(plan["method"], "son iki doğrulanmış mumun gözlenen aralığı")
+        self.assertEqual(plan["evidence"][0]["source"], "Yahoo Finance")
+        self.assertTrue(plan["assumptions"])
+
+    def test_trade_plan_never_invents_levels_when_evidence_or_freshness_is_missing(self):
+        now = datetime(2026, 10, 27, 10, tzinfo=timezone.utc)
+        missing = finance.trade_plan_draft({"ticker": "THYAO"}, now=now)
+        self.assertEqual(missing["state"], "incomplete")
+        self.assertIsNone(missing["stop"])
+        self.assertEqual(missing["targets"], [])
+        self.assertTrue(missing["missing_data"])
+        stale = finance.trade_plan_draft({
+            "ticker": "THYAO", "current_price": "105", "price_observed_at": "2026-10-20T10:00:00+00:00",
+            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": "2026-10-20T10:00:00+00:00"}],
+            "candles": [{"date": "2026-10-20T10:00:00+00:00", "open": "100", "high": "112", "low": "96", "close": "105", "volume": "1"}],
+        }, now=now)
+        self.assertEqual(stale["state"], "incomplete")
+        self.assertEqual(stale["freshness"]["state"], "stale")
+        self.assertIsNone(stale["entry_zone"])
+
+    def test_trade_plan_is_deterministic_and_read_only(self):
+        now = datetime(2026, 10, 27, 10, tzinfo=timezone.utc)
+        payload = {
+            "ticker": "THYAO", "current_price": "105", "price_observed_at": now.isoformat(),
+            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": now.isoformat()}],
+            "candles": [
+                {"date": "2026-10-25T10:00:00+00:00", "open": "100", "high": "108", "low": "96", "close": "104", "volume": "10"},
+                {"date": "2026-10-26T10:00:00+00:00", "open": "104", "high": "112", "low": "99", "close": "106", "volume": "11"},
+            ],
+        }
+        self.assertEqual(finance.trade_plan_draft(payload, now=now), finance.trade_plan_draft(payload, now=now))
+
 
 if __name__ == "__main__":
     unittest.main()
