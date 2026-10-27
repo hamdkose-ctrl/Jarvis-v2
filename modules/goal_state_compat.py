@@ -259,12 +259,47 @@ def operator_backfill_missing_canonical_once(
     return goal_state_store.create(path, _project(job, authority='legacy'))
 
 
+def operator_promote_legacy_authority_once(path) -> dict:
+    """Promote one aligned legacy-authority GoalState after explicit operator approval."""
+    path = Path(path)
+    current = goal_state_store.load(path)
+    if goal_state.authority(current) != 'legacy':
+        raise BackfillAlreadyExists('GoalState zaten canonical authority ile kayıtlı.')
+    next_state = core_state_reducer.apply(current, {
+        'expected_version': current['version'], 'op': 'set_authority',
+        'authority': 'canonical', 'reason_code': 'OPERATOR_CUTOVER_PROMOTED',
+    })
+    return goal_state_store.compare_and_swap(
+        path, expected_version=current['version'], next_state=next_state,
+    )
+
+
+def rollback_operator_promotion(path, *, expected_state: dict, previous_bytes: bytes) -> None:
+    """Undo a just-promoted authority transition only while its CAS state is current."""
+    expected_state = goal_state.validate(expected_state)
+    if goal_state.authority(expected_state) != 'canonical':
+        raise ReconcilePolicyError('Promotion rollback yalnız canonical authority kaydını geri alabilir.')
+    goal_state_store.compensate(
+        Path(path), expected_state=expected_state, previous_bytes=previous_bytes,
+    )
+
+
 def sync(job: dict, path) -> dict:
     path = Path(path)
     if not path.exists():
         state = project(job)
         return goal_state_store.create(path, state)
     current = goal_state_store.load(path)
+    # After operator promotion, legacy journal saves may still arrive from an
+    # already-running executor. They may refresh the separate ExecutionRecord,
+    # but must never drive canonical lifecycle state back through compat sync.
+    # Canonical-at-birth jobs keep the established sync contract; only the
+    # explicit operator promotion audit marks this one-way cutover boundary.
+    if (
+        goal_state.authority(current) == 'canonical'
+        and any(row['reason_code'] == 'OPERATOR_CUTOVER_PROMOTED' for row in current['audit'])
+    ):
+        return current
     next_state = advance(current, job)
     if next_state['version'] == current['version']:
         return current

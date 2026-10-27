@@ -77,10 +77,19 @@ def apply(current: dict, proposal: dict) -> dict:
         raise ValueError('Reducer expected_version geçersiz.')
     if expected != state['version']:
         raise StaleStateError('GoalState sürümü değişti; eski proposal uygulanmadı.')
-    if state['state'] in {'done', 'cancelled'}:
+    op = proposal.get('op')
+    if state['state'] in {'done', 'cancelled'} and op != 'set_authority':
         raise TerminalStateError('Terminal GoalState değiştirilemez.')
 
-    op = proposal.get('op')
+    if op == 'set_authority':
+        target = proposal.get('authority')
+        if goal_state.authority(state) != 'legacy' or target != 'canonical':
+            raise InvalidTransitionError('GoalState authority yalnız legacy’den canonical’a geçirilebilir.')
+        reason = _reason(proposal)
+        next_state = copy.deepcopy(state)
+        next_state['authority'] = 'canonical'
+        return _audit(next_state, op=op, reason_code=reason)
+
     if op == 'set_state':
         target = proposal.get('state')
         if target not in goal_state.STATES:
