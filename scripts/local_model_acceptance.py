@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import shutil
-import subprocess
+import threading
 from types import SimpleNamespace
 
 EXPECTED_STALE = "llama3.2"
@@ -32,30 +30,87 @@ def contract_errors(status: dict) -> list[str]:
     return errors
 
 
-def _render_check(root: Path, status: dict) -> tuple[bool, str]:
-    node = shutil.which("node") or shutil.which("node.exe")
-    if not node:
-        return False, "Node.js bulunamadı; production UI render acceptance çalışmadı."
-    env = os.environ.copy()
-    env["JARVIS_LOCAL_MODEL_STATUS_JSON"] = json.dumps(status, ensure_ascii=False)
-    proc = subprocess.run(
-        [node, "tests/ai_page_behavior.js"],
-        cwd=str(root),
-        env=env,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=30,
-    )
-    tail = "\n".join((proc.stdout or "").splitlines()[-20:])
-    marker = "canlı nx.html script zincirinde canonical status ile production render geçti."
-    return proc.returncode == 0 and marker in (proc.stdout or ""), tail
+def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
+    """Gerçek nx.html'yi gerçek Jarvis HTTP sunucusunda Chromium ile açıp DOM'u doğrula."""
+    try:
+        from playwright.sync_api import sync_playwright
+        import web
+    except Exception as exc:
+        return False, f"browser acceptance bağımlılığı yok: {type(exc).__name__}"
+
+    expected_installed = [str(x) for x in status.get("local_installed_models") or []]
+    srv = None
+    browser = None
+    errors: list[str] = []
+    try:
+        web._fonts_ready.set()
+        srv, url = web.serve(port=0)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1594, "height": 900})
+            page.on("pageerror", lambda exc: errors.append(str(exc)[:240]))
+            page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            page.wait_for_function("typeof S !== 'undefined' && !!S.snap", timeout=15_000)
+            page.evaluate("S.sset='ai'; go('settings')")
+            page.wait_for_timeout(800)
+            page.evaluate("SX.aiSel='ollama'; if(settingsOpen()) drawSettings()")
+            page.wait_for_selector("#local-model-select", timeout=15_000)
+            page.wait_for_function(
+                "document.querySelector('#local-model-select') && "
+                "document.querySelector('#local-model-select').options.length > 0 && "
+                "document.body.innerText.includes('Aktif Model')",
+                timeout=15_000,
+            )
+            page.wait_for_timeout(500)
+            observed = page.evaluate("""() => {
+                const row=[...document.querySelectorAll('.srow2')].find(x=>x.querySelector('b')?.textContent.trim()==='Aktif Model');
+                const sel=document.querySelector('#local-model-select');
+                return {
+                    active: row?.querySelector('small')?.textContent.trim() || '',
+                    options: sel ? [...sel.options].map(o=>o.value).filter(Boolean) : [],
+                    legacyInput: !!document.querySelector('#om'),
+                    legacySave: !!document.querySelector('[data-act="omsave"]'),
+                    warning: document.body.innerText.includes('Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.'),
+                    panelScript: [...document.scripts].some(s=>s.src.endsWith('/local-model-panel.js')),
+                };
+            }""")
+            browser.close()
+            browser = None
+
+        if errors:
+            return False, "browser JS hatası: " + errors[0]
+        if not observed.get("panelScript"):
+            return False, "local-model-panel.js canlı nx.html tarafından yüklenmedi"
+        if observed.get("legacyInput") or observed.get("legacySave"):
+            return False, "legacy serbest model input/save canlı DOM'da kaldı"
+        if observed.get("active") != EXPECTED_EFFECTIVE:
+            return False, f"canlı Aktif Model yanlış: {observed.get('active')!r}"
+        if observed.get("options") != expected_installed:
+            return False, f"canlı dropdown backend listesiyle aynı değil: {observed.get('options')!r}"
+        if EXPECTED_STALE in observed.get("options", []):
+            return False, "stale llama3.2 canlı dropdown seçeneğinde görünüyor"
+        if status.get("local_model_stale") and not observed.get("warning"):
+            return False, "stale preference bilgi metni canlı DOM'da görünmedi"
+        return True, f"active={observed['active']}; options={','.join(observed['options'])}; legacy_input=false"
+    except Exception as exc:
+        return False, f"gerçek browser UI acceptance başarısız: {type(exc).__name__}: {str(exc)[:180]}"
+    finally:
+        try:
+            if browser is not None:
+                browser.close()
+        except Exception:
+            pass
+        try:
+            if srv is not None:
+                srv.shutdown()
+                srv.server_close()
+        except Exception:
+            pass
 
 
 def run(root: Path | None = None) -> dict:
-    """Gerçek PC'de stale Ollama preference -> installed effective model + UI + inference kabulü."""
+    """Gerçek PC'de stale Ollama preference -> browser UI + installed effective model + inference kabulü."""
     root = Path(root or Path(__file__).resolve().parents[1])
     from modules import llm, personalization
     from web_models import WebModels
@@ -70,9 +125,9 @@ def run(root: Path | None = None) -> dict:
         if errors:
             return {"state": "failed", "detail": "; ".join(errors)}
 
-        render_ok, render_tail = _render_check(root, status)
-        if not render_ok:
-            return {"state": "failed", "detail": "production model panel render başarısız", "render_tail": render_tail}
+        browser_ok, browser_detail = _browser_check(root, status)
+        if not browser_ok:
+            return {"state": "failed", "detail": browser_detail}
 
         llm.take_route()
         try:
@@ -96,8 +151,8 @@ def run(root: Path | None = None) -> dict:
         return {
             "state": "passed",
             "detail": (
-                f"saved={EXPECTED_STALE}; effective={EXPECTED_EFFECTIVE}; "
-                f"installed={','.join(installed)}; production_render=passed; inference=passed"
+                f"saved={EXPECTED_STALE}; effective={EXPECTED_EFFECTIVE}; installed={','.join(installed)}; "
+                f"browser_ui=passed ({browser_detail}); inference=passed"
             ),
         }
     finally:
