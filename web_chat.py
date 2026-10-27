@@ -87,6 +87,11 @@ class WebChat:
         from modules import camera_bridge
         return camera_bridge.latest(self._runtime._p().slug, device_id, max_age=float(max_age))
 
+    def gesture_sample(self, device_id: str, gesture: str) -> dict | None:
+        """Yerelde sınıflandırılmış gesture örneğini normalize eder; eylem yürütmez."""
+        import gesture_adapter
+        return gesture_adapter.sample(self._runtime._p().slug, device_id, gesture)
+
     def activity_clear(self) -> bool:
         """Canlı Aktivite geçmişini temizler; motorun normal loglarına dokunmaz."""
         runtime = self._runtime
