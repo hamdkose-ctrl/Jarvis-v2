@@ -62,6 +62,7 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
                 "typeof ACT !== 'undefined' && typeof ACT.localmodelsave === 'function'",
                 timeout=15_000,
             )
+            browser_status = page.evaluate("api('llm_status')")
 
             # Gerçek kullanıcı yolu: ana menüyü aç, ardından canlı nx.html'deki
             # Yapay zekâ menü eylemini tetikle. Eski go('settings') deep-link'i
@@ -100,12 +101,24 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
 
         if errors:
             return False, "browser JS hatası: " + errors[0]
+        browser_effective = str((browser_status or {}).get("local_effective_model") or "")
+        browser_installed = [str(x) for x in (browser_status or {}).get("local_installed_models") or []]
+        direct_effective = str(status.get("local_effective_model") or "")
+        if browser_effective != direct_effective or browser_installed != expected_installed:
+            return False, (
+                "browser llm_status direct backend contract ile farklı: "
+                f"direct_effective={direct_effective!r}; browser_effective={browser_effective!r}; "
+                f"direct_installed={expected_installed!r}; browser_installed={browser_installed!r}"
+            )
         if not observed.get("panelScript"):
             return False, "local-model-panel.js canlı nx.html tarafından yüklenmedi"
         if observed.get("legacyInput") or observed.get("legacySave"):
             return False, "legacy serbest model input/save canlı DOM'da kaldı"
         if observed.get("active") != EXPECTED_EFFECTIVE:
-            return False, f"canlı Aktif Model yanlış: {observed.get('active')!r}"
+            return False, (
+                f"canlı Aktif Model yanlış: {observed.get('active')!r}; "
+                f"browser_effective={browser_effective!r}; direct_effective={direct_effective!r}"
+            )
         if observed.get("options") != expected_installed:
             return False, f"canlı dropdown backend listesiyle aynı değil: {observed.get('options')!r}"
         if EXPECTED_STALE in observed.get("options", []):
