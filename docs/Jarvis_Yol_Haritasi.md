@@ -136,10 +136,11 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 #### Ek kabul kriterleri — Fable/Claude agent benchmark
 
-- **Tespit edildi — uygulama bekliyor: güncellik isteğini doğru yönlendirme.**
-  - **Kod kanıtı:** Uygulama PR'ında araştırma/worker yönlendirmesinde sorgunun güncellik ihtiyacını ayıran açık karar noktası ve bu kararı kilitleyen test gösterilecek.
-  - **Beklenen davranış:** "bugün", "son", "güncel", mevcut görev sahibi/fiyat/kural gibi değişken bilgi isteyen sorgu taze kaynağa yönlenecek; durağan bilgi gereksiz web aramasına zorlanmayacak.
-  - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu verildiğinde güncel olan doğrulanmış taze kaynak aramasına giderken durağan olanın gereksiz ağ çağrısı yapmadığı kanıtlanacak.
+- **Kısmen uygulandı (PR #424): güncellik isteğini doğru yönlendirme.**
+  - **Kod kanıtı:** `modules/freshness.py:fresh_request` tek karar noktası; router (`_fresh_research_request`) ve `work_modes` (`fresh_external`) buradan beslenir. Tanım kalıbı ("nedir/ne demek/tarihçe") artık yalnız açık tazelik işareti yoksa statik der; `mevcut` ve `bugunku` tazelik işaretleri eklendi. Kararı kilitleyen test: `tests/test_freshness_rule.py::test_explicit_freshness_wins_over_definition_pattern` ve `tests/test_quota_routing.py::test_explicit_freshness_beats_definition_phrasing`.
+  - **Beklenen davranış:** "bugün/son/güncel/mevcut/şu an" gibi açık tazelik işareti + konu ("kur/dolar/haber/...") varsa sorgu taze kaynağa (`intent=task`) yönlener; tazelik işareti olmayan sade tanım ("Dolar nedir?", "NVIDIA nedir?") statik/chat kalır ve gereksiz web aramasına zorlanmaz. Kanıtlandı: `Bugünkü dolar kuru nedir?`→task, `Güncel altın fiyatı nedir?`→task; `Dolar nedir?`→chat.
+  - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu `test_explicit_freshness_wins_over_definition_pattern` ile assert ediliyor (güncel → taze route, durağan → chat, ağ çağrısı yok).
+  - **Kalan:** "kural" gibi değişken-bilgi konuları freshness konu listesinde henüz yok; taze kaynak aramasının canlı kanıtı (gerçek yayıncı okuması) bu PR kapsamında ölçülmedi — routing kararı ve statik/taze ayrımı birim düzeyinde doğrulandı.
 - **Tespit edildi — uygulama bekliyor: kaynak çelişkisinde ek doğrulama.**
   - **Kod kanıtı:** Uygulama PR'ında kaynak sıralama/karşılaştırma yolunun çelişkiyi algıladığında ek bir doğrulama adımı çalıştırdığı ve sonucu evidence zincirine eklediği gösterilecek.
   - **Beklenen davranış:** Güvenilir iki kaynak aynı olgu için çelişirse Jarvis ilk sonucu sessizce seçmeyecek; ek kaynak veya birincil kaynakla doğrulama yapacak, çözülemeyen çelişkiyi açık bırakacak.

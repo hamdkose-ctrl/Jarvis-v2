@@ -32,6 +32,21 @@ class FreshnessRuleTests(unittest.TestCase):
                 self.assertFalse(router._fresh_research_request(text))
                 self.assertTrue(work_modes.fresh_external(text))
 
+    def test_explicit_freshness_wins_over_definition_pattern(self):
+        # Açık güncellik işareti "nedir" gibi tanım kalıbıyla iptal edilmemeli;
+        # taze işaret olmayan sade tanım soruları ise statik kalmalı.
+        static = ["dolar nedir", "kur nedir", "nvidia nedir", "altın nedir"]
+        fresh = ["bugünkü dolar kuru nedir", "güncel altın fiyatı nedir",
+                 "son nvidia haberi nedir", "mevcut altın fiyatı nedir", "şu an dolar kuru nedir"]
+        for text in static:
+            with self.subTest(static=text):
+                self.assertFalse(router._fresh_research_request(text))
+                self.assertFalse(work_modes.fresh_external(text))
+        for text in fresh:
+            with self.subTest(fresh=text):
+                self.assertTrue(router._fresh_research_request(text))
+                self.assertTrue(work_modes.fresh_external(text))
+
 
 if __name__ == '__main__':
     unittest.main()
