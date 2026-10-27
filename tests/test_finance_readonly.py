@@ -69,6 +69,7 @@ class FinanceReadonlyTests(unittest.TestCase):
         self.assertIsNone(missing["stop"])
         self.assertEqual(missing["targets"], [])
         self.assertTrue(missing["missing_data"])
+
         stale = finance.trade_plan_draft({
             "ticker": "THYAO", "current_price": "105", "price_observed_at": "2026-10-20T10:00:00+00:00",
             "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": "2026-10-20T10:00:00+00:00"}],
@@ -89,6 +90,33 @@ class FinanceReadonlyTests(unittest.TestCase):
             ],
         }
         self.assertEqual(finance.trade_plan_draft(payload, now=now), finance.trade_plan_draft(payload, now=now))
+
+    def test_trade_plan_risk_checklist_reports_observations_without_pass_block(self):
+        plan = {
+            "state": "incomplete", "ticker": "THYAO", "freshness": {"state": "stale"},
+            "stop": None, "targets": [], "risk_reward": None,
+            "missing_data": ["güncel fiyat tazeliği", "doğrulanmış kaynak kanıtı"],
+        }
+        checklist = finance.trade_plan_risk_checklist(plan)
+        self.assertEqual(checklist["state"], "observed")
+        self.assertEqual(checklist["ticker"], "THYAO")
+        self.assertEqual([item["code"] for item in checklist["observations"]], [
+            "STALE_DATA", "STOP_UNAVAILABLE", "TARGET_UNAVAILABLE", "RISK_REWARD_UNAVAILABLE",
+            "MISSING_EVIDENCE",
+        ])
+        self.assertNotIn("pass", checklist)
+        self.assertNotIn("block", checklist)
+        self.assertTrue(checklist["assumptions"])
+
+    def test_trade_plan_risk_checklist_is_deterministic_for_ready_plan(self):
+        plan = {
+            "state": "ready", "ticker": "THYAO", "freshness": {"state": "fresh"},
+            "stop": Decimal("96"), "targets": [Decimal("112")], "risk_reward": Decimal("1.5"),
+            "missing_data": [],
+        }
+        first = finance.trade_plan_risk_checklist(plan)
+        self.assertEqual(first, finance.trade_plan_risk_checklist(plan))
+        self.assertEqual(first["observations"], [])
 
 
 if __name__ == "__main__":

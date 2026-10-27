@@ -43,6 +43,16 @@ class Phase4FinanceReadonlyWiringTests(unittest.TestCase):
         self.assertNotIn("order", result["analysis"])
         self.assertNotIn("position_size", result["analysis"])
 
+    def test_finance_worker_returns_observation_only_risk_checklist(self):
+        plan = {"ticker": "THYAO", "freshness": {"state": "stale"}, "stop": None,
+                "targets": [], "risk_reward": None, "missing_data": ["kanıt"]}
+        result = task_workers.run("alice", {"id": "finance-risk", "agent": "finance",
+            "input": {"operation": "trade_plan_risk_checklist", "payload": json.dumps(plan)}, "execution": {}}, {})
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(result["analysis"]["state"], "observed")
+        self.assertNotIn("pass", result["analysis"])
+        self.assertNotIn("block", result["analysis"])
+
 
 if __name__ == "__main__":
     unittest.main()
