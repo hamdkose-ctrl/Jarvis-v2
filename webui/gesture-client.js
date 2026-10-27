@@ -14,5 +14,10 @@
     return root.api('gesture_sample',device,label);
   }
 
-  root.JarvisGestureInput=Object.freeze({sample});
+  async function landmarks(deviceId,points){
+    if(!root.JarvisGestureClassifier||typeof root.JarvisGestureClassifier.classify!=='function')throw new Error('Jarvis gesture classifier hazır değil.');
+    return sample(deviceId,root.JarvisGestureClassifier.classify(points));
+  }
+
+  root.JarvisGestureInput=Object.freeze({sample,landmarks});
 })(globalThis);
