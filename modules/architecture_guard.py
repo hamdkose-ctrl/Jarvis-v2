@@ -33,6 +33,9 @@ _CREATE_ALLOWLIST = {
 
 _COMPENSATE_ALLOWLIST = {
     'modules/goal_state_save_hook.py',
+    # Operator-authorized authority-promotion rollback uses the same guarded
+    # CAS compensation primitive through the GoalState compatibility adapter.
+    'modules/goal_state_compat.py',
 }
 
 _DIRECT_EXECUTE_ALLOWLIST = {
