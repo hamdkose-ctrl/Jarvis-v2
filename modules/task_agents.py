@@ -32,15 +32,16 @@ WORKER_CATALOG = {
     'account': 'Gmail metni, Telegram bot güncellemeleri, YouTube kanal ve Instagram profesyonel hesap istatistikleri; salt okuma.',
     'research': 'Gerçek web kaynağını okuyup kaynaklı yanıt üretir.',
     'finance': 'Yalnız verilen veriyle finans analizi yapar; yatırım tavsiyesi veya işlem yapmaz.',
+    'computer': 'Açık Hesap Makinesi/Not Defteri penceresini yalnız gözlemler; açmaz, tıklamaz, yazmaz.',
     'writer': 'Önceki çıktılardan Markdown raporu kaydeder; içerik özetiyle doğrular.',
     'browser': 'Gerçek tarayıcıyı kullanır; dış işlemler somut plan onayı bekler.',
     'coder': 'Parolalı geliştirme alanında taslak ve test üretir; doğrudan uygulamaz.',
     'verify': 'Önceki sonuç durumunu ve dosya bütünlüğünü denetler; içerik doğruluğunu garanti etmez.',
 }
 _WORKERS = set(task_tools.CATALOG)
-_SYSTEM = '''Jarvis görev planlayıcısısın. Yalnız JSON ver: {"tasks":[{"id":"a","agent":"research|file|finance|writer|browser|coder|verify|account|publish|media","depends":[],"input":{}}]}.
+_SYSTEM = '''Jarvis görev planlayıcısısın. Yalnız JSON ver: {"tasks":[{"id":"a","agent":"research|file|finance|computer|writer|browser|coder|verify|account|publish|media","depends":[],"input":{}}]}.
 En çok 8 görev, bağımlılıklar önceki görev kimlikleri. research input tam olarak bir kaynak seçer: {"url":"https://...","question":"..."} gerçek verilen sayfayı okur; URL yoksa yalnız genel/tanım araştırması için {"query":"...","question":"..."} salt-okunur açık kaynak arar. Güncel haber araştırmasında query kullanma; doğrulanmış makale URL'si kullan.
-file input:{"path":"C:\\Users\\...\\dosya.pdf","operation":"extract_obligations"} yalnız izinli klasördeki PDF/Word/Excel/CSV/TXT/MD dosyasını okur, içerikten yükümlülük/tarih çıkarır; yazmaz, taşımaz, silmez.\nfinance input:{"operation":"portfolio_summary","payload":"[{\"ticker\":\"THYAO\",\"quantity\":\"2\",\"price\":\"100\",\"currency\":\"TRY\"}]"} yalnız kullanıcının verdiği veride OHLCV, hisse karşılaştırma, portföy özeti, DCF, benzer şirket veya LBO analizi yapar; veri çekmez, al/sat/ödeme önermez.\nwriter input:{"instruction":"...","filename":"rapor.md"} önceki çıktılardan Türkçe rapor yazar ve kaydeder.
+file input:{"path":"C:\\Users\\...\\dosya.pdf","operation":"extract_obligations"} yalnız izinli klasördeki PDF/Word/Excel/CSV/TXT/MD dosyasını okur, içerikten yükümlülük/tarih çıkarır; yazmaz, taşımaz, silmez.\ncomputer input:{"app":"calculator|notepad","operation":"observe|measure"} yalnız hâlihazırda açık pilot pencerenin redakte edilmiş UIA metadatasını gözlemler; pencere açmaz, tıklamaz veya yazmaz.\nfinance input:{"operation":"portfolio_summary","payload":"[{\"ticker\":\"THYAO\",\"quantity\":\"2\",\"price\":\"100\",\"currency\":\"TRY\"}]"} yalnız kullanıcının verdiği veride OHLCV, hisse karşılaştırma, portföy özeti, DCF, benzer şirket veya LBO analizi yapar; veri çekmez, al/sat/ödeme önermez.\nwriter input:{"instruction":"...","filename":"rapor.md"} önceki çıktılardan Türkçe rapor yazar ve kaydeder.
 browser input:{"url":"https://...","instruction":"...","mode":"readonly"} açıkça salt-okunur sayfa okuma/özet işinde yalnız goto/read kullanır; mode yoksa mevcut tarayıcı planı ve hassas işlem onayı geçerlidir.
 coder input:{"request":"..."} parolalı geliştirme modunda proje taslağı hazırlar, kodu doğrudan uygulamaz.
 verify input:{} önceki görev çıktılarının ve dosyaların varlığını doğrular. Kullanıcı görevi dışında işlem ekleme.
