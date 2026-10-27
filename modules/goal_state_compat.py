@@ -293,7 +293,12 @@ def sync(job: dict, path) -> dict:
     # After operator promotion, legacy journal saves may still arrive from an
     # already-running executor. They may refresh the separate ExecutionRecord,
     # but must never drive canonical lifecycle state back through compat sync.
-    if goal_state.authority(current) == 'canonical':
+    # Canonical-at-birth jobs keep the established sync contract; only the
+    # explicit operator promotion audit marks this one-way cutover boundary.
+    if (
+        goal_state.authority(current) == 'canonical'
+        and any(row['reason_code'] == 'OPERATOR_CUTOVER_PROMOTED' for row in current['audit'])
+    ):
         return current
     next_state = advance(current, job)
     if next_state['version'] == current['version']:
