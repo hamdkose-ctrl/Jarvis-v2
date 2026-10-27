@@ -63,11 +63,11 @@ class WebModels:
         effective = preference
         stale = False
         warning = ''
+        try:
+            effective = runtime.llm._ollama_effective_model(runtime.llm.provider_configuration())
+        except runtime.llm.LocalModelError:
+            effective = ''
         if backend == 'ollama':
-            try:
-                effective = runtime.llm._ollama_effective_model(runtime.llm.provider_configuration())
-            except runtime.llm.LocalModelError:
-                effective = ''
             stale = bool(preference and effective and preference not in installed)
             if stale:
                 warning = 'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.'
@@ -150,10 +150,9 @@ class WebModels:
         model = (model or '').strip()
         if provider == 'ollama':
             st = runtime.llm.status()
-            if (st.get('local_backend') or 'ollama') == 'ollama':
-                installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
-                if not model or model not in installed:
-                    return {'ok': False, 'msg': 'Yalnız bu bilgisayarda kurulu yerel modellerden biri seçilebilir.'}
+            installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
+            if not model or model not in installed:
+                return {'ok': False, 'msg': 'Yalnız seçili yerel backend üzerinde kurulu modellerden biri seçilebilir.'}
         try:
             runtime.llm.choose_model(p.slug, provider, model)
         except ValueError as e:
