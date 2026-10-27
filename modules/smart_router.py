@@ -15,6 +15,8 @@ _LOCK = threading.RLock()
 _HEALTH = {}
 _LAST = {}
 _STORE = DATA_DIR / 'router'
+_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'openrouter'})
+_EVIDENCE_MODELS_MAX = 32
 
 
 def owner_path(owner):
@@ -23,8 +25,25 @@ def owner_path(owner):
     return _STORE / (owner + '.json')
 
 
+def _safe_evidence_catalog(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for provider, models in value.items():
+        if provider not in _CLOUD_PROVIDERS or not isinstance(models, dict):
+            continue
+        safe_models = {}
+        for model, row in list(models.items())[:_EVIDENCE_MODELS_MAX]:
+            if not isinstance(model, str) or not model or len(model) > 120 or not isinstance(row, dict):
+                continue
+            safe_models[model] = dict(row)
+        if safe_models:
+            out[provider] = safe_models
+    return out
+
+
 def settings(owner):
-    defaults={'cloud_free_confirmed':False,'openrouter_model':'openrouter/free','key':''}
+    defaults={'cloud_free_confirmed':False,'openrouter_model':'openrouter/free','key':'','free_tier_evidence':{}}
     try:
         state=json.loads(owner_path(owner).read_text(encoding='utf-8'))
     except (OSError, ValueError):
@@ -34,7 +53,15 @@ def settings(owner):
     if not isinstance(model,str) or not (model=='openrouter/free' or model.endswith(':free')):
         model='openrouter/free'
     return {'cloud_free_confirmed':state.get('cloud_free_confirmed') is True,
-            'openrouter_model':model,'key':state.get('key') if isinstance(state.get('key'),str) else ''}
+            'openrouter_model':model,
+            'key':state.get('key') if isinstance(state.get('key'),str) else '',
+            'free_tier_evidence':_safe_evidence_catalog(state.get('free_tier_evidence'))}
+
+
+def _save_state(owner, state):
+    path = owner_path(owner); path.parent.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        tmp = path.with_suffix('.tmp'); tmp.write_text(json.dumps(state), encoding='utf-8'); tmp.replace(path)
 
 
 def configure(owner, cloud_free_confirmed=None, model=None, key=None):
@@ -53,10 +80,105 @@ def _configure(owner,cloud_free_confirmed=None,model=None,key=None):
         state['openrouter_model'] = model
     if key is not None:
         state['key'] = privacy.protect(key.strip()) if key.strip() else ''
-    path = owner_path(owner); path.parent.mkdir(parents=True, exist_ok=True)
-    with _LOCK:
-        tmp = path.with_suffix('.tmp'); tmp.write_text(json.dumps(state), encoding='utf-8'); tmp.replace(path)
+    _save_state(owner, state)
     return status(owner)
+
+
+def set_free_tier_evidence(owner, *, provider, model, free_tier_verified, source, evidence_ref,
+                           verified_at, ttl_seconds, eligibility, quota_state='unknown',
+                           quota_remaining=None, hard_stop_guaranteed=False,
+                           verification_status='unknown', reason=''):
+    """Store bounded provider/model free-tier evidence in the existing per-owner router state.
+
+    This function does not contact a provider and does not infer that a plan is free. The caller must
+    supply provenance. TTL expiry is checked lazily at routing time; stale evidence never auto-allows.
+    """
+    provider = str(provider or '').strip().casefold()
+    model = str(model or '').strip()
+    if provider not in _CLOUD_PROVIDERS:
+        raise ValueError('Free-tier evidence yalnız mevcut cloud sağlayıcıları için kaydedilebilir.')
+    if not model or len(model) > 120:
+        raise ValueError('Evidence model adı geçersiz.')
+    if not isinstance(source, str) or not source.strip() or len(source) > 120:
+        raise ValueError('Evidence kaynağı gerekli.')
+    if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 500:
+        raise ValueError('Evidence referansı gerekli.')
+    if type(verified_at) not in (int, float) or verified_at <= 0:
+        raise ValueError('verified_at geçersiz.')
+    if type(ttl_seconds) not in (int, float) or ttl_seconds <= 0 or ttl_seconds > 31 * 86400:
+        raise ValueError('Evidence TTL geçersiz.')
+    if eligibility not in {'eligible', 'not_eligible', 'unknown'}:
+        raise ValueError('Evidence eligibility geçersiz.')
+    if quota_state not in {'available', 'exhausted', 'not_reported', 'unknown'}:
+        raise ValueError('Evidence quota_state geçersiz.')
+    if quota_remaining is not None and (type(quota_remaining) not in (int, float) or quota_remaining < 0):
+        raise ValueError('Evidence quota_remaining geçersiz.')
+    if type(hard_stop_guaranteed) is not bool or type(free_tier_verified) is not bool:
+        raise ValueError('Evidence boolean alanı geçersiz.')
+    if verification_status not in {'verified', 'unknown', 'rejected'}:
+        raise ValueError('Evidence verification_status geçersiz.')
+    if not isinstance(reason, str):
+        raise ValueError('Evidence reason geçersiz.')
+    row = {
+        'provider': provider,
+        'model': model,
+        'free_tier_verified': free_tier_verified,
+        'source': source.strip(),
+        'evidence_ref': evidence_ref.strip(),
+        'verified_at': float(verified_at),
+        'expires_at': float(verified_at + ttl_seconds),
+        'ttl_seconds': float(ttl_seconds),
+        'eligibility': eligibility,
+        'quota_state': quota_state,
+        'quota_remaining': quota_remaining,
+        'hard_stop_guaranteed': hard_stop_guaranteed,
+        'verification_status': verification_status,
+        'reason': reason.strip()[:300],
+    }
+    with _LOCK:
+        state = settings(owner)
+        catalog = _safe_evidence_catalog(state.get('free_tier_evidence'))
+        catalog.setdefault(provider, {})[model] = row
+        state['free_tier_evidence'] = catalog
+        _save_state(owner, state)
+    return dict(row)
+
+
+def free_tier_evidence(owner, provider, model):
+    state = settings(owner)
+    row = state.get('free_tier_evidence', {}).get(provider, {}).get(model)
+    return dict(row) if isinstance(row, dict) else None
+
+
+def _evidence_gate(owner, provider, model, *, now=None):
+    """Strict zero-cost gate. UNKNOWN is never ALLOW."""
+    row = free_tier_evidence(owner, provider, model)
+    if not row or row.get('free_tier_verified') is not True or row.get('verification_status') != 'verified' \
+            or not row.get('source') or not row.get('evidence_ref'):
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_MISSING',
+                'reason':'Geçerli ücretsiz katman kanıtı yok; yeniden doğrulama gerekli.'}
+    verified_at, expires_at = row.get('verified_at'), row.get('expires_at')
+    if type(verified_at) not in (int, float) or type(expires_at) not in (int, float):
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_MISSING',
+                'reason':'Ücretsiz katman kanıtının doğrulama zamanı eksik.'}
+    if expires_at <= (time.time() if now is None else now):
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_EVIDENCE_STALE',
+                'reason':'Ücretsiz katman kanıtının süresi geçmiş; yeniden doğrulama gerekli.'}
+    if row.get('eligibility') != 'eligible':
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_NOT_ELIGIBLE',
+                'reason':'Bu kullanıcı/model doğrulanmış ücretsiz katman için uygun değil veya uygunluğu bilinmiyor.'}
+    if row.get('hard_stop_guaranteed') is not True:
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_HARD_STOP_UNVERIFIED',
+                'reason':'Kota bitince ücretlendirmeyi engelleyen hard-stop kanıtı doğrulanmamış.'}
+    quota_state = row.get('quota_state')
+    remaining = row.get('quota_remaining')
+    if quota_state == 'exhausted' or remaining == 0:
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_QUOTA_EXHAUSTED',
+                'reason':'Doğrulanmış ücretsiz kota tükenmiş; sıradaki ücretsiz rota denenmeli.'}
+    if quota_state not in {'available', 'not_reported'}:
+        return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_QUOTA_UNKNOWN',
+                'reason':'Ücretsiz kota durumu bilinmiyor; strict zero-cost modunda yeniden doğrulama gerekli.'}
+    return {'ok':True,'reason_code':None,'reason':'Doğrulanmış ücretsiz katman evidence geçerli.','evidence':row}
 
 
 def api_key(owner):
@@ -76,25 +198,42 @@ def task_type(prompt, image=False):
     return 'chat'
 
 
+def _skip(provider, reason, reason_code, seconds=0, model=''):
+    row = {'provider':provider,'reason':reason,'reason_code':reason_code,'seconds':seconds}
+    if model:
+        row['model'] = model
+    return row
+
+
 def selection(owner,task):
     from modules import llm
     if privacy.mode()=='yerel':
-        return {'candidates':['ollama'],'skipped':[{'provider':p,'reason':'Yerel modda bulut kapalı','seconds':0} for p in ('gemini','groq')]}
+        return {'candidates':['ollama'],'skipped':[
+            _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq')]}
     state=settings(owner)
     orders={'vision':['gemini','ollama'],'code':['gemini','groq','ollama'],
             'analysis':['gemini','groq','ollama'],'chat':['groq','gemini','ollama']}
-    selected=[];skipped=[];local=privacy.mode()=='yerel'
+    models={'gemini':llm.active_model(owner),'groq':llm.groq_model()}
+    selected=[];skipped=[]
     for provider in ('gemini','groq','ollama'):
-        reason=None;seconds=0
-        if local and provider!='ollama':reason='Yerel modda bulut kapalı'
-        elif provider not in orders[task]:reason='Bu görev türü desteklenmiyor'
-        elif provider!='ollama' and not state.get('cloud_free_confirmed'):reason='Ücretsiz hesap onayı yok'
-        elif provider=='gemini' and not llm.user_key(owner):reason='Bu kullanıcı için API anahtarı eksik'
-        elif provider=='groq' and not llm.user_groq_key(owner):reason='Bu kullanıcı için API anahtarı eksik'
-        else:
+        reason=None;reason_code=None;seconds=0;model=models.get(provider,'')
+        if provider not in orders[task]:
+            reason='Bu görev türü desteklenmiyor';reason_code='PROVIDER_TASK_UNSUPPORTED'
+        elif provider!='ollama' and not state.get('cloud_free_confirmed'):
+            reason='Ücretsiz hesap onayı yok';reason_code='PROVIDER_FREE_ACCOUNT_UNCONFIRMED'
+        elif provider=='gemini' and not llm.user_key(owner):
+            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
+        elif provider=='groq' and not llm.user_groq_key(owner):
+            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
+        elif provider!='ollama':
+            gate=_evidence_gate(owner,provider,model)
+            if not gate['ok']:
+                reason=gate['reason'];reason_code=gate['reason_code']
+        if reason is None:
             with _LOCK:seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
-            if seconds:reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede'
-        if reason:skipped.append({'provider':provider,'reason':reason,'seconds':seconds})
+            if seconds:
+                reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede';reason_code='PROVIDER_COOLDOWN'
+        if reason:skipped.append(_skip(provider,reason,reason_code,seconds,model))
         else:selected.append(provider)
     return {'candidates':[p for p in orders[task] if p in selected],'skipped':skipped}
 
@@ -154,14 +293,16 @@ def _free_emergency(owner, attempted):
     state=settings(owner)
     if not state.get('cloud_free_confirmed') or not api_key(owner):return False
     model=state.get('openrouter_model') or 'openrouter/free'
-    return model=='openrouter/free' or model.endswith(':free')
+    if model!='openrouter/free' and not model.endswith(':free'):return False
+    return _evidence_gate(owner,'openrouter',model)['ok']
 
 
 def run(owner, prompt, callback, image=False):
     task = task_type(prompt, image)
     attempts = []
-    selected=candidates(owner,task)
-    skipped=[row for row in selection(owner,task)['skipped'] if row['provider'] not in selected]
+    route = selection(owner,task)
+    selected=list(route['candidates'])
+    skipped=list(route['skipped'])
     providers=list(selected)
     if _free_emergency(owner,providers):providers.append('openrouter')
     for provider in providers:
@@ -193,13 +334,18 @@ def run(owner, prompt, callback, image=False):
         return answer
     with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts,'skipped':skipped}
     from modules import failure_policy
-    detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar ve bekleme durumunu router durumu ile kontrol et.'
+    detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar, free-tier evidence ve bekleme durumunu router durumu ile kontrol et.'
     omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
     message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
-    missing_key = not attempts and any('anahtarı eksik' in row.get('reason','') for row in skipped)
+    missing_key = not attempts and any(row.get('reason_code')=='PROVIDER_CONFIGURATION_REQUIRED' or 'anahtarı eksik' in row.get('reason','') for row in skipped)
+    evidence_code = next((row.get('reason_code') for row in skipped
+                          if str(row.get('reason_code','')).startswith('PROVIDER_FREE_TIER_')), None)
     if missing_key:
         raise failure_policy.ProviderExhaustedError(
             message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
+    if not attempts and evidence_code:
+        raise failure_policy.ProviderExhaustedError(
+            message, reason_code=evidence_code, recovery_class='user_action_required')
     raise failure_policy.ProviderExhaustedError(message)
 
 
@@ -241,35 +387,43 @@ def openrouter(owner, messages, system, max_tokens, image_path=None):
 
 def status(owner):
     state = settings(owner)
-    from modules import llm
+    from modules import llm, usage_meter
     with _LOCK:
         cooldowns={p:max(0,round(v['until']-time.monotonic())) for (u,p),v in _HEALTH.items() if u==owner and v['until']>time.monotonic()}
         last=_LAST.get(owner,{})
-    def cloud_policy(provider, has_key):
+    def cloud_policy(provider, model, has_key):
         if not state.get('cloud_free_confirmed'):
             return 'Ücretsiz hesap onayı gerekli'
         if not has_key:
             return 'Ücretsiz hesap onaylı; bu kullanıcı için API anahtarı eksik'
+        gate=_evidence_gate(owner,provider,model)
+        if not gate['ok']:
+            return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
         if provider in cooldowns:
-            return f'Ücretsiz hesap onaylı; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
-        return 'Ücretsiz hesap onaylı; otomatik seçimde kullanılabilir (canlı çağrı sınanmadı)'
+            return f'Kanıtlı ücretsiz rota; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
+        return 'Kanıtlı ücretsiz rota; evidence geçerli ve strict zero-cost seçimde kullanılabilir'
+    gemini_model=llm.active_model(owner)
+    groq_model=llm.groq_model()
+    openrouter_model=state.get('openrouter_model','openrouter/free')
     openrouter_policy=('Yerel modda kullanılmaz' if privacy.mode()=='yerel' else
-        cloud_policy('openrouter',bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
+        cloud_policy('openrouter',openrouter_model,bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
     table = [
-      {'provider':'gemini','model':llm.active_model(owner),'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',bool(llm.user_key(owner)))},
-      {'provider':'groq','model':llm.groq_model(),'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',bool(llm.user_groq_key(owner)))},
-      {'provider':'openrouter','model':state.get('openrouter_model','openrouter/free'),'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
+      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))},
+      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))},
+      {'provider':'openrouter','model':openrouter_model,'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
       {'provider':'ollama','model':llm.provider_configuration()['model'],'tasks':['chat','code','analysis'],'policy':'Yerel; görüntü için ayrıca vision modeli gerekir'},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     return {'key':bool(api_key(owner)), 'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
-            'model':state.get('openrouter_model','openrouter/free'),'capabilities':table,'last':last,'cooldowns':cooldowns}
+            'model':openrouter_model,'capabilities':table,'last':last,'cooldowns':cooldowns,
+            'free_tier_evidence':state.get('free_tier_evidence',{}),
+            'observed_limits':usage_meter.limits(owner)}
 
 
 def handle(owner, command):
     c = command.casefold().strip(' .!')
     if c in ('smart router aç','smart router\u2019ı aç','akıllı router aç','otomatik model seçimini aç'):
         from modules import llm
-        llm.set_provider('auto'); return 'Smart Router açık. Göreve uygun ücretsiz havuz kullanılıyor.'
+        llm.set_provider('auto'); return 'Smart Router açık. Göreve uygun kanıtlı ücretsiz havuz kullanılıyor.'
     if c in ('router durumu','model yetenekleri','smart router durumu'):
         s = status(owner)
         rows = ['| Sağlayıcı | Model | Görevler | Politika |','|---|---|---|---|']
