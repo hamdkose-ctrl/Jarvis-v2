@@ -3,7 +3,7 @@
 **Durum:** Aşama 0–4 kapanış denetimi  
 **Amaç:** Yeni kodun kabul edilmiş yürütme mimarisinden sapmasını PR aşamasında otomatik yakalamak.
 
-Bu belge `docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md` ve `docs/agents/gorev-cekirdegi.md` kararlarını otomatik denetim kurallarına indirger. Denetçi yeni planner, yeni state motoru veya yeni ürün davranışı icat etmez; yalnız mevcut sınırların ihlalini ve bilinen borçların durumunu raporlar.
+Bu belge `docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md`, `docs/architecture/JARVIS_UI_CORE_BOUNDARY.md` ve `docs/agents/gorev-cekirdegi.md` kararlarını otomatik denetim kurallarına indirger. Denetçi yeni planner, yeni state motoru veya yeni ürün davranışı icat etmez; yalnız mevcut sınırların ihlalini ve bilinen borçların durumunu raporlar.
 
 ## Sonuç seviyeleri
 
@@ -39,7 +39,7 @@ Domain invariant → Decision Authority → Permission → Effect Policy → Wor
 - Worker, model, UI, watcher veya event kaynağı canonical state'i doğrudan değiştiremez.
 - Stale/foreign sonuç state değiştiremez.
 
-Storage writer kuralları "tek writer / tek Core / tek Reducer" hedefini mekanik olarak destekler: yeni bir modülün kendi başına projection üretmesi, state'i overwrite etmesi veya başarısız yazımı kendi geri-yazması ile düzeltmesi PR aşamasında blocker olur. Bu, mimari ihlali estatık olarak kanıtlar; GoalState'in runtime davranışını (doğru state geçişi, race/stale sonucu, recovery doğruluğu) kanıtlamaz. O doğrulama ayrı runtime/acceptance testlerinin işidir.
+Storage writer kuralları "tek writer / tek Core / tek Reducer" hedefini mekanik olarak destekler: yeni bir modülün kendi başına projection üretmesi, state'i overwrite etmesi veya başarısız yazımı kendi geri-yazması ile düzeltmesi PR aşamasında blocker olur. Bu, mimari ihlali statik olarak kanıtlar; GoalState'in runtime davranışını (doğru state geçişi, race/stale sonucu, recovery doğruluğu) kanıtlamaz. O doğrulama ayrı runtime/acceptance testlerinin işidir.
 
 ### Aşama 4 — WorkerResult / Event / Crash Recovery
 - Durable WorkerResult exact fence taşır: owner, job, step, command, attempt, expected job version, capability version ve input digest.
@@ -48,6 +48,16 @@ Storage writer kuralları "tek writer / tek Core / tek Reducer" hedefini mekanik
 - Verified receipt = `succeeded`; provider tekrar çağrılmaz.
 - RuntimeEvent yalnız evidence üretir; global state kararı vermez.
 - Non-durable convenience yolu conditional/yan etkili capability çalıştıramaz.
+
+### UI / Core business authority sınırı
+
+UI presentation ve interaction katmanıdır. Kullanıcı girdisini canonical backend/Core'a iletir ve dönen state/evidence/result bilgisini gösterir. UI; provider fallback, permission ALLOW/DENY, GoalState lifecycle, Finance risk/decision, source conflict, worker routing, completion, scheduler veya execution authority tanımlayamaz.
+
+Backend state'ine göre düğme/renk/icon/loading göstermek presentation'dır. Ancak bir lifecycle/approval isteğinin gerçekten geçerli olup olmadığına UI'nın karar vermesi business authority'dir. Presentation-only özellikler dışında Definition of Done sorusu şudur:
+
+> Bu feature'ın mevcut UI katmanı tamamen silinse backend/core davranışı ve canonical sonucu yaşamaya devam eder mi?
+
+Cevap "hayır" ise sınır ihlalidir. Ayrıntı ve 0–4 audit kaydı `docs/architecture/JARVIS_UI_CORE_BOUNDARY.md` içindedir.
 
 ## Otomatik BLOCKER kuralları
 
@@ -79,6 +89,14 @@ Yeni production modülü `goal_tools.execute(...)` çağırarak ikinci execution
 - `modules/specialist_orchestrator.py`
 - `modules/worker_result_hook.py`
 
+### ARCH-006 — UI yeni business-authority dependency alamaz
+
+`web.py`, `web_*.py`, `gui.py` ve `launcher.py` UI/bridge/shell yüzeyleri AST üzerinden `modules.*` dependency edge'leri için taranır. Yeni bir UI dosyasının Core authority internallerine doğrudan import bağımlılığı BLOCKER'dır. Korunan authority aileleri arasında GoalState/Reducer writer'ları, goal/task executor internalleri, permission/decision authority, completion ve runtime commit/gate katmanları vardır.
+
+Bu kontrol function/message keyword taraması değildir. `import modules.goal_executor as goals` veya `from modules import goal_executor` aynı dependency edge'i olarak görülür. UI'nın `ui_jobs`, status/query veya configuration servisi gibi presentation-facing servislere bağımlılığı bu kuralla otomatik olarak yasaklanmaz.
+
+Yeni UI ihtiyacı Core'da olmayan bir karar gerektiriyorsa çözüm allowlist büyütmek değildir; ilgili domain/Core'da canonical facade/service oluşturmak veya mevcut sözleşmeyi genişletmektir.
+
 ## Otomatik WARNING backlog
 
 ### ARCH-W001 — RuntimeEvent production subscription (kapandı, 26 Ekim 2026, Faz 2-2)
@@ -95,6 +113,12 @@ Durable Job/Core
 → Reducer/CAS evidence
 ```
 
+### ARCH-W003 — Mevcut UI/Core authority borcu
+
+Repo auditinde `web_tasks.py` içinde mevcut goal/task control ve verification akışlarının Core authority internallerine doğrudan dependency taşıdığı doğrulandı. Bunlar exact `path + module dependency` baseline olarak görünür tutulur; validation'ı topluca kırmamak için WARNING'dir.
+
+Baseline genel dosya izni değildir. `web_tasks.py` aynı anda yeni bir authority module import ederse o yeni edge `ARCH-006` BLOCKER olur. Borcun kaldırılması ayrı migration PR'ında canonical control/verification facade/service'e geçişle yapılır; bu guard PR'ı feature davranışını taşımayı veya yeniden yazmayı üstlenmez.
+
 ## Alias tespiti
 
 ARCH-001/002/003/004/005, çağrıyı doğrudan `goal_tools.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` / `goal_state_store.create(...)` / `goal_state_store.compensate(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
@@ -107,6 +131,8 @@ ARCH-001/002/003/004/005, çağrıyı doğrudan `goal_tools.execute(...)` / `goa
 - `import modules.goal_state_store as store` → `store.compensate(...)`
 
 Allowlist kontrolü değişmez: alias'lı çağrı da ilgili kuralın `_CAS_ALLOWLIST` / `_CREATE_ALLOWLIST` / `_COMPENSATE_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
+
+ARCH-006 için alias çözmek ayrıca gerekmez: import'un canonical module dependency edge'i doğrudan AST düğümünden çıkarılır; yerel alias adı boundary sonucunu değiştirmez.
 
 ## Denetçinin kapsamı
 `modules/architecture_guard.py` yalnız deterministik, statik olarak kanıtlanabilen kuralları BLOCKER yapar. Yoruma açık roadmap sapmaları ayrı ajan/insan incelemesiyle değerlendirilir. Static guard birim testinin, Windows acceptance'ın veya gerçek effect testinin yerine geçmez.

@@ -18,6 +18,7 @@ SCOPE = 'stage-0-4'
 ROADMAP_SOURCES = (
     'docs/architecture/JARVIS_EXECUTION_ARCHITECTURE_V1.md',
     'docs/architecture/JARVIS_STAGE_0_4_GUARD.md',
+    'docs/architecture/JARVIS_UI_CORE_BOUNDARY.md',
     'docs/agents/gorev-cekirdegi.md',
 )
 
@@ -49,6 +50,40 @@ _DECISION_CONTEXT_KEYS = {
     'user_authority',
     'job_authority',
     'effect_state',
+}
+
+# UI files may call presentation/query/configuration services, but must not gain
+# a second business/execution authority by importing Core authority internals.
+# This is deliberately an import/dependency boundary, not a keyword/name scan.
+_UI_AUTHORITY_MODULES = frozenset({
+    'modules.capability_decision',
+    'modules.completion_policy',
+    'modules.core_state_reducer',
+    'modules.execution_record',
+    'modules.goal_executor',
+    'modules.goal_state_store',
+    'modules.goal_tools',
+    'modules.permission_classify',
+    'modules.permission_gate',
+    'modules.permission_policy',
+    'modules.runtime_event_commit',
+    'modules.runtime_execution_gate',
+    'modules.task_agents',
+    'modules.task_results',
+    'modules.worker_result_commit',
+})
+
+# Existing UI debt is frozen by exact dependency edge. Adding another authority
+# dependency to the same file is still ARCH-006; baseline entries never grant a
+# general exemption to a file.
+_UI_AUTHORITY_BASELINE = {
+    'web_tasks.py': frozenset({
+        'modules.execution_record',
+        'modules.goal_executor',
+        'modules.goal_tools',
+        'modules.task_agents',
+        'modules.task_results',
+    }),
 }
 
 
@@ -103,6 +138,31 @@ def _collect_aliases(tree: ast.AST) -> tuple[dict, dict]:
     return module_alias, func_alias
 
 
+def _module_dependencies(tree: ast.AST) -> set[str]:
+    """Return statically declared `modules.*` dependency edges.
+
+    The UI/Core boundary is about dependency direction: a UI adapter may call a
+    canonical facade/service, but it must not import Core authority internals to
+    make lifecycle/permission/execution decisions itself. Import aliases do not
+    change the dependency edge and therefore do not bypass this check.
+    """
+    dependencies: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith('modules.'):
+                    dependencies.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ''
+            if module == 'modules':
+                for alias in node.names:
+                    if alias.name != '*':
+                        dependencies.add(f'modules.{alias.name}')
+            elif module.startswith('modules.'):
+                dependencies.add(module)
+    return dependencies
+
+
 def _issue(rule: str, severity: str, path: str, line: int, message: str) -> dict:
     return {
         'rule': rule,
@@ -118,6 +178,25 @@ def _python_files(root: Path):
     if not modules.is_dir():
         return []
     return sorted(path for path in modules.rglob('*.py') if '__pycache__' not in path.parts)
+
+
+def _ui_python_files(root: Path):
+    """Python UI/bridge shells whose dependency direction is guarded."""
+    candidates = [root / 'web.py', root / 'gui.py', root / 'launcher.py']
+    candidates.extend(sorted(root.glob('web_*.py')))
+    unique = {path.resolve(): path for path in candidates if path.is_file()}
+    return sorted(unique.values(), key=lambda path: path.relative_to(root).as_posix())
+
+
+def _parse(path: Path, relative: str, blockers: list[dict]) -> ast.AST | None:
+    try:
+        return ast.parse(path.read_text(encoding='utf-8'), filename=relative)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        blockers.append(_issue(
+            'ARCH-000', 'BLOCKER', relative, getattr(exc, 'lineno', 0) or 0,
+            f'Mimari denetim dosyayı güvenilir biçimde okuyamadı: {exc}',
+        ))
+        return None
 
 
 def _has_explicit_decision_context(node: ast.Call) -> bool:
@@ -155,13 +234,8 @@ def scan(root=None) -> dict:
 
     for path in _python_files(root):
         relative = path.relative_to(root).as_posix()
-        try:
-            tree = ast.parse(path.read_text(encoding='utf-8'), filename=relative)
-        except (OSError, UnicodeError, SyntaxError) as exc:
-            blockers.append(_issue(
-                'ARCH-000', 'BLOCKER', relative, getattr(exc, 'lineno', 0) or 0,
-                f'Mimari denetim dosyayı güvenilir biçimde okuyamadı: {exc}',
-            ))
+        tree = _parse(path, relative, blockers)
+        if tree is None:
             continue
 
         if relative == 'modules/goal_executor.py' and _has_fixed_attempt_one(tree):
@@ -207,6 +281,24 @@ def scan(root=None) -> dict:
             if name == 'runtime_event_commit.commit':
                 runtime_event_producer_calls += 1
 
+    for path in _ui_python_files(root):
+        relative = path.relative_to(root).as_posix()
+        tree = _parse(path, relative, blockers)
+        if tree is None:
+            continue
+        baseline = _UI_AUTHORITY_BASELINE.get(relative, frozenset())
+        for dependency in sorted(_module_dependencies(tree) & _UI_AUTHORITY_MODULES):
+            if dependency in baseline:
+                warnings.append(_issue(
+                    'ARCH-W003', 'WARNING', relative, 0,
+                    f'Mevcut UI/Core authority borcu baseline: {dependency}. Bu bağımlılık büyütülemez; canonical backend facade/service üzerinden taşınmalı.',
+                ))
+            else:
+                blockers.append(_issue(
+                    'ARCH-006', 'BLOCKER', relative, 0,
+                    f'UI katmanı Core business-authority modülüne doğrudan bağımlı olamaz: {dependency}. Canonical backend facade/service çağırılmalı.',
+                ))
+
     if runtime_event_producer_calls == 0:
         warnings.append(_issue(
             'ARCH-W001', 'WARNING', 'modules/runtime_event_commit.py', 0,
@@ -223,7 +315,7 @@ def scan(root=None) -> dict:
         'scope': SCOPE,
         'roadmap_sources': list(ROADMAP_SOURCES),
         'blockers': sorted(blockers, key=lambda row: (row['rule'], row['path'], row['line'])),
-        'warnings': sorted(warnings, key=lambda row: (row['rule'], row['path'], row['line'])),
+        'warnings': sorted(warnings, key=lambda row: (row['rule'], row['path'], row['line'], row['message'])),
     }
 
 

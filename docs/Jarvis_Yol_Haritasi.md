@@ -371,6 +371,7 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 ## Ortak kurallar
 
 - **"Bitti" kuralı:** Bir faz ya da madde ancak dört koşulun hepsi sağlanınca bitmiş sayılır: (1) sözleşme / arayüz yazıldı, (2) eski kod göçü tamamlandı, (3) yeni kod kullanıcı akışına bağlandı, (4) eski kod / legacy kısım kaldırıldı. Her PR açıklaması hangi koşulları kapattığını yazar; durum güncellemesi bu dört koşula göre yapılır, PR sayısına göre değil.
+- **UI/Core authority sınırı:** UI presentation/interaction katmanıdır; business/decision/execution authority canonical backend/Core'da kalır. UI kullanıcı girdisini iletir ve canonical state/evidence/result bilgisini gösterir. Presentation-only özellikler dışında UI tamamen silinse backend/Core davranışı ve canonical sonuç yaşamaya devam etmelidir. `modules.architecture_guard` yeni UI→Core authority dependency edge'lerini blocker yapar; mevcut borç exact baseline warning olarak görünür kalır. Ayrıntı: `docs/architecture/JARVIS_UI_CORE_BOUNDARY.md`.
 - Her faz ayrı dalda, küçük PR'larla ilerler; AGENTS.md'ye göre önce plan ve iki seçenek, sonra sizin onayınız.
 - Dış kod alınmadan önce lisans, Windows uyumu, güvenlik ve Core sözleşmesi kontrol edilir.
 - Hiçbir yetenek ikinci bir Core kurmaz.
