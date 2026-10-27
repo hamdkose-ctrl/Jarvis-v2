@@ -145,7 +145,7 @@ class SmartRouterTests(unittest.TestCase):
     def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
              patch.object(llm,'load_settings',return_value={}), \
-             patch.object(llm,'ollama_models',return_value=['llama3.2:latest','qwen2.5:7b']):
+             patch.object(llm,'ollama_models',return_value=['llama3.2','qwen2.5:7b']):
             self.assertEqual(llm.ollama_model_for('merhaba nasılsın'),'llama3.2')
             self.assertEqual(llm.ollama_model_for('Python hatasını düzelt'),'qwen2.5:7b')
             with patch.object(llm,'_ollama',return_value='ok') as call:
@@ -158,7 +158,7 @@ class SmartRouterTests(unittest.TestCase):
                 with self.assertRaises(llm.ImageCapabilityError):llm._ollama_task([],'',100,'kod yaz')
                 self.assertEqual(call.call_count,1)
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
-             patch.object(llm,'load_settings',return_value={}),patch.object(llm,'ollama_models',return_value=['llama3.2:latest']):
+             patch.object(llm,'load_settings',return_value={}),patch.object(llm,'ollama_models',return_value=['llama3.2']):
             self.assertEqual(llm.ollama_model_for('kod yaz'),'llama3.2')   # 7b yüklü değil
         llm.take_route()
 
