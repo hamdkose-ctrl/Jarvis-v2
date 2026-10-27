@@ -44,6 +44,38 @@ class WebMemory:
         from modules import learning
         return learning.reject(runtime._p(), None if int(idx) < 0 else int(idx))
 
+    def physical_object_observe(self, object_id: str, label: str, location: str, source_device: str,
+                                confidence: float, source: str, evidence_ref: str,
+                                observed_at: str='', evidence_text: str='') -> dict:
+        from modules import physical_memory
+        return physical_memory.observe(
+            self._runtime._p(), object_id=object_id, label=label, location=location,
+            source_device=source_device, confidence=confidence, source=source,
+            evidence_ref=evidence_ref, observed_at=observed_at, evidence_text=evidence_text)
+
+    def physical_object_candidates(self) -> list[dict]:
+        from modules import physical_memory
+        return physical_memory.candidates(self._runtime._p())
+
+    def physical_objects(self) -> list[dict]:
+        from modules import physical_memory
+        return physical_memory.confirmed(self._runtime._p())
+
+    def physical_object_confirm(self, object_id: str) -> dict:
+        from modules import physical_memory
+        return physical_memory.confirm(self._runtime._p(), object_id)
+
+    def physical_object_correct(self, object_id: str, label: str | None=None, location: str | None=None) -> dict:
+        from modules import physical_memory
+        return physical_memory.correct(self._runtime._p(), object_id, label=label, location=location)
+
+    def physical_object_mark_not_seen(self, source_device: str, seen_object_ids: list[str], observed_at: str='') -> int:
+        from modules import physical_memory
+        if not isinstance(seen_object_ids, list):
+            raise ValueError('seen_object_ids liste olmalı.')
+        return physical_memory.mark_not_seen(self._runtime._p(), source_device=source_device,
+                                             seen_object_ids=seen_object_ids, observed_at=observed_at)
+
     def learn_toggle(self, on: bool) -> bool:
         runtime = self._runtime
         runtime._p().set_pref('learn_from_chat', bool(on))
