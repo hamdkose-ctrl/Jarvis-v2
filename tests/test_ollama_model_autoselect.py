@@ -124,7 +124,7 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertEqual(info["local_model_preference"], "llama3.2")
         self.assertEqual(info["local_effective_model"], "qwen2.5-coder:7b")
         self.assertTrue(info["local_model_stale"])
-        self.assertIn("qwen2.5-coder:7b", info["local_model_warning"])
+        self.assertEqual(info["local_model_warning"], "Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.")
         resolver.assert_called_once()
 
     def test_ui_status_valid_preference_has_no_warning(self):
@@ -141,6 +141,8 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         info, _ = self._ui_status(preference="llama3.2", installed=[], fail=True)
         self.assertEqual(info["local_model_preference"], "llama3.2")
         self.assertEqual(info["local_effective_model"], "")
+        self.assertEqual(info["local_installed_models"], [])
+        self.assertFalse(info["local_model_select_enabled"])
         self.assertFalse(info["local_model_stale"])
         self.assertTrue(info["local_models_checked"])
 
@@ -152,9 +154,19 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
             effective="should-not-be-used",
         )
         self.assertEqual(info["local_effective_model"], "configured-model")
+        self.assertEqual(info["local_installed_models"], ["other-model"])
         self.assertFalse(info["local_model_stale"])
         self.assertEqual(info["local_model_warning"], "")
         resolver.assert_not_called()
+
+    def test_status_exposes_single_installed_model(self):
+        info, _ = self._ui_status(
+            preference="llama3.2",
+            installed=["qwen2.5-coder:7b"],
+            effective="qwen2.5-coder:7b",
+        )
+        self.assertEqual(info["local_installed_models"], ["qwen2.5-coder:7b"])
+        self.assertTrue(info["local_model_select_enabled"])
 
     def test_status_exposes_canonical_installed_model_list(self):
         info, _ = self._ui_status(
@@ -185,20 +197,21 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
     def test_ui_render_contract_uses_backend_installed_models_dropdown(self):
         src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
         self.assertIn("local_installed_models", src)
+        self.assertIn("models.map", src)
         self.assertIn("Aktif Model", src)
         self.assertIn("Kurulu Modeller", src)
         self.assertIn("<select", src)
         self.assertIn('data-act="localmodelsave"', src)
         self.assertIn("Modeli Kaydet", src)
+        self.assertIn("local_model_select_enabled", src)
         self.assertNotIn("qwen2.5-coder:7b</option>", src)
         self.assertNotIn("llama3.2</option>", src)
 
-    def test_ui_render_contract_names_saved_and_active_models(self):
+    def test_ui_stale_preference_is_info_not_active_value(self):
         src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
         self.assertIn("local_model_preference", src)
         self.assertIn("local_effective_model", src)
-        self.assertIn("Kayıtlı tercih", src)
-        self.assertIn("Aktif model", src)
+        self.assertIn("Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.", src)
         self.assertIn("local_model_stale", src)
 
 
