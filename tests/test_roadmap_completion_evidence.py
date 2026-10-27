@@ -68,6 +68,15 @@ class RoadmapCompletionEvidenceTests(unittest.TestCase):
         current = "- 🟡 Kısmi madde güncellendi\n"
         self.assertTrue(check_completion_evidence(base, current)["pass"])
 
+    def test_partial_status_mentioning_checkmark_does_not_require_evidence(self):
+        base = "**Durum: başlanmadı.**\n"
+        current = (
+            "**Durum: 🟡 kısmi. Kamera bridge bağlı; Vision kabulü tamamlanmadan bu iş ✅ sayılmaz.**\n"
+        )
+        result = check_completion_evidence(base, current)
+        self.assertTrue(result["pass"])
+        self.assertFalse(result["new_completions"])
+
     def test_phase_status_completed_also_requires_evidence(self):
         base = "**Durum: 🟡 kısmi**\n"
         current = (
