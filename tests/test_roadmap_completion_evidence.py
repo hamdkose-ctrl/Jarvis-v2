@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.roadmap_completion_evidence_check import check_completion_evidence
+from scripts.roadmap_completion_evidence_check import (
+    check_completion_evidence,
+    validate_ci_provenance,
+)
 
 
 class RoadmapCompletionEvidenceTests(unittest.TestCase):
@@ -86,6 +89,69 @@ class RoadmapCompletionEvidenceTests(unittest.TestCase):
             "Cleanup=verified\n"
         )
         self.assertTrue(check_completion_evidence(base, current)["pass"])
+
+    def test_ci_provenance_requires_real_pr_number(self):
+        fields = {
+            "PR": "#410",
+            "SHA": "abcdef123456",
+            "Acceptance": "watcher-pass@abcdef123456",
+        }
+        errors = validate_ci_provenance(
+            fields,
+            pr_number="411",
+            pr_head_sha="fedcba654321",
+            is_ancestor=True,
+            changed_paths=["docs/Jarvis_Yol_Haritasi.md"],
+        )
+        self.assertTrue(any("PR" in error for error in errors))
+
+    def test_ci_provenance_requires_acceptance_sha_to_be_head_ancestor(self):
+        fields = {
+            "PR": "#411",
+            "SHA": "abcdef123456",
+            "Acceptance": "watcher-pass@abcdef123456",
+        }
+        errors = validate_ci_provenance(
+            fields,
+            pr_number="411",
+            pr_head_sha="fedcba654321",
+            is_ancestor=False,
+            changed_paths=["docs/Jarvis_Yol_Haritasi.md"],
+        )
+        self.assertTrue(any("atası" in error for error in errors))
+
+    def test_ci_provenance_allows_docs_only_after_acceptance(self):
+        fields = {
+            "PR": "#411",
+            "SHA": "abcdef123456",
+            "Acceptance": "watcher-pass@abcdef123456",
+        }
+        errors = validate_ci_provenance(
+            fields,
+            pr_number="411",
+            pr_head_sha="fedcba654321",
+            is_ancestor=True,
+            changed_paths=[
+                "docs/Jarvis_Yol_Haritasi.md",
+                "docs/architecture/CAMERA_ACCEPTANCE.md",
+            ],
+        )
+        self.assertEqual([], errors)
+
+    def test_ci_provenance_rejects_runtime_change_after_acceptance(self):
+        fields = {
+            "PR": "#411",
+            "SHA": "abcdef123456",
+            "Acceptance": "watcher-pass@abcdef123456",
+        }
+        errors = validate_ci_provenance(
+            fields,
+            pr_number="411",
+            pr_head_sha="fedcba654321",
+            is_ancestor=True,
+            changed_paths=["docs/Jarvis_Yol_Haritasi.md", "modules/camera_bridge.py"],
+        )
+        self.assertTrue(any("kod değişikliği" in error for error in errors))
 
 
 if __name__ == "__main__":
