@@ -40,9 +40,9 @@ function requestLocalModelStatus(sn){
   const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return;
   const key=localModelKey(sn),now=Date.now();
   if(localModelView.key!==key){localModelView.key=key;localModelView.data=null;localModelView.at=0}
-  if(localModelView.busy||(localModelView.data&&now-localModelView.at<8000))return;
-  localModelView.busy=true;
-  api('llm_status').then(st=>{if(localModelView.key===key){localModelView.data=st||{};localModelView.at=Date.now()}}).catch(()=>{}).finally(()=>{localModelView.busy=false;if(S.snap&&localModelKey(S.snap)===key)render()});
+  if(localModelView.busy||now-localModelView.at<8000)return;
+  localModelView.busy=true;localModelView.at=now;let changed=false;
+  api('llm_status').then(st=>{if(localModelView.key===key){localModelView.data=st||{};localModelView.at=Date.now();changed=true}}).catch(()=>{}).finally(()=>{localModelView.busy=false;if(changed&&S.snap&&localModelKey(S.snap)===key)render()});
 }
 function localModelPanel(panel,sn){
   const l=sn?.llm||{};if((l.local_backend||'ollama')!=='ollama')return panel;
