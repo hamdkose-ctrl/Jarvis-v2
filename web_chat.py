@@ -1,6 +1,7 @@
 """Chat page actions; dependencies are provided by the owning bridge."""
 from __future__ import annotations
 import base64
+import binascii
 
 class WebChat:
 
@@ -31,7 +32,7 @@ class WebChat:
             if hasattr(self, '_development_previous_mic'):
                 previous=self._development_previous_mic
                 del self._development_previous_mic
-                self._runtime._set_mic(previous)
+            self._runtime._set_mic(previous)
         return result
 
     def development_password_change(self, old_password: str, new_password: str) -> dict:
@@ -76,7 +77,7 @@ class WebChat:
         from modules import camera_bridge
         try:
             raw = base64.b64decode(str(frame_b64), validate=True)
-        except Exception as exc:
+        except (ValueError, binascii.Error) as exc:
             raise ValueError('Kamera karesi base64 olarak çözülemedi.') from exc
         return camera_bridge.submit_frame(
             self._runtime._p().slug, device_id, raw,
