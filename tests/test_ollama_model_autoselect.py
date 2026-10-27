@@ -207,7 +207,7 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         choose.assert_not_called()
 
     def test_ui_render_contract_uses_backend_installed_models_dropdown(self):
-        src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
+        src = (Path(__file__).parents[1] / "webui" / "local-model-panel.js").read_text(encoding="utf-8")
         self.assertIn("local_installed_models", src)
         self.assertIn("models.map", src)
         self.assertIn("Aktif Model", src)
@@ -220,7 +220,7 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertNotIn("llama3.2</option>", src)
 
     def test_ui_stale_preference_is_info_not_active_value(self):
-        src = (Path(__file__).parents[1] / "webui" / "ui-refresh.js").read_text(encoding="utf-8")
+        src = (Path(__file__).parents[1] / "webui" / "local-model-panel.js").read_text(encoding="utf-8")
         self.assertIn("local_model_preference", src)
         self.assertIn("local_effective_model", src)
         self.assertIn("Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.", src)
