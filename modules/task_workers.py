@@ -59,6 +59,51 @@ def file_task(data):
             'file_evidence': evidence}
 
 
+
+def finance_task(data):
+    """Run bounded, read-only Finance analysis on caller-supplied data only."""
+    from datetime import datetime
+    from decimal import Decimal
+    from modules import finance_readonly
+    handlers = {
+        'normalize_ohlcv': finance_readonly.normalize_ohlcv,
+        'compare_equities': finance_readonly.compare_equities,
+        'portfolio_summary': finance_readonly.portfolio_summary,
+        'dcf': finance_readonly.dcf,
+        'comparable_companies': finance_readonly.comparable_companies,
+        'lbo': finance_readonly.lbo,
+    }
+    operation = data.get('operation')
+    if operation not in handlers:
+        raise ValueError('Finans worker işlemi geçersiz.')
+    try:
+        payload = json.loads(data['payload'])
+    except (TypeError, json.JSONDecodeError):
+        raise ValueError('Finans worker verisi geçerli JSON olmalı.') from None
+    analysis = handlers[operation](payload)
+
+    def json_safe(value):
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, list):
+            return [json_safe(item) for item in value]
+        if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+            return {key: json_safe(item) for key, item in value.items()}
+        raise ValueError('Finans sonucu güvenli JSON biçimine çevrilemedi.')
+
+    return {
+        'state': 'done',
+        'text': 'Finans salt-okunur analizi tamamlandı. ' + finance_readonly.NOT_INVESTMENT_ADVICE,
+        'operation': operation,
+        'analysis': json_safe(analysis),
+        'disclaimer': finance_readonly.NOT_INVESTMENT_ADVICE,
+    }
+
+
 def run(owner, task, dependencies):
     kind=task['agent']; data=task.get('input',{})
     if kind=='media':
@@ -90,6 +135,8 @@ def run(owner, task, dependencies):
         return account_tools.run(owner,data,dependencies)
     if kind=='file':
         return file_task(data)
+    if kind=='finance':
+        return finance_task(data)
     if kind=='research':
         if blocked:=privacy.blocked('web'): raise ValueError(blocked)
         from modules.browser_agent import _url
