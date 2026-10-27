@@ -35,6 +35,11 @@ jobs:
           git fetch origin main:main 2>$null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           py -3.13 scripts/roadmap_drift_check.py
+      - name: Roadmap tamamlanma kanıtı kontrolü
+        env:
+          JARVIS_PR_NUMBER: ${{ github.event.pull_request.number }}
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: py -3.13 scripts/roadmap_completion_evidence_check.py
       - name: Sistem Python ve Node sürümlerini doğrula
         run: |
           $pythonVersion = py -3.13 --version

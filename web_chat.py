@@ -1,5 +1,7 @@
 """Chat page actions; dependencies are provided by the owning bridge."""
 from __future__ import annotations
+import base64
+import binascii
 
 class WebChat:
 
@@ -50,6 +52,40 @@ class WebChat:
         """Aktif kullanıcının Core-owned iş görünümünü bu istemci için salt-okunur döndürür."""
         from modules import continuity
         return continuity.snapshot(self._runtime._p().slug, device_id=device_id, session_id=session_id)
+
+    def camera_local_enable(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.local_enable(self._runtime._p().slug, device_id)
+
+    def camera_local_disable(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.local_disable(self._runtime._p().slug, device_id)
+
+    def camera_status(self, device_id: str) -> dict:
+        from modules import camera_bridge
+        return camera_bridge.status(self._runtime._p().slug, device_id)
+
+    def camera_viewer_join(self, device_id: str, viewer_id: str) -> dict:
+        from modules import camera_bridge
+        return {'ok': True, 'viewers': camera_bridge.viewer_join(self._runtime._p().slug, device_id, viewer_id)}
+
+    def camera_viewer_leave(self, device_id: str, viewer_id: str) -> dict:
+        from modules import camera_bridge
+        return {'ok': True, 'viewers': camera_bridge.viewer_leave(self._runtime._p().slug, device_id, viewer_id)}
+
+    def camera_frame(self, device_id: str, frame_b64: str, transport: str, width: int, height: int) -> dict:
+        from modules import camera_bridge
+        try:
+            raw = base64.b64decode(str(frame_b64), validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError('Kamera karesi base64 olarak çözülemedi.') from exc
+        return camera_bridge.submit_frame(
+            self._runtime._p().slug, device_id, raw,
+            transport=str(transport), width=int(width), height=int(height))
+
+    def camera_observation(self, device_id: str, max_age: float=5.0) -> dict | None:
+        from modules import camera_bridge
+        return camera_bridge.latest(self._runtime._p().slug, device_id, max_age=float(max_age))
 
     def activity_clear(self) -> bool:
         """Canlı Aktivite geçmişini temizler; motorun normal loglarına dokunmaz."""

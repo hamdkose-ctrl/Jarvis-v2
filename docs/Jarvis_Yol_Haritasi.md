@@ -179,6 +179,10 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 - Gmail konuşma (thread) okuma ve Takvim planlama önerisi genişleyecek. Şu an okuma ve arama var.
 
+#### Planlama saat gösterimi
+
+- Google Takvimden gelen saatli kayıt, plan çıktısında Jarvis'in çalıştığı makinenin saat dilimine ikinci kez çevrilmez; kaynağın takvim duvar saati korunur. Bu yalnız salt-okunur gösterim/eşsizleştirme düzeltmesidir; Google takvim yazımı, yetki veya etkinin kapsamı değişmez. Kanıt: PR #413; test `test_google_event_keeps_calendar_wall_time`.
+
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
 
 🟡 (#384) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
@@ -242,10 +246,11 @@ Alt-ajan yaşam döngüsü ve Kanban panosu eklenir. Sandbox hazır; paralel iş
 
 ## Faz 8 — MCP istemcisi ve güvenli eklenti
 
-**Durum: başlanmadı.**
+**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı benchmark deseninden yeniden uygulanıyor; mevcut web Bridge yüzeyine bağlı. Vision/`observe(camera)` bağlantısı ve gerçek cihaz kabulü tamamlanmadan bu iş ✅ sayılmaz.**
 
 MCP istemcisi ve güvenli eklenti sistemi eklenir. Kendi altyapımız sabit; dış araçlara ancak o zaman güvenle kapı açılır.
 
+- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı ve gerçek cihaz kabulü bekliyor.
 - Sabit, salt okuma MCP istemcisi eklenecek: dinamik araç keşfi, sunucu bağlantıları, MCP olay istemcisi, yerel MCP bağlantıları. Sandbox'tan sonra. Şu an yalnız referans kataloğu var.
 - A2A ve harici ajan servislerine bağlanma en sona kalır.
 - Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.

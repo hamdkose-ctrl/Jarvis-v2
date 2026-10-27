@@ -60,6 +60,12 @@ class DayPlanTests(ProfileCase):
         self.assertNotIn('Eski iş', reply)
         self.assertIn("Gmail'de 5 okunmamış mail var.", reply)
 
+    def test_google_event_keeps_calendar_wall_time(self):
+        """Google'dan gelen saat, çalıştıran makinenin saat dilimine göre kaymaz."""
+        meeting = datetime(2026, 10, 17, 12, 0, tzinfo=timezone(timedelta(hours=3)))
+        reply = say(self.rt(events=[(meeting, 'Proje toplantısı')]), 'bugünün planı ne')
+        self.assertIn('12:00 Proje toplantısı', reply)
+
     def test_variants_reach_plan(self):
         for text in ('bugun planim ne', 'planımı söyle', 'bugün ne yapmalıyım', 'günümü planla', 'Bugünün planı'):
             with self.subTest(text=text):
