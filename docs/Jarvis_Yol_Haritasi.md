@@ -179,6 +179,10 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 
 - Gmail konuşma (thread) okuma ve Takvim planlama önerisi genişleyecek. Şu an okuma ve arama var.
 
+#### Planlama saat gösterimi
+
+- Google Takvimden gelen saatli kayıt, plan çıktısında Jarvis'in çalıştığı makinenin saat dilimine ikinci kez çevrilmez; kaynağın takvim duvar saati korunur. Bu yalnız salt-okunur gösterim/eşsizleştirme düzeltmesidir; Google takvim yazımı, yetki veya etkinin kapsamı değişmez. Kanıt: PR #413; test `test_google_event_keeps_calendar_wall_time`.
+
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
 
 🟡 (#384) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.

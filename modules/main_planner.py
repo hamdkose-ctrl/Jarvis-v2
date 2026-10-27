@@ -142,7 +142,9 @@ def _day_plan(runtime, offset: int = 0) -> str:
     try:
         if runtime.google_api.connected():
             for start, name in runtime.google_api.day_events(offset):
-                items.append((start.astimezone().strftime('%H:%M') if start else '', name))
+                # Google etkinliği, kullanıcının takvim saat diliminde gelir; çalışan
+                # makinenin yerel saat dilimine çevirmek planı ve eşsizleştirmeyi bozar.
+                items.append((start.strftime('%H:%M') if start else '', name))
     except Exception as exc:
         _record_failure('main.py:_day_plan')
         problems.append("Google Takvim'e bakamadım")
@@ -260,7 +262,7 @@ def _week_plan(runtime, kind: str) -> str:
         if runtime.google_api.connected():
             for d, when, name in runtime.google_api.range_events((start - today).days, days):
                 if d in per_day:
-                    per_day[d].append((when.astimezone().strftime('%H:%M') if when else '', name))
+                    per_day[d].append((when.strftime('%H:%M') if when else '', name))
     except Exception as exc:
         _record_failure('main.py:_week_plan')
         problems.append("Google Takvim'e bakamadım")
