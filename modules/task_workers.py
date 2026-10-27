@@ -227,7 +227,13 @@ def run(owner, task, dependencies):
                 validator=lambda value:research_evidence.parse(value,text,allow_unsupported=True))
             evidence=research_evidence.parse(answer,text)
         summary=(article['title']+'\nYayın tarihi: '+article['published']+'\n'+'\n'.join(evidence['quotes'])) if article else evidence['answer']
-        return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {})}
+        output={'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {})}
+        claims=data.get('source_claims')
+        if isinstance(claims,list) and claims:
+            verification=data.get('verification_claims',[])
+            output=research_providers.attach_conflict_result(
+                output, research_providers.verify_conflict(claims, verifier=lambda _: verification))
+        return output
     if kind=='browser': return browser_task(owner,data)
     if kind=='coder':
         from modules import developer

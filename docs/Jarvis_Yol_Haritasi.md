@@ -142,10 +142,7 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
   - **Beklenen davranış:** "bugün/son/güncel/mevcut/şu an" gibi açık tazelik işareti + konu ("kur/dolar/haber/...") varsa sorgu taze kaynağa (`intent=task`) yönlener; tazelik işareti olmayan sade tanım ("Dolar nedir?", "NVIDIA nedir?") statik/chat kalır ve gereksiz web aramasına zorlanmaz. Kanıtlandı: `Bugünkü dolar kuru nedir?`→task, `Güncel altın fiyatı nedir?`→task; `Dolar nedir?`→chat.
   - **Kabul testi:** Aynı konu için bir güncel ve bir durağan sorgu `test_explicit_freshness_wins_over_definition_pattern` ile assert ediliyor (güncel → taze route, durağan → chat, ağ çağrısı yok).
   - **Kalan:** "kural" gibi değişken-bilgi konuları freshness konu listesinde henüz yok; taze kaynak aramasının canlı kanıtı (gerçek yayıncı okuması) bu PR kapsamında ölçülmedi — routing kararı ve statik/taze ayrımı birim düzeyinde doğrulandı.
-- **Tespit edildi — uygulama bekliyor: kaynak çelişkisinde ek doğrulama.**
-  - **Kod kanıtı:** Uygulama PR'ında kaynak sıralama/karşılaştırma yolunun çelişkiyi algıladığında ek bir doğrulama adımı çalıştırdığı ve sonucu evidence zincirine eklediği gösterilecek.
-  - **Beklenen davranış:** Güvenilir iki kaynak aynı olgu için çelişirse Jarvis ilk sonucu sessizce seçmeyecek; ek kaynak veya birincil kaynakla doğrulama yapacak, çözülemeyen çelişkiyi açık bırakacak.
-  - **Kabul testi:** Enjekte edilmiş iki çelişkili kaynakla araştırma çalıştırıldığında ek doğrulama çağrısı veya "çelişki çözülemedi" sonucu zorunlu olacak; ilk kaynak doğrudan nihai gerçek kabul edilmeyecek.
+- 🟡 Kaynak çelişkisinde ek doğrulama: yapılandırılmış subject/claim type/value/unit/time/scope kanıtı aynı olguda sayı veya kategori ayrışırsa bir kez mevcut kaynak-akışı doğrulaması ister; salt ifade farkı ile farklı zaman/kapsam conflict değildir. Üçüncü kanıt bir tarafı desteklerse `resolved_conflict`, çözmezse kullanıcı çıktısında belirsizlik taşır. Contract ve wiring bu PR'da; migration/legacy cleanup n/a, gerçek Windows/PC kabulü ve merge kanıtı bekliyor.
 
 ### 4B — FileWorker sağlamlaştırma
 

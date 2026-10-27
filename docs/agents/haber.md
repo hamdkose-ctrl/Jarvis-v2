@@ -2,6 +2,10 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## Yapılandırılmış kaynak çelişkisi — 27 Ekim 2026
+- `research_providers.compare_sources()` salt claim metni eşitliği yerine subject, claim type, value, unit, observation date ve scope alanlarını karşılaştırır. Yalnız aynı olgu/zaman/kapsamdaki farklı sayı veya kategori çatışmadır; kelime, zaman ve kapsam farkı değildir.
+- Gerçek çatışmada `verify_conflict()` mevcut kaynak toplama akışından en çok bir ek, `official`/`academic` ya da doğrulanmış kanıt alır. Bu kanıt taraflardan birini desteklemezse ilk kaynak seçilmez; araştırma makbuzu ve kullanıcı metni `unresolved_conflict` ile açık belirsizlik taşır. Yeni provider, retry döngüsü veya ikinci research pipeline yoktur.
+
 ## Haber politikası ayrı modülde — 18 Ekim 2026
 - `modules/news_policy.py`: haber araştırmasının tamamlanma kuralları (tekil makale kanıtı, başlık listesi tamamlama sayılmaz, iki yayıncı, katalog denemesi) ve modelsiz kayıtlı kurtarma `goal_executor`'dan taşındı; davranış aynı. `goal_executor._check_news_completion` / `_resume_news_recovery` yalnız bunları çağıran ince sarmalayıcıdır (testler bu adları yamalar). Haber kuralı değişirse `news_policy`'de değişir. Test: `tests/test_news_policy_split.py`; PC'de denenmedi.
 

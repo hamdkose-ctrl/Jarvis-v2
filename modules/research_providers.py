@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+import re
 from urllib.parse import parse_qs, quote_plus, urlsplit
 
 from modules import public_sources
@@ -145,12 +146,122 @@ def rank_results(results: list[dict], *, preferred_kinds=("official", "academic"
     return sorted(clean, key=lambda row: (-preference.get(row.get("source_kind"), 0), -int(bool(row.get("verified"))), row["title"].casefold()))
 
 
+def _claim_text(value) -> str:
+    text = str(value or "").strip().casefold()
+    text = text.translate(str.maketrans("çğıöşü", "cgiosu"))
+    return re.sub(r"\s+", " ", text)
+
+
+def _claim_context(row: dict) -> tuple:
+    """Return the comparable fact context; different scope/time is not a clash."""
+    subject = _claim_text(row.get("subject"))
+    claim_type = _claim_text(row.get("claim_type"))
+    scope = _claim_text(row.get("scope"))
+    observed = str(row.get("observed_at") or row.get("published") or row.get("date") or "").strip()[:10]
+    # A bare text claim has no proven subject/time binding. Preserve the legacy
+    # conservative comparison; only structured evidence can explain a date gap.
+    return (subject, claim_type, scope, observed) if subject or claim_type or scope else ("", "", "", "")
+
+
+def _claim_value(row: dict) -> tuple[str, str]:
+    value = row.get("value")
+    unit = _claim_text(row.get("unit"))
+    if isinstance(value, bool):
+        return ("categorical", str(value).casefold())
+    if isinstance(value, (int, float)):
+        return ("numeric", format(value, ".15g") + "|" + unit)
+    text = _claim_text(value if value is not None else row.get("claim"))
+    if not text:
+        return ("", "")
+    categories = {"approved": "approved", "onaylandi": "approved",
+                  "rejected": "rejected", "reddedildi": "rejected"}
+    return ("categorical", categories.get(text, text) + "|" + unit)
+
+
+def _claim_rows(sources: list[dict]) -> list[dict]:
+    rows = []
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            continue
+        kind, value = _claim_value(source)
+        if value:
+            rows.append({"index": index, "context": _claim_context(source), "kind": kind,
+                         "value": value, "source": deepcopy(source)})
+    return rows
+
+
+def _trusted_verification(source: dict) -> bool:
+    return bool(source.get("verified")) or source.get("source_kind") in {"official", "academic"}
+
+
 def compare_sources(sources: list[dict]) -> dict:
+    """Compare structured evidence claims without mistaking wording for conflict."""
     if not isinstance(sources, list) or not sources:
         raise ValueError("Karşılaştırılacak kaynak gerekli.")
-    claims = {str(row.get("claim", "")).strip() for row in sources if isinstance(row, dict) and str(row.get("claim", "")).strip()}
-    status = "conflict" if len(claims) > 1 else "consistent" if claims else "insufficient"
-    return {"status": status, "sources": deepcopy(sources), "claim_count": len(claims), "needs_review": status != "consistent"}
+    rows = _claim_rows(sources)
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["context"], []).append(row)
+    conflicts = []
+    claim_values = set()
+    for context, candidates in grouped.items():
+        values = {candidate["value"] for candidate in candidates}
+        claim_values.update(values)
+        if len(values) > 1:
+            conflicts.append({"context": context, "values": sorted(values),
+                              "reason_code": "NUMERIC_CONFLICT" if all(candidate["kind"] == "numeric" for candidate in candidates) else "CATEGORICAL_CONFLICT"})
+    status = "conflict" if conflicts else "consistent" if rows else "insufficient"
+    return {"status": status, "sources": deepcopy(sources), "claim_count": len(claim_values),
+            "needs_review": status != "consistent", "conflicts": conflicts}
+
+
+def verify_conflict(sources: list[dict], *, verifier=None) -> dict:
+    """Use at most one injected existing-source verification step for a real conflict."""
+    initial = compare_sources(sources)
+    if initial["status"] != "conflict":
+        return {**initial, "verification_attempted": False}
+    attempted = callable(verifier)
+    verified = verifier(deepcopy(initial)) if attempted else []
+    if isinstance(verified, dict):
+        verified = [verified]
+    if not isinstance(verified, list):
+        verified = []
+    combined = deepcopy(sources) + [deepcopy(row) for row in verified if isinstance(row, dict)]
+    after = compare_sources(combined)
+    rows = _claim_rows(combined)
+    resolutions = []
+    for conflict in initial["conflicts"]:
+        candidates = [row for row in rows if row["context"] == tuple(conflict["context"])]
+        counts = {value: sum(row["value"] == value for row in candidates) for value in {row["value"] for row in candidates}}
+        winner, count = max(counts.items(), key=lambda pair: (pair[1], pair[0]))
+        if count < 2 or list(counts.values()).count(count) != 1:
+            break
+        winning = next((row for row in candidates if row["value"] == winner and row["index"] >= len(sources) and _trusted_verification(row["source"])), None)
+        if winning is None:
+            break
+        resolutions.append(winning["source"])
+    else:
+        if resolutions:
+            source = resolutions[0]
+            return {**after, "status": "resolved_conflict", "needs_review": False,
+                    "verification_attempted": attempted, "resolved_value": source.get("value"),
+                    "resolved_by": source, "reason_code": "CONFLICT_RESOLVED"}
+    return {**after, "status": "unresolved_conflict", "needs_review": True,
+            "verification_attempted": attempted, "reason_code": initial["conflicts"][0]["reason_code"],
+            "uncertainty": "Kaynaklar çelişiyor; ek doğrulama sonucu kesinleşmedi."}
+
+
+def attach_conflict_result(output: dict, result: dict) -> dict:
+    """Expose conflict status in the normal user-facing research receipt."""
+    if not isinstance(output, dict) or not isinstance(result, dict):
+        raise ValueError("Araştırma çatışma çıktısı geçersiz.")
+    attached = deepcopy(output)
+    attached["source_conflict"] = deepcopy(result)
+    if result.get("status") == "unresolved_conflict":
+        attached["text"] = str(attached.get("text", "")).rstrip()+"\nBelirsizlik: "+result["uncertainty"]
+    elif result.get("status") == "resolved_conflict":
+        attached["text"] = str(attached.get("text", "")).rstrip()+"\nKaynak doğrulaması: Çelişen bilgi ek kaynakla doğrulandı."
+    return attached
 
 
 def format_citation(result: dict, number: int) -> str:
