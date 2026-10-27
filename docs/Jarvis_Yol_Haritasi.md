@@ -33,7 +33,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 - Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor)
-- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🟡 kısmi: canlı akışa bağlandı, ikinci hook sistemi duruyor; F-011 proaktif günlük briefing completion #431 acceptance bekliyor)
+- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 sözleşme merge edildi, hiçbiri akışa bağlı değil)
 - Faz 5: Güvenilirlik ve gözlem
@@ -83,7 +83,7 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 
 ## Faz 2 — Zamanlama, olay, hook ve temel muhakeme
 
-**Durum: 🟡 kısmi. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi, hepsi merge edildi. #377 kapatıldı (sohbet cron komutları #374 ile girdi). Ölü `modules/proactive.py` silindi. Eksik temizlik: `gateway_hooks.py` hâlâ `hooks.py`'den ayrı ikinci bir hook sistemi ve üretim kodunda hiçbir yerden çağrılmıyor; `shell_hooks.py` de çağrılmıyor (sandbox'a kadar stub, bilerek). F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
+**Durum: 🔄 kapanış kabulü bekliyor. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi. Ölü `modules/proactive.py` silindi. Bu PR ile production consumer'ı olmayan ayrı `gateway_hooks.py` registry/implementation'ı kaldırıldı; gateway observation dahil tek hook registry/dispatch authority `modules/hooks.py`. `shell_hooks.py` Faz 6 sandbox'a kadar bilinçli fail-closed stub olarak kalır ve shell execution vermez. F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
 
 Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel muhakeme de gelir: artı/eksi analizi, dürüst eleştiri, rehberlik ve proaktif öneri. Otomasyon ile düşünen yanıt aynı temele oturduğu için worker'lardan önce buraya düşerler.
 
@@ -91,9 +91,9 @@ Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel m
 - 🔄 (F-011 / #431) Mevcut scheduler/runtime hattı üzerinden günlük briefing tetiklenir; startup ve scheduled çağrı aynı `last_brief` / `_BRIEF_RUNNING` owner guard'ını kullanır. `_day_plan()` açık/gecikmiş/bugünkü iş, Gmail/Takvim, handoff ve reconnect bilgisini sağlar; read-only continuity görünümü tamamlanan, approval ve blocked/failed durumlarını kısa fact olarak ekler. Yeni scheduler/state/approval sistemi kurulmaz. Exact-head acceptance bekleniyor.
 - ✅ (#374, #380) `[1✓ 2✓ 3✓ 4✓]` RuntimeEvent için kalıcı abonelik kurulacak: kaynak izleyici, olay, tazelik süzgeci, GoalState kanıtı. Şema ve commit hattı var, gerçek üretici yok (Guard uyarısı ARCH-W001).
 - ✅ (#374, #382) `[1✓ 2✓ 3✓ 4✓]` Webhook ve olay tetikleri WhatsApp dışına genişleyecek, sonuç birden fazla kanala gidecek. Şu an yalnız WhatsApp webhook'u ve ntfy var.
-- 🟡 (#374) `[1✓ 2– 3✓ 4✗]` Hook sistemi eklenecek: ajan, araç, model, onay, oturum, alt-ajan ve Kanban hook'ları ile yürütmeyi değiştiremeyen gözlemci hook'ları. Şu an hiç yok. Bağlı, ama `gateway_hooks.py` ikinci sistem olarak duruyor (koşul 4).
+- 🔄 (#374 + bu cleanup PR) `[1✓ 2– 3✓ 4✓]` Hook sistemi ajan, araç, model, onay, oturum, alt-ajan, Kanban ve gateway observation için canonical `modules/hooks.py` hattını kullanır. Production consumer'ı olmayan `gateway_hooks.py` ikinci registry/implementation'ı kaldırıldı; observer sonucu execution authority değildir. Exact-head CI + PC acceptance bekleniyor.
 - ✅ (#374) `[1✓ 2– 3✓ 4–]` Araç öncesi ihlalde işlemi durduran (fail-closed) ortak kapı eklenecek, mevcut `runtime_execution_gate` üstüne.
-- 🟡 (#353) `[1✓ 2– 3✗ 4✗]` Gateway olay hook'ları ve shell hook'ları sandbox'tan sonra eklenecek. Stub var ama hiçbir yerden çağrılmıyor; gateway tarafı `hooks.py` üstüne indirilip ayrı sistem silinmeli.
+- 🔄 (#353 + bu cleanup PR) `[1✓ 2– 3✓ 4✓]` Gateway observation canonical `modules/hooks.py` üzerinden yürür; ayrı `GatewayHooks` registry/implementation kalmaz. `shell_hooks.py` Faz 6 sandbox'a kadar fail-closed stub olarak korunur; subprocess/shell execution eklenmez. Exact-head CI + PC acceptance bekleniyor.
 - ✅ (#354, #370, #374) `[1✓ 2– 3✓ 4–]` Artı/eksi analizi eklenecek: önemli bir karar veya seçenek söz konusu olduğunda Jarvis seçeneklerin artılarını ve eksilerini sıralayıp gerekçeli öneride bulunacak. Şu an doğrudan cevap veriliyor, yapılandırılmış değerlendirme yok.
 - ✅ (#355, #374) `[1✓ 2– 3✓ 4–]` Dürüst eleştiri eklenecek: iş ve hayat konularında "burada şu zayıf çünkü…" denilebilecek; yumuşatma olmadan ama kırıcı olmadan. Şu an yalnız haftalık hedef raporunda (Goals.java) kısmi eleştiri var, genel konuşmada yok.
 - ✅ (#357, #374) `[1✓ 2– 3✓ 4–]` Rehberlik ve tavsiye eklenecek: adım adım pratik yol gösterme, hangi seçeneği neden tercih etmeli, risk ve dikkat noktası bildirimi. Şu an Hoca öğrenme tarafında var, genel danışmanlık yok.

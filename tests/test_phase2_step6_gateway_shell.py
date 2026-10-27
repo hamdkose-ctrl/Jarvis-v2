@@ -1,34 +1,56 @@
+import importlib.util
 import unittest
 from unittest.mock import patch
 
-from modules.gateway_hooks import GatewayEvent, GatewayHooks
+from modules import hooks
 from modules.shell_hooks import ShellHook, ShellHookResult
 
 
 class GatewayHooksTests(unittest.TestCase):
-    def test_publish_calls_only_matching_hooks_and_returns_machine_result(self):
+    def setUp(self):
+        hooks.clear()
+
+    def tearDown(self):
+        hooks.clear()
+
+    def test_gateway_observation_uses_single_canonical_registry(self):
         seen = []
-        hooks = GatewayHooks()
-        hooks.subscribe("goal.created", lambda event: seen.append(event.name))
-        result = hooks.publish(GatewayEvent("goal.created", {"id": "g1"}, request_id="r1"))
-        self.assertEqual(seen, ["goal.created"])
-        self.assertEqual(result["event"], "goal.created")
-        self.assertEqual(result["delivered"], 1)
-        self.assertEqual(result["errors"], [])
+        payload = {"event": "goal.created", "request_id": "r1", "payload": {"id": "g1"}}
+        hooks.register("gateway", lambda event: seen.append(event))
 
-    def test_invalid_hook_is_rejected_fail_closed(self):
-        hooks = GatewayHooks()
-        with self.assertRaises(ValueError):
-            hooks.subscribe("goal.created", "not-callable")
-        with self.assertRaises(ValueError):
-            hooks.publish({"name": "goal.created"})
+        result = hooks.emit("gateway", payload, owner="alice")
 
-    def test_hook_exception_is_reported_without_dispatching_work(self):
-        hooks = GatewayHooks()
-        hooks.subscribe("goal.created", lambda event: (_ for _ in ()).throw(RuntimeError("boom")))
-        result = hooks.publish(GatewayEvent("goal.created", {}))
-        self.assertEqual(result["delivered"], 0)
-        self.assertEqual(result["errors"][0]["reason_code"], "HOOK_FAILED")
+        self.assertEqual(result, ["delivered"])
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0]["name"], "gateway")
+        self.assertEqual(seen[0]["owner"], "alice")
+        self.assertEqual(seen[0]["payload"], payload)
+
+    def test_gateway_observer_result_cannot_change_execution_authority(self):
+        payload = {"allowed": True, "event": "tool.before"}
+
+        def observer(event):
+            event["payload"]["allowed"] = False
+            return {"decision": "deny"}
+
+        hooks.register("gateway", observer)
+        result = hooks.emit("gateway", payload, owner="alice")
+
+        self.assertEqual(result, ["delivered"])
+        self.assertEqual(payload, {"allowed": True, "event": "tool.before"})
+
+    def test_gateway_observer_failure_is_isolated(self):
+        hooks.register(
+            "gateway",
+            lambda _event: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        result = hooks.emit("gateway", {"event": "goal.created"}, owner="alice")
+
+        self.assertEqual(result, ["failed:RuntimeError"])
+
+    def test_no_second_gateway_hook_implementation_exists(self):
+        self.assertIsNone(importlib.util.find_spec("modules.gateway_hooks"))
 
 
 class ShellHookTests(unittest.TestCase):
