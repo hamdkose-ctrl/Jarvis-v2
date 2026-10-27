@@ -10,8 +10,10 @@ Kural (sözleşme):
 - modules/*.py DEGIŞTIRILMIŞ ve public üst-seviye simge
   (class/def, '_' ile baslamayanlar) sayisi main'e gore artmissa -> yeni yetenek
   -> roadmap gerekli
+- modules/*.py DEGIŞTIRILMIŞ ve mantik/govdesi degismisse -> roadmap gerekli
+  (fail-closed; yarin/boşluk degisikligi degilse PASS)
 - docs/Jarvis_Yol_Haritasi.md degismis -> zaten guncellenmis (PASS tetikleyici)
-- tests/, .github/, scripts/, docs* (roadmap haric) -> hariç, roadmap gerekli degil
+- tests/, .github/, scripts/, docs* (roadmap haric) -> hariç, gerekli degil
 - Digers (kok seviyeli .py, diger uzantilar) -> konservatif olarak
   roadmap-affecting sayilmaz (yanlis pozitif onleme)
 
@@ -63,6 +65,16 @@ def _is_new_file(root: Path, path: str) -> bool:
     return cp.returncode != 0
 
 
+def _normalize(source: str) -> str:
+    """Kaynagi AST ile yeniden uret: yorumlar ve gereksiz bosluklar kirilir,
+    sadece yapisal esligi kontrol etmek icin kullanilir."""
+    try:
+        tree = ast.parse(source)
+        return ast.unparse(tree)
+    except SyntaxError:
+        return source
+
+
 def _public_symbols(source: str) -> set[str]:
     try:
         tree = ast.parse(source)
@@ -93,6 +105,20 @@ def _symbol_delta(root: Path, path: str) -> set[str]:
     return _symbols_current(root, path) - _symbols_on_main(root, path)
 
 
+def _body_changed_on_main(root: Path, path: str) -> bool:
+    """Mevcut dosyanin normalized govdesi ile main'deki govdesini karsilastirir.
+    Farkliysa True (mantik degisti)."""
+    cp = _run(["git", "show", f"main:{path}"], cwd=str(root))
+    if cp.returncode != 0:
+        return False
+    main_norm = _normalize(cp.stdout)
+    p = root / path
+    if not p.is_file():
+        return False
+    cur_norm = _normalize(p.read_text(encoding="utf-8", errors="replace"))
+    return main_norm != cur_norm
+
+
 def _is_excluded(path: str) -> bool:
     if path == ROADMAP_FILE:
         return True
@@ -111,6 +137,7 @@ def classify(
     *,
     is_new_file=None,
     symbol_delta=None,
+    body_delta=None,
 ) -> dict:
     """Degisen dosyalari siniflandir ve karar ver.
 
@@ -123,6 +150,7 @@ def classify(
     """
     is_new_file = is_new_file or (lambda p: _is_new_file(root, p))
     symbol_delta = symbol_delta or (lambda p: _symbol_delta(root, p))
+    body_delta = body_delta or (lambda p: _body_changed_on_main(root, p))
 
     roadmap_affecting: list[str] = []
     excluded: list[str] = []
@@ -136,6 +164,8 @@ def classify(
             excluded.append(path)
             continue
 
+        # modules/*.py -> yeni dosya, yeni public simge veya govde degisikligi
+        # = yeni yetenek / Faz durumu degisikligi -> roadmap gerekli.
         if path.startswith("modules/") and path.endswith(".py"):
             if is_new_file(path):
                 roadmap_affecting.append(path)
@@ -144,6 +174,12 @@ def classify(
             if new_symbols:
                 roadmap_affecting.append(path)
                 continue
+            if body_delta(path):
+                roadmap_affecting.append(path)
+                continue
+
+        # Digers: varsayilan olarak roadmap-affecting sayilmaz
+        # (yanlis pozitif onleme icin konservatif).
 
     roadmap_required = len(roadmap_affecting) > 0
     return {
@@ -189,3 +225,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
