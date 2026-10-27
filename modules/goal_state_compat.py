@@ -274,6 +274,16 @@ def operator_promote_legacy_authority_once(path) -> dict:
     )
 
 
+def rollback_operator_promotion(path, *, expected_state: dict, previous_bytes: bytes) -> None:
+    """Undo a just-promoted authority transition only while its CAS state is current."""
+    expected_state = goal_state.validate(expected_state)
+    if goal_state.authority(expected_state) != 'canonical':
+        raise ReconcilePolicyError('Promotion rollback yalnız canonical authority kaydını geri alabilir.')
+    goal_state_store.compensate(
+        Path(path), expected_state=expected_state, previous_bytes=previous_bytes,
+    )
+
+
 def sync(job: dict, path) -> dict:
     path = Path(path)
     if not path.exists():
