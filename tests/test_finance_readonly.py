@@ -118,6 +118,45 @@ class FinanceReadonlyTests(unittest.TestCase):
         self.assertEqual(first, finance.trade_plan_risk_checklist(plan))
         self.assertEqual(first["observations"], [])
 
+    def test_risk_decision_sizes_supported_unit_asset_and_pass_is_not_execution(self):
+        plan = {"ticker": "THYAO", "state": "ready", "used_price": Decimal("100"),
+                "stop": Decimal("90"), "targets": [Decimal("120")], "risk_reward": Decimal("2"),
+                "freshness": {"state": "fresh"}, "missing_data": []}
+        checklist = {"observations": []}
+        decision = finance.trade_plan_risk_decision(plan, checklist, {
+            "account_value": "10000", "risk_fraction": "0.01",
+            "asset_sizing": {"kind": "unit", "quantity_step": "1", "minimum_quantity": "1"},
+        })
+        self.assertEqual(decision["decision"], "PASS")
+        self.assertEqual(decision["risk_amount"], Decimal("100"))
+        self.assertEqual(decision["position_size"], Decimal("10"))
+        self.assertEqual(decision["reason_codes"], [])
+        self.assertNotIn("permission", decision)
+        self.assertNotIn("execution", decision)
+
+    def test_risk_decision_blocks_missing_or_unsafe_inputs(self):
+        base = {"ticker": "THYAO", "state": "ready", "used_price": Decimal("100"),
+                "stop": Decimal("90"), "targets": [Decimal("120")], "risk_reward": Decimal("2"),
+                "freshness": {"state": "fresh"}, "missing_data": []}
+        profile = {"account_value": "10000", "risk_fraction": "0.01",
+                   "asset_sizing": {"kind": "unit", "quantity_step": "1", "minimum_quantity": "1"}}
+        cases = [
+            ({"observations": [{"code": "STALE_DATA"}]}, base, "STALE_EVIDENCE"),
+            ({"observations": []}, {**base, "used_price": None}, "ENTRY_MISSING"),
+            ({"observations": []}, {**base, "stop": None}, "STOP_MISSING"),
+            ({"observations": []}, {**base, "risk_reward": None}, "RR_UNAVAILABLE"),
+            ({"observations": []}, {**base, "stop": Decimal("100")}, "STOP_INVALID"),
+            ({"observations": []}, base, "ACCOUNT_VALUE_MISSING", {"risk_fraction": "0.01", "asset_sizing": profile["asset_sizing"]}),
+            ({"observations": []}, base, "RISK_BUDGET_MISSING", {"account_value": "10000", "asset_sizing": profile["asset_sizing"]}),
+            ({"observations": []}, base, "UNSUPPORTED_ASSET_SIZING", {"account_value": "10000", "risk_fraction": "0.01"}),
+        ]
+        for checklist, plan, reason, *maybe_profile in cases:
+            with self.subTest(reason=reason):
+                result = finance.trade_plan_risk_decision(plan, checklist, maybe_profile[0] if maybe_profile else profile)
+                self.assertEqual(result["decision"], "BLOCK")
+                self.assertIn(reason, result["reason_codes"])
+                self.assertIsNone(result["position_size"])
+
 
 if __name__ == "__main__":
     unittest.main()
