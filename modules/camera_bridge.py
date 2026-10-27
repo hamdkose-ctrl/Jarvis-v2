@@ -7,6 +7,8 @@ feeds authenticated frames into this boundary. Frames are kept in memory only.
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -162,6 +164,28 @@ def frame_bytes(owner: str, device_id: str, *, max_age: float = 5.0, now: float 
         if observation is None:
             return None
         return bytes(_state(owner, device_id).frame or b"") or None
+
+
+def snapshot_path(owner: str, device_id: str, *, max_age: float = 5.0) -> str | None:
+    """Write a fresh remote frame to a temporary JPEG; caller must delete it."""
+    raw = frame_bytes(owner, device_id, max_age=max_age)
+    if raw is None:
+        return None
+    fd, path = tempfile.mkstemp(prefix="jarvis_camera_bridge_", suffix=".jpg")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return path
 
 
 def status(owner: str, device_id: str) -> dict:
