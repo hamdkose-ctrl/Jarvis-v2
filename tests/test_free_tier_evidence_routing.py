@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from modules import failure_policy, llm, smart_router as router
+from modules import llm, smart_router as router
 
 
 class FreeTierEvidenceRoutingTests(unittest.TestCase):
@@ -58,13 +58,13 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         self.evidence('groq', 'groq-model')
         self.assertEqual(router.candidates('alice', 'chat'), ['groq', 'ollama'])
         missing = self.skip('gemini')
-        self.assertEqual(missing['reason_code'], failure_policy.PROVIDER_FREE_TIER_EVIDENCE_MISSING)
+        self.assertEqual(missing['reason_code'], 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
         self.assertIn('kanıt', missing['reason'].casefold())
 
     def test_confirmation_without_evidence_fails_closed(self):
         self.assertEqual(router.candidates('alice', 'chat'), ['ollama'])
         row = self.skip('groq')
-        self.assertEqual(row['reason_code'], failure_policy.PROVIDER_FREE_TIER_EVIDENCE_MISSING)
+        self.assertEqual(row['reason_code'], 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
         self.assertNotIn('openai', router.candidates('alice', 'code'))
         self.assertNotIn('anthropic', router.candidates('alice', 'code'))
 
@@ -72,26 +72,26 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         self.evidence('groq', 'groq-model', verified_at=self.now - 7200, ttl_seconds=300)
         self.assertNotIn('groq', router.candidates('alice', 'chat'))
         row = self.skip('groq')
-        self.assertEqual(row['reason_code'], failure_policy.PROVIDER_FREE_TIER_EVIDENCE_STALE)
+        self.assertEqual(row['reason_code'], 'PROVIDER_FREE_TIER_EVIDENCE_STALE')
         self.assertIn('yeniden doğrulama', row['reason'].casefold())
 
     def test_unverified_or_ineligible_evidence_never_allows_cloud(self):
         self.evidence('groq', 'groq-model', free_tier_verified=False, verification_status='unknown')
-        self.assertEqual(self.skip('groq')['reason_code'], failure_policy.PROVIDER_FREE_TIER_EVIDENCE_MISSING)
+        self.assertEqual(self.skip('groq')['reason_code'], 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
         self.evidence('groq', 'groq-model', eligibility='not_eligible')
-        self.assertEqual(self.skip('groq')['reason_code'], failure_policy.PROVIDER_FREE_TIER_NOT_ELIGIBLE)
+        self.assertEqual(self.skip('groq')['reason_code'], 'PROVIDER_FREE_TIER_NOT_ELIGIBLE')
 
     def test_hard_stop_must_be_verified(self):
         self.evidence('groq', 'groq-model', hard_stop_guaranteed=False)
         self.assertNotIn('groq', router.candidates('alice', 'chat'))
-        self.assertEqual(self.skip('groq')['reason_code'], failure_policy.PROVIDER_FREE_TIER_HARD_STOP_UNVERIFIED)
+        self.assertEqual(self.skip('groq')['reason_code'], 'PROVIDER_FREE_TIER_HARD_STOP_UNVERIFIED')
 
     def test_exhausted_quota_skips_to_next_verified_free_provider(self):
         self.evidence('groq', 'groq-model', quota_state='exhausted', quota_remaining=0)
         self.evidence('gemini', 'gem-model')
         self.assertEqual(router.candidates('alice', 'chat'), ['gemini', 'ollama'])
         row = self.skip('groq')
-        self.assertEqual(row['reason_code'], failure_policy.PROVIDER_FREE_TIER_QUOTA_EXHAUSTED)
+        self.assertEqual(row['reason_code'], 'PROVIDER_FREE_TIER_QUOTA_EXHAUSTED')
         self.assertIn('kota', row['reason'].casefold())
 
     def test_openrouter_emergency_requires_its_own_model_evidence(self):
