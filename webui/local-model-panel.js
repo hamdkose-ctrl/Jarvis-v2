@@ -10,7 +10,7 @@ function requestStatus(sn){
   if(view.busy||now-view.at<8000)return;
   view.busy=true;view.at=now;let changed=false;
   api('llm_status').then(st=>{if(view.key===key){view.data=st||{};view.at=Date.now();changed=true}})
-    .catch(()=>{}).finally(()=>{view.busy=false;if(changed&&S.snap&&keyOf(S.snap)===key)render()});
+    .catch(()=>{}).finally(()=>{view.busy=false;if(changed&&S.snap&&keyOf(S.snap)===key&&settingsOpen())drawSettings()});
 }
 function modelEditor(st){
   const models=Array.isArray(st?.local_installed_models)?st.local_installed_models.map(String):[];
