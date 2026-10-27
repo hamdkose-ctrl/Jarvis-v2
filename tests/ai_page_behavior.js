@@ -33,6 +33,9 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
   const modelSrc=fs.readFileSync(path.join(__dirname,'../webui/local-model-panel.js'),'utf8');
   assert(!modelSrc.includes('replaceLegacyModelEditor'),'HTML string replacement geri gelmemeli');
   assert(!modelSrc.includes('.indexOf('),'panel HTML yapısına string arama bağımlılığı olmamalı');
+  assert(modelSrc.includes('class="model-id"'),'canonical model kimliği genel başlık dönüşümünden ayrılmalı');
+  const tcStart=src.indexOf('function tcEl('),tcEnd=src.indexOf('\nfunction tcPh(',tcStart),tcSrc=src.slice(tcStart,tcEnd);
+  assert(tcSrc.includes('.model-id'),'genel başlık normalizasyonu model-id metnini değiştirmemeli');
   const defaultStatus={local_backend:'ollama',local_model_preference:'llama3.2',local_effective_model:'qwen2.5-coder:7b',local_model_stale:true,local_model_warning:'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.',local_models_checked:true,local_installed_models:['qwen2.5-coder:7b'],local_model_choice_provider:'ollama',local_model_select_enabled:true};
   const status=process.env.JARVIS_LOCAL_MODEL_STATUS_JSON?JSON.parse(process.env.JARVIS_LOCAL_MODEL_STATUS_JSON):defaultStatus;
   let fullRenders=0,settingsRedraws=0;
