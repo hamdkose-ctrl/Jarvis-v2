@@ -156,6 +156,77 @@ def lbo(inputs: dict[str, Any]) -> dict[str, Any]:
             "disclaimer": NOT_INVESTMENT_ADVICE}
 
 
+def trade_plan_draft(inputs: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
+    """Create a bounded, read-only plan draft from supplied verified market observations.
+
+    Levels are only the observed two-candle range; the function never estimates a
+    missing price, source, freshness, stop, or target.
+    """
+    if not isinstance(inputs, dict):
+        raise FinanceReadonlyError("Plan girdisi geçersiz.")
+    ticker = validate_ticker(inputs.get("ticker"))
+    assumptions = [NOT_INVESTMENT_ADVICE, "Plan taslağı salt-okunur karar desteğidir; emir veya pozisyon boyutu üretmez."]
+    missing = []
+    try:
+        price = _decimal(inputs.get("current_price"), "current_price", positive=True)
+    except FinanceReadonlyError:
+        price = None
+        missing.append("doğrulanmış güncel fiyat")
+    try:
+        observed_at = _timestamp(inputs.get("price_observed_at"))
+        current_freshness = freshness(observed_at, now=now)
+    except FinanceReadonlyError:
+        current_freshness = {"state": "unknown", "observed_at": None, "age_seconds": None}
+        missing.append("fiyat tazelik zamanı")
+    evidence = []
+    try:
+        source = inputs.get("source")
+        if source not in SOURCES:
+            raise FinanceReadonlyError("Finans kaynağı tanınmıyor.")
+        pack = evidence_pack(ticker, inputs.get("evidence", []))
+        evidence = pack["evidence"]
+        if source not in {item["source"] for item in evidence}:
+            raise FinanceReadonlyError("Fiyat kaynağı kanıt paketiyle eşleşmiyor.")
+    except FinanceReadonlyError:
+        missing.append("doğrulanmış kaynak kanıtı")
+    candles = []
+    try:
+        candles = normalize_ohlcv(inputs.get("candles", []))
+    except FinanceReadonlyError:
+        missing.append("doğrulanmış OHLCV verisi")
+    if current_freshness["state"] != "fresh":
+        missing.append("güncel fiyat tazeliği")
+    if len(candles) < 2:
+        missing.append("en az iki doğrulanmış mum")
+    if missing:
+        return {"state": "incomplete", "ticker": ticker, "summary": "Trade planı için veri yetersiz.",
+                "used_price": price, "scenario": None, "entry_zone": None, "entry_condition": None,
+                "stop": None, "targets": [], "risk_reward": None, "method": None, "assumptions": assumptions,
+                "evidence": evidence, "freshness": current_freshness, "missing_data": list(dict.fromkeys(missing)),
+                "disclaimer": NOT_INVESTMENT_ADVICE}
+    recent = candles[-2:]
+    entry_low = max(row["low"] for row in recent)
+    entry_high = max(row["close"] for row in recent)
+    stop = min(row["low"] for row in recent)
+    target = max(row["high"] for row in recent)
+    if not stop < price < target or entry_low > entry_high:
+        return {"state": "incomplete", "ticker": ticker,
+                "summary": "Gözlenen aralık fiyat için doğrulanmış stop/hedef üretmiyor.", "used_price": price,
+                "scenario": None, "entry_zone": None, "entry_condition": None, "stop": None, "targets": [],
+                "risk_reward": None, "method": "son iki doğrulanmış mumun gözlenen aralığı",
+                "assumptions": assumptions, "evidence": evidence, "freshness": current_freshness,
+                "missing_data": ["fiyatı çevreleyen gözlenen stop ve hedef aralığı"], "disclaimer": NOT_INVESTMENT_ADVICE}
+    method = "son iki doğrulanmış mumun gözlenen aralığı"
+    assumptions.extend(["Kullanılan fiyat, kanıt paketindeki kaynak ve zamanla eşleşir.",
+                        "Stop son iki mumun en düşük, hedef en yüksek gözlenen değeridir; tahmin değildir."])
+    return {"state": "ready", "ticker": ticker, "summary": "Doğrulanmış fiyat ve gözlenen aralıkla plan taslağı.",
+            "used_price": price, "scenario": "gözlenen aralık içinde uzun senaryo", 
+            "entry_zone": {"low": entry_low, "high": entry_high},
+            "entry_condition": "Fiyat gözlenen kapanış aralığında kalırsa.", "stop": stop, "targets": [target],
+            "risk_reward": (target - price) / (price - stop), "method": method, "assumptions": assumptions,
+            "evidence": evidence, "freshness": current_freshness, "missing_data": [], "disclaimer": NOT_INVESTMENT_ADVICE}
+
+
 class FinanceResearchAgent:
     """Pure formatter: data must arrive through separately audited read-only adapters."""
 

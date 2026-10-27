@@ -72,6 +72,7 @@ def finance_task(data):
         'dcf': finance_readonly.dcf,
         'comparable_companies': finance_readonly.comparable_companies,
         'lbo': finance_readonly.lbo,
+        'trade_plan_draft': finance_readonly.trade_plan_draft,
     }
     operation = data.get('operation')
     if operation not in handlers:

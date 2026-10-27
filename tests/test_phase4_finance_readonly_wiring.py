@@ -27,6 +27,22 @@ class Phase4FinanceReadonlyWiringTests(unittest.TestCase):
         self.assertEqual(result["analysis"]["total_value"], "200")
         self.assertIn("yatırım tavsiyesi değildir", result["disclaimer"])
 
+    def test_finance_worker_returns_trade_plan_draft_without_execution_fields(self):
+        payload = {
+            "ticker": "THYAO", "current_price": "105", "price_observed_at": "2026-10-27T10:00:00+00:00",
+            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": "2026-10-27T10:00:00+00:00"}],
+            "candles": [
+                {"date": "2026-10-25T10:00:00+00:00", "open": "100", "high": "108", "low": "96", "close": "104", "volume": "10"},
+                {"date": "2026-10-26T10:00:00+00:00", "open": "104", "high": "112", "low": "99", "close": "106", "volume": "11"},
+            ],
+        }
+        result = task_workers.run("alice", {"id": "finance-plan", "agent": "finance",
+            "input": {"operation": "trade_plan_draft", "payload": json.dumps(payload)}, "execution": {}}, {})
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(result["analysis"]["state"], "ready")
+        self.assertNotIn("order", result["analysis"])
+        self.assertNotIn("position_size", result["analysis"])
+
 
 if __name__ == "__main__":
     unittest.main()
