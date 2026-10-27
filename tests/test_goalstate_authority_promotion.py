@@ -115,5 +115,36 @@ class GoalStateAuthorityPromotionTests(unittest.TestCase):
         self.assertEqual(goal_state.authority(goal_state_store.load(self.canonical)), "legacy")
 
 
+    def test_promotion_requires_fingerprint_and_exact_candidate(self):
+        with self.assertRaises(runner.OperatorApprovalRequired):
+            runner.promote(self.owner_dir, approved_fingerprint="", approved_job_ids=[self.job["id"]])
+        plan = runner.plan(self.owner_dir)
+        runner.promote(
+            self.owner_dir, approved_fingerprint=plan["fingerprint"],
+            approved_job_ids=[self.job["id"]],
+        )
+        after = runner.plan(self.owner_dir)
+        with self.assertRaises(runner.OperatorApprovalRequired):
+            runner.promote(
+                self.owner_dir, approved_fingerprint=after["fingerprint"],
+                approved_job_ids=[self.job["id"]],
+            )
+
+    def test_terminal_legacy_goalstate_can_be_promoted_only_as_authority_audit(self):
+        terminal_job = {**self.job, "state": "cancelled"}
+        self.legacy.write_text(json.dumps(terminal_job), encoding="utf-8")
+        goal_state_compat.sync(terminal_job, self.canonical)
+        plan = runner.plan(self.owner_dir)
+        self.assertEqual(plan["promotion_candidates"], [self.job["id"]])
+        runner.promote(
+            self.owner_dir, approved_fingerprint=plan["fingerprint"],
+            approved_job_ids=[self.job["id"]],
+        )
+        state = goal_state_store.load(self.canonical)
+        self.assertEqual(state["state"], "cancelled")
+        self.assertEqual(state["audit"][-1]["op"], "set_authority")
+        self.assertEqual(state["audit"][-1]["reason_code"], "OPERATOR_CUTOVER_PROMOTED")
+
+
 if __name__ == "__main__":
     unittest.main()
