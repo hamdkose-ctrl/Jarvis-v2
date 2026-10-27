@@ -8,21 +8,14 @@ Yeni bir tamamlanma satirinin ardindaki ilk bos olmayan satir su bicimde olmalid
   Kanıt: PR=#410; SHA=abcdef123456; Contract=#372; Migration=n/a; Wiring=#400;
   Acceptance=watcher-pass@abcdef123456; Cleanup=verified
 
-Zorunlu alanlar:
-- PR: bu kapanisi yapan PR numarasi
-- SHA: acceptance alinan PR head SHA (7-40 hex)
-- Contract: sozlesme/arayuz kaniti olan PR
-- Migration: eski kod gocu PR'i veya n/a
-- Wiring: gercek kullanici akisina baglama PR'i
-- Acceptance: watcher-pass@<SHA>; SHA alanina esit olmali
-- Cleanup: verified veya n/a
-
-Bu script GitHub API/LLM/ag kullanmaz; roadmap tek source-of-truth kalir.
+`SHA` / `Acceptance` test edilmis kod commit'ini gosterir. Sonraki commitler yalniz
+dokumantasyon kaniti ekleyebilir; runtime kodu degisirse yeni acceptance gerekir.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -64,11 +57,7 @@ def _is_completion_line(line: str) -> bool:
 
 
 def _new_completion_indexes(base_text: str, current_text: str) -> list[int]:
-    """Main'de aynen bulunan tamamlanmis satirlari tuket, yenileri dondur.
-
-    Tamamlanmis bir satirin metni degistirilirse de yeni kapanis gibi kanit ister;
-    bu bilerek fail-closed davranistir.
-    """
+    """Main'de aynen bulunan tamamlanmis satirlari tuket, yenileri dondur."""
     base_completed = Counter(
         line.strip()
         for line in base_text.splitlines()
@@ -144,12 +133,43 @@ def _validate_evidence(fields: dict[str, str]) -> list[str]:
     return errors
 
 
+def validate_ci_provenance(
+    fields: dict[str, str],
+    *,
+    pr_number: str,
+    pr_head_sha: str,
+    is_ancestor: bool,
+    changed_paths: list[str],
+) -> list[str]:
+    """CI baglaminda kanitin gercek PR ve test edilmis kod ancestry'sini dogrula."""
+    errors: list[str] = []
+    if fields.get("PR") != f"#{str(pr_number).strip()}":
+        errors.append("Kanıt PR alanı CI'daki gerçek PR numarasıyla eşleşmeli")
+    if not pr_head_sha.strip():
+        errors.append("CI PR head SHA bilgisi eksik")
+    if not is_ancestor:
+        errors.append("Acceptance SHA, güncel PR head commit'inin atası olmalı")
+
+    runtime_changes = []
+    for path in changed_paths:
+        normalized = str(path).replace("\\", "/").lstrip("./")
+        if normalized and not normalized.startswith("docs/"):
+            runtime_changes.append(normalized)
+    if runtime_changes:
+        errors.append(
+            "Acceptance sonrasında kod değişikliği var; yeni watcher acceptance gerekli: "
+            + ", ".join(runtime_changes)
+        )
+    return errors
+
+
 def check_completion_evidence(base_text: str, current_text: str) -> dict:
     lines = current_text.splitlines()
     indexes = _new_completion_indexes(base_text, current_text)
     new_completions: list[str] = []
     missing_evidence: list[str] = []
     invalid_evidence: list[dict] = []
+    evidence_records: list[dict] = []
 
     for index in indexes:
         completion = lines[index].strip()
@@ -159,6 +179,7 @@ def check_completion_evidence(base_text: str, current_text: str) -> dict:
             missing_evidence.append(completion)
             continue
         fields = _parse_evidence(evidence_line)
+        evidence_records.append({"completion": completion, "fields": fields})
         errors = _validate_evidence(fields)
         if errors:
             invalid_evidence.append(
@@ -169,6 +190,7 @@ def check_completion_evidence(base_text: str, current_text: str) -> dict:
         "new_completions": new_completions,
         "missing_evidence": missing_evidence,
         "invalid_evidence": invalid_evidence,
+        "evidence_records": evidence_records,
         "pass": not missing_evidence and not invalid_evidence,
     }
 
@@ -178,6 +200,41 @@ def _roadmap_on_main(root: Path = ROOT) -> str:
     if cp.returncode != 0:
         raise RuntimeError(f"main roadmap okunamadi: {cp.stderr.strip()}")
     return cp.stdout
+
+
+def _resolve_commit(ref: str, root: Path = ROOT) -> str:
+    cp = _run(["git", "rev-parse", f"{ref}^{{commit}}"], cwd=root)
+    if cp.returncode != 0 or not cp.stdout.strip():
+        raise RuntimeError(f"commit bulunamadi: {ref}")
+    return cp.stdout.strip().lower()
+
+
+def _provenance_from_git(
+    fields: dict[str, str], *, pr_number: str, pr_head_sha: str, root: Path = ROOT
+) -> list[str]:
+    try:
+        accepted = _resolve_commit(fields["SHA"], root)
+        head = _resolve_commit(pr_head_sha, root)
+    except RuntimeError as exc:
+        return [str(exc)]
+
+    ancestor_cp = _run(["git", "merge-base", "--is-ancestor", accepted, head], cwd=root)
+    is_ancestor = ancestor_cp.returncode == 0
+
+    changed_paths: list[str] = []
+    if is_ancestor:
+        diff_cp = _run(["git", "diff", "--name-only", f"{accepted}..{head}"], cwd=root)
+        if diff_cp.returncode != 0:
+            return ["Acceptance sonrası değişiklikler okunamadı"]
+        changed_paths = [line.strip() for line in diff_cp.stdout.splitlines() if line.strip()]
+
+    return validate_ci_provenance(
+        fields,
+        pr_number=pr_number,
+        pr_head_sha=head,
+        is_ancestor=is_ancestor,
+        changed_paths=changed_paths,
+    )
 
 
 def main() -> int:
@@ -211,9 +268,23 @@ def main() -> int:
         return 1
 
     if result["new_completions"]:
+        pr_number = os.environ.get("JARVIS_PR_NUMBER", "").strip()
+        pr_head_sha = os.environ.get("JARVIS_PR_HEAD_SHA", "").strip()
+        if not pr_number or not pr_head_sha:
+            print("ROADMAP COMPLETION EVIDENCE: yeni tamamlanma için PR CI bağlamı eksik")
+            return 1
+        for record in result["evidence_records"]:
+            errors = _provenance_from_git(
+                record["fields"], pr_number=pr_number, pr_head_sha=pr_head_sha, root=ROOT
+            )
+            if errors:
+                print(f"ROADMAP COMPLETION EVIDENCE: provenance geçersiz: {record['completion']}")
+                for error in errors:
+                    print(f"  - {error}")
+                return 1
         print(
             "ROADMAP COMPLETION EVIDENCE OK: yeni tamamlanan maddelerin "
-            "kapanis kanitlari mevcut."
+            "kapanis kanitlari ve acceptance ancestry'si dogrulandi."
         )
     else:
         print("ROADMAP COMPLETION EVIDENCE OK: yeni tamamlanan madde yok.")
