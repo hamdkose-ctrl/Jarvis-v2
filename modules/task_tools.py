@@ -16,6 +16,8 @@ CATALOG = {
              'required': ('path', 'operation'), 'optional': ()},
     'finance': {'risk': 'local_evidence_read', 'replay_safe': True,
                 'required': ('operation', 'payload'), 'optional': ()},
+    'computer': {'risk': 'local_evidence_read', 'replay_safe': True,
+                 'required': ('app', 'operation'), 'optional': ()},
     'writer': {'risk': 'local_file_create', 'replay_safe': True,
                'required': ('instruction',), 'optional': ('filename',)},
     'browser': {'risk': 'external_effect_possible', 'replay_safe': False,
@@ -41,6 +43,12 @@ def validate_input(kind, data, *, complete=True):
         from modules import account_tools
         # Account schema includes an integer limit; it is not a text-only worker.
         return account_tools.validate_input(data)
+    if kind == 'computer':
+        from modules import computer_worker_contract
+        if not isinstance(data, dict) or set(data) != {'app', 'operation'}:
+            raise ValueError('ComputerWorker girdisi geçersiz.')
+        computer_worker_contract.capability(data['app'], data['operation'])
+        return copy.deepcopy(data)
     if not isinstance(data, dict) or any(
         not isinstance(key, str) or key not in spec['required'] + spec['optional']
         for key in data
