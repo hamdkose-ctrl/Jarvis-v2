@@ -110,7 +110,8 @@ class SmartRouterTests(unittest.TestCase):
 
     def test_no_candidates_is_distinct_from_failed_call_and_does_not_call_model(self):
         call=Mock(side_effect=AssertionError('no call'))
-        with patch.object(router,'candidates',return_value=[]):
+        with patch.object(router,'selection',return_value={'candidates':[],'skipped':[]}), \
+             patch.object(router,'_free_emergency',return_value=False):
             with self.assertRaisesRegex(RuntimeError,'denenecek sağlayıcı yok'):
                 router.run('alice','python',call)
         call.assert_not_called()
