@@ -250,6 +250,52 @@ def trade_plan_risk_checklist(plan: dict[str, Any]) -> dict[str, Any]:
             "disclaimer": NOT_INVESTMENT_ADVICE}
 
 
+def trade_plan_risk_decision(plan: dict[str, Any], checklist: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+    """Pure, fail-closed sizing decision; PASS never grants execution permission."""
+    if not isinstance(plan, dict) or not isinstance(checklist, dict) or not isinstance(profile, dict):
+        raise FinanceReadonlyError("Risk kararı girdisi geçersiz.")
+    ticker = validate_ticker(plan.get("ticker"))
+    reasons = []
+    observed = {row.get("code") for row in checklist.get("observations", []) if isinstance(row, dict)}
+    if "STALE_DATA" in observed or plan.get("freshness", {}).get("state") != "fresh": reasons.append("STALE_EVIDENCE")
+    entry, stop = plan.get("used_price"), plan.get("stop")
+    if entry is None: reasons.append("ENTRY_MISSING")
+    if stop is None: reasons.append("STOP_MISSING")
+    if not plan.get("targets"): reasons.append("TARGET_MISSING")
+    if plan.get("risk_reward") is None: reasons.append("RR_UNAVAILABLE")
+    try: entry = _decimal(entry, "entry", positive=True)
+    except FinanceReadonlyError: entry = None
+    try: stop = _decimal(stop, "stop", positive=True)
+    except FinanceReadonlyError: stop = None
+    if entry is not None and stop is not None and stop >= entry: reasons.append("STOP_INVALID")
+    try: account = _decimal(profile.get("account_value"), "account_value", positive=True)
+    except FinanceReadonlyError: account = None; reasons.append("ACCOUNT_VALUE_MISSING")
+    try:
+        fraction = _decimal(profile.get("risk_fraction"), "risk_fraction", positive=True)
+        if fraction > Decimal(1): raise FinanceReadonlyError("risk_fraction geçersiz.")
+    except FinanceReadonlyError: fraction = None; reasons.append("RISK_BUDGET_MISSING")
+    sizing = profile.get("asset_sizing")
+    if not isinstance(sizing, dict) or sizing.get("kind") != "unit": reasons.append("UNSUPPORTED_ASSET_SIZING")
+    else:
+        try:
+            step = _decimal(sizing.get("quantity_step"), "quantity_step", positive=True)
+            minimum = _decimal(sizing.get("minimum_quantity"), "minimum_quantity", positive=True)
+        except FinanceReadonlyError: reasons.append("POSITION_SIZE_UNRESOLVABLE")
+    base = {"ticker": ticker, "plan": plan, "checklist": checklist, "account_value": account,
+            "risk_fraction": fraction, "position_size": None, "risk_amount": None,
+            "assumptions": [NOT_INVESTMENT_ADVICE, "PASS yalnız tanımlı risk kurallarından geçtiğini gösterir; execution permission değildir."],
+            "disclaimer": NOT_INVESTMENT_ADVICE}
+    if reasons:
+        return {**base, "decision": "BLOCK", "reason_codes": list(dict.fromkeys(reasons))}
+    risk_amount = account * fraction
+    raw = risk_amount / (entry - stop)
+    quantity = (raw // step) * step
+    if quantity < minimum:
+        return {**base, "decision": "BLOCK", "reason_codes": ["POSITION_SIZE_UNRESOLVABLE"], "risk_amount": risk_amount}
+    return {**base, "decision": "PASS", "reason_codes": [], "risk_amount": risk_amount, "position_size": quantity,
+            "formula": "risk_amount = account_value × risk_fraction; position_size = floor(risk_amount / abs(entry - stop), quantity_step)"}
+
+
 class FinanceResearchAgent:
     """Pure formatter: data must arrive through separately audited read-only adapters."""
 

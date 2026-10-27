@@ -53,6 +53,18 @@ class Phase4FinanceReadonlyWiringTests(unittest.TestCase):
         self.assertNotIn("pass", result["analysis"])
         self.assertNotIn("block", result["analysis"])
 
+    def test_finance_worker_risk_pass_never_exposes_execution_permission(self):
+        plan = {"ticker": "THYAO", "state": "ready", "used_price": "100", "stop": "90",
+                "targets": ["120"], "risk_reward": "2", "freshness": {"state": "fresh"}, "missing_data": []}
+        payload = {"plan": plan, "checklist": {"observations": []}, "profile": {
+            "account_value": "10000", "risk_fraction": "0.01",
+            "asset_sizing": {"kind": "unit", "quantity_step": "1", "minimum_quantity": "1"}}}
+        result = task_workers.run("alice", {"id": "finance-decision", "agent": "finance",
+            "input": {"operation": "trade_plan_risk_decision", "payload": json.dumps(payload)}, "execution": {}}, {})
+        self.assertEqual(result["analysis"]["decision"], "PASS")
+        self.assertNotIn("permission", result["analysis"])
+        self.assertNotIn("execution", result["analysis"])
+
 
 if __name__ == "__main__":
     unittest.main()

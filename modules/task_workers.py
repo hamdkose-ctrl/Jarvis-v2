@@ -74,6 +74,8 @@ def finance_task(data):
         'lbo': finance_readonly.lbo,
         'trade_plan_draft': finance_readonly.trade_plan_draft,
         'trade_plan_risk_checklist': finance_readonly.trade_plan_risk_checklist,
+        'trade_plan_risk_decision': lambda payload: finance_readonly.trade_plan_risk_decision(
+            payload.get('plan'), payload.get('checklist'), payload.get('profile')),
     }
     operation = data.get('operation')
     if operation not in handlers:
