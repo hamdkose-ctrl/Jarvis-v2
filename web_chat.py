@@ -19,6 +19,8 @@ class WebChat:
         if result.get('ok'):
             if not hasattr(self, '_development_previous_mic'):
                 self._development_previous_mic = previous
+            # Geliştirme ekranında sesli giriş ve uyandırma devre dışı;
+            # yazı ve görsel ekleme kullanılmaya devam eder.
             self._runtime._set_mic(False)
         return result
 
@@ -41,10 +43,12 @@ class WebChat:
         return developer.export(self._runtime._p().slug)
 
     def recent(self, limit: int=40) -> list:
+        """Bu oturumun son konuşmaları (motor günlüğü)."""
         runtime = self._runtime
         return [r for r in list(runtime.engine.event_log) if r.get('user') == runtime._p().name][-limit:]
 
     def continuity(self, device_id: str='', session_id: str='') -> dict:
+        """Aktif kullanıcının Core-owned iş görünümünü bu istemci için salt-okunur döndürür."""
         from modules import continuity
         return continuity.snapshot(self._runtime._p().slug, device_id=device_id, session_id=session_id)
 
@@ -83,6 +87,7 @@ class WebChat:
         return camera_bridge.latest(self._runtime._p().slug, device_id, max_age=float(max_age))
 
     def activity_clear(self) -> bool:
+        """Canlı Aktivite geçmişini temizler; motorun normal loglarına dokunmaz."""
         runtime = self._runtime
         runtime.hub.activity.clear()
         runtime.hub.publish('activity', 'Aktivite ekranı temizlendi', 'info|Sistem|')
@@ -94,7 +99,7 @@ class WebChat:
         accepted = runtime.engine.submit(text, 'yazı', runtime._p().name, rid=rid or None)
         if accepted is False:
             if text.replace('I', 'ı').replace('İ', 'i').lower().strip(' .!') in ('dur', 'sus', 'yeter', 'stop'):
-                return False
+                return False  # Immediate control: no assistant response will follow.
             raise ValueError('İstek kuyruğa alınmadı; boş veya daha önce gönderilmiş olabilir.')
         return True
 
@@ -109,6 +114,7 @@ class WebChat:
         return True
 
     def history_delete_conversation(self, day: str) -> dict:
+        """Delete only the selected sidebar entry for the current user."""
         runtime = self._runtime
         owner = runtime._p()
         deleted_ids = set()
@@ -123,6 +129,7 @@ class WebChat:
         return {'ok': True, 'removed': removed}
 
     def chat_reset(self) -> bool:
+        """Yeni sohbet: yazılı sohbetin kısa süreli hafızası sıfırlanır (kalıcı geçmiş silinmez)."""
         runtime = self._runtime
         from modules import chat_translation
         owner = runtime._p().slug
