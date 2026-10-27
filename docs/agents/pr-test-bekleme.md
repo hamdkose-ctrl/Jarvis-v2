@@ -12,17 +12,14 @@ Bu belge, GPT/Codex geliştirme ajanının PR ve gerçek Windows PC watcher sonu
 - Sonuç FAIL ise GPT/Codex yalnız Hamdi açıkça **“düzelt”**, **“devam et”** veya eşdeğer bir komut verdiğinde kod değişikliğine başlar.
 - Yeni commit/push sonrası GPT/Codex yeniden beklemeye geçer; watcher yeni SHA'yı test eder.
 - Aynı SHA için watcher sonucu daha önce üretilmişse GPT/Codex bunun tekrar çalışmasını istemez ve sırf sonucu beklemek için model çağrısı yapmaz.
-
-## PR granülerliği — 27 Ekim 2026 son karar
-
-- Varsayılan çalışma biçimi: **1 anlamlı, kullanıcıya görünür yetenek = 1 dikey PR**.
+- PR granülerliği için varsayılan çalışma biçimi: **1 anlamlı, kullanıcıya görünür yetenek = 1 dikey PR**.
 - Aynı yeteneğin adapter, bridge, classifier, UI wiring, test veya benzeri küçük teknik parçaları sırf ayrı ayrı test edilebilir diye otomatik olarak ayrı PR'lara bölünmez.
 - Bir özellik mümkün olduğunca aynı PR içinde uçtan uca tamamlanır: sözleşme / önce düşen test → kod → gerçek kullanıcı akışına bağlantı → gerekli doğrulama → ilgili roadmap durumu.
 - PR yalnız gerçekten bağımsız bir güvenlik sınırı, farklı sahiplik/ajan alanı, büyük ve geri alınması zor migration, ayrı rollout/acceptance gereksinimi veya tek PR incelemesini belirgin biçimde riskli yapan kapsam varsa bölünür.
 - **“Küçük PR daha güvenli” tek başına bölme gerekçesi değildir.** Gereksiz PR sayısı CI/watcher tekrarını ve model kotasını artırıyorsa dikey dilim tercih edilir.
 - Bölme gerekiyorsa PR açıklamasında neden bölündüğü ve aynı kullanıcı yeteneğinde kalan son dilimin ne olduğu açıkça yazılır.
 - Test, full validation, CI, watcher, permission ve güvenlik kapıları kaldırılmaz; yalnız aynı özellik için gereksiz tekrar döngüleri azaltılır.
-- Bu kural GPT/Codex ile sınırlı değildir; Jarvis-v2 üzerinde PR açan diğer geliştirme ajanları da aynı granülerliği kullanır.
+- Bu PR granülerliği kuralı GPT/Codex ile sınırlı değildir; Jarvis-v2 üzerinde PR açan diğer geliştirme ajanları da aynı standardı kullanır.
 
 ## Amaç
 
