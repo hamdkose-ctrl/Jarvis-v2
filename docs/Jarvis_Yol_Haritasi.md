@@ -73,6 +73,7 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 
 - 🟡 (#350) `[1✓ 2✓ 3✓ 4✗]` 429, kota, ağ, kimlik doğrulama ve yerel model yokluğu kullanıcıya ayrı ve anlaşılır nedenlerle gösterilecek; kalıcı kota hatası geçici hatadan ayrılacak. Şu an hata sınıflandırması ve bekleme var, ama bazı hedeflerde ham hata gidiyor.
 - 🔄 (F-009) `[1✓ 2✓ 3✓ 4🔄]` Otomatik cloud rota yalnız exact provider/model için doğrulanmış, süresi geçmemiş, uygun, hard-stop garantili ve bilinen kota tükenmemiş free-tier evidence ile açılacak. Evidence yok/stale/unknown ise allow değil; ücretli fallback yapılmaz. `usage_meter` limit gözlemi kanıt yerine geçmez; mevcut cooldown/fallback korunur.
+- 🔄 (stale Ollama model acceptance düzeltmesi) Stale local-model tercihi artık kurulu Ollama modelini engellemez; runtime yalnız gerçekten kurulu modele bağlanır. Kullanıcı tercihi diskte korunur; kurulu değilse `ollama_models()` listesindeki deterministik modele düşülür. Exact-head CI + gerçek PC stale-selection acceptance bekleniyor; F-009 yeniden açılmaz.
 - ✅ (#350) `[1✓ 2✓ 3✓ 4✓]` Sınırlı yeniden deneme ve artan bekleme (backoff) eklenecek. Şu an bekleme var, backoff yok.
 - 🟡 (#352) `[1✓ 2✓ 3✓ 4–]` Ollama kurulu değilken modelsiz kısmın doğrulanmış teslimi haber ve finans dışındaki hedeflere de yayılacak. Haber ve finans için modelsiz yol var. İş PC'sinde gerçek kabul gerekiyor; kabul gelmeden ✅ yazılmaz.
 - ✅ (#352) `[1✓ 2– 3✓ 4–]` LM Studio ve llama.cpp için yerel uç nokta ayarı eklenecek (opsiyonel). Şu an yalnız Ollama var.
