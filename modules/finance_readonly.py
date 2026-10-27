@@ -227,6 +227,29 @@ def trade_plan_draft(inputs: dict[str, Any], *, now: datetime | None = None) -> 
             "evidence": evidence, "freshness": current_freshness, "missing_data": [], "disclaimer": NOT_INVESTMENT_ADVICE}
 
 
+def trade_plan_risk_checklist(plan: dict[str, Any]) -> dict[str, Any]:
+    """List plan-data limitations without making a trading or approval decision."""
+    if not isinstance(plan, dict):
+        raise FinanceReadonlyError("Plan kaydı geçersiz.")
+    ticker = validate_ticker(plan.get("ticker"))
+    observations = []
+    freshness_state = plan.get("freshness", {}).get("state") if isinstance(plan.get("freshness"), dict) else None
+    if freshness_state != "fresh":
+        observations.append({"code": "STALE_DATA", "detail": "Fiyat verisinin tazeliği doğrulanmış değil."})
+    if plan.get("stop") is None:
+        observations.append({"code": "STOP_UNAVAILABLE", "detail": "Doğrulanmış stop seviyesi yok."})
+    if not isinstance(plan.get("targets"), list) or not plan["targets"]:
+        observations.append({"code": "TARGET_UNAVAILABLE", "detail": "Doğrulanmış hedef yok."})
+    if plan.get("risk_reward") is None:
+        observations.append({"code": "RISK_REWARD_UNAVAILABLE", "detail": "Risk-getiri görünümü hesaplanamadı."})
+    if plan.get("missing_data"):
+        observations.append({"code": "MISSING_EVIDENCE", "detail": "Planın eksik veri veya kanıt notları var."})
+    return {"state": "observed", "ticker": ticker, "observations": observations,
+            "assumptions": [NOT_INVESTMENT_ADVICE,
+                            "Bu liste yalnız veri/plan sınırlamalarını gösterir; PASS/BLOCK veya işlem kararı vermez."],
+            "disclaimer": NOT_INVESTMENT_ADVICE}
+
+
 class FinanceResearchAgent:
     """Pure formatter: data must arrive through separately audited read-only adapters."""
 
