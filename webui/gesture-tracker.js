@@ -8,9 +8,10 @@
   const MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
   const FRAME_MS=180;
   const SYNC_MS=500;
+  const LOAD_RETRY_MS=30000;
   const DEVICE_KEY='nx.gesture_device_id';
 
-  let handLandmarker=null,loading=null,timer=0,syncTimer=0,running=false,busy=false,hadHand=false,closed=false;
+  let handLandmarker=null,loading=null,timer=0,syncTimer=0,running=false,busy=false,hadHand=false,closed=false,loadFailedAt=0;
 
   function deviceId(){
     try{
@@ -31,6 +32,8 @@
   async function loadTracker(){
     if(handLandmarker)return handLandmarker;
     if(loading)return loading;
+    const now=Date.now();
+    if(loadFailedAt&&now-loadFailedAt<LOAD_RETRY_MS)throw new Error('Gesture tracker modeli geçici olarak kullanılamıyor.');
     loading=(async()=>{
       const vision=await import(TASKS_JS);
       const files=await vision.FilesetResolver.forVisionTasks(WASM_ROOT);
@@ -38,7 +41,14 @@
       try{return await vision.HandLandmarker.createFromOptions(files,opts)}
       catch(_){return vision.HandLandmarker.createFromOptions(files,{...opts,baseOptions:{modelAssetPath:MODEL}})}
     })();
-    try{handLandmarker=await loading;return handLandmarker}finally{loading=null}
+    try{
+      handLandmarker=await loading;
+      loadFailedAt=0;
+      return handLandmarker;
+    }catch(err){
+      loadFailedAt=Date.now();
+      throw err;
+    }finally{loading=null}
   }
 
   async function imageFromPreview(b64){
