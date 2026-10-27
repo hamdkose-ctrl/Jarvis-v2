@@ -259,6 +259,21 @@ def operator_backfill_missing_canonical_once(
     return goal_state_store.create(path, _project(job, authority='legacy'))
 
 
+def operator_promote_legacy_authority_once(path) -> dict:
+    """Promote one aligned legacy-authority GoalState after explicit operator approval."""
+    path = Path(path)
+    current = goal_state_store.load(path)
+    if goal_state.authority(current) != 'legacy':
+        raise BackfillAlreadyExists('GoalState zaten canonical authority ile kayıtlı.')
+    next_state = core_state_reducer.apply(current, {
+        'expected_version': current['version'], 'op': 'set_authority',
+        'authority': 'canonical', 'reason_code': 'OPERATOR_CUTOVER_PROMOTED',
+    })
+    return goal_state_store.compare_and_swap(
+        path, expected_version=current['version'], next_state=next_state,
+    )
+
+
 def sync(job: dict, path) -> dict:
     path = Path(path)
     if not path.exists():
