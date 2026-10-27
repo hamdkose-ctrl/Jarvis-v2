@@ -242,10 +242,11 @@ Alt-ajan yaşam döngüsü ve Kanban panosu eklenir. Sandbox hazır; paralel iş
 
 ## Faz 8 — MCP istemcisi ve güvenli eklenti
 
-**Durum: başlanmadı.**
+**Durum: 🟡 kısmi. Kamera/WebRTC cihaz bridge adapter'ı benchmark deseninden yeniden uygulanıyor; mevcut web Bridge yüzeyine bağlı. Vision/`observe(camera)` bağlantısı ve gerçek cihaz kabulü tamamlanmadan bu iş ✅ sayılmaz.**
 
 MCP istemcisi ve güvenli eklenti sistemi eklenir. Kendi altyapımız sabit; dış araçlara ancak o zaman güvenle kapı açılır.
 
+- 🟡 Kamera/WebRTC cihaz köprüsü: yalnız observation/evidence kaynağı; yerel stop uzaktan yeniden açılamaz, en fazla 3 viewer, WebRTC/JPEG frame sınırı, owner izolasyonu ve ephemeral retention var. Goal/Vision observation bağlantısı ve gerçek cihaz kabulü bekliyor.
 - Sabit, salt okuma MCP istemcisi eklenecek: dinamik araç keşfi, sunucu bağlantıları, MCP olay istemcisi, yerel MCP bağlantıları. Sandbox'tan sonra. Şu an yalnız referans kataloğu var.
 - A2A ve harici ajan servislerine bağlanma en sona kalır.
 - Güvenli eklenti sistemi sıfırdan yazılacak: araç, yaşam döngüsü hook'ı, komut, paketlenmiş skill, katalog, katman, commit'e sabitli sürüm, onay, işletim sistemi uyumu. Şu an eski `plugins.py` kullanıcı Python'unu doğrudan yüklüyor; o büyütülmeyecek.
