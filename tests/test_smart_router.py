@@ -16,6 +16,19 @@ class SmartRouterTests(unittest.TestCase):
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
         self.crypto=patch.object(router.privacy,'protect',side_effect=lambda s:'enc:'+s);self.crypto.start();self.addCleanup(self.crypto.stop)
         p=patch.object(router.privacy,'unprotect',side_effect=lambda s:s.removeprefix('enc:'));p.start();self.addCleanup(p.stop)
+        real_configure=router.configure
+        def configure_with_evidence(owner, cloud_free_confirmed=None, model=None, key=None):
+            result=real_configure(owner,cloud_free_confirmed,model,key)
+            if cloud_free_confirmed is True:
+                now=router.time.time()
+                for provider, model_name in [('gemini',llm.active_model(owner)),('groq',llm.groq_model())]:
+                    router.set_free_tier_evidence(
+                        owner,provider=provider,model=model_name,free_tier_verified=True,
+                        source='test-fixture',evidence_ref='test://official-free-tier',verified_at=now,
+                        ttl_seconds=3600,eligibility='eligible',quota_state='available',quota_remaining=10,
+                        hard_stop_guaranteed=True,verification_status='verified',reason='router regression fixture')
+            return result
+        p=patch.object(router,'configure',side_effect=configure_with_evidence);p.start();self.addCleanup(p.stop)
 
     def test_no_assumption_key_means_free_account(self):
         self.assertEqual(router.candidates('alice','chat'),['ollama'])
@@ -36,7 +49,7 @@ class SmartRouterTests(unittest.TestCase):
         router.configure('alice',True)
         def policy(owner,provider):
             return next(r['policy'] for r in router.status(owner)['capabilities'] if r['provider']==provider)
-        self.assertIn('onaylı',policy('alice','gemini'))
+        self.assertIn('Kanıtlı ücretsiz rota',policy('alice','gemini'))
         self.assertNotIn('onayı gerekli',policy('alice','gemini'))
         self.assertIn('onayı gerekli',policy('bob','gemini'))
         with patch.object(llm,'user_groq_key',return_value=''):
@@ -51,7 +64,7 @@ class SmartRouterTests(unittest.TestCase):
         policies={r['provider']:r['policy'] for r in status['capabilities']}
         self.assertIn('beklemede',policies['gemini'])
         self.assertNotIn('beklemede',policies['groq'])
-        self.assertIn('canlı çağrı sınanmadı',policies['groq'])
+        self.assertIn('strict zero-cost',policies['groq'])
 
     def test_quota_fallback_cooldown_and_routing_trace(self):
         router.configure('alice',True)
@@ -219,7 +232,6 @@ class SmartRouterTests(unittest.TestCase):
         with patch.object(llm,'set_provider') as choose,patch.object(nxapi,'save_settings'),patch.object(nxapi,'ui_settings',return_value={}):
             nxapi.ui_set('ai_mode','auto');choose.assert_called_once_with('auto')
 
-
     def test_missing_groq_key_is_reported_without_reading_or_exposing_a_key(self):
         router.configure('alice',True)
         with patch.object(llm,'user_groq_key',return_value=''):
@@ -227,7 +239,10 @@ class SmartRouterTests(unittest.TestCase):
                 router.run('alice','araştırma raporu',Mock(side_effect=TimeoutError('PRIVATE')))
             last=router.status('alice')['last']
         self.assertIn('groq: Bu kullanıcı için API anahtarı eksik',str(caught.exception))
-        self.assertIn({'provider':'groq','reason':'Bu kullanıcı için API anahtarı eksik','seconds':0},last['skipped'])
+        groq_skip=next(row for row in last['skipped'] if row['provider']=='groq')
+        self.assertEqual(groq_skip['reason'],'Bu kullanıcı için API anahtarı eksik')
+        self.assertEqual(groq_skip['reason_code'],'PROVIDER_CONFIGURATION_REQUIRED')
+        self.assertEqual(groq_skip['seconds'],0)
         self.assertNotIn('PRIVATE',json.dumps(last))
 
     def test_groq_cooldown_is_visible_and_expiry_makes_it_eligible(self):
