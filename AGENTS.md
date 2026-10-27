@@ -37,7 +37,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (16 bölüm)
-- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (4 bölüm)
+- `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (5 bölüm)
 - `docs/agents/gorsel-komutlar.md`: Doğal dil ile tetiklenen görsel üretimi (4 bölüm)
 
 ## Klasör haritası
