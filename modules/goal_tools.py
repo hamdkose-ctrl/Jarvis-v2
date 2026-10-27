@@ -15,7 +15,7 @@ LOCAL = {
     'action': 'Jarvis iç işlemleri: action ve params; gerçek app_actions kataloğunu kullan.',
     'desktop': 'Windows uygulamasında doğrulanan görev: target, goal. Yerel aktif kullanıcı gerekir. Durmuş/soru bekleyen kendi adımını resume_id=desktop_id ve gerekirse answer ile sürdür; yeni görev oluşturma.',
     'document': 'Kullanıcı dosyasında read/summarize/insights/translate/convert: operation,path; question,target,format isteğe bağlı.',
-    'observe': 'Güncel ekran/kamera inceleme: kind=screen|camera, question. Kamera önceden açık olmalı.',
+    'observe': 'Güncel ekran/kamera inceleme: kind=screen|camera, question. Kamera önceden açık olmalı; uzak kamera için target cihaz kimliği olabilir.',
     'application': 'Gerçek kurulu uygulamaları keşfet/aç: operation=list|open, name isteğe bağlı. open yalnız uygulamayı açmanın kendisi kullanıcı hedefiyse başarıdır; uygulama içi işlem gerekiyorsa desktop/task kullan.',
     'diagnose': 'Gerçek yerel önkoşulları oku: kind=system|accounts|media|narration; kurulum yapmaz.',
     'sharing': 'Paylaşım durumunu değiştir: mode=screen|camera|off. Yalnız kullanıcı bunu istemişse.',
@@ -84,8 +84,12 @@ def validate(kind, data):
         if kind in enums:
             key,values=enums[kind]
             if data[key] not in values:raise ValueError('Araç işlemi geçersiz.')
-        if kind=='observe' and (data['kind']=='window') != ('target' in data):
-            raise ValueError('Pencere gözlemi için yalnız hedef uygulama adı gerekli.')
+        if kind=='observe':
+            has_target='target' in data
+            if data['kind']=='window' and not has_target:
+                raise ValueError('Pencere gözlemi için hedef uygulama adı gerekli.')
+            if data['kind']=='screen' and has_target:
+                raise ValueError('Ekran gözleminde target kullanılamaz.')
         if kind=='application' and data['operation']=='open' and not data.get('name'):raise ValueError('Uygulama adı gerekli.')
     return data
 
@@ -391,8 +395,14 @@ def execute(runtime,kind,data,dependencies,identity,*,approval=None):
             if not isinstance(observation,dict):raise ValueError('Pencere gözlemi geçerli kanıt üretmedi.')
             return local_result(owner,kind,json.dumps(observation,ensure_ascii=False),window_observation=observation)
         if data['kind']=='camera':
-            if runtime.vision.mode()!='camera':raise NotStarted('Kamera paylaşımı açık değil; kendiliğinden açılmadı.')
-            image=runtime.vision.snapshot_path()
+            device_id=data.get('target')
+            if device_id:
+                from modules import camera_bridge
+                image=camera_bridge.snapshot_path(owner,device_id)
+                if not image:raise NotStarted('Uzak kameradan güncel kare yok; kamera uzaktan açılamadı.')
+            else:
+                if runtime.vision.mode()!='camera':raise NotStarted('Kamera paylaşımı açık değil; kendiliğinden açılmadı.')
+                image=runtime.vision.snapshot_path()
         else:
             fd,image=tempfile.mkstemp(suffix='.png',prefix='jarvis-goal-')
             import os
