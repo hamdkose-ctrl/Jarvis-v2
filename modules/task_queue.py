@@ -11,10 +11,21 @@ from modules.diagnostics import record_failure as _record_failure
 
 _START_LOCK=threading.Lock()
 _THREAD=None
+_DAILY_NOTIFY=None
+_DAILY_NEXT=0.0
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
 RUN_NOW_STATES=frozenset({'queued','paused','blocked'})
 # Workers that never call a model (research/writer do).
 SCRIPT_AGENTS=frozenset({'account','verify','media'})
+
+
+def set_daily_notify(callback):
+    """Register one lightweight engine-owned daily hook on the existing scheduler thread."""
+    global _DAILY_NOTIFY, _DAILY_NEXT
+    if callback is not None and not callable(callback):
+        raise ValueError('Günlük bildirim callback geçersiz.')
+    _DAILY_NOTIFY=callback
+    _DAILY_NEXT=0.0
 
 
 def enqueue(owner, tasks, instruction='', delay=0, repeat_seconds=0, cron=''):
@@ -194,7 +205,13 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
     with _START_LOCK:
         if _THREAD and _THREAD.is_alive():return
         def loop():
+            global _DAILY_NEXT
             while not stop_event.wait(5):
+                now=time.time()
+                if _DAILY_NOTIFY is not None and now>=_DAILY_NEXT:
+                    _DAILY_NEXT=now+60
+                    try:_DAILY_NOTIFY()
+                    except Exception:_record_failure('modules/task_queue.py:daily_notify')
                 if not service_store.ROOT.exists():continue
                 for path in sorted(service_store.ROOT.glob('*.sqlite3')):
                     if stop_event.is_set():return

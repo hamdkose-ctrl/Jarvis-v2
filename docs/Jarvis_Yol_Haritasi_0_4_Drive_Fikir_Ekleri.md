@@ -30,17 +30,16 @@ Bu ek, Fikir Deposu'nda doğrulanmış ve Faz 0–4'e değen dört fikrin yol ha
 
 **Faz:** 2 — Scheduler / RuntimeEvent / bildirim davranışı.
 
-**Kod durumu:** BÜYÜK ÖLÇÜDE VAR. `_daily_briefing`, `_morning_brief` ve engine açılışındaki otomatik morning-brief tetikleyicisi mevcuttur; günlük plan takvim, açık/gecikmiş görevler, Gmail ve handoff bilgisini toplar.
+**Kod durumu:** COMPLETION PR'I AÇIK / ACCEPTANCE BEKLİYOR. Mevcut `_daily_briefing`, startup morning brief ve günlük duplicate guard korunur. F-011 completion işi yeni scheduler kurmadan mevcut `task_queue` scheduler heartbeat'ine günlük briefing tetik noktası bağlar; scheduled briefing facts mevcut `_day_plan()` çıktısını reuse ederek açık/gecikmiş/bugünkü işler, Gmail/Takvim, handoff ve reconnect bilgisini taşır. Mevcut read-only continuity görünümünden son tamamlanan iş, bekleyen approval ve blocked/failed durumları da kısa fact olarak eklenir.
 
-**Yapılacak:** Yeni capability açılmaz. Önce gerçek acceptance ile mevcut davranış doğrulanır:
-- kullanıcı istemeden belirlenen anda briefing gerçekten tetikleniyor mu,
-- tamamlanan işler / bekleyen onaylar / hata-engeller / açık-geciken işler kapsanıyor mu,
-- çıktı kısa ve eyleme dönük mü,
-- aynı briefing gereksiz tekrar üretmiyor mu.
+**Kapsam sınırı:**
+- yeni scheduler/thread/state/approval sistemi kurulmaz,
+- mevcut `last_brief`, `_BRIEF_RUNNING` ve owner guard korunur,
+- startup ve scheduled tetik aynı günlük guard'ı kullanır,
+- kaynak hataları sessizce başarı sayılmaz,
+- gerçek PASS ancak exact-head validation + gerçek PC acceptance sonrası verilir.
 
-Acceptance eksik gösterirse yalnız kanıtlanan küçük gap ayrı PR olur.
-
-**Durum:** ZATEN VAR / ACCEPTANCE BEKLİYOR.
+**Durum:** PARTIAL → completion uygulanıyor; acceptance yeşil olmadan PASS değil.
 
 ---
 
@@ -97,7 +96,7 @@ Drive Fikir Deposu açısından yeni kod işi olarak:
 - **F-002:** Faz 3/4 kapsamında alınır ve 3 PR'a bölünür.
 
 Doğrulama/acceptance olarak:
-- **F-011:** mevcut davranış acceptance ile doğrulanır; eksik kanıtlanırsa küçük gap PR'ı açılır.
+- **F-011:** completion tek dikey PR'da uygulanır; exact-head validation ve gerçek PC acceptance sonrası PASS/kalıcı gap kararı verilir.
 
 İleri faza ayrıntı bırakan çekirdek kural olarak:
 - **F-003:** 0–4'te invariant korunur; ayrıntılı uygulama Faz 11'e aittir.

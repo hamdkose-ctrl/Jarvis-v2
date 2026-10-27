@@ -18,7 +18,11 @@ def _context():
     with _context_lock:
         if _context_instance is None:
             from modules.engine_runtime import EngineContext
-            _context_instance = EngineContext()
+            from modules import engine_background, task_queue
+            runtime = EngineContext()
+            runtime._morning_brief = lambda: engine_background._scheduled_brief(runtime, startup_delay=True)
+            task_queue.set_daily_notify(lambda: engine_background._scheduled_brief(runtime))
+            _context_instance = runtime
         return _context_instance
 
 
