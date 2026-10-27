@@ -33,7 +33,7 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 - Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor)
-- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🟡 kısmi: canlı akışa bağlandı, ikinci hook sistemi duruyor)
+- Faz 2: Zamanlama, olay, hook ve temel muhakeme (🟡 kısmi: canlı akışa bağlandı, ikinci hook sistemi duruyor; F-011 proaktif günlük briefing completion #431 acceptance bekliyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
 - Faz 4: Yalnız okuma yapan worker'lar (🟡 kısmi: 7/7 sözleşme merge edildi, hiçbiri akışa bağlı değil)
 - Faz 5: Güvenilirlik ve gözlem
@@ -83,11 +83,12 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 
 ## Faz 2 — Zamanlama, olay, hook ve temel muhakeme
 
-**Durum: 🟡 kısmi. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi, hepsi merge edildi. #377 kapatıldı (sohbet cron komutları #374 ile girdi). Ölü `modules/proactive.py` silindi. Eksik temizlik: `gateway_hooks.py` hâlâ `hooks.py`'den ayrı ikinci bir hook sistemi ve üretim kodunda hiçbir yerden çağrılmıyor; `shell_hooks.py` de çağrılmıyor (sandbox'a kadar stub, bilerek).**
+**Durum: 🟡 kısmi. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi, hepsi merge edildi. #377 kapatıldı (sohbet cron komutları #374 ile girdi). Ölü `modules/proactive.py` silindi. Eksik temizlik: `gateway_hooks.py` hâlâ `hooks.py`'den ayrı ikinci bir hook sistemi ve üretim kodunda hiçbir yerden çağrılmıyor; `shell_hooks.py` de çağrılmıyor (sandbox'a kadar stub, bilerek). F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
 
 Cron zamanlama, olay aboneliği ve hook altyapısı eklenir. Aynı fazda temel muhakeme de gelir: artı/eksi analizi, dürüst eleştiri, rehberlik ve proaktif öneri. Otomasyon ile düşünen yanıt aynı temele oturduğu için worker'lardan önce buraya düşerler.
 
 - ✅ (#374) `[1✓ 2✓ 3✓ 4✓]` Genel zamanlanmış görev gelecek: cron ifadesi, "şimdi çalıştır", modelsiz betik görevi, her çalıştırmada temiz oturum. Şu an doğal dil zamanı ve kuyruk var, cron ve "şimdi çalıştır" yok.
+- 🔄 (F-011 / #431) Mevcut scheduler/runtime hattı üzerinden günlük briefing tetiklenir; startup ve scheduled çağrı aynı `last_brief` / `_BRIEF_RUNNING` owner guard'ını kullanır. `_day_plan()` açık/gecikmiş/bugünkü iş, Gmail/Takvim, handoff ve reconnect bilgisini sağlar; read-only continuity görünümü tamamlanan, approval ve blocked/failed durumlarını kısa fact olarak ekler. Yeni scheduler/state/approval sistemi kurulmaz. Exact-head acceptance bekleniyor.
 - ✅ (#374, #380) `[1✓ 2✓ 3✓ 4✓]` RuntimeEvent için kalıcı abonelik kurulacak: kaynak izleyici, olay, tazelik süzgeci, GoalState kanıtı. Şema ve commit hattı var, gerçek üretici yok (Guard uyarısı ARCH-W001).
 - ✅ (#374, #382) `[1✓ 2✓ 3✓ 4✓]` Webhook ve olay tetikleri WhatsApp dışına genişleyecek, sonuç birden fazla kanala gidecek. Şu an yalnız WhatsApp webhook'u ve ntfy var.
 - 🟡 (#374) `[1✓ 2– 3✓ 4✗]` Hook sistemi eklenecek: ajan, araç, model, onay, oturum, alt-ajan ve Kanban hook'ları ile yürütmeyi değiştiremeyen gözlemci hook'ları. Şu an hiç yok. Bağlı, ama `gateway_hooks.py` ikinci sistem olarak duruyor (koşul 4).
