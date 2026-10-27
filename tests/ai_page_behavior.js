@@ -34,6 +34,7 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
   assert(!modelSrc.includes('replaceLegacyModelEditor'),'HTML string replacement geri gelmemeli');
   assert(!modelSrc.includes('.indexOf('),'panel HTML yapısına string arama bağımlılığı olmamalı');
   assert(modelSrc.includes('class="model-id"'),'canonical model kimliği genel başlık dönüşümünden ayrılmalı');
+  assert(modelSrc.includes('data-local-model-warning'),'stale preference uyarısı metin biçiminden bağımsız semantik işaret taşımalı');
   const tcStart=src.indexOf('function tcEl('),tcEnd=src.indexOf('\nfunction tcPh(',tcStart),tcSrc=src.slice(tcStart,tcEnd);
   assert(tcSrc.includes('code'),'mevcut genel başlık normalizasyonu code içindeki teknik kimlikleri değiştirmemeli');
   const defaultStatus={local_backend:'ollama',local_model_preference:'llama3.2',local_effective_model:'qwen2.5-coder:7b',local_model_stale:true,local_model_warning:'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.',local_models_checked:true,local_installed_models:['qwen2.5-coder:7b'],local_model_choice_provider:'ollama',local_model_select_enabled:true};
