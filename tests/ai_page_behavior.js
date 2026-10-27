@@ -33,7 +33,8 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
 (async()=>{
   const uiSrc=fs.readFileSync(path.join(__dirname,'../webui/ui-refresh.js'),'utf8');
   const modelSlice=uiSrc.slice(uiSrc.indexOf('const baseAiPage=aiPage;'),uiSrc.lastIndexOf('})();'));
-  const status={
+  const defaultStatus={
+    local_backend:'ollama',
     local_model_preference:'llama3.2',
     local_effective_model:'qwen2.5-coder:7b',
     local_model_stale:true,
@@ -43,6 +44,7 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
     local_model_choice_provider:'ollama',
     local_model_select_enabled:true,
   };
+  const status=process.env.JARVIS_LOCAL_MODEL_STATUS_JSON?JSON.parse(process.env.JARVIS_LOCAL_MODEL_STATUS_JSON):defaultStatus;
   const c2={
     S:{snap:{user:{slug:'hamdi',name:'Hamdi'},llm:{provider:'ollama',local_backend:'ollama',local_model:'llama3.2',ollama_up:true,ollama_url:'http://127.0.0.1:11434'},google:{},youtube:{}}},
     SX:{aiSel:'ollama'},ACT:{},$:()=>null,
@@ -64,11 +66,14 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
   assert(loading.includes('Kurulu Modeller'),'status yüklenirken canonical model paneli görünmeli');
   await new Promise(resolve=>setImmediate(resolve));
   const rendered=c2.aiPage(c2.S.snap,legacy);
+  const effective=String(status.local_effective_model||'');
+  const installed=Array.isArray(status.local_installed_models)?status.local_installed_models.map(String):[];
+  const stale=String(status.local_model_preference||'');
   assert(rendered.includes('Aktif Model'),'gerçek render çıktısı aktif modeli göstermeli');
-  assert(rendered.includes('qwen2.5-coder:7b'),'effective model render edilmeli');
+  assert(effective&&rendered.includes(effective),'backend effective model render edilmeli');
   assert(rendered.includes('Kurulu Modeller')&&rendered.includes('<select'),'kurulu model dropdown render edilmeli');
-  assert(rendered.includes('<option value="qwen2.5-coder:7b"'),'kurulu model dropdown seçeneği olmalı');
-  assert(!rendered.includes('<option value="llama3.2"'),'stale tercih dropdown seçeneği olmamalı');
+  for(const model of installed)assert(rendered.includes(`<option value="${model}"`),`kurulu model dropdown'da olmalı: ${model}`);
+  if(stale&&!installed.includes(stale))assert(!rendered.includes(`<option value="${stale}"`),'stale tercih dropdown seçeneği olmamalı');
   assert(!rendered.includes('id="om"'),'legacy serbest metin model inputu render edilmemeli');
   assert(!rendered.includes('data-act="omsave"'),'legacy save yolu render edilmemeli');
   console.log('Yerel model paneli: production aiPage render yolunda canonical status ile deterministik render geçti.');
