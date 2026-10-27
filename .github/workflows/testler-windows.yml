@@ -28,6 +28,8 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Roadmap drift kontrolü
         run: |
           git fetch origin main:main 2>$null
