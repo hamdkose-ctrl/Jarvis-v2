@@ -68,6 +68,19 @@ jobs:
         env:
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
         run: py -3.13 -X utf8 -m modules.validation
+      - name: Playwright Chromium hazırla (yerel model kabulü)
+        if: github.event_name == 'pull_request'
+        env:
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $changed = git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($changed -contains 'scripts/local_model_acceptance.py' -and (Test-Path 'scripts/local_model_acceptance.py')) {
+            py -3.13 -m playwright install chromium
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor; Chromium kurulmadı.'
+          }
       - name: Yerel model canlı kabulü (acceptance script bootstrap)
         if: github.event_name == 'pull_request'
         env:
