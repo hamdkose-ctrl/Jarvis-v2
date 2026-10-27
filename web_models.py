@@ -56,7 +56,29 @@ class WebModels:
 
     def llm_status(self) -> dict:
         runtime = self._runtime
-        return runtime.llm.status()
+        st = runtime.llm.status()
+        backend = st.get('local_backend') or 'ollama'
+        preference = str(st.get('ollama_model') or '').strip()
+        effective = preference
+        stale = False
+        warning = ''
+        if backend == 'ollama':
+            try:
+                effective = runtime.llm._ollama_effective_model(runtime.llm.provider_configuration())
+            except runtime.llm.LocalModelError:
+                effective = ''
+            installed = [str(x).strip() for x in st.get('ollama_models', []) if str(x).strip()]
+            stale = bool(preference and effective and preference not in installed)
+            if stale:
+                warning = f'Kayıtlı model kurulu değil; otomatik olarak {effective} kullanılıyor.'
+        st.update({
+            'local_model_preference': preference,
+            'local_effective_model': effective,
+            'local_model_stale': stale,
+            'local_model_warning': warning,
+            'local_models_checked': True,
+        })
+        return st
 
     def llm_set(self, provider: str, model: str='', url: str='') -> dict:
         runtime = self._runtime
