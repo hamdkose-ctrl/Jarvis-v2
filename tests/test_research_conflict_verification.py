@@ -14,6 +14,7 @@ def source(name, *, value, subject="faiz oranı", claim_type="rate",
         "unit": unit,
         "observed_at": observed_at,
         "scope": scope,
+        "source_kind": "official",
     }
 
 
