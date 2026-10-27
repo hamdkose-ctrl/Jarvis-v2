@@ -77,6 +77,113 @@ def _reminder_loop(runtime):
             runtime._record_failure('main.py:_reminder_loop')
         runtime.stop_event.wait(5)
 
+
+def _scheduled_brief_facts(runtime) -> list[str]:
+    """Reuse the existing read-only day plan and add only current Core work-state facts."""
+    from modules import continuity, main_planner
+    now = runtime.datetime.now()
+    facts = [f"Şu an: {now.strftime('%d.%m.%Y %H:%M')}, {runtime._DAYS[now.weekday()]}. Kullanıcının adı: {runtime.profile.name}."]
+    try:
+        wx = runtime.weather.report(runtime.profile.data['prefs'].get('city') or None)
+        if wx:
+            facts.append('Hava: ' + ' '.join(wx.split()))
+    except Exception:
+        runtime._record_failure('modules/engine_background.py:_scheduled_brief_facts.weather')
+        facts.append('Hava kaynağına şu anda ulaşılamadı.')
+    try:
+        facts.append(main_planner._day_plan(runtime, 0))
+    except Exception:
+        runtime._record_failure('modules/engine_background.py:_scheduled_brief_facts.day_plan')
+        facts.append('Günlük plan kaynaklarına şu anda ulaşılamadı.')
+    try:
+        from modules import outlook, worktrack
+        if outlook.installed():
+            facts.append('İş maili (Outlook): ' + outlook.unread_mail())
+            line = worktrack.brief_line()
+            if line:
+                facts.append(line)
+    except Exception:
+        runtime._record_failure('modules/engine_background.py:_scheduled_brief_facts.outlook')
+        facts.append('İş maili kaynağına şu anda ulaşılamadı.')
+    try:
+        snap = continuity.snapshot(runtime.profile.slug)
+        goal = snap.get('goal') or {}
+        task = snap.get('task') or {}
+        pending = []
+        completed = []
+        blocked = []
+        if goal.get('state') == 'approval':
+            pending.append('açık hedef kullanıcı onayı bekliyor')
+        if task.get('state') == 'approval':
+            pending.append('açık görev işi kullanıcı onayı bekliyor')
+        if goal.get('state') in {'done', 'complete', 'completed'}:
+            completed.append('son hedef tamamlandı')
+        if task.get('state') in {'done', 'complete', 'completed'}:
+            completed.append('son görev işi tamamlandı')
+        if goal.get('state') in {'blocked', 'failed', 'error'}:
+            blocked.append('hedef=' + str(goal.get('state')))
+        if task.get('state') in {'blocked', 'failed', 'error'}:
+            blocked.append('görev=' + str(task.get('state')))
+        if pending:
+            facts.append('Bekleyen onay: ' + '; '.join(pending) + '.')
+        if completed:
+            facts.append('Tamamlanan iş: ' + '; '.join(completed) + '.')
+        if blocked:
+            facts.append('Engel: ' + '; '.join(blocked) + '.')
+    except Exception:
+        runtime._record_failure('modules/engine_background.py:_scheduled_brief_facts.continuity')
+        facts.append('Görev durumuna şu anda ulaşılamadı.')
+    return facts
+
+
+def _scheduled_brief(runtime, startup_delay: bool = False) -> None:
+    """Run the existing morning brief contract from the engine scheduler without a second scheduler/state system."""
+    from types import SimpleNamespace
+    from modules import main_planner
+    if startup_delay and runtime.stop_event.wait(8):
+        return
+    claim = None
+    try:
+        owner = runtime.pc_profile()
+        now = runtime.datetime.now()
+        today = now.strftime('%Y-%m-%d')
+        if not 5 <= now.hour < 12 or runtime.flags.get('sleep'):
+            return
+        if owner.data['prefs'].get('morning_brief') is False:
+            return
+        with main_planner._BRIEF_LOCK:
+            if main_planner._brief_done(owner, today) or (owner.slug, today) in main_planner._BRIEF_RUNNING:
+                return
+            claim = (owner.slug, today)
+            main_planner._BRIEF_RUNNING.add(claim)
+        owned = SimpleNamespace(**vars(runtime))
+        owned.profile = owner
+        owned._brief_facts = lambda: _scheduled_brief_facts(owned)
+        owned._llm.set_user_context(owner.slug)
+        text = main_planner._daily_briefing(owned)
+        if now.weekday() == 4:
+            try:
+                from modules import outlook, worktrack
+                if outlook.installed():
+                    text += ' ' + worktrack.report('weekly')
+            except Exception:
+                runtime._record_failure('modules/engine_background.py:_scheduled_brief.weekly')
+        if runtime.stop_event.is_set() or runtime.pc_profile().slug != owner.slug or runtime.flags.get('sleep'):
+            return
+        with main_planner._BRIEF_LOCK:
+            if main_planner._brief_done(owner, today):
+                return
+            owner.set_pref('last_brief', today)
+        runtime._emit_for(owner, 'assistant', text)
+        runtime.events.put(('say', text, owner.slug))
+    except Exception:
+        runtime._record_failure('modules/engine_background.py:_scheduled_brief')
+    finally:
+        if claim:
+            with main_planner._BRIEF_LOCK:
+                main_planner._BRIEF_RUNNING.discard(claim)
+
+
 def _handoff_notice(runtime):                 # açılışta (sabah özeti olmayan saatlerde) bekleyen devir notları
     if runtime.stop_event.wait(12):
         return
