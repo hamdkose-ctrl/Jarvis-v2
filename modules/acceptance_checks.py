@@ -94,6 +94,16 @@ def _news_failure_detail(job):
     if failed:
         detail+='; kaynak_hataları='+' / '.join(
             privacy.redact(' '.join(str(row['reason']).split()),force=True)[:120] for row in failed[:2])
+    search=pipeline.get('public_discovery')
+    if isinstance(search,dict):
+        detail+='; web_keşfi='+str(search.get('state','unknown'))+'; web_aday='+str(search.get('candidates',0))
+        if search.get('reason'):detail+='; web_hatası='+privacy.redact(str(search['reason']),force=True)[:200]
+    samples=pipeline.get('rejected_candidates')
+    if isinstance(samples,list):
+        detail+='; reddedilen_adresler='+' / '.join(
+            privacy.redact(str(row.get('url','')),force=True)[:240]+' => '+
+            privacy.redact(str(row.get('reason','')),force=True)[:140]
+            for row in samples[:12] if isinstance(row,dict))
     if health:
         summary=[]
         for row in health[:20]:

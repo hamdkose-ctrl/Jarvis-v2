@@ -572,6 +572,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
     """Model-free vertical: discover → filter → cluster → verify → deterministic report."""
     today = now or _today()
     window = window_days(request) if days is None else max(1, min(MAX_WINDOW, int(days)))
+    external_discovery={'state':'not_attempted','candidates':0,'reason':None}
     reused = [dict(row) for row in (reuse or [])]
     health: list[dict] = [dict(row) for row in (source_health or [])]
     candidates: list[dict] = []
@@ -637,6 +638,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                     additions.append(normalize(dict(item, url=url), source=source_name(url), now=today))
                     if len(additions) >= 8:
                         break
+                external_discovery={'state':'candidates' if additions else 'empty','candidates':len(additions),'reason':None}
                 additions = filter_candidates(additions, request)
                 candidates.extend(additions)
                 checked_rows.extend(_verify_plan(additions, request=request, fetcher=fetcher,
@@ -644,8 +646,9 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                 verified = [row for row in checked_rows if row['verification'] == 'verified']
             except (requests_state.Cancelled, PermissionError):
                 raise
-            except Exception:
+            except Exception as exc:
                 _record_failure('modules/news_pipeline.py:public_discovery')
+                external_discovery={'state':'failed','candidates':0,'reason':_safe_reason(exc)}
         by_url = {row['url']: row for row in checked_rows}
         for row in candidates:
             match = by_url.get(row['url'])
@@ -668,6 +671,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                    verified=verified, model_status=model_status, request=request)
     result = {
         'request': request,
+        'public_discovery': external_discovery,
         'window_days': window,
         'source_health': health,
         'sources_total': len(health),
@@ -741,6 +745,10 @@ def _record(job, result) -> None:
             reason = _safe_reason(row['reason'])
             rejected[reason] = rejected.get(reason, 0) + 1
     job['news_pipeline'] = {
+        'public_discovery': result.get('public_discovery',{'state':'not_attempted','candidates':0,'reason':None}),
+        'rejected_candidates': [{'url':_safe_reason(row.get('url',''))[:240],
+                                 'reason':_safe_reason(row['reason'])}
+                                for row in result.get('candidates',[]) if row.get('reason')][:12],
         'articles_rejected': sum(rejected.values()),
         'rejection_reasons': [{'reason': reason, 'count': count}
                               for reason, count in sorted(rejected.items(), key=lambda item: (-item[1], item[0]))[:3]],

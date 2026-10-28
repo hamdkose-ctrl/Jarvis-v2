@@ -53,3 +53,32 @@ class NewsDiscoveryDiagnosticsTests(unittest.TestCase):
              'news_pipeline':{'source_health':[{'source':'Örnek','status':'failed',
                                                 'reason':'Kaynak HTTP yanıtı başarılı değil: 403'}]}}
         self.assertIn('403',acceptance_checks._news_failure_detail(job))
+
+class TopicBeforeCutoffTests(unittest.TestCase):
+    def test_topic_beyond_fifty_story_cards_reaches_headlines(self):
+        unrelated=''.join(f'<h2><a href="/sports/{i}">Futbol sonuçları ve maç değerlendirmesi {i}</a></h2>' for i in range(70))
+        html=unrelated+'<h2><a href="/ai-story">Türkiye yapay zekâ araştırması duyuruldu</a></h2>'
+        response={'url':'https://example.org/','body':html.encode()}
+        with patch('modules.service_store.identity'):
+            result=domain_tools.headlines('alice',response['url'],query='Türkiye yapay zekâ haberleri',
+                                         fetcher=lambda _:response)
+        self.assertEqual(result['items'][0]['url'],'https://example.org/ai-story')
+        self.assertLessEqual(len(result['items']),20)
+
+    def test_external_discovery_failure_and_rejected_url_are_persisted(self):
+        with patch.object(news_pipeline,'catalog',return_value=[]):
+            result=news_pipeline.run('AI haberleri',reader=lambda _:[],
+                searcher=lambda _:(_ for _ in ()).throw(OSError('search unavailable')))
+        job={}
+        news_pipeline._record(job,result)
+        self.assertEqual(job['news_pipeline']['public_discovery']['state'],'failed')
+        self.assertIn('search unavailable',job['news_pipeline']['public_discovery']['reason'])
+
+    def test_rejection_keeps_its_url_without_page_body(self):
+        result=news_pipeline.run('son dakika haberleri',sources=[{'url':'https://example.org/'}],
+            reader=lambda _:[{'url':'https://example.org/story','title':'Haber başlığı'}],
+            fetcher=lambda _:(_ for _ in ()).throw(ValueError('missing article')))
+        job={}
+        news_pipeline._record(job,result)
+        self.assertEqual(job['news_pipeline']['rejected_candidates'][0]['url'],'https://example.org/story')
+        self.assertEqual(job['news_pipeline']['rejected_candidates'][0]['reason'],'missing article')

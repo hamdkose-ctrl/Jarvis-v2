@@ -145,7 +145,7 @@ def feeds(response):
     return result
 
 
-def entries(response):
+def entries(response, *, query_terms=()):
     """RSS/Atom or same-origin HTML article links, without fetching linked pages."""
     body=response['body'];url=address(response['url']);host=urlsplit(url).hostname
     if len(body)>MAX_BYTES:raise ValueError('Kaynak fazla büyük.')
@@ -178,6 +178,13 @@ def entries(response):
             try:stories.add(address(urljoin(url,link['href'])))
             except ValueError:continue
         result.sort(key=lambda row: urljoin(url,row['url']) not in stories)
+    if query_terms:
+        def fold(value):return str(value).casefold().replace('ı','i').replace('\u0307','')
+        terms={fold(term) for term in query_terms if isinstance(term,str) and len(term)>2}
+        def rank(row):
+            title=fold(row.get('title',''));text=fold(row.get('summary','')+' '+row.get('url',''))
+            return sum(3*(term in title)+(term in text) for term in terms)
+        result.sort(key=rank,reverse=True)
     clean=[];seen=set()
     for row in result:
         try:target=address(urljoin(url,row['url']))

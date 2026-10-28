@@ -106,29 +106,24 @@ def headlines(owner,url,*,query=None,fetcher=None):
     from urllib3.exceptions import HTTPError
     service_store.identity(owner)
     if query is not None and (not isinstance(query,str) or not query.strip() or len(query)>300):raise ValueError('Kaynak sorgusu 1–300 karakter olmalı.')
+    from modules import model_free_news
+    terms=model_free_news.terms(query) if query else []
+    options={'query_terms':terms} if terms else {}
     response=(fetcher or public_sources.fetch)(url)
     from modules import publisher_news
-    items=public_sources.entries(publisher_news.listing(response))
+    items=public_sources.entries(publisher_news.listing(response),**options)
     discovered_from=None
     # HTML navigation links are not a reason to skip an advertised news feed.
     # Only the existing same-host, explicitly advertised endpoints are read.
     for feed in public_sources.feeds(response):
         try:
             candidate=(fetcher or public_sources.fetch)(feed)
-            rows=public_sources.entries(candidate)
+            rows=public_sources.entries(candidate,**options)
         except PermissionError:raise
         except (ValueError,OSError,HTTPError):continue
         if rows:
             discovered_from=response['url'];response=candidate;items=rows;break
     if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok; varsa sayfanın ilan ettiği RSS/Atom bağlantıları da sonuç vermedi. Başka gerçek duyuru dizini seç.')
-    if query is not None:
-        def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')
-        from modules import model_free_news
-        terms=set(model_free_news.terms(query))
-        def rank(row):
-            title=fold(row['title']);text=fold(row.get('summary','')+' '+row['url'])
-            return sum(3*(term in title)+(term in text) for term in terms if len(term)>2)
-        items=sorted(items,key=rank,reverse=True)
     return {'items':items[:20],'source':response['url'],'discovered_from':discovered_from,'fetched_at':time.time(),
             'sha256':hashlib.sha256(response['body']).hexdigest(),'scope':'Kaynak başlıkları; metin doğruluğu veya karar kapsamı ayrıca incelenmeli.'}
 

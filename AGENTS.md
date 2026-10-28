@@ -152,3 +152,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PR #439 haber keşfi: query sıralaması generic haber/komut sözcükleriyle HTML makale önceliğini bozamaz; domain_tools ortak model_free_news.terms kullanır. Pipeline ret nedenlerini sınırlı özet olarak saklar; kabul raporu aday/okunan/pencere-dışı sayısını, makale retlerini ve kaynak hata nedenlerini gösterir. Bu tanı alanları completion veya retry yetkisi değildir.
 
 - PR #439 --news kabulü artık üç zorunlu gerçek akışı çalıştırır: genel sohbet, Türkiye AI sohbeti ve Türkiye AI dosyası. Ortak news_chat_resume ancak üçü de geçerse passed olur. Model denemeleri bloke edilip sayılır; kota yolu zorlanır; hedef ve dosya deposu geçici/yöreye yalıtılır. Hiçbiri ücretli/model çağrısı veya gerçek kullanıcı dosyası yazımı başlatamaz.
+
+- PR #439 konu keşfi: query puanlaması public_sources.entries içinde 50-link kesiminden önce yapılır; domain_tools ikinci/sonradan sıralama otoritesi taşımaz. Generic haber isteği HTML makale önceliğini korur. Pipeline kaydı en fazla 12 redakte URL/ret çifti ve ayrı anahtarsız keşif durumunu saklar; tanı alanları başarı veya ek retry yetkisi değildir.
