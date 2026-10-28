@@ -25,7 +25,7 @@ class RecoveryVariations(unittest.TestCase):
         self.assertFalse(goals._self_resolvable_question('Hangi ek kurum incelensin?',REQUEST+' https://example.org/story'))
 
     def test_catalog_requires_executed_exact_index_and_receipt(self):
-        rows=publisher_news.SOURCES
+        rows=publisher_news.sources_for(REQUEST)[:4]
         job={'news_catalog_attempted':list(publisher_news.catalog_keys()),'steps':[],'outputs':{}}
         for i,row in enumerate(rows):
             job['steps'].append({'id':str(i),'tool':'data','started':True,'state':'queued','input':{'operation':'headlines','url':row['url']}})
@@ -43,7 +43,7 @@ class RecoveryVariations(unittest.TestCase):
             self.assertTrue(publisher_news.broad_research(REQUEST))
         job={'request':REQUEST,'steps':[],'outputs':{}}
         with self.assertRaises(ValueError):publisher_news.require_catalog(job)
-        publisher_news.require_catalog({**job,'request':REQUEST+' Yalnız TÜBİTAK.'})
+        publisher_news.require_catalog({**job,'request':REQUEST+' Yalnız https://example.org/haberler.'})
 
     def test_unchanged_recovery_releases_planner_and_does_not_claim_reads(self):
         job={'id':'a'*16,'owner':'alice','request':REQUEST,'state':'paused',
@@ -72,7 +72,7 @@ class RecoveryVariations(unittest.TestCase):
                 n=indexes.index(url)
                 return {'url':f'https://publisher{n}.example/','body':b'<a href="/news/first">Yapay zeka ilk haber</a><a href="/news/second">Yapay zeka ikinci haber</a>'}
             if first_bad and url=='https://publisher0.example/news/first':raise ConnectionError('offline')
-            body=f'<article><h1>Yeni yapay zekâ projesi</h1><time itemprop="datePublished" datetime="{day}"></time><p>Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu. Araştırmacılar yeni projenin kapsamını açıkladı.</p></article>'
+            body=f'<article><h1>Yeni yapay zekâ projesi</h1><time itemprop="datePublished" datetime="{day}"></time><p>Yapay zekâ araştırma projesinin yeni sonuçları ve kullanım alanları kamuoyuna açıklandı. Araştırmacılar projenin kapsamını ve teknik bulgularını paylaştı.</p></article>'
             return {'url':url,'body':body.encode()}
         return indexes,fetched,fetch
 
