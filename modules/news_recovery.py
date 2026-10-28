@@ -12,109 +12,87 @@ from modules import research_evidence, goal_tools, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 
-def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
-    """Recover news chat from scoped configured indexes or previously discovered URLs."""
-    from modules import goal_executor as goals, model_free_news
-    request=job['request']
-    if job['state'] in {'approval','review','cancelled'} or not job['goals']:return
-    goal=next((i for i,g in enumerate(job['goals']) if g['state']!='done'),None)
-    if goal is None:return
-    seeds=[]
-    for step in job['steps']:
-        if step.get('recovery'):continue
-        if step['tool']=='research' or step['tool']=='data' and step['input'].get('operation')=='headlines':
-            url=step['input'].get('url')
-            if url and url not in seeds:seeds.append(url)
-    for raw in re.findall(r'https://[^\s<>|]+',request):
-        url=raw.rstrip(".,!?)\"'”")
-        if url not in seeds:seeds.append(url)
-    from modules import publisher_news
-    seeds=publisher_news.recovery_indexes(request,seeds)
-    sources={}
-    for step in job['steps']:
-        output=job['outputs'].get(step['id'],{})
-        if output.get('state')=='done' and output.get('news_article') and output.get('source_quotes'):
-            goal_tools.verify(output,job['owner']);sources[step['id']]=output
-    terms=model_free_news.terms(request)
-    plural=bool(re.search(r'\bhaberler\w*|\bgelişmeler\w*|\bgelismeler\w*|\bgündem\b|\bgundem\b',request,re.I))
-    needed=2 if plural else 1
-    broad=publisher_news.broad_research(request)
-    def evidence_enough():
-        articles=[o['news_article'] for o in sources.values()]
-        return len({a['url'] for a in articles})>=needed and (not publisher_news.multiple_publishers(request) or len({publisher_news.publisher_key(a['url']) for a in articles})>=2)
-    def enough():
-        return evidence_enough() and (not broad or publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)))
-    if enough():
-        job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job);return
-    if existing_only or not seeds:return
-    count=sum(bool(s.get('recovery')) for s in job['steps']);new_steps=0;deadline=time.monotonic()+45
-    def tool(kind,data,depends=()):
-        nonlocal count,new_steps
-        goals._ensure(runtime,job)
-        signature=hashlib.sha256(json.dumps([kind,data],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-        previous=next((s for s in reversed(job['steps']) if s.get('recovery') and s['signature']==signature),None)
-        if previous:
-            output=job['outputs'].get(previous['id'],{})
-            if output.get('state')=='done':goal_tools.verify(output,job['owner'])
-            return previous['id'],output
-        if kind in {'data','research'} and time.monotonic()>=deadline:return None,{}
-        if count>=10 or new_steps>=max_new_steps or len(job['steps'])>=96:return None,{}
-        ident='s'+str(len(job['steps'])+1)
-        while any(s['id']==ident for s in job['steps']):ident+='x'
-        step={'id':ident,'goal':goal,'tool':kind,'input':data,'depends':list(depends),'signature':signature,
-              'state':'queued','recovery':True,'recovery_version':'news_chat_v1','source_only':kind=='research'}
-        job['steps'].append(step);count+=1;new_steps+=1
-        goals._record(runtime,job,step)
-        return ident,job['outputs'][ident]
-    query=' '.join(terms)[:300]
-    attempted=set(o['news_article']['url'] for o in sources.values())
-    # Model-bağımsız haber hattı ham dizin satırlarından önce gelir: dizinler paralel okunur ve her
-    # tekil sayfa yetkili haberciden geçer. Yayıncı listelerinin ilk sıraları bölüm/galeri bağlantısı
-    # olduğu için doğrulanmış adresleri adım yapmak sınırlı adım bütçesini israf etmez. Adım, sayı ve
-    # zaman sınırları aşağıdaki tool() üzerinden aynen korunur; kanıt olmayan adres adım olmaz.
-    if not existing_only:
-        from modules import news_pipeline
-        try:
-            verified_rows=news_pipeline.run(request,owner=job['owner'])['verified']
-        except (requests_state.Cancelled,PermissionError):raise
-        except Exception as pipeline_error:
-            _record_failure('modules/news_recovery.py:pipeline_evidence')
-            from modules import privacy
-            job.setdefault('feedback',[]).append('Model-bağımsız haber hattı okunamadı: '+
-                privacy.redact(str(pipeline_error),force=True)[:300])
-            verified_rows=[]
-        for row in verified_rows:
-            if enough():break
-            url=row['news_article']['url']
-            if url in attempted:continue
-            attempted.add(url)
-            rid,result=tool('research',{'url':url,'question':request})
-            if result.get('state')=='done' and result.get('news_article'):sources[rid]=result
-        if enough():
-            job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job);return
-    for seed in seeds[-4:]:
-        if enough():break
-        data={'operation':'headlines','url':seed}
-        if query:data['query']=query
-        ident,out=tool('data',data)
-        rows=out.get('structured',{}).get('items',[])
-        if not rows:continue
-        def score(row):
-            text=(str(row.get('title',''))+' '+str(row.get('summary',''))).casefold().replace('ı','i').replace('\u0307','')
-            return sum(1 for term in terms if term in text)
-        rows=sorted(rows,key=score,reverse=True)[:4]
-        for row in rows:
-            if evidence_enough():break
-            url=row.get('url')
-            if not url or url in attempted:continue
-            attempted.add(url)
-            rid,result=tool('research',{'url':url,'question':request})
-            if result.get('state')=='done' and result.get('news_article'):
-                sources[rid]=result
-                if enough():break
-    if enough():
-        job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job)
+def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False):
+    """Seal only canonical pipeline evidence into the durable job.
 
+    Recovery has no source ranking, headline traversal or completion policy. It can
+    only persist articles already verified by the canonical pipeline.
+    """
+    from modules import goal_executor as goals, goal_tools, news_pipeline
+
+    if job['state'] in {'approval', 'review', 'cancelled'} or not job['goals']:
+        return
+    goal = next((index for index, item in enumerate(job['goals']) if item['state'] != 'done'), None)
+    if goal is None:
+        return
+
+    if existing_only:
+        verified = news_pipeline.verified_from_outputs(job.get('outputs') or {})
+    else:
+        result = news_pipeline.deliver_job(job, model_status='unavailable')
+        verified = result['verified']
+
+    # A plural/general request is complete only when the pipeline itself supplied
+    # two dated articles from distinct publishers. No catalog-attempt counter can
+    # substitute for this evidence.
+    if not news_pipeline.enough_evidence(verified):
+        return
+
+    existing = {
+        output.get('news_article', {}).get('url'): ident
+        for ident, output in (job.get('outputs') or {}).items()
+        if isinstance(output, dict) and output.get('state') == 'done' and output.get('news_article')
+    }
+    remaining = max(0, int(max_new_steps))
+    evidence = []
+    for row in verified:
+        url = row['news_article']['url']
+        ident = existing.get(url)
+        if ident:
+            goal_tools.verify(job['outputs'][ident], job['owner'])
+            evidence.append(ident)
+            continue
+        if remaining <= 0:
+            break
+        signature = hashlib.sha256(json.dumps(
+            ['research', {'url': url, 'question': job['request']}],
+            sort_keys=True, ensure_ascii=False,
+        ).encode()).hexdigest()
+        previous = next((step for step in reversed(job['steps'])
+                         if step.get('recovery') and step.get('signature') == signature), None)
+        if previous:
+            output = job['outputs'].get(previous['id'], {})
+            if output.get('state') == 'done' and output.get('news_article'):
+                goal_tools.verify(output, job['owner'])
+                evidence.append(previous['id'])
+            continue
+        if len(job['steps']) >= 96:
+            break
+        ident = 's' + str(len(job['steps']) + 1)
+        while any(step['id'] == ident for step in job['steps']):
+            ident += 'x'
+        step = {
+            'id': ident, 'goal': goal, 'tool': 'research',
+            'input': {'url': url, 'question': job['request']}, 'depends': [],
+            'signature': signature, 'state': 'queued', 'recovery': True,
+            'recovery_version': 'pipeline_receipts_v1', 'source_only': True,
+        }
+        job['steps'].append(step)
+        goals._record(runtime, job, step)
+        remaining -= 1
+        output = job['outputs'].get(ident, {})
+        if output.get('state') == 'done' and output.get('news_article'):
+            goal_tools.verify(output, job['owner'])
+            evidence.append(ident)
+
+    # The durable receipts must still independently meet the canonical threshold;
+    # a failed re-read never becomes completion merely because the pipeline had it.
+    durable = [job['outputs'][ident] for ident in evidence
+               if job['outputs'].get(ident, {}).get('news_article')]
+    durable_rows = [{'news_article': output['news_article']} for output in durable]
+    if news_pipeline.enough_evidence(durable_rows):
+        job['goals'][goal].update(state='done', evidence=evidence)
+        goals._save(job)
 
 def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
     from modules import goal_executor as goals
