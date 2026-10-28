@@ -569,7 +569,7 @@ class GoalTests(unittest.TestCase):
         from modules import public_sources,service_store
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         index='https://example.org/haberler';url='https://example.org/haber/yapay-zeka-projesi'
-        quote='Üniversite yeni yapay zekâ araştırma projesini kamuoyuna duyurdu.'
+        quote='Türkiye üniversiteleri yeni yapay zekâ araştırma projesini kamuoyuna duyurdu.'
         def fetch(address):
             html=('<h1>Haberler</h1><a href="/haber/yapay-zeka-projesi">Yapay zeka projesi</a>') if address==index else ('<article><h1>Yapay zeka projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Bilimsel çalışma araştırmacılarla birlikte yürütülüyor.</p></article>')
             return {'url':address,'body':html.encode(),'content_type':'text/html'}
@@ -679,7 +679,7 @@ class GoalTests(unittest.TestCase):
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         index='https://example.org/haberler';article='https://example.org/haber/ai-project'
-        html='<article><h1>Yapay zekâ araştırması</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Üniversite yapay zekâ araştırma projesini duyurdu. Araştırmacılar bilimsel çalışmanın ayrıntılarını kamuoyuyla paylaştı.</p></article>'
+        html='<article><h1>Yapay zekâ araştırması</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>Türkiye üniversiteleri yapay zekâ araştırma projesini duyurdu. Araştırmacılar bilimsel çalışmanın ayrıntılarını kamuoyuyla paylaştı.</p></article>'
         calls=[]
         def fetch(url):
             calls.append(url)
@@ -766,14 +766,14 @@ class GoalTests(unittest.TestCase):
             step['state']='failed';job['outputs'][step['id']]={'state':'failed'}
         with patch.object(goals,'_record',side_effect=record) as run:
             news_recovery.deliver(self.runtime,job,max_new_steps=1)
-        self.assertEqual(run.call_count,1);self.assertEqual(len(job['steps']),2)
+        self.assertEqual(run.call_count,0);self.assertEqual(len(job['steps']),1)
 
     def test_premature_finish_delivers_existing_news_file_without_model_or_fetch(self):
         from modules import public_sources
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         url='https://example.org/haber/ai'
-        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        quote='Türkiye üniversiteleri yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
         html=('<article><h1>Yeni araştırma</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Çalışmanın ayrıntıları kamuoyuyla paylaşıldı.</p></article>').encode()
         self.responses(self.plan('Son haberleri araştır','Türkçe raporu kaydet ve doğrula'),
             self.tool('research',{'url':url}),{'supported':True,'answer':quote,'quotes':[quote]},
@@ -847,7 +847,7 @@ class GoalTests(unittest.TestCase):
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         url='https://example.org/haber/ai'
-        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        quote='Türkiye üniversiteleri yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
         body=('<article><h1>Yeni proje</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Araştırmanın ayrıntıları kamuoyuyla paylaşıldı.</p></article>').encode()
         self.responses(self.plan('Araştır','Rapor dosyası oluştur'),self.tool('research',{'url':url}),
             {'supported':True,'answer':quote,'quotes':[quote]},self.done('s1'),
@@ -897,7 +897,8 @@ class GoalTests(unittest.TestCase):
         from modules import public_sources,publisher_news
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
-        index_urls=[s['url'] for s in publisher_news.sources_for('Türkiye yapay zekâ haberleri')[:2]]
+        index_rows=publisher_news.sources_for('Türkiye yapay zekâ haberleri')[:2]
+        index_urls=[s['url'] for s in index_rows]
         domains=['https://publisher-one.org','https://publisher-two.net']
         fetched=[]
         def fetch(url):
@@ -907,10 +908,10 @@ class GoalTests(unittest.TestCase):
                 base=domains[index_urls.index(url)]
                 return {'url':base+'/','body':b'<a href="/news/ai">Yapay zeka projesi</a><a href="/news/ai2">Yapay zeka ikinci haber</a>'}
             body=('<article><h1>Yeni yapay zekâ projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time>'
-                '<p>Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu. Araştırmacılar yeni projenin kapsamını açıkladı.</p></article>')
+                '<p>Türkiye üniversiteleri yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu. Araştırmacılar yeni projenin kapsamını açıkladı.</p></article>')
             return {'url':url,'body':body.encode()}
         self.responses(self.plan('Türkiye güncel haberlerini araştır','Rapor dosyası oluştur'),{'action':'ask','question':'Eksik somut bilgi'})
-        with patch.object(public_sources,'fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
+        with patch.object(publisher_news,'sources_for',return_value=index_rows),patch.object(public_sources,'fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
             result=goals.run(self.runtime,'Türkiye yapay zekâ son 7 gün haberlerini araştır ve rapor dosyası oluştur')
         job=goals.latest('alice');self.assertEqual(self.ask.call_count,2)
         self.assertIn('Kısmi rapor dosyası:',result)
@@ -920,8 +921,8 @@ class GoalTests(unittest.TestCase):
         for domain in domains:self.assertIn(domain+'/news/ai',text)
         self.assertEqual(job['state'],'paused')
         self.assertTrue(all(goal['state']=='pending' for goal in job['goals']))
-        self.assertLessEqual(len(fetched),4)
-        self.assertFalse(any('/ai2' in url for url in fetched))
+        self.assertLessEqual(len(fetched),6)
+        self.assertEqual(len(fetched),len(set(fetched)), 'pipeline evidence was downloaded twice')
         # A later verified source can extend a partial report, preserving its old file.
         from modules import news_recovery
         old_path=Path(output['file']);old_bytes=old_path.read_bytes();old_id=job['partial_report']
@@ -952,7 +953,7 @@ class GoalTests(unittest.TestCase):
         from modules import public_sources
         from datetime import datetime,timezone,timedelta
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
-        quote='Üniversite yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
+        quote='Türkiye üniversiteleri yapay zekâ araştırma projesini bilimsel sonuçlarıyla kamuoyuna duyurdu.'
         body=('<article><h1>Yapay zekâ projesi</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+quote+' Projenin ayrıntıları araştırmacılarla paylaşıldı.</p></article>').encode()
         outputs={};steps=[]
         for i,url in enumerate(['https://haber.ornek.edu.tr/news/ai','https://www.ornek.edu.tr/news/ai','https://baska.edu.tr/news/ai']):
@@ -982,3 +983,4 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn('✓',text);self.assertIn('Kısmi:',text);self.assertNotIn('Eksik somut bilgi',text)
 
 if __name__=='__main__':unittest.main()
+

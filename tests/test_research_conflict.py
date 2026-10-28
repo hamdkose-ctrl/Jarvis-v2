@@ -150,6 +150,8 @@ class ResearchOutputWiringTests(unittest.TestCase):
                 'execution': {'request': 'faiz oranı nedir'}}
 
     def _deps(self, first, second):
+        first={'scope':'Türkiye','as_of':'2026',**first}
+        second={'scope':'Türkiye','as_of':'2026',**second}
         return {'s1': {'state': 'done', 'source': 'https://a.test', 'source_claims': [first]},
                 's2': {'state': 'done', 'source': 'https://b.test', 'source_claims': [second]}}
 
@@ -157,7 +159,7 @@ class ResearchOutputWiringTests(unittest.TestCase):
         deps = self._deps({'subject': 'faiz oranı', 'value': 40, 'unit': '%'},
                           {'subject': 'faiz oranı', 'value': 45, 'unit': '%'})
         with patch('modules.research_providers.search_public', return_value=[{'url': 'https://c.test', 'title': 'C'}]) as search, \
-             patch('modules.research_providers.extract_source', return_value={'url': 'https://c.test', 'text': 'Faiz oranı yüzde 45 açıklandı.', 'content_type': 'text/plain'}):
+             patch('modules.research_providers.extract_source', return_value={'url': 'https://c.test', 'text': 'Türkiye 2026 faiz oranı yüzde 45 açıklandı.', 'content_type': 'text/plain'}):
             output = task_workers.run('alice', self._task(), deps)
         self.assertEqual(output['source_conflict'], 'resolved_conflict')
         report = Path(output['file']).read_text(encoding='utf-8')
@@ -190,3 +192,4 @@ class ResearchOutputWiringTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

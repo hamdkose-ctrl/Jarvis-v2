@@ -62,9 +62,9 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
         today=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         rows=[
             {'news_article':{'url':'https://news.example.org/a','title':'İstanbul yağış haberi',
-                             'published':today,'text':'İstanbul genelinde doğrulanmış güncel gelişme açıklandı.'}},
+                             'published':today,'text':'İstanbul genelinde doğrulanmış güncel gelişme açıklandı. Yetkililer araştırmanın ayrıntılarını kamuoyuyla paylaştı.'}},
             {'news_article':{'url':'https://other.example.net/b','title':'İstanbul ulaşım haberi',
-                             'published':today,'text':'İstanbul ulaşımında doğrulanmış güncel değişiklik duyuruldu.'}},
+                             'published':today,'text':'İstanbul ulaşımında doğrulanmış güncel değişiklik duyuruldu. Yetkililer yeni uygulamanın ayrıntılarını kamuoyuyla paylaştı.'}},
         ]
         def record(_runtime,current,step,approval=None):
             article=next(row['news_article'] for row in rows if row['news_article']['url']==step['input']['url'])
@@ -90,3 +90,4 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+

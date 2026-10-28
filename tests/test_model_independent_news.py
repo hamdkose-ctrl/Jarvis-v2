@@ -119,7 +119,7 @@ class AllProvidersUnavailableTests(unittest.TestCase):
             result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
                                        sources=[{'name': 'AA', 'url': AA + '/tr/gundem'}], now=NOW)
         ask.assert_not_called()
-        self.assertEqual(result['news_status'], 'complete')
+        self.assertEqual(result['news_status'], 'partial')
 
     def test_quota_cooldown_does_not_stop_a_news_request(self):
         import test_goal_executor as fixture
@@ -136,6 +136,7 @@ class AllProvidersUnavailableTests(unittest.TestCase):
             reply = goals.run(case.runtime, 'son 7 gün deprem haberleri')
         job = goals.latest('alice')
         self.assertIsNotNone(job, 'kota dolu diye haber işi hiç açılmadı')
+        case.ask.assert_not_called()
         self.assertNotIn('kota', reply.casefold())
         self.assertEqual(job['state'], 'done', reply)
         self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
@@ -452,8 +453,8 @@ class FailureSemanticsTests(unittest.TestCase):
     def test_model_failure_never_marks_news_unavailable(self):
         status = news_pipeline.status(
             [{'source': 'AA', 'status': 'ok', 'item_count': 3, 'reason': None}],
-            verified=[{'url': AA + '/x'}], model_status='unavailable')
-        self.assertEqual(status['news_status'], 'complete')
+            verified=[{'news_article': {'url': AA + '/x'}}], model_status='unavailable')
+        self.assertEqual(status['news_status'], 'partial')
         self.assertEqual(status['model_synthesis_status'], 'unavailable')
 
     def test_network_wipe_is_unavailable_not_empty(self):
@@ -497,7 +498,7 @@ class JobDeliveryTests(unittest.TestCase):
             news_pipeline.attach_job(job, model_status='unavailable', now=DAY)
             note = news_pipeline.delivery_note(job)
         crawl.assert_not_called()
-        self.assertEqual(job['news_pipeline']['news_status'], 'partial')
+        self.assertEqual(job['news_pipeline']['news_status'], 'complete')
         self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
         self.assertEqual(job['news_pipeline']['articles_verified'], len(result['verified']))
         failed = [row for row in job['news_pipeline']['source_health'] if row['status'] == 'failed']
@@ -586,17 +587,16 @@ class OwnerContextWorkerTests(unittest.TestCase):
         token = llm._key_context.set(None)
         self.addCleanup(llm._key_context.reset, token)
         self.assertIsNone(llm._key_context.get())
-        _candidates, health = self.run_discover('hamdi')
-        self.assertEqual([row['status'] for row in health], ['failed', 'failed'])
-        self.assertTrue(all('bağlamı gerekli' in (row['reason'] or '') for row in health), health)
+        with self.assertRaises(PermissionError):
+            self.run_discover('hamdi')
+        self.assertEqual(self.seen, [])
 
     def test_foreign_owner_still_cannot_read_through_another_users_context(self):
         from modules import llm
         token = llm._key_context.set('hamdi')
         self.addCleanup(llm._key_context.reset, token)
-        _candidates, health = self.run_discover('ali')
-        self.assertEqual([row['status'] for row in health], ['failed', 'failed'])
-        self.assertTrue(all('bağlamı gerekli' in (row['reason'] or '') for row in health), health)
+        with self.assertRaises(PermissionError):
+            self.run_discover('ali')
         self.assertEqual(self.seen, [], 'kimlik düşerken taşıyıcıya erişim oldu')
 
     def test_context_never_leaks_between_sequential_runs(self):
@@ -895,3 +895,4 @@ class RecoveryPipelineEvidenceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

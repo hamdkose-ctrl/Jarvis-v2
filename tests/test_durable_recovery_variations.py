@@ -25,25 +25,20 @@ class RecoveryVariations(unittest.TestCase):
         self.assertFalse(goals._self_resolvable_question('Hangi ek kurum incelensin?',REQUEST+' https://example.org/story'))
 
     def test_catalog_requires_executed_exact_index_and_receipt(self):
-        rows=publisher_news.sources_for(REQUEST)[:4]
-        job={'news_catalog_attempted':list(publisher_news.catalog_keys()),'steps':[],'outputs':{}}
-        for i,row in enumerate(rows):
-            job['steps'].append({'id':str(i),'tool':'data','started':True,'state':'queued','input':{'operation':'headlines','url':row['url']}})
-            job['outputs'][str(i)]={'state':'done'}
-        self.assertEqual(publisher_news.catalog_attempted(job),set())
-        for step in job['steps']:step['state']='done'
-        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys())
-        job['steps'][0]['started']=False
-        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys()-{publisher_news.publisher_key(rows[0]['url'])})
-        job['steps'][0]['started']=True;job['steps'][0]['input']['url']=rows[0]['url']+'made-up'
-        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys()-{publisher_news.publisher_key(rows[0]['url'])})
+        from modules import news_pipeline
+        self.assertFalse(hasattr(publisher_news,'catalog_attempted'))
+        self.assertFalse(hasattr(publisher_news,'catalog_keys'))
+        self.assertFalse(news_pipeline.enough_evidence([{'news_article':{'url':'https://a.example/one'}},
+                                                      {'news_article':{'url':'https://a.example/two'}}],REQUEST))
+        self.assertTrue(news_pipeline.enough_evidence([{'news_article':{'url':'https://a.example/one'}},
+                                                     {'news_article':{'url':'https://b.example/two'}}],REQUEST))
 
     def test_final_catalog_gate_is_explicit_and_not_latest_job_dependent(self):
+        from modules import news_pipeline
+        self.assertFalse(hasattr(publisher_news,'require_catalog'))
         with patch.object(goals,'latest',side_effect=AssertionError('No hidden journal lookup')):
-            self.assertTrue(publisher_news.broad_research(REQUEST))
-        job={'request':REQUEST,'steps':[],'outputs':{}}
-        with self.assertRaises(ValueError):publisher_news.require_catalog(job)
-        publisher_news.require_catalog({**job,'request':REQUEST+' Yalnız https://example.org/haberler.'})
+            self.assertTrue(news_pipeline.enough_evidence([{'news_article':{'url':'https://a.example/story'}}],
+                            'Sadece https://a.example/story haberini araştır'))
 
     def test_unchanged_recovery_releases_planner_and_does_not_claim_reads(self):
         job={'id':'a'*16,'owner':'alice','request':REQUEST,'state':'paused',
@@ -63,81 +58,87 @@ class RecoveryVariations(unittest.TestCase):
             with self.subTest(exc=type(exc).__name__),patch.object(news_recovery,'deliver',side_effect=exc):
                 with self.assertRaises(type(exc)):goals._resume_news_recovery(SimpleNamespace(),job,1)
 
-    def real_transport(self,*,first_bad=False):
-        indexes=[s['url'] for s in publisher_news.sources_for(REQUEST)];fetched=[]
+    def canonical_case(self, *, first_bad=False, separate=False):
+        from modules import news_pipeline
+        from urllib.parse import urlsplit
+        case=self.case()
+        rows=[{'url':'https://www.aa.com.tr/tr/gundem','name':'AA'},
+              {'url':'https://www.bbc.com/turkce','name':'BBC'}]
+        indexes=[row['url'] for row in rows]
+        fetched=[]
         day=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
         def fetch(url):
             fetched.append(url)
             if url in indexes:
-                n=indexes.index(url)
-                return {'url':f'https://publisher{n}.example/','body':b'<a href="/news/first">Yapay zeka ilk haber</a><a href="/news/second">Yapay zeka ikinci haber</a>'}
-            if first_bad and url=='https://publisher0.example/news/first':raise ConnectionError('offline')
-            body=f'<article><h1>Yeni yapay zekâ projesi</h1><time itemprop="datePublished" datetime="{day}"></time><p>Yapay zekâ araştırma projesinin yeni sonuçları ve kullanım alanları kamuoyuna açıklandı. Araştırmacılar projenin kapsamını ve teknik bulgularını paylaştı.</p></article>'
-            return {'url':url,'body':body.encode()}
-        return indexes,fetched,fetch
+                return {'url':url,'body':b'<h2><a href="/news/first">Turkiye yapay zeka ilk haber</a></h2><h2><a href="/news/second">Turkiye yapay zeka ikinci haber</a></h2>'}
+            if first_bad and url=='https://www.aa.com.tr/news/first':
+                raise ConnectionError('offline')
+            text='Türkiye yapay zekâ araştırma projesinin yeni sonuçları ve kullanım alanları kamuoyuna açıklandı. Araştırmacılar teknik bulguları paylaştı.'
+            return {'url':url,'body':f'<article><h1>Türkiye yapay zekâ projesi</h1><time itemprop="datePublished" datetime="{day}"></time><p>{text}</p></article>'.encode()}
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+        case.responses(case.plan(*(['Haberleri araştır','Rapor dosyası oluştur'] if separate else ['Haberleri araştır ve rapor dosyası oluştur'])),
+                       {'action':'ask','question':'Başka kaynakları paylaşır mısın?'})
+        with patch.object(publisher_news,'sources_for',return_value=rows), \
+             patch('modules.public_sources.fetch',side_effect=fetch), \
+             patch('modules.research_providers.search_public',return_value=[]), \
+             patch('modules.privacy.blocked',return_value=None):
+            reply=goals.run(case.runtime,REQUEST)
+        return case,goals.latest('alice'),fetched,reply
 
     def test_recovery_only_resume_scans_remaining_catalog_and_then_releases_planner(self):
-        case=self.case();indexes,fetched,fetch=self.real_transport()
-        case.responses(case.plan('Türkiye haberlerini araştır','Rapor dosyası oluştur'),{'action':'ask','question':'Eksik somut bilgi'})
-        with patch('modules.public_sources.fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
-            goals.run(case.runtime,REQUEST)
-            job=goals.latest('alice');old=job['partial_report'];old_bytes=Path(job['outputs'][old]['file']).read_bytes()
-            self.assertEqual(len(publisher_news.catalog_attempted(job)),2)
+        case,job,fetched,reply=self.canonical_case(separate=True)
+        report=job['partial_report']
+        saved=Path(job['outputs'][report]['file']).read_bytes()
+        before=list(fetched)
+        with patch('modules.public_sources.fetch',side_effect=AssertionError('saved evidence was fetched again')):
             self.assertFalse(goals._resume_news_recovery(case.runtime,job,len(job['steps'])))
-            self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys(REQUEST))
-            self.assertFalse(goals._resume_news_recovery(case.runtime,job,len(job['steps'])))
-        self.assertEqual(case.ask.call_count,2)
-        self.assertEqual(old_bytes,Path(job['outputs'][old]['file']).read_bytes())
-        self.assertLessEqual(sum(bool(s.get('recovery')) for s in job['steps']),10)
-        self.assertTrue(goal_tools.verify(job['outputs'][old],'alice'))
+        self.assertEqual(fetched,before)
+        self.assertEqual(saved,Path(job['outputs'][report]['file']).read_bytes())
+        self.assertTrue(goal_tools.verify(job['outputs'][report],'alice'))
+        self.assertFalse(any(step['tool']=='data' for step in job['steps']))
 
     def test_resume_finishes_same_goal_after_catalog_without_replaying_files(self):
-        case=self.case();indexes,fetched,fetch=self.real_transport()
-        case.responses(case.plan('Haberleri araştır ve rapor dosyası oluştur'),{'action':'ask','question':'Eksik somut bilgi'})
-        with patch('modules.public_sources.fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
-            goals.run(case.runtime,REQUEST)
-            before=goals.latest('alice');report=before['partial_report'];path=Path(before['outputs'][report]['file']);saved=path.read_bytes()
-            case.responses(case.done(report))
+        case,before,fetched,reply=self.canonical_case()
+        report=before['partial_report']
+        path=Path(before['outputs'][report]['file'])
+        saved=path.read_bytes()
+        count=case.ask.call_count
+        with patch('modules.public_sources.fetch',side_effect=AssertionError('completed news fetched again')):
             text=goals.run(case.runtime,'devam',resume=True)
         after=goals.latest('alice')
-        self.assertEqual(after['id'],before['id']);self.assertEqual(after['state'],'done')
-        self.assertEqual(publisher_news.catalog_attempted(after),publisher_news.catalog_keys(REQUEST))
-        self.assertEqual(path.read_bytes(),saved);self.assertIn(str(path),text)
-        self.assertEqual(case.ask.call_count,3)
+        self.assertEqual(after['id'],before['id'])
+        self.assertEqual(after['state'],'done',text)
+        self.assertEqual(path.read_bytes(),saved)
+        self.assertEqual(case.ask.call_count,count)
 
     def test_bad_first_article_uses_second_link_and_writes_verified_file(self):
-        case=self.case();indexes,fetched,fetch=self.real_transport(first_bad=True)
-        case.responses(case.plan('Türkiye haberlerini araştır','Rapor dosyası oluştur'),
-                       case.tool('data',{'operation':'headlines','url':indexes[0],'query':'yapay zeka dijital'}),
-                       {'action':'ask','question':'Başka kaynakları paylaşır mısın?'})
-        with patch('modules.public_sources.fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
-            goals.run(case.runtime,REQUEST)
-        job=goals.latest('alice')
-        self.assertIn('https://publisher0.example/news/second',fetched)
-        self.assertEqual(publisher_news.catalog_attempted(job),publisher_news.catalog_keys(REQUEST))
+        case,job,fetched,reply=self.canonical_case(first_bad=True)
         output=job['outputs'][job['partial_report']]
         self.assertTrue(goal_tools.verify(output,'alice'))
-        self.assertIn('publisher0.example/news/second',Path(output['file']).read_text())
-        self.assertIn('publisher0.example/news/first',Path(output['file']).read_text())
-        self.assertEqual(case.ask.call_count,3)
+        content=Path(output['file']).read_text(encoding='utf-8')
+        self.assertIn('https://www.aa.com.tr/news/second',fetched)
+        self.assertIn('https://www.aa.com.tr/news/second',content)
+        self.assertNotIn('https://www.aa.com.tr/news/first>',content)
+        self.assertEqual(case.ask.call_count,2)
 
     def test_final_completion_uses_verified_evidence_not_catalog_attempt_flags(self):
-        case=self.case();indexes,fetched,fetch=self.real_transport()
-        case.responses(case.plan('Haberleri araştır ve rapor dosyası oluştur'),
-                       case.tool('data',{'operation':'headlines','url':indexes[0],'query':'yapay zeka dijital'}),
-                       {'action':'ask','question':'Başka kaynakları paylaşır mısın?'})
-        with patch('modules.public_sources.fetch',side_effect=fetch),patch('modules.privacy.blocked',return_value=None):
-            goals.run(case.runtime,REQUEST)
-        job=goals.latest('alice');report=job['partial_report']
-        index_step=next(s for s in job['steps'] if s['tool']=='data')
-        same_index=[s for s in job['steps'] if s['tool']=='data' and s['input'].get('url')==index_step['input']['url']]
-        for step in same_index:step['started']=False
+        case,job,fetched,reply=self.canonical_case()
+        report=job['partial_report']
+        job['news_catalog_attempted']=['forged']
         job['goals'][0].update(state='done',evidence=[report])
-        self.assertTrue(goals._finish_completed(job));self.assertEqual(job['state'],'done')
-        for step in same_index:step['started']=True
-        job['goals'][0].update(state='done',evidence=[report])
-        self.assertTrue(goals._finish_completed(job));self.assertEqual(job['state'],'done')
+        self.assertTrue(goals._finish_completed(job))
+        self.assertEqual(job['state'],'done')
         self.assertTrue(goal_tools.verify(job['outputs'][report],'alice'))
+
+    def test_quota_file_request_uses_no_planner_model_and_verifies_delivery(self):
+        with patch('modules.llm.quota_wait_seconds',return_value=42):
+            case,job,fetched,reply=self.canonical_case()
+        case.ask.assert_not_called()
+        self.assertEqual(job['state'],'done',reply)
+        report=job['outputs'][job['partial_report']]
+        self.assertTrue(goal_tools.verify(report,'alice'))
+        self.assertTrue(Path(report['file']).is_file())
 
     def test_durable_specialist_selection_uses_existing_execution_and_identity(self):
         case=self.case();case.responses(case.plan('Notu kaydet'),
@@ -161,3 +162,4 @@ class RecoveryVariations(unittest.TestCase):
         with self.assertRaises(ValueError):brain_delegate.assign('alice','publish','mail gönder','development')
         with self.assertRaises(PermissionError):
             specialist_orchestrator.execute_step(SimpleNamespace(profile=SimpleNamespace(slug='bob')),{'owner':'alice'},{},{})
+

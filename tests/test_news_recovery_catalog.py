@@ -15,9 +15,9 @@ class NewsRecoveryCatalogTests(unittest.TestCase):
         }
         rows = [
             {'news_article': {'url': 'https://aa.com.tr/haber', 'title': 'AI',
-                              'published': '2026-10-28', 'text': 'Yapay zekâ kanıtı'}},
+                              'published': __import__('datetime').datetime.now(__import__('datetime').timezone(__import__('datetime').timedelta(hours=3))).date().isoformat(), 'text': 'Türkiye yapay zekâ projesinde yeni sonuçlar kamuoyuna ayrıntılarıyla açıklandı. Araştırmacılar çalışmanın teknik bulgularını ve yöntemini yayımladı.'}},
             {'news_article': {'url': 'https://ntv.com.tr/haber', 'title': 'AI',
-                              'published': '2026-10-28', 'text': 'Yapay zekâ kanıtı'}},
+                              'published': __import__('datetime').datetime.now(__import__('datetime').timezone(__import__('datetime').timedelta(hours=3))).date().isoformat(), 'text': 'Türkiye yapay zekâ projesinde yeni sonuçlar kamuoyuna ayrıntılarıyla açıklandı. Araştırmacılar çalışmanın teknik bulgularını ve yöntemini yayımladı.'}},
         ]
         runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice'))
 
@@ -32,8 +32,7 @@ class NewsRecoveryCatalogTests(unittest.TestCase):
         with patch('modules.news_pipeline.deliver_job', return_value={'verified': rows}) as pipeline, \
              patch('modules.goal_executor._record', side_effect=record), \
              patch('modules.goal_executor._ensure'), patch('modules.goal_executor._save'), \
-             patch('modules.goal_tools.verify'), \
-             patch('modules.publisher_news.recovery_indexes', side_effect=AssertionError('legacy catalog ran')):
+             patch('modules.goal_tools.verify'):
             news_recovery._chat_deliver(runtime, job, max_new_steps=4)
 
         pipeline.assert_called_once()
@@ -93,3 +92,4 @@ class PublisherDiscoveryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

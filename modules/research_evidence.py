@@ -233,22 +233,6 @@ def news_report(dependencies):
     return '\n'.join(lines)+'\n'
 
 
-def literal_ai_quotes(article,request):
-    """Narrow model-free fallback: literal AI excerpts, never an inferred answer."""
-    if not re.search(r'yapay\s+zek[aâ]',request,re.I):raise ValueError('Bu konu için modelsiz alıntı seçimi desteklenmiyor.')
-    text=article['text'];quotes=[]
-    if text.startswith(article['title']):text=text[len(article['title']):].lstrip()
-    for match in re.finditer(r'yapay\s+zek[aâ]',text,re.I):
-        boundary=text.rfind('. ',0,match.start());start=0 if boundary<0 else boundary+2
-        end=text.find('. ',match.end())
-        end=len(text) if end<0 else end+1
-        excerpt=text[start:min(end,start+700)].strip()
-        if re.search(r'yapay\s+zek[aâ]',excerpt,re.I) and 20<=len(excerpt)<=800 and excerpt not in quotes:quotes.append(excerpt)
-        if len(quotes)>=3:break
-    if not quotes:raise ValueError('Haber gövdesinde yapay zekâ hakkında yeterli birebir alıntı bulunamadı.')
-    return {'supported':True,'answer':'Modelsiz kaynak alıntıları; kapsam ve yorum doğrulanmadı.','quotes':quotes}
-
-
 def parse(answer,source,*,allow_unsupported=False):
     try:
         data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))
@@ -283,16 +267,33 @@ def parse_value_quote(answer,source_text):
         data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))
     except (ValueError,TypeError):
         return None
-    if not isinstance(data,dict) or set(data)!={'value','quote'}:
+    if not isinstance(data,dict) or set(data) not in ({'value','quote'},{'value','quote','scope','as_of'}):
         return None
-    value=str(data.get('value') or '').strip()
+    value=str(data['value']).strip() if data.get('value') is not None else ''
     quote=str(data.get('quote') or '').strip()
     if not value or not 20<=len(quote)<=800:
         return None
     normalized=lambda v:' '.join(str(v).split())
     if normalized(quote) not in normalized(source_text):
         return None
-    return {'value':value,'quote':quote}
+    from modules import research_providers
+    numbers=research_providers._numbers(value)
+    if numbers:
+        if not set(numbers).issubset(research_providers._numbers(quote)):
+            return None
+    elif research_providers._token(value) not in research_providers._token(quote):
+        return None
+    result={'value':value,'quote':quote}
+    if 'scope' in data:
+        for key in ('scope','as_of'):
+            field=data[key]
+            if not isinstance(field,str) or len(field)>300:
+                return None
+            field=normalized(field)
+            if field and field not in normalized(source_text):
+                return None
+            result[key]=field
+    return result
 
 
 def source_claims(dependencies):
@@ -319,6 +320,11 @@ def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1)
     from modules import research_providers
     claims=source_claims(dependencies)
     if len(claims)<2:return None
+    if any(not claim.get('scope') or not claim.get('as_of') for claim in claims):
+        return {'status':'insufficient_context','text':(
+            '\n\n## Kaynakların karşılaştırma sınırı\n\n'
+            'Kaynakların ölçüm kapsamı veya referans dönemi doğrulanamadı. '
+            'Bu değerler eşdeğer kabul edilmedi; uyum veya çelişki sonucu çıkarılmadı.')}
     comparison=research_providers.compare_sources(claims)
     if comparison['status']!='conflict':return None
     query=' '.join(sorted({str(claim.get('subject') or claim.get('metric') or '') for claim in claims})).strip()
@@ -336,4 +342,5 @@ def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1)
     return {'status':'unresolved_conflict','verdict':verdict,
             'text':('\n\n## Kaynak çelişkisi çözülmedi\n\nKaynaklar aynı olgu için çelişiyor; ek doğrulama sonucu '
                     'kesinleşmedi. Jarvis tek tarafı nihai gerçek olarak seçmedi; bu nokta belirsizdir.')}
+
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from urllib.parse import parse_qs, quote_plus, urlsplit
 
 from modules import public_sources
+from modules.diagnostics import record_failure as _record_failure
 
 _SEARCH_PROVIDERS = frozenset({"searxng", "duckduckgo", "tavily", "exa", "arxiv"})
 _EXTRACTORS = frozenset({"firecrawl", "public_sources"})
@@ -157,13 +158,14 @@ def independent_candidates(candidates: list[dict], *, limit: int = 3) -> list[di
         raise ValueError("Bağımsız aday listesi geçersiz.")
     chosen: list[dict] = []
     seen_hosts: set[str] = set()
+    from modules import publisher_news
     for row in candidates:
         if not isinstance(row, dict):
             continue
         url = str(row.get("url") or "").strip()
         if not url:
             continue
-        host = (urlsplit(url).hostname or url).casefold()
+        host = publisher_news.publisher_key(url)
         if host in seen_hosts:
             continue
         seen_hosts.add(host)
@@ -250,6 +252,8 @@ def compare_sources(sources: list[dict]) -> dict:
     rows = [row for row in sources if isinstance(row, dict)]
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
+        if row.get('evidence') and (not row.get('scope') or not row.get('as_of')):
+            continue
         key = _row_key(row)
         kind, canon = _row_value(row)
         groups.setdefault(key, []).append({'kind': kind, 'canon': canon, 'url': str(row.get('url', ''))})
@@ -281,11 +285,26 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
     base = deepcopy(comparison)
     if base.get('status') != 'conflict':
         return base
+    if max_extra <= 0:
+        return {**base,'status':'unresolved_conflict','needs_review':True,'supported':None,
+                'verification':{'performed':False,'independent_sources':0,
+                                'reason':'Ek doğrulama bütçesi yok; yeni arama veya okuma yapılmadı.'}}
     disputed = {canon for group in base.get('comparisons', []) if group.get('conflict') for canon in group['values']}
     reader = read_value or (lambda source: _numbers(_norm(source.get('text') if isinstance(source, dict) else '')))
-    used = {row.get('url') for row in base.get('sources', []) if isinstance(row, dict) and row.get('url')}
-    candidates = [row for row in (search(query) or []) if isinstance(row, dict) and row.get('url') and row['url'] not in used]
-    candidates = candidates[:max(0, max_extra)]
+    from modules import publisher_news, requests_state
+    used = {publisher_news.publisher_key(row['url']) for row in base.get('sources', [])
+            if isinstance(row, dict) and row.get('url')}
+    candidates = []
+    for row in search(query) or []:
+        if not isinstance(row, dict) or not row.get('url'):
+            continue
+        key = publisher_news.publisher_key(row['url'])
+        if not key or key in used:
+            continue
+        used.add(key)
+        candidates.append(row)
+        if len(candidates) >= max(0, max_extra):
+            break
     if not candidates:
         return {**base, 'status': 'unresolved_conflict', 'needs_review': True, 'supported': None,
                 'verification': {'performed': True, 'independent_sources': 0,
@@ -294,7 +313,22 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
     supporting: list[str] = []
     ambiguous = False
     for candidate in candidates:
-        source = extract(candidate['url'])
+        requests_state.check()
+        try:
+            source = extract(candidate['url'])
+        except (requests_state.Cancelled, PermissionError):
+            raise
+        except Exception:
+            _record_failure('modules/research_providers.py:verify_conflict_extract')
+            ambiguous = True
+            continue
+        text = _norm(source.get('text', '') if isinstance(source, dict) else '')
+        context = [group for group in base.get('comparisons', []) if group.get('conflict')]
+        if read_value is None and any(
+                field and _norm(field) not in text
+                for group in context for field in (group.get('scope'), group.get('as_of'))):
+            ambiguous = True
+            continue
         hits = [canon for canon in (reader(source) or []) if canon in disputed]
         if len(set(hits)) != 1:
             ambiguous = True
@@ -347,3 +381,4 @@ class ResearchContext:
 
 def weekly_research_request(topic: str) -> dict:
     return {"query": _query(topic), "window_days": 7, "cadence": "weekly", "source_policy": "cite-and-compare"}
+

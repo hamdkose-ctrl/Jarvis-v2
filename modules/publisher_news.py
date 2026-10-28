@@ -10,7 +10,7 @@ GENERAL_SOURCES=(
     {'name':'Investing.com Türkçe','url':'https://tr.investing.com/news/'},
     {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
     {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
-    {'name':'İhlas Haber Ajansı','url':'https://www.ihlashaberajansi.com.tr/'},
+    {'name':'İhlas Haber Ajansı','url':'https://www.iha.com.tr/'},
     {'name':'Demirören Haber Ajansı','url':'https://www.dha.com.tr/'},
     {'name':'ANKA Haber Ajansı','url':'https://ankahaber.net/'},
     {'name':'Türk Haberler Ajansı','url':'https://tha.istanbul/'},
@@ -59,53 +59,18 @@ def multiple_publishers(request):
     return not restricted and bool(re.search(r'son\s+dakika|genel|gündem|gundem|haberler\w*|gelişmeler\w*|gelismeler\w*|\bnews\b',request,re.I))
 
 
-def recovery_indexes(request,seeds):
-    """Select real general-news indexes; topic ranking never changes recovery completion order."""
-    scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
-    named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
-    if scoped or named:return list(dict.fromkeys(seeds))[:4]
-    known=[s['url'] for s in GENERAL_SOURCES]
-    host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
-    preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
-    broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
-    excluded={host(s['url']) for s in GENERAL_SOURCES}
-    discovered=[] if broad or multiple_publishers(request) else [url for url in seeds if host(url) not in excluded]
-    ordered=(preferred+known+discovered) if multiple_publishers(request) else (discovered+preferred+known)
-    return list(dict.fromkeys(ordered))[:4]
-
 
 def publisher_key(url):
     labels=(urlsplit(url).hostname or '').removeprefix('www.').split('.')
     return '.'.join(labels[-3:] if '.'.join(labels[-2:]) in {'edu.tr','gov.tr','com.tr','org.tr'} else labels[-2:])
 
 
-def catalog_keys(request=None):
-    """Required baseline: up to four default indexes; other catalog entries are alternatives."""
-    return {publisher_key(row['url']) for row in sources_for(request)[:4]}
-
-
-def catalog_attempted(job):
-    """Only a completed or failed execution counts as an attempted catalog read."""
-    keys=set();known={row['url']:publisher_key(row['url']) for row in sources_for(job.get('request'))[:4]}
-    for step in job.get('steps',[]):
-        data=step.get('input',{});output=job.get('outputs',{}).get(step.get('id'),{})
-        if (step.get('tool')=='data' and data.get('operation')=='headlines' and
-                data.get('url') in known and step.get('started') is True and
-                step.get('state') in {'done','failed'} and output.get('state')==step['state']):
-            keys.add(known[data['url']])
-    return keys
 
 
 def broad_research(request):
     return bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
                not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
 
-
-def require_catalog(job):
-    if not broad_research(job['request']):return
-    attempted=catalog_attempted(job);known=catalog_keys(job['request'])
-    if not known.issubset(attempted):
-        raise ValueError(f'Genel Türkiye araştırması henüz tamamlanmadı: kayıtlı haber kataloğunun {len(attempted)}/{len(known)} kaynağı denendi. Kalan kayıtlı kaynakları tara; erişilemeyenleri raporda belirt.')
 
 
 def candidate_url(url,request,outputs):
@@ -184,3 +149,4 @@ def article(response):
     text=re.sub(r'\s+',' ',body.get_text(' ',strip=True))[:20000]
     if len(text)<80:raise ValueError('Yayıncı haber gövdesi yeterli değil.')
     return {'url':url,'title':title,'published':published,'text':text}
+
