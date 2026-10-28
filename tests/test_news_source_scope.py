@@ -34,11 +34,18 @@ class NewsSourceScopeTests(unittest.TestCase):
             publisher_news.candidate_url(removed, 'Üniversitelerin haberleri', {})
         self.assertEqual(publisher_news.candidate_url(removed, 'Bu adresi oku: '+removed, {}), removed)
 
-    def test_general_and_topical_news_use_general_publishers(self):
-        for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır', 'yapay zekâ haberleri'):
+    def test_general_news_uses_general_publishers(self):
+        for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır'):
             with self.subTest(request=request):
                 self.assertEqual([r['url'] for r in publisher_news.sources_for(request)], GENERAL)
                 self.assertEqual(publisher_news.recovery_indexes(request, []), GENERAL[:4])
+
+    def test_ai_news_prioritizes_existing_topical_publishers_without_new_source(self):
+        rows = publisher_news.sources_for('Türkiye yapay zekâ haberleri')
+        names = [row['name'] for row in rows[:8]]
+        self.assertEqual(names[:5], ['DonanımHaber','Webtekno','TÜBİTAK','Yıldız Teknik Üniversitesi','Boğaziçi Üniversitesi'])
+        known = {row['url'] for row in publisher_news.GENERAL_SOURCES + publisher_news.SOURCES}
+        self.assertTrue(all(row['url'] in known for row in rows))
 
     def test_institution_scope_and_explicit_urls_are_not_broadened(self):
         self.assertEqual([r['url'] for r in publisher_news.sources_for('Üniversitelerin araştırma haberleri')], [r['url'] for r in publisher_news.SOURCES])
