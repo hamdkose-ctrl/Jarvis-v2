@@ -28,6 +28,9 @@ GENERAL_SOURCES=(
     {'name':'TRT Haber','url':'https://www.trthaber.com/'},
 )
 
+# Compatibility export for security tests and callers; it is discovery data only.
+SOURCES = GENERAL_SOURCES
+
 
 def _ai_request(request):
     return bool(re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|makine\s+öğren|makine\s+ogren|machine\s+learning',str(request or ''),re.I))
