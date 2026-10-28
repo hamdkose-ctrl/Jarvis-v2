@@ -61,6 +61,17 @@ def article(response):
     node=soup.select_one('[itemprop="articleBody"]') or soup.find('article')
     if node is None and (schemas or og and og.get('content')=='article'):node=soup.find('main') or soup.body
     titles=soup.find_all('h1')
+    # Responsive/sticky copies may repeat one headline. Collapse only exact
+    # text copies backed by one schema headline and explicit page identity.
+    if len(titles)>1 and len(schemas)==1:
+        names={n.get_text(' ',strip=True) for n in titles}
+        schema=schemas[0]
+        ref=schema.get('mainEntityOfPage')
+        if isinstance(ref,dict):ref=ref.get('@id') or ref.get('url')
+        try:bound=isinstance(ref,str) and public_sources.address(ref)==url
+        except ValueError:bound=False
+        if bound and len(names)==1 and schema.get('headline') in names:
+            titles=titles[:1]
     if node is None or len(titles)!=1 or len(node.find_all('article'))>1:
         raise ValueError('Tekil haber gövdesi ve başlığı doğrulanamadı; dizinden gerçek haber bağlantısını seç.')
     title=titles[0].get_text(' ',strip=True)

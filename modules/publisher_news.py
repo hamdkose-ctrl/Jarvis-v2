@@ -120,6 +120,8 @@ def article(response):
     url=public_sources.address(response['url']);parsed=urlsplit(url)
     ytu=parsed.hostname in {'yildiz.edu.tr','www.yildiz.edu.tr'} and parsed.path.startswith('/universite/haberler/')
     dpu=parsed.hostname=='haber.dpu.edu.tr' and bool(re.fullmatch(r'/tr/haber_oku/[a-f0-9]+/[^/]+/?',parsed.path))
+    if parsed.hostname in {'www.iha.com.tr','iha.com.tr','ilkha.com'}:
+        return _agency_article(response,url,parsed.hostname)
     if not ytu and not dpu:return None
     soup=BeautifulSoup(response['body'],'html.parser')
     if ytu:
@@ -150,3 +152,47 @@ def article(response):
     if len(text)<80:raise ValueError('Yayıncı haber gövdesi yeterli değil.')
     return {'url':url,'title':title,'published':published,'text':text}
 
+
+
+def _agency_article(response,url,host):
+    from modules import public_sources
+    from urllib.parse import parse_qs
+    soup=BeautifulSoup(response['body'],'html.parser')
+    if host in {'www.iha.com.tr','iha.com.tr'}:
+        nodes=soup.select('.widget_General_News_Detail')
+        canon=soup.select('link[rel="canonical"]')
+        if len(canon)!=1 or public_sources.address(canon[0].get('href',''))!=url:
+            raise ValueError('İHA canonical kimliği eşleşmedi.')
+        if len(nodes)!=1:raise ValueError('İHA tekil haber kapsayıcısı bulunamadı.')
+        node=nodes[0];titles=node.select('h1');bodies=node.select('.news-detail__content')
+        dates=[n.get_text(' ',strip=True).lstrip('- ').strip() for n in node.find_all('span')
+               if re.fullmatch(r'\s*-?\s*\d{1,2}\s+[\wÇĞİÖŞÜçğıöşü]+\s+\d{4}\s+[\wÇĞİÖŞÜçğıöşü]+\s+\d{2}:\d{2}\s*',n.get_text(' ',strip=True))
+               and not n.find_parent('a')]
+        if len(dates)!=1:raise ValueError('İHA makaleye ait tek yayın tarihi bulunamadı.')
+        published=_published(dates[0])
+    else:
+        nodes=soup.select('.post-layout-top-content-3')
+        if len(nodes)!=1:raise ValueError('İLKHA tekil haber kapsayıcısı bulunamadı.')
+        node=nodes[0];titles=node.select('.post-content > h3.title');bodies=node.select('.post-text')
+        dates=node.select('.post-categories .author-social > li.cat-red')
+        refs=[parse_qs(urlsplit(a.get('href','')).query).get('url',[]) for a in node.select('a[href]')
+              if urlsplit(a.get('href','')).hostname=='twitter.com']
+        if refs!=[[url]]:raise ValueError('İLKHA makale bağlantısı eşleşmedi.')
+        if len(dates)!=1:raise ValueError('İLKHA makaleye ait tek yayın tarihi bulunamadı.')
+        stamp=dates[0].get_text(' ',strip=True)
+        m=re.fullmatch(r'(\d{2})\.(\d{2})\.(\d{4}) \d{2}:\d{2}:\d{2}',stamp)
+        if not m:raise ValueError('İLKHA yayın tarihi biçimi doğrulanamadı.')
+        published=date(int(m[3]),int(m[2]),int(m[1])).isoformat()
+    # Explicit conflicting page identity cannot be rescued by a share link.
+    if host=='ilkha.com':
+        for meta in soup.select('meta[property="og:url"]'):
+            ref=meta.get('content','')
+            # This CMS emits an unusable System.String[] path; do not treat it
+            # as identity. Other explicit addresses must agree with the receipt.
+            if '/System.String[]/' not in ref and public_sources.address(ref)!=url:
+                raise ValueError('İLKHA sayfa kimliği çelişiyor.')
+    if len(titles)!=1 or len(bodies)!=1:raise ValueError('Ajans tekil başlık/gövde bulunamadı.')
+    title=titles[0].get_text(' ',strip=True)
+    text=public_sources.readable_text(bodies[0])
+    if not title or len(text)<80:raise ValueError('Ajans haber metni yetersiz.')
+    return {'url':url,'title':title,'published':published,'text':text}

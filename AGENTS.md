@@ -159,3 +159,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 
 - PR #439 yayıncı taraması takip düzeltmesi: URL kontrol karakterleri reddedildikten sonra yalnız çevre ASCII boşlukları temizlenir. Galeri/dizin yolları ilk adaylardan geriye sıralanır; konu skoru ve bilinmeyen yollar korunur. HTTP şema kimliği yalnız HTTPS nihai yanıt adresiyle host/standart port/path/query eşitliğinde metadata olarak karşılaştırılır, HTTP indirilmez. Geçerli çelişkili canonical reddedilir; farklı başlık için eski canonical+gövde çıpası şartı sürer. Kota/model/okuma bütçesi artırılmaz.
+
+
+- PR #439 ajans okuyucuları: ANKA aynı metinli yinelenen H1'leri yalnız tek şema başlığı ve nihai HTTPS adresine bağlı kimlikle birleştirir. İHA tek haber widget'ı, eşleşen canonical, tek H1/gövde ve widget içindeki tek yayın tarihini ister; bozuk JSON'u onarmaz. İLKHA tek haber kapsayıcısı içindeki h3/gövde/tarih ve nihai URL ile eşleşen paylaşım adresini kullanır. CMS'nin System.String[] og:url alanı kimlik sayılmaz; diğer çelişkili açık og:url reddedilir. Model/okuma/kota bütçeleri değişmez.
