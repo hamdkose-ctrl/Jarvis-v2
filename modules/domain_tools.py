@@ -110,15 +110,30 @@ def headlines(owner,url,*,query=None,fetcher=None):
     from modules import publisher_news
     items=public_sources.entries(publisher_news.listing(response))
     discovered_from=None
-    if not items:
-        for feed in public_sources.feeds(response):
-            try:
-                candidate=(fetcher or public_sources.fetch)(feed)
-                rows=public_sources.entries(candidate)
-            except PermissionError:raise
-            except (ValueError,OSError,HTTPError):continue
-            if rows:
-                discovered_from=response['url'];response=candidate;items=rows;break
+    # HTML navigation links are not a reason to skip an advertised news feed.
+    # Only the existing same-host, explicitly advertised endpoints are read.
+    for feed in public_sources.feeds(response):
+        try:
+            candidate=(fetcher or public_sources.fetch)(feed)
+            rows=public_sources.entries(candidate)
+        except PermissionError:raise
+        except (ValueError,OSError,HTTPError):continue
+        if rows:
+            discovered_from=response['url'];response=candidate;items=rows;break
+    if discovered_from is None and items:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        page=BeautifulSoup(response['body'],'html.parser')
+        story_links=set()
+        for link in page.select('article a[href], h2 a[href], h3 a[href], a[itemprop="url"][href]'):
+            if any(parent.name in {'nav','header','footer','aside'} or
+                   parent.get('role') in {'navigation','banner','contentinfo','complementary'}
+                   for parent in link.parents):
+                continue
+            try:story_links.add(public_sources.address(urljoin(response['url'],link['href'])))
+            except ValueError:continue
+        # Ranking only: unfamiliar publishers and unmarked stories remain candidates.
+        items=sorted(items,key=lambda row:row['url'] not in story_links)
     if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok; varsa sayfanın ilan ettiği RSS/Atom bağlantıları da sonuç vermedi. Başka gerçek duyuru dizini seç.')
     if query is not None:
         def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')
