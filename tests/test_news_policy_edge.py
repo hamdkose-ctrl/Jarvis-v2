@@ -36,7 +36,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             with self.subTest(evidence=evidence), self.assertRaisesRegex(ValueError, 'haber.*kanıt|kanıt.*haber'):
                 news_policy.check_completion(current, GOAL, evidence, final=False)
 
-    def test_valid_article_is_accepted_and_final_flag_only_adds_catalog_check(self):
+    def test_valid_article_is_accepted_without_legacy_catalog_completion(self):
         current = job(
             steps=[{'id': 's1', 'tool': 'research', 'input': {}, 'depends': []}],
             outputs={'s1': {'state': 'done', 'news_article': {'url': 'https://tubitak.example/haber'}}},
@@ -47,7 +47,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             self.assertIsNone(news_policy.check_completion(current, GOAL, ['s1'], final=False))
             self.catalog.assert_not_called()
             self.assertIsNone(news_policy.check_completion(current, GOAL, ['s1'], final=True))
-            self.catalog.assert_called_once_with(current)
+            self.catalog.assert_not_called()
 
     def test_goal_without_text_uses_request_safely_and_still_needs_source(self):
         current = job()
