@@ -55,11 +55,6 @@ def _sentences(text):
 
 def quotes(article,request):
     """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
-    wanted_scope=_fold(request)
-    haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
-    if re.search(r'türkiye|turkiye|turkey',wanted_scope) and not re.search(
-            r'türkiye|turkiye|turkey|turkish|türk|turk|istanbul|ankara|izmir|izmir',haystack):
-        raise ValueError('Tekil haber istenen konu/Türkiye kapsamını kanıtlamıyor.')
     if not _ai_scope_ok(article,request):
         raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
     text=re.sub(r'\s+',' ',article['text']).strip()
@@ -85,16 +80,6 @@ def quotes(article,request):
         if sentence not in result:result.append(sentence)
     if not result:raise ValueError('Haber gövdesinden doğrulanabilir alıntı seçilemedi.')
     return result
-
-
-def receipt(article, request, *, source_only=True):
-    """Seal an already fetched article; no network or model call is made."""
-    research_evidence.news_date(article['published'],request)
-    evidence=quotes(article,request)
-    return task_results.seal('research', {
-        'state':'done','text':' '.join(evidence),'source':article['url'],
-        'source_chars':len(article['text']),'source_quotes':evidence,
-        'source_only':bool(source_only),'news_article':article})
 
 
 def run(owner,data,request,*,source_only=False):

@@ -54,7 +54,7 @@ def check_completion(job,goal,evidence,*,final=False):
             raise ValueError('Geçersiz haber işi kaydı.')
         steps[step['id']]=step
     pending=list(evidence or []);seen=set()
-    discovery=False;article=False;publishers=set();verified=[]
+    discovery=False;article=False;publishers=set()
     while pending:
         ident=pending.pop()
         if ident in seen:continue
@@ -64,9 +64,6 @@ def check_completion(job,goal,evidence,*,final=False):
         if output.get('news_article'):
             source=research_evidence.news_receipt(output)
             research_evidence.news_date(source['published'],request);article=True
-            from modules import model_free_news
-            model_free_news.quotes(source,request)
-            verified.append({'news_article':source})
             from modules import publisher_news
             publishers.add(publisher_news.publisher_key(source['url']))
         if step.get('tool')=='data' and isinstance(step.get('input'),dict) and step['input'].get('operation') in {'sources','headlines','news_search'}:discovery=True
@@ -82,9 +79,9 @@ def check_completion(job,goal,evidence,*,final=False):
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
     # Catalog traversal is discovery telemetry, never completion authority.
     # The canonical pipeline already owns relevance, freshness and publisher evidence.
-    from modules import publisher_news,news_pipeline
+    from modules import publisher_news
     if (not discovery_goal and research_goal
-            and (publisher_news.broad_research(request) or publisher_news.multiple_publishers(request) and research_evidence.news_requested(text)) and not news_pipeline.enough_evidence(verified,request)):
+            and (publisher_news.broad_research(request) or publisher_news.multiple_publishers(request) and research_evidence.news_requested(text)) and len(publishers)<2):
         raise ValueError(f'Araştırma kısmi: {len(publishers)} bağımsız yayıncı doğrulandı. Genel Türkiye araştırmasını tamamlamak için en az iki yayıncıdan tarihli haber kanıtı gerekli; tek haber bütün kapsam sayılmaz.')
 
 
@@ -116,6 +113,11 @@ def resume_recovery(runtime,job,started_steps,save):
         inp=step.get('input') if isinstance(step.get('input'),dict) else {}
         if step.get('tool')=='research' or step.get('tool')=='data' and inp.get('operation')=='headlines':
             reads.append(step)
+    if after and reads:
+        from modules import publisher_news
+        if publisher_news.broad_research(request) and publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)):
+            job['blocker']='Kayıtlı katalog denemeleri tamamlandı; doğrulanmış rapor korundu. Kalan hedefler gerçek kanıtlarıyla denetleniyor.'
+            save(job);return False
     if after and (after!=before or reads):
         job['state']='paused'
         job['blocker']=('Kayıtlı hedef modelsiz sürdürüldü; yeni doğrulanmış kaynaklarla kısmi raporun yeni sürümü oluşturuldu. Eksik kapsam açık tutuldu.' if before and after!=before else

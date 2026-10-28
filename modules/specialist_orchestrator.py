@@ -161,14 +161,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         from modules import research_evidence
         if research_evidence.news_requested(job['request']):
             from modules import model_free_news
-            snapshot=step.get('pipeline_receipt')
-            if snapshot is not None:
-                from modules import task_results
-                task_results.verify(snapshot)
-                output=model_free_news.receipt(snapshot['news_article'],job['request'],
-                                               source_only=identity.get('source_only') is True)
-            else:
-                output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
+            output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
             if expected is not None:
                 from modules import runtime_worker_result,worker_result_hook
                 output=worker_result_hook.wrap_output(output,identity)

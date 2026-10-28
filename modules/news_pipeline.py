@@ -73,7 +73,7 @@ def cache_clear() -> None:
 
 def cached_urls() -> list[str]:
     with _lock:
-        return sorted({key[1] for key in _CACHE})
+        return sorted(_CACHE)
 
 
 def _fold(value) -> str:
@@ -85,12 +85,12 @@ def catalog(request=None) -> list[dict]:
     return publisher_news.sources_for(request)
 
 
-def headline_reader(owner, query=None):
+def headline_reader(owner):
     """The existing single-index read, as a per-source callable for the pipeline."""
     from modules import domain_tools
 
     def read(url):
-        return domain_tools.headlines(owner, url, **({'query': query[:300]} if query else {}))['items']
+        return domain_tools.headlines(owner, url)['items']
 
     return read
 
@@ -253,34 +253,22 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
     Results honour the bounded cache. A source that fails entirely is never cached, so an offline
     moment is not remembered as "no news".
     """
-    default_reader=reader is None
-    reader = reader or headline_reader(owner, query)
-    rows = list(catalog(query) if sources is None else sources)[:max_sources]
+    reader = reader or headline_reader(owner)
+    rows = list(sources or catalog(query))[:max_sources]
     today = now or _today()
-    if not rows:
-        return [],[]
     results: dict[str, tuple[list[dict], dict]] = {}
 
     def read(source):
         url = source['url']
         name = source.get('name') or source_name(url)
-        from modules import requests_state
-        requests_state.check()
-        if default_reader:
-            from modules import service_store,privacy
-            service_store.identity(owner)
-            if blocked:=privacy.blocked('web'):
-                raise PermissionError(blocked)
         with _lock:
-            hit = _CACHE.get((owner,url,query))
+            hit = _CACHE.get(url)
         if hit and hit[0] > time.monotonic():
             return url, ([dict(row) for row in hit[1]], {'source': name, 'url': url, 'status': 'ok',
                                                             'item_count': len(hit[1]), 'reason': None, 'cache': True})
         try:
             items = list(reader(url) or [])[:MAX_ITEMS_PER_SOURCE]
         except Exception as exc:
-            if isinstance(exc,(requests_state.Cancelled,PermissionError)):
-                raise
             _record_failure('modules/news_pipeline.py:discover_source')
             return url, ([], {'source': name, 'url': url, 'status': 'failed', 'item_count': 0,
                               'reason': _safe_reason(exc)})
@@ -289,7 +277,7 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
         status = 'ok' if candidates else 'partial'
         if candidates:
             with _lock:
-                _CACHE[(owner,url,query)] = (time.monotonic() + CACHE_SECONDS, candidates)
+                _CACHE[url] = (time.monotonic() + CACHE_SECONDS, candidates)
         return url, (candidates, {'source': name, 'url': url, 'status': status,
                                   'item_count': len(candidates), 'reason': None})
 
@@ -325,7 +313,7 @@ def _today():
 def in_window(row, days, today) -> bool:
     if not row.get('published_at'):
         return False
-    return 0 <= (today - date.fromisoformat(row['published_at'])).days <= days
+    return (today - date.fromisoformat(row['published_at'])).days <= days
 
 
 def verify(row, *, request, fetcher, today, days) -> dict:
@@ -348,9 +336,6 @@ def verify(row, *, request, fetcher, today, days) -> dict:
             raise ValueError('Haber istenen pencerenin dışında; eski haber eklenmedi.')
         quotes = model_free_news.quotes(article, request)
     except Exception as exc:
-        from modules import requests_state
-        if isinstance(exc,(requests_state.Cancelled,PermissionError)):
-            raise
         _record_failure('modules/news_pipeline.py:verify_article')
         candidate['reason'] = _safe_reason(exc)
         return candidate
@@ -398,17 +383,10 @@ def _verify_many(rows, *, request, fetcher, today, days) -> list[dict]:
         return [future.result() for future in futures]
 
 
-def enough_evidence(verified, request=None) -> bool:
+def enough_evidence(verified) -> bool:
     """News completion evidence is two dated articles from two distinct publishers; nothing less."""
     hosts = {publisher_news.publisher_key(row['news_article']['url']) for row in verified}
-    needed=MIN_VERIFIED
-    if request:
-        import re
-        explicit_two=re.search(r'(?:en az|en azından)\s*(?:iki|2)|(?:iki|2)\s*(?:farklı|ayrı|bağımsız)',request,re.I)
-        single=re.search(r'https://|\b(?:tek|bir)\s+(?:haber|kaynak)',request,re.I)
-        if single and not explicit_two:
-            needed=1
-    return len({row['news_article']['url'] for row in verified}) >= needed and len(hosts - {''}) >= needed
+    return len(verified) >= MIN_VERIFIED and len(hosts - {''}) >= MIN_VERIFIED
 
 
 def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
@@ -422,19 +400,19 @@ def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
     for start in range(0, len(rows), MAX_WORKERS):
         checked.extend(_verify_many(rows[start:start + MAX_WORKERS], request=request, fetcher=fetcher,
                                     today=today, days=days))
-        if enough_evidence([row for row in checked if row['verification'] == 'verified'],request):
+        if enough_evidence([row for row in checked if row['verification'] == 'verified']):
             break
     return checked
 
 
-def status(health, *, verified, model_status='unavailable', request=None) -> dict:
+def status(health, *, verified, model_status='unavailable') -> dict:
     """news_status is about sources and evidence; model_status never overwrites it."""
     total = len(health)
     failed = sum(1 for row in health if row['status'] == 'failed')
     if total and failed == total:
         news = 'unavailable'
     elif verified:
-        news = 'complete' if enough_evidence(verified,request) else 'partial'
+        news = 'partial' if failed else 'complete'
     else:
         news = 'empty'
     return {'news_status': news, 'model_synthesis_status': model_status}
@@ -564,39 +542,22 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         max_sources=MAX_SOURCES) -> dict:
     """Model-free vertical: discover → filter → cluster → verify → deterministic report."""
     today = now or _today()
-    window = window_days(request) if days is None else max(1, min(MAX_WINDOW, int(days)))
+    window = DEFAULT_WINDOW if days is None else max(1, min(MAX_WINDOW, int(days)))
     reused = [dict(row) for row in (reuse or [])]
     health: list[dict] = [dict(row) for row in (source_health or [])]
     candidates: list[dict] = []
     if reuse is not None or source_health is not None:
         # İşten türetilen özet: kurtarma döngüsü kaynakları zaten okudu. Burada ikinci bir tarama
         # başlamaz; kimlik bekçisi olmayan bir istek (owner=None) asla katalog okumaz.
-        from modules import model_free_news
-        candidates=[]
-        for row in reused:
-            if not in_window(row,window,today):
-                continue
-            try:
-                model_free_news.quotes(row['news_article'],request)
-            except (ValueError,KeyError):
-                continue
-            candidates.append(dict(row,in_window=True))
+        candidates = [dict(row, in_window=in_window(row, window, today)) for row in reused]
         fresh = [row for row in candidates if row['in_window']]
         verified = [row for row in fresh if row.get('verification') == 'verified' and row.get('news_article')]
         reused_count = len(verified)
         reads_count = 0
     else:
-        explicit=[]
-        for raw in re.findall(r'https://[^\s<>"\]]+',request):
-            explicit.append(public_sources.address(raw.rstrip('.,;)')))
-        rows = sources if sources is not None else (
-            [{'url':url,'name':source_name(url)} for url in dict.fromkeys(explicit)]
-            if explicit else catalog(request))
+        rows = sources if sources is not None else catalog(request)
         candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today,
                                       max_sources=max_sources)
-        if explicit:
-            candidates=[normalize({'url':url,'title':url},source=source_name(url),now=today)
-                        for url in dict.fromkeys(explicit)]+candidates
         candidates = filter_candidates(candidates, request)
         candidates = cluster(candidates)
         for row in candidates:
@@ -604,8 +565,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         # A listing that prints no dates is not an undated story: the article page's own date is the
         # legitimate evidence, so only a feed date already outside the window cancels the read.
         stale = {row['url'] for row in candidates if row['published_at'] and not row['in_window']}
-        catalog_budget=MAX_ARTICLE_READS-8 if owner and sources is None and not explicit else MAX_ARTICLE_READS
-        reads = _read_plan([row for row in candidates if row['url'] not in stale], catalog_budget)
+        reads = _read_plan([row for row in candidates if row['url'] not in stale], MAX_ARTICLE_READS)
         checked_rows = _verify_plan(reads, request=request, fetcher=fetcher, today=today, days=window)
         verified = [row for row in checked_rows if row['verification'] == 'verified']
         by_url = {row['url']: row for row in checked_rows}
@@ -620,33 +580,6 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                     row['reason'] = match['reason']
             row['in_window'] = in_window(row, window, today)
         verified = [row for row in verified if in_window(row, window, today)]
-        # Catalogs seed discovery; one bounded, keyless search can supply missing
-        # publishers without consuming LLM quota or repeating checked URLs.
-        remaining=MAX_ARTICLE_READS-len(checked_rows)
-        if owner and sources is None and not explicit and not enough_evidence(verified,request) and remaining>0:
-            from modules import requests_state
-            try:
-                found=research_providers.search_public(request)
-            except (requests_state.Cancelled,PermissionError):
-                raise
-            except Exception as exc:
-                found=[]
-                health.append({'source':'web discovery','url':'https://html.duckduckgo.com/',
-                               'status':'failed','item_count':0,'reason':_safe_reason(exc)})
-            seen={row['url'] for row in candidates}
-            extra=[]
-            for found_row in found:
-                url=public_sources.address(found_row['url'])
-                if url in seen:
-                    continue
-                seen.add(url)
-                extra.append(normalize({'url':url,'title':found_row['title'],
-                                        'summary':found_row.get('snippet','')},
-                                       source=source_name(url),now=today))
-            checked_extra=_verify_plan(_read_plan(extra,remaining),request=request,fetcher=fetcher,today=today,days=window)
-            candidates.extend(checked_extra)
-            checked_rows.extend(checked_extra)
-            verified.extend(row for row in checked_extra if row.get('verification')=='verified')
         reads_count = len(checked_rows)
         reused_count = 0
     discovered = len(candidates)
@@ -654,7 +587,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
     failed = sum(1 for row in health if row['status'] == 'failed')
     partial = sum(1 for row in health if row['status'] == 'partial')
     codes = status(health or [{'source': 'reuse', 'status': 'ok', 'item_count': len(verified), 'reason': None}],
-                   verified=verified, model_status=model_status, request=request)
+                   verified=verified, model_status=model_status)
     result = {
         'request': request,
         'window_days': window,
@@ -734,8 +667,6 @@ def _record(job, result) -> None:
         'sources_partial': result['sources_partial'],
         'articles_discovered': result['articles_discovered'],
         'articles_verified': result['articles_verified'],
-        'articles_read': result.get('articles_read',0),
-        'publishers_verified': len({publisher_news.publisher_key(row['news_article']['url']) for row in result['verified']}),
         'reused': result['reused'],
         'source_health': result['source_health'],
         'evidence': [{'url': row['url'], 'source': row['source'], 'published_at': row['published_at']}

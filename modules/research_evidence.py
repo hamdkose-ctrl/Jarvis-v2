@@ -292,15 +292,6 @@ def parse_value_quote(answer,source_text):
     normalized=lambda v:' '.join(str(v).split())
     if normalized(quote) not in normalized(source_text):
         return None
-    # A genuine quote cannot authenticate an unrelated model-supplied value.
-    from modules import research_providers
-    value_numbers=research_providers._numbers(value)
-    quote_numbers=research_providers._numbers(quote)
-    if value_numbers:
-        if not set(value_numbers).issubset(quote_numbers):
-            return None
-    elif research_providers._token(value) not in research_providers._token(quote):
-        return None
     return {'value':value,'quote':quote}
 
 

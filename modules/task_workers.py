@@ -214,28 +214,14 @@ def run(owner, task, dependencies):
             candidates = research_providers.search_public(data['query'])
             if not candidates:
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
-            failures=[]
-            for candidate in candidates:
-                try:
-                    url=_url(candidate['url'])
-                    initial_source=research_providers.extract_source(url)
-                    if len(initial_source.get('text',''))<80:
-                        raise ValueError('Sayfada yeterli metin bulunamadı.')
-                    break
-                except Exception as exc:
-                    from modules import requests_state
-                    if isinstance(exc,(requests_state.Cancelled,PermissionError)):
-                        raise
-                    failures.append(type(exc).__name__)
-            else:
-                raise ValueError('Arama adaylarının hiçbirinden okunabilir kaynak alınamadı.')
+            url = _url(candidates[0]['url'])
         article=None
         if news:
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
             research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
         else:
-            source = initial_source if candidates else research_providers.extract_source(url)
+            source = research_providers.extract_source(url)
             url = source['url']
             text = source['text']
         if len(text)<80: raise ValueError('Sayfada yeterli metin bulunamadı.')
@@ -263,26 +249,20 @@ def run(owner, task, dependencies):
                 else:
                     try:
                         ctext=research_providers.extract_source(cu)['text']
-                    except Exception as exc:
-                        from modules import requests_state
-                        if isinstance(exc,(requests_state.Cancelled,PermissionError)):
-                            raise
+                    except Exception:
                         _record_failure('modules/task_workers.py:research_claim_extract')
                         continue
                 if not isinstance(ctext,str) or len(ctext)<80:
                     continue
                 try:
                     raw_claim=model_wait.ask('Soru: '+focus+'\nOLGU İDDİASI KAYNAĞI ('+cu+'):\n'+ctext,system=CLAIM_SYSTEM)
-                except Exception as exc:
-                    from modules import requests_state
-                    if isinstance(exc,(requests_state.Cancelled,PermissionError)):
-                        raise
+                except Exception:
                     _record_failure('modules/task_workers.py:research_claim_model')
                     continue
                 claim=research_evidence.parse_value_quote(raw_claim,ctext)
                 if not claim:
                     continue
-                source_claims.append({'subject':focus,'scope':focus,'as_of':today,'value':claim['value'],'url':cu,'evidence':claim['quote']})
+                source_claims.append({'subject':focus,'scope':'','as_of':'','value':claim['value'],'url':cu,'evidence':claim['quote']})
         return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {}),**({'source_claims':source_claims} if source_claims else {})}
     if kind=='browser': return browser_task(owner,data)
     if kind=='coder':

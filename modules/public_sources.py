@@ -168,19 +168,6 @@ def entries(response):
     else:
         page=Page();page.feed(body.decode('utf-8',errors='replace'))
         result=[{**row,'summary':'','published':''} for row in page.links if len(row['title'].strip())>=8]
-        # Rank before the 50-link cap, otherwise a story below a large menu can
-        # never reach the downstream reader. This is discovery, not verification.
-        from bs4 import BeautifulSoup
-        soup=BeautifulSoup(body.decode('utf-8',errors='replace'),'html.parser')
-        preferred=set()
-        for link in soup.select('article a[href], h2 a[href], h3 a[href], a[itemprop="url"][href]'):
-            if any(parent.name in {'nav','header','footer','aside'} or
-                   parent.get('role') in {'navigation','banner','contentinfo','complementary'}
-                   for parent in link.parents):
-                continue
-            try:preferred.add(address(urljoin(url,link['href'])))
-            except ValueError:continue
-        result.sort(key=lambda row:urljoin(url,row['url']) not in preferred)
     clean=[];seen=set()
     for row in result:
         try:target=address(urljoin(url,row['url']))

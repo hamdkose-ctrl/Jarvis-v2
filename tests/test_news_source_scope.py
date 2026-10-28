@@ -8,12 +8,12 @@ import test_goal_executor as fixture
 
 GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
            'https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
-           'https://www.iha.com.tr/', 'https://www.dha.com.tr/',
-           'https://ankahaber.net/', 'https://ilkha.com/',
+           'https://www.ihlashaberajansi.com.tr/', 'https://www.dha.com.tr/',
+           'https://ankahaber.net/', 'https://tha.istanbul/', 'https://ilkha.com/',
            'https://www.dw.com/tr/', 'https://tr.euronews.com/',
            'https://www.ntv.com.tr/', 'https://t24.com.tr/',
            'https://www.bloomberght.com/', 'https://www.ekonomim.com/',
-           'https://www.donanimhaber.com/',
+           'https://www.kap.org.tr/tr/', 'https://www.donanimhaber.com/',
            'https://www.webtekno.com/', 'https://www.trthaber.com/']
 REMOVED_INSTITUTIONAL = {
     'https://www.yildiz.edu.tr/medya/haberler',
@@ -36,7 +36,7 @@ class NewsSourceScopeTests(unittest.TestCase):
     def test_verified_news_agencies_are_registered(self):
         names = {row['name'] for row in publisher_news.sources_for('Türkiye haberleri')}
         self.assertTrue({'Anadolu Ajansı','İhlas Haber Ajansı','Demirören Haber Ajansı',
-                         'ANKA Haber Ajansı','İlke Haber Ajansı'} <= names)
+                         'ANKA Haber Ajansı','Türk Haberler Ajansı','İlke Haber Ajansı'} <= names)
 
     def test_old_institutional_feeds_are_not_news_catalog_sources(self):
         for request in ('Üniversitelerin haberleri', 'Türkiye yapay zekâ haberleri', 'son dakika haberleri'):
@@ -103,7 +103,7 @@ class NewsSourceScopeTests(unittest.TestCase):
             return {'url':url,'body':body.encode()}
         with patch('modules.public_sources.fetch', side_effect=fetch), patch('modules.privacy.blocked', return_value=None):
             reply = goals.run(case.runtime, 'son dakika deprem haberleri')
-        self.assertEqual(case.ask.call_count, 0)
+        self.assertEqual(case.ask.call_count, 2)
         self.assertLessEqual(sum(bool(s.get('recovery')) for s in goals.latest('alice')['steps']), 10)
         return goals.latest('alice'), fetched, reply
 

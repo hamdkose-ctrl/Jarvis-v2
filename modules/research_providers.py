@@ -96,11 +96,13 @@ def extract_source(url: str, *, fetcher=None) -> dict:
     """Read one public source through the existing bounded HTTPS reader."""
     request = extract_request(url)
     if fetcher is None:
-        fetcher = public_sources.fetch
+        # Preserve the existing browser reader's bounded, user-flow semantics.
+        from modules.browser import page_text
+        return {"url": request["url"], "text": page_text(request["url"]), "content_type": ""}
     response = fetcher(request["url"])
-    if not isinstance(response, dict) or not isinstance(response.get("url"),str) or not isinstance(response.get("body"), bytes):
+    if not isinstance(response, dict) or response.get("url") != request["url"] or not isinstance(response.get("body"), bytes):
         raise ValueError("Kaynak okuyucu geçerli yanıt üretmedi.")
-    return {"url": public_sources.address(response["url"]), "text": public_sources.text(response["body"]), "content_type": response.get("content_type", "")}
+    return {"url": request["url"], "text": public_sources.text(response["body"]), "content_type": response.get("content_type", "")}
 
 
 def normalize_results(provider: str, payload: dict, *, limit: int = 10) -> list[dict]:
@@ -281,18 +283,8 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
         return base
     disputed = {canon for group in base.get('comparisons', []) if group.get('conflict') for canon in group['values']}
     reader = read_value or (lambda source: _numbers(_norm(source.get('text') if isinstance(source, dict) else '')))
-    from modules.publisher_news import publisher_key
-    used = {publisher_key(row['url']) for row in base.get('sources', [])
-            if isinstance(row,dict) and row.get('url')}
-    candidates=[]
-    for row in search(query) or []:
-        if not isinstance(row,dict) or not row.get('url'):
-            continue
-        key=publisher_key(row['url'])
-        if not key or key in used:
-            continue
-        used.add(key)
-        candidates.append(row)
+    used = {row.get('url') for row in base.get('sources', []) if isinstance(row, dict) and row.get('url')}
+    candidates = [row for row in (search(query) or []) if isinstance(row, dict) and row.get('url') and row['url'] not in used]
     candidates = candidates[:max(0, max_extra)]
     if not candidates:
         return {**base, 'status': 'unresolved_conflict', 'needs_review': True, 'supported': None,
@@ -302,16 +294,7 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
     supporting: list[str] = []
     ambiguous = False
     for candidate in candidates:
-        try:
-            source = extract(candidate['url'])
-        except (PermissionError,):
-            raise
-        except Exception as exc:
-            from modules import requests_state
-            if isinstance(exc,requests_state.Cancelled):
-                raise
-            ambiguous=True
-            continue
+        source = extract(candidate['url'])
         hits = [canon for canon in (reader(source) or []) if canon in disputed]
         if len(set(hits)) != 1:
             ambiguous = True

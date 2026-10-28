@@ -120,6 +120,20 @@ def headlines(owner,url,*,query=None,fetcher=None):
         except (ValueError,OSError,HTTPError):continue
         if rows:
             discovered_from=response['url'];response=candidate;items=rows;break
+    if discovered_from is None and items:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        page=BeautifulSoup(response['body'],'html.parser')
+        story_links=set()
+        for link in page.select('article a[href], h2 a[href], h3 a[href], a[itemprop="url"][href]'):
+            if any(parent.name in {'nav','header','footer','aside'} or
+                   parent.get('role') in {'navigation','banner','contentinfo','complementary'}
+                   for parent in link.parents):
+                continue
+            try:story_links.add(public_sources.address(urljoin(response['url'],link['href'])))
+            except ValueError:continue
+        # Ranking only: unfamiliar publishers and unmarked stories remain candidates.
+        items=sorted(items,key=lambda row:row['url'] not in story_links)
     if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok; varsa sayfanın ilan ettiği RSS/Atom bağlantıları da sonuç vermedi. Başka gerçek duyuru dizini seç.')
     if query is not None:
         def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')

@@ -62,15 +62,7 @@ def run_checks(root=None, *, python=None):
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
-                    failures=[]
-                    for part in re.split(r'(?m)^={10,}\s*$',output):
-                        if re.search(r'(?m)^(?:FAIL|ERROR):',part):
-                            lines=part.strip().splitlines()
-                            title=next((line for line in lines if re.match(r'^(?:FAIL|ERROR):',line)),name)
-                            reason=next((line for line in reversed(lines) if line.strip()),'')
-                            failures.append(title+'\n'+reason[:500])
-                    summary='\n\n'.join(failures)
-                    return False, summary+'\n\n'+ '\n'.join(logs)[-12000:]
+                    return False, '\n'.join(logs)[-16000:]
                 if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
