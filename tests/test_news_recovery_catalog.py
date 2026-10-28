@@ -42,5 +42,54 @@ class NewsRecoveryCatalogTests(unittest.TestCase):
         self.assertEqual(len(job['goals'][0]['evidence']), 2)
 
 
+
+class PublisherDiscoveryTests(unittest.TestCase):
+    """Navigation-first HTML must not starve real advertised news discoveries."""
+    index='https://example.org/news'
+    feed='https://example.org/feed'
+    html=b'<link type="application/rss+xml" href="/feed"><a href="/politika">Politika haberleri</a><h2><a href="/news/story">Gercek haber basligi</a></h2>'
+    rss=b'<rss><channel><item><title>Gercek haber basligi</title><link>https://example.org/news/story</link><pubDate>Wed, 28 Oct 2026 09:00:00 GMT</pubDate></item></channel></rss>'
+
+    def read(self, html=None, failure=None):
+        from modules import domain_tools
+        calls=[]
+        def fetch(url):
+            calls.append(url)
+            if url==self.index:
+                return {'url':url,'body':self.html if html is None else html}
+            if failure is not None:
+                raise failure
+            self.assertEqual(url,self.feed)
+            return {'url':url,'body':self.rss}
+        with patch('modules.service_store.identity'):
+            result=domain_tools.headlines('alice',self.index,fetcher=fetch)
+        return result,calls
+
+    def test_advertised_feed_wins_even_when_html_contains_navigation(self):
+        result,calls=self.read()
+        self.assertEqual(calls,[self.index,self.feed])
+        self.assertEqual(result['source'],self.feed)
+        self.assertEqual(result['discovered_from'],self.index)
+        self.assertEqual([row['url'] for row in result['items']],['https://example.org/news/story'])
+        self.assertTrue(result['items'][0]['published'])
+
+    def test_failed_feed_keeps_html_and_prioritizes_story_card(self):
+        result,calls=self.read(failure=OSError('offline'))
+        self.assertEqual(calls,[self.index,self.feed])
+        self.assertEqual(result['source'],self.index)
+        self.assertEqual(result['items'][0]['url'],'https://example.org/news/story')
+        self.assertIn('https://example.org/politika',[row['url'] for row in result['items']])
+
+    def test_feed_permission_denial_propagates(self):
+        with self.assertRaises(PermissionError):
+            self.read(failure=PermissionError('privacy'))
+
+    def test_foreign_feed_is_not_fetched(self):
+        html=b'<link type="application/rss+xml" href="https://foreign.example/feed"><h2><a href="/news/story">Gercek haber basligi</a></h2>'
+        result,calls=self.read(html=html)
+        self.assertEqual(calls,[self.index])
+        self.assertEqual(result['source'],self.index)
+
+
 if __name__ == '__main__':
     unittest.main()
