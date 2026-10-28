@@ -72,7 +72,9 @@ def recovery_indexes(request,seeds):
     scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
     named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
     if scoped or named:return list(dict.fromkeys(seeds))[:4]
-    known=[s['url'] for s in sources_for(request)]
+    # Durable recovery'ın genel kaynak sırası değişmez. AI kaynak önceliği yalnız keşif
+    # kataloğunda uygulanır; eski hedefin recovery sözleşmesi genişletilmez.
+    known=[s['url'] for s in GENERAL_SOURCES]
     host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
     preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
