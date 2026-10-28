@@ -78,6 +78,16 @@ def _news_failure_detail(job):
         _record_failure('modules/acceptance_checks.py:news_failure_receipts')
         detail+='; makale=geçersiz'
     detail+='; kurtarma='+(','.join(key+':'+str(value) for key,value in sorted(recovery.items())) or 'yok')
+    pipeline=job.get('news_pipeline') if isinstance(job.get('news_pipeline'),dict) else {}
+    health=pipeline.get('source_health') if isinstance(pipeline.get('source_health'),list) else []
+    if health:
+        summary=[]
+        for row in health[:20]:
+            if not isinstance(row,dict):continue
+            label=privacy.redact(str(row.get('source') or row.get('url') or 'kaynak'),force=True)[:60]
+            state=str(row.get('status') or 'unknown')
+            summary.append(label+':'+state)
+        detail+='; kaynak_sağlığı='+(','.join(summary) or 'yok')
     blocker=privacy.redact(str(job.get('blocker') or ''),force=True)[:240]
     if blocker:detail+='; '+blocker
     trace=job.get('decision_diagnostics',[])[-3:]
