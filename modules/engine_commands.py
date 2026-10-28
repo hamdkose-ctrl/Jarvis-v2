@@ -296,7 +296,11 @@ def handle(runtime, command: str) -> str:
     # Sistem durumu
     if runtime.re.search(r"\bsaat (kaç|ne)\b|\bsaati\b", cmd_lower):
         return "Saat " + runtime.time.strftime("%H:%M")
-    if "günlerden" in cmd_lower or runtime.re.search(r"\bhangi gün\b|\bayın kaçı\b|\btarih(i)?\b", cmd_lower):
+    date_query = cmd_lower.strip(" .!?")
+    if runtime.re.fullmatch(
+            r"(?:bugün\s+)?(?:günlerden(?:\s+ne)?|hangi\s+gün(?:deyiz)?|ayın\s+kaçı|"
+            r"tarih(?:i)?(?:\s+(?:ne|nedir|kaç|söyle|göster))?|bugünün\s+tarihi)(?:\s+(?:ne|nedir|söyle|göster))?",
+            date_query):
         return runtime.time.strftime("Bugün %d.%m.%Y, ") + runtime._DAYS[runtime.time.localtime().tm_wday]
 
     if "sistem durumu" in cmd_lower or "bilgisayar durumu" in cmd_lower or "pc durumu" in cmd_lower:
