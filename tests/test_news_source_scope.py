@@ -8,6 +8,8 @@ import test_goal_executor as fixture
 
 GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
            'https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
+           'https://www.ihlashaberajansi.com.tr/', 'https://www.dha.com.tr/',
+           'https://ankahaber.net/', 'https://tha.istanbul/', 'https://ilkha.com/',
            'https://www.dw.com/tr/', 'https://tr.euronews.com/',
            'https://www.ntv.com.tr/', 'https://t24.com.tr/',
            'https://www.bloomberght.com/', 'https://www.ekonomim.com/',
@@ -30,6 +32,11 @@ class NewsSourceScopeTests(unittest.TestCase):
                 self.assertEqual(publisher_news.candidate_url(url,'son dakika haberleri',{}),url)
                 with self.assertRaises(ValueError):
                     publisher_news.candidate_url(url+'uydurulmus-haber','son dakika haberleri',{})
+
+    def test_verified_news_agencies_are_registered(self):
+        names = {row['name'] for row in publisher_news.sources_for('Türkiye haberleri')}
+        self.assertTrue({'Anadolu Ajansı','İhlas Haber Ajansı','Demirören Haber Ajansı',
+                         'ANKA Haber Ajansı','Türk Haberler Ajansı','İlke Haber Ajansı'} <= names)
 
     def test_old_institutional_feeds_are_not_news_catalog_sources(self):
         for request in ('Üniversitelerin haberleri', 'Türkiye yapay zekâ haberleri', 'son dakika haberleri'):
