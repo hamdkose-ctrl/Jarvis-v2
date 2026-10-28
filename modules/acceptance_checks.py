@@ -186,6 +186,23 @@ def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
             goal_executor.STORE=previous_store
 
 
+def _news_external_discovery(owner):
+    """Opt-in live probe: force an empty catalogue, keep real search and article reads."""
+    from modules import news_pipeline,research_providers,publisher_news
+    from urllib.parse import urlsplit
+    request='Son 7 gün güncel haberleri araştır'
+    result=news_pipeline.run(request,owner=owner,max_sources=0,
+                             searcher=research_providers.search_public)
+    discovery=result.get('public_discovery',{})
+    hosts={urlsplit(row['url']).hostname for row in publisher_news.GENERAL_SOURCES}
+    external=[row for row in result.get('candidates',[]) if row.get('verification')=='verified'
+              and urlsplit(row['url']).hostname not in hosts]
+    detail=('Katalog boşluğu zorlandı; gerçek anahtarsız arama ve makale okuyucu; '
+            f"keşif={discovery.get('state')}; aday={discovery.get('candidates',0)}; "
+            f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}")
+    return ('passed' if external else 'failed'),detail
+
+
 def _news_chat_resume(owner):
     """All cases are required; a generic PASS cannot hide a topic or file failure."""
     cases=[('genel sohbet','son dakika haberleri',False),
@@ -259,7 +276,9 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
                 return ('passed' if job and job['status']=='done' else 'pending','Check Calculator 19 and desktop task status')
             check('calculator',calc)
         else:report['checks'].append({'check':'calculator','state':'pending','detail':'Run with --desktop on Windows'})
-        if news:check('news_chat_resume',lambda:_news_chat_resume(owner))
+        if news:
+            check('news_chat_resume',lambda:_news_chat_resume(owner))
+            check('news_external_discovery',lambda:_news_external_discovery(owner))
         else:report['checks'].append({'check':'news_chat_resume','state':'pending','detail':'Run with --news for live fileless news + completed-goal resume acceptance'})
         if narration:
             def voice():
@@ -294,3 +313,4 @@ def main():
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0
 
 if __name__=='__main__':raise SystemExit(main())
+

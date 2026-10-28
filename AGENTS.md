@@ -162,3 +162,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 
 - PR #439 ajans okuyucuları: ANKA aynı metinli yinelenen H1'leri yalnız tek şema başlığı ve nihai HTTPS adresine bağlı kimlikle birleştirir. İHA tek haber widget'ı, eşleşen canonical, tek H1/gövde ve widget içindeki tek yayın tarihini ister; bozuk JSON'u onarmaz. İLKHA tek haber kapsayıcısı içindeki h3/gövde/tarih ve nihai URL ile eşleşen paylaşım adresini kullanır. CMS'nin System.String[] og:url alanı kimlik sayılmaz; diğer çelişkili açık og:url reddedilir. Model/okuma/kota bütçeleri değişmez.
+
+
+- PR #439 --news: news_external_discovery ayrı canlı tanıdır. Katalog sayısı sıfıra zorlanır; gerçek anahtarsız arama/üretim makale okuyucusu kullanılır. Katalog dışı en az bir doğrulanmış makale yoksa failed olur. Bu tek kaynak keşif kanıtıdır, iki yayıncı tamamlanma kabulü değildir. Mevcut üç senaryolu news_chat_resume korunur. Yeni head için Windows/PC sonucu beklenir.
