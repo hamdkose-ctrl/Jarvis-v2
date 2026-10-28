@@ -27,8 +27,9 @@ independent = research_providers.independent_candidates
 CACHE_SECONDS = 600
 DEFAULT_WINDOW = 7
 MAX_WINDOW = 90
-# The publisher catalog is a broad discovery pool, not a completion whitelist.
-MAX_SOURCES = 20
+MAX_SOURCES = 8
+# A user news request may inspect the whole configured discovery pool; utility probes stay bounded.
+BROAD_MAX_SOURCES = 20
 MAX_ITEMS_PER_SOURCE = 12
 MAX_WORKERS = 4
 MIN_VERIFIED = 2
@@ -537,7 +538,8 @@ def verify_synthesis(text, evidence) -> dict:
 
 
 def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=None, now=None,
-        reuse=None, source_health=None, model_status='unavailable', claim_review=None) -> dict:
+        reuse=None, source_health=None, model_status='unavailable', claim_review=None,
+        max_sources=MAX_SOURCES) -> dict:
     """Model-free vertical: discover → filter → cluster → verify → deterministic report."""
     today = now or _today()
     window = DEFAULT_WINDOW if days is None else max(1, min(MAX_WINDOW, int(days)))
@@ -554,7 +556,8 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         reads_count = 0
     else:
         rows = sources if sources is not None else catalog(request)
-        candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today)
+        candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today,
+                                      max_sources=max_sources)
         candidates = filter_candidates(candidates, request)
         candidates = cluster(candidates)
         for row in candidates:
@@ -687,7 +690,7 @@ def deliver_job(job, *, model_status='unavailable', reader=None, fetcher=None, n
     Çağrının kendi kaynak sınırları (timeout, bütçe, iptal) geçerlidir; hiçbir model istenmez.
     """
     result = run(str(job.get('request') or ''), owner=job.get('owner'), reader=reader, fetcher=fetcher,
-                 now=now, model_status=model_status)
+                 now=now, model_status=model_status, max_sources=BROAD_MAX_SOURCES)
     _record(job, result)
     return result
 
