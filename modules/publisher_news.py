@@ -30,11 +30,33 @@ GENERAL_SOURCES=(
 )
 
 
+def _ai_request(request):
+    return bool(re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|makine\s+öğren|makine\s+ogren|machine\s+learning',str(request or ''),re.I))
+
+
+def _ai_rows():
+    """İlk dört genel katalog değişmez; konu kaynakları ilk sekiz tarama bütçesine girer."""
+    baseline=list(GENERAL_SOURCES[:4])
+    preferred_names=('DonanımHaber','Webtekno','TÜBİTAK','Yıldız Teknik Üniversitesi','Boğaziçi Üniversitesi')
+    combined=list(GENERAL_SOURCES)+list(SOURCES)
+    by_name={row['name']:row for row in combined}
+    rows=baseline+[by_name[name] for name in preferred_names if name in by_name]
+    seen={row['url'] for row in rows}
+    rows.extend(row for row in combined if row['url'] not in seen)
+    return rows
+
+
 def sources_for(request=None):
     """Configured discovery indexes, not live-health or article evidence claims."""
     institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
-    rows=SOURCES if institutional else GENERAL_SOURCES
-    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if institutional else 'Genel ve konu odaklı haber keşfi'),
+    if institutional:
+        rows=list(SOURCES)
+    elif _ai_request(request):
+        rows=_ai_rows()
+    else:
+        rows=list(GENERAL_SOURCES)
+    institutional_urls={row['url'] for row in SOURCES}
+    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if row['url'] in institutional_urls else 'Genel ve konu odaklı haber keşfi'),
                  live_connection_tested=False) for row in rows]
 
 
