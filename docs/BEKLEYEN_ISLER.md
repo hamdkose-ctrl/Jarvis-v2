@@ -1,9 +1,10 @@
 ## Model-bağımsız haber hattı — 28 Ekim 2026
 
 - `modules/news_pipeline.py` eklendi: kota/429 sırası tarihli haber isteğini artık durdurmaz, haber işi modelsiz açılır ve kayıtlı kanıtlarla teslim edilir; `news_status` ile `model_synthesis_status` ayrıldı, model yokluğu haber sonucunu ezmez. Davranış sözleşmesi `docs/agents/haber.md` içinde.
-- Bekleyen kabul (canlı PC, Hamdi): üç sağlayıcı da kapalıyken (`Gemini 429 + Groq 429 + Ollama erişilemez`) Jarvis'in son 7 gün gerçek haberlerini kaynak/tarih/link/kanıtla teslim etmesi ve sohbetin yalnız model sentezinin kullanılamadığını açıkça söylemesi. Testler taşıyıcı taklitleriyle çalışır; gerçek ağ, gerçek kota ve gerçek arayüz kabulü henüz yapılmadı.
-- Açık mimari karar: `news_pipeline.discover` paralel keşfi uyguladı ve test edildi; `news_recovery._chat_deliver` sıralı tohum döngüsü ile `publisher_news.catalog_attempted`/`require_catalog` sayımı korundu. Paralel keşfin o döngünün yerine taşınması ayrı karttır (sayım ve iki yayıncı kapısı yeniden tanımlanmadan yapılmaz).
-- `verify_synthesis` (uydurma sayı/alıntı düşürme, güvenli downgrade) ve `attach_job` modeller erişilemezkenki teslimi kilitler; model erişileirkenteki sentez hattına henüz bağlanmadı.
+- Yapılan canlı PC kabulü (28 Ekim 2026): `python -X utf8 -m modules.acceptance_checks --news --skip-suite` → `news_chat_resume: passed`, "2 tarihli makale / 2 yayıncı doğrulandı; devam hedefi değiştirmedi". Koşu gerçek yayıncı ağlarına, yalıtılmış hedef deposuyla ve kota günlüğünde hiçbir model çağrısı bırakmadan tamamlandı; `PermissionError: İşlem için açık kullanıcı bağlamı gerekli` üretilmedi. Düzeltme öncesi aynı kabul `0 makale / 0 yayıncı`, `research.failed:7` ile düşüyordu.
+- Bekleyen kabul (canlı PC, Hamdi): sohbet arayüzünün durum satırının (`news_status` + "model sentezi kullanılamıyor") gerçek ekranda gösterimi ve sağlayıcıların erişilebilir olduğu bir oturumda sentez kalitesi. Testler taşıyıcı taklitleriyle çalışır; gerçek arayüz kabulü henüz yapılmadı.
+- Açık mimari karar: `news_pipeline.discover`/`_verify_many` paralel keşif ve doğrulamayı kalem başına bağlam kopyasıyla uyguladı; `news_recovery._chat_deliver` artık doğrulanmış tekil adresleri adım yapar, fakat sıralı tohum döngüsü ile `publisher_news.catalog_attempted`/`require_catalog` sayımı korunur. Paralel keşfin o sayımın yerine taşınması ayrı karttır (sayım ve iki yayıncı kapısı yeniden tanımlanmadan yapılmaz).
+- `verify_synthesis` (uydurma sayı/alıntı düşürme, güvenli downgrade) ve `attach_job` modeller erişilemezkenki teslimi kilitler; model erişilebilirken çalışan sentez hattına henüz bağlanmadı.
 
 ## 20 Ekim 2026 — uçtan uca kapsam ve güncel sıra
 
