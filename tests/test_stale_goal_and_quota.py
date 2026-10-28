@@ -29,7 +29,7 @@ class _Base(unittest.TestCase):
 
     def job(self, state, age_hours, **extra):
         stamp = time.time() - age_hours * HOUR
-        job = {'id': '0123456789abcdef', 'owner': 'alice', 'request': 'bugünün haberleri', 'created': stamp, 'updated': stamp,
+        job = {'id': '0123456789abcdef', 'owner': 'alice', 'request': 'günlük notumu düzenle', 'created': stamp, 'updated': stamp,
                'state': state, 'goals': [], 'steps': [], 'outputs': {}, **extra}
         # _save damgayı yenilediği için dosyayı doğrudan yazarız.
         root = goals._root('alice')

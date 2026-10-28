@@ -263,14 +263,20 @@ def run(owner, task, dependencies):
                 else:
                     try:
                         ctext=research_providers.extract_source(cu)['text']
-                    except Exception:
+                    except Exception as exc:
+                        from modules import requests_state
+                        if isinstance(exc,(requests_state.Cancelled,PermissionError)):
+                            raise
                         _record_failure('modules/task_workers.py:research_claim_extract')
                         continue
                 if not isinstance(ctext,str) or len(ctext)<80:
                     continue
                 try:
                     raw_claim=model_wait.ask('Soru: '+focus+'\nOLGU İDDİASI KAYNAĞI ('+cu+'):\n'+ctext,system=CLAIM_SYSTEM)
-                except Exception:
+                except Exception as exc:
+                    from modules import requests_state
+                    if isinstance(exc,(requests_state.Cancelled,PermissionError)):
+                        raise
                     _record_failure('modules/task_workers.py:research_claim_model')
                     continue
                 claim=research_evidence.parse_value_quote(raw_claim,ctext)

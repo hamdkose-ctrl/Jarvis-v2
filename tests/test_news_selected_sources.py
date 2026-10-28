@@ -21,6 +21,9 @@ class SelectedNewsSourcesTests(unittest.TestCase):
         by_name = {row['name']: row for row in rows}
         for name, url in SELECTED.items():
             with self.subTest(name=name):
+                if name=='KAP':
+                    self.assertNotIn(name,by_name)
+                    continue
                 self.assertIn(name, by_name)
                 self.assertEqual(by_name[name]['url'], url)
                 self.assertFalse(by_name[name]['live_connection_tested'])
@@ -38,7 +41,7 @@ class SelectedNewsSourcesTests(unittest.TestCase):
 
     def test_english_only_candidates_and_dpu_are_not_registered(self):
         urls = {row['url'] for row in publisher_news.sources_for('son dakika haberleri')}
-        self.assertTrue(set(SELECTED.values()).issubset(urls))
+        self.assertTrue((set(SELECTED.values())-{'https://www.kap.org.tr/tr/'}).issubset(urls))
         for host in ('reuters.com', 'apnews.com', 'techcrunch.com', 'haber.dpu.edu.tr'):
             self.assertFalse(any(host in url for url in urls), host)
         self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),

@@ -59,7 +59,7 @@ def quotes(article,request):
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
     if re.search(r'türkiye|turkiye|turkey',wanted_scope) and not re.search(
             r'türkiye|turkiye|turkey|turkish|türk|turk|istanbul|ankara|izmir|izmir',haystack):
-        raise ValueError('Tekil haber istenen Türkiye kapsamını kanıtlamıyor.')
+        raise ValueError('Tekil haber istenen konu/Türkiye kapsamını kanıtlamıyor.')
     if not _ai_scope_ok(article,request):
         raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
     text=re.sub(r'\s+',' ',article['text']).strip()

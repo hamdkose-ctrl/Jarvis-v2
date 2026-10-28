@@ -98,9 +98,9 @@ def extract_source(url: str, *, fetcher=None) -> dict:
     if fetcher is None:
         fetcher = public_sources.fetch
     response = fetcher(request["url"])
-    if not isinstance(response, dict) or response.get("url") != request["url"] or not isinstance(response.get("body"), bytes):
+    if not isinstance(response, dict) or not isinstance(response.get("url"),str) or not isinstance(response.get("body"), bytes):
         raise ValueError("Kaynak okuyucu geçerli yanıt üretmedi.")
-    return {"url": request["url"], "text": public_sources.text(response["body"]), "content_type": response.get("content_type", "")}
+    return {"url": public_sources.address(response["url"]), "text": public_sources.text(response["body"]), "content_type": response.get("content_type", "")}
 
 
 def normalize_results(provider: str, payload: dict, *, limit: int = 10) -> list[dict]:

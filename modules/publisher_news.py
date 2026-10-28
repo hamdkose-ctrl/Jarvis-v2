@@ -52,7 +52,7 @@ def sources_for(request=None):
     rows=_ai_rows() if _ai_request(request) else list(GENERAL_SOURCES)
     # Corporate disclosures and historical/agency presentation pages are not
     # general-news feeds. Explicit user requests can still select their URLs.
-    if not re.search(r'kap|şirket açıklama|sirket aciklama',str(request or ''),re.I):
+    if not re.search(r'kap|şirket|sirket',str(request or ''),re.I):
         rows=[row for row in rows if row['name']!='KAP']
     if not re.search(r'tha|türk haberler ajansı',str(request or ''),re.I):
         rows=[row for row in rows if row['name']!='Türk Haberler Ajansı']
