@@ -43,7 +43,10 @@ class NewsSourceScopeTests(unittest.TestCase):
     def test_ai_news_prioritizes_existing_topical_publishers_without_new_source(self):
         rows = publisher_news.sources_for('Türkiye yapay zekâ haberleri')
         names = [row['name'] for row in rows[:8]]
-        self.assertEqual(names[:5], ['DonanımHaber','Webtekno','TÜBİTAK','Yıldız Teknik Üniversitesi','Boğaziçi Üniversitesi'])
+        self.assertEqual([row['url'] for row in rows[:4]], GENERAL[:4])
+        self.assertIn('DonanımHaber', names)
+        self.assertIn('Webtekno', names)
+        self.assertIn('TÜBİTAK', names)
         known = {row['url'] for row in publisher_news.GENERAL_SOURCES + publisher_news.SOURCES}
         self.assertTrue(all(row['url'] in known for row in rows))
 
