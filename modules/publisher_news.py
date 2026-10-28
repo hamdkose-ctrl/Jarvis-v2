@@ -30,9 +30,11 @@ GENERAL_SOURCES=(
 )
 
 
-def _ai_request(request):
+def _ai_research_request(request):
     text=str(request or '')
-    return bool(re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|makine\s+öğren|makine\s+ogren|machine\s+learning',text,re.I))
+    topic=bool(re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|makine\s+öğren|makine\s+ogren|machine\s+learning',text,re.I))
+    research=bool(re.search(r'araştır|arastir|gelişmelerini|gelismelerini',text,re.I))
+    return topic and research
 
 
 def _ai_order():
@@ -51,7 +53,7 @@ def sources_for(request=None):
     institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
     if institutional:
         rows=list(SOURCES)
-    elif _ai_request(request):
+    elif _ai_research_request(request):
         rows=_ai_order()
     else:
         rows=list(GENERAL_SOURCES)
