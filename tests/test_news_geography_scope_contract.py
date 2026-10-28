@@ -1,4 +1,6 @@
 import unittest
+from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 
 from modules import model_free_news
 
@@ -40,17 +42,18 @@ class NewsGeographyScopeContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Almanya'):
             model_free_news.quotes(article, 'Almanya otomotiv sektöründeki son gelişmeleri araştır')
 
-    def test_recovery_can_preserve_selected_evidence_without_geography_recheck(self):
+    def test_recovery_revalidates_geography_without_fetch_or_model(self):
         article = {
+            'url': 'https://example.org/research',
+            'published': datetime.now(timezone(timedelta(hours=3))).date().isoformat(),
             'title': 'Yapay zekâ araştırmasında yeni model açıklandı',
-            'text': 'Yeni yapay zekâ modeli araştırmacılar tarafından bu hafta yayımlandı.',
+            'text': 'Yeni yapay zekâ modeli araştırmacılar tarafından bu hafta yayımlandı. Modelin değerlendirme sonuçları ve araştırma yöntemi kamuoyuyla paylaşıldı.',
         }
-        quotes = model_free_news.quotes(
-            article,
-            'Türkiye yapay zekâ gelişmeleri',
-            enforce_geography=False,
-        )
-        self.assertTrue(quotes)
+        with patch('modules.privacy.blocked', return_value=None), \
+             patch('modules.public_sources.fetch', side_effect=AssertionError('receipt fetched again')), \
+             patch('modules.model_wait.ask', side_effect=AssertionError('receipt consumed quota')), \
+             self.assertRaisesRegex(ValueError, 'Türkiye'):
+            model_free_news.receipt(article, 'Türkiye yapay zekâ gelişmeleri')
 
 
 if __name__ == '__main__':
