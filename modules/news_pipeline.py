@@ -27,7 +27,8 @@ independent = research_providers.independent_candidates
 CACHE_SECONDS = 600
 DEFAULT_WINDOW = 7
 MAX_WINDOW = 90
-# The publisher catalog is a broad discovery pool, not a completion whitelist.\nMAX_SOURCES = 20
+# The publisher catalog is a broad discovery pool, not a completion whitelist.
+MAX_SOURCES = 20
 MAX_ITEMS_PER_SOURCE = 12
 MAX_WORKERS = 4
 MIN_VERIFIED = 2
