@@ -229,7 +229,7 @@ Bu fazın tüm araçları parolayla korunan geliştirici menüsünün arkasında
 
 - Yalıtılmış çalıştırma ortamı eklenecek: görev ve worker başına ayrı alan, kaynak ve süreç sınırı, ağ çıkışı denetimi, yetki düşürme, temizlik. Önce yerel yalıtım. Şu an yalnız adayı yalıtılmış kopyada derleyip test etme var.
 - Gerçek anahtarı sandbox'tan gizleyen kimlik bilgisi vekili ve opak belirteç eklenecek. Şu an yok.
-- Docker, SSH ve Singularity arka uçları, riskli betiği gerçek PC'den ayırma ve sandbox sağlık kontrolü eklenecek, yalnız kendi makinelerinize. Şu an yok.
+- Docker, SSH ve Singularity arka uçları, riskli betiği gerçek PC'den ayırma ve sandbox sağlık kontrolü eklenecek. Şu an yok.
 - Tehlikeli komut tespiti ve yıkıcı komut onayı tüm çalıştırma yollarında ortak olacak; gözetimsiz modda her şey reddedilecek. Şu an onaylı program çalıştırma ve yıkıcı eylem sınıfı yalnız araç tarafında var.
 - Skill sistemi eklenecek: oluştur, listele, göster, kur, güncelle, sil; yalnız gerektiğinde bağlama yükleme; betik ve şablon dosyaları; agentskills uyumu. Şu an hiç yok. Önce salt okuma pilotu.
 - Skill güvenliği eklenecek: sürüm sabitleme, kaynak kaydı, onay ve fark gösterimi, prompt-injection, veri sızdırma, yıkıcı komut ve tedarik zinciri taraması, işletim sistemi uyumu.
