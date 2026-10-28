@@ -156,3 +156,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PR #439 konu keşfi: query puanlaması public_sources.entries içinde 50-link kesiminden önce yapılır; domain_tools ikinci/sonradan sıralama otoritesi taşımaz. Generic haber isteği HTML makale önceliğini korur. Pipeline kaydı en fazla 12 redakte URL/ret çifti ve ayrı anahtarsız keşif durumunu saklar; tanı alanları başarı veya ek retry yetkisi değildir.
 
 - PR #439 gerçek sayfa teşhisi: farklı SEO/H1 başlığı olan NewsArticle ancak açık URL kimliği + tek eşleşen canonical + DOM'da gerçek articleBody çıpası ile bağlanır. mainEntityOfPage nesnesindeki url/@id tanınır; çelişkili/yabancı referans reddedilir. meta name=datePublished yayın tarihi kabul edilir; dateModified yayın yerine geçmez. Tam sayfa HTML/izleme verileri depoya alınmaz.
+
+
+- PR #439 yayıncı taraması takip düzeltmesi: URL kontrol karakterleri reddedildikten sonra yalnız çevre ASCII boşlukları temizlenir. Galeri/dizin yolları ilk adaylardan geriye sıralanır; konu skoru ve bilinmeyen yollar korunur. HTTP şema kimliği yalnız HTTPS nihai yanıt adresiyle host/standart port/path/query eşitliğinde metadata olarak karşılaştırılır, HTTP indirilmez. Geçerli çelişkili canonical reddedilir; farklı başlık için eski canonical+gövde çıpası şartı sürer. Kota/model/okuma bütçesi artırılmaz.

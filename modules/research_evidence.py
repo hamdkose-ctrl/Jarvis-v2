@@ -71,7 +71,18 @@ def article(response):
                 refs.extend(value[key] for key in ('@id','url') if value.get(key))
             elif value:refs.append(value)
         try:
-            bound=bool(refs) and all(public_sources.address(value)==url for value in refs)
+            def same_page(value):
+                # HTTP identifiers are compared as metadata; never fetched.
+                canonicals=soup.select('link[rel="canonical"]')
+                for canonical in canonicals:
+                    target=canonical.get('href','')
+                    if isinstance(target,str) and target.startswith(('http://','https://')):
+                        target='https://'+target.split('://',1)[1]
+                        if public_sources.address(target)!=url:return False
+                if isinstance(value,str) and value.startswith('http://'):
+                    value='https://'+value[len('http://'):]
+                return public_sources.address(value)==url
+            bound=bool(refs) and all(same_page(value) for value in refs)
         except (ValueError,TypeError):
             return False
         if refs and not bound:return False
@@ -362,5 +373,6 @@ def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1)
     return {'status':'unresolved_conflict','verdict':verdict,
             'text':('\n\n## Kaynak çelişkisi çözülmedi\n\nKaynaklar aynı olgu için çelişiyor; ek doğrulama sonucu '
                     'kesinleşmedi. Jarvis tek tarafı nihai gerçek olarak seçmedi; bu nokta belirsizdir.')}
+
 
 
