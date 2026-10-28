@@ -32,6 +32,18 @@ def terms(value):
     return result
 
 
+def _ai_scope_ok(article, request):
+    """If AI is an explicit requested subject, the article itself must contain AI evidence."""
+    wanted=_fold(request)
+    ai_requested=(re.search(r'\byapay\s+zek',wanted) is not None or
+                  'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
+    if not ai_requested:
+        return True
+    haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
+    return bool(re.search(r'\byapay\s+zek',haystack) or 'artificial intelligence' in haystack or
+                re.search(r'\bai\b',haystack))
+
+
 def _sentences(text):
     text=re.sub(r'\s+',' ',str(text)).strip()
     rows=[]
@@ -43,6 +55,8 @@ def _sentences(text):
 
 def quotes(article,request):
     """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
+    if not _ai_scope_ok(article,request):
+        raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
     text=re.sub(r'\s+',' ',article['text']).strip()
     title=re.sub(r'\s+',' ',article['title']).strip()
     if text.startswith(title):text=text[len(title):].lstrip(' :-–—')
