@@ -105,7 +105,11 @@ def deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         outcome=_chat_deliver(runtime,job,max_new_steps=max_new_steps,existing_only=existing_only)
         # Modelsiz teslimin durumu işin kendi mühürlü kanıtından yazılır; yeni ağ çağrısı yapılmaz.
         from modules import news_pipeline
-        news_pipeline.attach_job(job,model_status='unavailable')
+        # deliver_job already wrote the canonical discovery/verification receipt.
+        # Do not overwrite that live source-health evidence with an empty
+        # output-only summary when the pipeline found no durable article yet.
+        if not isinstance(job.get('news_pipeline'),dict):
+            news_pipeline.attach_job(job,model_status='unavailable')
         return outcome
     previous_report=None
     previous_id=job.get('partial_report') or job.get('resume_partial_report')
