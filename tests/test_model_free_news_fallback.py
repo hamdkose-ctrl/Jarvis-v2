@@ -52,43 +52,39 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
         self.assertIs(result,expected)
         direct.assert_called_once_with('hamdi',step['input'],job['request'],source_only=False)
 
-    def test_chat_recovery_uses_failed_directory_as_headlines_and_finishes_with_two_articles(self):
+    def test_chat_recovery_seals_only_pipeline_verified_articles(self):
         runtime=SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))
         job={
             'id':'a'*16,'owner':'hamdi','request':'istanbul güncel haberler nelerdir','state':'running',
             'goals':[{'text':'İstanbul güncel haberlerini araştır','state':'pending','evidence':[]}],
-            'steps':[{'id':'s1','goal':0,'tool':'research','input':{'url':'https://news.example.org/haberler','question':'güncel'},
-                      'depends':[],'signature':'old','state':'failed','started':True}],
-            'outputs':{'s1':{'state':'failed','text':'Tekil haber gövdesi doğrulanamadı.'}},
+            'steps':[],'outputs':{},
         }
         today=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
-        def sealed(url,text):
-            article={'url':url,'title':'İstanbul haberi','published':today,'text':text}
-            return task_results.seal('research',{'state':'done','text':text,'source':url,'source_chars':len(text),
-                'source_quotes':[text],'source_only':True,'news_article':article})
+        rows=[
+            {'news_article':{'url':'https://news.example.org/a','title':'İstanbul yağış haberi',
+                             'published':today,'text':'İstanbul genelinde doğrulanmış güncel gelişme açıklandı.'}},
+            {'news_article':{'url':'https://other.example.net/b','title':'İstanbul ulaşım haberi',
+                             'published':today,'text':'İstanbul ulaşımında doğrulanmış güncel değişiklik duyuruldu.'}},
+        ]
         def record(_runtime,current,step,approval=None):
-            if step['tool']=='data':
-                current['outputs'][step['id']]={'state':'done','text':'başlıklar','owner':'hamdi','local_evidence':'data',
-                    'structured':{'items':[{'url':'https://news.example.org/a','title':'İstanbul yağış haberi','summary':''},
-                                           {'url':'https://other.example.net/b','title':'İstanbul ulaşım haberi','summary':''}]}}
-            else:
-                url=step['input']['url']
-                text=('İstanbul genelinde güncel gelişme hakkında doğrulanmış açıklama yayımlandı ve ilgili kurum ayrıntıların gün içinde yeniden paylaşılacağını bildirdi.' if url.endswith('/a') else
-                      'İstanbul ulaşımında güncel değişiklikler resmi kaynak tarafından duyuruldu ve yolcuların sefer saatlerini çıkmadan önce kontrol etmesi istendi.')
-                current['outputs'][step['id']]=sealed(url,text)
+            article=next(row['news_article'] for row in rows if row['news_article']['url']==step['input']['url'])
+            text=article['text']
+            current['outputs'][step['id']]=task_results.seal('research',{'state':'done','text':text,'source':article['url'],
+                'source_chars':len(text),'source_quotes':[text],'source_only':True,'news_article':article})
             step['state']='done';step['started']=True
             return current['outputs'][step['id']]
-        with patch('modules.goal_executor._ensure',return_value=None), \
+        with patch('modules.news_pipeline.deliver_job',return_value={'verified':rows}) as pipeline, \
+             patch('modules.goal_executor._ensure',return_value=None), \
              patch('modules.goal_executor._save',return_value=None), \
              patch('modules.goal_executor._record',side_effect=record):
             news_recovery.deliver(runtime,job,max_new_steps=8)
+        pipeline.assert_called_once()
         self.assertEqual(job['goals'][0]['state'],'done')
         self.assertEqual(len(job['goals'][0]['evidence']),2)
         recovery=[s for s in job['steps'] if s.get('recovery')]
-        self.assertTrue(any(s['tool']=='data' for s in recovery))
+        self.assertFalse(any(s['tool']=='data' for s in recovery))
         self.assertEqual(sum(s['tool']=='research' for s in recovery),2)
-        self.assertFalse(any(s['tool']=='writer' for s in recovery))
-        self.assertTrue(all(s.get('source_only') is True for s in recovery if s['tool']=='research'))
+        self.assertTrue(all(s.get('source_only') is True for s in recovery))
 
 
 if __name__=='__main__':
