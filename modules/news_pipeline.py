@@ -85,12 +85,13 @@ def catalog(request=None) -> list[dict]:
     return publisher_news.sources_for(request)
 
 
-def headline_reader(owner):
+def headline_reader(owner, query=None):
     """The existing single-index read, as a per-source callable for the pipeline."""
     from modules import domain_tools
 
     def read(url):
-        return domain_tools.headlines(owner, url)['items']
+        kwargs = {'query': query[:300]} if query else {}
+        return domain_tools.headlines(owner, url, **kwargs)['items']
 
     return read
 
@@ -253,7 +254,7 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
     Results honour the bounded cache. A source that fails entirely is never cached, so an offline
     moment is not remembered as "no news".
     """
-    reader = reader or headline_reader(owner)
+    reader = reader or headline_reader(owner, query)
     rows = list(sources or catalog(query))[:max_sources]
     today = now or _today()
     results: dict[str, tuple[list[dict], dict]] = {}
@@ -313,7 +314,8 @@ def _today():
 def in_window(row, days, today) -> bool:
     if not row.get('published_at'):
         return False
-    return (today - date.fromisoformat(row['published_at'])).days <= days
+    age = (today - date.fromisoformat(row['published_at'])).days
+    return 0 <= age <= days
 
 
 def verify(row, *, request, fetcher, today, days) -> dict:
@@ -542,7 +544,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         max_sources=MAX_SOURCES) -> dict:
     """Model-free vertical: discover → filter → cluster → verify → deterministic report."""
     today = now or _today()
-    window = DEFAULT_WINDOW if days is None else max(1, min(MAX_WINDOW, int(days)))
+    window = window_days(request) if days is None else max(1, min(MAX_WINDOW, int(days)))
     reused = [dict(row) for row in (reuse or [])]
     health: list[dict] = [dict(row) for row in (source_health or [])]
     candidates: list[dict] = []
