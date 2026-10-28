@@ -439,8 +439,7 @@ def _loop_steps(runtime,job,answer=None,resume=False):
         from modules import research_evidence,model_free_news
         if (not job['goals'] and not job['steps'] and
                 research_evidence.news_requested(job['request']) and
-                not research_evidence.file_requested(job['request']) and
-                not model_free_news.terms(job['request'])):
+                not re.search(r'\b(?:mail|e-posta|eposta|takvim|hatırlat|hatirlat|gönder|gonder|paylaş|paylas)\w*',job['request'],re.I)):
             job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
             _save(job)
             from modules import news_recovery

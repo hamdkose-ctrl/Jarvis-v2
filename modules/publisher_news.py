@@ -10,7 +10,7 @@ GENERAL_SOURCES=(
     {'name':'Investing.com Türkçe','url':'https://tr.investing.com/news/'},
     {'name':'Anadolu Ajansı','url':'https://www.aa.com.tr/tr/gundem'},
     {'name':'BBC Türkçe','url':'https://www.bbc.com/turkce'},
-    {'name':'İhlas Haber Ajansı','url':'https://www.ihlashaberajansi.com.tr/'},
+    {'name':'İhlas Haber Ajansı','url':'https://www.iha.com.tr/'},
     {'name':'Demirören Haber Ajansı','url':'https://www.dha.com.tr/'},
     {'name':'ANKA Haber Ajansı','url':'https://ankahaber.net/'},
     {'name':'Türk Haberler Ajansı','url':'https://tha.istanbul/'},
@@ -50,6 +50,12 @@ def _ai_rows():
 def sources_for(request=None):
     """Configured news indexes only; official/statistical primary evidence is not a news feed."""
     rows=_ai_rows() if _ai_request(request) else list(GENERAL_SOURCES)
+    # Corporate disclosures and historical/agency presentation pages are not
+    # general-news feeds. Explicit user requests can still select their URLs.
+    if not re.search(r'kap|şirket açıklama|sirket aciklama',str(request or ''),re.I):
+        rows=[row for row in rows if row['name']!='KAP']
+    if not re.search(r'tha|türk haberler ajansı',str(request or ''),re.I):
+        rows=[row for row in rows if row['name']!='Türk Haberler Ajansı']
     return [dict(row,scope=row.get('scope','Genel ve konu odaklı haber keşfi'),
                  live_connection_tested=False) for row in rows]
 

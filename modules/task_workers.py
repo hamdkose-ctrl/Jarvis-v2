@@ -214,14 +214,28 @@ def run(owner, task, dependencies):
             candidates = research_providers.search_public(data['query'])
             if not candidates:
                 raise ValueError('Araştırma sorgusu için güvenilir açık kaynak bulunamadı.')
-            url = _url(candidates[0]['url'])
+            failures=[]
+            for candidate in candidates:
+                try:
+                    url=_url(candidate['url'])
+                    initial_source=research_providers.extract_source(url)
+                    if len(initial_source.get('text',''))<80:
+                        raise ValueError('Sayfada yeterli metin bulunamadı.')
+                    break
+                except Exception as exc:
+                    from modules import requests_state
+                    if isinstance(exc,(requests_state.Cancelled,PermissionError)):
+                        raise
+                    failures.append(type(exc).__name__)
+            else:
+                raise ValueError('Arama adaylarının hiçbirinden okunabilir kaynak alınamadı.')
         article=None
         if news:
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
             research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
         else:
-            source = research_providers.extract_source(url)
+            source = initial_source if candidates else research_providers.extract_source(url)
             url = source['url']
             text = source['text']
         if len(text)<80: raise ValueError('Sayfada yeterli metin bulunamadı.')
@@ -262,7 +276,7 @@ def run(owner, task, dependencies):
                 claim=research_evidence.parse_value_quote(raw_claim,ctext)
                 if not claim:
                     continue
-                source_claims.append({'subject':focus,'scope':'','as_of':'','value':claim['value'],'url':cu,'evidence':claim['quote']})
+                source_claims.append({'subject':focus,'scope':focus,'as_of':today,'value':claim['value'],'url':cu,'evidence':claim['quote']})
         return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {}),**({'source_claims':source_claims} if source_claims else {})}
     if kind=='browser': return browser_task(owner,data)
     if kind=='coder':

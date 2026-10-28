@@ -30,7 +30,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (21 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
-- `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
+- `docs/agents/haber.md`: Haber araştırması ve kaynaklar (19 bölüm)
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (18 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
@@ -144,3 +144,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Dosya istemeyen haber hedefinde yanlış writer seçimi yazma başlamadan sohbet teslimine yönlendirilir; yeterli kanıtla tamamlanır, eksik kanıt kısmi gösterilir. Gerçek dosya istekleri ve diğer iş türleri korunur. Mevcut haberlerle modelsiz toparlanan hedef yeniden planlayıcı beklemez.
 
 - 28 Ekim 2026 haber keşfi: HTML bağlantıları bulunsa da sayfanın açıkça ilan ettiği aynı-host RSS/Atom önce denenir (en çok mevcut iki feed); hata/boş sonuçta HTML korunur. HTML haber kartı/başlık bağlantıları gezinme bağlantılarından önce sıralanır; bilinmeyen adresler atılmaz. Tekil makale/tarih/konu/iki yayıncı kanıtı ayrıca zorunludur. Dört taşıyıcı-taklitli regresyon eklendi; canlı kabul bekliyor.
+
+- Haber/araştırma kapanışı: haber isteklerinde konu ve açık kaynak kapsamı/tarih pipeline'a taşınır; sohbet ve dosya teslimi aynı doğrulanmış snapshot'tan normal execution gate üzerinden ilerler. Tekil makale tekrar indirilmez; haber hattı model kotası tüketmez. Genel araştırma değer-alıntı eşleşmesi ve farklı yayıncı kontrolü kullanır. Yeni testler ve Windows/PC sonucu exact commit için ayrıca doğrulanır.
