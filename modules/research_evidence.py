@@ -65,9 +65,29 @@ def article(response):
         raise ValueError('Tekil haber gövdesi ve başlığı doğrulanamadı; dizinden gerçek haber bağlantısını seç.')
     title=titles[0].get_text(' ',strip=True)
     def matching_schema(schema):
-        page=schema.get('url') or schema.get('mainEntityOfPage')
-        if isinstance(page,dict):page=page.get('@id')
-        return schema.get('headline')==title and (not page or page.rstrip('/')==url.rstrip('/'))
+        refs=[]
+        for value in (schema.get('url'),schema.get('mainEntityOfPage')):
+            if isinstance(value,dict):
+                refs.extend(value[key] for key in ('@id','url') if value.get(key))
+            elif value:refs.append(value)
+        try:
+            bound=bool(refs) and all(public_sources.address(value)==url for value in refs)
+        except (ValueError,TypeError):
+            return False
+        if refs and not bound:return False
+        if schema.get('headline')==title:return True
+        # SEO and visible titles may differ. Accept only with independent page
+        # identity AND a literal article-body anchor in the actual DOM.
+        canonical_nodes=soup.select('link[rel="canonical"]')
+        if not bound or len(canonical_nodes)!=1 or not isinstance(schema.get('headline'),str):
+            return False
+        try:
+            if public_sources.address(canonical_nodes[0].get('href',''))!=url:return False
+        except (ValueError,TypeError):return False
+        from html import unescape
+        body=re.sub(r'\s+',' ',unescape(str(schema.get('articleBody') or ''))).strip()
+        return len(body)>=80 and body[:80] in public_sources.readable_text(node)
+
     schemas=[s for s in schemas if matching_schema(s)]
     # TÜBİTAK's single-news template renders the page title as a sibling block.
     # Bind only that exact publisher layout and canonical URL, not arbitrary lists.
@@ -111,7 +131,7 @@ def article(response):
                     (element is scope or scope in element.parents) and not element.find_parent('aside') and
                     element.find_parent('article') in (None,scope))
     for meta in soup.find_all('meta'):
-        if belongs(meta) and (meta.get('property')=='article:published_time' or meta.get('itemprop')=='datePublished'):dates.append(meta.get('content',''))
+        if belongs(meta) and (meta.get('property')=='article:published_time' or meta.get('itemprop')=='datePublished' or meta.get('name')=='datePublished'):dates.append(meta.get('content',''))
     if not dates:
         dates=[n.get('datetime','') for n in scope.find_all('time') if belongs(n) and (n.get('itemprop')=='datePublished' or re.search(r'publish|posted', ' '.join(n.get('class',[])),re.I))]
     days=set()
