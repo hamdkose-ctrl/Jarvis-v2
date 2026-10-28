@@ -32,12 +32,15 @@ def terms(value):
     return result
 
 
+def _ai_requested(request):
+    wanted=_fold(request)
+    return (re.search(r'\byapay\s+zek',wanted) is not None or
+            'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
+
+
 def _ai_scope_ok(article, request):
     """If AI is an explicit requested subject, the article itself must contain AI evidence."""
-    wanted=_fold(request)
-    ai_requested=(re.search(r'\byapay\s+zek',wanted) is not None or
-                  'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
-    if not ai_requested:
+    if not _ai_requested(request):
         return True
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
     return bool(re.search(r'\byapay\s+zek',haystack) or 'artificial intelligence' in haystack or
@@ -45,9 +48,9 @@ def _ai_scope_ok(article, request):
 
 
 def _turkiye_scope_ok(article, request):
-    """If Türkiye is explicitly requested, the article itself must contain Türkiye evidence."""
+    """For explicit Türkiye+AI requests, require Türkiye evidence in the article itself."""
     wanted=_fold(request)
-    if not re.search(r'\b(?:türkiye|turkiye|turkey)\b', wanted):
+    if not _ai_requested(request) or not re.search(r'\b(?:türkiye|turkiye|turkey)\b', wanted):
         return True
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
     return bool(re.search(
@@ -67,10 +70,10 @@ def _sentences(text):
 
 def quotes(article,request):
     """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
-    if not _turkiye_scope_ok(article,request):
-        raise ValueError('Tekil haber istenen Türkiye kapsamını kanıtlamıyor.')
     if not _ai_scope_ok(article,request):
         raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
+    if not _turkiye_scope_ok(article,request):
+        raise ValueError('Tekil haber istenen Türkiye kapsamını kanıtlamıyor.')
     text=re.sub(r'\s+',' ',article['text']).strip()
     title=re.sub(r'\s+',' ',article['title']).strip()
     if text.startswith(title):text=text[len(title):].lstrip(' :-–—')
