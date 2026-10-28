@@ -35,10 +35,10 @@ def _ai_request(request):
 
 
 def _ai_rows():
-    """İlk dört genel katalog değişmez; konu kaynakları ilk sekiz tarama bütçesine girer."""
+    """Genel haber tabanı korunur; yalnız gerçek AI/teknoloji yayıncıları okuma bütçesine öne alınır."""
     baseline=list(GENERAL_SOURCES[:4])
-    preferred_names=('DonanımHaber','Webtekno','TÜBİTAK','Yıldız Teknik Üniversitesi','Boğaziçi Üniversitesi')
-    combined=list(GENERAL_SOURCES)+list(SOURCES)
+    preferred_names=('DonanımHaber','Webtekno')
+    combined=list(GENERAL_SOURCES)
     by_name={row['name']:row for row in combined}
     rows=baseline+[by_name[name] for name in preferred_names if name in by_name]
     seen={row['url'] for row in rows}
