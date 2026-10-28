@@ -13,6 +13,11 @@ GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
            'https://www.bloomberght.com/', 'https://www.ekonomim.com/',
            'https://www.kap.org.tr/tr/', 'https://www.donanimhaber.com/',
            'https://www.webtekno.com/', 'https://www.trthaber.com/']
+REMOVED_INSTITUTIONAL = {
+    'https://www.yildiz.edu.tr/medya/haberler',
+    'https://tubitak.gov.tr/tr/haberler',
+    'https://haberler.bogazici.edu.tr/',
+}
 
 
 class NewsSourceScopeTests(unittest.TestCase):
@@ -26,13 +31,13 @@ class NewsSourceScopeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     publisher_news.candidate_url(url+'uydurulmus-haber','son dakika haberleri',{})
 
-    def test_dpu_is_not_a_configured_or_automatically_allowed_source(self):
-        removed = 'https://haber.dpu.edu.tr/'
-        self.assertNotIn(removed, [r['url'] for r in publisher_news.sources_for('Üniversitelerin haberleri')])
-        self.assertNotIn(removed, publisher_news.recovery_indexes('Üniversitelerin haberleri', []))
-        with self.assertRaises(ValueError):
-            publisher_news.candidate_url(removed, 'Üniversitelerin haberleri', {})
-        self.assertEqual(publisher_news.candidate_url(removed, 'Bu adresi oku: '+removed, {}), removed)
+    def test_old_institutional_feeds_are_not_news_catalog_sources(self):
+        for request in ('Üniversitelerin haberleri', 'Türkiye yapay zekâ haberleri', 'son dakika haberleri'):
+            urls = {r['url'] for r in publisher_news.sources_for(request)}
+            self.assertTrue(REMOVED_INSTITUTIONAL.isdisjoint(urls))
+        for url in REMOVED_INSTITUTIONAL:
+            with self.assertRaises(ValueError):
+                publisher_news.candidate_url(url, 'Türkiye yapay zekâ haberleri', {})
 
     def test_general_news_uses_general_publishers(self):
         for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır'):
@@ -46,20 +51,11 @@ class NewsSourceScopeTests(unittest.TestCase):
         self.assertEqual([row['url'] for row in rows[:4]], GENERAL[:4])
         self.assertIn('DonanımHaber', names)
         self.assertIn('Webtekno', names)
-        self.assertNotIn('TÜBİTAK', names)
-        self.assertNotIn('Yıldız Teknik Üniversitesi', names)
-        self.assertNotIn('Boğaziçi Üniversitesi', names)
-        known = {row['url'] for row in publisher_news.GENERAL_SOURCES}
-        self.assertTrue(all(row['url'] in known for row in rows))
+        self.assertTrue(all(row['url'] in set(GENERAL) for row in rows))
 
-    def test_institution_scope_and_explicit_urls_are_not_broadened(self):
-        self.assertEqual([r['url'] for r in publisher_news.sources_for('Üniversitelerin araştırma haberleri')], [r['url'] for r in publisher_news.SOURCES])
-        seed = ['https://haberler.bogazici.edu.tr/']
-        self.assertEqual(publisher_news.recovery_indexes('Boğaziçi Üniversitesi haberleri', seed), seed)
-        self.assertEqual(publisher_news.recovery_indexes('Sadece https://example.org/haberler haberleri', ['https://example.org/haberler']), ['https://example.org/haberler'])
-
-    def test_old_institution_seed_does_not_trap_general_news(self):
-        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://tubitak.gov.tr/tr/haberler']), GENERAL[:4])
+    def test_explicit_url_scope_is_not_broadened(self):
+        seed = ['https://example.org/haberler']
+        self.assertEqual(publisher_news.recovery_indexes('Sadece https://example.org/haberler haberleri', seed), seed)
 
     def test_unknown_seed_does_not_displace_general_news_publishers(self):
         self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://example.org/haberler']), GENERAL[:4])
