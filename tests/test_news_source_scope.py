@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit
 from unittest.mock import patch
 import unittest
-from modules import publisher_news, goal_tools, goal_executor as goals
+from modules import publisher_news, goal_tools, goal_executor as goals, news_pipeline
 import test_goal_executor as fixture
 
 GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
@@ -66,6 +66,9 @@ class NewsSourceScopeTests(unittest.TestCase):
 
     def run_recovery(self, *, same_publisher=False, stale=False, fail_first=False):
         case = fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        # Haber hattının 600 sn'lik dizin önbelleği testler arasında sızmaz: her tur kendi sahte
+        # yayıncı cevaplarını okur.
+        news_pipeline.cache_clear();self.addCleanup(news_pipeline.cache_clear)
         day = (datetime.now(timezone(timedelta(hours=3))).date() - timedelta(days=20 if stale else 0)).isoformat()
         case.responses(case.plan('Güncel haberleri araştır'), RuntimeError('Taklit sağlayıcı kullanılamıyor'))
         fetched = []

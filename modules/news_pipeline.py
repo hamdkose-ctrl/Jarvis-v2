@@ -17,7 +17,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from modules import model_free_news, publisher_news, public_sources, research_evidence, research_providers
+from modules import publisher_news, public_sources, research_evidence, research_providers
 from modules.diagnostics import record_failure as _record_failure
 
 # Article reader and independent-host selection are the existing authorities, not re-implementations.
@@ -30,6 +30,9 @@ MAX_WINDOW = 90
 MAX_SOURCES = 8
 MAX_ITEMS_PER_SOURCE = 12
 MAX_WORKERS = 4
+MIN_VERIFIED = 2
+# Page reads are bounded per run: the budget is read count, never a longer timeout.
+MAX_ARTICLE_READS = 36
 
 UNKNOWN = 'bilinmeyen'
 CATEGORIES = ('gündem', 'ekonomi', 'teknoloji', 'bilim', 'dünya', 'sağlık', 'spor', 'kültür/sanat')
@@ -318,6 +321,9 @@ def verify(row, *, request, fetcher, today, days) -> dict:
     without its own publication date is rejected by the article reader instead of being filled in.
     """
     fetcher = fetcher or public_sources.fetch
+    # model_free_news yalnız burada çağrılır: modül üstünde içe aktarmak privacy→config döngüsünü
+    # bu hat üzerinden kırar, çünkü config anahtarı okumak için tam yüklenmiş privacy ister.
+    from modules import model_free_news
     candidate = dict(row)
     try:
         article = article_reader(fetcher(row['url']))
@@ -335,6 +341,66 @@ def verify(row, *, request, fetcher, today, days) -> dict:
                     published_at=article['published'], date_status='present',
                     other_sources=list(candidate.get('other_sources') or []))
     return candidate
+
+
+def _read_plan(candidates, limit) -> list[dict]:
+    """Host-diverse, bounded page-read order: publishers take turns, so one index cannot eat the budget.
+
+    Deterministic over the input order; a host is never read more than its own candidate count, and
+    the total is capped by `limit`.
+    """
+    order: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for row in candidates:
+        host = source_name(row['url'])
+        if host not in groups:
+            groups[host] = []
+            order.append(host)
+        groups[host].append(row)
+    plan: list[dict] = []
+    for index in range(max((len(groups[host]) for host in order), default=0)):
+        for host in order:
+            if index < len(groups[host]):
+                plan.append(groups[host][index])
+    return plan[:max(0, int(limit))]
+
+
+def _verify_many(rows, *, request, fetcher, today, days) -> list[dict]:
+    """Independent article pages are opened in parallel under the caller's user context.
+
+    Every work item carries its own `copy_context()` snapshot: a single Context cannot be entered by
+    two workers at once. The snapshot is what lets `service_store.identity` still see the active owner
+    inside each worker, so a missing or foreign context fails closed instead of reading.
+    """
+    from functools import partial
+    if len(rows) <= 1:
+        return [verify(row, request=request, fetcher=fetcher, today=today, days=days) for row in rows]
+    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(rows)), thread_name_prefix='jarvis-news') as pool:
+        futures = [pool.submit(copy_context().run, partial(verify, row, request=request, fetcher=fetcher,
+                                                           today=today, days=days)) for row in rows]
+        return [future.result() for future in futures]
+
+
+def enough_evidence(verified) -> bool:
+    """News completion evidence is two dated articles from two distinct publishers; nothing less."""
+    hosts = {publisher_news.publisher_key(row['news_article']['url']) for row in verified}
+    return len(verified) >= MIN_VERIFIED and len(hosts - {''}) >= MIN_VERIFIED
+
+
+def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
+    """Chunked page reads: the queue is the budget, and a finished target does not read the rest.
+
+    Real publisher indexes open with section and gallery links, so the host-diverse plan has to be
+    walked deeper than its first rows. Chunks stay bounded by the worker count and the run stops as
+    soon as two publishers are verified, so a wider plan costs time only while evidence is missing.
+    """
+    checked: list[dict] = []
+    for start in range(0, len(rows), MAX_WORKERS):
+        checked.extend(_verify_many(rows[start:start + MAX_WORKERS], request=request, fetcher=fetcher,
+                                    today=today, days=days))
+        if enough_evidence([row for row in checked if row['verification'] == 'verified']):
+            break
+    return checked
 
 
 def status(health, *, verified, model_status='unavailable') -> dict:
@@ -360,7 +426,8 @@ def report(result) -> str:
                  + (f', {result["sources_failed"]} kaynak erişilemedi.' if result['sources_failed'] else '.'))
     if result['sources_partial']:
         lines.append(f'{result["sources_partial"]} kaynak yanıt verdi ancak başlık listesi boş döndü.')
-    lines.append(f'{result["articles_discovered"]} aday bulundu, {len(verified)} haber doğrulandı.')
+    lines.append(f'{result["articles_discovered"]} aday bulundu, {result.get("articles_read", 0)} tekil sayfa '
+                 f'okundu, {len(verified)} haber doğrulandı.')
     missing = sum(1 for row in result['candidates'] if row['date_status'] == 'missing')
     if missing:
         lines.append(f'{missing} aday için yayın tarihi doğrulanamadı; taze haber listesine alınmadı.')
@@ -476,11 +543,14 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
     reused = [dict(row) for row in (reuse or [])]
     health: list[dict] = [dict(row) for row in (source_health or [])]
     candidates: list[dict] = []
-    if reused:
+    if reuse is not None or source_health is not None:
+        # İşten türetilen özet: kurtarma döngüsü kaynakları zaten okudu. Burada ikinci bir tarama
+        # başlamaz; kimlik bekçisi olmayan bir istek (owner=None) asla katalog okumaz.
         candidates = [dict(row, in_window=in_window(row, window, today)) for row in reused]
         fresh = [row for row in candidates if row['in_window']]
         verified = [row for row in fresh if row.get('verification') == 'verified' and row.get('news_article')]
         reused_count = len(verified)
+        reads_count = 0
     else:
         rows = sources if sources is not None else catalog(request)
         candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today)
@@ -488,13 +558,25 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         candidates = cluster(candidates)
         for row in candidates:
             row['in_window'] = in_window(row, window, today)
-        fresh = [row for row in candidates if row['in_window']]
-        verified = []
-        unique = independent(fresh, limit=max(1, MAX_SOURCES))
-        for row in unique:
-            checked = verify(row, request=request, fetcher=fetcher, today=today, days=window)
-            if checked['verification'] == 'verified':
-                verified.append(checked)
+        # A listing that prints no dates is not an undated story: the article page's own date is the
+        # legitimate evidence, so only a feed date already outside the window cancels the read.
+        stale = {row['url'] for row in candidates if row['published_at'] and not row['in_window']}
+        reads = _read_plan([row for row in candidates if row['url'] not in stale], MAX_ARTICLE_READS)
+        checked_rows = _verify_plan(reads, request=request, fetcher=fetcher, today=today, days=window)
+        verified = [row for row in checked_rows if row['verification'] == 'verified']
+        by_url = {row['url']: row for row in checked_rows}
+        for row in candidates:
+            match = by_url.get(row['url'])
+            if match is not None:
+                if match['verification'] == 'verified':
+                    row.update(verification='verified', news_article=match['news_article'], quotes=match['quotes'],
+                               published_at=match['published_at'], date_status='present')
+                elif 'reason' in match:
+                    # Reddediği sayfanın gerekçesi adaya iner: kullanıcıye "neden haber değil" kanıtı gösterilir.
+                    row['reason'] = match['reason']
+            row['in_window'] = in_window(row, window, today)
+        verified = [row for row in verified if in_window(row, window, today)]
+        reads_count = len(checked_rows)
         reused_count = 0
     discovered = len(candidates)
     ok = sum(1 for row in health if row['status'] != 'failed')
@@ -512,6 +594,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         'sources_partial': partial,
         'candidates': candidates,
         'articles_discovered': discovered,
+        'articles_read': reads_count,
         'articles_verified': len(verified),
         'verified': verified,
         'reused': reused_count,

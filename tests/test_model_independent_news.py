@@ -536,5 +536,362 @@ class BoundaryTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
 
+class OwnerContextWorkerTests(unittest.TestCase):
+    """K. Paralel yayıncı işçileri aktif kullanıcı bağlamını taşır; kimlik bekçisi gevşemez.
+
+    Bu sınıf gerçek `llm._key_context` ve gerçek `service_store.identity` zincirini çalıştırır
+    (`news_pipeline.discover → domain_tools.headlines → service_store.identity`). Yalnız HTTP
+    taşıyıcısı taklit edilir; bekçi, bağlam veya işçi havuzu taklit edilmez.
+    """
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+        self.reader, self.fetcher = two_source_feeds()
+        self.seen = []
+
+    def sources(self):
+        return [{'name': 'AA', 'url': AA_INDEX}, {'name': 'BBC', 'url': BBC_INDEX}]
+
+    def spy_fetch(self, url):
+        import threading
+
+        from modules import llm
+        self.seen.append((threading.current_thread().name, url, llm._key_context.get()))
+        return self.fetcher(url)
+
+    def run_discover(self, owner):
+        with patch('modules.public_sources.fetch', side_effect=self.spy_fetch):
+            candidates, health = news_pipeline.discover(self.sources(), owner=owner, query='son dakika haberleri',
+                                                        now=NOW)
+        return candidates, health
+
+    def test_workers_read_as_the_active_user_through_the_real_identity_guard(self):
+        from modules import llm
+        token = llm._key_context.set('hamdi')
+        self.addCleanup(llm._key_context.reset, token)
+        candidates, health = self.run_discover('hamdi')
+        self.assertEqual([row['status'] for row in health], ['ok', 'ok'],
+                         'paralel işçide kimlik bekçisi düştü: ' + str([row['reason'] for row in health]))
+        self.assertTrue(candidates)
+        # Gerçek paralellik: en az bir okuma işçi iş parçacığında yapıldı.
+        self.assertTrue(any(name.startswith('jarvis-news') for name, _url, _owner in self.seen), self.seen)
+        self.assertEqual({owner for _n, _u, owner in self.seen}, {'hamdi'})
+
+    def test_missing_user_context_fails_closed_for_every_source(self):
+        # Bekçi gevşetilmez: bağlam yoksa hiçbir yayıncı okunmaz, hata `unavailable` olarak görünür.
+        from modules import llm
+        # Bağlam burada açıkça kapatılır: tüm paket tek süreçte koşarken önceki bir test aynı iş
+        # parçacığında kullanıcı bırakmışsa boşta gibi davranan yol yanlışlıkla kapanırdı.
+        token = llm._key_context.set(None)
+        self.addCleanup(llm._key_context.reset, token)
+        self.assertIsNone(llm._key_context.get())
+        _candidates, health = self.run_discover('hamdi')
+        self.assertEqual([row['status'] for row in health], ['failed', 'failed'])
+        self.assertTrue(all('bağlamı gerekli' in (row['reason'] or '') for row in health), health)
+
+    def test_foreign_owner_still_cannot_read_through_another_users_context(self):
+        from modules import llm
+        token = llm._key_context.set('hamdi')
+        self.addCleanup(llm._key_context.reset, token)
+        _candidates, health = self.run_discover('ali')
+        self.assertEqual([row['status'] for row in health], ['failed', 'failed'])
+        self.assertTrue(all('bağlamı gerekli' in (row['reason'] or '') for row in health), health)
+        self.assertEqual(self.seen, [], 'kimlik düşerken taşıyıcıya erişim oldu')
+
+    def test_context_never_leaks_between_sequential_runs(self):
+        from modules import llm
+        token = llm._key_context.set('hamdi')
+        self.addCleanup(llm._key_context.reset, token)
+        self.run_discover('hamdi')
+        llm._key_context.set('ali')
+        news_pipeline.cache_clear()  # aynı taşıyıcı ikinci kullanıcıdan okunmasın
+        self.seen.clear()
+        _candidates, health = self.run_discover('ali')
+        self.assertEqual([row['status'] for row in health], ['ok', 'ok'], health)
+        self.assertEqual({owner for _n, _u, owner in self.seen}, {'ali'})
+        self.assertEqual(llm._key_context.get(), 'ali')
+
+
+class UndatedListingVerificationTests(unittest.TestCase):
+    """L. Dizin tarih vermiyorsa tekil sayfanın kendi tarihi meşru kanıttır; okuma sayısı sınırlı."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def test_undated_listing_is_verified_from_the_article_page(self):
+        rows = {
+            AA_INDEX: [('AA deprem haberi', '/tr/gundem/deprem-1'),
+                       ('AA ikinci deprem haberi', '/tr/gundem/deprem-2')],
+            BBC_INDEX: [('BBC deprem haberi', '/turkce/deprem-3')],
+        }
+
+        def reader(url):
+            source = rows.get(url)
+            if source is None:
+                return []
+            return entries(feed(url, [(title, path, None, 'Gündem') for title, path in source]))
+
+        titles = {AA + '/tr/gundem/deprem-1': 'AA deprem haberi', AA + '/tr/gundem/deprem-2': 'AA ikinci deprem haberi',
+                  BBC + '/turkce/deprem-3': 'BBC deprem haberi'}
+
+        def fetcher(url):
+            if url in titles:  # tekil sayfa kendi tarihini veriyor; dizin hiç vermedi
+                return article(url, titles[url], DAY.isoformat(), BODY)
+            return feed(url, [(title, path, None, 'Gündem') for title, path in rows[url]])
+
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=[{'name': 'AA', 'url': AA_INDEX}, {'name': 'BBC', 'url': BBC_INDEX}],
+                                   now=NOW)
+        self.assertEqual(result['articles_discovered'], 3)
+        self.assertEqual(len(result['verified']), 3, [row.get('reason') for row in result['candidates']])
+        self.assertTrue(all(row['date_status'] == 'present' for row in result['verified']))
+        self.assertNotIn('yayın tarihi doğrulanamadı', result['report'])
+        self.assertEqual(result['news_status'], 'complete')
+
+    def test_clearly_old_feed_date_is_not_re_read(self):
+        # Pencere dışında olduğu dizin tarihinden belli aday için tekil sayfa açılmaz: okuma bütçesi korunur.
+        old = format_datetime(datetime.combine(date(2026, 6, 1), time(9, tzinfo=timezone.utc)), usegmt=True)
+        opened = []
+
+        def reader(url):
+            return entries(feed(url, [('Eski deprem haberi', '/tr/gundem/eski', old, 'Gündem'),
+                                      ('Yeni deprem haberi', '/tr/gundem/yeni',
+                                       format_datetime(datetime.combine(DAY, time(9, tzinfo=timezone.utc)),
+                                                       usegmt=True), 'Gündem')]))
+
+        def fetcher(url):
+            opened.append(url)
+            title = 'Eski deprem haberi' if url.endswith('eski') else 'Yeni deprem haberi'
+            published = date(2026, 6, 1) if url.endswith('eski') else DAY
+            return article(url, title, published.isoformat(), BODY)
+
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=[{'name': 'AA', 'url': AA_INDEX}], now=NOW)
+        self.assertEqual([url for url in opened if url.endswith('eski')], [], 'bayat aday için gereksiz okuma yapıldı')
+        self.assertEqual([row['url'] for row in result['verified']], [AA + '/tr/gundem/yeni'])
+
+
+class SharedContextConcurrencyTests(unittest.TestCase):
+    """M. Her okuma işçinin kendi bağlam kopyası vardır; tek Context nesnesi paylaşılamaz.
+
+    Bariyer dört tekil sayfa okumasını aynı anda bağlama girmeye zorlar. `copy_context()` nesnesi
+    işçiler arasında paylaşılsaydı ikinci işçi `cannot enter context` ile düşerdi. Test gerçek
+    `llm._key_context` üzerinden her işçinin aktif kullanıcıyı gördüğünü de kanıtlar.
+    """
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def test_parallel_article_reads_each_enter_their_own_context_copy(self):
+        import threading
+        from modules import llm
+        listings = {
+            AA_INDEX: [('AA deprem haberi', '/tr/gundem/deprem-1'),
+                       ('AA ikinci deprem haberi', '/tr/gundem/deprem-2')],
+            BBC_INDEX: [('BBC deprem haberi', '/turkce/deprem-3'),
+                       ('BBC ikinci deprem haberi', '/turkce/deprem-4')],
+        }
+        titles = {AA + path: title for title, path in listings[AA_INDEX]}
+        titles.update({BBC + path: title for title, path in listings[BBC_INDEX]})
+        barrier = threading.Barrier(len(titles))
+        owners: list = []
+        threads: list = []
+        broken: list = []
+
+        def reader(url):
+            return entries(feed(url, [(title, path, None, 'Gündem') for title, path in listings[url]]))
+
+        def fetcher(url):
+            owners.append(llm._key_context.get())
+            threads.append(threading.current_thread().name)
+            try:
+                # Aynı anda dört bağlam girişi: paylaşılmış tek Context burada patlardı.
+                barrier.wait(timeout=5)
+            except threading.BrokenBarrierError:
+                broken.append(url)
+            return article(url, titles[url], DAY.isoformat(), BODY)
+
+        token = llm._key_context.set('hamdi')
+        self.addCleanup(llm._key_context.reset, token)
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=[{'name': 'AA', 'url': AA_INDEX}, {'name': 'BBC', 'url': BBC_INDEX}],
+                                   now=NOW)
+        self.assertEqual(broken, [], 'eşzamanlı işçiler bağlama birlikte giremedi')
+        self.assertEqual(len(owners), len(titles), owners)
+        self.assertEqual(set(owners), {'hamdi'}, owners)
+        self.assertGreaterEqual(len({name for name in threads if name.startswith('jarvis-news')}), 2, threads)
+        self.assertEqual(len(result['verified']), len(titles), [row.get('reason') for row in result['candidates']])
+        self.assertEqual(result['articles_read'], len(titles))
+
+
+class JobSummaryWithoutCrawlTests(unittest.TestCase):
+    """N. İş özetinde ikinci tarama yok: kanıt henüz yoksa katalog yeniden okunmaz, kimliksiz istek doğmaz."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def empty_job(self):
+        return {'owner': 'alice', 'request': 'son dakika haberleri', 'state': 'paused', 'goals': [],
+                'steps': [{'id': 's1', 'tool': 'data', 'state': 'failed',
+                           'input': {'operation': 'headlines', 'url': AA_INDEX}}],
+                'outputs': {'s1': {'state': 'failed', 'text': 'taklit kaynak zaman aşımı'}}}
+
+    def spy(self):
+        calls = []
+
+        def reader(url):
+            calls.append(url)
+            raise OSError('iş özeti ikinci bir tarama yapamaz')
+        return calls, reader
+
+    def test_attach_job_without_evidence_makes_no_network_call(self):
+        import json
+        job = self.empty_job()
+        calls, reader = self.spy()
+        with patch('modules.domain_tools.headlines', side_effect=reader), \
+             patch('modules.public_sources.fetch', side_effect=reader):
+            result = news_pipeline.attach_job(job, model_status='unavailable', now=DAY)
+        self.assertEqual(calls, [], 'kanıtsız işin modelsiz özeti yeniden katalog taraması yaptı')
+        self.assertEqual(result['sources_total'], 1)
+        self.assertEqual([row['status'] for row in result['source_health']], ['failed'])
+        self.assertEqual(result['news_status'], 'unavailable')
+        self.assertNotIn('bağlamı gerekli', json.dumps(job['news_pipeline'], ensure_ascii=False))
+
+    def test_reuse_summary_keeps_the_health_it_was_given(self):
+        health = [{'source': 'AA', 'url': AA_INDEX, 'status': 'partial', 'item_count': 0, 'reason': None}]
+        calls, reader = self.spy()
+        with patch('modules.domain_tools.headlines', side_effect=reader):
+            result = news_pipeline.run('son dakika haberleri', reuse=[], source_health=health, now=DAY)
+        self.assertEqual(calls, [], 'işten türetilen özet kendi kendine ağa çıktı')
+        self.assertEqual(result['source_health'], health)
+        self.assertEqual(result['articles_discovered'], 0)
+
+
+class RejectedPageReasonTests(unittest.TestCase):
+    """O. Okunup reddedilen sayfanın gerekçesi adayda kalır; aday yine yalnız keşif kanıtıdır."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def test_rejected_article_keeps_its_reason_on_the_candidate(self):
+        reader, _fetcher = two_source_feeds()
+
+        def fetcher(url):
+            raise OSError('tekil sayfa okunamadı')
+
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=[{'name': 'AA', 'url': AA_INDEX}], now=NOW)
+        candidate = result['candidates'][0]
+        self.assertEqual(candidate['verification'], 'discovery_only')
+        self.assertIn('tekil sayfa okunamadı', candidate.get('reason') or '')
+
+
+class DeepListingReadsTests(unittest.TestCase):
+    """P. Yayıncı dizinleri bölüm/galeri bağlantılarıyla açılır: okuma sırası derine iner, hedef bitince durur."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def sources(self):
+        return [{'name': name, 'url': index} for name, index in
+                (('AA', AA_INDEX), ('BBC Türkçe', BBC_INDEX), ('DW Türkçe', DW))]
+
+    def test_junk_first_rows_do_not_exhaust_the_verification(self):
+        # Her dizinin ilk dört satışı bölüm bağlantısı; gerçek tekil haberler beşinci sırada.
+        sections = [('AA bölüm %d' % i, '/tr/gundem/bolum-%d' % i) for i in range(1, 5)]
+        sections_bbc = [('BBC bölüm %d' % i, '/turkce/bolum-%d' % i) for i in range(1, 5)]
+        listings = {AA_INDEX: sections + [('AA deprem haberi', '/tr/gundem/deprem-aa')],
+                    BBC_INDEX: sections_bbc + [('BBC deprem haberi', '/turkce/deprem-bbc')]}
+
+        def reader(url):
+            return entries(feed(url, [(title, path, None, 'Gündem') for title, path in listings[url]]))
+
+        def fetcher(url):
+            if url == AA + '/tr/gundem/deprem-aa':
+                return article(url, 'AA deprem haberi', DAY.isoformat(), BODY)
+            if url == BBC + '/turkce/deprem-bbc':
+                return article(url, 'BBC deprem haberi', DAY.isoformat(), BODY)
+            raise OSError('bölüm sayfası tekil haber değil')
+
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=[{'name': 'AA', 'url': AA_INDEX},
+                                            {'name': 'BBC Türkçe', 'url': BBC_INDEX}], now=NOW)
+        self.assertEqual(len(result['verified']), 2, [row.get('reason') for row in result['candidates']])
+        self.assertEqual({row['source'] for row in result['verified']}, {'AA', 'BBC Türkçe'})
+        self.assertEqual(result['articles_read'], 10)  # 8 reddedilen bölüm satırı + 2 tekil sayfa
+        self.assertEqual(result['news_status'], 'complete')
+
+    def test_run_stops_reading_once_two_publishers_are_verified(self):
+        listings = {AA_INDEX: [('AA deprem haberi %d' % i, '/tr/gundem/deprem-aa-%d' % i) for i in range(1, 5)],
+                    BBC_INDEX: [('BBC deprem haberi %d' % i, '/turkce/deprem-bbc-%d' % i) for i in range(1, 5)],
+                    DW: [('DW deprem haberi %d' % i, '/tr/deprem-dw-%d' % i) for i in range(1, 5)]}
+        names = {'deprem-aa': 'AA', 'deprem-bbc': 'BBC', 'deprem-dw': 'DW'}
+
+        def reader(url):
+            return entries(feed(url, [(title, path, None, 'Gündem') for title, path in listings[url]]))
+
+        def fetcher(url):
+            slug = '-'.join(url.rsplit('/', 1)[1].split('-')[:2])
+            return article(url, names[slug] + ' deprem haberi', DAY.isoformat(), BODY)
+
+        result = news_pipeline.run('son 7 gün deprem haberleri', reader=reader, fetcher=fetcher,
+                                   sources=self.sources(), now=NOW)
+        self.assertGreaterEqual(result['articles_verified'], 2)
+        # Hedef iki yayıncıyla doldu: kalan dokuz aday için ağa çıkılmaz.
+        self.assertEqual(result['articles_read'], news_pipeline.MAX_WORKERS)
+
+
+class RecoveryPipelineEvidenceTests(unittest.TestCase):
+    """Q. Modelsiz kurtarma, ham dizin satırlarını denemeden önce haber hattının doğruladığı kanıtı mühürler."""
+
+    def setUp(self):
+        news_pipeline.cache_clear()
+        self.addCleanup(news_pipeline.cache_clear)
+
+    def test_verified_articles_become_sealed_research_steps(self):
+        from types import SimpleNamespace
+        from modules import goal_executor as goals, goal_tools, news_recovery, publisher_news
+        reader, fetcher = two_source_feeds()
+        job = {'id': 'a' * 16, 'owner': 'hamdi', 'state': 'running', 'request': 'son dakika haberleri',
+               'goals': [{'state': 'pending', 'text': 'son dakika haberleri'}], 'steps': [], 'outputs': {}}
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))
+
+        def record(_runtime, current, step):
+            step['state'] = 'done'
+            data = step['input']
+            if step['tool'] == 'research':
+                url = data['url']
+                title = 'AA deprem haberi' if 'aa.com' in url else 'BBC deprem haberi'
+                current['outputs'][step['id']] = {'state': 'done', 'text': BODY[:60], 'source': url,
+                                                  'source_chars': len(BODY), 'source_quotes': [BODY[:60]],
+                                                  'news_article': {'url': url, 'title': title,
+                                                                   'published': DAY.isoformat(), 'text': BODY}}
+            else:
+                current['outputs'][step['id']] = {'state': 'failed', 'text': 'taklit dizin okunamadı'}
+
+        with (patch('modules.domain_tools.headlines',
+                    side_effect=lambda owner, url, **kw: {'items': reader(url)}),
+              patch('modules.public_sources.fetch', side_effect=fetcher),
+              patch.object(goals, '_record', side_effect=record),
+              patch.object(goals, '_ensure'),
+              patch.object(goals, '_save'),
+              patch.object(goal_tools, 'verify')):
+            news_recovery._chat_deliver(runtime, job, max_new_steps=10)
+
+        reads = [step for step in job['steps'] if step['tool'] == 'research']
+        self.assertEqual(sorted(step['input']['url'] for step in reads), sorted([AA + '/tr/gundem/deprem-1',
+                                                                                 BBC + '/turkce/deprem-2']),
+                         'kurtarma haber hattının doğruladığı adresleri değil ham dizin satırlarını denedi')
+        self.assertTrue(all(step.get('source_only') for step in reads), reads)
+        self.assertEqual(job['goals'][0]['state'], 'done', job['goals'])
+        self.assertEqual(sorted(job['goals'][0]['evidence']), sorted(step['id'] for step in reads))
+
+
 if __name__ == '__main__':
     unittest.main()

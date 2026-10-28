@@ -8,7 +8,8 @@ import hashlib
 import json
 import re
 import time
-from modules import research_evidence, goal_tools
+from modules import research_evidence, goal_tools, requests_state
+from modules.diagnostics import record_failure as _record_failure
 
 
 def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
@@ -67,6 +68,30 @@ def _chat_deliver(runtime,job,*,max_new_steps=0,existing_only=False):
         return ident,job['outputs'][ident]
     query=' '.join(terms)[:300]
     attempted=set(o['news_article']['url'] for o in sources.values())
+    # Model-bağımsız haber hattı ham dizin satırlarından önce gelir: dizinler paralel okunur ve her
+    # tekil sayfa yetkili haberciden geçer. Yayıncı listelerinin ilk sıraları bölüm/galeri bağlantısı
+    # olduğu için doğrulanmış adresleri adım yapmak sınırlı adım bütçesini israf etmez. Adım, sayı ve
+    # zaman sınırları aşağıdaki tool() üzerinden aynen korunur; kanıt olmayan adres adım olmaz.
+    if not existing_only:
+        from modules import news_pipeline
+        try:
+            verified_rows=news_pipeline.run(request,owner=job['owner'])['verified']
+        except (requests_state.Cancelled,PermissionError):raise
+        except Exception as pipeline_error:
+            _record_failure('modules/news_recovery.py:pipeline_evidence')
+            from modules import privacy
+            job.setdefault('feedback',[]).append('Model-bağımsız haber hattı okunamadı: '+
+                privacy.redact(str(pipeline_error),force=True)[:300])
+            verified_rows=[]
+        for row in verified_rows:
+            if enough():break
+            url=row['news_article']['url']
+            if url in attempted:continue
+            attempted.add(url)
+            rid,result=tool('research',{'url':url,'question':request})
+            if result.get('state')=='done' and result.get('news_article'):sources[rid]=result
+        if enough():
+            job['goals'][goal].update(state='done',evidence=list(sources));goals._save(job);return
     for seed in seeds[-4:]:
         if enough():break
         data={'operation':'headlines','url':seed}
