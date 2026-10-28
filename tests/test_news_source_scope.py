@@ -40,14 +40,16 @@ class NewsSourceScopeTests(unittest.TestCase):
                 self.assertEqual([r['url'] for r in publisher_news.sources_for(request)], GENERAL)
                 self.assertEqual(publisher_news.recovery_indexes(request, []), GENERAL[:4])
 
-    def test_ai_news_prioritizes_existing_topical_publishers_without_new_source(self):
+    def test_ai_news_prioritizes_topic_publishers_without_new_or_institutional_sources(self):
         rows = publisher_news.sources_for('Türkiye yapay zekâ haberleri')
         names = [row['name'] for row in rows[:8]]
         self.assertEqual([row['url'] for row in rows[:4]], GENERAL[:4])
         self.assertIn('DonanımHaber', names)
         self.assertIn('Webtekno', names)
-        self.assertIn('TÜBİTAK', names)
-        known = {row['url'] for row in publisher_news.GENERAL_SOURCES + publisher_news.SOURCES}
+        self.assertNotIn('TÜBİTAK', names)
+        self.assertNotIn('Yıldız Teknik Üniversitesi', names)
+        self.assertNotIn('Boğaziçi Üniversitesi', names)
+        known = {row['url'] for row in publisher_news.GENERAL_SOURCES}
         self.assertTrue(all(row['url'] in known for row in rows))
 
     def test_institution_scope_and_explicit_urls_are_not_broadened(self):
@@ -76,8 +78,6 @@ class NewsSourceScopeTests(unittest.TestCase):
 
     def run_recovery(self, *, same_publisher=False, stale=False, fail_first=False):
         case = fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
-        # Haber hattının 600 sn'lik dizin önbelleği testler arasında sızmaz: her tur kendi sahte
-        # yayıncı cevaplarını okur.
         news_pipeline.cache_clear();self.addCleanup(news_pipeline.cache_clear)
         day = (datetime.now(timezone(timedelta(hours=3))).date() - timedelta(days=20 if stale else 0)).isoformat()
         case.responses(case.plan('Güncel haberleri araştır'), RuntimeError('Taklit sağlayıcı kullanılamıyor'))
