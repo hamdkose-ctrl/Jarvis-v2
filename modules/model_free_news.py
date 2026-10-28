@@ -13,6 +13,9 @@ _STOP={
     'haber','haberler','haberleri','haberi','guncel','güncel','son','durum','nelerdir','nedir','neler','ne','var','bugun','bugün',
     'anlat','anlatir','anlatır','gelisme','gelişme','gelismeler','gelişmeler','hakkinda','hakkında','icin','için',
     'ara','arastir','araştır','bak','bakar','latest','news','recent','today','what','about','the','and','ile','bir',
+    'eski','atla','atlan','erisilemeyen','erişilemeyen','kaynak','kaynagi','kaynağı','kaynaklari','kaynakları',
+    'gec','geç','farkli','farklı','yayinci','yayıncı','yayincidan','yayıncıdan','dogrulanmis','doğrulanmış',
+    'tarih','baglanti','bağlantı','baglantiyla','bağlantıyla','ver','getir','goster','göster','listele','az','iki','en',
 }
 
 
@@ -32,6 +35,22 @@ def terms(value):
     return result
 
 
+def _scope_ok(article, request):
+    """Explicit subject/scope words are hard constraints, not optional scoring hints."""
+    wanted=_fold(request)
+    haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
+    if ('türkiye' in wanted or 'turkiye' in wanted):
+        if not any(token in haystack for token in ('türkiye','turkiye','turkey','türk','turk')):
+            return False
+    ai_requested=(re.search(r'\byapay\s+zek',wanted) is not None or
+                  'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
+    if ai_requested:
+        if not (re.search(r'\byapay\s+zek',haystack) or 'artificial intelligence' in haystack or
+                re.search(r'\bai\b',haystack)):
+            return False
+    return True
+
+
 def _sentences(text):
     text=re.sub(r'\s+',' ',str(text)).strip()
     rows=[]
@@ -42,7 +61,9 @@ def _sentences(text):
 
 
 def quotes(article,request):
-    """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
+    """Pick 1-3 exact article sentences. Explicit scope and topical evidence must match."""
+    if not _scope_ok(article,request):
+        raise ValueError('Tekil haber kullanıcının istediği konu ve kapsamla eşleşmiyor; başka gerçek haber bağlantısı seç.')
     text=re.sub(r'\s+',' ',article['text']).strip()
     title=re.sub(r'\s+',' ',article['title']).strip()
     if text.startswith(title):text=text[len(title):].lstrip(' :-–—')
