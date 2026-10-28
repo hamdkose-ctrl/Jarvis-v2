@@ -47,10 +47,13 @@ def _ai_scope_ok(article, request):
 def _turkiye_scope_ok(article, request):
     """If Türkiye is explicitly requested, the article itself must contain Türkiye evidence."""
     wanted=_fold(request)
-    if not re.search(r'\bturkiye\b|\bturkey\b', wanted):
+    if not re.search(r'\b(?:türkiye|turkiye|turkey)\b', wanted):
         return True
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
-    return bool(re.search(r'\bturkiye\b|\bturkey\b|\bturkish\b|\bturk\b|\bistanbul\b|\bankara\b|\bizmir\b', haystack))
+    return bool(re.search(
+        r'\b(?:türkiye|turkiye|turkey|türk|turk|turkish|istanbul|ankara|izmir)\b',
+        haystack,
+    ))
 
 
 def _sentences(text):
