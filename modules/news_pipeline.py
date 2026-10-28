@@ -684,13 +684,14 @@ def attach_job(job, *, model_status='unavailable', now=None) -> dict:
     return result
 
 
-def deliver_job(job, *, model_status='unavailable', reader=None, fetcher=None, now=None) -> dict:
+def deliver_job(job, *, model_status='unavailable', reader=None, fetcher=None, now=None,
+                max_sources=MAX_SOURCES) -> dict:
     """Plan hiç yapılamadığında haberin modelsiz tam teslimi: paralel keşif + doğrulama + rapor.
 
     Çağrının kendi kaynak sınırları (timeout, bütçe, iptal) geçerlidir; hiçbir model istenmez.
     """
     result = run(str(job.get('request') or ''), owner=job.get('owner'), reader=reader, fetcher=fetcher,
-                 now=now, model_status=model_status, max_sources=BROAD_MAX_SOURCES)
+                 now=now, model_status=model_status, max_sources=max_sources)
     _record(job, result)
     return result
 
