@@ -108,11 +108,26 @@ class StaleGoalTests(_Base):
 
 class QuotaGateTests(_Base):
     def test_new_goal_is_not_started_while_every_model_waits(self):
+        # Kapı yalnız model isteyen işlerde bekler; haber isteği aşağıdaki testte modelsiz yolunu alır.
         self.quota.return_value = 90
-        text = goals.run(self.runtime, 'bugünün haberleri neler')
+        text = goals.run(self.runtime, 'masaüstündeki raporu pdf yap')
         self.ask.assert_not_called()
         self.assertIsNone(goals.latest('alice'))
         self.assertIn('kota', text.lower()); self.assertIn('90', text)
+
+    def test_news_goal_ignores_the_quota_gate(self):
+        self.quota.return_value = 90
+        self.ask.side_effect = RuntimeError('models unavailable')
+        with patch('modules.domain_tools.headlines', side_effect=OSError('taklit çevrimdışı')), \
+             patch('modules.public_sources.fetch', side_effect=OSError('taklit çevrimdışı')):
+            text = goals.run(self.runtime, 'bugünün haberleri neler')
+        job = goals.latest('alice')
+        self.assertIsNotNone(job, 'kota sırası tarihli haber işini hiç açmadı')
+        self.assertNotIn('kota', text.lower())
+        self.assertEqual(job['news_pipeline']['model_synthesis_status'], 'unavailable')
+        self.assertEqual(job['news_pipeline']['news_status'], 'unavailable')
+        self.assertIn('Model tabanlı sentez kullanılamıyor', text)
+        self.assertIn('kaynak', text)
 
     def test_resume_is_not_blocked_by_quota_gate(self):
         self.job('paused', 1); self.quota.return_value = 90
