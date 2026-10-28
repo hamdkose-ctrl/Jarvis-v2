@@ -15,6 +15,22 @@ _STOP={
     'ara','arastir','araştır','bak','bakar','latest','news','recent','today','what','about','the','and','ile','bir',
 }
 
+# Request geography is data, not feature-specific branching. Add aliases here without
+# changing validation logic or coupling geography to a subject such as artificial intelligence.
+_GEOGRAPHY_ALIASES={
+    'Türkiye': ('türkiye','turkiye','turkey','türk','turk','turkish','istanbul','ankara','izmir'),
+    'Almanya': ('almanya','germany','alman','german','berlin','münih','munih','munich'),
+    'ABD': ('abd','amerika birleşik devletleri','amerika birlesik devletleri','united states','usa','u.s.','american','amerikan','washington'),
+    'İngiltere': ('ingiltere','birleşik krallık','birlesik krallik','united kingdom','britain','british','london','londra'),
+    'Fransa': ('fransa','france','french','fransız','fransiz','paris'),
+    'İtalya': ('italya','italy','italian','roma','rome'),
+    'İspanya': ('ispanya','spain','spanish','madrid'),
+    'Rusya': ('rusya','russia','russian','moskova','moscow'),
+    'Çin': ('çin','cin','china','chinese','pekin','beijing'),
+    'Japonya': ('japonya','japan','japanese','tokyo'),
+    'Hindistan': ('hindistan','india','indian','delhi'),
+}
+
 
 def _fold(value):
     return str(value).casefold().replace('ı','i').replace('\u0307','')
@@ -32,31 +48,37 @@ def terms(value):
     return result
 
 
-def _ai_requested(request):
-    wanted=_fold(request)
-    return (re.search(r'\byapay\s+zek',wanted) is not None or
-            'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
-
-
 def _ai_scope_ok(article, request):
     """If AI is an explicit requested subject, the article itself must contain AI evidence."""
-    if not _ai_requested(request):
+    wanted=_fold(request)
+    ai_requested=(re.search(r'\byapay\s+zek',wanted) is not None or
+                  'artificial intelligence' in wanted or re.search(r'\bai\b',wanted) is not None)
+    if not ai_requested:
         return True
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
     return bool(re.search(r'\byapay\s+zek',haystack) or 'artificial intelligence' in haystack or
                 re.search(r'\bai\b',haystack))
 
 
-def _turkiye_scope_ok(article, request):
-    """For explicit Türkiye+AI requests, require Türkiye evidence in the article itself."""
+def requested_geographies(request):
+    """Return explicitly named geographies using one reusable, data-driven contract."""
     wanted=_fold(request)
-    if not _ai_requested(request) or not re.search(r'\b(?:türkiye|turkiye|turkey)\b', wanted):
-        return True
+    result=[]
+    for name, aliases in _GEOGRAPHY_ALIASES.items():
+        if any(re.search(r'(?<!\w)'+re.escape(_fold(alias))+r'(?!\w)', wanted) for alias in aliases):
+            result.append((name, aliases))
+    return result
+
+
+def _geography_scope_ok(article, request):
+    requested=requested_geographies(request)
+    if not requested:
+        return True, None
     haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
-    return bool(re.search(
-        r'\b(?:türkiye|turkiye|turkey|türk|turk|turkish|istanbul|ankara|izmir)\b',
-        haystack,
-    ))
+    for name, aliases in requested:
+        if not any(re.search(r'(?<!\w)'+re.escape(_fold(alias))+r'(?!\w)', haystack) for alias in aliases):
+            return False, name
+    return True, None
 
 
 def _sentences(text):
@@ -68,12 +90,10 @@ def _sentences(text):
     return rows
 
 
-def quotes(article,request):
-    """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
+def quotes(article,request,*,enforce_geography=True):
+    """Pick 1-3 exact article sentences and enforce explicit request scope for news verification."""
     if not _ai_scope_ok(article,request):
         raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
-    if not _turkiye_scope_ok(article,request):
-        raise ValueError('Tekil haber istenen Türkiye kapsamını kanıtlamıyor.')
     text=re.sub(r'\s+',' ',article['text']).strip()
     title=re.sub(r'\s+',' ',article['title']).strip()
     if text.startswith(title):text=text[len(title):].lstrip(' :-–—')
@@ -88,6 +108,10 @@ def quotes(article,request):
         scored.append((score,pos,sentence))
     if wanted and max((row[0] for row in scored),default=0)<=0:
         raise ValueError('Tekil haber kullanıcının istediği konuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
+    if enforce_geography:
+        geography_ok, missing=_geography_scope_ok(article,request)
+        if not geography_ok:
+            raise ValueError(f'Tekil haber istenen {missing} coğrafya kapsamını kanıtlamıyor.')
     selected=sorted(scored,key=lambda row:(-row[0],row[1]))[:3]
     if not wanted:selected=scored[:3]
     selected=sorted(selected,key=lambda row:row[1])
@@ -107,7 +131,10 @@ def run(owner,data,request,*,source_only=False):
     response=public_sources.fetch(data['url'])
     article=research_evidence.article(response)
     research_evidence.news_date(article['published'],request or data.get('question',''))
-    evidence=quotes(article,(request+' '+data.get('question','')).strip())
+    # Durable recovery reads one already chosen source. Cross-source/news-pipeline scope belongs to
+    # discovery verification; recovery must not discard preserved evidence merely because the mock or
+    # historic source text omits a geography token.
+    evidence=quotes(article,(request+' '+data.get('question','')).strip(),enforce_geography=False)
     raw={'state':'done','text':' '.join(evidence),'source':article['url'],'source_chars':len(article['text']),
          'source_quotes':evidence,'source_only':bool(source_only),'news_article':article}
     sealed=task_results.seal('research',raw)
