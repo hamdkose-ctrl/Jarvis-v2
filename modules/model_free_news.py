@@ -44,6 +44,15 @@ def _ai_scope_ok(article, request):
                 re.search(r'\bai\b',haystack))
 
 
+def _turkiye_scope_ok(article, request):
+    """If Türkiye is explicitly requested, the article itself must contain Türkiye evidence."""
+    wanted=_fold(request)
+    if not re.search(r'\bturkiye\b|\bturkey\b', wanted):
+        return True
+    haystack=_fold((article.get('title') or '')+' '+(article.get('text') or ''))
+    return bool(re.search(r'\bturkiye\b|\bturkey\b|\bturkish\b|\bturk\b|\bistanbul\b|\bankara\b|\bizmir\b', haystack))
+
+
 def _sentences(text):
     text=re.sub(r'\s+',' ',str(text)).strip()
     rows=[]
@@ -55,6 +64,8 @@ def _sentences(text):
 
 def quotes(article,request):
     """Pick 1-3 exact article sentences. If topical terms exist, require at least one match."""
+    if not _turkiye_scope_ok(article,request):
+        raise ValueError('Tekil haber istenen Türkiye kapsamını kanıtlamıyor.')
     if not _ai_scope_ok(article,request):
         raise ValueError('Tekil haber kullanıcının istediği yapay zekâ konusuyla eşleşmiyor; başka gerçek haber bağlantısı seç.')
     text=re.sub(r'\s+',' ',article['text']).strip()
