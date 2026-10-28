@@ -735,7 +735,17 @@ def _record(job, result) -> None:
 
     Yalnız özet saklanır; haber gövdeleri iş kaydına ikinci kez yazılmaz.
     """
+    rejected = {}
+    for row in result.get('candidates', []):
+        if row.get('reason'):
+            reason = _safe_reason(row['reason'])
+            rejected[reason] = rejected.get(reason, 0) + 1
     job['news_pipeline'] = {
+        'articles_rejected': sum(rejected.values()),
+        'rejection_reasons': [{'reason': reason, 'count': count}
+                              for reason, count in sorted(rejected.items(), key=lambda item: (-item[1], item[0]))[:3]],
+        'outside_window': sum(bool(row.get('published_at')) and row.get('in_window') is False
+                              for row in result.get('candidates', [])),
         'window_days': result['window_days'],
         'news_status': result['news_status'],
         'model_synthesis_status': result['model_synthesis_status'],

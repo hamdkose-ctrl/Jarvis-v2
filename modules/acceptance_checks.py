@@ -79,7 +79,21 @@ def _news_failure_detail(job):
         detail+='; makale=geçersiz'
     detail+='; kurtarma='+(','.join(key+':'+str(value) for key,value in sorted(recovery.items())) or 'yok')
     pipeline=job.get('news_pipeline') if isinstance(job.get('news_pipeline'),dict) else {}
+    detail+=f"; aday={pipeline.get('articles_discovered',0)}; okunan={pipeline.get('articles_read',0)}"
+    detail+=f"; pencere_dışı={pipeline.get('outside_window',0)}"
+    reasons=pipeline.get('rejection_reasons')
+    if isinstance(reasons,list):
+        summaries=[]
+        for row in reasons[:3]:
+            if not isinstance(row,dict):continue
+            reason=privacy.redact(' '.join(str(row.get('reason') or '').split()),force=True)[:160]
+            if reason:summaries.append(str(row.get('count',0))+'x '+reason)
+        if summaries:detail+='; makale_retleri='+' / '.join(summaries)
     health=pipeline.get('source_health') if isinstance(pipeline.get('source_health'),list) else []
+    failed=[row for row in health if isinstance(row,dict) and row.get('status')=='failed' and row.get('reason')]
+    if failed:
+        detail+='; kaynak_hataları='+' / '.join(
+            privacy.redact(' '.join(str(row['reason']).split()),force=True)[:120] for row in failed[:2])
     if health:
         summary=[]
         for row in health[:20]:

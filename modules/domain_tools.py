@@ -123,7 +123,8 @@ def headlines(owner,url,*,query=None,fetcher=None):
     if not items:raise ValueError('Kaynakta okunabilir haber/duyuru girdisi yok; varsa sayfanın ilan ettiği RSS/Atom bağlantıları da sonuç vermedi. Başka gerçek duyuru dizini seç.')
     if query is not None:
         def fold(value):return value.casefold().replace('ı','i').replace('\u0307','')
-        terms=set(re.findall(r'[\w]+',fold(query)))
+        from modules import model_free_news
+        terms=set(model_free_news.terms(query))
         def rank(row):
             title=fold(row['title']);text=fold(row.get('summary','')+' '+row['url'])
             return sum(3*(term in title)+(term in text) for term in terms if len(term)>2)
