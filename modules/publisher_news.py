@@ -147,26 +147,35 @@ def _published(text):
 
 
 def article(response):
-    """Only checked explicit layout; generic articles keep their existing stricter reader."""
+    """Only checked layouts; generic articles keep their existing stricter reader."""
     from modules import public_sources
     url=public_sources.address(response['url']);parsed=urlsplit(url)
+    ytu=parsed.hostname in {'yildiz.edu.tr','www.yildiz.edu.tr'} and parsed.path.startswith('/universite/haberler/')
     dpu=parsed.hostname=='haber.dpu.edu.tr' and bool(re.fullmatch(r'/tr/haber_oku/[a-f0-9]+/[^/]+/?',parsed.path))
-    if not dpu:return None
+    if not ytu and not dpu:return None
     soup=BeautifulSoup(response['body'],'html.parser')
-    nodes=soup.select('#main.article > article#article-post')
-    if len(nodes)!=1:raise ValueError('DPÜ tekil haber gövdesi bulunamadı.')
-    node=nodes[0];titles=node.select('header h1');dates=node.select('footer .author-box > p');bodies=[node]
-    refs=node.select('footer [data-href]')
-    if not refs or any(not _same_url(n.get('data-href',''),url) for n in refs):raise ValueError('DPÜ haber bağlantısı sayfayla eşleşmedi.')
+    if ytu:
+        nodes=soup.select('#block-ytu-content > article.modern-news-article')
+        canonical=soup.find('link',rel='canonical')
+        if len(nodes)!=1 or canonical is None or not _same_url(canonical.get('href',''),url):raise ValueError('YTÜ haber gövdesi/canonical eşleşmedi.')
+        node=nodes[0];titles=node.select('header.mn-header h1.mn-title');dates=node.select('header.mn-header .mn-meta-date');bodies=node.select('.mn-body')
+    else:
+        nodes=soup.select('#main.article > article#article-post')
+        if len(nodes)!=1:raise ValueError('DPÜ tekil haber gövdesi bulunamadı.')
+        node=nodes[0];titles=node.select('header h1');dates=node.select('footer .author-box > p');bodies=[node]
+        refs=node.select('footer [data-href]')
+        if not refs or any(not _same_url(n.get('data-href',''),url) for n in refs):raise ValueError('DPÜ haber bağlantısı sayfayla eşleşmedi.')
     if len(titles)!=1 or len(dates)!=1 or len(bodies)!=1 or node.find('article'):
         raise ValueError('Yayıncıda tekil başlık, gövde ve tarih eşleşmedi.')
     title=titles[0].get_text(' ',strip=True)
     if not title or any(h.get_text(' ',strip=True) not in ('',title) for h in soup.find_all('h1')):
         raise ValueError('Başlık başka haber veya liste başlığıyla çelişiyor.')
     stamp=dates[0].get_text(' ',strip=True)
-    prefix='Kurumsal İletişim Koordinatörlüğü - '
-    if not stamp.startswith(prefix):raise ValueError('DPÜ yayın tarihi etiketi eksik.')
-    published=_published(stamp[len(prefix):])
+    if dpu:
+        prefix='Kurumsal İletişim Koordinatörlüğü - '
+        if not stamp.startswith(prefix):raise ValueError('DPÜ yayın tarihi etiketi eksik.')
+        stamp=stamp[len(prefix):]
+    published=_published(stamp)
     body=bodies[0]
     for n in body(['script','style','noscript','nav','footer','header','aside','svg']):n.decompose()
     text=re.sub(r'\s+',' ',body.get_text(' ',strip=True))[:20000]
