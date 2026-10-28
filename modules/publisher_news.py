@@ -30,35 +30,11 @@ GENERAL_SOURCES=(
 )
 
 
-def _ai_research_request(request):
-    text=str(request or '')
-    topic=bool(re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|makine\s+öğren|makine\s+ogren|machine\s+learning',text,re.I))
-    research=bool(re.search(r'araştır|arastir|gelişmelerini|gelismelerini',text,re.I))
-    return topic and research
-
-
-def _ai_order():
-    """Reuse existing catalog only; put AI/technology and research publishers inside the read budget."""
-    preferred=('DonanımHaber','Webtekno','TÜBİTAK','Yıldız Teknik Üniversitesi','Boğaziçi Üniversitesi',
-               'Anadolu Ajansı','TRT Haber','NTV')
-    combined=list(GENERAL_SOURCES)+list(SOURCES)
-    by_name={row['name']:row for row in combined}
-    ordered=[by_name[name] for name in preferred if name in by_name]
-    ordered.extend(row for row in combined if row['url'] not in {item['url'] for item in ordered})
-    return ordered
-
-
 def sources_for(request=None):
     """Configured discovery indexes, not live-health or article evidence claims."""
     institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
-    if institutional:
-        rows=list(SOURCES)
-    elif _ai_research_request(request):
-        rows=_ai_order()
-    else:
-        rows=list(GENERAL_SOURCES)
-    institutional_urls={row['url'] for row in SOURCES}
-    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if row['url'] in institutional_urls else 'Genel ve konu odaklı haber keşfi'),
+    rows=SOURCES if institutional else GENERAL_SOURCES
+    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if institutional else 'Genel ve konu odaklı haber keşfi'),
                  live_connection_tested=False) for row in rows]
 
 
@@ -72,9 +48,7 @@ def recovery_indexes(request,seeds):
     scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
     named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
     if scoped or named:return list(dict.fromkeys(seeds))[:4]
-    # Durable recovery'ın genel kaynak sırası değişmez. AI kaynak önceliği yalnız keşif
-    # kataloğunda uygulanır; eski hedefin recovery sözleşmesi genişletilmez.
-    known=[s['url'] for s in GENERAL_SOURCES]
+    known=[s['url'] for s in sources_for(request)]
     host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
     preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
