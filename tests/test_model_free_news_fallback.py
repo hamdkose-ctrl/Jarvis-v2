@@ -69,14 +69,15 @@ class ModelFreeNewsFallbackTests(unittest.TestCase):
         def record(_runtime,current,step,approval=None):
             article=next(row['news_article'] for row in rows if row['news_article']['url']==step['input']['url'])
             text=article['text']
-            current['outputs'][step['id']]=task_results.seal('research',{'state':'done','text':text,'source':article['url'],
-                'source_chars':len(text),'source_quotes':[text],'source_only':True,'news_article':article})
+            current['outputs'][step['id']]={'state':'done','text':text,'source':article['url'],
+                'source_chars':len(text),'source_quotes':[text],'source_only':True,'news_article':article}
             step['state']='done';step['started']=True
             return current['outputs'][step['id']]
         with patch('modules.news_pipeline.deliver_job',return_value={'verified':rows}) as pipeline, \
              patch('modules.goal_executor._ensure',return_value=None), \
              patch('modules.goal_executor._save',return_value=None), \
-             patch('modules.goal_executor._record',side_effect=record):
+             patch('modules.goal_executor._record',side_effect=record), \
+             patch('modules.goal_tools.verify'):
             news_recovery.deliver(runtime,job,max_new_steps=8)
         pipeline.assert_called_once()
         self.assertEqual(job['goals'][0]['state'],'done')
