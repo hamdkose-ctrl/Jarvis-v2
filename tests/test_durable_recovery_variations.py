@@ -121,7 +121,7 @@ class RecoveryVariations(unittest.TestCase):
         self.assertIn('publisher0.example/news/first',Path(output['file']).read_text())
         self.assertEqual(case.ask.call_count,3)
 
-    def test_final_completion_checks_actual_catalog_in_current_job(self):
+    def test_final_completion_uses_verified_evidence_not_catalog_attempt_flags(self):
         case=self.case();indexes,fetched,fetch=self.real_transport()
         case.responses(case.plan('Haberleri araştır ve rapor dosyası oluştur'),
                        case.tool('data',{'operation':'headlines','url':indexes[0],'query':'yapay zeka dijital'}),
@@ -133,7 +133,7 @@ class RecoveryVariations(unittest.TestCase):
         same_index=[s for s in job['steps'] if s['tool']=='data' and s['input'].get('url')==index_step['input']['url']]
         for step in same_index:step['started']=False
         job['goals'][0].update(state='done',evidence=[report])
-        self.assertFalse(goals._finish_completed(job));self.assertNotEqual(job['state'],'done')
+        self.assertTrue(goals._finish_completed(job));self.assertEqual(job['state'],'done')
         for step in same_index:step['started']=True
         job['goals'][0].update(state='done',evidence=[report])
         self.assertTrue(goals._finish_completed(job));self.assertEqual(job['state'],'done')
