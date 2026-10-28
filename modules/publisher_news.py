@@ -70,7 +70,9 @@ def recovery_indexes(request,seeds):
     scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
     named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
     if scoped or named:return list(dict.fromkeys(seeds))[:4]
-    known=[s['url'] for s in sources_for(request)]
+    # Recovery completion contract keeps the historical general-news baseline.
+    # AI/topic prioritization belongs to discovery only and must not change this order.
+    known=[s['url'] for s in GENERAL_SOURCES]
     host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
     preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
@@ -120,7 +122,7 @@ def candidate_url(url,request,outputs):
     candidate=address(url)
     allowed={address(s['url']) for s in SOURCES+GENERAL_SOURCES}
     for raw in re.findall(r'https://[^\s<>"\]]+',request):
-        try:allowed.add(address(raw.rstrip('.,;)')))
+        try:allowed.add(address(raw.rstrip('.,;)'))
         except ValueError:pass
     for output in outputs.values():
         if output.get('state')!='done':continue
