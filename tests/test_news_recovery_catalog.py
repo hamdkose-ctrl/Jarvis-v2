@@ -7,7 +7,7 @@ from modules import news_recovery
 
 
 class NewsRecoveryCatalogTests(unittest.TestCase):
-    def test_chat_recovery_never_restarts_catalog_after_pipeline_verification(self):
+    def test_broad_recovery_scans_registered_catalog_after_two_publishers(self):
         job = {
             'id': 'a' * 16, 'owner': 'alice', 'state': 'running',
             'request': 'Türkiye yapay zekâ gelişmelerini araştır',
