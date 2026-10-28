@@ -4,12 +4,6 @@ from datetime import date
 from urllib.parse import urlsplit, unquote
 from bs4 import BeautifulSoup
 
-SOURCES=(
-    {'name':'Yıldız Teknik Üniversitesi','url':'https://www.yildiz.edu.tr/medya/haberler'},
-    {'name':'TÜBİTAK','url':'https://tubitak.gov.tr/tr/haberler'},
-    {'name':'Boğaziçi Üniversitesi','url':'https://haberler.bogazici.edu.tr/'},
-)
-
 
 GENERAL_SOURCES=(
     {'name':'Mynet Haber','url':'https://www.mynet.com/haber/'},
@@ -35,48 +29,38 @@ def _ai_request(request):
 
 
 def _ai_rows():
-    """Genel haber tabanı korunur; yalnız gerçek AI/teknoloji yayıncıları okuma bütçesine öne alınır."""
+    """Genel haber tabanı korunur; gerçek AI/teknoloji yayıncıları okuma bütçesine alınır."""
     baseline=list(GENERAL_SOURCES[:4])
     preferred_names=('DonanımHaber','Webtekno')
-    combined=list(GENERAL_SOURCES)
-    by_name={row['name']:row for row in combined}
+    by_name={row['name']:row for row in GENERAL_SOURCES}
     rows=baseline+[by_name[name] for name in preferred_names if name in by_name]
     seen={row['url'] for row in rows}
-    rows.extend(row for row in combined if row['url'] not in seen)
+    rows.extend(row for row in GENERAL_SOURCES if row['url'] not in seen)
     return rows
 
 
 def sources_for(request=None):
-    """Configured discovery indexes, not live-health or article evidence claims."""
-    institutional=request is None or re.search(r'üniversite|universite|akademik|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',str(request),re.I)
-    if institutional:
-        rows=list(SOURCES)
-    elif _ai_request(request):
-        rows=_ai_rows()
-    else:
-        rows=list(GENERAL_SOURCES)
-    institutional_urls={row['url'] for row in SOURCES}
-    return [dict(row,scope=row.get('scope','Kurum/üniversite duyuruları' if row['url'] in institutional_urls else 'Genel ve konu odaklı haber keşfi'),
+    """Configured news indexes only; official/statistical primary evidence is not a news feed."""
+    rows=_ai_rows() if _ai_request(request) else list(GENERAL_SOURCES)
+    return [dict(row,scope=row.get('scope','Genel ve konu odaklı haber keşfi'),
                  live_connection_tested=False) for row in rows]
 
 
 def multiple_publishers(request):
-    restricted=re.search(r'https://|sadece|yalnız|yalniz|\bonly\b|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz',request,re.I)
+    restricted=re.search(r'https://|sadece|yalnız|yalniz|\bonly\b|tek (?:haber|kaynak)|bir haber',request,re.I)
     return not restricted and bool(re.search(r'son\s+dakika|genel|gündem|gundem|haberler\w*|gelişmeler\w*|gelismeler\w*|\bnews\b',request,re.I))
 
 
 def recovery_indexes(request,seeds):
-    """Select scoped real indexes; old institutional guesses cannot trap general news."""
+    """Select real general-news indexes; topic ranking never changes recovery completion order."""
     scoped=bool(re.search(r'sadece|yalnız|yalniz|\bonly\b|https://',request,re.I))
-    named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|tübitak|tubitak|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
+    named=bool(re.search(r'üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|enstitüsü|enstitusu|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
     if scoped or named:return list(dict.fromkeys(seeds))[:4]
-    # Recovery completion contract keeps the historical general-news baseline.
-    # AI/topic prioritization belongs to discovery only and must not change this order.
     known=[s['url'] for s in GENERAL_SOURCES]
     host=lambda url:(urlsplit(url).hostname or '').removeprefix('www.')
     preferred=[url for url in known if any(host(seed)==host(url) for seed in seeds)]
     broad=bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin|kaynakları sen|kaynaklari sen',request,re.I))
-    excluded={host(s['url']) for s in SOURCES+GENERAL_SOURCES}
+    excluded={host(s['url']) for s in GENERAL_SOURCES}
     discovered=[] if broad or multiple_publishers(request) else [url for url in seeds if host(url) not in excluded]
     ordered=(preferred+known+discovered) if multiple_publishers(request) else (discovered+preferred+known)
     return list(dict.fromkeys(ordered))[:4]
@@ -106,7 +90,7 @@ def catalog_attempted(job):
 
 def broad_research(request):
     return bool(re.search(r'türkiye|turkiye|üniversitelerin|universitelerin',request,re.I) and
-               not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|tübitak|tubitak|bakanlığı|bakanligi|ofisi|boğaziçi|bogazici|dumlupınar|dumlupinar|yıldız|yildiz|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
+               not re.search(r'https://|sadece|yalnız|yalniz|tek (?:haber|kaynak)|bir haber|üniversitesi|universitesi|bakanlığı|bakanligi|ofisi|sanayi|cumhurbaşkan|cumhurbaskan',request,re.I))
 
 
 def require_catalog(job):
@@ -120,7 +104,7 @@ def candidate_url(url,request,outputs):
     """Model guesses are not news links: require user, catalog or actual discovery provenance."""
     from modules.public_sources import address
     candidate=address(url)
-    allowed={address(s['url']) for s in SOURCES+GENERAL_SOURCES}
+    allowed={address(s['url']) for s in GENERAL_SOURCES}
     for raw in re.findall(r'https://[^\s<>"\]]+',request):
         try:allowed.add(address(raw.rstrip('.,;)'))
         except ValueError:pass
@@ -137,8 +121,7 @@ def candidate_url(url,request,outputs):
 def listing(response):
     """Keep real story links ahead of navigation before the generic 50-link cap."""
     host=urlsplit(response['url']).hostname
-    selector=('a[href*="/tr/haber_oku/"]' if host=='haber.dpu.edu.tr' else
-              'a[href*="/universite/haberler/"]' if host in {'yildiz.edu.tr','www.yildiz.edu.tr'} else None)
+    selector='a[href*="/tr/haber_oku/"]' if host=='haber.dpu.edu.tr' else None
     if selector is None:return response
     soup=BeautifulSoup(response['body'],'html.parser')
     return {**response,'body':(''.join(str(a) for a in soup.select(selector))).encode('utf-8')}
@@ -159,35 +142,26 @@ def _published(text):
 
 
 def article(response):
-    """Only checked layouts; generic articles keep their existing stricter reader."""
+    """Only checked explicit layout; generic articles keep their existing stricter reader."""
     from modules import public_sources
     url=public_sources.address(response['url']);parsed=urlsplit(url)
-    ytu=parsed.hostname in {'yildiz.edu.tr','www.yildiz.edu.tr'} and parsed.path.startswith('/universite/haberler/')
     dpu=parsed.hostname=='haber.dpu.edu.tr' and bool(re.fullmatch(r'/tr/haber_oku/[a-f0-9]+/[^/]+/?',parsed.path))
-    if not ytu and not dpu:return None
+    if not dpu:return None
     soup=BeautifulSoup(response['body'],'html.parser')
-    if ytu:
-        nodes=soup.select('#block-ytu-content > article.modern-news-article')
-        canonical=soup.find('link',rel='canonical')
-        if len(nodes)!=1 or canonical is None or not _same_url(canonical.get('href',''),url):raise ValueError('YTÜ haber gövdesi/canonical eşleşmedi.')
-        node=nodes[0];titles=node.select('header.mn-header h1.mn-title');dates=node.select('header.mn-header .mn-meta-date');bodies=node.select('.mn-body')
-    else:
-        nodes=soup.select('#main.article > article#article-post')
-        if len(nodes)!=1:raise ValueError('DPÜ tekil haber gövdesi bulunamadı.')
-        node=nodes[0];titles=node.select('header h1');dates=node.select('footer .author-box > p');bodies=[node]
-        refs=node.select('footer [data-href]')
-        if not refs or any(not _same_url(n.get('data-href',''),url) for n in refs):raise ValueError('DPÜ haber bağlantısı sayfayla eşleşmedi.')
+    nodes=soup.select('#main.article > article#article-post')
+    if len(nodes)!=1:raise ValueError('DPÜ tekil haber gövdesi bulunamadı.')
+    node=nodes[0];titles=node.select('header h1');dates=node.select('footer .author-box > p');bodies=[node]
+    refs=node.select('footer [data-href]')
+    if not refs or any(not _same_url(n.get('data-href',''),url) for n in refs):raise ValueError('DPÜ haber bağlantısı sayfayla eşleşmedi.')
     if len(titles)!=1 or len(dates)!=1 or len(bodies)!=1 or node.find('article'):
         raise ValueError('Yayıncıda tekil başlık, gövde ve tarih eşleşmedi.')
     title=titles[0].get_text(' ',strip=True)
     if not title or any(h.get_text(' ',strip=True) not in ('',title) for h in soup.find_all('h1')):
         raise ValueError('Başlık başka haber veya liste başlığıyla çelişiyor.')
     stamp=dates[0].get_text(' ',strip=True)
-    if dpu:
-        prefix='Kurumsal İletişim Koordinatörlüğü - '
-        if not stamp.startswith(prefix):raise ValueError('DPÜ yayın tarihi etiketi eksik.')
-        stamp=stamp[len(prefix):]
-    published=_published(stamp)
+    prefix='Kurumsal İletişim Koordinatörlüğü - '
+    if not stamp.startswith(prefix):raise ValueError('DPÜ yayın tarihi etiketi eksik.')
+    published=_published(stamp[len(prefix):])
     body=bodies[0]
     for n in body(['script','style','noscript','nav','footer','header','aside','svg']):n.decompose()
     text=re.sub(r'\s+',' ',body.get_text(' ',strip=True))[:20000]
