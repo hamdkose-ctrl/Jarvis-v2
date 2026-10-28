@@ -51,12 +51,14 @@ class NewsTopicRelevanceTests(unittest.TestCase):
         ))
         self.assertEqual(result.get("verification"), "verified")
 
-    def test_ai_request_prioritizes_existing_topical_publishers_inside_read_budget(self):
+    def test_ai_request_prioritizes_topic_publishers_without_promoting_institutional_feeds(self):
         rows = publisher_news.sources_for(LONG_REQUEST)
         names = [row["name"] for row in rows[:news_pipeline.MAX_SOURCES]]
         self.assertIn("DonanımHaber", names)
         self.assertIn("Webtekno", names)
-        self.assertIn("TÜBİTAK", names)
+        self.assertNotIn("TÜBİTAK", names)
+        self.assertNotIn("Yıldız Teknik Üniversitesi", names)
+        self.assertNotIn("Boğaziçi Üniversitesi", names)
         self.assertGreaterEqual(len({publisher_news.publisher_key(row["url"]) for row in rows[:news_pipeline.MAX_SOURCES]}), 2)
 
     def test_completion_evidence_still_requires_two_distinct_publishers(self):
