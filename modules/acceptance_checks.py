@@ -110,26 +110,49 @@ def _news_failure_detail(job):
     return detail
 
 
-def _news_chat_resume(owner):
+def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
     """Run the real fileless-news turn in an isolated goal store, then verify closed-goal resume."""
-    from modules import engine_runtime,goal_executor
+    from modules import engine_runtime,goal_executor,nxapi,llm,task_results,model_free_news
+    from unittest.mock import patch
+    from contextlib import ExitStack
     previous_store=goal_executor.STORE
     runtime=None
-    with tempfile.TemporaryDirectory(prefix='jarvis-news-acceptance-') as temp_dir:
+    with tempfile.TemporaryDirectory(prefix='jarvis-news-acceptance-') as temp_dir, ExitStack() as guards:
+        files=Path(temp_dir)/'files'
+        guards.enter_context(patch.object(nxapi,'FILES_DIR',files))
+        model=guards.enter_context(patch.object(llm,'ask',side_effect=RuntimeError('Kabul sırasında model çağrısı kapalı.')))
+        guards.enter_context(patch.object(goal_executor,'_quota_wait',return_value=60))
         goal_executor.STORE=Path(temp_dir)/'goals'
         try:
             runtime=engine_runtime.EngineContext()
-            runtime.handle('hedef son dakika haberleri')
+            runtime.handle('hedef '+request)
             job=goal_executor.latest(owner)
             if not job:return 'failed','Haber hedefi oluşturulmadı.'
             if job.get('state')!='done':
                 return 'failed',_news_failure_detail(job)
-            if any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
+            if not file_report and any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
                    for step in job.get('steps') or []):
                 return 'failed','Dosya istenmeyen haber hedefinde writer çalıştı.'
             articles,publishers=_news_job_facts(job)
             if articles<2 or len(publishers)<2:
                 return 'failed',f'Haber kanıtı yetersiz: {articles} tarihli makale, {len(publishers)} yayıncı.'
+            for output in job.get('outputs',{}).values():
+                if isinstance(output,dict) and output.get('state')=='done' and output.get('news_article'):
+                    model_free_news.quotes(output['news_article'],request)
+            if file_report:
+                reports=[(ident,output) for ident,output in job.get('outputs',{}).items()
+                         if isinstance(output,dict) and output.get('state')=='done' and output.get('news_report_evidence')]
+                if len(reports)!=1:return 'failed','Tek doğrulanmış haber raporu bulunamadı.'
+                report_id,report=reports[0]
+                task_results.verify(report,owner=owner)
+                path=Path(report['file']).resolve()
+                if not path.is_relative_to(files.resolve()):return 'failed','Rapor yalıtılmış dosya alanında değil.'
+                count,hosts=_news_job_facts({'request':request,'outputs':report['news_report_evidence'].get('sources',{})})
+                if count<2 or len(hosts)<2:return 'failed','Dosyanın kendi kanıtında iki yayıncı yok.'
+                if not any(step.get('tool')=='verify' and step.get('state')=='done' and
+                           report_id in step.get('depends',[]) for step in job.get('steps',[])):
+                    return 'failed','Raporun verify adımı tamamlanmadı.'
+                original_bytes=path.read_bytes()
             before=_goal_signature(job);job_id=job.get('id')
             reply=runtime.handle('devam')
             after=goal_executor.latest(owner)
@@ -140,6 +163,8 @@ def _news_chat_resume(owner):
             answer=str(reply or '').casefold()
             if 'açık hedef yok' not in answer or 'tamamlandı' not in answer:
                 return 'failed','devam tamamlanmış hedef için kapalı-hedef yanıtını vermedi.'
+            if model.call_count:return 'failed','Haber kabulünde model çağrısı denendi.'
+            if file_report and path.read_bytes()!=original_bytes:return 'failed','Devam rapor dosyasını değiştirdi.'
             return 'passed',f'{articles} tarihli makale / {len(publishers)} yayıncı doğrulandı; devam hedefi değiştirmedi.'
         finally:
             if runtime is not None:
@@ -149,6 +174,23 @@ def _news_chat_resume(owner):
                     except Exception:
                         _record_failure('modules/acceptance_checks.py:news_prefetch_shutdown')
             goal_executor.STORE=previous_store
+
+
+def _news_chat_resume(owner):
+    """All cases are required; a generic PASS cannot hide a topic or file failure."""
+    cases=[('genel sohbet','son dakika haberleri',False),
+           ('Türkiye AI sohbet','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır',False),
+           ('Türkiye AI dosya','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır ve raporu dosyaya kaydet',True)]
+    summaries=[];failed=False
+    for label,request,file_report in cases:
+        try:
+            state,detail=_news_scenario(owner,request,file_report=file_report)
+        except Exception as exc:
+            _record_failure('modules/acceptance_checks.py:news_scenario')
+            state,detail='failed',type(exc).__name__
+        failed=failed or state!='passed'
+        summaries.append(label+': '+state+'; '+detail)
+    return ('failed' if failed else 'passed'),' | '.join(summaries)
 
 
 def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,news=False,

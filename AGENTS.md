@@ -150,3 +150,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PR #439 tam Windows doğrulaması 0785750'de 3.287 testte 1 FAIL/2 ERROR verdi: kaldırılan geography bypass argümanı, eski HTTP taşıyıcı taklidi ve haber devamında gereksiz model beklentisi. Regresyonlar yeni gerçek sözleşmeye bağlanır; coğrafya/HTTPS/kota korumaları geri alınmaz. Yeni head'in Windows ve PC sonucu ayrıca beklenir.
 
 - PR #439 haber keşfi: query sıralaması generic haber/komut sözcükleriyle HTML makale önceliğini bozamaz; domain_tools ortak model_free_news.terms kullanır. Pipeline ret nedenlerini sınırlı özet olarak saklar; kabul raporu aday/okunan/pencere-dışı sayısını, makale retlerini ve kaynak hata nedenlerini gösterir. Bu tanı alanları completion veya retry yetkisi değildir.
+
+- PR #439 --news kabulü artık üç zorunlu gerçek akışı çalıştırır: genel sohbet, Türkiye AI sohbeti ve Türkiye AI dosyası. Ortak news_chat_resume ancak üçü de geçerse passed olur. Model denemeleri bloke edilip sayılır; kota yolu zorlanır; hedef ve dosya deposu geçici/yöreye yalıtılır. Hiçbiri ücretli/model çağrısı veya gerçek kullanıcı dosyası yazımı başlatamaz.
