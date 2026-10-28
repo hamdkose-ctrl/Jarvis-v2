@@ -77,9 +77,8 @@ def check_completion(job,goal,evidence,*,final=False):
     research_goal=re.search(r'araştır|arastir|haber|gelişme|rapor|incele|analiz|özet|ozet',text)
     if not article and not discovery_goal and research_goal and research_evidence.news_requested(text):
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
-    if final or state=='done':
-        from modules import publisher_news
-        publisher_news.require_catalog(job)
+    # Catalog traversal is discovery telemetry, never completion authority.
+    # The canonical pipeline already owns relevance, freshness and publisher evidence.
     from modules import publisher_news
     if (not discovery_goal and research_goal
             and (publisher_news.broad_research(request) or publisher_news.multiple_publishers(request) and research_evidence.news_requested(text)) and len(publishers)<2):
