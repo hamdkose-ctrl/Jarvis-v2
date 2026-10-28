@@ -29,7 +29,8 @@ def _chat_deliver(runtime, job, *, max_new_steps=0, existing_only=False):
     if existing_only:
         verified = news_pipeline.verified_from_outputs(job.get('outputs') or {})
     else:
-        result = news_pipeline.deliver_job(job, model_status='unavailable')
+        result = news_pipeline.deliver_job(job, model_status='unavailable',
+                                           max_sources=news_pipeline.BROAD_MAX_SOURCES)
         verified = result['verified']
 
     # A plural/general request is complete only when the pipeline itself supplied
