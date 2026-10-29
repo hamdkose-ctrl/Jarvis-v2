@@ -141,3 +141,7 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 
 - Ollama ReadTimeout/ConnectTimeout, sunucu kurulu değil ipucuna çevrilmez. Sabit güvenli zaman aşımı mesajı kullanılır; ham URL/transport metni gösterilmez. Router, sarmalanmış requests timeout/connection nedeninin yalnız sınıfını deneme kaydında ve güvenli route metninde gösterir. Hata sınıflandırması/cooldown ve provider sırası değişmez.
 - Hoca ProviderExhaustedError güvenli nedeni ve structured metadata bilgisini korur. Retry, ücretli fallback, timeout süresi veya model indirmesi eklenmez. Gerçek PC Hoca çağrısı henüz kabul edilmemiştir.
+
+- Router durum tablosu kayıtlı model yerine mevcut backend effective çözümünü gösterir; model yoksa doğrulanamadı yazar. Son çağrı özeti tablodan önce gelir; RAM kaydı yoksa süreç/kullanıcı kaydı yokluğu açıkça belirtilir. Bu düzenleme restart dayanıklı health/last-call depolaması eklemez.
+
+- Durum tablosu effective çözümünde refresh_missing=False kullanır; boş model listesinin negatif önbelleği zorla atlanmaz. Cache süresi dolunca mevcut bounded tags probe davranışı sürer. Gerçek inference çözümünün varsayılan forced missing-model kontrolü korunur.

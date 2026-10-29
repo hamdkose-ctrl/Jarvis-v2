@@ -266,7 +266,7 @@ def _installed_ollama_name(model: str, installed: list[str]) -> str | None:
     return alias if alias in installed else None
 
 
-def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
+def _ollama_effective_model(c: dict, requested: str | None = None, *, refresh_missing: bool = True) -> str:
     """Resolve Ollama runtime model against models actually installed on the endpoint.
 
     A saved user preference remains stored, but only an installed model may become
@@ -275,7 +275,7 @@ def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
     if _backend(c) != "ollama":
         return requested or _local_model(c)
     rows = sorted(dict.fromkeys(ollama_models()))
-    if not rows:
+    if not rows and refresh_missing:
         rows = sorted(dict.fromkeys(ollama_models(force=True)))
     if not rows:
         raise LocalModelError(local_hint())

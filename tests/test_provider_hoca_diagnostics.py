@@ -7,6 +7,46 @@ from modules import failure_policy, hoca, llm, smart_router
 
 
 class ProviderHocaDiagnosticsTests(unittest.TestCase):
+    def test_status_resolution_does_not_force_retry_for_cached_missing_models(self):
+        with patch.object(llm, 'ollama_models', return_value=[]) as models:
+            with self.assertRaises(llm.LocalModelError):
+                llm._ollama_effective_model({'backend': 'ollama'}, refresh_missing=False)
+        self.assertEqual(models.call_args_list, [unittest.mock.call()])
+
+    def test_runtime_resolution_keeps_its_existing_forced_missing_model_check(self):
+        with patch.object(llm, 'ollama_models', return_value=[]) as models:
+            with self.assertRaises(llm.LocalModelError):
+                llm._ollama_effective_model({'backend': 'ollama'})
+        self.assertEqual(models.call_args_list, [unittest.mock.call(), unittest.mock.call(force=True)])
+
+    def test_router_table_uses_installed_effective_model_not_saved_configuration(self):
+        with patch.object(smart_router, 'settings', return_value={}), \
+             patch.object(llm, 'provider_configuration', return_value={'model': 'removed:7b'}), \
+             patch.object(llm, '_ollama_effective_model', return_value='qwen2.5:3b') as effective:
+            state = smart_router.status('diagnostic-test')
+        effective.assert_called_once_with({'model': 'removed:7b'}, refresh_missing=False)
+        local = next(row for row in state['capabilities'] if row['provider'] == 'ollama')
+        self.assertEqual(local['model'], 'qwen2.5:3b')
+
+    def test_router_table_does_not_present_removed_model_when_no_installed_model(self):
+        with patch.object(smart_router, 'settings', return_value={}), \
+             patch.object(llm, 'provider_configuration', return_value={'model': 'removed:7b'}), \
+             patch.object(llm, '_ollama_effective_model', side_effect=llm.LocalModelError('missing')):
+            state = smart_router.status('diagnostic-test')
+        local = next(row for row in state['capabilities'] if row['provider'] == 'ollama')
+        self.assertNotEqual(local['model'], 'removed:7b')
+        self.assertIn('doğrulanamadı', local['policy'])
+
+    def test_router_diagnostic_summary_precedes_table_even_without_history(self):
+        for last, expected in [({}, 'Bu süreçte bu kullanıcı için son çağrı kaydı yok'),
+                               ({'provider': None, 'attempts': [{'provider': 'ollama', 'ok': False,
+                                 'error': 'ReadTimeout', 'kind': 'local'}]}, 'zaman aşımı')]:
+            with self.subTest(last=last), patch.object(smart_router, 'status', return_value={
+                    'capabilities': [], 'last': last}):
+                text = smart_router.handle('diagnostic-test', 'router durumu')
+            self.assertIn(expected, text)
+            self.assertLess(text.index(expected), text.index('| Sağlayıcı'))
+
     def test_read_timeout_is_not_reported_as_missing_local_server(self):
         with patch.object(llm, '_cfg', return_value={'backend': 'ollama', 'url': 'http://localhost:11434'}), \
              patch.object(llm, '_ollama_effective_model', return_value='qwen2.5:3b'), \
