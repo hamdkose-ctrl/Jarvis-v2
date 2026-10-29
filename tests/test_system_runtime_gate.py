@@ -73,6 +73,28 @@ class SystemRuntimeGateTests(unittest.TestCase):
         commit.assert_called_once_with(fenced, expected)
         self.assertEqual(output, clean)
 
+    def test_receipt_required_done_without_receipt_is_not_committed(self):
+        from modules import effect_journal, specialist_orchestrator
+        approval = {'state': 'approval', 'approval_schema': 'runtime_prepare_approval.v1'}
+        fenced = {'state': 'done', 'text': 'Ses seviyesi değişti',
+                  '_worker_result': {'schema': 'worker_result.v1'}}
+        enriched = {**self.identity(), 'command_id': 's1:1'}
+        expected = {'owner': 'alice', 'job_id': 'job-1', 'step_id': 's1', 'command_id': 's1:1'}
+        with patch('modules.runtime_prepare_approval.accept', return_value=True), \
+             patch('modules.runtime_execution_gate.plan_task', return_value={'phase': 'execute'}), \
+             patch('modules.runtime_worker_result.durable_identity', return_value=True), \
+             patch('modules.runtime_worker_result.prepare', return_value=(enriched, expected)), \
+             patch('modules.effect_recovery_runtime.required', return_value=True), \
+             patch('modules.effect_recovery_runtime.record_intent'), \
+             patch('modules.worker_result_hook.execute', return_value=fenced), \
+             patch('modules.effect_recovery_runtime.record_receipt') as record_receipt, \
+             patch('modules.runtime_worker_result.accept_and_commit') as commit:
+            with self.assertRaisesRegex(effect_journal.ContractViolation, 'receipt'):
+                specialist_orchestrator.execute_step(
+                    self.runtime(), self.job(), self.step(), self.identity(), approval=approval)
+        record_receipt.assert_not_called()
+        commit.assert_not_called()
+
     def test_volume_and_mute_return_only_verified_state_receipts(self):
         from modules import goal_tools, system_control
         identity = {'owner': 'alice', 'job_id': 'job-1', 'task_id': 's1'}
