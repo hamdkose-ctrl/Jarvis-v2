@@ -90,10 +90,25 @@ def search_public(query: str) -> list[dict]:
     """Search one keyless public provider through the bounded HTTPS reader."""
     return search_all(query, providers=("duckduckgo",), transport=_duckduckgo_transport)
 
+def news_search_query(request: str) -> str:
+    """Remove delivery/window instructions, preserving topical/geographic words.
+
+    The original request remains the article verification/completion authority.
+    """
+    text=_query(request)
+    text=re.sub(r'\bson\s+\d+\s+(?:gün|gun|hafta|ay)\b',' ',text,flags=re.I)
+    text=re.sub(r'\b(?:haber|haberler|haberleri|haberlerini|güncel|guncel|araştır|arastir|araştırın|arastirin|ara|rapor|raporu|dosya|dosyası|dosyasi|dosyaya|kaydet|oluştur|olustur|özetle|ozetle|ve)\b',' ',text,flags=re.I)
+    # Output language is an instruction only when explicitly tied to a report.
+    if re.search(r'\b(?:rapor|raporu|dosya|dosyası|dosyasi)\b',request,re.I):
+        text=re.sub(r'\bTürkçe\b',' ',text,flags=re.I)
+    text=re.sub(r'\s+',' ',text).strip(' ,;:')
+    return text or 'güncel haberler'
+
+
 def search_news_public(query: str) -> list[dict]:
     """News-only keyless fallback; one attempt per service, no model calls."""
     from modules import requests_state
-    query=_query(query)
+    query=news_search_query(query)
     requests_state.check()
     try:
         primary=search_public(query)
