@@ -43,6 +43,13 @@ class ArchitectureGuardTests(unittest.TestCase):
         )
         self.assertIn('ARCH-003', {row['rule'] for row in report['blockers']})
 
+    def test_worker_result_execute_outside_durable_orchestrator_is_blocker(self):
+        report = self._scan_source(
+            "from modules import worker_result_hook\n"
+            "worker_result_hook.execute(runtime, 'publish', {}, {}, identity)\n"
+        )
+        self.assertIn('ARCH-007', {row['rule'] for row in report['blockers']})
+
     def test_runtime_event_subscription_gap_is_warning_not_blocker(self):
         report = self._scan_source("x = 1\n")
         self.assertIn('ARCH-W001', {row['rule'] for row in report['warnings']})
