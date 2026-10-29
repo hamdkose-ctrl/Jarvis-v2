@@ -1,6 +1,6 @@
 # Jarvis Yol Haritası — Hasat Listesi Yapım Sırası
 
-Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi) · 29 Ekim 2026 (Faz 0 kapanış durumu güncel `main` ve merge edilmiş cutover/guard işleriyle yeniden hizalandı)
+Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi) · 29 Ekim 2026 (Faz 0 kapanış durumu güncel `main` ve merge edilmiş cutover/guard işleriyle yeniden hizalandı; gerçek-PC cutover + exact-main final acceptance kanıtlarıyla Faz 0 kapatıldı)
 
 ## "Bitti" kuralı
 
@@ -25,13 +25,13 @@ Bu sayfa, Hasat Listesi'nin Jarvis-v2 güncel `main` durumuna göre eksik kalan 
 
 **Şu an sizden bekleyen karar yok.**
 
-Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunucusu yok, ses tanıma yok, Telegram ve WhatsApp kalıyor, "ben Hasan" profilleri kısıtsız. GoalState RFC'nin dört kararı da kabul edilmiş ve Faz 0 canonical-authority/cutover mekanizmaları merge edilmiştir. Faz 0'da kaynak-doğrulanmış yeni capability kodu değil, gerçek-PC legacy taraması ve final acceptance kanıtı kalmıştır.
+Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunucusu yok, ses tanıma yok, Telegram ve WhatsApp kalıyor, "ben Hasan" profilleri kısıtsız. GoalState RFC'nin dört kararı kabul edildi; canonical-authority/cutover mekanizmaları merge edildi ve gerçek-PC legacy promotion + exact-main final acceptance kanıtlarıyla Faz 0 kapatıldı. Kapanış kaydı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.
 
 ---
 
 ## Genel sıra
 
-- Faz 0: Aşama 0–4 kapanışı (🟡 kapanış/acceptance: canonical authority, promotion, UI/Core authority ve effect/Decision guard işleri merge edildi; gerçek-PC legacy-authority taraması + güncel merged-main acceptance bekliyor)
+- Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
@@ -49,18 +49,15 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 ## Faz 0 — Aşama 0–4 kapanışı
 
-**Durum: 🟡 kapanış/acceptance `[1✓ 2✓ 3✓ 4🟡]`. Canonical GoalState authority/cutover kodu, UI/Core authority borcu ve effect/Decision guard boşlukları merge edildi. Fazı `✅` yapmadan önce iki operasyonel kanıt kalıyor: gerçek Windows PC owner verisinde `authority='legacy'` kayıt taraması ve güncel merged `main` SHA üzerinde final PC watcher/acceptance. Bu kontroller yeni bir kusur göstermedikçe yeni Faz 0 capability PR'ı açılmaz.**
+**Durum: ✅ tamamlandı `[1✓ 2✓ 3✓ 4✓]`. Canonical GoalState authority/cutover, UI/Core authority sınırı, effect/crash-recovery ve Decision Authority guard hattı merge edilmiş; gerçek Windows PC cutover ve exact merged-main final acceptance kanıtları alınmıştır. Kapanış kaydı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.**
 
-Mimari temel artık yeni feature kodu beklemiyor; kapanışta amaç gerçek kullanıcı verisinin cutover durumunu ve güncel `main` kabulünü kanıtlamak. Eski kayıt/uyumluluk köprüleri kanıtsız biçimde silinmez.
-
-- 🟡 **Kod merge (#349/#385):** Yeni işler canonical authority ile açılır; canonical-authority işlerde legacy `<id>.json` lifecycle yazımı durmuştur. Legacy-authority compatibility yolu yalnız eski kayıtlar için korunur. Diskte eski JSON dosyasının bulunması tek başına write authority olduğu anlamına gelmez; final Faz 0 acceptance beklenir.
-- 🟡 **Kod merge (#348/#422):** Salt-okunur preflight ve operatör-onaylı cutover/promotion hattı merge edilmiştir. Runner'ın fingerprint + açık job onayıyla **manuel** çalışması tasarım gereğidir; runtime'a otomatik bağlanmaması eksik wiring değildir. #422 promotion, ExecutionRecord → canonical CAS → verification/rollback sınırını tamamlar; gerçek-PC legacy taraması beklenir.
-- 🟡 **Kod merge (#441/#444):** `team_control` ve `team_verify` business/verification authority'si UI bridge'den canonical Core servislere taşındı; eski UI authority baseline kaldırıldı ve geri ekleme `ARCH-006` blocker oldu. Faz 0 final acceptance beklenir.
-- 🟡 **Kod merge (#445):** Receipt-required durable effect `done` dönse bile doğrulanmış provider receipt yoksa Core başarı commit'i yapmaz; journal `unknown / RECEIPT_MISSING_NO_BLIND_RETRY` sözleşmesinde fail-closed kalır. Faz 0 final acceptance beklenir.
-- 🟡 **Kod merge (#447):** `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` içinden çağrılabilir; wrapper üzerinden DecisionContext/runtime gate bypass'ı `ARCH-007` blocker'dır. Faz 0 final acceptance beklenir.
-- 🟡 (#347) Canonical terminal bilgisinin legacy kayda uyumluluk iletimi çalışır. Bu köprü gerçek PC'de legacy-authority kayıt kalmadığı doğrulanmadan körlemesine kaldırılmaz; temiz veri kanıtından sonra ayrı cleanup olarak değerlendirilebilir.
-- 🟡 **Operasyonel cutover kontrolü:** gerçek Windows PC owner klasöründe salt-okunur preflight/plan çalıştırılıp aktif/uyumlu `authority='legacy'` kayıt kalıp kalmadığı kaydedilecek. Kayıt varsa yeni migration motoru yazılmayacak; mevcut #348/#422 operatör-onaylı yol kullanılacak.
-- 🟡 **Final acceptance:** güncel merged `main` SHA için Architecture Guard BLOCKER=0, full `modules.validation`, gerekli Windows/PC watcher acceptance ve temsilî durable E2E kanıtı aynı kaynak durumunda kaydedilecek. Main CI'nın yeşil olması tek başına gerçek-PC acceptance yerine geçmez.
+- ✅ **Canonical authority / legacy write stop (#349/#385):** Yeni işler canonical authority ile açılır; canonical-authority işlerde legacy `<id>.json` lifecycle yazımı durmuştur.
+- ✅ **Cutover / promotion (#348/#422):** Gerçek PC owner verisi salt-okunur planla tarandı; 18 uyumlu legacy-authority aday mevcut #422 operatör-onaylı hattıyla 18/18 canonical'a promote edildi. Son planda blocker, backfill veya promotion adayı kalmadı.
+- ✅ **UI/Core authority (#441/#444):** `team_control` ve `team_verify` authority'si canonical Core servislere taşındı; `ARCH-006` regresyonu blocker yapar.
+- ✅ **Receipt/crash recovery (#445):** Receipt-required effect doğrulanmış receipt olmadan success commit değildir; blind retry yoktur.
+- ✅ **Decision Authority wrapper guard (#447):** `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` sınırından çağrılabilir; bypass `ARCH-007` blocker'dır.
+- ✅ **Final exact-main acceptance:** `main@2da471412a53d275659d2f82ac91f2558478c0e9` üzerinde Architecture Guard PASS; full `modules.validation` `3391 test / 3 skip` PASS; Windows CI #910 SUCCESS; gerçek-PC watcher `STATUS=passed` ve exact-SHA raporu `%LOCALAPPDATA%\Jarvis\pc-acceptance\reports\2da471412a53d275659d2f82ac91f2558478c0e9.json` altında arşivlendi.
+- **#347 compatibility bridge:** Faz 0 kapanışını bloklamaz. Legacy authority/write yolu canonical işlerde kapalıdır; gerçek-PC promotion adayı kalmadığı için köprünün fiziksel silinmesi daha sonra ayrı ve kanıtlı cleanup olarak değerlendirilebilir. Bu bounded safety shim ikinci authority değildir ve `[4✓]` kararını geri açmaz.
 - **F-003 çekirdek ayrımı (0–4 kararı):** Memory ≠ Task State ≠ Context için 0–4'te yeni capability PR'ı açılmaz. Memory davranış/context girdisidir, session konuşma metadata'sıdır, cron zamanlama ifadesidir; kendi başlarına GoalState lifecycle/completion/permission authority yaratamazlar. Mevcut Core/GoalState writer ve execution guard sınırları korunur; ayrıntılı memory/context lifecycle Faz 11'dedir.
 
 ---
@@ -197,7 +194,6 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 - Google Takvimden gelen saatli kayıt, plan çıktısında Jarvis'in çalıştığı makinenin saat dilimine ikinci kez çevrilmez; kaynağın takvim duvar saati korunur. Bu yalnız salt-okunur gösterim/eşsizleştirme düzeltmesidir; Google takvim yazımı, yetki veya etkinin kapsamı değişmez. Kanıt: PR #413; test `test_google_event_keeps_calendar_wall_time`.
 
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
-
 🟡 (#384) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
 
 - ComputerWorker sınırı tanımlanacak, UIA temel ölçümü ve yetenek / makbuz sözleşmesi yazılacak. 4F merge edildikten sonra açılır. Hesap Makinesi ve Not Defteri pilotu, uygulama izin listesi ve manifest var.
