@@ -73,18 +73,9 @@ _UI_AUTHORITY_MODULES = frozenset({
     'modules.worker_result_commit',
 })
 
-# Existing UI debt is frozen by exact dependency edge. Adding another authority
-# dependency to the same file is still ARCH-006; baseline entries never grant a
-# general exemption to a file.
-_UI_AUTHORITY_BASELINE = {
-    'web_tasks.py': frozenset({
-        'modules.execution_record',
-        'modules.goal_executor',
-        'modules.goal_tools',
-        'modules.task_agents',
-        'modules.task_results',
-    }),
-}
+# Paid-down UI/Core authority debt must not be reintroduced. The baseline is
+# intentionally empty; any future UI dependency on the modules above is ARCH-006.
+_UI_AUTHORITY_BASELINE = {}
 
 
 def _call_name(node: ast.Call, module_alias: dict | None = None, func_alias: dict | None = None) -> str | None:
