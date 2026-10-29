@@ -28,6 +28,8 @@ CACHE_SECONDS = 600
 DEFAULT_WINDOW = 7
 MAX_WINDOW = 90
 MAX_SOURCES = 8
+# A user news request may inspect the whole configured discovery pool; utility probes stay bounded.
+BROAD_MAX_SOURCES = 20
 MAX_ITEMS_PER_SOURCE = 12
 MAX_WORKERS = 4
 MIN_VERIFIED = 2
@@ -61,7 +63,7 @@ _CATEGORY_ALIASES = {
 }
 
 _lock = threading.Lock()
-_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
 
 
 def cache_clear() -> None:
@@ -71,7 +73,7 @@ def cache_clear() -> None:
 
 def cached_urls() -> list[str]:
     with _lock:
-        return sorted(_CACHE)
+        return sorted({key[1] for key in _CACHE})
 
 
 def _fold(value) -> str:
@@ -83,18 +85,19 @@ def catalog(request=None) -> list[dict]:
     return publisher_news.sources_for(request)
 
 
-def headline_reader(owner):
+def headline_reader(owner, query=None):
     """The existing single-index read, as a per-source callable for the pipeline."""
     from modules import domain_tools
 
     def read(url):
-        return domain_tools.headlines(owner, url)['items']
+        kwargs = {'query': query[:300]} if query else {}
+        return domain_tools.headlines(owner, url, **kwargs)['items']
 
     return read
 
 
 def source_name(url) -> str:
-    known = {row['url']: row['name'] for row in catalog()}
+    known = {row['url']: row['name'] for row in publisher_news.GENERAL_SOURCES}
     if url in known:
         return known[url]
     return (urlsplit(url).hostname or str(url)).removeprefix('www.')
@@ -251,21 +254,34 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
     Results honour the bounded cache. A source that fails entirely is never cached, so an offline
     moment is not remembered as "no news".
     """
-    reader = reader or headline_reader(owner)
-    rows = list(sources or catalog(query))[:max_sources]
+    from modules import requests_state
+    default_reader = reader is None
+    reader = reader or headline_reader(owner, query)
+    rows = list(catalog(query) if sources is None else sources)[:max_sources]
+    if not rows:
+        return [], []
     today = now or _today()
     results: dict[str, tuple[list[dict], dict]] = {}
 
     def read(source):
         url = source['url']
         name = source.get('name') or source_name(url)
+        requests_state.check()
+        if default_reader:
+            from modules import privacy, service_store
+            service_store.identity(owner)
+            if blocked := privacy.blocked('web'):
+                raise PermissionError(blocked)
+        key = (owner, url, query or '')
         with _lock:
-            hit = _CACHE.get(url)
+            hit = _CACHE.get(key)
         if hit and hit[0] > time.monotonic():
             return url, ([dict(row) for row in hit[1]], {'source': name, 'url': url, 'status': 'ok',
                                                             'item_count': len(hit[1]), 'reason': None, 'cache': True})
         try:
             items = list(reader(url) or [])[:MAX_ITEMS_PER_SOURCE]
+        except (requests_state.Cancelled, PermissionError):
+            raise
         except Exception as exc:
             _record_failure('modules/news_pipeline.py:discover_source')
             return url, ([], {'source': name, 'url': url, 'status': 'failed', 'item_count': 0,
@@ -275,7 +291,7 @@ def discover(sources, *, reader=None, owner=None, query=None, now=None, max_sour
         status = 'ok' if candidates else 'partial'
         if candidates:
             with _lock:
-                _CACHE[url] = (time.monotonic() + CACHE_SECONDS, candidates)
+                _CACHE[key] = (time.monotonic() + CACHE_SECONDS, candidates)
         return url, (candidates, {'source': name, 'url': url, 'status': status,
                                   'item_count': len(candidates), 'reason': None})
 
@@ -311,7 +327,8 @@ def _today():
 def in_window(row, days, today) -> bool:
     if not row.get('published_at'):
         return False
-    return (today - date.fromisoformat(row['published_at'])).days <= days
+    age = (today - date.fromisoformat(row['published_at'])).days
+    return 0 <= age <= days
 
 
 def verify(row, *, request, fetcher, today, days) -> dict:
@@ -323,9 +340,10 @@ def verify(row, *, request, fetcher, today, days) -> dict:
     fetcher = fetcher or public_sources.fetch
     # model_free_news yalnız burada çağrılır: modül üstünde içe aktarmak privacy→config döngüsünü
     # bu hat üzerinden kırar, çünkü config anahtarı okumak için tam yüklenmiş privacy ister.
-    from modules import model_free_news
+    from modules import model_free_news, requests_state
     candidate = dict(row)
     try:
+        requests_state.check()
         article = article_reader(fetcher(row['url']))
         published = date.fromisoformat(article['published'])
         if published > today:
@@ -333,6 +351,8 @@ def verify(row, *, request, fetcher, today, days) -> dict:
         if (today - published).days > days:
             raise ValueError('Haber istenen pencerenin dışında; eski haber eklenmedi.')
         quotes = model_free_news.quotes(article, request)
+    except (requests_state.Cancelled, PermissionError):
+        raise
     except Exception as exc:
         _record_failure('modules/news_pipeline.py:verify_article')
         candidate['reason'] = _safe_reason(exc)
@@ -381,10 +401,19 @@ def _verify_many(rows, *, request, fetcher, today, days) -> list[dict]:
         return [future.result() for future in futures]
 
 
-def enough_evidence(verified) -> bool:
-    """News completion evidence is two dated articles from two distinct publishers; nothing less."""
-    hosts = {publisher_news.publisher_key(row['news_article']['url']) for row in verified}
-    return len(verified) >= MIN_VERIFIED and len(hosts - {''}) >= MIN_VERIFIED
+def enough_evidence(verified, request=None) -> bool:
+    """One completion contract; explicit single-source work stays within its scope."""
+    wanted = str(request or '')
+    explicit = {url.rstrip(".,!?)\"'”") for url in re.findall(r'https?://[^\s<>|]+', wanted)}
+    single = bool(explicit or re.search(r'\b(?:tek|bir)\s+(?:haber|kaynak)|\bhaber(?:i|ini)\b', wanted, re.I))
+    plural = bool(re.search(r'(?:iki|2)\s+(?:ayrı|ayri|farklı|farkli|bağımsız|bagimsiz)', wanted, re.I))
+    minimum = 1 if single and not plural else MIN_VERIFIED
+    urls = {row.get('news_article', {}).get('url') for row in verified if isinstance(row, dict)} - {None, ''}
+    hosts = {publisher_news.publisher_key(url) for url in urls}
+    if explicit and not plural:
+        requested_hosts={publisher_news.publisher_key(url) for url in explicit}
+        return len(urls)>=len(explicit) and requested_hosts.issubset(hosts)
+    return len(urls) >= minimum and len(hosts - {''}) >= minimum
 
 
 def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
@@ -398,19 +427,21 @@ def _verify_plan(rows, *, request, fetcher, today, days) -> list[dict]:
     for start in range(0, len(rows), MAX_WORKERS):
         checked.extend(_verify_many(rows[start:start + MAX_WORKERS], request=request, fetcher=fetcher,
                                     today=today, days=days))
-        if enough_evidence([row for row in checked if row['verification'] == 'verified']):
+        if enough_evidence([row for row in checked if row['verification'] == 'verified'], request):
             break
     return checked
 
 
-def status(health, *, verified, model_status='unavailable') -> dict:
+def status(health, *, verified, model_status='unavailable', request=None) -> dict:
     """news_status is about sources and evidence; model_status never overwrites it."""
     total = len(health)
     failed = sum(1 for row in health if row['status'] == 'failed')
-    if total and failed == total:
-        news = 'unavailable'
+    if enough_evidence(verified, request):
+        news = 'complete'
     elif verified:
-        news = 'partial' if failed else 'complete'
+        news = 'partial'
+    elif total and failed == total:
+        news = 'unavailable'
     else:
         news = 'empty'
     return {'news_status': news, 'model_synthesis_status': model_status}
@@ -535,11 +566,29 @@ def verify_synthesis(text, evidence) -> dict:
             'dropped_unsupported_quote': dropped_quote}
 
 
+def external_candidates(rows):
+    """Bound discovery reads to distinct publishers and non-directory URLs."""
+    chosen=[];publishers=set()
+    for row in rows or []:
+        if not isinstance(row,dict) or not row.get('url'):continue
+        try:url=public_sources.address(row['url'])
+        except ValueError:continue
+        path=urlsplit(url).path.casefold()
+        if re.search(r'(?:^|/)(?:kategori|category|etiket|tag|haberleri|tum-haberler|son-dakika-haberler)(?:/|$)',path):continue
+        key=publisher_news.publisher_key(url)
+        if key in publishers:continue
+        publishers.add(key);chosen.append(dict(row,url=url))
+        if len(chosen)>=8:break
+    return chosen
+
+
 def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=None, now=None,
-        reuse=None, source_health=None, model_status='unavailable', claim_review=None) -> dict:
+        reuse=None, source_health=None, model_status='unavailable', claim_review=None,
+        max_sources=MAX_SOURCES, searcher=None) -> dict:
     """Model-free vertical: discover → filter → cluster → verify → deterministic report."""
     today = now or _today()
-    window = DEFAULT_WINDOW if days is None else max(1, min(MAX_WINDOW, int(days)))
+    window = window_days(request) if days is None else max(1, min(MAX_WINDOW, int(days)))
+    external_discovery={'state':'not_attempted','candidates':0,'reason':None}
     reused = [dict(row) for row in (reuse or [])]
     health: list[dict] = [dict(row) for row in (source_health or [])]
     candidates: list[dict] = []
@@ -548,12 +597,31 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         # başlamaz; kimlik bekçisi olmayan bir istek (owner=None) asla katalog okumaz.
         candidates = [dict(row, in_window=in_window(row, window, today)) for row in reused]
         fresh = [row for row in candidates if row['in_window']]
-        verified = [row for row in fresh if row.get('verification') == 'verified' and row.get('news_article')]
+        verified = []
+        from modules import model_free_news
+        for row in fresh:
+            if row.get('verification') != 'verified' or not row.get('news_article'):
+                continue
+            try:
+                row['quotes'] = model_free_news.quotes(row['news_article'], request)
+            except (ValueError, KeyError):
+                continue
+            verified.append(row)
         reused_count = len(verified)
         reads_count = 0
     else:
-        rows = sources if sources is not None else catalog(request)
-        candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today)
+        explicit = list(dict.fromkeys(url.rstrip(".,!?)\"'”")
+                        for url in re.findall(r'https?://[^\s<>|]+', str(request))))
+        if explicit and sources is None:
+            rows = [{'url': public_sources.address(url), 'name': source_name(url)} for url in explicit]
+        else:
+            rows = sources if sources is not None else catalog(request)
+        candidates, health = discover(rows, reader=reader, owner=owner, query=request, now=today,
+                                      max_sources=max_sources)
+        if explicit and sources is None:
+            for url in explicit:
+                if not any(row['url'] == url for row in candidates):
+                    candidates.insert(0, normalize({'url': url}, source=source_name(url), now=today))
         candidates = filter_candidates(candidates, request)
         candidates = cluster(candidates)
         for row in candidates:
@@ -561,9 +629,43 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
         # A listing that prints no dates is not an undated story: the article page's own date is the
         # legitimate evidence, so only a feed date already outside the window cancels the read.
         stale = {row['url'] for row in candidates if row['published_at'] and not row['in_window']}
-        reads = _read_plan([row for row in candidates if row['url'] not in stale], MAX_ARTICLE_READS)
+        expand = sources is None and not explicit and ((owner is not None and reader is None) or searcher is not None)
+        catalog_budget = MAX_ARTICLE_READS - 8 if expand else MAX_ARTICLE_READS
+        reads = _read_plan([row for row in candidates if row['url'] not in stale], catalog_budget)
         checked_rows = _verify_plan(reads, request=request, fetcher=fetcher, today=today, days=window)
         verified = [row for row in checked_rows if row['verification'] == 'verified']
+        if expand and not enough_evidence(verified, request):
+            from modules import requests_state
+            requests_state.check()
+            try:
+                extra = (searcher or research_providers.search_news_public)(request)
+                seen = {row['url'] for row in checked_rows}
+                additions = []
+                for item in external_candidates(extra):
+                    if not isinstance(item, dict) or not item.get('url'):
+                        continue
+                    try:
+                        url = public_sources.address(item['url'])
+                    except ValueError:
+                        continue
+                    if url in seen:
+                        continue
+                    seen.add(url)
+                    additions.append(normalize(dict(item, url=url), source=source_name(url), now=today))
+                    if len(additions) >= 8:
+                        break
+                external_discovery={'state':'candidates' if additions else 'empty','candidates':len(additions),'reason':None,
+                                    'providers':sorted({str(row.get('provider','unknown')) for row in extra or [] if isinstance(row,dict)})}
+                additions = filter_candidates(additions, request)
+                candidates.extend(additions)
+                checked_rows.extend(_verify_plan(additions, request=request, fetcher=fetcher,
+                                                 today=today, days=window))
+                verified = [row for row in checked_rows if row['verification'] == 'verified']
+            except (requests_state.Cancelled, PermissionError):
+                raise
+            except Exception as exc:
+                _record_failure('modules/news_pipeline.py:public_discovery')
+                external_discovery={'state':'failed','candidates':0,'reason':_safe_reason(exc)}
         by_url = {row['url']: row for row in checked_rows}
         for row in candidates:
             match = by_url.get(row['url'])
@@ -583,9 +685,10 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
     failed = sum(1 for row in health if row['status'] == 'failed')
     partial = sum(1 for row in health if row['status'] == 'partial')
     codes = status(health or [{'source': 'reuse', 'status': 'ok', 'item_count': len(verified), 'reason': None}],
-                   verified=verified, model_status=model_status)
+                   verified=verified, model_status=model_status, request=request)
     result = {
         'request': request,
+        'public_discovery': external_discovery,
         'window_days': window,
         'source_health': health,
         'sources_total': len(health),
@@ -653,7 +756,21 @@ def _record(job, result) -> None:
 
     Yalnız özet saklanır; haber gövdeleri iş kaydına ikinci kez yazılmaz.
     """
+    rejected = {}
+    for row in result.get('candidates', []):
+        if row.get('reason'):
+            reason = _safe_reason(row['reason'])
+            rejected[reason] = rejected.get(reason, 0) + 1
     job['news_pipeline'] = {
+        'public_discovery': result.get('public_discovery',{'state':'not_attempted','candidates':0,'reason':None}),
+        'rejected_candidates': [{'url':_safe_reason(row.get('url',''))[:240],
+                                 'reason':_safe_reason(row['reason'])}
+                                for row in result.get('candidates',[]) if row.get('reason')][:12],
+        'articles_rejected': sum(rejected.values()),
+        'rejection_reasons': [{'reason': reason, 'count': count}
+                              for reason, count in sorted(rejected.items(), key=lambda item: (-item[1], item[0]))[:3]],
+        'outside_window': sum(bool(row.get('published_at')) and row.get('in_window') is False
+                              for row in result.get('candidates', [])),
         'window_days': result['window_days'],
         'news_status': result['news_status'],
         'model_synthesis_status': result['model_synthesis_status'],
@@ -662,6 +779,7 @@ def _record(job, result) -> None:
         'sources_failed': result['sources_failed'],
         'sources_partial': result['sources_partial'],
         'articles_discovered': result['articles_discovered'],
+        'articles_read': result['articles_read'],
         'articles_verified': result['articles_verified'],
         'reused': result['reused'],
         'source_health': result['source_health'],
@@ -680,13 +798,14 @@ def attach_job(job, *, model_status='unavailable', now=None) -> dict:
     return result
 
 
-def deliver_job(job, *, model_status='unavailable', reader=None, fetcher=None, now=None) -> dict:
+def deliver_job(job, *, model_status='unavailable', reader=None, fetcher=None, now=None,
+                max_sources=MAX_SOURCES) -> dict:
     """Plan hiç yapılamadığında haberin modelsiz tam teslimi: paralel keşif + doğrulama + rapor.
 
     Çağrının kendi kaynak sınırları (timeout, bütçe, iptal) geçerlidir; hiçbir model istenmez.
     """
     result = run(str(job.get('request') or ''), owner=job.get('owner'), reader=reader, fetcher=fetcher,
-                 now=now, model_status=model_status)
+                 now=now, model_status=model_status, max_sources=max_sources)
     _record(job, result)
     return result
 
@@ -727,3 +846,5 @@ def render_lines(job) -> list[str]:
     if note:
         lines.append(note)
     return lines
+
+

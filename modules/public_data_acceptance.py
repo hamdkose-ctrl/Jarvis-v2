@@ -2,9 +2,7 @@
 from modules import service_store, domain_tools, task_agents, task_results, requests_state
 from modules.diagnostics import record_failure as _record_failure
 import re
-from modules.publisher_news import SOURCES
-
-PUBLISHER_INDEXES=tuple(s['url'] for s in SOURCES)
+from modules.publisher_news import sources_for
 
 
 def run(owner):
@@ -18,14 +16,14 @@ def run(owner):
         except PermissionError:raise
         except Exception as exc:
             _record_failure('modules/public_data_acceptance.py:attempt')
-            # Public requests contain no credentials; do not persist raw errors/bodies.
             add(name,'pending','Live operation unavailable: '+type(exc).__name__)
             return None
     rate=attempt('public_exchange',lambda:domain_tools.exchange(owner,'USD','TRY'))
     if rate:add('public_exchange','passed','Daily USD/TRY source date: '+rate['data']['date'])
-    add('public_news_search','informational','Direct official HTML/RSS publishers selected; no search service required')
+    add('public_news_search','informational','Configured general/topic publishers selected; official/statistical primary evidence is not treated as a news feed')
     sources={}
     request='Son 7 gün yapay zekâ haberlerini araştır ve Türkçe rapor dosyası oluştur; daha eski haberlerle doldurma'
+    publisher_indexes=tuple(row['url'] for row in sources_for(request))
     def worker(kind,ident,data,deps):
         task={'id':ident,'agent':kind,'input':data,'execution':{'owner':owner,'job_id':'public-data-acceptance',
               'task_id':ident,'request':request,'source_only':True}}
@@ -36,7 +34,7 @@ def run(owner):
     attempted=0
     def articles(rows):
         nonlocal attempted
-        for i,row in enumerate(rows[:2]):
+        for row in rows[:2]:
             if row['url'] in seen:continue
             if attempted>=6 or len(sources)>=2:break
             seen.add(row['url']);attempted+=1;ident='article'+str(attempted)
@@ -44,13 +42,13 @@ def run(owner):
             if result:
                 sources[ident]=result
                 add('public_news_'+ident,'passed','Published date and literal article quotes verified')
-    for i,url in enumerate(PUBLISHER_INDEXES):
+    for i,url in enumerate(publisher_indexes):
         if attempted>=6 or len(sources)>=2:break
         name='public_publisher_'+str(i+1)
         result=attempt(name,lambda:domain_tools.headlines(owner,url,query='yapay zeka dijital'))
         if result is None:continue
         add(name,'passed','Publisher links read; article evidence still required')
-        candidates=[r for r in result['items'] if re.search(r'yapay\s+zek|artificial\s+intelligence|dijital|inovasyon',r['title'],re.I)]
+        candidates=[r for r in result['items'] if re.search(r'yapay\s+zek|artificial\s+intelligence|\bai\b|dijital|inovasyon',r['title'],re.I)]
         articles(candidates or result['items'][:1])
     if not sources:
         add('public_news_report','pending','No last-7-day AI article verified in bounded sources; no report created or older news substituted')

@@ -10,21 +10,24 @@ from modules import desktop, privacy
 from modules.llm import ask
 
 _URL = re.compile(r"((?:https?://)?(?:[\w-]+\.)+(?:com|net|org|edu|gov|io|tr|co|dev|app|info|me)(?:/[^\s]*)?)", re.I)
-_UA = {"User-Agent": "Mozilla/5.0 (Jarvis)"}
 
 
 def page_text(url: str, limit: int = 12000) -> str:
     if not url.lower().startswith(("http://", "https://")):
         url = "https://" + url
-    r = requests.get(url, headers=_UA, timeout=15)
-    r.raise_for_status()
-    html = r.text
+    from modules import public_sources, requests_state
+    if blocked := privacy.blocked('web'):
+        raise PermissionError(blocked)
+    requests_state.check()
+    response = public_sources.fetch(url)
+    html = response['body']
     try:
         from bs4 import BeautifulSoup
         from modules.public_sources import readable_text
         soup = BeautifulSoup(html, "html.parser")
         text = readable_text(soup)
     except ImportError:
+        html = html.decode('utf-8', errors='replace')
         text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
         text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text)[:limit]
@@ -33,7 +36,9 @@ def page_text(url: str, limit: int = 12000) -> str:
 def summarize(url: str) -> str:
     try:
         text = page_text(url)
-    except requests.RequestException as e:
+    except PermissionError:
+        raise
+    except (requests.RequestException, ValueError, OSError) as e:
         privacy.audit("sayfa özeti", url, ok=False)
         return f"Sayfaya ulaşamadım: {type(e).__name__}."
     if len(text) < 80:
@@ -66,3 +71,4 @@ def handle(cmd_lower: str) -> str | None:
         privacy.audit("site açma", url)
         return f"{u.group(1)} sitesini açtım."
     return None
+

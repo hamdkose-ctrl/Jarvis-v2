@@ -78,6 +78,40 @@ def _news_failure_detail(job):
         _record_failure('modules/acceptance_checks.py:news_failure_receipts')
         detail+='; makale=geçersiz'
     detail+='; kurtarma='+(','.join(key+':'+str(value) for key,value in sorted(recovery.items())) or 'yok')
+    pipeline=job.get('news_pipeline') if isinstance(job.get('news_pipeline'),dict) else {}
+    detail+=f"; aday={pipeline.get('articles_discovered',0)}; okunan={pipeline.get('articles_read',0)}"
+    detail+=f"; pencere_dışı={pipeline.get('outside_window',0)}"
+    reasons=pipeline.get('rejection_reasons')
+    if isinstance(reasons,list):
+        summaries=[]
+        for row in reasons[:3]:
+            if not isinstance(row,dict):continue
+            reason=privacy.redact(' '.join(str(row.get('reason') or '').split()),force=True)[:160]
+            if reason:summaries.append(str(row.get('count',0))+'x '+reason)
+        if summaries:detail+='; makale_retleri='+' / '.join(summaries)
+    health=pipeline.get('source_health') if isinstance(pipeline.get('source_health'),list) else []
+    failed=[row for row in health if isinstance(row,dict) and row.get('status')=='failed' and row.get('reason')]
+    if failed:
+        detail+='; kaynak_hataları='+' / '.join(
+            privacy.redact(' '.join(str(row['reason']).split()),force=True)[:120] for row in failed[:2])
+    search=pipeline.get('public_discovery')
+    if isinstance(search,dict):
+        detail+='; web_keşfi='+str(search.get('state','unknown'))+'; web_aday='+str(search.get('candidates',0))
+        if search.get('reason'):detail+='; web_hatası='+privacy.redact(str(search['reason']),force=True)[:200]
+    samples=pipeline.get('rejected_candidates')
+    if isinstance(samples,list):
+        detail+='; reddedilen_adresler='+' / '.join(
+            privacy.redact(str(row.get('url','')),force=True)[:240]+' => '+
+            privacy.redact(str(row.get('reason','')),force=True)[:140]
+            for row in samples[:12] if isinstance(row,dict))
+    if health:
+        summary=[]
+        for row in health[:20]:
+            if not isinstance(row,dict):continue
+            label=privacy.redact(str(row.get('source') or row.get('url') or 'kaynak'),force=True)[:60]
+            state=str(row.get('status') or 'unknown')
+            summary.append(label+':'+state)
+        detail+='; kaynak_sağlığı='+(','.join(summary) or 'yok')
     blocker=privacy.redact(str(job.get('blocker') or ''),force=True)[:240]
     if blocker:detail+='; '+blocker
     trace=job.get('decision_diagnostics',[])[-3:]
@@ -86,26 +120,49 @@ def _news_failure_detail(job):
     return detail
 
 
-def _news_chat_resume(owner):
+def _news_scenario(owner,request='son dakika haberleri',*,file_report=False):
     """Run the real fileless-news turn in an isolated goal store, then verify closed-goal resume."""
-    from modules import engine_runtime,goal_executor
+    from modules import engine_runtime,goal_executor,nxapi,llm,task_results,model_free_news
+    from unittest.mock import patch
+    from contextlib import ExitStack
     previous_store=goal_executor.STORE
     runtime=None
-    with tempfile.TemporaryDirectory(prefix='jarvis-news-acceptance-') as temp_dir:
+    with tempfile.TemporaryDirectory(prefix='jarvis-news-acceptance-') as temp_dir, ExitStack() as guards:
+        files=Path(temp_dir)/'files'
+        guards.enter_context(patch.object(nxapi,'FILES_DIR',files))
+        model=guards.enter_context(patch.object(llm,'ask',side_effect=RuntimeError('Kabul sırasında model çağrısı kapalı.')))
+        guards.enter_context(patch.object(goal_executor,'_quota_wait',return_value=60))
         goal_executor.STORE=Path(temp_dir)/'goals'
         try:
             runtime=engine_runtime.EngineContext()
-            runtime.handle('hedef son dakika haberleri')
+            runtime.handle('hedef '+request)
             job=goal_executor.latest(owner)
             if not job:return 'failed','Haber hedefi oluşturulmadı.'
             if job.get('state')!='done':
                 return 'failed',_news_failure_detail(job)
-            if any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
+            if not file_report and any(isinstance(step,dict) and step.get('tool')=='writer' and step.get('started') is True
                    for step in job.get('steps') or []):
                 return 'failed','Dosya istenmeyen haber hedefinde writer çalıştı.'
             articles,publishers=_news_job_facts(job)
             if articles<2 or len(publishers)<2:
                 return 'failed',f'Haber kanıtı yetersiz: {articles} tarihli makale, {len(publishers)} yayıncı.'
+            for output in job.get('outputs',{}).values():
+                if isinstance(output,dict) and output.get('state')=='done' and output.get('news_article'):
+                    model_free_news.quotes(output['news_article'],request)
+            if file_report:
+                reports=[(ident,output) for ident,output in job.get('outputs',{}).items()
+                         if isinstance(output,dict) and output.get('state')=='done' and output.get('news_report_evidence')]
+                if len(reports)!=1:return 'failed','Tek doğrulanmış haber raporu bulunamadı.'
+                report_id,report=reports[0]
+                task_results.verify(report,owner=owner)
+                path=Path(report['file']).resolve()
+                if not path.is_relative_to(files.resolve()):return 'failed','Rapor yalıtılmış dosya alanında değil.'
+                count,hosts=_news_job_facts({'request':request,'outputs':report['news_report_evidence'].get('sources',{})})
+                if count<2 or len(hosts)<2:return 'failed','Dosyanın kendi kanıtında iki yayıncı yok.'
+                if not any(step.get('tool')=='verify' and step.get('state')=='done' and
+                           report_id in step.get('depends',[]) for step in job.get('steps',[])):
+                    return 'failed','Raporun verify adımı tamamlanmadı.'
+                original_bytes=path.read_bytes()
             before=_goal_signature(job);job_id=job.get('id')
             reply=runtime.handle('devam')
             after=goal_executor.latest(owner)
@@ -116,6 +173,8 @@ def _news_chat_resume(owner):
             answer=str(reply or '').casefold()
             if 'açık hedef yok' not in answer or 'tamamlandı' not in answer:
                 return 'failed','devam tamamlanmış hedef için kapalı-hedef yanıtını vermedi.'
+            if model.call_count:return 'failed','Haber kabulünde model çağrısı denendi.'
+            if file_report and path.read_bytes()!=original_bytes:return 'failed','Devam rapor dosyasını değiştirdi.'
             return 'passed',f'{articles} tarihli makale / {len(publishers)} yayıncı doğrulandı; devam hedefi değiştirmedi.'
         finally:
             if runtime is not None:
@@ -125,6 +184,53 @@ def _news_chat_resume(owner):
                     except Exception:
                         _record_failure('modules/acceptance_checks.py:news_prefetch_shutdown')
             goal_executor.STORE=previous_store
+
+
+def _news_external_discovery(owner):
+    """Opt-in live probe: force an empty catalogue, keep real search and article reads."""
+    from modules import news_pipeline,research_providers,publisher_news
+    from urllib.parse import urlsplit
+    request='Son 7 gün güncel haberleri araştır'
+    catalog_keys={publisher_news.publisher_key(row['url']) for row in publisher_news.GENERAL_SOURCES}
+    def external_search(query):
+        return [row for row in research_providers.search_news_public(query)
+                if publisher_news.publisher_key(row['url']) not in catalog_keys]
+    result=news_pipeline.run(request,owner=owner,max_sources=0,searcher=external_search)
+    discovery=result.get('public_discovery',{})
+    from modules import privacy
+    hosts={publisher_news.publisher_key(row['url']) for row in publisher_news.GENERAL_SOURCES}
+    external=[row for row in result.get('candidates',[]) if row.get('verification')=='verified'
+              and publisher_news.publisher_key(row['url']) not in hosts]
+    detail=('Katalog boşluğu zorlandı; gerçek anahtarsız arama ve makale okuyucu; '
+            f"keşif={discovery.get('state')}; aday={discovery.get('candidates',0)}; "
+            f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}; "
+            f"neden={discovery.get('reason') or 'yok'}; sağlayıcı={discovery.get('providers',[])}")
+    rows=[]
+    for row in result.get('candidates',[])[:8]:
+        url=str(row.get('url',''))
+        catalog=publisher_news.publisher_key(url) in hosts
+        rows.append(privacy.redact(url)[:500]+' | katalog='+('içi' if catalog else 'dışı')+
+                    ' | doğrulama='+str(row.get('verification','unknown'))+
+                    ' | ret='+privacy.redact(str(row.get('reason') or 'yok'))[:300])
+    if rows:detail+=' | aday_sonuçları: '+' || '.join(rows)
+    return ('passed' if external else 'failed'),detail
+
+
+def _news_chat_resume(owner):
+    """All cases are required; a generic PASS cannot hide a topic or file failure."""
+    cases=[('genel sohbet','son dakika haberleri',False),
+           ('Türkiye AI sohbet','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır',False),
+           ('Türkiye AI dosya','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır ve raporu dosyaya kaydet',True)]
+    summaries=[];failed=False
+    for label,request,file_report in cases:
+        try:
+            state,detail=_news_scenario(owner,request,file_report=file_report)
+        except Exception as exc:
+            _record_failure('modules/acceptance_checks.py:news_scenario')
+            state,detail='failed',type(exc).__name__
+        failed=failed or state!='passed'
+        summaries.append(label+': '+state+'; '+detail)
+    return ('failed' if failed else 'passed'),' | '.join(summaries)
 
 
 def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False,video=False,news=False,
@@ -183,7 +289,9 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
                 return ('passed' if job and job['status']=='done' else 'pending','Check Calculator 19 and desktop task status')
             check('calculator',calc)
         else:report['checks'].append({'check':'calculator','state':'pending','detail':'Run with --desktop on Windows'})
-        if news:check('news_chat_resume',lambda:_news_chat_resume(owner))
+        if news:
+            check('news_chat_resume',lambda:_news_chat_resume(owner))
+            check('news_external_discovery',lambda:_news_external_discovery(owner))
         else:report['checks'].append({'check':'news_chat_resume','state':'pending','detail':'Run with --news for live fileless news + completed-goal resume acceptance'})
         if narration:
             def voice():
@@ -218,3 +326,4 @@ def main():
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0
 
 if __name__=='__main__':raise SystemExit(main())
+

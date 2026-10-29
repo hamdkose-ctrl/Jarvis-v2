@@ -27,15 +27,17 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
                 'snippet': '', 'source_kind': 'web', 'verified': False}
 
     def _source(self, url, text):
-        return {'url': url, 'text': text, 'content_type': 'text/html'}
+        context='Ölçüm kapsamı: aynı ölçüm bölgesi. Referans dönemi: 2026. '
+        return {'url': url, 'text': context+text, 'content_type': 'text/html'}
 
     def _fake_ask(self, prompt, system='', max_tokens=2000, **kwargs):
         if CLAIM_SENTINEL in system:
             body = prompt.split('):\n', 1)[-1]
             match = re.search(r'(?:yüzde|%)\s*(\d+(?:[.,]\d+)?)', body)
             value = match.group(1).replace(',', '.') if match else ''
-            quote = ' '.join(body.split())[:80]
-            return json.dumps({'value': value, 'quote': quote})
+            quote = ' '.join(body.split())[:800]
+            return json.dumps({'value': value, 'quote': quote,
+                               'scope':'aynı ölçüm bölgesi','as_of':'2026'})
         body = prompt.split('KAYNAK', 1)[-1]
         match = re.search(r'\):\n(.*)', body, re.S)
         text = match.group(1) if match else body
@@ -73,6 +75,46 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
         values = {claim['value'] for claim in claims}
         self.assertEqual(values, {'40', '45'})
 
+    def test_first_unreadable_candidate_is_skipped_once(self):
+        first,second='https://a.test/first','https://b.test/second'
+        text='Enerji tüketimi yüzde 40 azaldı ve bağımsız araştırmanın ayrıntıları kamuoyuyla paylaşıldı.'
+        calls=[]
+        def extract(url):
+            calls.append(url)
+            if url==first:raise OSError('offline')
+            return self._source(url,text)
+        with patch('modules.privacy.blocked',return_value=None), \
+             patch('modules.research_providers.search_public',return_value=[self._candidate(first),self._candidate(second)]), \
+             patch('modules.research_providers.extract_source',side_effect=extract), \
+             patch('modules.model_wait.ask',side_effect=self._fake_ask):
+            result=task_workers.run('alice',self._task(),{})
+        self.assertEqual(result['source'],second)
+        self.assertEqual(calls,[first,second])
+
+    def test_claim_quota_failure_stops_following_model_calls(self):
+        urls=['https://a.test/x','https://b.test/x','https://c.test/x']
+        source=self._source(urls[0],'Enerji tüketimi yüzde 40 azaldı ve araştırmanın ayrıntıları kamuoyuyla paylaşıldı.')
+        summary=json.dumps({'supported':True,'answer':'Kaynak cevabı.','quotes':[source['text'][:80]]})
+        with patch('modules.privacy.blocked',return_value=None), \
+             patch('modules.research_providers.search_public',return_value=[self._candidate(url) for url in urls]), \
+             patch('modules.research_providers.extract_source',side_effect=lambda url:dict(source,url=url)) as extract, \
+             patch('modules.model_wait.ask',side_effect=[summary,RuntimeError('429 kota')]) as ask:
+            result=task_workers.run('alice',self._task(),{})
+        self.assertEqual(result['state'],'done')
+        self.assertEqual(ask.call_count,2)
+        self.assertEqual(extract.call_count,1)
+
+    def test_unknown_measurement_context_does_not_trigger_false_agreement_or_extra_search(self):
+        from modules import research_evidence
+        output={'state':'done','source_claims':[
+            {'subject':'enerji','scope':'','as_of':'','value':'40','url':'https://a.test/x','evidence':'Kaynakta yüzde 40 açıklandı.'},
+            {'subject':'enerji','scope':'','as_of':'','value':'45','url':'https://b.test/x','evidence':'Kaynakta yüzde 45 açıklandı.'}]}
+        search=Mock(side_effect=AssertionError('unknown context consumed discovery budget'))
+        verdict=research_evidence.cross_source_review({'r':output},search=search,extract=Mock())
+        self.assertEqual(verdict['status'],'insufficient_context')
+        self.assertIn('referans dönemi',verdict['text'])
+        search.assert_not_called()
+
     def test_two_agreeing_sources_flow_to_conflict_review_as_no_conflict(self):
         first, second = 'https://a.test/x', 'https://b.test/y'
         output = self._run([first, second], {
@@ -97,7 +139,7 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
             first: 'Yapılan ölçümde enerji tüketimi yüzde 40 oranında azalmıştır ve sonuç tekrarlanmıştır.',
             second: 'Başka bir ekip aynı bölgede yaptığı bağımsız ölçümde tüketimin yüzde 45 düştüğünü raporlamıştır.',
         })
-        third_text = 'Kurum raporu enerji tüketiminde düşüşün yüzde 40 olduğunu bağımsız olarak doğruluyor.'
+        third_text = 'aynı ölçüm bölgesi, 2026. Kurum raporu enerji tüketiminde düşüşün yüzde 40 olduğunu bağımsız olarak doğruluyor.'
         review = research_evidence.cross_source_review({'r1': output},
             search=lambda q: [self._candidate('https://c.test/z')],
             extract=lambda url, **kw: self._source(url, third_text))
@@ -168,7 +210,7 @@ class ResearchMultiSourceClaimWiringTests(unittest.TestCase):
             'input': {'instruction': 'Enerji araştırmasını raporla', 'filename': 'enerji.md'},
             'execution': {'request': 'Enerji tüketimi araştırması'},
         }
-        third = {'url': 'https://d.test/w', 'text': 'Kurum raporu düşüşün yüzde 40 olduğunu bağımsız doğruluyor.',
+        third = {'url': 'https://d.test/w', 'text': 'aynı ölçüm bölgesi, 2026. Kurum raporu düşüşün yüzde 40 olduğunu bağımsız doğruluyor.',
                  'content_type': 'text/plain'}
         with tempfile.TemporaryDirectory() as tmp, \
              patch('modules.nxapi.FILES_DIR', Path(tmp) / 'files'), \
@@ -263,3 +305,4 @@ def research_providers_compare(claims):
 
 if __name__ == '__main__':
     unittest.main()
+

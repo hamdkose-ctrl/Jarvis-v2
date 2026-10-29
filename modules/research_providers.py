@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from urllib.parse import parse_qs, quote_plus, urlsplit
 
 from modules import public_sources
+from modules.diagnostics import record_failure as _record_failure
 
 _SEARCH_PROVIDERS = frozenset({"searxng", "duckduckgo", "tavily", "exa", "arxiv"})
 _EXTRACTORS = frozenset({"firecrawl", "public_sources"})
@@ -59,6 +60,9 @@ def _duckduckgo_transport(request: dict) -> dict:
     )
     from bs4 import BeautifulSoup
     page = BeautifulSoup(response["body"].decode("utf-8", errors="replace"), "html.parser")
+    # A challenge/error document is not a valid empty search result.
+    if page.select('form[action*="anomaly"], #challenge-form, .anomaly-modal'):
+        raise ValueError('public_search_blocked: DuckDuckGo doğrulama/engel sayfası döndürdü.')
     results = []
     for link in page.select("a.result__a"):
         href = str(link.get("href") or "").strip()
@@ -77,12 +81,87 @@ def _duckduckgo_transport(request: dict) -> dict:
         results.append({"url": target, "title": title[:400], "snippet": ""})
         if len(results) >= limit:
             break
+    if not results and not page.select('.no-results, .no-results__message'):
+        raise ValueError('public_search_unrecognized: Arama yanıtında sonuç veya açık sonuç-yok işareti bulunamadı.')
     return {"results": results}
 
 
 def search_public(query: str) -> list[dict]:
     """Search one keyless public provider through the bounded HTTPS reader."""
     return search_all(query, providers=("duckduckgo",), transport=_duckduckgo_transport)
+
+def news_search_query(request: str) -> str:
+    """Remove delivery/window instructions, preserving topical/geographic words.
+
+    The original request remains the article verification/completion authority.
+    """
+    text=_query(request)
+    text=re.sub(r'\bson\s+\d+\s+(?:gün|gun|hafta|ay)\b',' ',text,flags=re.I)
+    text=re.sub(r'\b(?:haber|haberler|haberleri|haberlerini|güncel|guncel|araştır|arastir|araştırın|arastirin|ara|rapor|raporu|dosya|dosyası|dosyasi|dosyaya|kaydet|oluştur|olustur|özetle|ozetle|ve)\b',' ',text,flags=re.I)
+    # Output language is an instruction only when explicitly tied to a report.
+    if re.search(r'\b(?:rapor|raporu|dosya|dosyası|dosyasi)\b',request,re.I):
+        text=re.sub(r'\bTürkçe\b',' ',text,flags=re.I)
+    text=re.sub(r'\s+',' ',text).strip(' ,;:')
+    return text or 'güncel haberler'
+
+
+def search_news_public(query: str) -> list[dict]:
+    """News-only keyless fallback; one attempt per service, no model calls."""
+    from modules import requests_state
+    from modules import research_evidence
+    window=research_evidence.news_window(query)
+    query=news_search_query(query)
+    requests_state.check()
+    try:
+        primary=search_public(query)
+        if primary:return primary
+    except (PermissionError,requests_state.Cancelled):
+        raise
+    except Exception:
+        _record_failure('modules/research_providers.py:news_primary_search')
+        requests_state.check()
+    # Bing's time-range hint improves discovery only. Article dates still decide.
+    recency=('&qft='+quote_plus('interval="'+('7' if window<=1 else '8')+'"')
+             if window is not None and window<=7 else '')
+    response=public_sources.fetch('https://www.bing.com/news/search?q='+quote_plus(query)+
+                                  '&format=rss&setmkt=tr-TR&sortbydate=1'+recency)
+    import xml.etree.ElementTree as ET
+    body=response['body']
+    if len(body)>public_sources.MAX_BYTES or re.search(br'<!\s*(?:DOCTYPE|ENTITY)\b',body,re.I):
+        raise ValueError('public_news_rss_invalid: RSS boyut/varlık bildirimi reddedildi.')
+    root=ET.fromstring(body)
+    if root.tag!='rss' or root.find('channel') is None:
+        raise ValueError('public_news_rss_invalid: RSS haber kanalı bulunamadı.')
+    from email.utils import parsedate_to_datetime
+    from datetime import datetime,timezone,timedelta
+    today=datetime.now(timezone(timedelta(hours=3))).date()
+    results=[];seen=set()
+    for item in root.findall('./channel/item')[:50]:
+        # RSS dates guide discovery only; missing/invalid dates do not prove age.
+        if window is not None:
+            try:
+                stamp=parsedate_to_datetime(item.findtext('pubDate') or '')
+                if stamp.tzinfo is not None and (today-stamp.astimezone(timezone(timedelta(hours=3))).date()).days>window:
+                    continue
+            except (ValueError,TypeError,OverflowError):pass
+        href=item.findtext('link') or '';parsed=urlsplit(href)
+        if parsed.hostname=='www.bing.com' and parsed.path=='/news/apiclick.aspx':
+            targets=parse_qs(parsed.query).get('url',[])
+            if len(targets)!=1:continue
+            href=targets[0]
+        try:target=public_sources.address(href)
+        except ValueError:continue
+        if urlsplit(target).hostname in {'www.bing.com','bing.com'}:continue
+        title=(item.findtext('title') or '').strip()
+        if not title or target in seen:continue
+        seen.add(target)
+        results.append({'provider':'bing_news_rss','url':target,'title':title[:400],
+                        'snippet':'','source_kind':'web','verified':False})
+        if len(results)>=10:break
+    if not results:
+        raise ValueError('public_news_rss_empty: Bing RSS item='+str(len(root.findall('./channel/item')))+'; kullanılabilir yayıncı adresi=0')
+    return results
+
 
 def extract_request(url: str, *, provider: str = "public_sources") -> dict:
     """Build a separate extraction request; search results never imply article proof."""
@@ -157,13 +236,14 @@ def independent_candidates(candidates: list[dict], *, limit: int = 3) -> list[di
         raise ValueError("Bağımsız aday listesi geçersiz.")
     chosen: list[dict] = []
     seen_hosts: set[str] = set()
+    from modules import publisher_news
     for row in candidates:
         if not isinstance(row, dict):
             continue
         url = str(row.get("url") or "").strip()
         if not url:
             continue
-        host = (urlsplit(url).hostname or url).casefold()
+        host = publisher_news.publisher_key(url)
         if host in seen_hosts:
             continue
         seen_hosts.add(host)
@@ -250,6 +330,8 @@ def compare_sources(sources: list[dict]) -> dict:
     rows = [row for row in sources if isinstance(row, dict)]
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
+        if row.get('evidence') and (not row.get('scope') or not row.get('as_of')):
+            continue
         key = _row_key(row)
         kind, canon = _row_value(row)
         groups.setdefault(key, []).append({'kind': kind, 'canon': canon, 'url': str(row.get('url', ''))})
@@ -281,11 +363,26 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
     base = deepcopy(comparison)
     if base.get('status') != 'conflict':
         return base
+    if max_extra <= 0:
+        return {**base,'status':'unresolved_conflict','needs_review':True,'supported':None,
+                'verification':{'performed':False,'independent_sources':0,
+                                'reason':'Ek doğrulama bütçesi yok; yeni arama veya okuma yapılmadı.'}}
     disputed = {canon for group in base.get('comparisons', []) if group.get('conflict') for canon in group['values']}
     reader = read_value or (lambda source: _numbers(_norm(source.get('text') if isinstance(source, dict) else '')))
-    used = {row.get('url') for row in base.get('sources', []) if isinstance(row, dict) and row.get('url')}
-    candidates = [row for row in (search(query) or []) if isinstance(row, dict) and row.get('url') and row['url'] not in used]
-    candidates = candidates[:max(0, max_extra)]
+    from modules import publisher_news, requests_state
+    used = {publisher_news.publisher_key(row['url']) for row in base.get('sources', [])
+            if isinstance(row, dict) and row.get('url')}
+    candidates = []
+    for row in search(query) or []:
+        if not isinstance(row, dict) or not row.get('url'):
+            continue
+        key = publisher_news.publisher_key(row['url'])
+        if not key or key in used:
+            continue
+        used.add(key)
+        candidates.append(row)
+        if len(candidates) >= max(0, max_extra):
+            break
     if not candidates:
         return {**base, 'status': 'unresolved_conflict', 'needs_review': True, 'supported': None,
                 'verification': {'performed': True, 'independent_sources': 0,
@@ -294,7 +391,22 @@ def verify_conflict(query: str, comparison: dict, *, search, extract, read_value
     supporting: list[str] = []
     ambiguous = False
     for candidate in candidates:
-        source = extract(candidate['url'])
+        requests_state.check()
+        try:
+            source = extract(candidate['url'])
+        except (requests_state.Cancelled, PermissionError):
+            raise
+        except Exception:
+            _record_failure('modules/research_providers.py:verify_conflict_extract')
+            ambiguous = True
+            continue
+        text = _norm(source.get('text', '') if isinstance(source, dict) else '')
+        context = [group for group in base.get('comparisons', []) if group.get('conflict')]
+        if read_value is None and any(
+                field and _norm(field) not in text
+                for group in context for field in (group.get('scope'), group.get('as_of'))):
+            ambiguous = True
+            continue
         hits = [canon for canon in (reader(source) or []) if canon in disputed]
         if len(set(hits)) != 1:
             ambiguous = True
@@ -347,3 +459,4 @@ class ResearchContext:
 
 def weekly_research_request(topic: str) -> dict:
     return {"query": _query(topic), "window_days": 7, "cadence": "weekly", "source_policy": "cite-and-compare"}
+

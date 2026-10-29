@@ -24,9 +24,7 @@ class SelectedNewsSourcesTests(unittest.TestCase):
                 self.assertIn(name, by_name)
                 self.assertEqual(by_name[name]['url'], url)
                 self.assertFalse(by_name[name]['live_connection_tested'])
-                recovered = publisher_news.recovery_indexes('Türkiye haberleri', [url])
-                self.assertEqual(recovered[0], url)
-                self.assertLessEqual(len(recovered), 4)
+                self.assertIn(url, [row['url'] for row in publisher_news.sources_for('Türkiye haberleri')])
                 self.assertEqual(publisher_news.candidate_url(url, 'Türkiye haberleri', {}), url)
                 with self.assertRaises(ValueError):
                     publisher_news.candidate_url(url+'uydurulmus-haber', 'Türkiye haberleri', {})
@@ -41,5 +39,6 @@ class SelectedNewsSourcesTests(unittest.TestCase):
         self.assertTrue(set(SELECTED.values()).issubset(urls))
         for host in ('reuters.com', 'apnews.com', 'techcrunch.com', 'haber.dpu.edu.tr'):
             self.assertFalse(any(host in url for url in urls), host)
-        self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),
+        self.assertEqual({publisher_news.publisher_key(row['url']) for row in publisher_news.sources_for('Türkiye haberleri')[:4]},
                          {'mynet.com','investing.com','aa.com.tr','bbc.com'})
+
