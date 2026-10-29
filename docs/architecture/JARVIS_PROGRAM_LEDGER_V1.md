@@ -53,34 +53,35 @@ Bu bölüm “program temeli mevcut” anlamına gelir; her madde ayrı acceptan
 | Canonical authority RFC | Dört cutover blocker’ı için kararlar kabul edilmiş ve uygulama hattı merge edilmiştir: yeni işte canonical authority, legacy-authority kayıt için kontrollü migration/promotion, terminal uyumluluğu ve rollback sınırları. | `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`; #347/#349/#385/#422 |
 | Operator onaylı cutover runner | RFC kararlarını guard tablosu olarak uygular: salt-okunur `plan()` + parmak izi, yalnız onaylı job’larda kontrollü backfill/promotion, owner genelinde fail-closed blocker, plan drift ve yazım sonrası doğrulama. Runner’ın yalnız operatör tarafından elle çalıştırılması tasarlanmış sözleşmedir; runtime’a otomatik bağlanmaması eksik wiring değildir. | `modules/goalstate_cutover_runner.py`, `tests/test_goalstate_cutover_runner.py`, `docs/architecture/GOALSTATE_CUTOVER_RUNNER_V1.md`; #348/#422 |
 | UI/Core authority borcu | `team_control` ve `team_verify` kararları canonical Core servislere taşındı; eski UI authority dependency baseline kaldırıldı. | `modules/team_control_service.py`, `modules/team_verify_service.py`, `modules/architecture_guard.py`; #441/#444 |
+| Faz 0 final kapanış kanıtı | Gerçek PC legacy taraması ve 18/18 promotion sonrası aday kalmadı; exact `main@2da471412a53...` üzerinde Architecture Guard, full validation, Windows CI ve gerçek-PC watcher acceptance PASS. | `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md` |
 
 ## 4. Mevcut aktif şerit
 
-**Aktif şerit: Faz 0 kapanış / operasyonel doğrulama. Canonical authority cutover mekanizmaları merge edildi; yeni bir Faz 0 capability PR’ı açmak için şu anda kaynak-doğrulanmış bir runtime boşluğu yok.**
+**Faz 0 ✅ kapanmıştır. Aktif program sırası artık Faz 1’in canlı GitHub durumuyla doğrulanmış gerçek açık işlerine geçer; stale Faz 0 maddeleri yeniden açılmaz.**
 
-Kaynak: `docs/architecture/GOALSTATE_CUTOVER_V1.md`, `docs/architecture/GOALSTATE_CUTOVER_GAP_REGISTER_V1.md`, `docs/architecture/GOALSTATE_CUTOVER_PREFLIGHT_V1.md`, `docs/architecture/GOALSTATE_CANONICAL_AUTHORITY_RFC_V1.md`, `docs/Jarvis_Yol_Haritasi_0_4_Drive_Fikir_Ekleri.md`.
+Faz 0 kapanış kanıtı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.
 
-Güncel kaynak durumunun anlamı:
+Kapanışta doğrulananlar:
 
-1. **Sync observability / corruption / canonical writer guard — kapandı.** Canonical storage mutation sınırları statik guard ve persistence testleriyle korunuyor.
-2. **Cutover preflight + operator runner — kapandı.** Runner’ın manuel olması bilinçli güvenlik sözleşmesidir; otomatik runtime wiring yapılmaz.
-3. **Canonical-authority legacy lifecycle write stop — kapandı.** #385 sonrası canonical-authority işlerde eski `<id>.json` lifecycle yazımı yapılmaz; legacy-authority compatibility yolu yalnız eski kayıtlar için korunur.
-4. **Legacy authority promotion mekanizması — kapandı.** #422, exact plan fingerprint + explicit job approval + ExecutionRecord + canonical CAS + verification/rollback hattını merge etti. Bu, gerçek PC’de kalan her eski kaydın otomatik olarak promotion edildiği iddiası değildir.
-5. **UI/Core authority borcu — kapandı.** `team_control` #441 ve `team_verify` #444 ile Core servislere taşındı; ARCH-006 geri dönüşü engeller.
-6. **Effect receipt / Decision Authority wrapper kaçışı — kapandı.** #445 receipt-required effect’i receipt’siz success commit’ten fail-closed’a taşıdı; #447 wrapper üzerinden gate bypass’ını ARCH-007 blocker yaptı.
-7. **F-003 — yeni Faz 0 capability işi değildir.** Memory ≠ Task State ≠ Context ayrımı 0–4 invariantıdır; memory/session/cron kendi başına GoalState authority yaratamaz. Ayrıntılı context/memory lifecycle Faz 11’dedir.
+1. **Sync observability / corruption / canonical writer guard — kapalı.** Canonical storage mutation sınırları statik guard ve persistence testleriyle korunuyor.
+2. **Cutover preflight + operator runner — kapalı.** Runner’ın manuel olması bilinçli güvenlik sözleşmesidir; otomatik runtime wiring yapılmaz.
+3. **Canonical-authority legacy lifecycle write stop — kapalı.** #385 sonrası canonical-authority işlerde eski `<id>.json` lifecycle yazımı yapılmaz.
+4. **Legacy authority gerçek-PC cutover — kapalı.** Gerçek PC’de bulunan 18 uyumlu legacy-authority adayın 18’i mevcut #422 hattıyla canonical’a promote edildi; son planda blocker, backfill veya promotion adayı kalmadı.
+5. **UI/Core authority borcu — kapalı.** `team_control` #441 ve `team_verify` #444 ile Core servislere taşındı; ARCH-006 geri dönüşü engeller.
+6. **Effect receipt / Decision Authority wrapper kaçışı — kapalı.** #445 receipt-required effect’i receipt’siz success commit’ten fail-closed’a taşıdı; #447 wrapper üzerinden gate bypass’ını ARCH-007 blocker yaptı.
+7. **F-003 — yeni Faz 0 capability işi değildir.** Memory ≠ Task State ≠ Context ayrımı 0–4 invariantıdır; ayrıntılı context/memory lifecycle Faz 11’dedir.
+8. **Final exact-main acceptance — kapalı.** `main@2da471412a53d275659d2f82ac91f2558478c0e9` üzerinde Architecture Guard PASS, full validation `3391 test / 3 skip` PASS, Windows CI #910 SUCCESS ve gerçek-PC watcher `STATUS=passed` exact-SHA arşivi mevcut.
 
-**Açık kalan, yeni özellik kodu değil kapanış kanıtıdır:** gerçek Windows PC’de owner verisi üzerinde hâlâ `authority='legacy'` kayıt bulunup bulunmadığı taranmalı; bulunursa mevcut operatör-onaylı runner/promotion hattı kullanılmalı. Ardından güncel merged `main` SHA’sı üzerinde final Windows/PC acceptance ve temsilî durable E2E kanıtı alınmalıdır. Bu kanıtlar görülmeden Faz 0 `✅` ilan edilmez ve compatibility bridge (#347) körlemesine kaldırılmaz.
+#347 compatibility bridge Faz 0 kapanışını bloklamaz. Gerçek-PC legacy-authority adayı kalmadığı için köprü daha sonra ayrı ve kanıtlı cleanup olarak değerlendirilebilir; cleanup yapılmadan da Faz 0 kapalıdır.
 
 ## 5. Sıradaki iş sırası
 
 Program sırası şudur:
 
-1. **Gerçek PC legacy-authority taraması.** Salt-okunur preflight/plan ile owner verisinde aktif veya uyumlu eski kayıt var mı belirle; sonuç kaydedilmeden “legacy temiz” denmez.
-2. **Gerekirse mevcut migration/promotion hattını kullan.** Yalnız fingerprint’i doğrulanmış plan ve açıkça onaylı job ID’leriyle; yeni migration motoru yazma.
-3. **Final Faz 0 acceptance.** Architecture Guard BLOCKER=0, full `modules.validation`, current merged `main` SHA üzerinde gerekli Windows/PC acceptance ve temsilî durable E2E kanıtı.
-4. **Kapanış kaydı.** Bu üç kanıt aynı güncel kaynak durumuyla uyuşuyorsa roadmap Faz 0 `✅` yapılır; legacy kayıt kalmıyorsa #347 compatibility köprüsünün kaldırılması ayrıca güvenli cleanup olarak değerlendirilir.
-5. **Ancak bundan sonra** Faz 1’in gerçek açık işlerine geçilir. Daha önce merge edilmiş Faz 0 işlerini stale belge nedeniyle yeniden açma.
+1. **Faz 0’ı yeniden açma.** `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md` final kanıt kaydıdır; yeni somut regresyon veya ayrı RFC yoksa eski Faz 0 backlog satırları tekrar iş seçimi değildir.
+2. **Faz 1 canlı durumunu yeniden denetle.** GitHub’daki açık/merge edilmiş PR’ları ve güncel `main` kodunu roadmap satırlarıyla karşılaştır; stale F-009/#428 veya benzeri satırları yeniden kodlama işi sanma.
+3. **Gerçek açık Faz 1 işini tek PR olarak ele al.** Aynı iş daha önce merge edilmişse tekrar açma; açık PR varsa onu doğrula/bitir.
+4. **Her Faz 1 adımında** exact-head validation + Windows CI + kapsam uygunsa gerçek-PC acceptance kuralını sürdür.
 
 Bu sıra, aktif PR’ların merge sırası değildir; canlı mergeability/CI için GitHub kontrol edilir. Bir adım kaynakta zaten merge edilmişse yeniden yapılmaz, sonraki açık adıma geçilir.
 
@@ -91,7 +92,7 @@ Bu sıra, aktif PR’ların merge sırası değildir; canlı mergeability/CI iç
 | ~~RuntimeEvent durable subscription/producer~~ | Kapandı (26 Ekim 2026, Faz 2-2): `modules/runtime_subscription.py` kalıcı abonelik + `source_watch`/webhook üreticisi (#374), hedef sahipliği `bind_job` ile; ARCH-W001 temiz. Ayrıntı: `docs/roadmap-runtime-event-subscription-notu.md`. | Yeni olay kaynağı (webhook/queue) eklenince aynı abonelik modeline bağlanır. |
 | ExecutionRecord ayrıntıları | Step/output/waiting/retry gibi yürütme ayrıntıları GoalState global lifecycle’a doldurulmamalı. | ExecutionRecord için gerçekten yeni provenance/retention ihtiyacı doğarsa ayrı RFC/PR olarak. |
 | `created` / `approval_at` canonical taşıma kararı | `created` provenance; `approval_at` yaklaşık 120 sn approval timeout/control bağlamı taşır. Bunları GoalState’e zorla eklemek doğru kabul edilmedi. | Approval timeout’un kalıcı sahibi değişirse veya mevcut sözleşme yetersiz kalırsa. |
-| Gerçek worker/product capability genişlemesi | Core güvenlik ve Faz 0 kapanış kanıtı bitmeden yeni capability’ler ikinci motor/otorite riski yaratabilir. | Final Faz 0 acceptance tamamlandıktan sonra, read-only benchmark → adapter → manifest → evidence/receipt kabul hattıyla. |
+| Gerçek worker/product capability genişlemesi | Core güvenlik ve Faz 0 kapanış kanıtı tamamlanmadan yeni capability’ler ikinci motor/otorite riski yaratabilirdi. | Faz 0 final acceptance tamamlandı; bundan sonra yalnız roadmap sırası ve read-only benchmark → adapter → manifest → evidence/receipt kabul hattı içinde açılır. |
 
 Hermes/external skill genişlemesi de bu son satırın içindedir; önce read-only pilot, sonra ayrı effectful kabul sözleşmesi gerekir.
 
