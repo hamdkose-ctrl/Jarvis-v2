@@ -50,13 +50,14 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 ## Faz 0 — Aşama 0–4 kapanışı
 
 **Durum: ✅ tamamlandı `[1✓ 2✓ 3✓ 4✓]`. Canonical GoalState authority/cutover, UI/Core authority sınırı, effect/crash-recovery ve Decision Authority guard hattı merge edilmiş; gerçek Windows PC cutover ve exact merged-main final acceptance kanıtları alınmıştır. Kapanış kaydı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.**
+Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Migration=#422; Wiring=#447; Acceptance=watcher-pass@2da471412a53d275659d2f82ac91f2558478c0e9; Cleanup=verified
 
-- ✅ **Canonical authority / legacy write stop (#349/#385):** Yeni işler canonical authority ile açılır; canonical-authority işlerde legacy `<id>.json` lifecycle yazımı durmuştur.
-- ✅ **Cutover / promotion (#348/#422):** Gerçek PC owner verisi salt-okunur planla tarandı; 18 uyumlu legacy-authority aday mevcut #422 operatör-onaylı hattıyla 18/18 canonical'a promote edildi. Son planda blocker, backfill veya promotion adayı kalmadı.
-- ✅ **UI/Core authority (#441/#444):** `team_control` ve `team_verify` authority'si canonical Core servislere taşındı; `ARCH-006` regresyonu blocker yapar.
-- ✅ **Receipt/crash recovery (#445):** Receipt-required effect doğrulanmış receipt olmadan success commit değildir; blind retry yoktur.
-- ✅ **Decision Authority wrapper guard (#447):** `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` sınırından çağrılabilir; bypass `ARCH-007` blocker'dır.
-- ✅ **Final exact-main acceptance:** `main@2da471412a53d275659d2f82ac91f2558478c0e9` üzerinde Architecture Guard PASS; full `modules.validation` `3391 test / 3 skip` PASS; Windows CI #910 SUCCESS; gerçek-PC watcher `STATUS=passed` ve exact-SHA raporu `%LOCALAPPDATA%\Jarvis\pc-acceptance\reports\2da471412a53d275659d2f82ac91f2558478c0e9.json` altında arşivlendi.
+- **Canonical authority / legacy write stop (#349/#385):** Yeni işler canonical authority ile açılır; canonical-authority işlerde legacy `<id>.json` lifecycle yazımı durmuştur.
+- **Cutover / promotion (#348/#422):** Gerçek PC owner verisi salt-okunur planla tarandı; 18 uyumlu legacy-authority aday mevcut #422 operatör-onaylı hattıyla 18/18 canonical'a promote edildi. Son planda blocker, backfill veya promotion adayı kalmadı.
+- **UI/Core authority (#441/#444):** `team_control` ve `team_verify` authority'si canonical Core servislere taşındı; `ARCH-006` regresyonu blocker yapar.
+- **Receipt/crash recovery (#445):** Receipt-required effect doğrulanmış receipt olmadan success commit değildir; blind retry yoktur.
+- **Decision Authority wrapper guard (#447):** `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` sınırından çağrılabilir; bypass `ARCH-007` blocker'dır.
+- **Final exact-main acceptance:** `main@2da471412a53d275659d2f82ac91f2558478c0e9` üzerinde Architecture Guard PASS; full `modules.validation` `3391 test / 3 skip` PASS; Windows CI #910 SUCCESS; gerçek-PC watcher `STATUS=passed` ve exact-SHA raporu `%LOCALAPPDATA%\Jarvis\pc-acceptance\reports\2da471412a53d275659d2f82ac91f2558478c0e9.json` altında arşivlendi.
 - **#347 compatibility bridge:** Faz 0 kapanışını bloklamaz. Legacy authority/write yolu canonical işlerde kapalıdır; gerçek-PC promotion adayı kalmadığı için köprünün fiziksel silinmesi daha sonra ayrı ve kanıtlı cleanup olarak değerlendirilebilir. Bu bounded safety shim ikinci authority değildir ve `[4✓]` kararını geri açmaz.
 - **F-003 çekirdek ayrımı (0–4 kararı):** Memory ≠ Task State ≠ Context için 0–4'te yeni capability PR'ı açılmaz. Memory davranış/context girdisidir, session konuşma metadata'sıdır, cron zamanlama ifadesidir; kendi başlarına GoalState lifecycle/completion/permission authority yaratamazlar. Mevcut Core/GoalState writer ve execution guard sınırları korunur; ayrıntılı memory/context lifecycle Faz 11'dedir.
 
