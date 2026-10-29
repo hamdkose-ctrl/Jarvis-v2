@@ -328,7 +328,6 @@ def format_report(report: dict) -> str:
     lines = [f"Architecture Guard ({report['scope']})"]
     for bucket in ('blockers', 'warnings'):
         for row in report[bucket]:
-            where = row['path'] + (f":{row['line']}' if False else '')
             where = row['path'] + (f":{row['line']}" if row['line'] else '')
             lines.append(f"{row['severity']} {row['rule']} {where} — {row['message']}")
     if not report['blockers'] and not report['warnings']:
