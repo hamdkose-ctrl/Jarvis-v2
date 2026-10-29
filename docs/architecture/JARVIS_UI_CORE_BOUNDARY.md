@@ -40,8 +40,8 @@ Cevap "hayır" ise UI/Core business authority sınırı ihlal edilmiştir.
 `modules.architecture_guard` UI Python bridge/shell dosyalarının statik `modules.*` import dependency edge'lerini AST ile inceler. Keyword, fonksiyon adı veya mesaj metni taramaz.
 
 - `ARCH-006`: yeni bir UI dosyası Core business-authority modülüne doğrudan bağımlılık eklerse BLOCKER.
-- `ARCH-W003`: bugün var olan, ayrı migration gerektiren exact UI→authority dependency edge'i baseline borcu olarak görünür kalır.
-- Baseline dosya bazında genel izin değildir. Aynı dosyaya yeni authority dependency eklenirse `ARCH-006` olur.
+- `ARCH-W003`: yalnız açıkça kabul edilmiş ve henüz göç edilmemiş exact UI→authority dependency edge'lerini geçici baseline borcu olarak görünür tutar.
+- Baseline dosya bazında genel izin değildir. Borç göç edilince exact baseline da kaldırılır; aynı dependency'nin geri eklenmesi yeniden `ARCH-006` olur.
 - Presentation/query/configuration servisleri otomatik olarak business authority sayılmaz. Örneğin `ui_jobs` durum sorgusu veya backend state'ine göre UI render etme guard kapsamında yasak değildir.
 
 Guard davranış doğruluğunu kanıtlamaz. Backend'in isteği gerçekten yeniden doğruladığı runtime/unit testlerle ayrıca kanıtlanır.
@@ -58,9 +58,18 @@ Audit tabanı: `0352ce1c7b583d38b491a38301689d47928e7657` (`main`). İncelenen y
 | Faz 3 | **DEBT** | `web_tasks.py::team_control`, `web_tasks.py::team_verify` | UI doğrudan Goal/execution internallerini okuyor ve lifecycle/evidence yorumluyor. Audit sırasında doğrudan `goal_state_store` writer bulunmadı; canonical writer authority Core'da. Ayrı facade/service migration'ı gerekir. |
 | Faz 4 | **DEBT** | `web_tasks.py::team_verify` | UI bridge hangi tamamlanmış çıktıları verify edeceğini seçip doğrulama sonuçlarını topluyor. Bu bugün task completion state'ini değiştirmiyor, bu yüzden kritik execution authority değil; canonical verification/query servisine taşınmalı. Faz 4 multi-source worker/roadmap koduna bu PR dokunmaz. |
 
-Bitmiş Faz 0/2/3 yalnız eski roadmap metni nedeniyle yeniden açılmamıştır; yukarıdaki sonuçlar güncel kodun UI/Core sınırı açısından ayrı mimari audit sınıflandırmasıdır.
+Bu tablo audit anındaki bulguyu kaydeder; sonradan yapılan migration'lar tabloyu geriye dönük yeniden yazmaz.
+
+### Migration durumu
+
+- `web_tasks.py::team_control`: #441 ile `modules/team_control_service.py` Core servisine taşındı ve UI bridge yalnız girdiyi/transport'u iletiyor; migration merge edildi.
+- `web_tasks.py::team_verify`: #444 ile job/output seçimi ve verification toplama `modules/team_verify_service.py` read-only Core sorgu servisine taşınıyor; UI bridge yalnız owner/kind/identity iletiyor. Aynı PR `web_tasks.py` için kalan `ARCH-W003` baseline istisnasını kaldırıyor. Exact-head CI ve gerçek PC watcher kabulü gelmeden migration tamamlandı sayılmaz.
+
+Bitmiş Faz 0/2/3 yalnız eski roadmap metni nedeniyle yeniden açılmamıştır; yukarıdaki audit sınıflandırması tarihsel bulguyu, migration durumu ise güncel ödeme yolunu gösterir.
 
 ## Bulgular
+
+Aşağıdaki A/B maddeleri audit anındaki orijinal bulgulardır; güncel ödeme durumu için yukarıdaki **Migration durumu** bölümü esas alınır.
 
 ### A — Kritik
 
@@ -78,8 +87,8 @@ Bitmiş Faz 0/2/3 yalnız eski roadmap metni nedeniyle yeniden açılmamıştır
    - Ayrı PR: **Evet.** Read-only canonical verification/query service'e taşınmalı.
 
 2. `web_tasks.py` direct authority dependencies
-   - `goal_executor`, `goal_tools`, `task_agents`, `task_results`, `execution_record` dependency edge'leri `ARCH-W003` baseline olarak sabitlendi.
-   - Baseline yalnız mevcut borcu görünür tutar; yeni dependency edge'ine izin vermez.
+   - Audit anında `goal_executor`, `goal_tools`, `task_agents`, `task_results`, `execution_record` dependency edge'leri `ARCH-W003` baseline olarak sabitlenmişti.
+   - #441 ve #444 migration'ları bu doğrudan UI dependency'lerini kaldırır; #444 branch'inde baseline boştur ve aynı edge'lerin geri eklenmesi `ARCH-006` BLOCKER olur.
 
 ### C — Normal presentation / interaction
 
