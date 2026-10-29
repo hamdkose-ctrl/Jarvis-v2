@@ -859,8 +859,8 @@ class RecoveryPipelineEvidenceTests(unittest.TestCase):
         from modules import goal_executor as goals, goal_tools, news_recovery, publisher_news
         today = istanbul_today()
         reader, fetcher = two_source_feeds(day=today)
-        job = {'id': 'a' * 16, 'owner': 'hamdi', 'state': 'running', 'request': 'son dakika haberleri',
-               'goals': [{'state': 'pending', 'text': 'son dakika haberleri'}], 'steps': [], 'outputs': {}}
+        job = {'id': 'a' * 16, 'owner': 'hamdi', 'state': 'running', 'request': 'güncel haberler',
+               'goals': [{'state': 'pending', 'text': 'güncel haberler'}], 'steps': [], 'outputs': {}}
         runtime = SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))
 
         def record(_runtime, current, step):

@@ -53,6 +53,10 @@ def check_completion(job,goal,evidence,*,final=False):
         if not isinstance(step,dict) or not step.get('id'):
             raise ValueError('Geçersiz haber işi kaydı.')
         steps[step['id']]=step
+    from modules import news_temporal
+    from datetime import datetime,timezone
+    event_check=news_temporal.request_scope(request)['intent']=='event_verification'
+    event_verified=False
     pending=list(evidence or []);seen=set()
     discovery=False;article=False;verified=[]
     while pending:
@@ -61,13 +65,21 @@ def check_completion(job,goal,evidence,*,final=False):
         seen.add(ident);step=steps.get(ident,{})
         output=outputs.get(ident,{})
         if not isinstance(output,dict) or output.get('state')!='done':continue
+        if event_check and output.get('event_evidence'):
+            created=job.get('created')
+            if type(created) not in (int,float):raise ValueError('Özgün istek zamanı eksik.')
+            news_temporal.event_receipt(output,request=request,reference=datetime.fromtimestamp(created,timezone.utc))
+            event_verified=True
         if output.get('news_article'):
             source=research_evidence.news_receipt(output)
-            research_evidence.news_date(source['published'],request);article=True
+            research_evidence.news_date(source,request);article=True
             verified.append({'news_article':source})
         if step.get('tool')=='data' and isinstance(step.get('input'),dict) and step['input'].get('operation') in {'sources','headlines','news_search'}:discovery=True
         depends=step.get('depends',[])
         if isinstance(depends,list):pending.extend(depends)
+    if event_check:
+        if not event_verified:raise ValueError('İstenen olay tarihi ve kapsam için kaynak kanıtı gerekli.')
+        return
     goal_text=goal.get('text') if isinstance(goal,dict) else None
     text=(goal_text if isinstance(goal_text,str) and goal_text.strip() else request).casefold()
     discovery_goal=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',text) and

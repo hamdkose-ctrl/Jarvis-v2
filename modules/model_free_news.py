@@ -138,7 +138,7 @@ def receipt(article,request,*,source_only=True):
     """Seal already-read pipeline evidence; never fetch or call a provider."""
     if blocked:=privacy.blocked('web'):raise PermissionError(blocked)
     requests_state.check()
-    research_evidence.news_date(article['published'],request)
+    research_evidence.news_date(article,request)
     evidence=quotes(article,request)
     return task_results.seal('research',{
         'state':'done','text':' '.join(evidence),'source':article['url'],

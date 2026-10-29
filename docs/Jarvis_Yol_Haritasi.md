@@ -385,3 +385,9 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 ## Referans noktaları
 
 - **hermes-agent** (MIT) — 705 maddelik hasat listesinin çıktığı kaynak. Doğrudan alınabilecekler: `skills/` talimat dosyaları, `todo_tool.py`, `memory_tool.py`, `session_search_tool.py`. Bağlantı: https://github.com/nousresearch/hermes-agent
+
+### Haber yayın zamanı / olay geçerlilik zamanı — kabul bekliyor
+
+- Son dakika varsayılanı son 1 saat; açık saat aralığı önceliklidir. Bugün/bu sabah İstanbul zamanına göre değerlendirilir. Saatlik aralık doğrulanmış yayın saati ister; tarih-only kanıt saat uydurmaz.
+- Yarın gibi olay tarihi, özgün isteğin zamanı ve açık kapsamına bağlıdır. Yayın tarihi kararın geçerlilik tarihi değildir. Kayıtlı olay kanıtı yeniden doğrulanır; eksik yer/kapsam mevcut Core soru akışına gider. Yerel resmî kaynak eşlemesi sınırlıdır; bütün kurumlar için yetki çözümü iddia edilmez.
+- Yeni kod için Windows CI ve gerçek PC kabulü beklenir; Faz 4A veya genel web araştırması bu kayıtla tamamlanmış sayılmaz.

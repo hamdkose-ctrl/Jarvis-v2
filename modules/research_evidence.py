@@ -15,6 +15,13 @@ def news_requested(text):
     return bool(re.search(r'\bhaber(?!leş)|\bgelişme|\bgelisme|\bduyuru|gündem|gundem|haftal[ıi]k\s+olay|yayın tarih|yayin tarih|son\s+\d+\s+gün|\bnews\b',text,re.I))
 
 
+def publication_news_requested(text):
+    """Publication collection excludes event-validity questions."""
+    if not news_requested(text):return False
+    from modules import news_temporal
+    return news_temporal.request_scope(text)['intent']!='event_verification'
+
+
 def file_requested(text):
     """A local report file is an explicit deliverable, never an implicit news side effect."""
     return bool(re.search(r'\b(dosya\w*|kaydet\w*|markdown|\.md\b|indirilebilir|çıktı\s+dosya\w*|cikti\s+dosya\w*)\b',str(text),re.I))
@@ -28,6 +35,19 @@ def news_report_requested(request,instruction,dependencies,*,allow_source_only=T
     if requested and news_requested(request) and not file_requested(request) and not source_only:
         raise ChatDeliveryRequired('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
     return requested
+
+
+def publication_clock(values):
+    """Keep one unambiguous aware publication instant; never use modified time."""
+    from datetime import datetime,timezone
+    clocks={}
+    for value in values:
+        if not isinstance(value,str) or 'T' not in value:continue
+        try:stamp=datetime.fromisoformat(value.replace('Z','+00:00'))
+        except ValueError:continue
+        if stamp.tzinfo is None:return None
+        clocks[stamp.astimezone(timezone.utc)]=stamp.isoformat()
+    return next(iter(clocks.values())) if len(clocks)==1 else None
 
 
 def article(response):
@@ -165,7 +185,10 @@ def article(response):
     if len(days)!=1:raise ValueError('Haberin kendisine ait tek bir yayın tarihi doğrulanamadı; başka tarihli kaynak seç.')
     text=public_sources.readable_text(node)
     if len(text)<80 or not title:raise ValueError('Tekil haber metni yeterli değil.')
-    return {'url':url,'title':title,'published':days.pop(),'text':text,**({'kind':'video_description'} if video is not None else {})}
+    clock=publication_clock(dates)
+    return {'url':url,'title':title,'published':days.pop(),'text':text,
+            **({'published_at':clock} if clock else {}),
+            **({'kind':'video_description'} if video is not None else {})}
 
 
 def news_receipt(output):
@@ -173,11 +196,16 @@ def news_receipt(output):
     from datetime import date
     from modules import public_sources
     source=output.get('news_article')
-    if (not isinstance(source,dict) or set(source) not in ({'url','title','published','text'},
+    if (not isinstance(source,dict) or set(source)-{'published_at'} not in ({'url','title','published','text'},
             {'url','title','published','text','kind'}) or 'kind' in source and source['kind']!='video_description'):
         raise ValueError('Tarihli tekil haber kanıtı eksik.')
     if public_sources.address(source['url'])!=output.get('source') or not source['title'].strip():raise ValueError('Haber kaynağı eşleşmiyor.')
     date.fromisoformat(source['published'])
+    if 'published_at' in source:
+        from datetime import datetime
+        stamp=datetime.fromisoformat(source['published_at'].replace('Z','+00:00'))
+        if stamp.tzinfo is None or stamp.date().isoformat()!=source['published']:
+            raise ValueError('Yayın günü ve saat kanıtı eşleşmiyor.')
     parse(json.dumps({'supported':True,'answer':output['text'],'quotes':output.get('source_quotes')},ensure_ascii=False),source['text'])
     return source
 
@@ -186,19 +214,32 @@ def news_window(request):
     ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
     recent=bool(re.search(r'güncel|guncel|\bson\b.*(?:geliş|haber)|haftalık|haftalik|bu hafta|weekly|latest|recent',request,re.I))
     if ranges:return max(ranges)
+    if re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah',str(request),re.I):return 1
     if recent:return 7
     # An explicit historical year is a user-selected historical request.
     historical=bool(re.search(r'\b(?:19|20)\d{2}\b',request))
     return 7 if not historical and (news_requested(request) or re.search(r'gündem|gundem',request,re.I)) else None
 
 
-def news_date(published,request):
+def news_date(published,request,*,now=None):
     from datetime import datetime, timezone, timedelta, date
-    today=datetime.now(timezone(timedelta(hours=3))).date()
-    day=date.fromisoformat(published)
-    if day>today:raise ValueError('Haberin yayın tarihi gelecekte; güncel gelişme olarak kullanılmadı.')
+    from modules import news_temporal
+    clock=now or datetime.now(timezone(timedelta(hours=3)))
+    if clock.tzinfo is None:raise ValueError('Başvuru zamanı saat dilimli olmalı.')
+    article=published if isinstance(published,dict) else {'published':published}
+    day=date.fromisoformat(article['published'])
+    if day>clock.astimezone(news_temporal.ISTANBUL).date():
+        raise ValueError('Haberin yayın tarihi gelecekte; güncel gelişme olarak kullanılmadı.')
+    scope=news_temporal.request_scope(request,now=clock)
+    precise=bool(re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah',str(request),re.I))
+    if scope['intent']=='event_verification':
+        raise ValueError('Olayın geçerlilik tarihi ayrıca doğrulanmalı; yayın tarihi karar kanıtı değildir.')
+    if precise:
+        news_temporal.check_publication(article,scope)
+        return
     maximum=news_window(request)
-    if maximum is not None and (today-day).days>maximum:raise ValueError('Haber istenen tarih aralığının dışında; daha yeni kaynak seç.')
+    if maximum is not None and (clock.astimezone(news_temporal.ISTANBUL).date()-day).days>maximum:
+        raise ValueError('Haber istenen tarih aralığının dışında; daha yeni kaynak seç.')
 
 
 def unavailable_footer(urls):

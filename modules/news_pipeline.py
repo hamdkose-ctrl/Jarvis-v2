@@ -350,6 +350,8 @@ def verify(row, *, request, fetcher, today, days) -> dict:
             raise ValueError('Haberin yayın tarihi gelecekte; taze haber olarak sunulmadı.')
         if (today - published).days > days:
             raise ValueError('Haber istenen pencerenin dışında; eski haber eklenmedi.')
+        if re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah|yar[iı]n',request,re.I):
+            research_evidence.news_date(article,request)
         quotes = model_free_news.quotes(article, request)
     except (requests_state.Cancelled, PermissionError):
         raise
@@ -452,7 +454,21 @@ def report(result) -> str:
     days = result.get('window_days', DEFAULT_WINDOW)
     health = result['source_health']
     verified = result['verified']
-    lines = [f'Son {days} günde {result["sources_total"]} kaynak tarandı.']
+    request=str(result.get('request',''))
+    hours=re.search(r'son\s+(\d+)\s+saat',request,re.I)
+    if hours:
+        label=f'Son {int(hours[1])} saat'
+    elif re.search(r'son\s+dakika',request,re.I):
+        label='Son 1 saat'
+    elif re.search(r'bu\s+sabah',request,re.I):
+        label='Bu sabah (İstanbul saati)'
+    elif re.search(r'bug[uü]n',request,re.I):
+        label='Bugün (İstanbul saati)'
+    else:
+        label=f'Son {days} gün'
+    precise=bool(re.search(r'son\s+\d+\s+saat|son\s+dakika|bu\s+sabah|bug[uü]n',request,re.I))
+    lines = ([f'İstenen yayın aralığı: {label}. {result["sources_total"]} kaynak tarandı.'] if precise
+             else [f'Son {days} günde {result["sources_total"]} kaynak tarandı.'])
     lines.append(f'{result["sources_ok"]} kaynak yanıt verdi'
                  + (f', {result["sources_failed"]} kaynak erişilemedi.' if result['sources_failed'] else '.'))
     if result['sources_partial']:
@@ -478,7 +494,7 @@ def report(result) -> str:
             lines.append('')
             lines.append(f'{index}. {article["title"]}')
             lines.append(f'Kaynak: {row["source"]}')
-            lines.append(f'Tarih: {article["published"]}')
+            lines.append(f'Tarih: {article.get("published_at") or article["published"]}')
             lines.append(f'Bağlantı: {article["url"]}')
             lines.append('Kanıt: ' + ' '.join(row['quotes'])[:700])
             if row.get('other_sources'):
@@ -603,6 +619,8 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
             if row.get('verification') != 'verified' or not row.get('news_article'):
                 continue
             try:
+                if re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah|yar[iı]n',request,re.I):
+                    research_evidence.news_date(row['news_article'],request)
                 row['quotes'] = model_free_news.quotes(row['news_article'], request)
             except (ValueError, KeyError):
                 continue

@@ -35,6 +35,9 @@ def check(kind, output):
         if output.get('news_article'):
             from modules import research_evidence
             research_evidence.news_receipt(output)
+        if output.get('event_evidence'):
+            from modules import news_temporal
+            news_temporal.event_receipt(output)
     elif kind == 'writer':
         digest = output.get('sha256', '')
         if not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):

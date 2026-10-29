@@ -53,7 +53,7 @@ def _news_job_facts(job):
     for output in outputs.values():
         if not isinstance(output,dict) or output.get('state')!='done' or not output.get('news_article'):continue
         source=research_evidence.news_receipt(output)
-        research_evidence.news_date(source['published'],request)
+        research_evidence.news_date(source,request)
         publisher=publisher_news.publisher_key(source['url'])
         if publisher:publishers.add(publisher)
         articles+=1
