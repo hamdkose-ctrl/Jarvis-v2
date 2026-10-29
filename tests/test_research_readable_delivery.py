@@ -1,7 +1,6 @@
 """Shared research presentation and semantic body extraction, without live services."""
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
-from types import SimpleNamespace
 import unittest
 from modules import browser, goal_executor, public_sources, research_evidence
 
@@ -19,9 +18,12 @@ class ResearchReadableDeliveryTests(unittest.TestCase):
                 '<aside>Reklam ve ilgili kartlar</aside></article></body></html>')
 
     def test_general_page_and_dated_article_share_body_cleanup(self):
-        response=SimpleNamespace(text=self.html(),raise_for_status=lambda:None)
-        with patch.object(browser.requests,'get',return_value=response):
-            general=browser.page_text('https://example.org/method')
+        response={'url':'https://example.org/method','body':self.html().encode()}
+        with patch.object(public_sources,'fetch',return_value=response) as fetch, \
+             patch.object(browser.requests,'get',side_effect=AssertionError('unguarded HTTP reader')), \
+             patch('modules.privacy.blocked',return_value=None):
+            general=browser.page_text(response['url'])
+        fetch.assert_called_once_with(response['url'])
         dated=research_evidence.article({'url':'https://example.org/story','body':self.html().encode()})
         for text in (general,dated['text'],public_sources.text(self.html().encode())):
             with self.subTest(text=text):

@@ -130,10 +130,29 @@ class QuotaGateTests(_Base):
         self.assertIn('kaynak', text)
 
     def test_resume_is_not_blocked_by_quota_gate(self):
-        self.job('paused', 1); self.quota.return_value = 90
+        # General work still resumes its planner; news has a separate zero-model contract below.
+        self.job('paused', 1, request='Günlük notumu düzenle'); self.quota.return_value = 90
         self.ask.side_effect = RuntimeError('models unavailable')
         goals.handle(self.runtime, 'devam')
         self.assertTrue(self.ask.called)
+
+    def test_news_resume_preserves_job_without_a_model_during_quota_wait(self):
+        from modules import news_pipeline
+        news_pipeline.cache_clear(); self.addCleanup(news_pipeline.cache_clear)
+        before=self.job('paused',1)
+        self.quota.return_value=90
+        self.ask.side_effect=AssertionError('news resume consumed model quota')
+        with patch('modules.domain_tools.headlines',side_effect=OSError('offline')), \
+             patch('modules.public_sources.fetch',side_effect=OSError('offline')), \
+             patch('modules.research_providers.search_public',return_value=[]), \
+             patch('modules.privacy.blocked',return_value=None):
+            goals.handle(self.runtime,'devam')
+        after=goals.latest('alice')
+        self.ask.assert_not_called()
+        self.assertEqual(after['id'],before['id'])
+        self.assertEqual(after['state'],'paused')
+        self.assertEqual(after['news_pipeline']['news_status'],'unavailable')
+        self.assertTrue(after['goals'])
 
     def test_gate_failure_never_blocks_a_goal(self):
         self.quota.side_effect = RuntimeError('beklenmeyen')

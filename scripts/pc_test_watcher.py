@@ -222,6 +222,14 @@ def _check_state(checks: list[dict], name: str) -> str | None:
     return None
 
 
+def _check_detail(checks: list[dict], name: str) -> str:
+    """Small, report-provided diagnostic only; never publish raw command output."""
+    for row in checks:
+        if isinstance(row, dict) and row.get("check") == name:
+            return " ".join(str(row.get("detail") or "").split())[:300]
+    return ""
+
+
 def run_acceptance(py: Path, worktree: Path, *flags: str) -> dict:
     proc = run([str(py), "-X", "utf8", "-m", "modules.acceptance_checks", *flags, "--skip-suite"],
                cwd=worktree, check=False, capture=True)
@@ -293,6 +301,10 @@ def pr_comment_body(report: dict) -> str:
             if key in required:
                 passed = passed and _check_state(row.get('checks') or [], required[key]) == 'passed'
             lines.append(f"- {label}: **{'passed' if passed else 'failed'}**")
+            if not passed and key in required:
+                detail = _check_detail(row.get("checks") or [], required[key])
+                if detail:
+                    lines.append(f"  - Tanı: {detail}")
     lines.append("\nBu yorum gerçek iş PC'sindeki watcher tarafından otomatik üretildi; anahtarlar ve kişisel içerik gönderilmez.")
     return "\n".join(lines)
 

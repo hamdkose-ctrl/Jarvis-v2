@@ -437,10 +437,14 @@ def _loop_steps(runtime,job,answer=None,resume=False):
     if _finish_completed(job):return render(job)
     if answer is None:
         from modules import research_evidence,model_free_news
+        news_only=not re.search(r'mail|e-posta|eposta|takvim|hatırlat|hatirlat|gönder|gonder|paylaş|paylas',job['request'],re.I)
+        discovery_only=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',job['request'],re.I) and
+                        re.search(r'bul|listele|keşfet|kesfet',job['request'],re.I) and
+                        not re.search(r'araştır|arastir|incele|rapor|özet|ozet|analiz',job['request'],re.I))
         if (not job['goals'] and not job['steps'] and
                 research_evidence.news_requested(job['request']) and
-                not research_evidence.file_requested(job['request']) and
-                not model_free_news.terms(job['request'])):
+                news_only and not discovery_only and
+                ((not research_evidence.file_requested(job['request']) and not model_free_news.terms(job['request'])) or _quota_wait()>0)):
             job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
             _save(job)
             from modules import news_recovery
@@ -884,3 +888,4 @@ def handle(runtime,command):
         from modules.work_modes import ends_with_action
         if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
     return None
+

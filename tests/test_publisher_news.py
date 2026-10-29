@@ -3,11 +3,11 @@ from modules import publisher_news as p
 
 class PublisherNewsTests(unittest.TestCase):
     def test_general_recovery_replaces_old_guessed_paths_with_real_indexes(self):
-        seeds=['https://tubitak.gov.tr/tr/bilim-kalkinimi/yapay-zeka','https://www.veri']
-        result=p.recovery_indexes('Türkiye yapay zekâ gelişmelerini araştır',seeds)
-        self.assertEqual(result[0],'https://www.mynet.com/haber/')
-        self.assertEqual(set(result),{'https://www.mynet.com/haber/','https://tr.investing.com/news/','https://www.aa.com.tr/tr/gundem','https://www.bbc.com/turkce'})
-        self.assertNotIn(seeds[0],result)
+        rows=p.sources_for('Türkiye yapay zekâ gelişmelerini araştır')
+        urls=[row['url'] for row in rows]
+        self.assertEqual(urls[:4],['https://www.mynet.com/haber/','https://tr.investing.com/news/','https://www.aa.com.tr/tr/gundem','https://www.bbc.com/turkce'])
+        self.assertNotIn('https://tubitak.gov.tr/tr/bilim-kalkinimi/yapay-zeka',urls)
+        self.assertFalse(hasattr(p,'recovery_indexes'))
 
     def test_actual_discovery_or_user_url_required_for_article(self):
         url='https://example.org/news/ai'
@@ -38,13 +38,23 @@ class PublisherNewsTests(unittest.TestCase):
         result=p.listing({'url':'https://haber.dpu.edu.tr/','body':(nav+'<a href="/tr/haber_oku/abc/proje">Proje</a>').encode()})
         self.assertNotIn(b'Menu',result['body']);self.assertIn(b'Proje',result['body'])
     def test_exclusive_source_never_broadens(self):
-        seeds=['https://example.org/haberler']
-        self.assertEqual(p.recovery_indexes('Sadece Türkiye üniversite haberleri',seeds),seeds)
-        self.assertEqual(p.recovery_indexes('Türkiye yapay zekâ haberleri',[]),[s['url'] for s in p.sources_for('Türkiye haberleri')[:4]])
+        from modules import news_pipeline
+        from unittest.mock import patch
+        seen=[]
+        def reader(url):
+            seen.append(url)
+            return []
+        with patch.object(news_pipeline,'catalog',side_effect=AssertionError('explicit scope broadened')):
+            result=news_pipeline.run('Sadece https://example.org/haberler haberleri',reader=reader,
+                                     fetcher=lambda _: (_ for _ in ()).throw(ValueError('index')))
+        self.assertEqual(seen,['https://example.org/haberler'])
+        self.assertEqual(result['articles_verified'],0)
 
     def test_named_university_keeps_its_own_scope_without_exclusive_word(self):
-        seeds=['https://haberler.bogazici.edu.tr/']
-        self.assertEqual(p.recovery_indexes('Boğaziçi Üniversitesi yapay zekâ haberleri',seeds),seeds)
-        self.assertEqual(p.recovery_indexes('Türkiye Boğaziçi Üniversitesi haberleri',[]),[])
-        self.assertEqual(p.recovery_indexes('Türkiye haberleri',seeds),[s['url'] for s in p.sources_for('Türkiye haberleri')[:4]])
-        self.assertEqual(p.recovery_indexes('Türkiye Ankara Üniversitesi yapay zekâ haberleri',[]),[])
+        self.assertNotIn('https://haberler.bogazici.edu.tr/',[row['url'] for row in p.sources_for('Boğaziçi Üniversitesi yapay zekâ haberleri')])
+        self.assertEqual(p.candidate_url('https://haberler.bogazici.edu.tr/', 'https://haberler.bogazici.edu.tr/ haberini oku',{}),
+                         'https://haberler.bogazici.edu.tr/')
+        with self.assertRaises(ValueError):
+            p.candidate_url('https://haberler.bogazici.edu.tr/uydurma','Boğaziçi haberleri',{})
+
+

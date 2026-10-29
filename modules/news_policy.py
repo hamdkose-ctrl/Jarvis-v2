@@ -1,6 +1,6 @@
 """Haber araştırması tamamlanma ve kayıtlı kurtarma politikası (goal_executor'dan taşındı, davranış aynı).
 
-Yürütücü genel kalır; haber kuralları (tekil makale kanıtı, iki yayıncı, katalog denemesi, modelsiz kurtarma)
+Yürütücü genel kalır; haber kuralları (tekil makale kanıtı, canonical yayıncı eşiği, modelsiz kurtarma)
 burada durur. goal_executor aynı adlı ince sarmalayıcılarla çağırır.
 """
 import re
@@ -54,7 +54,7 @@ def check_completion(job,goal,evidence,*,final=False):
             raise ValueError('Geçersiz haber işi kaydı.')
         steps[step['id']]=step
     pending=list(evidence or []);seen=set()
-    discovery=False;article=False;publishers=set()
+    discovery=False;article=False;verified=[]
     while pending:
         ident=pending.pop()
         if ident in seen:continue
@@ -64,8 +64,7 @@ def check_completion(job,goal,evidence,*,final=False):
         if output.get('news_article'):
             source=research_evidence.news_receipt(output)
             research_evidence.news_date(source['published'],request);article=True
-            from modules import publisher_news
-            publishers.add(publisher_news.publisher_key(source['url']))
+            verified.append({'news_article':source})
         if step.get('tool')=='data' and isinstance(step.get('input'),dict) and step['input'].get('operation') in {'sources','headlines','news_search'}:discovery=True
         depends=step.get('depends',[])
         if isinstance(depends,list):pending.extend(depends)
@@ -77,13 +76,12 @@ def check_completion(job,goal,evidence,*,final=False):
     research_goal=re.search(r'araştır|arastir|haber|gelişme|rapor|incele|analiz|özet|ozet',text)
     if not article and not discovery_goal and research_goal and research_evidence.news_requested(text):
         raise ValueError('Haber araştırması yalnız bağlantı/başlık keşfiyle tamamlanamaz; tekil haber gövdesi ve yayın tarihi kanıtı gerekli.')
-    if final or state=='done':
-        from modules import publisher_news
-        publisher_news.require_catalog(job)
-    from modules import publisher_news
-    if (not discovery_goal and research_goal
-            and (publisher_news.broad_research(request) or publisher_news.multiple_publishers(request) and research_evidence.news_requested(text)) and len(publishers)<2):
-        raise ValueError(f'Araştırma kısmi: {len(publishers)} bağımsız yayıncı doğrulandı. Genel Türkiye araştırmasını tamamlamak için en az iki yayıncıdan tarihli haber kanıtı gerekli; tek haber bütün kapsam sayılmaz.')
+    # Catalog traversal is discovery telemetry, never completion authority.
+    # The canonical pipeline already owns relevance, freshness and publisher evidence.
+    from modules import news_pipeline
+    if (not discovery_goal and research_goal and research_evidence.news_requested(text)
+            and not news_pipeline.enough_evidence(verified,request)):
+        raise ValueError('Araştırma kısmi: İstenen kapsam için en az iki bağımsız yayıncıdan tarihli haber kanıtı gerekli; açık tek haber/kaynak isteği kendi kapsamıyla değerlendirilir.')
 
 
 def resume_recovery(runtime,job,started_steps,save):
@@ -114,11 +112,6 @@ def resume_recovery(runtime,job,started_steps,save):
         inp=step.get('input') if isinstance(step.get('input'),dict) else {}
         if step.get('tool')=='research' or step.get('tool')=='data' and inp.get('operation')=='headlines':
             reads.append(step)
-    if after and reads:
-        from modules import publisher_news
-        if publisher_news.broad_research(request) and publisher_news.catalog_keys(request).issubset(publisher_news.catalog_attempted(job)):
-            job['blocker']='Kayıtlı katalog denemeleri tamamlandı; doğrulanmış rapor korundu. Kalan hedefler gerçek kanıtlarıyla denetleniyor.'
-            save(job);return False
     if after and (after!=before or reads):
         job['state']='paused'
         job['blocker']=('Kayıtlı hedef modelsiz sürdürüldü; yeni doğrulanmış kaynaklarla kısmi raporun yeni sürümü oluşturuldu. Eksik kapsam açık tutuldu.' if before and after!=before else
@@ -132,3 +125,4 @@ def resume_recovery(runtime,job,started_steps,save):
         if not feedback or feedback[-1]!=job['blocker']:feedback.append(job['blocker'])
         save(job)
     return False
+

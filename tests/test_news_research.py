@@ -152,5 +152,7 @@ class NewsTests(unittest.TestCase):
 
     def test_model_free_ai_quote_must_be_in_body_and_other_topics_are_not_inferred(self):
         article={'title':'Yapay zekâ haberleri','text':'Yapay zekâ haberleri Bu yazı yalnız futbol sonuçlarını içermektedir.'}
-        with self.assertRaises(ValueError):evidence.literal_ai_quotes(article,'Yapay zekâ son gelişmeleri')
-        with self.assertRaises(ValueError):evidence.literal_ai_quotes(article,'Son finans haberleri')
+        from modules import model_free_news
+        with self.assertRaises(ValueError):model_free_news.quotes(article,'Yapay zekâ son gelişmeleri')
+        with self.assertRaises(ValueError):model_free_news.quotes(article,'Son finans haberleri')
+
