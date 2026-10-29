@@ -401,3 +401,7 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - #434 canlı kabul gerçek kurulu modelle yapılır; qwen2.5-coder:7b kurulumu şart değildir. 3B ve diğer model kimlikleri için aynı kurulu/effective/UI/inference şartları uygulanır. Senaryo (stale/normal/tercihsiz) açık raporlanır; yeni exact-head kabulü beklenir.
 
 - #434 main uyumu: Faz 0 kapanış belgeleri ve ARCH-007 guard güncel main 4280ac9a ile korunur. Önceki 970c643c Windows CI #914, gerçek 3B UI/inference ve watcher PASS kanıtları yeni birleşmiş head kabulü yerine geçmez.
+
+- 🔄 Faz 1 provider/Hoca tanısı: Ollama taşıyıcı timeout ve bağlantı yokluğu ayrı gösterilir; Hoca exhausted güvenli neden/metadata zincirini korur. Bu yalnız tanı düzeltmesidir; gerçek PC Hoca başarısızlık nedeni ve final provider/429/restart kabulleri açık kalır.
+
+- Router durum tablosu kayıtlı model yerine mevcut backend effective çözümünü gösterir; model yoksa doğrulanamadı yazar. Son çağrı özeti tablodan önce gelir; RAM kaydı yoksa süreç/kullanıcı kaydı yokluğu açıkça belirtilir. Bu düzenleme restart dayanıklı health/last-call depolaması eklemez.

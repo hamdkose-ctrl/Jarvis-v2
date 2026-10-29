@@ -145,3 +145,9 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Test: `tests/hoca_behavior.js` (`JS_GROUPS`'ta), `tests/test_hoca.py` (`HocaSnapshotTests`, `HocaBridgeTests`). Ekranda görsel olarak ve gerçek PC'de denenmedi; ders cevabından sonra sekmenin kendiliğinden yenilenmesi yok (sekmeye yeniden girince/yenile ile güncellenir).
 
 - Hoca _research_source ortak research_providers.search_public/extract_source yolunu kullanır. İlk aday erişilemez veya metni kısa ise en fazla 10 aday içinden sıradakine geçer. PermissionError/Cancelled aynen yayılır; her aday öncesi requests_state.check uygulanır. Kaynağı seçmek model tüketmez. Bu unit/wiring düzeltmesi canlı dış aramanın veya ders kalitesinin kabulü değildir; DDG dayanıklılığı ayrı açıktır.
+
+## Provider başarısızlığı tanısı — 29 Ekim 2026
+
+- Ders planı ve ortak _ask, ProviderExhaustedError ayrıntısını diagnostics.safe_reason ile sınırlı/redakte gösterir; reason_code/recovery_class HocaError üzerinde korunur. Bilinmeyen exception mesajı gösterilmez. Başarısız planda ders kaydedilmez ve ek model denemesi yapılmaz.
+- Hoca araştırma söz dizimi `hoca modu: araştır fotosentez` biçimindedir; sonuna araştır eklemek mevcut araştırma komutunu seçmez. Bu PR söz dizimini değiştirmez.
+- Kullanıcının son gerçek PC ProviderExhaustedError nedeni henüz bilinmiyor; router durumu çıktısı bekleniyor. Kısa merhaba yerel kabulünün geçmesi 900-token ders çağrısının geçtiğini kanıtlamaz.

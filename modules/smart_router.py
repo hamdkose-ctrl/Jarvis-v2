@@ -315,15 +315,20 @@ def run(owner, prompt, callback, image=False):
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')
-            attempt={'provider':provider,'ok':False,'error':type(exc).__name__,
+            # Local adapters wrap transport errors; retain only their type, never
+            # the raw request/URL/body. Routing and cooldown still use exc.
+            transport = (exc.__cause__ if provider == 'ollama' and
+                         type(exc).__name__ == 'LocalModelError' and
+                         isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError)) else None)
+            attempt={'provider':provider,'ok':False,'error':type(transport or exc).__name__,
                      'kind':failure_kind(exc),'status':failure_status(exc)}
             if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
-                if str(exc) == llm.local_hint():
+                if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                     attempt['hint'] = 'ollama_missing'
             attempts.append(attempt)
             from modules import llm
-            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(exc) + ', sıradakine geçildi', False)
+            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(transport or exc) + ', sıradakine geçildi', False)
             if type(exc).__name__ != 'ImageCapabilityError':
                 with _LOCK: _HEALTH[(owner,provider)] = {'until':time.monotonic()+cooldown(provider,exc),'error':type(exc).__name__}
             continue
@@ -407,11 +412,17 @@ def status(owner):
     openrouter_model=state.get('openrouter_model','openrouter/free')
     openrouter_policy=('Yerel modda kullanılmaz' if privacy.mode()=='yerel' else
         cloud_policy('openrouter',openrouter_model,bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
+    local_policy='Yerel; görüntü için ayrıca vision modeli gerekir'
+    try:
+        local_model=llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
+    except llm.LocalModelError:
+        local_model='—'
+        local_policy='Yerel effective model doğrulanamadı; yerel sunucuyu ve kurulu modelleri kontrol et'
     table = [
       {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))},
       {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))},
       {'provider':'openrouter','model':openrouter_model,'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
-      {'provider':'ollama','model':llm.provider_configuration()['model'],'tasks':['chat','code','analysis'],'policy':'Yerel; görüntü için ayrıca vision modeli gerekir'},
+      {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     return {'key':bool(api_key(owner)), 'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
             'model':openrouter_model,'capabilities':table,'last':last,'cooldowns':cooldowns,
@@ -431,5 +442,9 @@ def handle(owner, command):
         attempts = s['last'].get('attempts', [])
         trace = '\n'.join(failure_detail(a) if not a['ok'] else a['provider'] + ': yanıt alındı' for a in attempts)
         skipped='; '.join(row['provider']+': '+row['reason'] for row in s['last'].get('skipped',[]))
-        return '\n'.join(rows)+('\n\nAtlanan sağlayıcılar: '+skipped if skipped else '')+'\n\nSon seçim: '+str(s['last'].get('provider') or 'Henüz yok') + ('\nSon çağrı denemeleri:\n' + trace if trace else '')
+        summary=('Son seçim: '+str(s['last'].get('provider') or 'Yanıt alınamadı') if s['last'] else
+                 'Bu süreçte bu kullanıcı için son çağrı kaydı yok; restart öncesi çağrı burada tutulmaz.')
+        if trace:summary+='\nSon çağrı denemeleri:\n'+trace
+        if skipped:summary+='\nAtlanan sağlayıcılar: '+skipped
+        return summary+'\n\n'+'\n'.join(rows)
     return None

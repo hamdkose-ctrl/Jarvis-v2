@@ -266,7 +266,7 @@ def _installed_ollama_name(model: str, installed: list[str]) -> str | None:
     return alias if alias in installed else None
 
 
-def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
+def _ollama_effective_model(c: dict, requested: str | None = None, *, refresh_missing: bool = True) -> str:
     """Resolve Ollama runtime model against models actually installed on the endpoint.
 
     A saved user preference remains stored, but only an installed model may become
@@ -275,7 +275,7 @@ def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
     if _backend(c) != "ollama":
         return requested or _local_model(c)
     rows = sorted(dict.fromkeys(ollama_models()))
-    if not rows:
+    if not rows and refresh_missing:
         rows = sorted(dict.fromkeys(ollama_models(force=True)))
     if not rows:
         raise LocalModelError(local_hint())
@@ -455,6 +455,9 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
         r = requests.post(c["url"] + "/api/chat", timeout=(5, 45),
                           json={"model": model, "messages": msgs, "stream": False,
                                 "options": {"num_predict": max_tokens}})
+    except requests.Timeout as e:
+        usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
+        raise LocalModelError(f"{local_label()} yanıtı zaman aşımına uğradı.") from e
     except requests.RequestException as e:
         usage_meter.record('ollama', model, usage_meter.size(msgs), 0, 'baglanti')
         raise LocalModelError(local_hint()) from e

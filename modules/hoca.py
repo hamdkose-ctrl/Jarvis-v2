@@ -24,6 +24,18 @@ class HocaError(Exception):
     """Kullanıcıya olduğu gibi gösterilebilen Türkçe hata."""
 
 
+def _model_failure(exc: Exception, what: str) -> HocaError:
+    from modules import diagnostics, failure_policy
+    if isinstance(exc, failure_policy.ProviderExhaustedError):
+        detail = diagnostics.safe_reason(exc)
+        error = HocaError(f"{what} şu an hazırlanamadı. " +
+                          (detail or 'Uygun ücretsiz model yanıt vermedi; router durumunu kontrol et.'))
+        error.reason_code = exc.reason_code
+        error.recovery_class = exc.recovery_class
+        return error
+    return HocaError(f"{what} şu an hazırlanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
+
+
 def _state(profile) -> dict:
     if not isinstance(getattr(profile, "data", None), dict):
         profile.data = {}
@@ -110,7 +122,7 @@ def start(profile, topic: str, level: str = "", source: dict | None = None, cour
         answer = llm.ask(prompt, _SYSTEM, 900)
     except Exception as exc:
         _record_failure('modules/hoca.py:start')
-        raise HocaError(f"Ders planı şu an hazırlanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
+        raise _model_failure(exc, 'Ders planı') from exc
     steps = parse_plan(answer)
     lesson = {"topic": topic, "level": level, "steps": steps, "active": 0, "done": False,
               "started": int(time.time())}
@@ -233,7 +245,7 @@ def _ask(prompt: str, system: str, tokens: int, where: str, what: str) -> dict:
         answer = llm.ask(prompt, system, tokens)
     except Exception as exc:
         _record_failure(f'modules/hoca.py:{where}')
-        raise HocaError(f"{what} şu an hazırlanamadı ({type(exc).__name__}). Biraz sonra tekrar dene.")
+        raise _model_failure(exc, what) from exc
     return _json(answer, what)
 
 
