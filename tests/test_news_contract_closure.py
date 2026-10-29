@@ -87,7 +87,7 @@ class NewsContractClosureTests(unittest.TestCase):
         with patch('modules.llm.ask',side_effect=AssertionError('quota spent')), \
              patch('modules.model_wait.ask',side_effect=AssertionError('quota spent')), \
              patch.object(news_pipeline,'article_reader',side_effect=lambda page:page):
-            result=news_pipeline.run('son dakika haberleri',sources=[
+            result=news_pipeline.run('güncel haberler',sources=[
                 {'url':'https://a.example/','name':'A'},{'url':'https://b.example/','name':'B'}],
                 reader=reader,fetcher=fetch,now=date(2026,10,28))
         self.assertEqual(result['articles_verified'],2)
@@ -122,7 +122,7 @@ class NewsContractClosureTests(unittest.TestCase):
         with patch.object(news_pipeline,'catalog',return_value=[]), \
              patch.object(news_pipeline,'article_reader',side_effect=lambda page: page):
             search=__import__('unittest.mock',fromlist=['Mock']).Mock(return_value=[{'url':'https://new.example/story','title':source['title']}])
-            result=news_pipeline.run('son dakika haberleri', reader=lambda _:[],fetcher=lambda url:dict(source,url=url),
+            result=news_pipeline.run('güncel haberler', reader=lambda _:[],fetcher=lambda url:dict(source,url=url),
                                      searcher=search,now=date(2026,10,28))
         search.assert_called_once()
         self.assertEqual(result['articles_verified'],1)
@@ -133,7 +133,7 @@ class NewsContractClosureTests(unittest.TestCase):
         with patch('modules.public_sources.fetch',side_effect=AssertionError('duplicate fetch')), \
              patch('modules.model_wait.ask',side_effect=AssertionError('quota')), \
              patch('modules.task_results.seal',side_effect=lambda agent,result:result):
-            result=model_free_news.receipt(source,'son dakika haberleri')
+            result=model_free_news.receipt(source,'güncel haberler')
         self.assertEqual(result['news_article'],source)
 
     def test_changed_topic_does_not_reuse_old_news(self):

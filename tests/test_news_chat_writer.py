@@ -29,7 +29,7 @@ class NewsChatWriterTests(unittest.TestCase):
             text='Deprem sonrası ekiplerin incelemeleri hakkında doğrulanmış açıklama yayımlandı. Ayrıntılar yerel kurumların açıklamasıyla birlikte paylaşıldı.'
             html='<article><h1>Deprem incelemeleri</h1><time itemprop="datePublished" datetime="'+day+'"></time><p>'+text+'</p></article>'
             return {'url':url,'body':html.encode()}
-        request='Son dakika deprem haberlerini araştır ve kısa rapor ver'+(' ve raporu dosyaya kaydet' if file else '')
+        request='Güncel deprem haberlerini araştır ve kısa rapor ver'+(' ve raporu dosyaya kaydet' if file else '')
         with patch.object(task_agents,'worker',side_effect=worker),patch('modules.public_sources.fetch',side_effect=fetch) as work,patch('modules.privacy.blocked',return_value=None):
             reply=goals.run(case.runtime,request)
         return case,goals.latest('alice'),reply,work

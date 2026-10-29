@@ -109,7 +109,7 @@ class NewsSourceScopeTests(unittest.TestCase):
             body = f'<article><h1>{host} deprem haberi</h1><time itemprop="datePublished" datetime="{day}"></time><p>{text}</p></article>'
             return {'url':url,'body':body.encode()}
         with patch('modules.public_sources.fetch', side_effect=fetch), patch('modules.privacy.blocked', return_value=None):
-            reply = goals.run(case.runtime, 'son dakika deprem haberleri')
+            reply = goals.run(case.runtime, 'güncel deprem haberleri')
         self.assertEqual(case.ask.call_count, 2)
         self.assertLessEqual(sum(bool(s.get('recovery')) for s in goals.latest('alice')['steps']), 10)
         return goals.latest('alice'), fetched, reply

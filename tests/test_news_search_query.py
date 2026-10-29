@@ -10,3 +10,7 @@ class NewsSearchQuery(unittest.TestCase):
         self.assertEqual(rp.news_search_query('Almanya son 7 gün enerji haberlerini araştır ve Türkçe rapor dosyası oluştur'),'Almanya enerji')
     def test_topic_without_commands_unchanged(self):
         self.assertEqual(rp.news_search_query('Türkiye yapay zeka'),'Türkiye yapay zeka')
+
+    def test_hour_and_morning_are_not_search_keywords(self):
+        self.assertEqual(rp.news_search_query('Son 1 saat Türkiye yapay zeka haberleri'),'Türkiye yapay zeka')
+        self.assertEqual(rp.news_search_query('Bu sabah Türkiye deprem haberleri'),'Türkiye deprem')

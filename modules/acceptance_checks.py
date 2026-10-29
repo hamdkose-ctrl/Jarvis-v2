@@ -53,7 +53,7 @@ def _news_job_facts(job):
     for output in outputs.values():
         if not isinstance(output,dict) or output.get('state')!='done' or not output.get('news_article'):continue
         source=research_evidence.news_receipt(output)
-        research_evidence.news_date(source['published'],request)
+        research_evidence.news_date(source,request)
         publisher=publisher_news.publisher_key(source['url'])
         if publisher:publishers.add(publisher)
         articles+=1
@@ -308,6 +308,33 @@ def run(*,suite=True,gmail=False,desktop=False,narration=False,public_data=False
     return report
 
 
+def archive_news_result(report):
+    """Persist bounded news diagnostics even when an older watcher removes its worktree."""
+    import os
+    import hashlib
+    from uuid import uuid4
+    from modules import privacy
+    root=Path(os.environ.get('LOCALAPPDATA') or Path.home()/'.local'/'share')/'Jarvis'/'pc-acceptance'/'news-reports'
+    root.mkdir(parents=True,exist_ok=True)
+    checks=[]
+    for row in report.get('checks',[]):
+        if isinstance(row,dict) and str(row.get('check','')).startswith('news'):
+            checks.append({'check':str(row['check'])[:100],'state':str(row.get('state','unknown'))[:30],
+                           'detail':privacy.redact(str(row.get('detail','')),force=True)[:16000]})
+    digest=hashlib.sha256()
+    for name in ('acceptance_checks.py','news_pipeline.py','research_evidence.py','publisher_news.py','research_providers.py'):
+        digest.update(name.encode());digest.update(Path(__file__).with_name(name).read_bytes())
+    stamp=datetime.now(timezone.utc)
+    payload={'created_at':stamp.isoformat(),'code_fingerprint':digest.hexdigest(),'checks':checks}
+    encoded=json.dumps(payload,ensure_ascii=False,indent=2)
+    path=root/(stamp.strftime('%Y%m%dT%H%M%S%fZ')+'-'+uuid4().hex[:8]+'.json')
+    path.write_text(encoded,encoding='utf-8')
+    last=root/'news_acceptance_last.json'
+    temporary=last.with_suffix('.json.'+uuid4().hex+'.tmp')
+    temporary.write_text(encoded,encoding='utf-8');os.replace(temporary,last)
+    return path
+
+
 def main():
     parser=argparse.ArgumentParser(description='Jarvis V2 acceptance checks; no external sends or automatic source update')
     parser.add_argument('--gmail',action='store_true');parser.add_argument('--desktop',action='store_true')
@@ -322,6 +349,9 @@ def main():
     args=parser.parse_args();report=run(suite=not args.skip_suite,gmail=args.gmail,desktop=args.desktop,narration=args.narration,
         public_data=args.public_data,video=args.video,news=args.news,manual_confirm=args.confirm_manual,manual_reset=args.reset_manual)
     Path(args.output).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    if args.news:
+        archived=archive_news_result(report)
+        print('Haber ayrıntısı: '+str(archived))
     for row in report['checks']:print(row['check']+': '+row['state'])
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0
 

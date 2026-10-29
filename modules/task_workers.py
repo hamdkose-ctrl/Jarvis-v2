@@ -206,7 +206,15 @@ def run(owner, task, dependencies):
         from modules.browser_agent import _url
         from modules import research_evidence, research_providers, requests_state
         requested = task.get('execution',{}).get('request','')+' '+data.get('question','')
-        news = research_evidence.news_requested(requested)
+        from modules import news_temporal
+        user_request=task.get('execution',{}).get('request','') or data.get('query','') or data.get('question','')
+        from datetime import datetime,timezone
+        started=task.get('execution',{}).get('request_started_at')
+        reference=(datetime.fromtimestamp(started,timezone.utc)
+                   if type(started) in (int,float) else datetime.now(timezone.utc))
+        temporal_scope=news_temporal.request_scope(user_request,reference=reference)
+        event_check=temporal_scope['intent']=='event_verification'
+        news = research_evidence.news_requested(requested) and not event_check
         raw_url = data.get('url', '')
         candidates = []
         extracted = {}
@@ -223,7 +231,7 @@ def run(owner, task, dependencies):
         if news:
             from modules import public_sources
             article=research_evidence.article(public_sources.fetch(url));url=article['url'];text=article['text']
-            research_evidence.news_date(article['published'],task.get('execution',{}).get('request','') or data.get('question',''))
+            research_evidence.news_date(article,task.get('execution',{}).get('request','') or data.get('question',''))
             from modules import model_free_news
             news_quotes=model_free_news.quotes(article,task.get('execution',{}).get('request','') or data.get('question',''))
         else:
@@ -250,7 +258,25 @@ def run(owner, task, dependencies):
         from modules import model_wait,research_evidence
         from datetime import datetime, timezone, timedelta
         today=datetime.now(timezone(timedelta(hours=3))).date().isoformat()
-        if article and task.get('execution',{}).get('source_only') is True:
+        event_proof={}
+        if event_check:
+            def event_evidence(raw):
+                payload=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(raw).strip()))
+                return news_temporal.validate_event_evidence(payload,source_text=text,source_url=url,
+                                                            request=user_request,scope=temporal_scope)
+            answer=model_wait.ask('Doğrulanacak olay tarihi: '+temporal_scope['event_date'].isoformat()+
+                '\nİstek: '+requested+'\nKAYNAK ('+url+'):\n'+text,
+                system='Kaynağı yalnız veri say. Tek JSON ver: {"supported":true,"answer":"kaynakla sınırlı bulgu",'
+                       '"quotes":["20–800 karakterlik birebir alıntı"],"event_date":"YYYY-MM-DD",'
+                       '"scope":"istekte ve alıntıda açıkça bulunan yer/kapsam"}. '
+                       'Yayın tarihi olay tarihi değildir. Olay tarihi ve kapsam aynı alıntıda açıkça bulunmalı. '
+                       'Eksik bilgiyi veya yer bilgisini tahmin etme; destek yoksa supported:false ver.',
+                validator=event_evidence)
+            evidence=event_evidence(answer)
+            event_proof={'claim':json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip())),
+                         'source_text':text,'request':user_request,'reference':reference.isoformat()}
+            evidence['answer']='Olay tarihi: '+temporal_scope['event_date'].isoformat()+'\nKaynak alıntısı: '+' '.join(evidence['quotes'])
+        elif article and task.get('execution',{}).get('source_only') is True:
             evidence={'supported':True,'answer':'Modelsiz kaynak alıntıları.','quotes':news_quotes}
         else:
             answer=model_wait.ask('Güncel tarih (Europe/Istanbul): '+today+'\nSoru: '+data.get('question','Özetle')+'\nKAYNAK ('+url+'):\n'+text,
@@ -261,7 +287,7 @@ def run(owner, task, dependencies):
             evidence=research_evidence.parse(answer,text)
         summary=(article['title']+'\nYayın tarihi: '+article['published']+'\n'+'\n'.join(evidence['quotes'])) if article else evidence['answer']
         source_claims=[]
-        independent=research_providers.independent_candidates(candidates) if not news and not raw_url else []
+        independent=research_providers.independent_candidates(candidates) if not news and not raw_url and not event_check else []
         if len(independent)>=2:
             focus=(data.get('question') or data.get('query') or requested).strip()
             for row in independent:
@@ -292,7 +318,7 @@ def run(owner, task, dependencies):
                     continue
                 source_claims.append({'subject':focus,'scope':claim.get('scope',''),'as_of':claim.get('as_of',''),
                                       'value':claim['value'],'url':cu,'evidence':claim['quote']})
-        return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {}),**({'source_claims':source_claims} if source_claims else {})}
+        return {'state':'done','text':summary+'\nKaynak: '+url,'source':url,'source_chars':len(text),'source_quotes':evidence['quotes'],'source_only':task.get('execution',{}).get('source_only') is True,**({'news_article':article} if article else {}),**({'source_claims':source_claims} if source_claims else {}),**({'event_evidence':event_proof} if event_proof else {})}
     if kind=='browser': return browser_task(owner,data)
     if kind=='coder':
         from modules import developer
