@@ -44,6 +44,14 @@ _DIRECT_EXECUTE_ALLOWLIST = {
     'modules/worker_result_hook.py',
 }
 
+# worker_result_hook.execute() is itself an execution adapter around
+# goal_tools.execute(). Only the durable specialist orchestrator may enter that
+# wrapper; otherwise a caller could bypass the DecisionContext/runtime gate and
+# create a second execution boundary without calling goal_tools.execute itself.
+_WORKER_RESULT_EXECUTE_ALLOWLIST = {
+    'modules/specialist_orchestrator.py',
+}
+
 _DECISION_CONTEXT_KEYS = {
     'domain_invariant',
     'domain_authority',
@@ -269,6 +277,12 @@ def scan(root=None) -> dict:
                     'Yeni doğrudan goal_tools.execute yolu ikinci execution boundary oluşturamaz; durable Core hattını kullan.',
                 ))
 
+            if name == 'worker_result_hook.execute' and relative not in _WORKER_RESULT_EXECUTE_ALLOWLIST:
+                blockers.append(_issue(
+                    'ARCH-007', 'BLOCKER', relative, node.lineno,
+                    'worker_result_hook.execute yalnız durable specialist orchestrator içinden çağrılabilir; DecisionContext/runtime gate bypass edilemez.',
+                ))
+
             if name == 'runtime_event_commit.commit':
                 runtime_event_producer_calls += 1
 
@@ -331,3 +345,4 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

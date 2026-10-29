@@ -1,6 +1,6 @@
 # Jarvis Yol Haritası — Hasat Listesi Yapım Sırası
 
-Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi)
+Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi) · 29 Ekim 2026 (Faz 0 kapanış durumu güncel `main` ve merge edilmiş cutover/guard işleriyle yeniden hizalandı; gerçek-PC cutover + exact-main final acceptance kanıtlarıyla Faz 0 kapatıldı)
 
 ## "Bitti" kuralı
 
@@ -17,7 +17,7 @@ Dördünden biri eksikse faz "kısmi" kalır ve sıradaki faz onun üstüne kuru
 
 Kısa gösterim: `[1✓ 2✗ 3✗ 4✗]` = sözleşme var, göç / bağlantı / temizlik yok. `–` = o koşul uygulanmaz (taşınacak ya da silinecek eski kod yok), `🟡` = yarım.
 
-Bu sayfa, Hasat Listesi'nin Jarvis-v2 main (028e2fc) durumuna göre eksik kalan işlerini yapım sırasıyla verir. Bitmiş şeyler yazılmadı. Her maddede ne eklenecek ve şu an ne var yazıyor. Ücretli ya da kart isteyen hiçbir şey listede yok. Her faz bir öncekinin kabul kanıtını ister.
+Bu sayfa, Hasat Listesi'nin Jarvis-v2 güncel `main` durumuna göre eksik kalan işlerini yapım sırasıyla verir. Bitmiş şeyler yazılmadı. Her maddede ne eklenecek ve şu an ne var yazıyor. Ücretli ya da kart isteyen hiçbir şey listede yok. Her faz bir öncekinin kabul kanıtını ister.
 
 ---
 
@@ -25,13 +25,13 @@ Bu sayfa, Hasat Listesi'nin Jarvis-v2 main (028e2fc) durumuna göre eksik kalan 
 
 **Şu an sizden bekleyen karar yok.**
 
-Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunucusu yok, ses tanıma yok, Telegram ve WhatsApp kalıyor, "ben Hasan" profilleri kısıtsız. GoalState RFC'nin dört kararı da kabul edilmiş, Faz 0'da kalan iş kodlama.
+Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunucusu yok, ses tanıma yok, Telegram ve WhatsApp kalıyor, "ben Hasan" profilleri kısıtsız. GoalState RFC'nin dört kararı kabul edildi; canonical-authority/cutover mekanizmaları merge edildi ve gerçek-PC legacy promotion + exact-main final acceptance kanıtlarıyla Faz 0 kapatıldı. Kapanış kaydı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.
 
 ---
 
 ## Genel sıra
 
-- Faz 0: Aşama 0–4 kapanışı (🟡 kısmi: canonical işlerde eski JSON yazımı durdu (#385), eski işler legacy'de; 2 madde başlanmadı)
+- Faz 0: Aşama 0–4 kapanışı (✅ tamamlandı: gerçek-PC owner taraması, 18/18 canonical promotion, exact-main Architecture Guard, full validation, Windows CI ve watcher acceptance PASS)
 - Faz 1: 429 ve Ollama'sız çalışma (🟡 kısmi: provider hata kopyaları #423 ile temizlendi; F-009 strict zero-cost evidence routing kabul bekliyor; #437 model-bağımsız haber hattı açık PR — kod/CI hazır, canlı PC haber kabulü geçti (2 tarihli makale / 2 yayıncı, modelsiz); arayüz durum satırı kabulü bekliyor)
 - Faz 2: Zamanlama, olay, hook ve temel muhakeme (🔄 kapanış kabulü bekliyor: canlı akışa bağlandı; bu PR `gateway_hooks.py` ikinci registry/implementation'ını kaldırıp canonical `hooks.py` hattını tek authority yapıyor; F-011 #431 acceptance kaydı ayrıca korunuyor)
 - Faz 3: Envanter ve Finance sözleşmesi (🟡 kısmi: Finance sözleşmesi var, 3-B..3-F göçü yapılmadı)
@@ -49,22 +49,17 @@ Alınmış kararlar: Faz 9 bölünmesi onaylı, anahtar havuzu yok, MCP/API sunu
 
 ## Faz 0 — Aşama 0–4 kapanışı
 
-**Durum: 🟡 kısmi `[1✓ 2🟡 3✓ 4✗]`. 4 PR merge edildi (#347, #348, #349, #385) ama hiçbir madde dört koşulu birden sağlamıyor: eski işler hâlâ legacy `goal_executor` JSON'unda yürüyor; kaydetme kancası (`goal_state_save_hook.py`) canonical işlerde eski JSON'u artık yazmıyor (#385), legacy-authority işlerde yazmaya devam ediyor. Başlanmadı: PC watcher kabulü, üç Guard kuralı.**
+**Durum: ✅ tamamlandı `[1✓ 2✓ 3✓ 4✓]`. Canonical GoalState authority/cutover, UI/Core authority sınırı, effect/crash-recovery ve Decision Authority guard hattı merge edilmiş; gerçek Windows PC cutover ve exact merged-main final acceptance kanıtları alınmıştır. Kapanış kaydı: `docs/architecture/JARVIS_PHASE0_CLOSEOUT_2026-10-29.md`.**
+Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Migration=#422; Wiring=#447; Acceptance=watcher-pass@2da471412a53d275659d2f82ac91f2558478c0e9; Cleanup=verified
 
-Mimari borç ödenir: canonical GoalState geçişi tamamlanır, eski JSON yazımı durdurulur, Guard kuralları kod içine işlenir. Bu bitmeden sonraki hiçbir faz sağlam temele oturmuyor.
-
-Bu faz bitmeden yeni mimari genişleme açılmaz.
-
-- 🟡 (#349) `[1✓ 2🟡 3✓ 4✗]` Eski `goal_executor` kaydı canonical GoalState'e küçük adımlarla taşınacak: yeni işler doğrudan canonical yetkiyle açılacak, eski işler bitene kadar legacy kalacak. Kaydetme kancası canonical işlerde yalnız canonical senkron ve ExecutionRecord yazıyor (#385); legacy-authority işlerde eski JSON'u da yazıyor.
-- 🟡 (#385) `[1✓ 2🟡 3✓ 4✗]` Eski JSON yazımı durdurulacak. Canonical-authority işlerde durduruldu; legacy-authority işler eski yazımı sürdürüyor, eski `<id>.json` dosyaları diskte duruyor. RFC'nin dört kararı da kabul edilmiş (sabit `agent` modu, authority işareti, geri doldurma politikası, terminal koruması), kalan iş kodlama.
-- 🔄 Faz 0 promotion PR'ı açık bekliyor: operatör onaylı, fingerprint'e bağlı promotion legacy payload'ını önce ExecutionRecord'a taşır; canonical authority değişimi başarısızsa ExecutionRecord geri alınır. Eski `<id>.json` silinmez veya değiştirilmez; yalnız promotion sonrası gelecekteki legacy yazımı durur. Kabul/merge bekleniyor, bu yüzden Faz 0 hâlâ 🟡.
-- 🔄 (#441) `[1✓ 2✓ 3✓ 4🔄]` `web_tasks.py::team_control` içindeki goal/task lifecycle, stale-control ve approval kararları canonical `modules/team_control_service.py` Core servisine taşınıyor; UI bridge yalnız profil/kullanıcı girdisini ve mevcut engine transport'unu iletiyor. `team_verify` bu PR'ın kapsamı dışında ayrı UI/Core authority borcu olarak kalır. Exact-head Windows CI ve mevcut regresyon/sınır testleri geçmeden tamamlandı sayılmaz.
-- 🔄 (#444) `[1✓ 2✓ 3✓ 4🔄]` `web_tasks.py::team_verify` içindeki job/output seçimi ve verification toplama mantığı canonical `modules/team_verify_service.py` Core sorgu servisine taşınıyor; UI bridge yalnız owner/kind/identity iletir. `web_tasks.py` için eski UI→Core authority baseline istisnası kaldırılarak aynı borcun geri eklenmesi `ARCH-006` blocker yapılır. Exact-head Windows CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
-- 🟡 (#348) `[1✓ 2🟡 3✓ 4✗]` Eksik canonical kayıt için operatör onaylı geri doldurma akışı cutover'a bağlanacak. Fonksiyon ve testi var, akışa bağlı değil.
-- 🟡 (#347) `[1✓ 2✓ 3✓ 4✗]` Canonical tarafın "bitti" bilgisi eski tarafa iletilecek. Bugün canonical bitmiş işi yeniden açmıyor ama eski taraf bunu öğrenmiyor. Eski tarafa iletim çalışıyor; eski kayıt kaldırılınca bu köprü de kalkacak.
-- 🔄 (#445) Receipt-required durable effect `done` döndüğünde doğrulanmış provider receipt yoksa Core başarı commit'i yapmaz; effect journal `unknown / RECEIPT_MISSING_NO_BLIND_RETRY` sözleşmesinde fail-closed kalır. Exact-head CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
-- Gerçek PC watcher kabul kaydı main'in kendi SHA'sı için alınacak ve Aşama 0–4 kapanışı tek belgeyle ilan edilecek. Windows CI main'de yeşil, watcher kayıtları şimdilik yalnız PR bazlı.
-- Üç kural kodda zorlanacak: Domain invariant ve Decision Authority, her etkinin makbuz üretmesi, cron / oturum / hafızanın GoalState yerine geçmemesi. Receipt-required effect kuralı #445 ile runtime'da fail-closed uygulanıyor; diğer iki kuralın mekanik Guard/kod kanıtı hâlâ kapanmadı.
+- **Canonical authority / legacy write stop (#349/#385):** Yeni işler canonical authority ile açılır; canonical-authority işlerde legacy `<id>.json` lifecycle yazımı durmuştur.
+- **Cutover / promotion (#348/#422):** Gerçek PC owner verisi salt-okunur planla tarandı; 18 uyumlu legacy-authority aday mevcut #422 operatör-onaylı hattıyla 18/18 canonical'a promote edildi. Son planda blocker, backfill veya promotion adayı kalmadı.
+- **UI/Core authority (#441/#444):** `team_control` ve `team_verify` authority'si canonical Core servislere taşındı; `ARCH-006` regresyonu blocker yapar.
+- **Receipt/crash recovery (#445):** Receipt-required effect doğrulanmış receipt olmadan success commit değildir; blind retry yoktur.
+- **Decision Authority wrapper guard (#447):** `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` sınırından çağrılabilir; bypass `ARCH-007` blocker'dır.
+- **Final exact-main acceptance:** `main@2da471412a53d275659d2f82ac91f2558478c0e9` üzerinde Architecture Guard PASS; full `modules.validation` `3391 test / 3 skip` PASS; Windows CI #910 SUCCESS; gerçek-PC watcher `STATUS=passed` ve exact-SHA raporu `%LOCALAPPDATA%\Jarvis\pc-acceptance\reports\2da471412a53d275659d2f82ac91f2558478c0e9.json` altında arşivlendi.
+- **#347 compatibility bridge:** Faz 0 kapanışını bloklamaz. Legacy authority/write yolu canonical işlerde kapalıdır; gerçek-PC promotion adayı kalmadığı için köprünün fiziksel silinmesi daha sonra ayrı ve kanıtlı cleanup olarak değerlendirilebilir. Bu bounded safety shim ikinci authority değildir ve `[4✓]` kararını geri açmaz.
+- **F-003 çekirdek ayrımı (0–4 kararı):** Memory ≠ Task State ≠ Context için 0–4'te yeni capability PR'ı açılmaz. Memory davranış/context girdisidir, session konuşma metadata'sıdır, cron zamanlama ifadesidir; kendi başlarına GoalState lifecycle/completion/permission authority yaratamazlar. Mevcut Core/GoalState writer ve execution guard sınırları korunur; ayrıntılı memory/context lifecycle Faz 11'dedir.
 
 ---
 
@@ -201,7 +196,6 @@ Araştırma zinciri bu sırayla kurulur: arama sağlayıcısı, kaynak sıralama
 - Google Takvimden gelen saatli kayıt, plan çıktısında Jarvis'in çalıştığı makinenin saat dilimine ikinci kez çevrilmez; kaynağın takvim duvar saati korunur. Bu yalnız salt-okunur gösterim/eşsizleştirme düzeltmesidir; Google takvim yazımı, yetki veya etkinin kapsamı değişmez. Kanıt: PR #413; test `test_google_event_keeps_calendar_wall_time`.
 
 ### 4G — PC Worker temel sözleşmesi (yalnız Core tarafı)
-
 🟡 (#384) `[1✓ 2✗ 3✗ 4✗]` Sözleşme modülü ve testi var; akışa bağlı değil.
 
 - ComputerWorker sınırı tanımlanacak, UIA temel ölçümü ve yetenek / makbuz sözleşmesi yazılacak. 4F merge edildikten sonra açılır. Hesap Makinesi ve Not Defteri pilotu, uygulama izin listesi ve manifest var.
@@ -378,7 +372,7 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 ## Ortak kurallar
 
 - **"Bitti" kuralı:** Bir faz ya da madde ancak dört koşulun hepsi sağlanınca bitmiş sayılır: (1) sözleşme / arayüz yazıldı, (2) eski kod göçü tamamlandı, (3) yeni kod kullanıcı akışına bağlandı, (4) eski kod / legacy kısım kaldırıldı. Her PR açıklaması hangi koşulları kapattığını yazar; durum güncellemesi bu dört koşula göre yapılır, PR sayısına göre değil.
-- **UI/Core authority sınırı:** UI presentation/interaction katmanıdır; business/decision/execution authority canonical backend/Core'da kalır. UI kullanıcı girdisini iletir ve canonical state/evidence/result bilgisini gösterir. Presentation-only özellikler dışında UI tamamen silinse backend/Core davranışı ve canonical sonuç yaşamaya devam etmelidir. `modules.architecture_guard` yeni UI→Core authority dependency edge'lerini blocker yapar; mevcut borç exact baseline warning olarak görünür kalır. Ayrıntı: `docs/architecture/JARVIS_UI_CORE_BOUNDARY.md`.
+- **UI/Core authority sınırı:** UI presentation/interaction katmanıdır; business/decision/execution authority canonical backend/Core'da kalır. UI kullanıcı girdisini iletir ve canonical state/evidence/result bilgisini gösterir. Presentation-only özellikler dışında UI tamamen silinse backend/Core davranışı ve canonical sonuç yaşamaya devam etmelidir. `modules.architecture_guard` yeni UI→Core authority dependency edge'lerini blocker yapar; #441/#444 sonrası güncel UI authority baseline boştur ve eski borcun geri eklenmesi `ARCH-006` blocker'dır. Ayrıntı: `docs/architecture/JARVIS_UI_CORE_BOUNDARY.md`.
 - Her faz ayrı dalda, küçük PR'larla ilerler; AGENTS.md'ye göre önce plan ve iki seçenek, sonra sizin onayınız.
 - Dış kod alınmadan önce lisans, Windows uyumu, güvenlik ve Core sözleşmesi kontrol edilir.
 - Hiçbir yetenek ikinci bir Core kurmaz.
@@ -405,3 +399,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - #434 kabul helper yaşam döngüsü: web.serve sunucuyu zaten başlatır; local_model_acceptance ikinci serve_forever thread başlatmaz. Windows #901 exact e29d85cd UI ve gerçek inference PASS kanıtı verdi, fakat ikinci loop kapatılırken WinError 10038 görüldü. Önce thread-sahipliği regresyonu kırmızıyla doğrulandı; tek sunucu loop ve bir kez shutdown/server_close korunarak düzeltildi. Yeni exact head kabulü beklenir.
 
 - #434 canlı kabul gerçek kurulu modelle yapılır; qwen2.5-coder:7b kurulumu şart değildir. 3B ve diğer model kimlikleri için aynı kurulu/effective/UI/inference şartları uygulanır. Senaryo (stale/normal/tercihsiz) açık raporlanır; yeni exact-head kabulü beklenir.
+
+- #434 main uyumu: Faz 0 kapanış belgeleri ve ARCH-007 guard güncel main 4280ac9a ile korunur. Önceki 970c643c Windows CI #914, gerçek 3B UI/inference ve watcher PASS kanıtları yeni birleşmiş head kabulü yerine geçmez.
