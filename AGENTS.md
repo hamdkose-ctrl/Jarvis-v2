@@ -205,3 +205,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Yerel model kabulü gerçek kurulu listeye bağlıdır; belirli bir model adı veya boyutu şart değildir.
 
 - Provider/Hoca tanısı: yerel timeout, sunucu yokluğundan ayrılır; Hoca güvenli exhausted nedeni ve reason-code/recovery bilgisini korur. Router tablosu backend effective modelini gösterir; çağrı özeti tablodan önce gelir. Tanı düzeltmesi canlı model kabulü değildir.
+
+- Hoca arama hata sınırı: `docs/agents/hoca.md`.

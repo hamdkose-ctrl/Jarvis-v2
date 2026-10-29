@@ -105,6 +105,7 @@ def _study_media_topic(runtime, cmd_lower: str) -> str:
 
 def _study_intent(runtime, cmd_lower: str) -> str | None:
     # Hoca modu: yalnız açık söyleniş ("hoca modu: X", "X konusunu öğret") ve aktif dersin komut/cevapları; gerisi normal yol.
+    from modules import requests_state
     try:
         from config import load_settings
         from modules import hoca
@@ -120,6 +121,8 @@ def _study_intent(runtime, cmd_lower: str) -> str | None:
                 except Exception:
                     runtime._record_failure('main.py:_study_intent')
             return reply
+    except (requests_state.Cancelled, PermissionError):
+        raise
     except Exception:
         runtime._record_failure('main.py:_study_intent')
     if runtime.re.fullmatch(r"(?:ders )?çalışmaya başla[.! ]*", cmd_lower.strip()):
