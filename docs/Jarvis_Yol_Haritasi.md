@@ -71,7 +71,7 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor. #437 ile tarihli haber isteği kota sırasını beklerken iş kaydı açılıyor ve keşif/doğrulama/teslim modelsiz yürüyor; bu fazın haber kolu kod+CI aşamasında, canlı PC kabulü bekliyor; `news_recovery` sohbet teslimi artık haber hattının doğruladığı adresleri mühürlüyor.**
+**Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor. #437 ile tarihli haber isteği kota sırasını beklerken iş kaydı açılıyor ve keşif/doğrulama/teslim modelsiz yürüyor; bu fazın haber kolu kod+CI aşamasında, canlı PC kabulü bekliyor; `news_recovery` sohbet teslimine iş özetini yazıyor.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.
 
@@ -397,3 +397,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - Yeni kod için Windows CI ve gerçek PC kabulü beklenir; Faz 4A veya genel web araştırması bu kayıtla tamamlanmış sayılmaz.
 
 - Haber kabul tanısı: son-rapor dosyası başka PR ile değişebilir. Watcher reports/<exact-sha>.json arşivini silmeden korur; arşiv yazılamazsa worktree silinmez. --news kabulü eski watcher altında da LOCALAPPDATA/Jarvis/pc-acceptance/news-reports içine yalnız redakte haber kontrollerini zaman damgası ve kod parmak iziyle yazar. Kod parmak izi commit SHA kanıtı değildir. PR tanısı 300 karakterde kesilmez; başarısız dış keşif kontrolü de gösterilir. Bu kayıt iyileştirmesi Türkiye AI canlı arızasını çözülmüş saymaz; yeni exact kabul beklenir.
+
+- Hoca ortak araştırma bağlantısı: ilk kaynak fail-fast davranışı için sınırlı aday geçişi hazırlandı. Ek model/fallback sağlayıcı yok. #443 haber zaman çalışmasından ayrı tutulur; gerçek dış arama/Hoca/PC E2E kabulü henüz tamamlanmış sayılmaz.
