@@ -253,6 +253,19 @@ def ollama_models(force=False) -> list[str]:
         return list(rows)
 
 
+def _installed_ollama_name(model: str, installed: list[str]) -> str | None:
+    """Resolve only the default :latest alias; return a real installed identifier."""
+    model=(model or '').strip()
+    if model in installed:return model
+    if ':' not in model.rsplit('/',1)[-1] and model:
+        alias=model+':latest'
+    elif model.endswith(':latest'):
+        alias=model[:-7]
+    else:
+        return None
+    return alias if alias in installed else None
+
+
 def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
     """Resolve Ollama runtime model against models actually installed on the endpoint.
 
@@ -267,15 +280,15 @@ def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
     if not rows:
         raise LocalModelError(local_hint())
     requested = (requested or "").strip()
-    if requested and requested in rows:
-        return requested
+    if resolved:=_installed_ollama_name(requested,rows):
+        return resolved
     mine = _choice()
     user_model = (mine.get("local_model") or "").strip()
     if user_model:
-        return user_model if user_model in rows else rows[0]
+        return _installed_ollama_name(user_model,rows) or rows[0]
     setting_model = (load_settings().get("ollama_model") or "").strip()
-    if setting_model and setting_model in rows:
-        return setting_model
+    if resolved:=_installed_ollama_name(setting_model,rows):
+        return resolved
     return rows[0]
 
 

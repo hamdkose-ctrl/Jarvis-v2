@@ -137,6 +137,11 @@ class OllamaInstalledModelAutoselectTests(unittest.TestCase):
         self.assertFalse(info["local_model_stale"])
         self.assertEqual(info["local_model_warning"], "")
 
+    def test_ui_status_default_latest_alias_is_not_stale(self):
+        info, _ = self._ui_status(preference="llama3.2", installed=["gemma3:4b", "llama3.2:latest"], effective="llama3.2:latest")
+        self.assertFalse(info["local_model_stale"])
+        self.assertEqual(info["local_effective_model"], "llama3.2:latest")
+
     def test_ui_status_no_installed_model_does_not_invent_active_model(self):
         info, _ = self._ui_status(preference="llama3.2", installed=[], fail=True)
         self.assertEqual(info["local_model_preference"], "llama3.2")

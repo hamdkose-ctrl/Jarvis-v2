@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -67,6 +68,16 @@ def save_json(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def archive_report(report_path: Path, report: dict) -> Path:
+    """Keep exact-commit reports independently of the last-result convenience file."""
+    sha=str(report.get('sha') or '')
+    if not re.fullmatch(r'[0-9a-f]{40}',sha):
+        raise ValueError('Rapor için geçerli exact commit SHA gerekli.')
+    archive=report_path.parent/'reports'/(sha+'.json')
+    save_json(archive,report)
+    return archive
 
 
 def remote_heads(root: Path, pattern: str) -> list[dict]:
@@ -155,6 +166,8 @@ def acceptance_scope(paths: list[str], *, desktop: bool = False, news: bool = Fa
         "modules/llm.py",
         "web_models.py",
         "webui/ui-refresh.js",
+        "webui/local-model-panel.js",
+        "webui/nx.html",
         "tests/test_ollama_model_autoselect.py",
         "tests/ai_page_behavior.js",
         "scripts/local_model_acceptance.py",
@@ -230,6 +243,14 @@ def _check_state(checks: list[dict], name: str) -> str | None:
         if isinstance(row, dict) and row.get("check") == name:
             return str(row.get("state") or "unknown")
     return None
+
+
+def _check_detail(checks: list[dict], name: str) -> str:
+    """Bounded report-provided diagnostic; never publish raw command output."""
+    for row in checks:
+        if isinstance(row, dict) and row.get("check") == name:
+            return " ".join(str(row.get("detail") or "").split())[:12000]
+    return ""
 
 
 def run_acceptance(py: Path, worktree: Path, *flags: str) -> dict:
@@ -340,6 +361,19 @@ def pr_comment_body(report: dict) -> str:
             if key in required:
                 passed = passed and _check_state(row.get('checks') or [], required[key]) == 'passed'
             lines.append(f"- {label}: **{'passed' if passed else 'failed'}**")
+            if not passed and key == 'local_model_acceptance':
+                detail = str((row.get('result') or {}).get('detail') or '')[:1200]
+                if detail:
+                    lines.append(f'  - Tanı: {detail}')
+            if not passed and key in required:
+                checks=row.get("checks") or []
+                names=([str(check['check'])[:100] for check in checks
+                        if isinstance(check,dict) and str(check.get('check','')).startswith('news')
+                        and check.get('state')=='failed'][:4] if key=='news_acceptance' else [])
+                for name in names or [required[key]]:
+                    detail = _check_detail(checks, name)
+                    if detail:
+                        lines.append(f"  - Tanı ({name}): {detail}")
     lines.append("\nBu yorum gerçek iş PC'sindeki watcher tarafından otomatik üretildi; anahtarlar ve kişisel içerik gönderilmez.")
     return "\n".join(lines)
 
@@ -387,6 +421,7 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
         scope["source"] = "unavailable"
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
     attempted_at = time.time()
+    archived = False
     try:
         add_worktree(root, target["sha"], worktree)
         print("[1/4] Testler basladi...", flush=True)
@@ -394,14 +429,21 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
             root, worktree, target["ref"], target["sha"],
             desktop=scope["desktop"], news=scope["news"], local_model=scope["local_model"],
         )
+        result["sha"] = target["sha"]
         result["acceptance_scope"] = scope
+        archive_report(report_path, result)
+        archived = True
         print(f"[2/4] Test sonucu: {result.get('status')}", flush=True)
         result["github_pr_comment"] = publish_pr_comment(root, target["ref"], result)
         print("[4/4] Rapor yaziliyor...", flush=True)
+        archive_report(report_path, result)
         save_json(report_path, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     finally:
-        remove_worktree(root, worktree)
+        if archived:
+            remove_worktree(root, worktree)
+        else:
+            print("Rapor arşivlenemedi; kabul worktree kanıtı korundu.", flush=True)
     status = "passed" if result.get("status") == "passed" else "failed"
     seen[target["ref"]] = {
         "sha": target["sha"],

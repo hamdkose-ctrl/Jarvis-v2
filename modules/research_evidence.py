@@ -15,6 +15,13 @@ def news_requested(text):
     return bool(re.search(r'\bhaber(?!leş)|\bgelişme|\bgelisme|\bduyuru|gündem|gundem|haftal[ıi]k\s+olay|yayın tarih|yayin tarih|son\s+\d+\s+gün|\bnews\b',text,re.I))
 
 
+def publication_news_requested(text):
+    """Publication collection excludes event-validity questions."""
+    if not news_requested(text):return False
+    from modules import news_temporal
+    return news_temporal.request_scope(text)['intent']!='event_verification'
+
+
 def file_requested(text):
     """A local report file is an explicit deliverable, never an implicit news side effect."""
     return bool(re.search(r'\b(dosya\w*|kaydet\w*|markdown|\.md\b|indirilebilir|çıktı\s+dosya\w*|cikti\s+dosya\w*)\b',str(text),re.I))
@@ -28,6 +35,19 @@ def news_report_requested(request,instruction,dependencies,*,allow_source_only=T
     if requested and news_requested(request) and not file_requested(request) and not source_only:
         raise ChatDeliveryRequired('Kullanıcı haber araştırmasını dosyaya kaydetmeyi istemedi; sonucu doğrudan sohbette teslim et.')
     return requested
+
+
+def publication_clock(values):
+    """Keep one unambiguous aware publication instant; never use modified time."""
+    from datetime import datetime,timezone
+    clocks={}
+    for value in values:
+        if not isinstance(value,str) or 'T' not in value:continue
+        try:stamp=datetime.fromisoformat(value.replace('Z','+00:00'))
+        except ValueError:continue
+        if stamp.tzinfo is None:return None
+        clocks[stamp.astimezone(timezone.utc)]=stamp.isoformat()
+    return next(iter(clocks.values())) if len(clocks)==1 else None
 
 
 def article(response):
@@ -61,13 +81,55 @@ def article(response):
     node=soup.select_one('[itemprop="articleBody"]') or soup.find('article')
     if node is None and (schemas or og and og.get('content')=='article'):node=soup.find('main') or soup.body
     titles=soup.find_all('h1')
+    # Responsive/sticky copies may repeat one headline. Collapse only exact
+    # text copies backed by one schema headline and explicit page identity.
+    if len(titles)>1 and len(schemas)==1:
+        names={n.get_text(' ',strip=True) for n in titles}
+        schema=schemas[0]
+        ref=schema.get('mainEntityOfPage')
+        if isinstance(ref,dict):ref=ref.get('@id') or ref.get('url')
+        try:bound=isinstance(ref,str) and public_sources.address(ref)==url
+        except ValueError:bound=False
+        if bound and len(names)==1 and schema.get('headline') in names:
+            titles=titles[:1]
     if node is None or len(titles)!=1 or len(node.find_all('article'))>1:
         raise ValueError('Tekil haber gövdesi ve başlığı doğrulanamadı; dizinden gerçek haber bağlantısını seç.')
     title=titles[0].get_text(' ',strip=True)
     def matching_schema(schema):
-        page=schema.get('url') or schema.get('mainEntityOfPage')
-        if isinstance(page,dict):page=page.get('@id')
-        return schema.get('headline')==title and (not page or page.rstrip('/')==url.rstrip('/'))
+        refs=[]
+        for value in (schema.get('url'),schema.get('mainEntityOfPage')):
+            if isinstance(value,dict):
+                refs.extend(value[key] for key in ('@id','url') if value.get(key))
+            elif value:refs.append(value)
+        try:
+            def same_page(value):
+                # HTTP identifiers are compared as metadata; never fetched.
+                canonicals=soup.select('link[rel="canonical"]')
+                for canonical in canonicals:
+                    target=canonical.get('href','')
+                    if isinstance(target,str) and target.startswith(('http://','https://')):
+                        target='https://'+target.split('://',1)[1]
+                        if public_sources.address(target)!=url:return False
+                if isinstance(value,str) and value.startswith('http://'):
+                    value='https://'+value[len('http://'):]
+                return public_sources.address(value)==url
+            bound=bool(refs) and all(same_page(value) for value in refs)
+        except (ValueError,TypeError):
+            return False
+        if refs and not bound:return False
+        if schema.get('headline')==title:return True
+        # SEO and visible titles may differ. Accept only with independent page
+        # identity AND a literal article-body anchor in the actual DOM.
+        canonical_nodes=soup.select('link[rel="canonical"]')
+        if not bound or len(canonical_nodes)!=1 or not isinstance(schema.get('headline'),str):
+            return False
+        try:
+            if public_sources.address(canonical_nodes[0].get('href',''))!=url:return False
+        except (ValueError,TypeError):return False
+        from html import unescape
+        body=re.sub(r'\s+',' ',unescape(str(schema.get('articleBody') or ''))).strip()
+        return len(body)>=80 and body[:80] in public_sources.readable_text(node)
+
     schemas=[s for s in schemas if matching_schema(s)]
     # TÜBİTAK's single-news template renders the page title as a sibling block.
     # Bind only that exact publisher layout and canonical URL, not arbitrary lists.
@@ -111,7 +173,7 @@ def article(response):
                     (element is scope or scope in element.parents) and not element.find_parent('aside') and
                     element.find_parent('article') in (None,scope))
     for meta in soup.find_all('meta'):
-        if belongs(meta) and (meta.get('property')=='article:published_time' or meta.get('itemprop')=='datePublished'):dates.append(meta.get('content',''))
+        if belongs(meta) and (meta.get('property')=='article:published_time' or meta.get('itemprop')=='datePublished' or meta.get('name')=='datePublished'):dates.append(meta.get('content',''))
     if not dates:
         dates=[n.get('datetime','') for n in scope.find_all('time') if belongs(n) and (n.get('itemprop')=='datePublished' or re.search(r'publish|posted', ' '.join(n.get('class',[])),re.I))]
     days=set()
@@ -123,7 +185,10 @@ def article(response):
     if len(days)!=1:raise ValueError('Haberin kendisine ait tek bir yayın tarihi doğrulanamadı; başka tarihli kaynak seç.')
     text=public_sources.readable_text(node)
     if len(text)<80 or not title:raise ValueError('Tekil haber metni yeterli değil.')
-    return {'url':url,'title':title,'published':days.pop(),'text':text,**({'kind':'video_description'} if video is not None else {})}
+    clock=publication_clock(dates)
+    return {'url':url,'title':title,'published':days.pop(),'text':text,
+            **({'published_at':clock} if clock else {}),
+            **({'kind':'video_description'} if video is not None else {})}
 
 
 def news_receipt(output):
@@ -131,11 +196,16 @@ def news_receipt(output):
     from datetime import date
     from modules import public_sources
     source=output.get('news_article')
-    if (not isinstance(source,dict) or set(source) not in ({'url','title','published','text'},
+    if (not isinstance(source,dict) or set(source)-{'published_at'} not in ({'url','title','published','text'},
             {'url','title','published','text','kind'}) or 'kind' in source and source['kind']!='video_description'):
         raise ValueError('Tarihli tekil haber kanıtı eksik.')
     if public_sources.address(source['url'])!=output.get('source') or not source['title'].strip():raise ValueError('Haber kaynağı eşleşmiyor.')
     date.fromisoformat(source['published'])
+    if 'published_at' in source:
+        from datetime import datetime
+        stamp=datetime.fromisoformat(source['published_at'].replace('Z','+00:00'))
+        if stamp.tzinfo is None or stamp.date().isoformat()!=source['published']:
+            raise ValueError('Yayın günü ve saat kanıtı eşleşmiyor.')
     parse(json.dumps({'supported':True,'answer':output['text'],'quotes':output.get('source_quotes')},ensure_ascii=False),source['text'])
     return source
 
@@ -144,19 +214,32 @@ def news_window(request):
     ranges=[int(n) for n in re.findall(r'(?:son\s+)?(\d{1,4})\s*gün',request,re.I)]
     recent=bool(re.search(r'güncel|guncel|\bson\b.*(?:geliş|haber)|haftalık|haftalik|bu hafta|weekly|latest|recent',request,re.I))
     if ranges:return max(ranges)
+    if re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah',str(request),re.I):return 1
     if recent:return 7
     # An explicit historical year is a user-selected historical request.
     historical=bool(re.search(r'\b(?:19|20)\d{2}\b',request))
     return 7 if not historical and (news_requested(request) or re.search(r'gündem|gundem',request,re.I)) else None
 
 
-def news_date(published,request):
+def news_date(published,request,*,now=None):
     from datetime import datetime, timezone, timedelta, date
-    today=datetime.now(timezone(timedelta(hours=3))).date()
-    day=date.fromisoformat(published)
-    if day>today:raise ValueError('Haberin yayın tarihi gelecekte; güncel gelişme olarak kullanılmadı.')
+    from modules import news_temporal
+    clock=now or datetime.now(timezone(timedelta(hours=3)))
+    if clock.tzinfo is None:raise ValueError('Başvuru zamanı saat dilimli olmalı.')
+    article=published if isinstance(published,dict) else {'published':published}
+    day=date.fromisoformat(article['published'])
+    if day>clock.astimezone(news_temporal.ISTANBUL).date():
+        raise ValueError('Haberin yayın tarihi gelecekte; güncel gelişme olarak kullanılmadı.')
+    scope=news_temporal.request_scope(request,now=clock)
+    precise=bool(re.search(r'son\s+dakika|son\s+\d+\s+saat|bug[uü]n|bu\s+sabah',str(request),re.I))
+    if scope['intent']=='event_verification':
+        raise ValueError('Olayın geçerlilik tarihi ayrıca doğrulanmalı; yayın tarihi karar kanıtı değildir.')
+    if precise:
+        news_temporal.check_publication(article,scope)
+        return
     maximum=news_window(request)
-    if maximum is not None and (today-day).days>maximum:raise ValueError('Haber istenen tarih aralığının dışında; daha yeni kaynak seç.')
+    if maximum is not None and (clock.astimezone(news_temporal.ISTANBUL).date()-day).days>maximum:
+        raise ValueError('Haber istenen tarih aralığının dışında; daha yeni kaynak seç.')
 
 
 def unavailable_footer(urls):
@@ -233,22 +316,6 @@ def news_report(dependencies):
     return '\n'.join(lines)+'\n'
 
 
-def literal_ai_quotes(article,request):
-    """Narrow model-free fallback: literal AI excerpts, never an inferred answer."""
-    if not re.search(r'yapay\s+zek[aâ]',request,re.I):raise ValueError('Bu konu için modelsiz alıntı seçimi desteklenmiyor.')
-    text=article['text'];quotes=[]
-    if text.startswith(article['title']):text=text[len(article['title']):].lstrip()
-    for match in re.finditer(r'yapay\s+zek[aâ]',text,re.I):
-        boundary=text.rfind('. ',0,match.start());start=0 if boundary<0 else boundary+2
-        end=text.find('. ',match.end())
-        end=len(text) if end<0 else end+1
-        excerpt=text[start:min(end,start+700)].strip()
-        if re.search(r'yapay\s+zek[aâ]',excerpt,re.I) and 20<=len(excerpt)<=800 and excerpt not in quotes:quotes.append(excerpt)
-        if len(quotes)>=3:break
-    if not quotes:raise ValueError('Haber gövdesinde yapay zekâ hakkında yeterli birebir alıntı bulunamadı.')
-    return {'supported':True,'answer':'Modelsiz kaynak alıntıları; kapsam ve yorum doğrulanmadı.','quotes':quotes}
-
-
 def parse(answer,source,*,allow_unsupported=False):
     try:
         data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))
@@ -270,6 +337,46 @@ def parse(answer,source,*,allow_unsupported=False):
 def legacy_unsupported(answer):
     """Invalidate the known old no-answer receipt without deleting its journal."""
     return bool(re.search(r'(kaynakta desteklenen bir yanıt verilemem|herhangi bir bilgi yer almamak|bu sayfa soruya yanıt vermiyor|no relevant information (?:was )?found)',str(answer),re.I))
+
+
+def parse_value_quote(answer,source_text):
+    """Parse one minimal structured claim ({'value','quote'}) from a source; never invent a value.
+
+    Returns a normalized claim only when a concrete value is present and its quote appears verbatim
+    in the read source; otherwise None so the caller skips that source instead of failing the whole
+    research run. Structural comparison later uses the value, never the raw prose wording.
+    """
+    try:
+        data=json.loads(re.sub(r'^```(?:json)?\s*|\s*```$','',str(answer).strip()))
+    except (ValueError,TypeError):
+        return None
+    if not isinstance(data,dict) or set(data) not in ({'value','quote'},{'value','quote','scope','as_of'}):
+        return None
+    value=str(data['value']).strip() if data.get('value') is not None else ''
+    quote=str(data.get('quote') or '').strip()
+    if not value or not 20<=len(quote)<=800:
+        return None
+    normalized=lambda v:' '.join(str(v).split())
+    if normalized(quote) not in normalized(source_text):
+        return None
+    from modules import research_providers
+    numbers=research_providers._numbers(value)
+    if numbers:
+        if not set(numbers).issubset(research_providers._numbers(quote)):
+            return None
+    elif research_providers._token(value) not in research_providers._token(quote):
+        return None
+    result={'value':value,'quote':quote}
+    if 'scope' in data:
+        for key in ('scope','as_of'):
+            field=data[key]
+            if not isinstance(field,str) or len(field)>300:
+                return None
+            field=normalized(field)
+            if field and field not in normalized(source_text):
+                return None
+            result[key]=field
+    return result
 
 
 def source_claims(dependencies):
@@ -296,6 +403,11 @@ def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1)
     from modules import research_providers
     claims=source_claims(dependencies)
     if len(claims)<2:return None
+    if any(not claim.get('scope') or not claim.get('as_of') for claim in claims):
+        return {'status':'insufficient_context','text':(
+            '\n\n## Kaynakların karşılaştırma sınırı\n\n'
+            'Kaynakların ölçüm kapsamı veya referans dönemi doğrulanamadı. '
+            'Bu değerler eşdeğer kabul edilmedi; uyum veya çelişki sonucu çıkarılmadı.')}
     comparison=research_providers.compare_sources(claims)
     if comparison['status']!='conflict':return None
     query=' '.join(sorted({str(claim.get('subject') or claim.get('metric') or '') for claim in claims})).strip()
@@ -313,4 +425,6 @@ def cross_source_review(dependencies, *, search=None, extract=None, max_extra=1)
     return {'status':'unresolved_conflict','verdict':verdict,
             'text':('\n\n## Kaynak çelişkisi çözülmedi\n\nKaynaklar aynı olgu için çelişiyor; ek doğrulama sonucu '
                     'kesinleşmedi. Jarvis tek tarafı nihai gerçek olarak seçmedi; bu nokta belirsizdir.')}
+
+
 

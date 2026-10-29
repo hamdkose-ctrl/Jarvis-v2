@@ -60,6 +60,23 @@ class NewsAcceptanceHelperTests(unittest.TestCase):
         self.assertEqual(receipt.call_count,2)
         self.assertEqual(news_date.call_count,2)
 
+    def test_all_three_live_scenarios_are_required(self):
+        with patch.object(acceptance_checks,'_news_scenario',side_effect=[
+                ('passed','2/2'),('failed','konu kanıtı yok'),('passed','dosya doğrulandı')]) as run:
+            state,detail=acceptance_checks._news_chat_resume('alice')
+        self.assertEqual(state,'failed')
+        self.assertEqual(run.call_count,3)
+        self.assertIn('Türkiye AI sohbet: failed',detail)
+        self.assertTrue(run.call_args_list[-1].kwargs['file_report'])
+
+    def test_all_scenarios_must_pass_and_exceptions_do_not_skip_file_case(self):
+        with patch.object(acceptance_checks,'_news_scenario',return_value=('passed','2/2')):
+            self.assertEqual(acceptance_checks._news_chat_resume('alice')[0],'passed')
+        with patch.object(acceptance_checks,'_news_scenario',side_effect=[
+                ('passed','2/2'),ValueError('invalid receipt'),('passed','file')]) as run:
+            self.assertEqual(acceptance_checks._news_chat_resume('alice')[0],'failed')
+        self.assertEqual(run.call_count,3)
+
 
 if __name__=='__main__':
     unittest.main()

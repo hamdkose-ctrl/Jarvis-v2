@@ -3,54 +3,76 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit
 from unittest.mock import patch
 import unittest
-from modules import publisher_news, goal_tools, goal_executor as goals
+from modules import publisher_news, goal_tools, goal_executor as goals, news_pipeline
 import test_goal_executor as fixture
 
 GENERAL = ['https://www.mynet.com/haber/', 'https://tr.investing.com/news/',
            'https://www.aa.com.tr/tr/gundem', 'https://www.bbc.com/turkce',
+           'https://www.iha.com.tr/', 'https://www.dha.com.tr/',
+           'https://ankahaber.net/', 'https://tha.istanbul/', 'https://ilkha.com/',
            'https://www.dw.com/tr/', 'https://tr.euronews.com/',
            'https://www.ntv.com.tr/', 'https://t24.com.tr/',
            'https://www.bloomberght.com/', 'https://www.ekonomim.com/',
            'https://www.kap.org.tr/tr/', 'https://www.donanimhaber.com/',
            'https://www.webtekno.com/', 'https://www.trthaber.com/']
+REMOVED_INSTITUTIONAL = {
+    'https://www.yildiz.edu.tr/medya/haberler',
+    'https://tubitak.gov.tr/tr/haberler',
+    'https://haberler.bogazici.edu.tr/',
+}
 
 
 class NewsSourceScopeTests(unittest.TestCase):
     def test_mynet_and_investing_are_discoverable_without_guessed_articles(self):
-        self.assertEqual(publisher_news.catalog_keys('Türkiye haberleri'),
+        self.assertEqual({publisher_news.publisher_key(row['url']) for row in publisher_news.sources_for('Türkiye haberleri')[:4]},
                          {'mynet.com','investing.com','aa.com.tr','bbc.com'})
         for url in ('https://www.mynet.com/haber/', 'https://tr.investing.com/news/'):
             with self.subTest(url=url):
-                self.assertIn(url,publisher_news.recovery_indexes('son dakika haberleri',[]))
+                self.assertIn(url,[row['url'] for row in publisher_news.sources_for('son dakika haberleri')])
                 self.assertEqual(publisher_news.candidate_url(url,'son dakika haberleri',{}),url)
                 with self.assertRaises(ValueError):
                     publisher_news.candidate_url(url+'uydurulmus-haber','son dakika haberleri',{})
 
-    def test_dpu_is_not_a_configured_or_automatically_allowed_source(self):
-        removed = 'https://haber.dpu.edu.tr/'
-        self.assertNotIn(removed, [r['url'] for r in publisher_news.sources_for('Üniversitelerin haberleri')])
-        self.assertNotIn(removed, publisher_news.recovery_indexes('Üniversitelerin haberleri', []))
-        with self.assertRaises(ValueError):
-            publisher_news.candidate_url(removed, 'Üniversitelerin haberleri', {})
-        self.assertEqual(publisher_news.candidate_url(removed, 'Bu adresi oku: '+removed, {}), removed)
+    def test_verified_news_agencies_are_registered(self):
+        names = {row['name'] for row in publisher_news.sources_for('Türkiye haberleri')}
+        self.assertTrue({'Anadolu Ajansı','İhlas Haber Ajansı','Demirören Haber Ajansı',
+                         'ANKA Haber Ajansı','Türk Haberler Ajansı','İlke Haber Ajansı'} <= names)
 
-    def test_general_and_topical_news_use_general_publishers(self):
-        for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır', 'yapay zekâ haberleri'):
+    def test_old_institutional_feeds_are_not_news_catalog_sources(self):
+        for request in ('Üniversitelerin haberleri', 'Türkiye yapay zekâ haberleri', 'son dakika haberleri'):
+            urls = {r['url'] for r in publisher_news.sources_for(request)}
+            self.assertTrue(REMOVED_INSTITUTIONAL.isdisjoint(urls))
+        for url in REMOVED_INSTITUTIONAL:
+            with self.assertRaises(ValueError):
+                publisher_news.candidate_url(url, 'Türkiye yapay zekâ haberleri', {})
+
+    def test_general_news_uses_general_publishers(self):
+        for request in ('son dakika haberleri', 'Türkiye haberleri', 'deprem haberlerini araştır'):
             with self.subTest(request=request):
                 self.assertEqual([r['url'] for r in publisher_news.sources_for(request)], GENERAL)
-                self.assertEqual(publisher_news.recovery_indexes(request, []), GENERAL[:4])
+                self.assertFalse(hasattr(publisher_news, 'recovery_indexes'))
 
-    def test_institution_scope_and_explicit_urls_are_not_broadened(self):
-        self.assertEqual([r['url'] for r in publisher_news.sources_for('Üniversitelerin araştırma haberleri')], [r['url'] for r in publisher_news.SOURCES])
-        seed = ['https://haberler.bogazici.edu.tr/']
-        self.assertEqual(publisher_news.recovery_indexes('Boğaziçi Üniversitesi haberleri', seed), seed)
-        self.assertEqual(publisher_news.recovery_indexes('Sadece https://example.org/haberler haberleri', ['https://example.org/haberler']), ['https://example.org/haberler'])
+    def test_ai_news_prioritizes_topic_publishers_without_new_or_institutional_sources(self):
+        rows = publisher_news.sources_for('Türkiye yapay zekâ haberleri')
+        names = [row['name'] for row in rows[:8]]
+        self.assertEqual([row['url'] for row in rows[:4]], GENERAL[:4])
+        self.assertIn('DonanımHaber', names)
+        self.assertIn('Webtekno', names)
+        self.assertTrue(all(row['url'] in set(GENERAL) for row in rows))
 
-    def test_old_institution_seed_does_not_trap_general_news(self):
-        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://tubitak.gov.tr/tr/haberler']), GENERAL[:4])
+    def test_explicit_url_scope_is_not_broadened(self):
+        calls=[]
+        def reader(url):
+            calls.append(url)
+            return []
+        with patch('modules.news_pipeline.catalog', side_effect=AssertionError('explicit scope broadened')):
+            news_pipeline.run('Sadece https://example.org/haberler haberleri',reader=reader,
+                              fetcher=lambda _: (_ for _ in ()).throw(ValueError('index')),now=datetime.now().date())
+        self.assertEqual(calls,['https://example.org/haberler'])
 
     def test_unknown_seed_does_not_displace_general_news_publishers(self):
-        self.assertEqual(publisher_news.recovery_indexes('son dakika haberleri', ['https://example.org/haberler']), GENERAL[:4])
+        self.assertEqual([row['url'] for row in publisher_news.sources_for('son dakika haberleri')][:4], GENERAL[:4])
+        self.assertFalse(hasattr(publisher_news,'recovery_indexes'))
 
     def test_planner_receives_request_scoped_sources(self):
         rows = goal_tools.planner_catalog('son dakika haberleri')['known_news_sources']
@@ -66,6 +88,7 @@ class NewsSourceScopeTests(unittest.TestCase):
 
     def run_recovery(self, *, same_publisher=False, stale=False, fail_first=False):
         case = fixture.GoalTests();case.setUp();self.addCleanup(case.doCleanups)
+        news_pipeline.cache_clear();self.addCleanup(news_pipeline.cache_clear)
         day = (datetime.now(timezone(timedelta(hours=3))).date() - timedelta(days=20 if stale else 0)).isoformat()
         case.responses(case.plan('Güncel haberleri araştır'), RuntimeError('Taklit sağlayıcı kullanılamıyor'))
         fetched = []
@@ -86,7 +109,7 @@ class NewsSourceScopeTests(unittest.TestCase):
             body = f'<article><h1>{host} deprem haberi</h1><time itemprop="datePublished" datetime="{day}"></time><p>{text}</p></article>'
             return {'url':url,'body':body.encode()}
         with patch('modules.public_sources.fetch', side_effect=fetch), patch('modules.privacy.blocked', return_value=None):
-            reply = goals.run(case.runtime, 'son dakika deprem haberleri')
+            reply = goals.run(case.runtime, 'güncel deprem haberleri')
         self.assertEqual(case.ask.call_count, 2)
         self.assertLessEqual(sum(bool(s.get('recovery')) for s in goals.latest('alice')['steps']), 10)
         return goals.latest('alice'), fetched, reply
@@ -112,3 +135,4 @@ class NewsSourceScopeTests(unittest.TestCase):
         job, fetched, reply = self.run_recovery(fail_first=True)
         self.assertEqual(job['state'], 'done', reply)
         self.assertIn(GENERAL[2], fetched)
+

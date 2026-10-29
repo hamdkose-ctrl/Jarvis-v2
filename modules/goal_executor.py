@@ -185,7 +185,7 @@ def _identity(job,step):
                 'risk':'physical_effect' if tool=='desktop' else 'local_destructive',
                 'replay_safe':False,'attempt':step.get('attempts', 0),'outcome':'pending'}
     else:result={'owner':job['owner'],'job_id':job['id'],'task_id':step['id']}
-    return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
+    return {**result,'source_only':step.get('source_only') is True,'request':job['request'],'request_started_at':job.get('created'),'unavailable_sources':copy.deepcopy(job.get('unavailable_sources',[])),
             'desktop_ids':[output['desktop_id'] for output in job['outputs'].values() if output.get('desktop_id')]}
 
 
@@ -367,10 +367,10 @@ def _resume_news_recovery(runtime,job,started_steps):
     return news_policy.resume_recovery(runtime,job,started_steps,_save)
 
 
-def _loop(runtime,job,answer=None):
+def _loop(runtime,job,answer=None,resume=False):
     token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
     try:
-        return _loop_steps(runtime,job,answer)
+        return _loop_steps(runtime,job,answer,resume=resume)
     except _TurnBudget as exc:
         job['state']='paused';job['blocker']=str(exc);_save(job)
         runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
@@ -379,7 +379,7 @@ def _loop(runtime,job,answer=None):
         _TURN_DEADLINE.reset(token)
 
 
-def _loop_steps(runtime,job,answer=None):
+def _loop_steps(runtime,job,answer=None,resume=False):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -412,10 +412,10 @@ def _loop_steps(runtime,job,answer=None):
             from modules import research_evidence
             if step.get('tool')=='writer' and research_evidence.news_report_requested(job['request'],step.get('input',{}).get('instruction',''),{d:job['outputs'][d] for d in step.get('depends',[])}) and not output.get('news_report_evidence'):
                 raise ValueError('Eski haber raporunun tarih ve tekil kaynak kanıtı yok; dosya silinmeden yeniden hazırlanmalı.')
-            if step.get('tool')=='research' and research_evidence.news_requested(job['request']) and not output.get('news_article'):
+            if step.get('tool')=='research' and research_evidence.publication_news_requested(job['request']) and not output.get('news_article'):
                 raise ValueError('Eski haber çıktısında tekil haber ve yayın tarihi kanıtı yok; aynı hedefte yeniden araştırılmalı.')
-            if step.get('tool')=='research' and research_evidence.news_requested(job['request']) and output.get('news_article'):
-                research_evidence.news_date(output['news_article']['published'],job['request'])
+            if step.get('tool')=='research' and research_evidence.publication_news_requested(job['request']) and output.get('news_article'):
+                research_evidence.news_date(output['news_article'],job['request'])
             if step.get('tool')=='research' and not output.get('source_quotes'):
                 from modules import research_evidence
                 if research_evidence.legacy_unsupported(output.get('text')):
@@ -437,10 +437,14 @@ def _loop_steps(runtime,job,answer=None):
     if _finish_completed(job):return render(job)
     if answer is None:
         from modules import research_evidence,model_free_news
+        news_only=not re.search(r'mail|e-posta|eposta|takvim|hatırlat|hatirlat|gönder|gonder|paylaş|paylas',job['request'],re.I)
+        discovery_only=(re.search(r'kaynak|bağlantı|baglanti|başlık|baslik|dizin|katalog',job['request'],re.I) and
+                        re.search(r'bul|listele|keşfet|kesfet',job['request'],re.I) and
+                        not re.search(r'araştır|arastir|incele|rapor|özet|ozet|analiz',job['request'],re.I))
         if (not job['goals'] and not job['steps'] and
-                research_evidence.news_requested(job['request']) and
-                not research_evidence.file_requested(job['request']) and
-                not model_free_news.terms(job['request'])):
+                research_evidence.publication_news_requested(job['request']) and
+                news_only and not discovery_only and
+                ((not research_evidence.file_requested(job['request']) and not model_free_news.terms(job['request'])) or _quota_wait()>0)):
             job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
             _save(job)
             from modules import news_recovery
@@ -503,7 +507,7 @@ def _loop_steps(runtime,job,answer=None):
                 self_resolvable=_self_resolvable_question(question,job['request'])
                 if vague or self_resolvable:
                     rejected_questions+=1
-                    news=research_evidence.news_requested(job['request'])
+                    news=research_evidence.publication_news_requested(job['request'])
                     if news:
                         from modules import news_recovery
                         news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
@@ -528,7 +532,7 @@ def _loop_steps(runtime,job,answer=None):
                         raise RuntimeError('Planlayıcı eksik hedefleri 3 kez bitirmeye çalıştı; mevcut sonuçlar korundu.')
                     from modules import research_evidence
                     hint=('Haber bulgularını gerçek research kanıtlarıyla complete üzerinden sohbetten teslim et.'
-                          if research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request']) else
+                          if research_evidence.publication_news_requested(job['request']) and not research_evidence.file_requested(job['request']) else
                           'Eksik rapor için writer ve dosya kontrolü için verify çalıştır.')
                     raise ValueError('Hedefin bütün sonuçları henüz tamamlanmadı. '+hint)
                 for goal in job['goals']:
@@ -554,7 +558,7 @@ def _loop_steps(runtime,job,answer=None):
                 else:
                     kind=call.get('tool');data=goal_tools.validate(kind,call.get('input'))
                     from modules import research_evidence,publisher_news
-                    if research_evidence.news_requested(job['request']) and re.search(r'yapay\s+zek[aâ]',job['request'],re.I) and (kind=='research' or kind=='data' and data.get('operation')=='headlines'):
+                    if research_evidence.publication_news_requested(job['request']) and re.search(r'yapay\s+zek[aâ]',job['request'],re.I) and (kind=='research' or kind=='data' and data.get('operation')=='headlines'):
                         try:publisher_news.candidate_url(data['url'],job['request'],job['outputs'])
                         except ValueError:
                             rejected_sources+=1
@@ -609,7 +613,7 @@ def _loop_steps(runtime,job,answer=None):
                 invalid_decisions+=1
                 if invalid_decisions>=MAX_INVALID_DECISIONS:
                     from modules import research_evidence
-                    if research_evidence.news_requested(job['request']) and not research_evidence.file_requested(job['request']):
+                    if research_evidence.publication_news_requested(job['request']) and not research_evidence.file_requested(job['request']):
                         from modules import news_recovery
                         try:
                             news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
@@ -622,6 +626,13 @@ def _loop_steps(runtime,job,answer=None):
             if isinstance(exc,RuntimeError):
                 if planner_pending:
                     _turn_check(runtime,job)
+                    from modules import news_pipeline,research_evidence
+                    if not resume and not job['goals'] and research_evidence.publication_news_requested(job['request']) and not research_evidence.file_requested(job['request']):
+                        # Plan hiç yapılamadı: haber keşif/doğrulama/teslimini model istemeden kendi yapar.
+                        try:news_pipeline.deliver_job(job,model_status='unavailable')
+                        except (requests_state.Cancelled,PermissionError):raise
+                        except Exception:
+                            _record_failure('modules/goal_executor.py:news_pipeline_delivery')
                     from modules import news_recovery
                     try:news_recovery.deliver(runtime,job,max_new_steps=max(0,24-(len(job['steps'])-started_steps)))
                     except (requests_state.Cancelled,PermissionError):raise
@@ -637,7 +648,7 @@ def _loop_steps(runtime,job,answer=None):
     elif model_down is not None:
         from modules import research_evidence,model_free_delivery
         # Haber hedefleri news_recovery ile kendi modelsiz yolunu kullanır; diğer hedefler doğrulanmış çıktıyı alır.
-        if not research_evidence.news_requested(job['request']):model_free_delivery.attach(job,model_down)
+        if not research_evidence.publication_news_requested(job['request']):model_free_delivery.attach(job,model_down)
     _save(job)
     return render(job)
 
@@ -657,7 +668,9 @@ def _quota_wait():
 
 def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
     owner=runtime.profile.slug
-    if not resume and not approve and (wait:=_quota_wait())>0:
+    from modules import research_evidence
+    # Kota beklemesi yalnız model isteyen işleri durdurur: tarihli haber işi modelsiz hattını çalıştırır.
+    if not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.publication_news_requested(request):
         return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
@@ -709,7 +722,8 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
                  'state':'running','goals':[],'steps':[],'outputs':{}}
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
             _save(job)
-        try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None)
+        try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
+                         resume=resume)
         except requests_state.Cancelled:
             job['state']='cancelled';_save(job);raise
 
@@ -748,7 +762,7 @@ def render(job):
     elif job['state']=='question':
         from modules import research_evidence
         lines.append('Araştırma kısmi; diğer kaynaklardan doğrulanmış haber kanıtı eksik. Yeni bilgi vermen gerekmiyor; mevcut hedef sürdürülebilir.'
-            if research_evidence.news_requested(job['request']) and (research_evidence.vague_question(job['question'],job['request']) or _self_resolvable_question(job['question'],job['request'])) else job['question'])
+            if research_evidence.publication_news_requested(job['request']) and (research_evidence.vague_question(job['question'],job['request']) or _self_resolvable_question(job['question'],job['request'])) else job['question'])
     elif job['state'] not in {'done','cancelled'}:
         lines.append(job.get('blocker','Hedef sürüyor.'))
         partial=job['outputs'].get(job.get('partial_report'),{})
@@ -771,6 +785,11 @@ def render(job):
             visible=next((str(item) for item in reversed(job['feedback']) if not _internal_failure(item)),None)
             if visible and not seen_error(visible[:500]):lines.append(visible[:500])
     if job['state']=='cancelled':lines.append('Hedef iptal edildi.')
+    from modules import news_pipeline
+    for line in news_pipeline.render_lines(job):
+        if not any(line[:120] in existing for existing in lines):
+            # Haber sonucu ile model sentezinin yokluğu ayrı satırlarda: kota haberi durdurmaz.
+            lines.append(line)
     return '\n\n'.join(lines) or 'Hedef kaydedildi.'
 
 
@@ -869,3 +888,4 @@ def handle(runtime,command):
         from modules.work_modes import ends_with_action
         if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
     return None
+

@@ -22,6 +22,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
+- Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
+
 ## Alan notları
 
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
@@ -30,7 +32,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (21 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
-- `docs/agents/haber.md`: Haber araştırması ve kaynaklar (17 bölüm)
+- `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar (18 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
@@ -142,3 +144,59 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Genel web araştırması ve tarihli haber okuması ortak anlamsal gövde temizliğini kullanır. Sonuçta bulgu varsa keşif listesi ayrıca dökülmez; kaynak URL'si kısaltılmaz, haber başlık/tarih/kısa alıntıyla gösterilir. Bu sunum değişikliği yeni tamamlanma veya kaynak doğruluğu garantisi değildir.
 - VideoObject sayfasının yazılı açıklaması yalnız tek video kimliği, tam canonical/URL/başlık, ortak main içindeki tek makale/tek bölüm ve kendi uploadDate tarihiyle okunur. Video izlenmiş veya ses dökümü alınmış sayılmaz; sohbet ve rapor bunu açıkça belirtir.
 - Dosya istemeyen haber hedefinde yanlış writer seçimi yazma başlamadan sohbet teslimine yönlendirilir; yeterli kanıtla tamamlanır, eksik kanıt kısmi gösterilir. Gerçek dosya istekleri ve diğer iş türleri korunur. Mevcut haberlerle modelsiz toparlanan hedef yeniden planlayıcı beklemez.
+
+- 28 Ekim 2026 haber keşfi: HTML bağlantıları bulunsa da sayfanın açıkça ilan ettiği aynı-host RSS/Atom önce denenir (en çok mevcut iki feed); hata/boş sonuçta HTML korunur. HTML haber kartı/başlık bağlantıları gezinme bağlantılarından önce sıralanır; bilinmeyen adresler atılmaz. Tekil makale/tarih/konu/iki yayıncı kanıtı ayrıca zorunludur. Dört taşıyıcı-taklitli regresyon eklendi; canlı kabul bekliyor.
+
+- 28 Ekim haber/araştırma kapanışı (PR #439): haber completion eşiği `news_pipeline.enough_evidence` içindedir; dosyalı kurtarmanın ayrı tohum/katalog sayım hattı kaldırıldı. Mühürlü pipeline snapshot'ı normal runtime gate ve WorkerResult fence üzerinden teslim edilir. Araştırma claim'inde değer, ölçüm kapsamı ve referans dönemi kaynakla bağlanır; model hatasında ek claim çağrıları kesilir. Ayrıntı/kalan canlı kabul: `docs/agents/haber.md` ve `docs/BEKLEYEN_ISLER.md`. Tam Windows ve normal Jarvis kabulü olmadan kapanmış sayılmaz.
+
+- PR #439 tam Windows doğrulaması 0785750'de 3.287 testte 1 FAIL/2 ERROR verdi: kaldırılan geography bypass argümanı, eski HTTP taşıyıcı taklidi ve haber devamında gereksiz model beklentisi. Regresyonlar yeni gerçek sözleşmeye bağlanır; coğrafya/HTTPS/kota korumaları geri alınmaz. Yeni head'in Windows ve PC sonucu ayrıca beklenir.
+
+- PR #439 haber keşfi: query sıralaması generic haber/komut sözcükleriyle HTML makale önceliğini bozamaz; domain_tools ortak model_free_news.terms kullanır. Pipeline ret nedenlerini sınırlı özet olarak saklar; kabul raporu aday/okunan/pencere-dışı sayısını, makale retlerini ve kaynak hata nedenlerini gösterir. Bu tanı alanları completion veya retry yetkisi değildir.
+
+- PR #439 --news kabulü artık üç zorunlu gerçek akışı çalıştırır: genel sohbet, Türkiye AI sohbeti ve Türkiye AI dosyası. Ortak news_chat_resume ancak üçü de geçerse passed olur. Model denemeleri bloke edilip sayılır; kota yolu zorlanır; hedef ve dosya deposu geçici/yöreye yalıtılır. Hiçbiri ücretli/model çağrısı veya gerçek kullanıcı dosyası yazımı başlatamaz.
+
+- PR #439 konu keşfi: query puanlaması public_sources.entries içinde 50-link kesiminden önce yapılır; domain_tools ikinci/sonradan sıralama otoritesi taşımaz. Generic haber isteği HTML makale önceliğini korur. Pipeline kaydı en fazla 12 redakte URL/ret çifti ve ayrı anahtarsız keşif durumunu saklar; tanı alanları başarı veya ek retry yetkisi değildir.
+
+- PR #439 gerçek sayfa teşhisi: farklı SEO/H1 başlığı olan NewsArticle ancak açık URL kimliği + tek eşleşen canonical + DOM'da gerçek articleBody çıpası ile bağlanır. mainEntityOfPage nesnesindeki url/@id tanınır; çelişkili/yabancı referans reddedilir. meta name=datePublished yayın tarihi kabul edilir; dateModified yayın yerine geçmez. Tam sayfa HTML/izleme verileri depoya alınmaz.
+
+
+- PR #439 yayıncı taraması takip düzeltmesi: URL kontrol karakterleri reddedildikten sonra yalnız çevre ASCII boşlukları temizlenir. Galeri/dizin yolları ilk adaylardan geriye sıralanır; konu skoru ve bilinmeyen yollar korunur. HTTP şema kimliği yalnız HTTPS nihai yanıt adresiyle host/standart port/path/query eşitliğinde metadata olarak karşılaştırılır, HTTP indirilmez. Geçerli çelişkili canonical reddedilir; farklı başlık için eski canonical+gövde çıpası şartı sürer. Kota/model/okuma bütçesi artırılmaz.
+
+
+- PR #439 ajans okuyucuları: ANKA aynı metinli yinelenen H1'leri yalnız tek şema başlığı ve nihai HTTPS adresine bağlı kimlikle birleştirir. İHA tek haber widget'ı, eşleşen canonical, tek H1/gövde ve widget içindeki tek yayın tarihini ister; bozuk JSON'u onarmaz. İLKHA tek haber kapsayıcısı içindeki h3/gövde/tarih ve nihai URL ile eşleşen paylaşım adresini kullanır. CMS'nin System.String[] og:url alanı kimlik sayılmaz; diğer çelişkili açık og:url reddedilir. Model/okuma/kota bütçeleri değişmez.
+
+
+- PR #439 --news: news_external_discovery ayrı canlı tanıdır. Katalog sayısı sıfıra zorlanır; gerçek anahtarsız arama/üretim makale okuyucusu kullanılır. Katalog dışı en az bir doğrulanmış makale yoksa failed olur. Bu tek kaynak keşif kanıtıdır, iki yayıncı tamamlanma kabulü değildir. Mevcut üç senaryolu news_chat_resume korunur. Yeni head için Windows/PC sonucu beklenir.
+
+
+- PR #439 dış arama tanısı: DDG challenge/engel ve tanınmayan HTML artık gerçek sonuç-yok sayılmaz; sabit public_search_blocked/public_search_unrecognized nedeni üretilir. Açık no-results işareti boş sonuç kalır. news_external_discovery kalıcı raporunda redakte pipeline reason görünür. Yeni sağlayıcı/retry/model çağrısı/kota artışı yok. 4 yeni taşıyıcı-taklitli test + 105 odaklı test geçti; gerçek PC yanıtının engel mi şema değişimi mi olduğu henüz doğrulanmadı, yeni head kabulü beklenir.
+
+
+- PR #439 Windows #855: 3321 testte tek FAIL, RecoveryPipelineEvidenceTests sabit 2026-10-21 haberi 29 Ekim'de 7 günlük pencereden çıktığı için düşmüştür. Bu wiring testi istanbul_today() tarihli feed ve receipt kullanır; üretim freshness kuralı değiştirilmez. Sözdizimi kontrol edildi; yeni exact-head tam CI/PC kabulü beklenir.
+
+
+- PR #439 haber dış keşfi: search_news_public önce mevcut DDG aramasını kullanır; hata durumunda bir kez Bing News RSS okur. PermissionError/Cancelled geçiş başlatmaz. Gerçek boş DDG sonucu tekrar denenmez. Bing wrapper sadece tam www.bing.com/news/apiclick.aspx üzerindeki tek url parametresinden açılır; hedef yine public_sources.address ve gerçek makale doğrulamasından geçer. RSS tarih/başlıkları kanıt sayılmaz. Genel search_public değişmez. DTD/entity ve büyük RSS reddedilir. 4 hedefli test + 105 odaklı test geçti; yeni exact Windows ve iş PC kabulü beklenir. Proxy tanısında Bing 12 aday, Sabah 29 Ekim makalesi parser/tarih PASS; Milliyet eski tarih nedeniyle ret. Bu üretim taşıyıcı kabulü değildir.
+
+
+- PR #439 Windows #858 tek FAIL: broad-catch diagnostic ilk işlem olmalı. search_news_public except bloğunda kayıt iptal kontrolünün önüne taşındı; izin/iptal propagation ve fallback bütçesi korunur. AST diagnostic kontrolü ve 4 fallback regresyonu geçti; yeni exact CI/PC sonucu beklenir.
+
+
+- PR #439 haber dış keşfi: DDG gerçek boş sonucu da tek Bing yedeğini çalıştırır; aynı sağlayıcı retry yoktur. Bing kullanılabilir URL üretmezse public_news_rss_empty içinde RSS item sayısı raporlanır; sessiz empty/neden=yok durumu kaldırılır. İzin/iptal ve makale kanıtı şartları değişmez. 5 fallback testi geçti; canlı neden henüz ayrılmadı, yeni exact kabul beklenir.
+
+
+- PR #439 haber arama sorgusu: news_search_query yalnız haber araması için son-N-zaman penceresini ve rapor/dosya komut sözcüklerini ayırır. Konu/coğrafya ve açık tarih yılı korunur; konu yoksa güncel haberler kullanılır. Asıl kullanıcı isteği doğrulama/completion otoritesi olarak değişmez. Aynı RSS ucunda görev cümlesi 0, güncel haberler 10, Türkiye yapay zeka 12 öğe verdi (proxy tanısı, iş-PC transport kabulü değil). Önce 4 eksik-helper regresyonu düştü; sonra 9 sorgu/fallback testi + 105 mevcut odaklı test geçti. Yeni exact Windows ve PC kabulü beklenir.
+
+
+- PR #439 dış keşif kabul ayrıntısı en fazla 8 adayın redakte URL, canonical publisher_key ile katalog içi/dışı, verification ve ret nedenini gösterir. Acceptance eşiği korunur; üretim arama/okuma sayısı artmaz. Yerel taklitli ret-sınıflandırma kontrolü geçti; a80e1db iş PC sonucunda 8 aday/8 deneme/0 katalog-dışı doğrulama görüldü, kök ret nedenleri henüz bilinmiyor. Yeni exact kabul beklenir.
+
+
+- PR #439 dış aday seçimi: external_candidates açık kategori/etiket/haberleri yollarını okuma öncesi ayırır; canonical publisher_key başına en fazla bir aday, toplam en fazla 8 seçer. MSN alan adı tümden engellenmez. Arama sonucunun provider alanları public_discovery ve kabul ayrıntısında görünür. Tarih/kimlik/gövde doğrulaması değişmez. 3 yeni seçim regresyonu + 105 odaklı test geçti. 1e4db51 canlı örnekleri 3 dizin/2 eski haber/2 HTTP429/1 gövde reddiydi; yeni exact Windows/PC kabulü beklenir. Arama tarih filtresi henüz eklenmedi.
+
+
+- PR #439 Bing haber keşfi orijinal istek penceresi <=7 gün ise qft zaman ipucu (gün/hafta) ve sortbydate=1 gönderir. Bu filtre destek/etkinliği henüz canlı doğrulanmadı; proxy denemesi timeout verdi. RSS pubDate açıkça pencere dışındaysa aday atlanır; tarih eksik/geçersizse makale okuyucu karar verir, RSS kanıt değildir. Tarihsel yıl isteğine yakın-zaman filtresi eklenmez. Yalnız news_external_discovery kabulünün searcher adaptörü katalog içi yayıncıları dışlar; production araştırma katalog içini dışlamaz. 8 fallback testi + 105 odaklı test geçti; yeni exact Windows/PC sonucu beklenir.
+
+- Haber kabul tanısı: son-rapor dosyası başka PR ile değişebilir. Watcher reports/<exact-sha>.json arşivini silmeden korur; arşiv yazılamazsa worktree silinmez. --news kabulü eski watcher altında da LOCALAPPDATA/Jarvis/pc-acceptance/news-reports içine yalnız redakte haber kontrollerini zaman damgası ve kod parmak iziyle yazar. Kod parmak izi commit SHA kanıtı değildir. PR tanısı 300 karakterde kesilmez; başarısız dış keşif kontrolü de gösterilir. Bu kayıt iyileştirmesi Türkiye AI canlı arızasını çözülmüş saymaz; yeni exact kabul beklenir.
+
+- Hoca açık web araştırması ilk okunamayan kaynağı atlar; aynı ortak research_providers araması/okuyucusu kullanılır. En fazla 10 aday okunur; izin ve iptal hataları başka adaya geçmez. Ek model veya arama sağlayıcısı çağrısı eklenmez.
+
+- #434 yerel model kapanışı: saved preference kurulu model authority değildir. Runtime yalnız endpoint listesindeki gerçek kimliği seçer; etiket verilmemiş model yalnız :latest ile eşdeğer kabul edilir. Ücretli fallback ve cloud free-tier evidence kuralları değişmez. Yerel model kabulünde exact-head UI render + gerçek inference ayrıca kanıtlanır.

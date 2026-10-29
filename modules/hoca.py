@@ -457,12 +457,19 @@ def _research_source(topic: str) -> dict:
     candidates = research_providers.search_public(topic)
     if not candidates:
         raise HocaError("Bu konu için açık ve güvenilir bir kaynak bulunamadı.")
-    candidate = candidates[0]
-    source = research_providers.extract_source(candidate["url"])
-    text = str(source.get("text") or "").strip()
-    if len(text) < 80:
-        raise HocaError("Seçilen araştırma kaynağında yeterli metin yok.")
-    return {"label": candidate.get("title") or topic, "url": source["url"], "text": text, "full": True}
+    from modules import requests_state
+    for candidate in candidates[:10]:
+        requests_state.check()
+        try:
+            source = research_providers.extract_source(candidate["url"])
+            text = str(source.get("text") or "").strip()
+            if len(text) >= 80:
+                return {"label": candidate.get("title") or topic, "url": source["url"], "text": text, "full": True}
+        except (requests_state.Cancelled, PermissionError):
+            raise
+        except Exception:
+            _record_failure('modules/hoca.py:research_source_extract')
+    raise HocaError("Araştırma adaylarından yeterli metin içeren okunabilir kaynak bulunamadı.")
 
 
 def _lesson_text(profile) -> str:

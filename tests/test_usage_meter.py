@@ -90,7 +90,8 @@ class UsageMeterTests(unittest.TestCase):
         good = Mock(status_code=200, content=b'x', json=lambda: {'message': {'content': 'merhaba'}})
         broken = Mock(status_code=200, content=b'x', json=bad_json)
         msgs = [{'role': 'user', 'content': 'soru'}]
-        with patch.object(llm.requests, 'post', side_effect=[good, broken]):
+        with patch.object(llm, 'ollama_models', return_value=['meter-local']), \
+             patch.object(llm.requests, 'post', side_effect=[good, broken]):
             self.assertEqual(llm._ollama(msgs, '', 50), 'merhaba')
             with self.assertRaises(llm.LocalModelError):
                 llm._ollama(msgs, '', 50)     # eskiden bozuk 200 yanıtı "ok" yazılıp ValueError fırlıyordu

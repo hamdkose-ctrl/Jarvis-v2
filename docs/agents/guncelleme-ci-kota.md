@@ -130,3 +130,5 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 - Ayar yeri: Yapay zekâ › Ollama kartı (Ollama / LM Studio / llama.cpp seçimi, uç nokta, "Sunucuyu kaydet ve dene" → `local_backend_set`; model alanı Faz 1-C'nin kullanıcıya özel `local_model` alanıdır). Sağlayıcıyı değiştirmez; yerel modeli kullanmak için kartta ayrıca "Bunu kullan" gerekir.
 - Test: `tests/test_model_free_delivery.py` (`LocalBackendTests`, HTTP taklit). Gerçek LM Studio/llama.cpp sunucusuyla PC'de denenmedi.
 
+
+- #434 güncel-main uyumu: stale Ollama tercihinde kurulu effective model seçilir, tercih diskte korunur. Etiketsiz model ile :latest eşlemesi backend yardımcı fonksiyonundadır; farklı etiketler eşdeğer değildir. UI kurulu-model sözleşmesini gösterir ve kurulu olmayan save backend tarafından reddedilir. Watcher haber arşivleri korunur; yerel model UI/inference gate'i ve self-hosted Windows kabul adımları kalır. Önce iki alias regresyonu kırmızı, düzeltme sonrası 58 odaklı test PASS. Son tam validation ve yeni exact-head PC/UI/inference kabulü beklenir. Cloud evidence veya paid fallback açılmaz.

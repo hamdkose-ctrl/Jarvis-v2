@@ -24,7 +24,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
         self.news = self.enterContext(patch('modules.research_evidence.news_requested', return_value=True))
         self.enterContext(patch('modules.publisher_news.broad_research', return_value=False))
         self.enterContext(patch('modules.publisher_news.publisher_key', side_effect=lambda url: url.split('/')[2]))
-        self.catalog = self.enterContext(patch('modules.publisher_news.require_catalog'))
+        self.assertFalse(hasattr(__import__('modules.publisher_news',fromlist=['require_catalog']), 'require_catalog'))
 
     def test_empty_or_sourceless_evidence_never_completes_research(self):
         rows = [
@@ -36,7 +36,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             with self.subTest(evidence=evidence), self.assertRaisesRegex(ValueError, 'haber.*kanıt|kanıt.*haber'):
                 news_policy.check_completion(current, GOAL, evidence, final=False)
 
-    def test_valid_article_is_accepted_and_final_flag_only_adds_catalog_check(self):
+    def test_valid_article_is_accepted_without_legacy_catalog_completion(self):
         current = job(
             steps=[{'id': 's1', 'tool': 'research', 'input': {}, 'depends': []}],
             outputs={'s1': {'state': 'done', 'news_article': {'url': 'https://tubitak.example/haber'}}},
@@ -45,9 +45,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
                 'url': 'https://tubitak.example/haber', 'published': '2026-10-18'}), \
              patch('modules.research_evidence.news_date'):
             self.assertIsNone(news_policy.check_completion(current, GOAL, ['s1'], final=False))
-            self.catalog.assert_not_called()
             self.assertIsNone(news_policy.check_completion(current, GOAL, ['s1'], final=True))
-            self.catalog.assert_called_once_with(current)
 
     def test_goal_without_text_uses_request_safely_and_still_needs_source(self):
         current = job()
@@ -102,9 +100,7 @@ class NewsPolicyEdgeTests(unittest.TestCase):
             partial_report='report-step',
         )
         save = Mock()
-        with patch('modules.news_recovery.deliver', return_value=None), \
-             patch('modules.publisher_news.catalog_keys', return_value={'a'}), \
-             patch('modules.publisher_news.catalog_attempted', return_value=set()):
+        with patch('modules.news_recovery.deliver', return_value=None):
             first = news_policy.resume_recovery(object(), current, 1, save)
             second = news_policy.resume_recovery(object(), current, 1, save)
         self.assertFalse(first)
@@ -136,3 +132,4 @@ class MixedGoalTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

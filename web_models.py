@@ -68,7 +68,8 @@ class WebModels:
         except runtime.llm.LocalModelError:
             effective = ''
         if backend == 'ollama':
-            stale = bool(preference and effective and preference not in installed)
+            from modules.llm import _installed_ollama_name
+            stale = bool(preference and effective and not _installed_ollama_name(preference, installed))
             if stale:
                 warning = 'Kayıtlı tercih kurulu olmadığı için aktif model otomatik seçildi.'
         st.update({

@@ -174,7 +174,9 @@ def run(root: Path | None = None) -> dict:
             routes = llm.take_route()
         except Exception as exc:
             llm.take_route()
-            return {"state": "failed", "detail": f"gerçek Ollama inference başarısız: {type(exc).__name__}"}
+            from modules import privacy
+            reason=privacy.redact(str(exc),force=True)[:300]
+            return {"state": "failed", "detail": f"gerçek Ollama inference başarısız: {type(exc).__name__}: {reason}"}
 
         expected_route = f"Cevap: Ollama (yerel) · {EXPECTED_EFFECTIVE}"
         route_text = [str(text) for text, ok in routes if ok]

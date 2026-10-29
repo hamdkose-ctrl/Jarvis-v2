@@ -127,7 +127,8 @@ class SmartRouterTests(unittest.TestCase):
     def test_gemini_mode_falls_back_to_own_groq_then_ollama_on_quota(self):
         quota=llm.errors.ClientError(429,{'error':{'message':'quota','status':'RESOURCE_EXHAUSTED'}})
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=quota):
+             patch.object(llm,'_with_models',side_effect=quota), \
+             patch.object(llm,'ollama_models',return_value=['router-local']):
             with patch.object(llm,'_groq',return_value='groq answer') as groq:
                 self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'groq answer');groq.assert_called_once()
             with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')),patch.object(llm,'_ollama',return_value='yerel'):

@@ -23,6 +23,11 @@ class PcWatcherLocalModelAcceptanceTests(unittest.TestCase):
         self.assertFalse(scope['desktop'])
         self.assertFalse(scope['news'])
 
+    def test_production_panel_or_entrypoint_alone_requires_local_gate(self):
+        for path in ('webui/local-model-panel.js','webui/nx.html'):
+            with self.subTest(path=path):
+                self.assertTrue(watcher.acceptance_scope([path])['local_model'])
+
     def test_local_model_acceptance_is_required_for_suite_pass(self):
         validation = mock.Mock(returncode=0, stdout='OK')
         failed = {'exit_code': 1, 'tail': 'feature failed', 'result': {'state': 'failed'}}
@@ -50,6 +55,15 @@ class PcWatcherLocalModelAcceptanceTests(unittest.TestCase):
         body = watcher.pr_comment_body(report)
         self.assertIn('Yerel model UI/inference: **passed**', body)
         self.assertIn('dddddddddddd', body)
+
+
+    def test_failed_local_model_comment_keeps_structured_reason_not_raw_output(self):
+        report={'sha':'e'*40,'status':'failed','local_model_acceptance':{
+            'exit_code':1,'tail':'RAW_OUTPUT_NOT_FOR_COMMENT',
+            'result':{'state':'failed','detail':'inference model unavailable'}}}
+        body=watcher.pr_comment_body(report)
+        self.assertIn('inference model unavailable',body)
+        self.assertNotIn('RAW_OUTPUT_NOT_FOR_COMMENT',body)
 
 
 if __name__ == '__main__':

@@ -161,7 +161,15 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         from modules import research_evidence
         if research_evidence.news_requested(job['request']):
             from modules import model_free_news
-            output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
+            snapshot=step.get('pipeline_receipt')
+            if snapshot is not None:
+                from modules import task_results
+                task_results.verify(snapshot,owner=job['owner'])
+                if snapshot.get('source')!=step['input'].get('url'):
+                    raise ValueError('Pipeline kanıtı araştırma adresiyle eşleşmiyor.')
+                output=model_free_news.receipt(snapshot['news_article'],job['request'])
+            else:
+                output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
             if expected is not None:
                 from modules import runtime_worker_result,worker_result_hook
                 output=worker_result_hook.wrap_output(output,identity)
@@ -188,9 +196,12 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         # That is neither a WorkerResult nor global completion.
         if isinstance(output,dict) and output.get('state')=='approval':
             return output
-        if isinstance(output,dict) and output.get('state')=='done' and output.get('receipt') is not None:
-            from modules import effect_recovery_runtime
+        if isinstance(output,dict) and output.get('state')=='done':
+            from modules import effect_journal,effect_recovery_runtime
             if effect_recovery_runtime.required(step['tool']):
+                if output.get('receipt') is None:
+                    raise effect_journal.ContractViolation(
+                        'Receipt-required effect doğrulanmış receipt taşımıyor.')
                 effect_recovery_runtime.record_receipt(expected,output)
         from modules import runtime_worker_result
         output=runtime_worker_result.accept_and_commit(output,expected)

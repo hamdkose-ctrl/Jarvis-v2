@@ -15,6 +15,8 @@ MAX_BYTES = 1_000_000
 def address(url, *, resolve=False):
     if not isinstance(url,str) or len(url)>2048 or any(ord(c)<32 for c in url):
         raise ValueError('Kaynak adresi geçersiz.')
+    # Trim HTML href padding only after rejecting control characters.
+    url=url.strip(' ')
     parsed=urlsplit(url)
     if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.port not in (None,443):
         raise ValueError('Kaynak yalnız şifresiz, standart HTTPS adresi olabilir.')
@@ -145,7 +147,7 @@ def feeds(response):
     return result
 
 
-def entries(response):
+def entries(response, *, query_terms=()):
     """RSS/Atom or same-origin HTML article links, without fetching linked pages."""
     body=response['body'];url=address(response['url']);host=urlsplit(url).hostname
     if len(body)>MAX_BYTES:raise ValueError('Kaynak fazla büyük.')
@@ -168,6 +170,31 @@ def entries(response):
     else:
         page=Page();page.feed(body.decode('utf-8',errors='replace'))
         result=[{**row,'summary':'','published':''} for row in page.links if len(row['title'].strip())>=8]
+        from bs4 import BeautifulSoup
+        soup=BeautifulSoup(body,'html.parser')
+        stories=set()
+        for link in soup.select('article a[href], h2 a[href], h3 a[href], a[itemprop="url"]'):
+            if any(parent.name in {'nav','header','footer','aside'} or
+                   parent.get('role') in {'navigation','banner','contentinfo','complementary'}
+                   for parent in link.parents):continue
+            try:stories.add(address(urljoin(url,link['href'])))
+            except ValueError:continue
+        result.sort(key=lambda row: urljoin(url,row['url']) not in stories)
+    if query_terms:
+        def fold(value):return str(value).casefold().replace('ı','i').replace('\u0307','')
+        terms={fold(term) for term in query_terms if isinstance(term,str) and len(term)>2}
+        def rank(row):
+            title=fold(row.get('title',''));text=fold(row.get('summary','')+' '+row.get('url',''))
+            return sum(3*(term in title)+(term in text) for term in terms)
+        result.sort(key=rank,reverse=True)
+    # Keep non-article routes available, but reserve early reads for story URLs.
+    # This ranks discovery only; article/date validation remains authoritative.
+    def article_route(row):
+        path=urlsplit(urljoin(url,row['url'])).path.casefold()
+        directory=bool(re.search(r'(?:^|/)(?:vg|video-galeri|video-galerileri|fotograf-galerileri|tum-haberler|etiket|tag|kategori|category|arsiv)(?:/|\.|$)',path))
+        story=bool(re.search(r'(?:[-/]\d{4,}|--\d+)(?:\.html)?/?$',path))
+        return (not directory,rank(row) if query_terms else 0,story)
+    result.sort(key=article_route,reverse=True)
     clean=[];seen=set()
     for row in result:
         try:target=address(urljoin(url,row['url']))
@@ -178,3 +205,5 @@ def entries(response):
         seen.add(target);clean.append({**row,'url':target,'title':title})
         if len(clean)>=50:break
     return clean
+
+

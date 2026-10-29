@@ -1,3 +1,13 @@
+- PR #439 son değişiklik kabulü bekliyor: genel haber + Türkiye AI + başka konu + açık tek URL + dosya raporu + aynı hedefte sürdürme + modelsiz/kota durumu. Kısmi makale korunmalı, ikinci teslimde aynı makale tekrar indirilmemeli; eski SHA'nın PASS'i yeni head'e taşınmamalı. Yerelde 105 odaklı test (bağımlılık taklitleriyle) geçti; full Windows CI ve gerçek Jarvis/PC bu değişiklik için henüz doğrulanmadı.
+
+## Model-bağımsız haber hattı — 28 Ekim 2026
+
+- `modules/news_pipeline.py` eklendi: kota/429 sırası tarihli haber isteğini artık durdurmaz, haber işi modelsiz açılır ve kayıtlı kanıtlarla teslim edilir; `news_status` ile `model_synthesis_status` ayrıldı, model yokluğu haber sonucunu ezmez. Davranış sözleşmesi `docs/agents/haber.md` içinde.
+- Yapılan canlı PC kabulü (28 Ekim 2026): `python -X utf8 -m modules.acceptance_checks --news --skip-suite` → `news_chat_resume: passed`, "2 tarihli makale / 2 yayıncı doğrulandı; devam hedefi değiştirmedi". Koşu gerçek yayıncı ağlarına, yalıtılmış hedef deposuyla ve kota günlüğünde hiçbir model çağrısı bırakmadan tamamlandı; `PermissionError: İşlem için açık kullanıcı bağlamı gerekli` üretilmedi. Düzeltme öncesi aynı kabul `0 makale / 0 yayıncı`, `research.failed:7` ile düşüyordu.
+- Bekleyen kabul (canlı PC, Hamdi): sohbet arayüzünün durum satırının (`news_status` + "model sentezi kullanılamıyor") gerçek ekranda gösterimi ve sağlayıcıların erişilebilir olduğu bir oturumda sentez kalitesi. Testler taşıyıcı taklitleriyle çalışır; gerçek arayüz kabulü henüz yapılmadı.
+- PR #439 kapanış değişikliğinde sıralı dosya tohum döngüsü ve katalog deneme completion kapıları kaldırıldı. Sohbet/dosya aynı pipeline receipt'lerini normal runtime gate üzerinden kullanır. Genel haber eşiği iki bağımsız yayıncıdır; açık tek haber/URL kendi kapsamıyla değerlendirilir. Bu kod değişikliği yeni SHA'nın canlı kabulü yerine geçmez.
+- `verify_synthesis` (uydurma sayı/alıntı düşürme, güvenli downgrade) ve `attach_job` modeller erişilemezkenki teslimi kilitler; model erişilebilirken çalışan sentez hattına henüz bağlanmadı.
+
 ## 20 Ekim 2026 — uçtan uca kapsam ve güncel sıra
 
 - Güncel plan: [Birleşik yol planı](yol-haritasi-birlesik-2026-10-20.md). 14 alanın geniş kapsamı, ses/yazı ortak yürütmesi, bağlam sahipliği, adım başına izin ve gerçek kabul ölçütleri burada tutulur. Aşağıdaki tarihli kayıtlar tarihsel kanıttır; tümü güncel durum sayılmaz.

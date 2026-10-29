@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -28,9 +29,10 @@ class Phase4FinanceReadonlyWiringTests(unittest.TestCase):
         self.assertIn("yatırım tavsiyesi değildir", result["disclaimer"])
 
     def test_finance_worker_returns_trade_plan_draft_without_execution_fields(self):
+        observed_at = datetime.now(timezone.utc).isoformat()
         payload = {
-            "ticker": "THYAO", "current_price": "105", "price_observed_at": "2026-10-27T10:00:00+00:00",
-            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": "2026-10-27T10:00:00+00:00"}],
+            "ticker": "THYAO", "current_price": "105", "price_observed_at": observed_at,
+            "source": "Yahoo Finance", "evidence": [{"source": "Yahoo Finance", "observed_at": observed_at}],
             "candles": [
                 {"date": "2026-10-25T10:00:00+00:00", "open": "100", "high": "108", "low": "96", "close": "104", "volume": "10"},
                 {"date": "2026-10-26T10:00:00+00:00", "open": "104", "high": "112", "low": "99", "close": "106", "volume": "11"},
