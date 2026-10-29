@@ -401,3 +401,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - Hoca ortak araştırma bağlantısı: ilk kaynak fail-fast davranışı için sınırlı aday geçişi hazırlandı. Ek model/fallback sağlayıcı yok. #443 haber zaman çalışmasından ayrı tutulur; gerçek dış arama/Hoca/PC E2E kabulü henüz tamamlanmış sayılmaz.
 
 - #434 eski dalı güncel main ile normal merge için hazırlandı; haber/Hoca/Core düzeltmeleri korunur. Backend :latest alias regresyonu ve yanlış stale uyarısı düzeltildi. Yeni exact-head CI, UI ve gerçek Ollama inference kabulü olmadan kapanmış sayılmaz.
+
+- #434 kabul helper yaşam döngüsü: web.serve sunucuyu zaten başlatır; local_model_acceptance ikinci serve_forever thread başlatmaz. Windows #901 exact e29d85cd UI ve gerçek inference PASS kanıtı verdi, fakat ikinci loop kapatılırken WinError 10038 görüldü. Önce thread-sahipliği regresyonu kırmızıyla doğrulandı; tek sunucu loop ve bir kez shutdown/server_close korunarak düzeltildi. Yeni exact head kabulü beklenir.

@@ -51,5 +51,24 @@ class LocalModelAcceptanceBootstrapTests(unittest.TestCase):
         self.assertNotIn("page.wait_for_timeout(800)", src)
 
 
+    def test_browser_probe_does_not_start_a_second_loop_for_server_owned_by_web(self):
+        import runpy
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        import playwright.sync_api
+        probe=runpy.run_path(str(SCRIPT),run_name='local_model_lifecycle_probe')['_browser_check']
+        server=Mock()
+        web=SimpleNamespace(_fonts_ready=Mock(),serve=Mock(return_value=(server,'http://127.0.0.1/')))
+        with patch.dict(sys.modules,{'web':web}), \
+             patch('playwright.sync_api.sync_playwright',side_effect=RuntimeError('stop before browser')), \
+             patch('threading.Thread') as thread:
+            ok,_=probe(ROOT,{'local_installed_models':[]})
+        self.assertFalse(ok)
+        web.serve.assert_called_once_with(port=0)
+        thread.assert_not_called()
+        server.shutdown.assert_called_once_with()
+        server.server_close.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

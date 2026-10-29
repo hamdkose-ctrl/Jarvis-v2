@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
-import threading
 from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -51,7 +50,6 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
     try:
         web._fonts_ready.set()
         srv, url = web.serve(port=0)
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1594, "height": 900})

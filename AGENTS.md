@@ -199,4 +199,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hoca açık web araştırması ilk okunamayan kaynağı atlar; aynı ortak research_providers araması/okuyucusu kullanılır. En fazla 10 aday okunur; izin ve iptal hataları başka adaya geçmez. Ek model veya arama sağlayıcısı çağrısı eklenmez.
 
-- #434 yerel model kapanışı: saved preference kurulu model authority değildir. Runtime yalnız endpoint listesindeki gerçek kimliği seçer; etiket verilmemiş model yalnız :latest ile eşdeğer kabul edilir. Ücretli fallback ve cloud free-tier evidence kuralları değişmez. Yerel model kabulünde exact-head UI render + gerçek inference ayrıca kanıtlanır.
+- Yerel model seçimi ve kabul kuralları: `docs/agents/guncelleme-ci-kota.md` (#434).
+

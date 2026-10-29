@@ -132,3 +132,5 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 
 
 - #434 güncel-main uyumu: stale Ollama tercihinde kurulu effective model seçilir, tercih diskte korunur. Etiketsiz model ile :latest eşlemesi backend yardımcı fonksiyonundadır; farklı etiketler eşdeğer değildir. UI kurulu-model sözleşmesini gösterir ve kurulu olmayan save backend tarafından reddedilir. Watcher haber arşivleri korunur; yerel model UI/inference gate'i ve self-hosted Windows kabul adımları kalır. Önce iki alias regresyonu kırmızı, düzeltme sonrası 58 odaklı test PASS. Son tam validation ve yeni exact-head PC/UI/inference kabulü beklenir. Cloud evidence veya paid fallback açılmaz.
+
+- #434 kabul helper yaşam döngüsü: web.serve sunucuyu zaten başlatır; local_model_acceptance ikinci serve_forever thread başlatmaz. Windows #901 exact e29d85cd UI ve gerçek inference PASS kanıtı verdi, fakat ikinci loop kapatılırken WinError 10038 görüldü. Önce thread-sahipliği regresyonu kırmızıyla doğrulandı; tek sunucu loop ve bir kez shutdown/server_close korunarak düzeltildi. Yeni exact head kabulü beklenir.
