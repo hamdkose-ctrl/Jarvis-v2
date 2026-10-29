@@ -60,6 +60,9 @@ def _duckduckgo_transport(request: dict) -> dict:
     )
     from bs4 import BeautifulSoup
     page = BeautifulSoup(response["body"].decode("utf-8", errors="replace"), "html.parser")
+    # A challenge/error document is not a valid empty search result.
+    if page.select('form[action*="anomaly"], #challenge-form, .anomaly-modal'):
+        raise ValueError('public_search_blocked: DuckDuckGo doğrulama/engel sayfası döndürdü.')
     results = []
     for link in page.select("a.result__a"):
         href = str(link.get("href") or "").strip()
@@ -78,6 +81,8 @@ def _duckduckgo_transport(request: dict) -> dict:
         results.append({"url": target, "title": title[:400], "snippet": ""})
         if len(results) >= limit:
             break
+    if not results and not page.select('.no-results, .no-results__message'):
+        raise ValueError('public_search_unrecognized: Arama yanıtında sonuç veya açık sonuç-yok işareti bulunamadı.')
     return {"results": results}
 
 

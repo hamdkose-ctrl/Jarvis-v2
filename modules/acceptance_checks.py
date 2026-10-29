@@ -199,7 +199,8 @@ def _news_external_discovery(owner):
               and urlsplit(row['url']).hostname not in hosts]
     detail=('Katalog boşluğu zorlandı; gerçek anahtarsız arama ve makale okuyucu; '
             f"keşif={discovery.get('state')}; aday={discovery.get('candidates',0)}; "
-            f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}")
+            f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}; "
+            f"neden={discovery.get('reason') or 'yok'}")
     return ('passed' if external else 'failed'),detail
 
 

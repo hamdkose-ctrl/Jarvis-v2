@@ -177,3 +177,6 @@ Kayıtlı gerçek HTML karşılaştırması: ANKA 5/5, İHA 3 makale, İLKHA 6/6
 
 
 - PR #439 --news: news_external_discovery ayrı canlı tanıdır. Katalog sayısı sıfıra zorlanır; gerçek anahtarsız arama/üretim makale okuyucusu kullanılır. Katalog dışı en az bir doğrulanmış makale yoksa failed olur. Bu tek kaynak keşif kanıtıdır, iki yayıncı tamamlanma kabulü değildir. Mevcut üç senaryolu news_chat_resume korunur. Yeni head için Windows/PC sonucu beklenir.
+
+
+- PR #439 dış arama tanısı: DDG challenge/engel ve tanınmayan HTML artık gerçek sonuç-yok sayılmaz; sabit public_search_blocked/public_search_unrecognized nedeni üretilir. Açık no-results işareti boş sonuç kalır. news_external_discovery kalıcı raporunda redakte pipeline reason görünür. Yeni sağlayıcı/retry/model çağrısı/kota artışı yok. 4 yeni taşıyıcı-taklitli test + 105 odaklı test geçti; gerçek PC yanıtının engel mi şema değişimi mi olduğu henüz doğrulanmadı, yeni head kabulü beklenir.
