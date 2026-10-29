@@ -315,15 +315,20 @@ def run(owner, prompt, callback, image=False):
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')
-            attempt={'provider':provider,'ok':False,'error':type(exc).__name__,
+            # Local adapters wrap transport errors; retain only their type, never
+            # the raw request/URL/body. Routing and cooldown still use exc.
+            transport = (exc.__cause__ if provider == 'ollama' and
+                         type(exc).__name__ == 'LocalModelError' and
+                         isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError)) else None)
+            attempt={'provider':provider,'ok':False,'error':type(transport or exc).__name__,
                      'kind':failure_kind(exc),'status':failure_status(exc)}
             if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
-                if str(exc) == llm.local_hint():
+                if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                     attempt['hint'] = 'ollama_missing'
             attempts.append(attempt)
             from modules import llm
-            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(exc) + ', sıradakine geçildi', False)
+            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(transport or exc) + ', sıradakine geçildi', False)
             if type(exc).__name__ != 'ImageCapabilityError':
                 with _LOCK: _HEALTH[(owner,provider)] = {'until':time.monotonic()+cooldown(provider,exc),'error':type(exc).__name__}
             continue

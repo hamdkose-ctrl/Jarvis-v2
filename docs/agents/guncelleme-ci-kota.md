@@ -136,3 +136,8 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 - #434 kabul helper yaşam döngüsü: web.serve sunucuyu zaten başlatır; local_model_acceptance ikinci serve_forever thread başlatmaz. Windows #901 exact e29d85cd UI ve gerçek inference PASS kanıtı verdi, fakat ikinci loop kapatılırken WinError 10038 görüldü. Önce thread-sahipliği regresyonu kırmızıyla doğrulandı; tek sunucu loop ve bir kez shutdown/server_close korunarak düzeltildi. Yeni exact head kabulü beklenir.
 
 - #434 kabulü 7B/Qwen adına sabitlenmez. Gerçek kurulu liste, listeye ait effective model, geçerli tercihin korunması, stale bayrağı, UI backend eşleşmesi ve aynı modele ait gerçek yanıt/route gerekir. Normal, stale ve tercihsiz senaryo ayrı raporlanır; normal kurulum PASS sonucu gerçek stale senaryosu denenmiş gibi gösterilmez. Tercih değiştirilmez ve model indirilmez. Kurulu model yoksa, effective dışarıdaysa veya route yanlışsa ret korunur.
+
+## Yerel model taşıyıcı hatası tanısı — 29 Ekim 2026
+
+- Ollama ReadTimeout/ConnectTimeout, sunucu kurulu değil ipucuna çevrilmez. Sabit güvenli zaman aşımı mesajı kullanılır; ham URL/transport metni gösterilmez. Router, sarmalanmış requests timeout/connection nedeninin yalnız sınıfını deneme kaydında ve güvenli route metninde gösterir. Hata sınıflandırması/cooldown ve provider sırası değişmez.
+- Hoca ProviderExhaustedError güvenli nedeni ve structured metadata bilgisini korur. Retry, ücretli fallback, timeout süresi veya model indirmesi eklenmez. Gerçek PC Hoca çağrısı henüz kabul edilmemiştir.
