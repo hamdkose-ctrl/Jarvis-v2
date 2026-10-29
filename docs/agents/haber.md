@@ -195,3 +195,6 @@ Kayıtlı gerçek HTML karşılaştırması: ANKA 5/5, İHA 3 makale, İLKHA 6/6
 
 
 - PR #439 haber arama sorgusu: news_search_query yalnız haber araması için son-N-zaman penceresini ve rapor/dosya komut sözcüklerini ayırır. Konu/coğrafya ve açık tarih yılı korunur; konu yoksa güncel haberler kullanılır. Asıl kullanıcı isteği doğrulama/completion otoritesi olarak değişmez. Aynı RSS ucunda görev cümlesi 0, güncel haberler 10, Türkiye yapay zeka 12 öğe verdi (proxy tanısı, iş-PC transport kabulü değil). Önce 4 eksik-helper regresyonu düştü; sonra 9 sorgu/fallback testi + 105 mevcut odaklı test geçti. Yeni exact Windows ve PC kabulü beklenir.
+
+
+- PR #439 dış keşif kabul ayrıntısı en fazla 8 adayın redakte URL, canonical publisher_key ile katalog içi/dışı, verification ve ret nedenini gösterir. Acceptance eşiği korunur; üretim arama/okuma sayısı artmaz. Yerel taklitli ret-sınıflandırma kontrolü geçti; a80e1db iş PC sonucunda 8 aday/8 deneme/0 katalog-dışı doğrulama görüldü, kök ret nedenleri henüz bilinmiyor. Yeni exact kabul beklenir.

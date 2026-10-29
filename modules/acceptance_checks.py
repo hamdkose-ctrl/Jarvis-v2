@@ -194,13 +194,22 @@ def _news_external_discovery(owner):
     result=news_pipeline.run(request,owner=owner,max_sources=0,
                              searcher=research_providers.search_news_public)
     discovery=result.get('public_discovery',{})
-    hosts={urlsplit(row['url']).hostname for row in publisher_news.GENERAL_SOURCES}
+    from modules import privacy
+    hosts={publisher_news.publisher_key(row['url']) for row in publisher_news.GENERAL_SOURCES}
     external=[row for row in result.get('candidates',[]) if row.get('verification')=='verified'
-              and urlsplit(row['url']).hostname not in hosts]
+              and publisher_news.publisher_key(row['url']) not in hosts]
     detail=('Katalog boşluğu zorlandı; gerçek anahtarsız arama ve makale okuyucu; '
             f"keşif={discovery.get('state')}; aday={discovery.get('candidates',0)}; "
             f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}; "
             f"neden={discovery.get('reason') or 'yok'}")
+    rows=[]
+    for row in result.get('candidates',[])[:8]:
+        url=str(row.get('url',''))
+        catalog=publisher_news.publisher_key(url) in hosts
+        rows.append(privacy.redact(url)[:500]+' | katalog='+('içi' if catalog else 'dışı')+
+                    ' | doğrulama='+str(row.get('verification','unknown'))+
+                    ' | ret='+privacy.redact(str(row.get('reason') or 'yok'))[:300])
+    if rows:detail+=' | aday_sonuçları: '+' || '.join(rows)
     return ('passed' if external else 'failed'),detail
 
 
