@@ -198,3 +198,6 @@ Kayıtlı gerçek HTML karşılaştırması: ANKA 5/5, İHA 3 makale, İLKHA 6/6
 
 
 - PR #439 dış keşif kabul ayrıntısı en fazla 8 adayın redakte URL, canonical publisher_key ile katalog içi/dışı, verification ve ret nedenini gösterir. Acceptance eşiği korunur; üretim arama/okuma sayısı artmaz. Yerel taklitli ret-sınıflandırma kontrolü geçti; a80e1db iş PC sonucunda 8 aday/8 deneme/0 katalog-dışı doğrulama görüldü, kök ret nedenleri henüz bilinmiyor. Yeni exact kabul beklenir.
+
+
+- PR #439 dış aday seçimi: external_candidates açık kategori/etiket/haberleri yollarını okuma öncesi ayırır; canonical publisher_key başına en fazla bir aday, toplam en fazla 8 seçer. MSN alan adı tümden engellenmez. Arama sonucunun provider alanları public_discovery ve kabul ayrıntısında görünür. Tarih/kimlik/gövde doğrulaması değişmez. 3 yeni seçim regresyonu + 105 odaklı test geçti. 1e4db51 canlı örnekleri 3 dizin/2 eski haber/2 HTTP429/1 gövde reddiydi; yeni exact Windows/PC kabulü beklenir. Arama tarih filtresi henüz eklenmedi.

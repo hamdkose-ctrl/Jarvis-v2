@@ -566,6 +566,22 @@ def verify_synthesis(text, evidence) -> dict:
             'dropped_unsupported_quote': dropped_quote}
 
 
+def external_candidates(rows):
+    """Bound discovery reads to distinct publishers and non-directory URLs."""
+    chosen=[];publishers=set()
+    for row in rows or []:
+        if not isinstance(row,dict) or not row.get('url'):continue
+        try:url=public_sources.address(row['url'])
+        except ValueError:continue
+        path=urlsplit(url).path.casefold()
+        if re.search(r'(?:^|/)(?:kategori|category|etiket|tag|haberleri|tum-haberler|son-dakika-haberler)(?:/|$)',path):continue
+        key=publisher_news.publisher_key(url)
+        if key in publishers:continue
+        publishers.add(key);chosen.append(dict(row,url=url))
+        if len(chosen)>=8:break
+    return chosen
+
+
 def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=None, now=None,
         reuse=None, source_health=None, model_status='unavailable', claim_review=None,
         max_sources=MAX_SOURCES, searcher=None) -> dict:
@@ -625,7 +641,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                 extra = (searcher or research_providers.search_news_public)(request)
                 seen = {row['url'] for row in checked_rows}
                 additions = []
-                for item in extra or []:
+                for item in external_candidates(extra):
                     if not isinstance(item, dict) or not item.get('url'):
                         continue
                     try:
@@ -638,7 +654,8 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
                     additions.append(normalize(dict(item, url=url), source=source_name(url), now=today))
                     if len(additions) >= 8:
                         break
-                external_discovery={'state':'candidates' if additions else 'empty','candidates':len(additions),'reason':None}
+                external_discovery={'state':'candidates' if additions else 'empty','candidates':len(additions),'reason':None,
+                                    'providers':sorted({str(row.get('provider','unknown')) for row in extra or [] if isinstance(row,dict)})}
                 additions = filter_candidates(additions, request)
                 candidates.extend(additions)
                 checked_rows.extend(_verify_plan(additions, request=request, fetcher=fetcher,

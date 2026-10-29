@@ -201,7 +201,7 @@ def _news_external_discovery(owner):
     detail=('Katalog boşluğu zorlandı; gerçek anahtarsız arama ve makale okuyucu; '
             f"keşif={discovery.get('state')}; aday={discovery.get('candidates',0)}; "
             f"okunan={result.get('articles_read',0)}; katalog_dışı_doğrulanan={len(external)}; "
-            f"neden={discovery.get('reason') or 'yok'}")
+            f"neden={discovery.get('reason') or 'yok'}; sağlayıcı={discovery.get('providers',[])}")
     rows=[]
     for row in result.get('candidates',[])[:8]:
         url=str(row.get('url',''))
