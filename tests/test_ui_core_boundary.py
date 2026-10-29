@@ -31,13 +31,13 @@ class UiCoreBoundaryGuardTests(unittest.TestCase):
         )
         self.assertIn('ARCH-006', {row['rule'] for row in report['blockers']})
 
-    def test_known_web_tasks_debt_is_baselined_not_blocker(self):
+    def test_web_tasks_authority_debt_cannot_be_reintroduced(self):
         report = self._scan_ui(
             "from modules import goal_executor, goal_tools, task_agents, task_results\n",
             name='web_tasks.py',
         )
-        self.assertNotIn('ARCH-006', {row['rule'] for row in report['blockers']})
-        self.assertIn('ARCH-W003', {row['rule'] for row in report['warnings']})
+        self.assertIn('ARCH-006', {row['rule'] for row in report['blockers']})
+        self.assertNotIn('ARCH-W003', {row['rule'] for row in report['warnings']})
 
     def test_presentation_dependency_is_not_business_authority(self):
         report = self._scan_ui(
