@@ -201,3 +201,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Yerel model seçimi ve kabul kuralları: `docs/agents/guncelleme-ci-kota.md` (#434).
 
+
+- Yerel model kabulü gerçek kurulu listeye bağlıdır; belirli bir model adı veya boyutu şart değildir.

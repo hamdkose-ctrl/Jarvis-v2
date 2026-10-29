@@ -403,3 +403,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - #434 eski dalı güncel main ile normal merge için hazırlandı; haber/Hoca/Core düzeltmeleri korunur. Backend :latest alias regresyonu ve yanlış stale uyarısı düzeltildi. Yeni exact-head CI, UI ve gerçek Ollama inference kabulü olmadan kapanmış sayılmaz.
 
 - #434 kabul helper yaşam döngüsü: web.serve sunucuyu zaten başlatır; local_model_acceptance ikinci serve_forever thread başlatmaz. Windows #901 exact e29d85cd UI ve gerçek inference PASS kanıtı verdi, fakat ikinci loop kapatılırken WinError 10038 görüldü. Önce thread-sahipliği regresyonu kırmızıyla doğrulandı; tek sunucu loop ve bir kez shutdown/server_close korunarak düzeltildi. Yeni exact head kabulü beklenir.
+
+- #434 canlı kabul gerçek kurulu modelle yapılır; qwen2.5-coder:7b kurulumu şart değildir. 3B ve diğer model kimlikleri için aynı kurulu/effective/UI/inference şartları uygulanır. Senaryo (stale/normal/tercihsiz) açık raporlanır; yeni exact-head kabulü beklenir.

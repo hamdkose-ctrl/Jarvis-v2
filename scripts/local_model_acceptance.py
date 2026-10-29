@@ -10,26 +10,26 @@ _repo_root_text = str(REPO_ROOT)
 if _repo_root_text not in sys.path:
     sys.path.insert(0, _repo_root_text)
 
-EXPECTED_STALE = "llama3.2"
-EXPECTED_EFFECTIVE = "qwen2.5-coder:7b"
-
-
 def contract_errors(status: dict) -> list[str]:
-    """Feature-specific acceptance invariant'ları; kullanıcı ayarını değiştirmez."""
-    installed = [str(x) for x in status.get("local_installed_models") or []]
-    errors = []
-    if status.get("local_backend") != "ollama":
+    """Check the machine's actual model contract without changing its preference."""
+    from modules.llm import _installed_ollama_name
+    installed=status.get("local_installed_models")
+    errors=[]
+    if status.get("local_backend")!="ollama":
         errors.append("yerel backend Ollama değil")
-    if status.get("local_model_preference") != EXPECTED_STALE:
-        errors.append("kayıtlı tercih beklenen stale llama3.2 değil")
-    if EXPECTED_EFFECTIVE not in installed:
-        errors.append("qwen2.5-coder:7b kurulu model listesinde yok")
-    if EXPECTED_STALE in installed:
-        errors.append("llama3.2 artık stale değil; acceptance senaryosu oluşmadı")
-    if status.get("local_effective_model") != EXPECTED_EFFECTIVE:
-        errors.append("effective model qwen2.5-coder:7b değil")
-    if status.get("local_model_stale") is not True:
-        errors.append("backend stale preference durumunu doğrulamadı")
+    if not isinstance(installed,list) or not installed or any(not isinstance(x,str) or not x.strip() for x in installed):
+        errors.append("kurulu model listesi boş veya geçersiz")
+        return errors
+    effective=status.get("local_effective_model")
+    if not isinstance(effective,str) or not effective or effective not in installed:
+        errors.append("effective model gerçek kurulu listede yok")
+    preference=str(status.get("local_model_preference") or "").strip()
+    matched=_installed_ollama_name(preference,installed) if preference else None
+    stale=bool(preference and not matched)
+    if status.get("local_model_stale") is not stale:
+        errors.append("backend stale preference durumu kurulu listeyle çelişiyor")
+    if matched and effective!=matched:
+        errors.append("kurulu kayıtlı tercih yerine başka model seçilmiş")
     if status.get("local_model_select_enabled") is not True:
         errors.append("kurulu-model seçimi backend contract'ında etkin değil")
     return errors
@@ -112,15 +112,16 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
             return False, "local-model-panel.js canlı nx.html tarafından yüklenmedi"
         if observed.get("legacyInput") or observed.get("legacySave"):
             return False, "legacy serbest model input/save canlı DOM'da kaldı"
-        if observed.get("active") != EXPECTED_EFFECTIVE:
+        if observed.get("active") != direct_effective:
             return False, (
                 f"canlı Aktif Model yanlış: {observed.get('active')!r}; "
                 f"browser_effective={browser_effective!r}; direct_effective={direct_effective!r}"
             )
         if observed.get("options") != expected_installed:
             return False, f"canlı dropdown backend listesiyle aynı değil: {observed.get('options')!r}"
-        if EXPECTED_STALE in observed.get("options", []):
-            return False, "stale llama3.2 canlı dropdown seçeneğinde görünüyor"
+        preference=str(status.get("local_model_preference") or "")
+        if status.get("local_model_stale") and preference in observed.get("options", []):
+            return False, "stale tercih canlı dropdown seçeneğinde görünüyor"
         if status.get("local_model_stale") and not observed.get("warning"):
             return False, "stale preference bilgi işareti canlı DOM'da görünmedi"
         return True, f"active={observed['active']}; options={','.join(observed['options'])}; legacy_input=false"
@@ -144,7 +145,7 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
 
 
 def run(root: Path | None = None) -> dict:
-    """Gerçek PC'de stale Ollama preference -> browser UI + installed effective model + inference kabulü."""
+    """Gerçek PC kurulu/effective modelini UI ve gerçek inference ile doğrula."""
     root = Path(root or REPO_ROOT)
     from modules import llm, personalization
     from web_models import WebModels
@@ -163,11 +164,15 @@ def run(root: Path | None = None) -> dict:
         if not browser_ok:
             return {"state": "failed", "detail": browser_detail}
 
+        effective=status["local_effective_model"]
+        preference=str(status.get("local_model_preference") or "")
+        scenario=("stale_preference" if status["local_model_stale"] else
+                  "installed_preference" if preference else "no_preference")
         llm.take_route()
         try:
             answer = llm._timed(
                 "ollama",
-                lambda: llm._ollama([{"role": "user", "content": "merhaba"}], "", 64),
+                lambda: llm._ollama([{"role": "user", "content": "merhaba"}], "", 64, model=effective),
             )
             routes = llm.take_route()
         except Exception as exc:
@@ -176,19 +181,19 @@ def run(root: Path | None = None) -> dict:
             reason=privacy.redact(str(exc),force=True)[:300]
             return {"state": "failed", "detail": f"gerçek Ollama inference başarısız: {type(exc).__name__}: {reason}"}
 
-        expected_route = f"Cevap: Ollama (yerel) · {EXPECTED_EFFECTIVE}"
+        expected_route = f"Cevap: Ollama (yerel) · {effective}"
         route_text = [str(text) for text, ok in routes if ok]
         if not isinstance(answer, str) or not answer.strip():
             return {"state": "failed", "detail": "gerçek Ollama inference boş yanıt verdi"}
         if expected_route not in route_text:
-            return {"state": "failed", "detail": "inference route effective qwen2.5-coder:7b modelini doğrulamadı"}
+            return {"state": "failed", "detail": "inference route backend effective modelini doğrulamadı"}
 
         installed = [str(x) for x in status.get("local_installed_models") or []]
         return {
             "state": "passed",
             "detail": (
-                f"saved={EXPECTED_STALE}; effective={EXPECTED_EFFECTIVE}; installed={','.join(installed)}; "
-                f"browser_ui=passed ({browser_detail}); inference=passed"
+                f"saved={preference}; effective={effective}; installed={','.join(installed)}; "
+                f"scenario={scenario}; browser_ui=passed ({browser_detail}); inference=passed"
             ),
         }
     finally:
