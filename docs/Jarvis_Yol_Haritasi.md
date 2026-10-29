@@ -393,3 +393,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - Yeni kod için Windows CI ve gerçek PC kabulü beklenir; Faz 4A veya genel web araştırması bu kayıtla tamamlanmış sayılmaz.
 
 - Haber kabul tanısı: son-rapor dosyası başka PR ile değişebilir. Watcher reports/<exact-sha>.json arşivini silmeden korur; arşiv yazılamazsa worktree silinmez. --news kabulü eski watcher altında da LOCALAPPDATA/Jarvis/pc-acceptance/news-reports içine yalnız redakte haber kontrollerini zaman damgası ve kod parmak iziyle yazar. Kod parmak izi commit SHA kanıtı değildir. PR tanısı 300 karakterde kesilmez; başarısız dış keşif kontrolü de gösterilir. Bu kayıt iyileştirmesi Türkiye AI canlı arızasını çözülmüş saymaz; yeni exact kabul beklenir.
+
+- Hoca ortak araştırma bağlantısı: ilk kaynak fail-fast davranışı için sınırlı aday geçişi hazırlandı. Ek model/fallback sağlayıcı yok. #443 haber zaman çalışmasından ayrı tutulur; gerçek dış arama/Hoca/PC E2E kabulü henüz tamamlanmış sayılmaz.
