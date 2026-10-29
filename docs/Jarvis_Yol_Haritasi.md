@@ -62,8 +62,9 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 - 🔄 (#444) `[1✓ 2✓ 3✓ 4🔄]` `web_tasks.py::team_verify` içindeki job/output seçimi ve verification toplama mantığı canonical `modules/team_verify_service.py` Core sorgu servisine taşınıyor; UI bridge yalnız owner/kind/identity iletir. `web_tasks.py` için eski UI→Core authority baseline istisnası kaldırılarak aynı borcun geri eklenmesi `ARCH-006` blocker yapılır. Exact-head Windows CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
 - 🟡 (#348) `[1✓ 2🟡 3✓ 4✗]` Eksik canonical kayıt için operatör onaylı geri doldurma akışı cutover'a bağlanacak. Fonksiyon ve testi var, akışa bağlı değil.
 - 🟡 (#347) `[1✓ 2✓ 3✓ 4✗]` Canonical tarafın "bitti" bilgisi eski tarafa iletilecek. Bugün canonical bitmiş işi yeniden açmıyor ama eski taraf bunu öğrenmiyor. Eski tarafa iletim çalışıyor; eski kayıt kaldırılınca bu köprü de kalkacak.
+- 🔄 (#445) Receipt-required durable effect `done` döndüğünde doğrulanmış provider receipt yoksa Core başarı commit'i yapmaz; effect journal `unknown / RECEIPT_MISSING_NO_BLIND_RETRY` sözleşmesinde fail-closed kalır. Exact-head CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
 - Gerçek PC watcher kabul kaydı main'in kendi SHA'sı için alınacak ve Aşama 0–4 kapanışı tek belgeyle ilan edilecek. Windows CI main'de yeşil, watcher kayıtları şimdilik yalnız PR bazlı.
-- Üç kural kodda zorlanacak: Domain invariant ve Decision Authority, her etkinin makbuz üretmesi, cron / oturum / hafızanın GoalState yerine geçmemesi. Üçü de şu an yalnız belgede yazılı, Guard denetlemiyor.
+- Üç kural kodda zorlanacak: Domain invariant ve Decision Authority, her etkinin makbuz üretmesi, cron / oturum / hafızanın GoalState yerine geçmemesi. Receipt-required effect kuralı #445 ile runtime'da fail-closed uygulanıyor; diğer iki kuralın mekanik Guard/kod kanıtı hâlâ kapanmadı.
 
 ---
 
