@@ -113,11 +113,15 @@ Durable Job/Core
 → Reducer/CAS evidence
 ```
 
-### ARCH-W003 — Mevcut UI/Core authority borcu
+### ARCH-W003 — UI/Core authority baseline (aktif borç yok)
 
-Repo auditinde `web_tasks.py` içinde mevcut goal/task control ve verification akışlarının Core authority internallerine doğrudan dependency taşıdığı doğrulandı. Bunlar exact `path + module dependency` baseline olarak görünür tutulur; validation'ı topluca kırmamak için WARNING'dir.
+İlk auditte `web_tasks.py` içindeki goal/task control ve verification akışlarının Core authority internallerine doğrudan dependency taşıdığı doğrulandı ve exact `path + module dependency` baseline olarak WARNING seviyesinde donduruldu.
 
-Baseline genel dosya izni değildir. `web_tasks.py` aynı anda yeni bir authority module import ederse o yeni edge `ARCH-006` BLOCKER olur. Borcun kaldırılması ayrı migration PR'ında canonical control/verification facade/service'e geçişle yapılır; bu guard PR'ı feature davranışını taşımayı veya yeniden yazmayı üstlenmez.
+- #441 `team_control` lifecycle/approval authority'yi `modules/team_control_service.py` Core servisine taşıdı.
+- #444 `team_verify` job/output seçimi ve verification toplama mantığını `modules/team_verify_service.py` read-only Core sorgu servisine taşıyor.
+- #444 branch'inde `web_tasks.py` için `_UI_AUTHORITY_BASELINE` boştur. Eski `goal_executor`, `goal_tools`, `task_agents`, `task_results` veya `execution_record` dependency edge'lerinden biri UI'ya geri eklenirse artık `ARCH-W003` WARNING değil, `ARCH-006` BLOCKER oluşur.
+
+`ARCH-W003` mekanizması yalnız gelecekte ayrıca kabul edilmiş, exact bir geçici borç açıkça baseline'a alınırsa kullanılır; mevcut `web_tasks.py` borcuna genel izin vermez. #444 exact-head CI ve gerçek PC watcher kabulü gelmeden bu migration tamamlandı sayılmaz.
 
 ## Alias tespiti
 

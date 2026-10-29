@@ -42,36 +42,8 @@ class WebTasks:
         )
 
     def team_verify(self, kind: str, identity: str) -> dict:
-        from modules import goal_executor, goal_tools, task_agents, task_results, service_store
-        owner = self._runtime._p().slug
-        service_store.identity(owner)
-        if not isinstance(identity,str) or not self._runtime.re.fullmatch('[a-f0-9]{12,32}',identity):
-            raise ValueError('Görev kimliği geçersiz.')
-        if kind == 'task':
-            job = task_agents._load(owner,identity)
-            verify = lambda output: task_results.verify(output,owner=owner)
-        elif kind == 'goal':
-            from modules import execution_record
-            try:
-                job = execution_record.load(goal_executor._root(owner),owner,identity)
-            except PermissionError:
-                raise ValueError('Görev sahibi eşleşmiyor.') from None
-            except (OSError,ValueError):
-                raise ValueError('Görev kaydı geçersiz.') from None
-            verify = lambda output: goal_tools.verify(output,owner)
-        else:
-            raise ValueError('Görev türü geçersiz.')
-        outputs = {key:value for key,value in job.get('outputs',{}).items() if value.get('state')=='done'}
-        if not outputs:
-            return {'ok':False,'message':'Doğrulanacak tamamlanmış çıktı yok.'}
-        failed = []
-        for key,value in outputs.items():
-            try:
-                verify(value)
-            except (ValueError,PermissionError,OSError,KeyError,TypeError):
-                failed.append(key)
-        return {'ok':not failed,'checked':len(outputs),'failed':failed,
-                'message':'Yerel kanıtlar denetlendi. İçerik doğruluğu ve hesapların güncel durumu bu kontrolün kapsamında değil.'}
+        from modules import team_verify_service
+        return team_verify_service.verify(self._runtime._p().slug, kind, identity)
 
     def task_add(self, text: str, when: str='') -> dict:
         runtime = self._runtime
