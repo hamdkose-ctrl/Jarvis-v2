@@ -189,3 +189,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 
 - PR #439 dış aday seçimi: external_candidates açık kategori/etiket/haberleri yollarını okuma öncesi ayırır; canonical publisher_key başına en fazla bir aday, toplam en fazla 8 seçer. MSN alan adı tümden engellenmez. Arama sonucunun provider alanları public_discovery ve kabul ayrıntısında görünür. Tarih/kimlik/gövde doğrulaması değişmez. 3 yeni seçim regresyonu + 105 odaklı test geçti. 1e4db51 canlı örnekleri 3 dizin/2 eski haber/2 HTTP429/1 gövde reddiydi; yeni exact Windows/PC kabulü beklenir. Arama tarih filtresi henüz eklenmedi.
+
+
+- PR #439 Bing haber keşfi orijinal istek penceresi <=7 gün ise qft zaman ipucu (gün/hafta) ve sortbydate=1 gönderir. Bu filtre destek/etkinliği henüz canlı doğrulanmadı; proxy denemesi timeout verdi. RSS pubDate açıkça pencere dışındaysa aday atlanır; tarih eksik/geçersizse makale okuyucu karar verir, RSS kanıt değildir. Tarihsel yıl isteğine yakın-zaman filtresi eklenmez. Yalnız news_external_discovery kabulünün searcher adaptörü katalog içi yayıncıları dışlar; production araştırma katalog içini dışlamaz. 8 fallback testi + 105 odaklı test geçti; yeni exact Windows/PC sonucu beklenir.

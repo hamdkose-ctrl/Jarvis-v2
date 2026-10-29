@@ -27,3 +27,26 @@ class NewsRssFallback(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'public_news_rss_empty.*item=0'):
                 rp.search_news_public('news')
         fetch.assert_called_once()
+
+    def test_recent_request_is_encoded_as_week_filter(self):
+        from urllib.parse import parse_qs,urlsplit
+        with patch.object(rp,'search_public',return_value=[]),patch.object(public_sources,'fetch',return_value={'body':b'<rss><channel/></rss>'}) as fetch:
+            with self.assertRaises(ValueError):rp.search_news_public('Son 7 gün Türkiye yapay zeka haberlerini araştır')
+        params=parse_qs(urlsplit(fetch.call_args.args[0]).query)
+        self.assertEqual(params['qft'],['interval="8"'])
+        self.assertEqual(params['sortbydate'],['1'])
+        self.assertEqual(params['q'],['Türkiye yapay zeka'])
+    def test_explicit_historical_request_has_no_recency_filter(self):
+        from urllib.parse import parse_qs,urlsplit
+        with patch.object(rp,'search_public',return_value=[]),patch.object(public_sources,'fetch',return_value={'body':b'<rss><channel/></rss>'}) as fetch:
+            with self.assertRaises(ValueError):rp.search_news_public('2025 Türkiye yapay zeka haberlerini araştır')
+        params=parse_qs(urlsplit(fetch.call_args.args[0]).query)
+        self.assertNotIn('qft',params)
+        self.assertIn('2025',params['q'][0])
+
+    def test_explicit_old_feed_date_skipped_but_missing_date_kept(self):
+        body=b'<rss><channel><item><title>Old</title><link>https://old.example/story</link><pubDate>Mon, 01 Jan 2001 12:00:00 GMT</pubDate></item><item><title>Unknown</title><link>https://unknown.example/story</link></item></channel></rss>'
+        with patch.object(rp,'search_public',return_value=[]),patch.object(public_sources,'fetch',return_value={'body':body}):
+            rows=rp.search_news_public('Son 7 gün haberleri araştır')
+        self.assertEqual([r['url'] for r in rows],['https://unknown.example/story'])
+        self.assertFalse(rows[0]['verified'])

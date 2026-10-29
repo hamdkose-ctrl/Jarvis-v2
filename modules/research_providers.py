@@ -108,6 +108,8 @@ def news_search_query(request: str) -> str:
 def search_news_public(query: str) -> list[dict]:
     """News-only keyless fallback; one attempt per service, no model calls."""
     from modules import requests_state
+    from modules import research_evidence
+    window=research_evidence.news_window(query)
     query=news_search_query(query)
     requests_state.check()
     try:
@@ -118,7 +120,11 @@ def search_news_public(query: str) -> list[dict]:
     except Exception:
         _record_failure('modules/research_providers.py:news_primary_search')
         requests_state.check()
-    response=public_sources.fetch('https://www.bing.com/news/search?q='+quote_plus(query)+'&format=rss&setmkt=tr-TR')
+    # Bing's time-range hint improves discovery only. Article dates still decide.
+    recency=('&qft='+quote_plus('interval="'+('7' if window<=1 else '8')+'"')
+             if window is not None and window<=7 else '')
+    response=public_sources.fetch('https://www.bing.com/news/search?q='+quote_plus(query)+
+                                  '&format=rss&setmkt=tr-TR&sortbydate=1'+recency)
     import xml.etree.ElementTree as ET
     body=response['body']
     if len(body)>public_sources.MAX_BYTES or re.search(br'<!\s*(?:DOCTYPE|ENTITY)\b',body,re.I):
@@ -126,8 +132,18 @@ def search_news_public(query: str) -> list[dict]:
     root=ET.fromstring(body)
     if root.tag!='rss' or root.find('channel') is None:
         raise ValueError('public_news_rss_invalid: RSS haber kanalı bulunamadı.')
+    from email.utils import parsedate_to_datetime
+    from datetime import datetime,timezone,timedelta
+    today=datetime.now(timezone(timedelta(hours=3))).date()
     results=[];seen=set()
     for item in root.findall('./channel/item')[:50]:
+        # RSS dates guide discovery only; missing/invalid dates do not prove age.
+        if window is not None:
+            try:
+                stamp=parsedate_to_datetime(item.findtext('pubDate') or '')
+                if stamp.tzinfo is not None and (today-stamp.astimezone(timezone(timedelta(hours=3))).date()).days>window:
+                    continue
+            except (ValueError,TypeError,OverflowError):pass
         href=item.findtext('link') or '';parsed=urlsplit(href)
         if parsed.hostname=='www.bing.com' and parsed.path=='/news/apiclick.aspx':
             targets=parse_qs(parsed.query).get('url',[])

@@ -191,8 +191,11 @@ def _news_external_discovery(owner):
     from modules import news_pipeline,research_providers,publisher_news
     from urllib.parse import urlsplit
     request='Son 7 gün güncel haberleri araştır'
-    result=news_pipeline.run(request,owner=owner,max_sources=0,
-                             searcher=research_providers.search_news_public)
+    catalog_keys={publisher_news.publisher_key(row['url']) for row in publisher_news.GENERAL_SOURCES}
+    def external_search(query):
+        return [row for row in research_providers.search_news_public(query)
+                if publisher_news.publisher_key(row['url']) not in catalog_keys]
+    result=news_pipeline.run(request,owner=owner,max_sources=0,searcher=external_search)
     discovery=result.get('public_discovery',{})
     from modules import privacy
     hosts={publisher_news.publisher_key(row['url']) for row in publisher_news.GENERAL_SOURCES}
