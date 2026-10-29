@@ -90,6 +90,46 @@ def search_public(query: str) -> list[dict]:
     """Search one keyless public provider through the bounded HTTPS reader."""
     return search_all(query, providers=("duckduckgo",), transport=_duckduckgo_transport)
 
+def search_news_public(query: str) -> list[dict]:
+    """News-only keyless fallback; one attempt per service, no model calls."""
+    from modules import requests_state
+    query=_query(query)
+    requests_state.check()
+    try:
+        return search_public(query)
+    except (PermissionError,requests_state.Cancelled):
+        raise
+    except Exception:
+        from modules import requests_state
+        requests_state.check()
+        _record_failure('modules/research_providers.py:news_primary_search')
+    response=public_sources.fetch('https://www.bing.com/news/search?q='+quote_plus(query)+'&format=rss&setmkt=tr-TR')
+    import xml.etree.ElementTree as ET
+    body=response['body']
+    if len(body)>public_sources.MAX_BYTES or re.search(br'<!\s*(?:DOCTYPE|ENTITY)\b',body,re.I):
+        raise ValueError('public_news_rss_invalid: RSS boyut/varlık bildirimi reddedildi.')
+    root=ET.fromstring(body)
+    if root.tag!='rss' or root.find('channel') is None:
+        raise ValueError('public_news_rss_invalid: RSS haber kanalı bulunamadı.')
+    results=[];seen=set()
+    for item in root.findall('./channel/item')[:50]:
+        href=item.findtext('link') or '';parsed=urlsplit(href)
+        if parsed.hostname=='www.bing.com' and parsed.path=='/news/apiclick.aspx':
+            targets=parse_qs(parsed.query).get('url',[])
+            if len(targets)!=1:continue
+            href=targets[0]
+        try:target=public_sources.address(href)
+        except ValueError:continue
+        if urlsplit(target).hostname in {'www.bing.com','bing.com'}:continue
+        title=(item.findtext('title') or '').strip()
+        if not title or target in seen:continue
+        seen.add(target)
+        results.append({'provider':'bing_news_rss','url':target,'title':title[:400],
+                        'snippet':'','source_kind':'web','verified':False})
+        if len(results)>=10:break
+    return results
+
+
 def extract_request(url: str, *, provider: str = "public_sources") -> dict:
     """Build a separate extraction request; search results never imply article proof."""
     normalized = public_sources.address(url)

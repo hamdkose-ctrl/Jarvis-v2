@@ -622,7 +622,7 @@ def run(request, *, owner=None, reader=None, fetcher=None, sources=None, days=No
             from modules import requests_state
             requests_state.check()
             try:
-                extra = (searcher or research_providers.search_public)(request)
+                extra = (searcher or research_providers.search_news_public)(request)
                 seen = {row['url'] for row in checked_rows}
                 additions = []
                 for item in extra or []:
@@ -829,4 +829,5 @@ def render_lines(job) -> list[str]:
     if note:
         lines.append(note)
     return lines
+
 

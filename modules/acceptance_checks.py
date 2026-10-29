@@ -192,7 +192,7 @@ def _news_external_discovery(owner):
     from urllib.parse import urlsplit
     request='Son 7 gün güncel haberleri araştır'
     result=news_pipeline.run(request,owner=owner,max_sources=0,
-                             searcher=research_providers.search_public)
+                             searcher=research_providers.search_news_public)
     discovery=result.get('public_discovery',{})
     hosts={urlsplit(row['url']).hostname for row in publisher_news.GENERAL_SOURCES}
     external=[row for row in result.get('candidates',[]) if row.get('verification')=='verified'

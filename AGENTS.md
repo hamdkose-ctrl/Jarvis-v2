@@ -171,3 +171,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 
 - PR #439 Windows #855: 3321 testte tek FAIL, RecoveryPipelineEvidenceTests sabit 2026-10-21 haberi 29 Ekim'de 7 günlük pencereden çıktığı için düşmüştür. Bu wiring testi istanbul_today() tarihli feed ve receipt kullanır; üretim freshness kuralı değiştirilmez. Sözdizimi kontrol edildi; yeni exact-head tam CI/PC kabulü beklenir.
+
+
+- PR #439 haber dış keşfi: search_news_public önce mevcut DDG aramasını kullanır; hata durumunda bir kez Bing News RSS okur. PermissionError/Cancelled geçiş başlatmaz. Gerçek boş DDG sonucu tekrar denenmez. Bing wrapper sadece tam www.bing.com/news/apiclick.aspx üzerindeki tek url parametresinden açılır; hedef yine public_sources.address ve gerçek makale doğrulamasından geçer. RSS tarih/başlıkları kanıt sayılmaz. Genel search_public değişmez. DTD/entity ve büyük RSS reddedilir. 4 hedefli test + 105 odaklı test geçti; yeni exact Windows ve iş PC kabulü beklenir. Proxy tanısında Bing 12 aday, Sabah 29 Ekim makalesi parser/tarih PASS; Milliyet eski tarih nedeniyle ret. Bu üretim taşıyıcı kabulü değildir.
