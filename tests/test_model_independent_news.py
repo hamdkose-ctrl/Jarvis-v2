@@ -857,7 +857,8 @@ class RecoveryPipelineEvidenceTests(unittest.TestCase):
     def test_verified_articles_become_sealed_research_steps(self):
         from types import SimpleNamespace
         from modules import goal_executor as goals, goal_tools, news_recovery, publisher_news
-        reader, fetcher = two_source_feeds()
+        today = istanbul_today()
+        reader, fetcher = two_source_feeds(day=today)
         job = {'id': 'a' * 16, 'owner': 'hamdi', 'state': 'running', 'request': 'son dakika haberleri',
                'goals': [{'state': 'pending', 'text': 'son dakika haberleri'}], 'steps': [], 'outputs': {}}
         runtime = SimpleNamespace(profile=SimpleNamespace(slug='hamdi'))
@@ -871,7 +872,7 @@ class RecoveryPipelineEvidenceTests(unittest.TestCase):
                 current['outputs'][step['id']] = {'state': 'done', 'text': BODY[:60], 'source': url,
                                                   'source_chars': len(BODY), 'source_quotes': [BODY[:60]],
                                                   'news_article': {'url': url, 'title': title,
-                                                                   'published': DAY.isoformat(), 'text': BODY}}
+                                                                   'published': today.isoformat(), 'text': BODY}}
             else:
                 current['outputs'][step['id']] = {'state': 'failed', 'text': 'taklit dizin okunamadı'}
 

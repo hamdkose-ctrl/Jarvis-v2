@@ -180,3 +180,6 @@ Kayıtlı gerçek HTML karşılaştırması: ANKA 5/5, İHA 3 makale, İLKHA 6/6
 
 
 - PR #439 dış arama tanısı: DDG challenge/engel ve tanınmayan HTML artık gerçek sonuç-yok sayılmaz; sabit public_search_blocked/public_search_unrecognized nedeni üretilir. Açık no-results işareti boş sonuç kalır. news_external_discovery kalıcı raporunda redakte pipeline reason görünür. Yeni sağlayıcı/retry/model çağrısı/kota artışı yok. 4 yeni taşıyıcı-taklitli test + 105 odaklı test geçti; gerçek PC yanıtının engel mi şema değişimi mi olduğu henüz doğrulanmadı, yeni head kabulü beklenir.
+
+
+- PR #439 Windows #855: 3321 testte tek FAIL, RecoveryPipelineEvidenceTests sabit 2026-10-21 haberi 29 Ekim'de 7 günlük pencereden çıktığı için düşmüştür. Bu wiring testi istanbul_today() tarihli feed ve receipt kullanır; üretim freshness kuralı değiştirilmez. Sözdizimi kontrol edildi; yeni exact-head tam CI/PC kabulü beklenir.
