@@ -63,8 +63,9 @@ Bu faz bitmeden yeni mimari genişleme açılmaz.
 - 🟡 (#348) `[1✓ 2🟡 3✓ 4✗]` Eksik canonical kayıt için operatör onaylı geri doldurma akışı cutover'a bağlanacak. Fonksiyon ve testi var, akışa bağlı değil.
 - 🟡 (#347) `[1✓ 2✓ 3✓ 4✗]` Canonical tarafın "bitti" bilgisi eski tarafa iletilecek. Bugün canonical bitmiş işi yeniden açmıyor ama eski taraf bunu öğrenmiyor. Eski tarafa iletim çalışıyor; eski kayıt kaldırılınca bu köprü de kalkacak.
 - 🔄 (#445) Receipt-required durable effect `done` döndüğünde doğrulanmış provider receipt yoksa Core başarı commit'i yapmaz; effect journal `unknown / RECEIPT_MISSING_NO_BLIND_RETRY` sözleşmesinde fail-closed kalır. Exact-head CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
+- 🔄 (#447) `worker_result_hook.execute(...)` yalnız durable `specialist_orchestrator.py` içinden çağrılabilir; başka production modülünün fenced wrapper üzerinden DecisionContext/runtime gate'i bypass ederek ikinci execution boundary açması `ARCH-007` blocker olur. Exact-head CI ve gerçek PC watcher kabulü geçmeden tamamlandı sayılmaz.
 - Gerçek PC watcher kabul kaydı main'in kendi SHA'sı için alınacak ve Aşama 0–4 kapanışı tek belgeyle ilan edilecek. Windows CI main'de yeşil, watcher kayıtları şimdilik yalnız PR bazlı.
-- Üç kural kodda zorlanacak: Domain invariant ve Decision Authority, her etkinin makbuz üretmesi, cron / oturum / hafızanın GoalState yerine geçmemesi. Receipt-required effect kuralı #445 ile runtime'da fail-closed uygulanıyor; diğer iki kuralın mekanik Guard/kod kanıtı hâlâ kapanmadı.
+- Üç kural kodda zorlanacak: Domain invariant ve Decision Authority, her etkinin makbuz üretmesi, cron / oturum / hafızanın GoalState yerine geçmemesi. Receipt-required effect kuralı #445 ile runtime'da fail-closed uygulanıyor; Domain invariant / Decision Authority wrapper kaçışı #447 ile mekanik Guard'a bağlanıyor; cron / oturum / hafızanın GoalState yerine geçmemesi için mekanik kanıt hâlâ kapanmadı.
 
 ---
 
