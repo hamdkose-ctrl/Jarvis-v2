@@ -196,11 +196,13 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         # That is neither a WorkerResult nor global completion.
         if isinstance(output,dict) and output.get('state')=='approval':
             return output
-        if isinstance(output,dict) and output.get('state')=='done' and output.get('receipt') is not None:
-            from modules import effect_recovery_runtime
+        if isinstance(output,dict) and output.get('state')=='done':
+            from modules import effect_journal,effect_recovery_runtime
             if effect_recovery_runtime.required(step['tool']):
+                if output.get('receipt') is None:
+                    raise effect_journal.ContractViolation(
+                        'Receipt-required effect doğrulanmış receipt taşımıyor.')
                 effect_recovery_runtime.record_receipt(expected,output)
         from modules import runtime_worker_result
         output=runtime_worker_result.accept_and_commit(output,expected)
     return output
-
