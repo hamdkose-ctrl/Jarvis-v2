@@ -89,6 +89,14 @@ Yeni production modülü `goal_tools.execute(...)` çağırarak ikinci execution
 - `modules/specialist_orchestrator.py`
 - `modules/worker_result_hook.py`
 
+### ARCH-007 — WorkerResult wrapper Decision Authority'yi bypass edemez
+
+`worker_result_hook.execute(...)` çağrısı WorkerResult fence üretse de kendi içinde doğrudan `goal_tools.execute(...)` çalıştırır; tek başına DecisionContext veya `runtime_execution_gate.plan_task(...)` kararı üretmez. Bu yüzden wrapper'ın production caller'ı yalnız durable gate'i önce uygulayan:
+
+- `modules/specialist_orchestrator.py`
+
+olabilir. Başka bir production modülünün (scheduler/session/memory dahil) `worker_result_hook.execute(...)` çağırması, doğrudan `goal_tools.execute(...)` çağrısını gizleyerek ikinci execution boundary oluşturabileceği için `ARCH-007 BLOCKER`dır. Çözüm allowlist'i genişletmek değil, çağrıyı mevcut durable orchestrator/Core hattına taşımaktır.
+
 ### ARCH-006 — UI yeni business-authority dependency alamaz
 
 `web.py`, `web_*.py`, `gui.py` ve `launcher.py` UI/bridge/shell yüzeyleri AST üzerinden `modules.*` dependency edge'leri için taranır. Yeni bir UI dosyasının Core authority internallerine doğrudan import bağımlılığı BLOCKER'dır. Korunan authority aileleri arasında GoalState/Reducer writer'ları, goal/task executor internalleri, permission/decision authority, completion ve runtime commit/gate katmanları vardır.
@@ -125,16 +133,17 @@ Durable Job/Core
 
 ## Alias tespiti
 
-ARCH-001/002/003/004/005, çağrıyı doğrudan `goal_tools.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` / `goal_state_store.create(...)` / `goal_state_store.compensate(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
+ARCH-001/002/003/004/005/007, çağrıyı doğrudan `goal_tools.execute(...)` / `worker_result_hook.execute(...)` / `goal_state_store.compare_and_swap(...)` / `runtime_execution_gate.plan_task(...)` / `goal_state_store.create(...)` / `goal_state_store.compensate(...)` biçiminde görmekle sınırlı değildir. Denetçi her dosyada statik `import X as Y` ve `from X import Z as W` alias'larını AST üzerinden çözer ve aynı çağrıyı eşdeğer biçimlerde de yakalar:
 
 - `from modules.goal_tools import execute as run_tool` → `run_tool(...)`
 - `import modules.goal_tools as tools` → `tools.execute(...)`
+- `import modules.worker_result_hook as hook` → `hook.execute(...)`
 - `from modules.goal_state_store import compare_and_swap as cas` → `cas(...)`
 - `import modules.runtime_execution_gate as gate` → `gate.plan_task(...)`
 - `from modules.goal_state_store import create as make` → `make(...)`
 - `import modules.goal_state_store as store` → `store.compensate(...)`
 
-Allowlist kontrolü değişmez: alias'lı çağrı da ilgili kuralın `_CAS_ALLOWLIST` / `_CREATE_ALLOWLIST` / `_COMPENSATE_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
+Allowlist kontrolü değişmez: alias'lı çağrı da ilgili kuralın `_CAS_ALLOWLIST` / `_CREATE_ALLOWLIST` / `_COMPENSATE_ALLOWLIST` / `_DIRECT_EXECUTE_ALLOWLIST` / `_WORKER_RESULT_EXECUTE_ALLOWLIST` dosya yollarına göre değerlendirilir, yeni genel bir izin listesi açılmaz. `getattr`, `eval`, import hook gibi dinamik/analiz edilemeyen çözümleme yolları kapsam dışıdır — guard bunları çözmeye çalışmaz.
 
 ARCH-006 için alias çözmek ayrıca gerekmez: import'un canonical module dependency edge'i doğrudan AST düğümünden çıkarılır; yerel alias adı boundary sonucunu değiştirmez.
 
