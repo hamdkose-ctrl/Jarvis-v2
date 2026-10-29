@@ -34,7 +34,6 @@ def set_api_key(key: str) -> None:
 # main.py o an konuşan kullanıcıyı istek bağlamına yazar. Global istemci yalnız kullanıcı bağlamı olmayan
 # bakım/ilk-kurulum işlemleri içindir; normal kullanıcı sohbetinde kullanılmaz.
 _key_context = ContextVar("jarvis_llm_user", default=None)
-
 def current_user():
     target = _key_context.get()
     if target is not None:
@@ -116,7 +115,6 @@ def set_user_groq_key(slug: str, key: str | None) -> None:
         f.write_text(privacy.protect(key.strip()), encoding="utf-8")
     elif f.exists():
         f.unlink()
-
 def _cli():
     """Normal kullanıcı sohbetinde SADECE o kullanıcının Gemini anahtarını döndürür.
 
@@ -255,6 +253,45 @@ def ollama_models(force=False) -> list[str]:
         return list(rows)
 
 
+def _installed_ollama_name(model: str, installed: list[str]) -> str | None:
+    """Resolve only the default :latest alias; return a real installed identifier."""
+    model=(model or '').strip()
+    if model in installed:return model
+    if ':' not in model.rsplit('/',1)[-1] and model:
+        alias=model+':latest'
+    elif model.endswith(':latest'):
+        alias=model[:-7]
+    else:
+        return None
+    return alias if alias in installed else None
+
+
+def _ollama_effective_model(c: dict, requested: str | None = None) -> str:
+    """Resolve Ollama runtime model against models actually installed on the endpoint.
+
+    A saved user preference remains stored, but only an installed model may become
+    runtime authority. LM Studio/llama.cpp keep their existing resolution path.
+    """
+    if _backend(c) != "ollama":
+        return requested or _local_model(c)
+    rows = sorted(dict.fromkeys(ollama_models()))
+    if not rows:
+        rows = sorted(dict.fromkeys(ollama_models(force=True)))
+    if not rows:
+        raise LocalModelError(local_hint())
+    requested = (requested or "").strip()
+    if resolved:=_installed_ollama_name(requested,rows):
+        return resolved
+    mine = _choice()
+    user_model = (mine.get("local_model") or "").strip()
+    if user_model:
+        return _installed_ollama_name(user_model,rows) or rows[0]
+    setting_model = (load_settings().get("ollama_model") or "").strip()
+    if resolved:=_installed_ollama_name(setting_model,rows):
+        return resolved
+    return rows[0]
+
+
 def model_check(force=False):
     from modules import model_health
     if privacy.mode() in ("gizli", "yerel"):
@@ -263,7 +300,6 @@ def model_check(force=False):
         return {'state':'budget','message':'Smart Router: Gemini ücretsiz hesap doğrulaması yok; bulut model kontrolü yapılmadı.'}
     owner = current_user() or ''
     return model_health.check(owner, user_key(owner), model_names(owner), genai.Client, force)
-
 def model_check_background():
     import threading
     owner = current_user()
@@ -271,7 +307,6 @@ def model_check_background():
         set_user_context(owner)
         model_check()
     threading.Thread(target=run, daemon=True, name='model-check').start()
-
 def paid_status() -> dict:
     from modules import paid_providers
     owner=current_user()
@@ -412,7 +447,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     c = _cfg()
     if _backend(c) != "ollama":
         return _openai_local(messages, system, max_tokens, images=images, model=model)
-    model = model or c["model"]
+    model = _ollama_effective_model(c, requested=model)
     msgs = ([{"role": "system", "content": system}] if system else []) + messages
     if images:
         msgs[-1] = {**msgs[-1], "images": images}
@@ -449,11 +484,11 @@ OLLAMA_BIG_MODEL = "qwen2.5:7b"
 
 
 def ollama_model_for(prompt: str) -> str:
-    """Kod ve analizde yüklüyse büyük yerel model (qwen2.5:7b), sohbette ayarlı küçük model (llama3.2 = 3b)."""
+    """Kod ve analizde yüklüyse büyük yerel model; sohbette kurulu effective yerel model."""
     c = _cfg()
-    base = c["model"]
-    if _backend(c) != "ollama":      # LM Studio/llama.cpp: kullanıcının yüklediği tek model
-        return base
+    if _backend(c) != "ollama":      # LM Studio/llama.cpp: mevcut çözümleme davranışı korunur
+        return c["model"]
+    base = _ollama_effective_model(c)
     big = (load_settings().get("ollama_big_model") or OLLAMA_BIG_MODEL).strip()
     if not big or big == base:
         return base
@@ -464,8 +499,9 @@ def ollama_model_for(prompt: str) -> str:
 
 
 def _ollama_task(messages: list[dict], system: str, max_tokens: int, prompt: str) -> str:
-    """Göreve uygun yerel modeli dener; büyük model çalışmazsa (bellek, bozuk model) küçük modele düşer."""
-    base = _cfg()["model"]
+    """Göreve uygun yerel modeli dener; büyük model çalışmazsa kurulu effective modele düşer."""
+    c = _cfg()
+    base = _ollama_effective_model(c)
     model = ollama_model_for(prompt)
     if model != base and base:
         try:

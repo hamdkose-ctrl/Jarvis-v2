@@ -176,7 +176,8 @@ class LocalBackendTests(unittest.TestCase):
     def test_ollama_path_unchanged(self):
         self.settings()
         reply = Mock(status_code=200); reply.json.return_value = {'message': {'content': 'tamam'}}
-        with patch.object(llm.requests, 'post', return_value=reply) as post, patch.object(llm.usage_meter, 'record'):
+        with patch.object(llm, 'ollama_models', return_value=['local-fixture']), \
+             patch.object(llm.requests, 'post', return_value=reply) as post, patch.object(llm.usage_meter, 'record'):
             self.assertEqual(llm._ollama([{'role': 'user', 'content': 'x'}], '', 10), 'tamam')
         self.assertEqual(post.call_args[0][0], 'http://127.0.0.1:11434/api/chat')
 

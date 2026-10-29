@@ -198,3 +198,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Haber kabul tanısı: son-rapor dosyası başka PR ile değişebilir. Watcher reports/<exact-sha>.json arşivini silmeden korur; arşiv yazılamazsa worktree silinmez. --news kabulü eski watcher altında da LOCALAPPDATA/Jarvis/pc-acceptance/news-reports içine yalnız redakte haber kontrollerini zaman damgası ve kod parmak iziyle yazar. Kod parmak izi commit SHA kanıtı değildir. PR tanısı 300 karakterde kesilmez; başarısız dış keşif kontrolü de gösterilir. Bu kayıt iyileştirmesi Türkiye AI canlı arızasını çözülmüş saymaz; yeni exact kabul beklenir.
 
 - Hoca açık web araştırması ilk okunamayan kaynağı atlar; aynı ortak research_providers araması/okuyucusu kullanılır. En fazla 10 aday okunur; izin ve iptal hataları başka adaya geçmez. Ek model veya arama sağlayıcısı çağrısı eklenmez.
+
+- Yerel model seçimi ve kabul kuralları: `docs/agents/guncelleme-ci-kota.md` (#434).
+
+
+- Yerel model kabulü gerçek kurulu listeye bağlıdır; belirli bir model adı veya boyutu şart değildir.

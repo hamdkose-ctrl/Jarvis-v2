@@ -127,7 +127,8 @@ class SmartRouterTests(unittest.TestCase):
     def test_gemini_mode_falls_back_to_own_groq_then_ollama_on_quota(self):
         quota=llm.errors.ClientError(429,{'error':{'message':'quota','status':'RESOURCE_EXHAUSTED'}})
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=quota):
+             patch.object(llm,'_with_models',side_effect=quota), \
+             patch.object(llm,'ollama_models',return_value=['router-local']):
             with patch.object(llm,'_groq',return_value='groq answer') as groq:
                 self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'groq answer');groq.assert_called_once()
             with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')),patch.object(llm,'_ollama',return_value='yerel'):
@@ -145,7 +146,7 @@ class SmartRouterTests(unittest.TestCase):
     def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
              patch.object(llm,'load_settings',return_value={}), \
-             patch.object(llm,'ollama_models',return_value=['llama3.2:latest','qwen2.5:7b']):
+             patch.object(llm,'ollama_models',return_value=['llama3.2','qwen2.5:7b']):
             self.assertEqual(llm.ollama_model_for('merhaba nasılsın'),'llama3.2')
             self.assertEqual(llm.ollama_model_for('Python hatasını düzelt'),'qwen2.5:7b')
             with patch.object(llm,'_ollama',return_value='ok') as call:
@@ -158,7 +159,7 @@ class SmartRouterTests(unittest.TestCase):
                 with self.assertRaises(llm.ImageCapabilityError):llm._ollama_task([],'',100,'kod yaz')
                 self.assertEqual(call.call_count,1)
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
-             patch.object(llm,'load_settings',return_value={}),patch.object(llm,'ollama_models',return_value=['llama3.2:latest']):
+             patch.object(llm,'load_settings',return_value={}),patch.object(llm,'ollama_models',return_value=['llama3.2']):
             self.assertEqual(llm.ollama_model_for('kod yaz'),'llama3.2')   # 7b yüklü değil
         llm.take_route()
 

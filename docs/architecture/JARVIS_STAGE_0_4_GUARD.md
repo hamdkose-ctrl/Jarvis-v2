@@ -151,3 +151,4 @@ ARCH-006 için alias çözmek ayrıca gerekmez: import'un canonical module depen
 `modules/architecture_guard.py` yalnız deterministik, statik olarak kanıtlanabilen kuralları BLOCKER yapar. Yoruma açık roadmap sapmaları ayrı ajan/insan incelemesiyle değerlendirilir. Static guard birim testinin, Windows acceptance'ın veya gerçek effect testinin yerine geçmez.
 
 `modules.validation` bu guard'ı zorunlu çalıştırır. Böylece gelecek PR'larda mimari kaçak, aylar sonra yapılan geriye dönük taramaya bırakılmaz.
+

@@ -147,12 +147,13 @@ def changed_paths(root: Path, sha: str) -> list[str] | None:
     return [line.strip().replace("\\", "/") for line in (diff.stdout or "").splitlines() if line.strip()]
 
 
-def acceptance_scope(paths: list[str], *, desktop: bool = False, news: bool = False) -> dict:
+def acceptance_scope(paths: list[str], *, desktop: bool = False, news: bool = False,
+                     local_model: bool = False) -> dict:
     """Choose opt-in real-PC acceptances from runtime-relevant changed paths.
 
     Validation always runs.  A documentation, hook, CI or watcher-only change
-    must not open applications or perform the live news flow.  ``--desktop``
-    and ``--news`` remain explicit operator overrides.
+    must not open applications, perform live news, or call a local model.  The
+    explicit flags remain operator overrides.
     """
     normalized = [str(path).lower().replace("\\", "/") for path in paths]
     runtime_paths = [path for path in normalized if path.startswith(("modules/", "tests/"))]
@@ -161,12 +162,23 @@ def acceptance_scope(paths: list[str], *, desktop: bool = False, news: bool = Fa
         "test_acceptance_desktop", "permission_gate_desktop",
     )
     news_markers = ("news", "publisher_news", "public_data_acceptance")
+    local_model_paths = {
+        "modules/llm.py",
+        "web_models.py",
+        "webui/ui-refresh.js",
+        "webui/local-model-panel.js",
+        "webui/nx.html",
+        "tests/test_ollama_model_autoselect.py",
+        "tests/ai_page_behavior.js",
+        "scripts/local_model_acceptance.py",
+    }
     shared_acceptance = "modules/acceptance_checks.py" in runtime_paths
     return {
         "desktop": bool(desktop or shared_acceptance or any(marker in path for path in runtime_paths for marker in desktop_markers)),
         "news": bool(news or shared_acceptance or any(marker in path for path in runtime_paths for marker in news_markers)),
+        "local_model": bool(local_model or any(path in local_model_paths for path in normalized)),
         "paths": paths,
-        "source": "manual" if desktop or news else "changed_paths",
+        "source": "manual" if desktop or news or local_model else "changed_paths",
     }
 
 
@@ -251,7 +263,27 @@ def run_acceptance(py: Path, worktree: Path, *flags: str) -> dict:
     }
 
 
-def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool, news: bool) -> dict:
+def run_local_model_acceptance(py: Path, worktree: Path) -> dict:
+    proc = run([str(py), "-X", "utf8", "scripts/local_model_acceptance.py"],
+               cwd=worktree, check=False, capture=True)
+    result = {}
+    for line in reversed((proc.stdout or "").splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            result = candidate
+            break
+    return {
+        "exit_code": proc.returncode,
+        "tail": "\n".join((proc.stdout or "").splitlines()[-80:]),
+        "result": result,
+    }
+
+
+def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool, news: bool,
+              local_model: bool = False) -> dict:
     py = python_exe(root)
     report = {"ref": ref, "sha": sha, "started": time.time(), "status": "failed"}
     if py is None:
@@ -273,6 +305,16 @@ def run_suite(root: Path, worktree: Path, ref: str, sha: str, *, desktop: bool, 
     if validation.returncode != 0:
         report["finished"] = time.time()
         return report
+
+    if local_model:
+        print("[L] Yerel model UI/inference acceptance basladi...", flush=True)
+        local_result = run_local_model_acceptance(py, worktree)
+        report["local_model_acceptance"] = local_result
+        state = (local_result.get("result") or {}).get("state")
+        print(f"[L] Yerel model acceptance bitti: exit={local_result['exit_code']}, state={state}", flush=True)
+        if local_result["exit_code"] != 0 or state != "passed":
+            report["finished"] = time.time()
+            return report
 
     if desktop:
         print("[B] Desktop acceptance basladi...", flush=True)
@@ -305,13 +347,24 @@ def pr_comment_body(report: dict) -> str:
         f"- Genel durum: **{report.get('status', 'unknown')}**",
     ]
     required = {"desktop_acceptance": "calculator", "news_acceptance": "news_chat_resume"}
-    for key, label in (("validation", "Validation"), ("desktop_acceptance", "Desktop"), ("news_acceptance", "Haber")):
+    for key, label in (
+        ("validation", "Validation"),
+        ("local_model_acceptance", "Yerel model UI/inference"),
+        ("desktop_acceptance", "Desktop"),
+        ("news_acceptance", "Haber"),
+    ):
         row = report.get(key)
         if isinstance(row, dict):
             passed = row.get('exit_code') == 0
+            if key == "local_model_acceptance":
+                passed = passed and (row.get("result") or {}).get("state") == "passed"
             if key in required:
                 passed = passed and _check_state(row.get('checks') or [], required[key]) == 'passed'
             lines.append(f"- {label}: **{'passed' if passed else 'failed'}**")
+            if not passed and key == 'local_model_acceptance':
+                detail = str((row.get('result') or {}).get('detail') or '')[:1200]
+                if detail:
+                    lines.append(f'  - Tanı: {detail}')
             if not passed and key in required:
                 checks=row.get("checks") or []
                 names=([str(check['check'])[:100] for check in checks
@@ -348,7 +401,8 @@ def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
     return {"state": "published", "pr": number, "url": pr.get("url")}
 
 
-def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, desktop: bool, news: bool) -> bool:
+def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, desktop: bool, news: bool,
+         local_model: bool = False) -> bool:
     state = load_state(state_path)
     seen = state.setdefault("seen", {})
     open_refs = open_pr_refs(root)
@@ -360,9 +414,9 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     if not target:
         return False
     paths = changed_paths(root, target["sha"])
-    # Scope discovery never makes a desktop/news call on uncertainty.  The
+    # Scope discovery never makes an optional live call on uncertainty.  The
     # validation gate still gives the PR a useful, non-destructive result.
-    scope = acceptance_scope(paths or [], desktop=desktop, news=news)
+    scope = acceptance_scope(paths or [], desktop=desktop, news=news, local_model=local_model)
     if paths is None:
         scope["source"] = "unavailable"
     worktree = Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" / (safe_name(target["ref"]) + "-" + target["sha"][:8])
@@ -371,7 +425,10 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
     try:
         add_worktree(root, target["sha"], worktree)
         print("[1/4] Testler basladi...", flush=True)
-        result = run_suite(root, worktree, target["ref"], target["sha"], desktop=scope["desktop"], news=scope["news"])
+        result = run_suite(
+            root, worktree, target["ref"], target["sha"],
+            desktop=scope["desktop"], news=scope["news"], local_model=scope["local_model"],
+        )
         result["sha"] = target["sha"]
         result["acceptance_scope"] = scope
         archive_report(report_path, result)
@@ -406,6 +463,7 @@ def main() -> int:
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--desktop", action="store_true", help="Kapsamdan bağımsız gerçek desktop kabulünü zorla")
     parser.add_argument("--news", action="store_true", help="Yavaş haber kabulünü ayrı final aşaması olarak çalıştır")
+    parser.add_argument("--local-model", action="store_true", help="Gerçek yerel model UI/inference kabulünü zorla")
     args = parser.parse_args()
 
     root = git_root()
@@ -417,7 +475,10 @@ def main() -> int:
     print(f"Sonuç: {report_path}")
     while True:
         try:
-            changed = once(root, state_path, report_path, args.pattern, desktop=args.desktop, news=args.news)
+            changed = once(
+                root, state_path, report_path, args.pattern,
+                desktop=args.desktop, news=args.news, local_model=args.local_model,
+            )
             if not changed:
                 print("Yalnız açık PR dallarında yeni test adayı yok.")
         except KeyboardInterrupt:

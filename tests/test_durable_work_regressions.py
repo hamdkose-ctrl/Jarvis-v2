@@ -80,6 +80,7 @@ class DurableWorkTests(unittest.TestCase):
              patch.object(router,'api_key',return_value=''),patch.object(router.privacy,'mode',return_value='normal'), \
              patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'), \
              patch.object(llm,'_cfg',return_value={'url':'http://ollama.invalid','model':'text-only'}), \
+             patch.object(llm,'ollama_models',return_value=['text-only']), \
              patch.object(llm.requests,'post',side_effect=[unsupported,successful]) as post:
             with self.assertRaises(RuntimeError):llm.ask_image(str(image),'görseli anlat')
             self.assertIn('ollama',router.candidates('alice','chat'))
