@@ -189,3 +189,6 @@ Kayıtlı gerçek HTML karşılaştırması: ANKA 5/5, İHA 3 makale, İLKHA 6/6
 
 
 - PR #439 Windows #858 tek FAIL: broad-catch diagnostic ilk işlem olmalı. search_news_public except bloğunda kayıt iptal kontrolünün önüne taşındı; izin/iptal propagation ve fallback bütçesi korunur. AST diagnostic kontrolü ve 4 fallback regresyonu geçti; yeni exact CI/PC sonucu beklenir.
+
+
+- PR #439 haber dış keşfi: DDG gerçek boş sonucu da tek Bing yedeğini çalıştırır; aynı sağlayıcı retry yoktur. Bing kullanılabilir URL üretmezse public_news_rss_empty içinde RSS item sayısı raporlanır; sessiz empty/neden=yok durumu kaldırılır. İzin/iptal ve makale kanıtı şartları değişmez. 5 fallback testi geçti; canlı neden henüz ayrılmadı, yeni exact kabul beklenir.

@@ -96,7 +96,8 @@ def search_news_public(query: str) -> list[dict]:
     query=_query(query)
     requests_state.check()
     try:
-        return search_public(query)
+        primary=search_public(query)
+        if primary:return primary
     except (PermissionError,requests_state.Cancelled):
         raise
     except Exception:
@@ -126,6 +127,8 @@ def search_news_public(query: str) -> list[dict]:
         results.append({'provider':'bing_news_rss','url':target,'title':title[:400],
                         'snippet':'','source_kind':'web','verified':False})
         if len(results)>=10:break
+    if not results:
+        raise ValueError('public_news_rss_empty: Bing RSS item='+str(len(root.findall('./channel/item')))+'; kullanılabilir yayıncı adresi=0')
     return results
 
 
