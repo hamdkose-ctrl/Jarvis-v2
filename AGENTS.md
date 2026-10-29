@@ -174,3 +174,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 
 - PR #439 haber dış keşfi: search_news_public önce mevcut DDG aramasını kullanır; hata durumunda bir kez Bing News RSS okur. PermissionError/Cancelled geçiş başlatmaz. Gerçek boş DDG sonucu tekrar denenmez. Bing wrapper sadece tam www.bing.com/news/apiclick.aspx üzerindeki tek url parametresinden açılır; hedef yine public_sources.address ve gerçek makale doğrulamasından geçer. RSS tarih/başlıkları kanıt sayılmaz. Genel search_public değişmez. DTD/entity ve büyük RSS reddedilir. 4 hedefli test + 105 odaklı test geçti; yeni exact Windows ve iş PC kabulü beklenir. Proxy tanısında Bing 12 aday, Sabah 29 Ekim makalesi parser/tarih PASS; Milliyet eski tarih nedeniyle ret. Bu üretim taşıyıcı kabulü değildir.
+
+
+- PR #439 Windows #858 tek FAIL: broad-catch diagnostic ilk işlem olmalı. search_news_public except bloğunda kayıt iptal kontrolünün önüne taşındı; izin/iptal propagation ve fallback bütçesi korunur. AST diagnostic kontrolü ve 4 fallback regresyonu geçti; yeni exact CI/PC sonucu beklenir.

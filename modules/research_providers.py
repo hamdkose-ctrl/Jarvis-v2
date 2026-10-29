@@ -100,9 +100,8 @@ def search_news_public(query: str) -> list[dict]:
     except (PermissionError,requests_state.Cancelled):
         raise
     except Exception:
-        from modules import requests_state
-        requests_state.check()
         _record_failure('modules/research_providers.py:news_primary_search')
+        requests_state.check()
     response=public_sources.fetch('https://www.bing.com/news/search?q='+quote_plus(query)+'&format=rss&setmkt=tr-TR')
     import xml.etree.ElementTree as ET
     body=response['body']
