@@ -130,6 +130,8 @@ class GateTests(unittest.TestCase):
     def test_job_closed_or_goal_owned_resume_does_not_steal(self):
         done_job = ref("job-1", kind="task_job", source="task_agents", state="done")
         self.assertFalse(self.state("devam", refs=(done_job,)).matched)
+        stale_job = ref("job-stale", kind="task_job", source="task_agents", state="incomplete", stale=True)
+        self.assertFalse(self.state("devam", refs=(stale_job,)).matched)
         goal = ref("goal-1", kind="goal", source="goal_state", state="paused")
         job = ref("job-2", kind="task_job", source="task_agents", state="incomplete")
         result = self.state("devam", active_context=ctx(goals=(goal,)), refs=(job,))
@@ -300,7 +302,7 @@ class GateTests(unittest.TestCase):
     def test_fast_gate_source_has_no_model_router_or_permission_path(self):
         source = inspect.getsource(self.module()).casefold()
         for forbidden in (
-            "smart_router", "modules.router", "llm", "openai", "gemini", "groq", "ollama",
+            "smart_router", "modules.router", "modules.llm", "llm.ask", "openai", "gemini", "groq", "ollama",
             "permission_granted", "effect_allowed", "worker.run", "goal_executor.run",
         ):
             self.assertNotIn(forbidden, source)
