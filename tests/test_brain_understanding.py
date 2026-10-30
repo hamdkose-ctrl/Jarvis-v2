@@ -438,5 +438,76 @@ class BrainUnderstandingTests(unittest.TestCase):
             self.assertNotIn(token, source)
 
 
+class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
+    def test_capability_domain_signals_are_bounded(self):
+        cases = (
+            ("noter göster", "notes.read"),
+            ("havale göster", "weather.read"),
+            ("keyword aç", "files.read"),
+        )
+        for text, forbidden_hint in cases:
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertNotEqual(result.capability_hint, forbidden_hint)
+
+    def test_meta_language_command_words_are_chat_not_capability(self):
+        for text in (
+            "ara ne demek?",
+            "bul ne demek?",
+            "göster fiili ne demek?",
+            "sil kelimesi ne anlama gelir?",
+        ):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CHAT)
+                self.assertIsNone(result.capability_hint)
+                self.assertEqual(result.temporal_need, TemporalNeed.STATIC)
+
+    def test_real_commands_still_propose_capability(self):
+        cases = (
+            ("internette ara", "research.search"),
+            ("dosyayı bul", "files.read"),
+            ("notlarımı göster", "notes.read"),
+        )
+        for text, hint in cases:
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+                self.assertEqual(result.capability_hint, hint)
+
+    def test_bosver_meta_language_is_not_context_control_or_correction(self):
+        result = self.call("boşver kelimesi ne demek?")
+        self.assertEqual(result.request_kind, RequestKind.CHAT)
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertNotIn(ContextAction.DROP_TOPIC, result.context_actions)
+        self.assertEqual(result.temporal_need, TemporalNeed.STATIC)
+
+    def test_bosver_real_controls_still_drop_topic(self):
+        for text in ("boşver", "boşver, hava nasıl?"):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
+                self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+
+    def test_temporal_meta_language_is_static(self):
+        for text in (
+            "bugün kelimesi ne demek?",
+            "güncel sözcüğü ne demek?",
+            "2020 sayısı nedir?",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text).temporal_need, TemporalNeed.STATIC)
+
+    def test_temporal_positive_cases_remain_semantic(self):
+        cases = (
+            ("bugünkü dolar kuru ne?", TemporalNeed.CURRENT),
+            ("son bir haftadaki haberler", TemporalNeed.RECENT),
+            ("2020 yılında ne oldu?", TemporalNeed.HISTORICAL),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text).temporal_need, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
