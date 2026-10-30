@@ -149,7 +149,7 @@ def resolve_references(
     for candidate in usable:
         for key in _TEXT_FIELDS:
             signal = _norm(candidate.provenance.get(key))
-            if signal and _contains_bounded(normalized, signal):
+            if signal and normalized == signal:
                 exact_fields.append(candidate)
                 break
     if exact_fields:
