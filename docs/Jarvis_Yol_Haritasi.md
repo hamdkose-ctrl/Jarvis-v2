@@ -316,12 +316,13 @@ Her yazma işlemi kesin hedef, niyet kaydı, makbuz ve okuyup doğrulama ister.
 
 ## Faz 11 — Profiller, hafıza, context
 
-**Durum: 🔄 kısmi — #421 Physical Object Memory açık PR; CI/watcher kabulü bekleniyor. #454 Canonical Brain Contracts v1 contract foundation açık Draft PR; production wiring, legacy migration ve runtime acceptance yok. Fazın geri kalan maddeleri başlanmadı.**
+**Durum: 🔄 kısmi — #421 Physical Object Memory açık PR; CI/watcher kabulü bekleniyor. #454 Canonical Brain Contracts v1 contract foundation merge edildi; Active Context builder bu dalda read-only snapshot olarak ekleniyor. Production wiring, Candidate Builder, Reference Resolver ve Understanding cutover yok. Fazın geri kalan maddeleri başlanmadı.**
 
 Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini geliştirme eklenir. Tüm yetenekler çalışıyor; kişisel uyarlama ve büyüme bunların üstüne oturur.
 
 - 🔄 (#421) `[1✓ 2– 3✓ 4–]` Physical Object Memory: kamera/Vision gözlemi `Observation -> CandidateFact -> kullanıcı onayı -> durable object memory` hattından geçer. Aday kayıtlar relevance prompt'a girmez; onaylı kayıt mevcut `facts` + relevance gate hattına bağlanır. Provenance tutulur, manuel düzeltme sonraki model taramasıyla ezilmez, bir taramada görülmeyen nesne silinmez (`location_unknown`), nesne/QR/etiket metni untrusted evidence olarak kalır. Güncel head için CI + gerçek PC watcher PASS gelmeden tamamlandı sayılmayacak.
-- 🔄 (#454) `[1✓ 2✗ 3✗ 4✗]` Canonical Brain Contracts v1 eklendi: `ActiveContext`, `UnderstandingResult` ve `BrainFeedback` Brain migration'ın sözleşme temelidir. Production wiring YOK, legacy migration YOK, runtime acceptance YOK; `WorkerResult v1` değişmedi. Bu yalnız Brain migration'ın contract foundation adımıdır; sonraki Active Context, Candidate Builder, Reference Resolver ve Understanding cutover işleri bekliyor.
+- 🟡 (#454) `[1✓ 2✗ 3✗ 4✗]` Canonical Brain Contracts v1 eklendi: `ActiveContext`, `UnderstandingResult` ve `BrainFeedback` Brain migration'ın sözleşme temelidir. Production wiring YOK, legacy migration YOK, runtime acceptance YOK; `WorkerResult v1` değişmedi. Bu yalnız Brain migration'ın contract foundation adımıdır; sonraki Active Context, Candidate Builder, Reference Resolver ve Understanding cutover işleri bekliyor.
+- 🔄 (`brain-active-context-v1`) `[1✓ 2✗ 3✗ 4✗]` Canonical Active Context builder eklendi: mevcut SessionStore, bounded/reset-aware history, açık GoalState ve dar Profile/Hoca state'lerinden yalnız read-only `ActiveContext` snapshot üretir. İkinci truth source veya durable Brain store YOK; production wiring YOK, Candidate Builder YOK, Reference Resolver YOK, Understanding cutover YOK. Bu PR yalnız context adapter foundation adımıdır.
 
 ### Ek kabul kriterleri — Fable/Claude agent benchmark
 
