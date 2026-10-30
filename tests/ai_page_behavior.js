@@ -83,3 +83,13 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
   context.api=async()=>{state.snap.user.slug='bob';inputs={gfkey:{value:''},gfmodel:{value:''}};return {ok:true,models:['saved-model']};};
   await actions.geminicatalog({dataset:{tier:'free'}});assert.equal(inputs.gfkey.value,'');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
+
+(async()=>{
+  const begin=src.indexOf('ACT.geminibilling='),end=src.indexOf('\n',begin);
+  const state={snap:{user:{slug:'alice'}}},actions={},shown=[];
+  const context={ACT:actions,S:state,toast:(...r)=>shown.push(r),api:async()=>{state.snap.user.slug='bob';return {ok:true,msg:'alice billing verified'};}};
+  vm.createContext(context);vm.runInContext(src.slice(begin,end),context);
+  const el={dataset:{tier:'free'}};await actions.geminibilling(el);
+  assert.equal(shown.length,0,'old owner billing result must not be shown to another owner');assert.equal(el.disabled,false);
+})().catch(e=>{console.error(e);process.exitCode=1});

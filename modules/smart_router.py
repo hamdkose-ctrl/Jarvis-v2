@@ -205,6 +205,21 @@ def _skip(provider, reason, reason_code, seconds=0, model=''):
     return row
 
 
+def _google_billing_gate(owner):
+    """Local candidate eligibility. Actual generation rechecks the exact client key."""
+    if not owner:return None
+    from modules import gemini_billing, llm
+    row=gemini_billing.receipt(owner,llm.user_key(owner))
+    if row is None:return None
+    result=row['result'];state=result['state']
+    if state=='billing_disabled':
+        return {'ok':True,'reason':'Google proje kontrolü: faturalama kapalı; çağrı öncesi kontrol güncellenir. Model erişimi ve kota ayrıdır.','reason_code':''}
+    if state=='unverified' and time.time()-row['checked_at']>=gemini_billing.RECHECK_SECONDS:
+        return {'ok':True,'reason':'Google faturalama kontrolü çağrı öncesinde yeniden yapılacak; henüz doğrulanmadı.','reason_code':''}
+    return {'ok':False,'reason':'Google proje kontrolü: faturalama açık veya doğrulanamadı; Gemini kartından kontrol et.',
+            'reason_code':'PROVIDER_BILLING_ENABLED' if state=='billing_enabled' else result.get('reason_code','PROVIDER_BILLING_UNVERIFIED')}
+
+
 def selection(owner,task):
     from modules import llm
     if privacy.mode()=='yerel':
@@ -217,16 +232,19 @@ def selection(owner,task):
     selected=[];skipped=[]
     for provider in ('gemini','groq','ollama'):
         reason=None;reason_code=None;seconds=0;model=models.get(provider,'')
+        google_gate=_google_billing_gate(owner) if provider=='gemini' else None
         if provider not in orders[task]:
             reason='Bu görev türü desteklenmiyor';reason_code='PROVIDER_TASK_UNSUPPORTED'
-        elif provider!='ollama' and not state.get('cloud_free_confirmed'):
+        elif google_gate is not None and not google_gate['ok']:
+            reason=google_gate['reason'];reason_code=google_gate['reason_code']
+        elif provider!='ollama' and google_gate is None and not state.get('cloud_free_confirmed'):
             reason='Ücretsiz hesap onayı yok';reason_code='PROVIDER_FREE_ACCOUNT_UNCONFIRMED'
         elif provider=='gemini' and not llm.user_key(owner):
             reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
         elif provider=='groq' and not llm.user_groq_key(owner):
             reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
         elif provider!='ollama':
-            gate=_evidence_gate(owner,provider,model)
+            gate=google_gate if google_gate is not None else _evidence_gate(owner,provider,model)
             if not gate['ok']:
                 reason=gate['reason'];reason_code=gate['reason_code']
         if reason is None:
@@ -261,7 +279,20 @@ def failure_status(exc):
     return failure_policy.status_code(exc)
 
 
+_BILLING_FAILURES = {
+    'PROVIDER_BILLING_ENABLED':'Gemini projesinde ücretli faturalama açık; ücretsiz bağlantı engellendi',
+    'PROVIDER_BILLING_UNVERIFIED':'Gemini proje faturalaması doğrulanamadı; Gemini kartından kontrol et',
+    'PROVIDER_ACCOUNT_AUTH_REQUIRED':'Google salt okunur hesabını bağla veya yenile',
+    'PROVIDER_ACCOUNT_ACCESS_REQUIRED':'Google hesabının proje faturalama bilgisine erişimi yok; proje izinlerini kontrol et',
+    'PROVIDER_ACCOUNT_RATE_LIMITED':'Google hesap kontrolü istek sınırında; daha sonra tekrar dene',
+    'PROVIDER_BILLING_CHECK_FAILED':'Google proje faturalaması kontrol edilemedi; Gemini kartından kontrol et',
+    'PROVIDER_BILLING_RECEIPT_SAVE_FAILED':'Google kontrol sonucu güvenle kaydedilemedi; kullanım açılmadı',
+}
+
+
 def failure_detail(attempt):
+    if attempt.get('reason_code') in _BILLING_FAILURES:
+        return attempt['provider'] + ': ' + _BILLING_FAILURES[attempt['reason_code']]
     reason = {'key':'kimlik/erişim reddedildi', 'quota':'kota veya hız sınırı'}.get(attempt.get('kind'), 'çağrı başarısız')
     if attempt.get('hint') == 'ollama_missing':
         from modules import llm
@@ -322,13 +353,18 @@ def run(owner, prompt, callback, image=False):
                          isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError)) else None)
             attempt={'provider':provider,'ok':False,'error':type(transport or exc).__name__,
                      'kind':failure_kind(exc),'status':failure_status(exc)}
+            from modules.failure_policy import ProviderExhaustedError
+            code=getattr(exc,'reason_code',None)
+            if provider=='gemini' and isinstance(exc,ProviderExhaustedError) and code in _BILLING_FAILURES:
+                attempt.update(reason_code=code,recovery_class='user_action_required')
             if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
                 if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                     attempt['hint'] = 'ollama_missing'
             attempts.append(attempt)
             from modules import llm
-            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(transport or exc) + ', sıradakine geçildi', False)
+            short=_BILLING_FAILURES.get(attempt.get('reason_code')) or failure_text(transport or exc)
+            llm.note_route(llm.provider_label(provider) + ' ' + short + ', sıradakine geçildi', False)
             if type(exc).__name__ != 'ImageCapabilityError':
                 with _LOCK: _HEALTH[(owner,provider)] = {'until':time.monotonic()+cooldown(provider,exc),'error':type(exc).__name__}
             continue
@@ -344,7 +380,10 @@ def run(owner, prompt, callback, image=False):
     message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
     missing_key = not attempts and any(row.get('reason_code')=='PROVIDER_CONFIGURATION_REQUIRED' or 'anahtarı eksik' in row.get('reason','') for row in skipped)
     evidence_code = next((row.get('reason_code') for row in skipped
-                          if str(row.get('reason_code','')).startswith('PROVIDER_FREE_TIER_')), None)
+                          if str(row.get('reason_code','')).startswith(('PROVIDER_FREE_TIER_','PROVIDER_BILLING_','PROVIDER_ACCOUNT_'))), None)
+    billing_code=next((a['reason_code'] for a in attempts if a.get('reason_code') in _BILLING_FAILURES),None)
+    if billing_code:
+        raise failure_policy.ProviderExhaustedError(message,reason_code=billing_code,recovery_class='user_action_required')
     if missing_key:
         raise failure_policy.ProviderExhaustedError(
             message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
@@ -397,6 +436,9 @@ def status(owner):
         cooldowns={p:max(0,round(v['until']-time.monotonic())) for (u,p),v in _HEALTH.items() if u==owner and v['until']>time.monotonic()}
         last=_LAST.get(owner,{})
     def cloud_policy(provider, model, has_key):
+        gate=_google_billing_gate(owner) if provider=='gemini' and has_key else None
+        if gate is not None:
+            return gate['reason'] + (f' Beklemede: {cooldowns[provider]} saniye.' if provider in cooldowns else '')
         if not state.get('cloud_free_confirmed'):
             return 'Ücretsiz hesap onayı gerekli'
         if not has_key:

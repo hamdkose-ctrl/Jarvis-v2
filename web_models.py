@@ -19,17 +19,17 @@ class WebModels:
         if not key:
             runtime.llm.set_user_key(slug, None)
             return {'ok': True, 'msg': f'{name} için Gemini anahtarı silindi. Başka kullanıcının anahtarı kullanılmayacak.'}
+        from modules.gemini_billing import _record_failure
+        test_client = None
         try:
             from google import genai as _g
             test_client = _g.Client(api_key=key, http_options={'timeout': 45000})
-            test_client.models.generate_content(model=runtime.llm.model_names(slug)[0], contents="Yalnızca 'tamam' yaz.")
-        except Exception as e:
-            runtime._record_failure('web_models.py:user_key_set')
-            low = str(e).lower()
-            if 'api key' in low or 'api_key' in low or 'permission' in low or ('401' in low) or ('403' in low) or ('400' in low):
-                return {'ok': False, 'msg': 'Bu anahtar çalışmıyor. aistudio.google.com/apikey adresinden kopyaladığını kontrol et.'}
-            if '429' not in low and 'quota' not in low and ('exhausted' not in low):
-                return {'ok': False, 'msg': f'Anahtar denenemedi: {str(e)[:120]}'}
+            next(iter(test_client.models.list(config={'page_size': 1})), None)
+        except Exception:
+            _record_failure('web_models.py:user_key_set')
+            return {'ok':False,'msg':'Anahtarın model listesine erişimi doğrulanamadı. Anahtarı ve proje erişimini kontrol et.'}
+        finally:
+            if test_client is not None:test_client.close()
         runtime.llm.set_user_key(slug, key)
         return {'ok': True, 'msg': f'Kaydedildi. {name} konuşurken artık kendi anahtarı kullanılacak.'}
 
@@ -87,11 +87,18 @@ class WebModels:
         runtime=self._runtime;owner=runtime._p().slug
         if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
         key=runtime.llm.user_key(owner) if tier=='free' else runtime.llm.user_key(owner,tier='paid')
-        result=gemini_billing.verify(owner,key,interactive=True);state=result['state']
+        result=gemini_billing.check(owner,key,tier=tier,interactive=True,force=True);state=result['state']
         messages={
             'billing_disabled':'Bu anahtarın projesinde ücretli faturalama kapalı. Ücretsiz model erişimi ve kota ayrıca değerlendirilir.',
             'billing_enabled':'Bu anahtarın projesinde ücretli faturalama açık. Ücretsiz bağlantı olarak doğrulanmadı; ücretli kullanım izni açılmadı.',
             'unverified':'Faturalama durumu doğrulanamadı. Google salt okunur bağlantısını ve proje erişimini kontrol et.'}
+        if state=='unverified':
+            messages[state]={
+                'PROVIDER_ACCOUNT_AUTH_REQUIRED':'Google salt okunur hesabını bağla veya bağlantıyı yenile.',
+                'PROVIDER_ACCOUNT_ACCESS_REQUIRED':'Google hesabının anahtar/proje faturalama bilgisine erişimi yok. Proje izinlerini ve API erişimini kontrol et.',
+                'PROVIDER_ACCOUNT_RATE_LIMITED':'Google hesap kontrolü istek sınırına ulaştı; daha sonra tekrar dene.',
+                'PROVIDER_BILLING_RECEIPT_SAVE_FAILED':'Google kontrol sonucu güvenle kaydedilemedi; Gemini kullanımı açılmadı.'
+            }.get(result.get('reason_code'),messages[state])
         if tier=='paid' and state=='billing_enabled':messages[state]='Bu ücretli Gemini projesinde faturalama açık. Ücretli kullanım izni açılmadı.'
         return {'ok':state==('billing_disabled' if tier=='free' else 'billing_enabled'),'msg':messages[state],'billing':result}
 
@@ -249,3 +256,4 @@ class WebModels:
         runtime = self._runtime
         from modules import ui_jobs
         return ui_jobs.status(runtime._p().slug, rid)
+

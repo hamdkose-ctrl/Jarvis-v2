@@ -30,7 +30,7 @@ class IdentityTests(unittest.TestCase):
         def worker(user):
             llm.set_user_context(user);barrier.wait()
             return llm._cli()
-        with patch.object(llm,'_user_clients',{'a':('key','client-a'),'b':('key','client-b')}):
+        with patch('modules.gemini_billing.require_free'),patch.object(llm,'user_key',return_value='key'),patch.object(llm,'_user_clients',{'a':('key','client-a'),'b':('key','client-b')}):
             with concurrent.futures.ThreadPoolExecutor(2) as pool:
                 a=pool.submit(worker,'a');b=pool.submit(worker,'b')
                 self.assertEqual(a.result(),'client-a');self.assertEqual(b.result(),'client-b')

@@ -204,6 +204,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Yerel model kabulü gerçek kurulu listeye bağlıdır; belirli bir model adı veya boyutu şart değildir.
 
-- Provider/Hoca tanısı ve Gemini hesap/model ayrımı: `docs/agents/guncelleme-ci-kota.md`.
+- Provider/Hoca tanısı ve Gemini gerçek billing kapısı (owner/anahtar bağlı, 30 sn snapshot): `docs/agents/guncelleme-ci-kota.md`.
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
+

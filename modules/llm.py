@@ -129,8 +129,13 @@ def _cli():
         return _client
     with _client_lock:
         cached = _user_clients.get(slug)
+        k = user_key(slug)
+        if cached is not None and cached[0] != k:
+            cached = None
+        if k:
+            from modules import gemini_billing
+            gemini_billing.require_free(slug, k)
         if cached is None:
-            k = user_key(slug)
             cached = (k, genai.Client(api_key=k, http_options={"timeout": 45000}) if k else None)
             _user_clients[slug] = cached
         return cached[1]
@@ -222,6 +227,8 @@ def gemini_aux_allowed() -> bool:
     """In automatic mode, auxiliary Gemini calls share the free-account policy."""
     if provider() != 'auto': return True
     from modules import smart_router
+    gate = smart_router._google_billing_gate(current_user())
+    if gate is not None: return gate['ok']
     return bool(smart_router.settings(current_user()).get('cloud_free_confirmed'))
 
 
@@ -615,6 +622,7 @@ def embed(texts: list[str]) -> list[list[float]]:
         raise ValueError("Bu kullanıcının Gemini anahtarı yok.")
     try:
         for i in range(0, len(texts), 50):
+            client = _cli()
             part = [privacy.redact(t) for t in texts[i:i + 50]]
             try:
                 resp = client.models.embed_content(model="gemini-embedding-001", contents=part)
@@ -934,10 +942,8 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),   # araç çağrısı kullanmıyoruz
     )
 
-    cli = [_cli()]
-
     def call(model: str) -> str:
-        chat_session = cli[0].chats.create(model=model, config=cfg, history=history)
+        chat_session = _cli().chats.create(model=model, config=cfg, history=history)
         resp = chat_session.send_message(prompt)
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
@@ -1177,3 +1183,4 @@ def provider_configuration():
 def test_groq():
     """Explicit connection test; saving a key alone does not imply this call."""
     return _groq([{"role":"user","content":"Sadece 'tamam' yaz."}], "", 20)
+

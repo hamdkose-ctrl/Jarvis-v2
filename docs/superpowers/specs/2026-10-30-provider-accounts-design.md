@@ -20,3 +20,10 @@ Restored and locally verified in this checkpoint:
 5. Full local validation, exact-head Windows CI, real PC/account acceptance. Unit/model discovery PASS is not live OAuth, quota, billing or inference acceptance.
 
 No new PR and no merge authorization for this checkpoint. Keep #452 blocked. Only GitHub connector for repository operations; no main push, force or rebase. Tests before behavior changes. Final review and current-main delta check before presenting a release candidate.
+
+
+## Billing gate candidate checkpoint
+
+Items 1/2 now have a candidate: exact owner/tier/key-bound protected receipt, 30-second process snapshot, refresh after restart, fail-closed save failure and changed-key client guard. Automatic selection consumes the Google source, direct/aux calls require the actual billing check. Chat retries and embedding batches reacquire the client. Key-save metadata cannot generate. UI discards a pending billing toast after owner switch.
+
+New local source was recovered from durable WIP after the scratch reset; the previous final-validation log is unavailable and is not claimed as passed. The reconstructed source must pass fresh full validation before replacing the withdrawn head on existing draft #452. No new PR or merge authorization. Old head CI/PC results do not apply to replacement code. Paid opt-in/budget, Groq/OpenRouter and actual OAuth/PC acceptance remain pending. Ownerless maintenance and Android key handoff are not guarded by this owner-client closure and require separate audit. The 30-second snapshot cannot atomically detect an external billing change.

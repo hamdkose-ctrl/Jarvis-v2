@@ -25,15 +25,17 @@ class BridgeModuleTests(unittest.TestCase):
         a._runtime.llm.model_settings.assert_called_once_with('hamdi','model-a',['backup-a'])
         b._runtime.llm.model_settings.assert_called_once_with('ebru','model-b',[])
 
-    def test_key_validation_uses_owner_model_and_bounded_client(self):
+    def test_key_validation_uses_metadata_without_generation(self):
         from google import genai
         bridge=self.models('hamdi');bridge._runtime.llm.model_names.return_value=['mine']
-        client=Mock()
+        client=Mock();client.models.list.return_value=[]
         with patch.object(genai,'Client',return_value=client) as factory:
             result=bridge.user_key_set('Hamdi','key')
         self.assertTrue(result['ok'])
         factory.assert_called_once_with(api_key='key',http_options={'timeout':45000})
-        client.models.generate_content.assert_called_once_with(model='mine',contents="Yalnızca 'tamam' yaz.")
+        client.models.list.assert_called_once_with(config={'page_size':1})
+        client.models.generate_content.assert_not_called()
+        client.close.assert_called_once()
 
     def test_model_measure_retains_owner_after_profile_switch(self):
         bridge=self.models('hamdi');gate=threading.Event();entered=threading.Event()
