@@ -92,6 +92,27 @@ def _status(owner: str, source: str, reason_code: str = "SOURCE_UNAVAILABLE") ->
     )
 
 
+def _default_history_reader(owner: str, *, limit: int) -> Iterable[Mapping[str, Any]]:
+    """Read history only when its domain-owned storage root already exists."""
+    from modules import history
+
+    if not history.DIR.is_dir():
+        return []
+    return history.read(owner, limit=limit)
+
+
+def _default_goal_reader(owner: str) -> Any:
+    """Read the latest goal only when domain-owned owner state already exists."""
+    from modules import goal_executor
+
+    if not goal_executor.STORE.is_dir():
+        return None
+    owner_root = goal_executor.STORE / owner
+    if not owner_root.is_dir() or not (owner_root / "latest.json").exists():
+        return None
+    return goal_executor.latest(owner)
+
+
 def _session_state(owner: str, store: Any) -> tuple[Any | None, ContextReference | None]:
     if store is None:
         return None, None
@@ -235,7 +256,7 @@ def _goal_refs(
     ], None
 
 
-def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], list[ContextReference], ContextReference | None]:
+def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], list[ContextReference], list[ContextReference]]:
     memory: list[ContextReference] = []
     tasks: list[ContextReference] = []
     pending: list[ContextReference] = []
@@ -315,14 +336,16 @@ def build_active_context(
     if not isinstance(history_limit, int) or isinstance(history_limit, bool) or history_limit <= 0:
         raise ValueError("history_limit pozitif int olmalı.")
 
-    if history_reader is None or history_filter is None:
-        from modules import chat_translation, history
-        history_reader = history_reader or history.read
-        history_filter = history_filter or chat_translation.recent
-    if goal_reader is None or goal_is_open is None:
+    if history_reader is None:
+        history_reader = _default_history_reader
+    if history_filter is None:
+        from modules import chat_translation
+        history_filter = chat_translation.recent
+    if goal_reader is None:
+        goal_reader = _default_goal_reader
+    if goal_is_open is None:
         from modules import goal_executor
-        goal_reader = goal_reader or goal_executor.latest
-        goal_is_open = goal_is_open or goal_executor.is_open
+        goal_is_open = goal_executor.is_open
 
     pending: list[ContextReference] = []
     artifacts: list[ContextReference] = []
