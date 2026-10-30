@@ -316,11 +316,12 @@ Her yazma işlemi kesin hedef, niyet kaydı, makbuz ve okuyup doğrulama ister.
 
 ## Faz 11 — Profiller, hafıza, context
 
-**Durum: 🔄 kısmi — #421 Physical Object Memory açık PR; CI/watcher kabulü bekleniyor. Fazın geri kalan maddeleri başlanmadı.**
+**Durum: 🔄 kısmi — #421 Physical Object Memory açık PR; CI/watcher kabulü bekleniyor. #454 Canonical Brain Contracts v1 contract foundation açık Draft PR; production wiring, legacy migration ve runtime acceptance yok. Fazın geri kalan maddeleri başlanmadı.**
 
 Kullanıcı profilleri, uzun dönem hafıza, context sıkıştırma ve kendini geliştirme eklenir. Tüm yetenekler çalışıyor; kişisel uyarlama ve büyüme bunların üstüne oturur.
 
 - 🔄 (#421) `[1✓ 2– 3✓ 4–]` Physical Object Memory: kamera/Vision gözlemi `Observation -> CandidateFact -> kullanıcı onayı -> durable object memory` hattından geçer. Aday kayıtlar relevance prompt'a girmez; onaylı kayıt mevcut `facts` + relevance gate hattına bağlanır. Provenance tutulur, manuel düzeltme sonraki model taramasıyla ezilmez, bir taramada görülmeyen nesne silinmez (`location_unknown`), nesne/QR/etiket metni untrusted evidence olarak kalır. Güncel head için CI + gerçek PC watcher PASS gelmeden tamamlandı sayılmayacak.
+- 🔄 (#454) `[1✓ 2✗ 3✗ 4✗]` Canonical Brain Contracts v1 eklendi: `ActiveContext`, `UnderstandingResult` ve `BrainFeedback` Brain migration'ın sözleşme temelidir. Production wiring YOK, legacy migration YOK, runtime acceptance YOK; `WorkerResult v1` değişmedi. Bu yalnız Brain migration'ın contract foundation adımıdır; sonraki Active Context, Candidate Builder, Reference Resolver ve Understanding cutover işleri bekliyor.
 
 ### Ek kabul kriterleri — Fable/Claude agent benchmark
 
