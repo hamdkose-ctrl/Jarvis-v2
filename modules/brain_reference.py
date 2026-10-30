@@ -31,7 +31,7 @@ def _norm(value: object) -> str:
 
 
 def _contains_bounded(text: str, needle: str) -> bool:
-    """Return True only when an exact identifier is not embedded in a larger token."""
+    """Return True only when an exact signal is not embedded in a larger token."""
     if not needle:
         return False
     start = 0
@@ -130,7 +130,8 @@ def resolve_references(
     exact_fields: list[ContextReference] = []
     for candidate in usable:
         for key in _TEXT_FIELDS:
-            if _norm(candidate.provenance.get(key)) == normalized:
+            signal = _norm(candidate.provenance.get(key))
+            if signal and _contains_bounded(normalized, signal):
                 exact_fields.append(candidate)
                 break
     if exact_fields:
@@ -139,7 +140,8 @@ def resolve_references(
     file_matches = tuple(
         candidate
         for candidate in usable
-        if candidate.kind == "file" and normalized in _file_signals(candidate)
+        if candidate.kind == "file"
+        and any(_contains_bounded(normalized, signal) for signal in _file_signals(candidate))
     )
     if file_matches:
         return file_matches
