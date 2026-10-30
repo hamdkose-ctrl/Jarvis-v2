@@ -94,6 +94,25 @@ class BrainUnderstandingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.call("x", candidates=(foreign,))
 
+    def test_references_must_be_existing_candidate_objects(self):
+        arbitrary = ref("n-arbitrary", "note", title="Arbitrary")
+        other = ref("n-other", "note", title="Other")
+        with self.assertRaises(ValueError):
+            self.call("Arbitrary", candidates=(), references=(arbitrary,))
+        with self.assertRaises(ValueError):
+            self.call("Arbitrary", candidates=(other,), references=(arbitrary,))
+
+        canonical = ref("n-same", "note", title="Same")
+        clone = ContextReference(
+            id=canonical.id,
+            kind=canonical.kind,
+            source=canonical.source,
+            owner=canonical.owner,
+            provenance={"title": "Same"},
+        )
+        with self.assertRaises(ValueError):
+            self.call("Same", candidates=(canonical,), references=(clone,))
+
     def test_new_request_is_default_without_context_claim(self):
         result = self.call("kuantum dolanıklık nedir?")
         self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
@@ -110,11 +129,39 @@ class BrainUnderstandingTests(unittest.TestCase):
         self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
         self.assertNotEqual(result.request_kind, RequestKind.CLARIFY)
 
+    def test_weather_pending_rejects_unrelated_short_sentence(self):
+        pending = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        active = ctx(pending_references=(pending,))
+        result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+
+    def test_generic_pending_question_does_not_consume_unrelated_short_sentence(self):
+        pending = ref(
+            "pending_request",
+            "pending_state",
+            field="pending_request",
+            question="Hangi dosyayı kastettin?",
+        )
+        active = ctx(pending_references=(pending,))
+        result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+
     def test_pending_exists_alone_is_not_answer_to_pending(self):
         pending = ref("pending_weather_location", "pending_state", field="pending_weather_location")
         active = ctx(pending_references=(pending,))
         result = self.call("merhaba nasılsın", active_context=active, candidates=(pending,))
         self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_pending_presence_is_not_relation_authority(self):
+        pending = ref(
+            "pending_request",
+            "pending_state",
+            field="pending_request",
+            question="Ne yapmak istersin?",
+        )
+        active = ctx(pending_references=(pending,))
+        result = self.call("kuantum fiziği konuşalım", active_context=active, candidates=(pending,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
 
     def test_weather_pending_does_not_consume_unrelated_request(self):
         pending = ref("pending_weather_location", "pending_state", field="pending_weather_location")
@@ -151,6 +198,16 @@ class BrainUnderstandingTests(unittest.TestCase):
         self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
         self.assertIn(ContextAction.REPLACE_REFERENCE, result.context_actions)
 
+    def test_hayir_location_replacement_is_correction(self):
+        result = self.call("hayır, Ankara değil İzmir")
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertIn(ContextAction.REPLACE_REFERENCE, result.context_actions)
+
+    def test_question_with_degil_is_not_automatically_correction(self):
+        result = self.call("Python statik değil dinamik mi?")
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertNotIn(ContextAction.REPLACE_REFERENCE, result.context_actions)
+
     def test_bosver_is_context_control_but_not_completion(self):
         result = self.call("boşver")
         self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
@@ -158,11 +215,23 @@ class BrainUnderstandingTests(unittest.TestCase):
         self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
         self.assertFalse(hasattr(result, "completed"))
 
+    def test_bosver_prefix_drops_old_topic(self):
+        result = self.call("boşver, hava nasıl?")
+        self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+        self.assertNotIn(ContextAction.KEEP, result.context_actions)
+
     def test_baska_konu_is_topic_change(self):
         result = self.call("başka konu")
         self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
         self.assertEqual(result.conversation_relation, ConversationRelation.TOPIC_CHANGE)
         self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+
+    def test_konuyu_degistirmek_definition_is_not_topic_change(self):
+        result = self.call("konuyu değiştirmek ne demek?")
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.TOPIC_CHANGE)
+        self.assertNotIn(ContextAction.DROP_TOPIC, result.context_actions)
 
     def test_temporal_need_static(self):
         self.assertEqual(self.call("Python nedir?").temporal_need, TemporalNeed.STATIC)
@@ -191,6 +260,13 @@ class BrainUnderstandingTests(unittest.TestCase):
         result = self.call("notlarımı göster")
         self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, "notes.read")
+
+    def test_capability_command_tokens_do_not_match_inside_words(self):
+        for text in ("araştırma nedir?", "bir bulut nedir?"):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CHAT)
+                self.assertIsNone(result.capability_hint)
 
     def test_request_kind_context_control(self):
         self.assertEqual(self.call("başka konu").request_kind, RequestKind.CONTEXT_CONTROL)
