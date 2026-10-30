@@ -31,7 +31,7 @@ class BrainContextTests(unittest.TestCase):
         defaults = {
             "owner": "hamdi",
             "request_id": "req-17",
-            "history_reader": lambda owner, limit: [],
+            "history_reader": lambda owner, limit=12: [],
             "history_filter": lambda owner, rows: list(rows),
             "goal_reader": lambda owner: None,
             "goal_is_open": lambda row: False,
@@ -70,7 +70,7 @@ class BrainContextTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self._build(
-                history_reader=lambda owner, limit: [
+                history_reader=lambda owner, limit=12: [
                     {"id": "h-1", "owner": "hasan", "role": "user", "text": "gizli", "ts": "2026-10-30 10:00:00"}
                 ]
             )
@@ -113,13 +113,25 @@ class BrainContextTests(unittest.TestCase):
         ]
         seen = {}
 
-        def reader(owner, limit):
+        def reader(owner, limit=300):
             seen["limit"] = limit
             return rows
 
         context = self._build(history_reader=reader, history_filter=lambda owner, values: [values[-1]])
         self.assertEqual(seen["limit"], 12)
         self.assertEqual([ref.id for ref in context.recent_references], ["new"])
+
+    def test_history_reader_uses_real_limit_keyword_contract(self):
+        seen = {}
+
+        def reader(owner, query="", limit=300):
+            seen["owner"] = owner
+            seen["query"] = query
+            seen["limit"] = limit
+            return []
+
+        self._build(history_reader=reader)
+        self.assertEqual(seen, {"owner": "hamdi", "query": "", "limit": 12})
 
     def test_active_hoca_lesson_is_read_only_context(self):
         lesson = {
@@ -177,7 +189,7 @@ class BrainContextTests(unittest.TestCase):
         kwargs = {
             "session_store": _SessionStore({"hamdi": session}),
             "profile": self._profile(),
-            "history_reader": lambda owner, limit: rows,
+            "history_reader": lambda owner, limit=12: rows,
         }
         first = self._build(**kwargs).to_dict()
         second = self._build(**kwargs).to_dict()
