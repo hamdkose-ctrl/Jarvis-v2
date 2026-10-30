@@ -30,9 +30,11 @@ def check(owner, key, models, client_factory, force=False):
         client = None
         try:
             client=client_factory(api_key=key,http_options={'timeout':10000})
-            available={str(m.name or '').removeprefix('models/') for m in client.models.list(config={'page_size':100})}
+            rows=list(client.models.list(config={'page_size':100}))
+            available={str(m.name or '').removeprefix('models/') for m in rows}
+            generation=sorted({str(m.name or '').removeprefix('models/') for m in rows if 'generateContent' in (getattr(m,'supported_actions',None) or []) and m.name})
             missing=[m for m in models if m.removeprefix('models/') not in available]
-            result={'state':'missing_models' if missing else 'ok','missing':missing,'checked_at':time.time(),
+            result={'state':'missing_models' if missing else 'ok','missing':missing,'checked_at':time.time(),'available_models':generation,
                     'message':('Models API listesinde bulunamadı: '+', '.join(missing)) if missing else 'Model adları Models API ile doğrulandı.'}
         except Exception as exc:
             _record_failure('modules/model_health.py:check')

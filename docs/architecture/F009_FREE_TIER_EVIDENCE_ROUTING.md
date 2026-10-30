@@ -1,12 +1,10 @@
+## Gemini Google billing kaynağı — 30 Ekim 2026 aday uygulaması
+
+Gemini için kullanıcı beyanı doğrulanmış evidence yerine geçmez. Ayrı read-only OAuth ile exact key lookup -> CRM v3 project -> billingInfo kimlik zinciri doğrulanır. Owner/tier/key fingerprint bağlı korumalı sonuç yalnız billing_disabled ise ücretsiz istemciyi açar. Router kayıtlı sonucu adaylık için kullanır; gerçek _cli çağrısı anahtarı tekrar okuyup en fazla 30 saniyelik süreç içi kontrolü günceller. Restart taze disk kaydına rağmen tekrar Google sorgular; belirsiz/hatalı sonuç generation açmaz. Status network/login başlatmaz. Bu alternatif bağımsız free_tier_evidence satırı uydurmaz. Billing kapalı olması model erişimi, kota veya fiyat kaydı değildir; snapshot dış Google değişikliğine karşı atomik garanti taşımaz. Groq/OpenRouter aşağıdaki mevcut strict evidence koşullarını korur. Paid runtime açılmadı. Ownerless bakım istemcisi ve Android handoff ayrıca kapanacak sınırlardır.
+
 # F-009 — Free-tier evidence ile strict zero-cost routing
 
-## 30 Ekim 2026 kullanıcı kararı — Gemini/Groq için ayrı beyan yolu
-
-Aşağıdaki strict evidence sözleşmesi bağımsız evidence yolu için korunur. Buna ek olarak Gemini/Groq hesapları için kullanıcı, sağlayıcı konsolunda ücretsiz katmanı ve kapalı ücretli faturalamayı kontrol ederek mevcut UI Tercihi Kaydet ile **kullanıcı beyanı** verebilir. Bu, otomatik faturalama doğrulaması veya hard-stop kanıtı değildir; strict zero-cost garantisi diye sunulmaz.
-
-Beyan owner/provider/anahtar özeti ve zamanıyla saklanır. Anahtar değişirse ilgili beyan geçersizdir; hesap planı dışarıda değişirse kullanıcı tekrar kontrol etmelidir. Otomatik OAuth eklenmez. Eski onay bool'u yeni kayıt sayılmaz. Beyan verified evidence üretmez ve OpenRouter'a uygulanmaz. Anahtar, owner, yerel mod ve cooldown kontrolleri korunur. Modelin gerçek erişimi/kotası çağrı sonucuyla belirlenir.
-
-## Önceki bağımsız evidence yolunun amacı
+## Amaç
 
 Mevcut `smart_router` ve `failure_policy` altyapısını değiştirmeden, otomatik cloud rota seçimini yalnız doğrulanmış ve süresi geçmemiş ücretsiz-katman kanıtına bağlamak. Ücretli fallback eklenmez.
 

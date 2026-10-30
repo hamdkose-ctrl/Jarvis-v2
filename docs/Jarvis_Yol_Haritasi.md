@@ -408,5 +408,8 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 
 - 🔄 Hoca araştırma hata sınırı: kaynak keşif hatası yanlışlıkla genel planlayıcıya geçip ek model beklemesi yaratmaz. Aynı araştırma okuyucusu ve bütçesi korunur; arama hatası güvenli bildirilir, izin/iptal yutulmaz. Gerçek PC Hoca ve model performans kabulü henüz kapanmamıştır.
 
+- 🔄 Faz 1 Gemini hesap ayrımı geliştirme checkpoint: ayrı ücretsiz/ücretli anahtar-model kayıtları, Models API seçimi, ayrı salt okunur OAuth ile anahtarın gerçek projesinin billingInfo kontrolü. Router kapısı, ücretli izin/bütçe/runtime ve canlı kabul henüz açık. Kullanıcı beyanı gerçek faturalama kanıtı yerine geçmez; #452 merge edilmez.
 
-- 🔄 Faz 1 ücretsiz hesap kapısı: kullanıcı konsol kontrolüyle Gemini/Groq ücretsiz hesap beyanı verebilir; mevcut UI onayı anahtara/provider'a bağlanır. Bağımsız doğrulama/hard-stop diye sunulmaz. Anahtar değişimi yeniden onay ister; eski bool sessizce göç edilmez. Canlı provider/429/fallback kabulü ve OpenRouter kurulumu açık; ücretli otomatik izin/bütçe bu kapsamda değildir.
+
+
+30 Ekim 2026 — Gemini billing kapısı aday uygulaması: ücretsiz/ücretli anahtar ve model ayrımı, salt okunur gerçek Google proje kontrolü, owner/anahtar bağlı korumalı sonuç ve çağrı öncesi güncelleme bağlandı. Kontrol 30 saniyelik snapshot; canlı OAuth/PC kabulü henüz yok. Ücretli otomatik izin/bütçe, Groq ve OpenRouter kapanışı bekliyor; Faz 1 tamamlanmadı. #452 eski kullanıcı beyanı çözümü geri çekildi; düzeltilmiş aday taslakta değerlendirilecek.

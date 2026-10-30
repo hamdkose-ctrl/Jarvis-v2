@@ -70,3 +70,26 @@ console.log('Yapay zekâ sayfası: sağlayıcı kartları, tek bağlantı paneli
   assert(!rendered.includes('data-act="omsave"'),'legacy save yolu render edilmemeli');
   console.log('Yerel model paneli: canlı nx.html script zincirinde canonical status ile production render geçti.');
 })().catch(err=>{console.error(err);process.exitCode=1});
+
+(async()=>{
+  const begin=src.indexOf('ACT.geminicatalog='),end=src.indexOf('\nACT.',begin+1);
+  let inputs={gfkey:{value:'unsaved-key'},gfmodel:{value:'saved-model'},gpkey:{value:'other-unsaved-key'},gffallback:{value:'backup-draft'}};
+  const state={snap:{user:{slug:'alice'}}},actions={};
+  const context={ACT:actions,S:state,SX:{},esc:String,$:id=>inputs[id.slice(1)],toast:()=>{},api:async()=>({ok:true,models:['saved-model'],msg:'listed'}),drawSettings:async()=>{inputs={};}};
+  vm.createContext(context);vm.runInContext(src.slice(begin,end),context);
+  vm.runInContext(src.slice(src.indexOf('function geminiModelSelect('),src.indexOf('function routerBox(')),context);
+  await actions.geminicatalog({dataset:{tier:'free'}});
+  assert.equal(inputs.gfkey.value,'unsaved-key');assert.equal(inputs.gpkey.value,'other-unsaved-key');assert.equal(inputs.gffallback.value,'backup-draft');
+  context.api=async()=>{state.snap.user.slug='bob';inputs={gfkey:{value:''},gfmodel:{value:''}};return {ok:true,models:['saved-model']};};
+  await actions.geminicatalog({dataset:{tier:'free'}});assert.equal(inputs.gfkey.value,'');
+})().catch(e=>{console.error(e);process.exitCode=1});
+
+
+(async()=>{
+  const begin=src.indexOf('ACT.geminibilling='),end=src.indexOf('\n',begin);
+  const state={snap:{user:{slug:'alice'}}},actions={},shown=[];
+  const context={ACT:actions,S:state,toast:(...r)=>shown.push(r),api:async()=>{state.snap.user.slug='bob';return {ok:true,msg:'alice billing verified'};}};
+  vm.createContext(context);vm.runInContext(src.slice(begin,end),context);
+  const el={dataset:{tier:'free'}};await actions.geminibilling(el);
+  assert.equal(shown.length,0,'old owner billing result must not be shown to another owner');assert.equal(el.disabled,false);
+})().catch(e=>{console.error(e);process.exitCode=1});

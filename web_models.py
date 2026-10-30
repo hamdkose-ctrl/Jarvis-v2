@@ -19,17 +19,17 @@ class WebModels:
         if not key:
             runtime.llm.set_user_key(slug, None)
             return {'ok': True, 'msg': f'{name} için Gemini anahtarı silindi. Başka kullanıcının anahtarı kullanılmayacak.'}
+        from modules.gemini_billing import _record_failure
+        test_client = None
         try:
             from google import genai as _g
             test_client = _g.Client(api_key=key, http_options={'timeout': 45000})
-            test_client.models.generate_content(model=runtime.llm.model_names(slug)[0], contents="Yalnızca 'tamam' yaz.")
-        except Exception as e:
-            runtime._record_failure('web_models.py:user_key_set')
-            low = str(e).lower()
-            if 'api key' in low or 'api_key' in low or 'permission' in low or ('401' in low) or ('403' in low) or ('400' in low):
-                return {'ok': False, 'msg': 'Bu anahtar çalışmıyor. aistudio.google.com/apikey adresinden kopyaladığını kontrol et.'}
-            if '429' not in low and 'quota' not in low and ('exhausted' not in low):
-                return {'ok': False, 'msg': f'Anahtar denenemedi: {str(e)[:120]}'}
+            next(iter(test_client.models.list(config={'page_size': 1})), None)
+        except Exception:
+            _record_failure('web_models.py:user_key_set')
+            return {'ok':False,'msg':'Anahtarın model listesine erişimi doğrulanamadı. Anahtarı ve proje erişimini kontrol et.'}
+        finally:
+            if test_client is not None:test_client.close()
         runtime.llm.set_user_key(slug, key)
         return {'ok': True, 'msg': f'Kaydedildi. {name} konuşurken artık kendi anahtarı kullanılacak.'}
 
@@ -53,6 +53,54 @@ class WebModels:
     def llm_validate(self, force: bool=False) -> dict:
         runtime = self._runtime
         return runtime.llm.model_check(bool(force))
+
+    def gemini_profile_models(self, tier: str='free', key: str='') -> dict:
+        from modules import model_health
+        from google import genai
+        runtime=self._runtime;owner=runtime._p().slug
+        if owner != runtime.llm.current_user():raise PermissionError('Aktif kullanıcı değişmiş.')
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        if runtime.llm.privacy.mode() in ('yerel','gizli'):raise PermissionError('Yerel/gizli modda bulut model listesi alınmaz.')
+        if not isinstance(key,str) or len(key)>1000 or '\n' in key or '\r' in key:raise ValueError('Anahtar biçimi geçersiz.')
+        key=key.strip() or runtime.llm.user_key(owner,tier=tier)
+        result=model_health.check(owner,key,runtime.llm.model_names(owner,tier=tier),genai.Client,force=True)
+        ok=result['state'] in ('ok','missing_models')
+        return {'ok':ok,'models':result.get('available_models',[]),
+                'msg':'Model listesi erişim bilgisidir; ücretsiz kota veya fiyat garantisi değildir.' if ok else result.get('message','Model listesi alınamadı.')}
+
+    def gemini_profile_save(self, tier: str, key: str='', model: str='', fallback: str='') -> dict:
+        from modules import user_models
+        import re
+        runtime=self._runtime;owner=runtime._p().slug
+        if owner != runtime.llm.current_user():raise PermissionError('Aktif kullanıcı değişmiş.')
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        if not isinstance(key,str) or len(key)>1000 or re.search(r'[\r\n]',key):raise ValueError('Anahtar biçimi geçersiz.')
+        current=runtime.llm.model_names(owner,tier=tier)
+        names=[model.strip() or (current[0] if current else '')]+[v.strip() for v in fallback.split(',') if v.strip()]
+        if len(names)>8 or any(not re.fullmatch(r'[A-Za-z0-9._/-]{1,150}',v) for v in names):raise ValueError('Geçerli ana model ve en fazla 7 yedek model seç.')
+        user_models.save(owner,names,tier=tier)
+        if key.strip():runtime.llm.set_user_key(owner,key.strip(),tier=tier)
+        return {'ok':True,'msg':'Gemini '+('ücretsiz' if tier=='free' else 'ücretli')+' anahtar/model ayarları kaydedildi. Model çağrısı yapılmadı; kullanım izni açılmadı.'}
+
+    def gemini_billing_check(self, tier: str='free') -> dict:
+        from modules import gemini_billing
+        runtime=self._runtime;owner=runtime._p().slug
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        key=runtime.llm.user_key(owner) if tier=='free' else runtime.llm.user_key(owner,tier='paid')
+        result=gemini_billing.check(owner,key,tier=tier,interactive=True,force=True);state=result['state']
+        messages={
+            'billing_disabled':'Bu anahtarın projesinde ücretli faturalama kapalı. Ücretsiz model erişimi ve kota ayrıca değerlendirilir.',
+            'billing_enabled':'Bu anahtarın projesinde ücretli faturalama açık. Ücretsiz bağlantı olarak doğrulanmadı; ücretli kullanım izni açılmadı.',
+            'unverified':'Faturalama durumu doğrulanamadı. Google salt okunur bağlantısını ve proje erişimini kontrol et.'}
+        if state=='unverified':
+            messages[state]={
+                'PROVIDER_ACCOUNT_AUTH_REQUIRED':'Google salt okunur hesabını bağla veya bağlantıyı yenile.',
+                'PROVIDER_ACCOUNT_ACCESS_REQUIRED':'Google hesabının anahtar/proje faturalama bilgisine erişimi yok. Proje izinlerini ve API erişimini kontrol et.',
+                'PROVIDER_ACCOUNT_RATE_LIMITED':'Google hesap kontrolü istek sınırına ulaştı; daha sonra tekrar dene.',
+                'PROVIDER_BILLING_RECEIPT_SAVE_FAILED':'Google kontrol sonucu güvenle kaydedilemedi; Gemini kullanımı açılmadı.'
+            }.get(result.get('reason_code'),messages[state])
+        if tier=='paid' and state=='billing_enabled':messages[state]='Bu ücretli Gemini projesinde faturalama açık. Ücretli kullanım izni açılmadı.'
+        return {'ok':state==('billing_disabled' if tier=='free' else 'billing_enabled'),'msg':messages[state],'billing':result}
 
     def llm_status(self) -> dict:
         runtime = self._runtime
@@ -112,8 +160,7 @@ class WebModels:
     def smart_router_save(self, key: str='', model: str | None='openrouter/free', cloud_free_confirmed: bool | None=False) -> dict:
         runtime = self._runtime
         from modules import smart_router
-        state = smart_router.configure(runtime._p().slug, cloud_free_confirmed, model, key=key.strip() or None,
-                                       confirm_free_accounts=cloud_free_confirmed is True)
+        state = smart_router.configure(runtime._p().slug, cloud_free_confirmed, model, key=key.strip() or None)
         if not runtime.llm.gemini_aux_allowed() and runtime._live().get() is not None:
             runtime._live().get().close()
         return {'ok': True, 'msg': 'Model bağlantısı ve seçim tercihleri kaydedildi.', 'status': state}
@@ -209,3 +256,4 @@ class WebModels:
         runtime = self._runtime
         from modules import ui_jobs
         return ui_jobs.status(runtime._p().slug, rid)
+

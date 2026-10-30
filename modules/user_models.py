@@ -34,11 +34,12 @@ def _read(owner) -> dict:
     return value
 
 
-def get(owner, defaults):
+def get(owner, defaults, *, tier='free'):
+    if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
     if not owner:
         return list(defaults)
     try:
-        names = _read(owner).get('models')
+        names = _read(owner).get('models' if tier=='free' else 'paid_models')
         if names is None:          # yalnız sağlayıcı seçimi kayıtlı: Gemini sırası kurulum varsayılanı
             return list(defaults)
         if not isinstance(names, list) or not names or len(names)>8 or any(not isinstance(x,str) or not x.strip() for x in names):
@@ -79,10 +80,11 @@ def _write(owner, **changes):
         release_guard.save(_path(owner), value)
 
 
-def save(owner, names):
+def save(owner, names, *, tier='free'):
+    if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
     if not isinstance(names,list) or not names or len(names)>8 or any(not isinstance(x,str) or not re.fullmatch(_GEMINI_NAME,x) for x in names):
         raise ValueError('Geçerli ana model ve en fazla 7 yedek model seç.')
-    _write(owner, models=list(dict.fromkeys(names)))
+    _write(owner, **{'models' if tier=='free' else 'paid_models':list(dict.fromkeys(names))})
 
 
 def save_choice(owner, provider=None, groq_model=None, local_model=None):

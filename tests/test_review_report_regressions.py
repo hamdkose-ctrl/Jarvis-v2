@@ -70,6 +70,10 @@ class HistoryTests(unittest.TestCase):
 
 
 class ClientTests(unittest.TestCase):
+    def setUp(self):
+        # These tests isolate client identity/races; billing is tested separately.
+        guard=patch('modules.gemini_billing.require_free');guard.start();self.addCleanup(guard.stop)
+
     def test_simultaneous_same_owner_creates_one_client(self):
         barrier = threading.Barrier(6)
         def worker():

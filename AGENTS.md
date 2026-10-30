@@ -29,7 +29,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (12 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (22 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
@@ -204,7 +204,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Yerel model kabulü gerçek kurulu listeye bağlıdır; belirli bir model adı veya boyutu şart değildir.
 
-- Provider/Hoca tanısı ve ücretsiz hesap beyanı: `docs/agents/guncelleme-ci-kota.md`.
+- Provider/Hoca tanısı ve Gemini gerçek billing kapısı (owner/anahtar bağlı, 30 sn snapshot): `docs/agents/guncelleme-ci-kota.md`.
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
