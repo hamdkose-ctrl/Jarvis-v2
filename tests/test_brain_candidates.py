@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from modules.brain_contracts import ActiveContext, ContextReference
 from modules import brain_candidates
@@ -105,6 +105,22 @@ class CandidateBuilderTests(unittest.TestCase):
         self.assertEqual(ref.owner, "hamdi")
         self.assertEqual(ref.provenance["inventory_scope"], "global_pc")
         self.assertNotIn("owned_by", ref.provenance)
+
+    def test_stale_file_cache_is_not_resurrected_as_current_candidate(self):
+        from modules import nxapi
+        stale = {"path": "C:/tmp/stale.txt", "name": "stale.txt", "mtime": 1.0}
+        fresh = {"path": "C:/tmp/fresh.txt", "name": "fresh.txt", "mtime": 2.0}
+        with nxapi._FILE_CACHE_LOCK:
+            old_rows, old_ts = nxapi._FILE_CACHE["rows"], nxapi._FILE_CACHE["ts"]
+            nxapi._FILE_CACHE["rows"], nxapi._FILE_CACHE["ts"] = [stale], 0.0
+        try:
+            with patch.object(nxapi, "_scan_files", return_value=[fresh]) as scan:
+                refs = self._build(file_reader=None)
+            self.assertEqual([ref.id for ref in refs], [fresh["path"]])
+            scan.assert_called_once_with()
+        finally:
+            with nxapi._FILE_CACHE_LOCK:
+                nxapi._FILE_CACHE["rows"], nxapi._FILE_CACHE["ts"] = old_rows, old_ts
 
     def test_active_live_candidate_precedes_memory_duplicate(self):
         live = ContextReference(id="42", kind="task", source="active_context", owner="hamdi", provenance={"state": "live"})
