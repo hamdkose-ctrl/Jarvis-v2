@@ -50,6 +50,19 @@ class Confidence(str, Enum):
     LOW = "LOW"
 
 
+_AUTHORITY_ARGUMENT_KEYS = frozenset({
+    "allowed",
+    "permission",
+    "permission_granted",
+    "approved",
+    "authorized",
+    "completed",
+    "done",
+    "effect_allowed",
+    "execute",
+})
+
+
 def _require_text(name: str, value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} boş olamaz.")
@@ -69,6 +82,17 @@ def _as_enum(enum_type: type[Enum], value: Any, name: str) -> Enum:
         return enum_type(value)
     except (TypeError, ValueError):
         raise ValueError(f"{name} geçersiz.") from None
+
+
+def _reject_authority_argument_keys(value: Any) -> None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str) and key in _AUTHORITY_ARGUMENT_KEYS:
+                raise ValueError(f"UnderstandingResult.arguments authority alanı taşıyamaz: {key}.")
+            _reject_authority_argument_keys(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _reject_authority_argument_keys(item)
 
 
 def _freeze_json(value: Any) -> Any:
@@ -175,9 +199,6 @@ class ActiveContext(_JsonContract):
             object.__setattr__(self, name, _reference_tuple(name, getattr(self, name), self.owner))
 
 
-WorkingState = ActiveContext
-
-
 @dataclass(frozen=True)
 class EchoPreview(_JsonContract):
     text: str
@@ -190,6 +211,8 @@ class EchoPreview(_JsonContract):
 
 @dataclass(frozen=True)
 class UnderstandingResult(_JsonContract):
+    owner: str
+    request_id: str
     request_kind: RequestKind
     capability_hint: str | None = None
     arguments: Mapping[str, Any] = field(default_factory=dict)
@@ -205,13 +228,16 @@ class UnderstandingResult(_JsonContract):
     preview: EchoPreview | None = None
 
     def __post_init__(self) -> None:
+        _require_text("UnderstandingResult.owner", self.owner)
+        _require_text("UnderstandingResult.request_id", self.request_id)
         object.__setattr__(self, "request_kind", _as_enum(RequestKind, self.request_kind, "request_kind"))
         object.__setattr__(self, "conversation_relation", _as_enum(ConversationRelation, self.conversation_relation, "conversation_relation"))
         object.__setattr__(self, "temporal_need", _as_enum(TemporalNeed, self.temporal_need, "temporal_need"))
         object.__setattr__(self, "confidence", _as_enum(Confidence, self.confidence, "confidence"))
         _optional_text("UnderstandingResult.capability_hint", self.capability_hint)
+        _reject_authority_argument_keys(self.arguments)
         object.__setattr__(self, "arguments", _freeze_json(self.arguments))
-        object.__setattr__(self, "references", _reference_tuple("references", self.references))
+        object.__setattr__(self, "references", _reference_tuple("references", self.references, self.owner))
         if not isinstance(self.context_actions, (tuple, list)):
             raise ValueError("context_actions liste/tuple olmalı.")
         object.__setattr__(
@@ -224,6 +250,10 @@ class UnderstandingResult(_JsonContract):
         object.__setattr__(self, "reason_codes", _text_tuple("reason_codes", self.reason_codes))
         if not isinstance(self.needs_input, bool):
             raise ValueError("needs_input bool olmalı.")
+        if self.request_kind is RequestKind.CLARIFY and not self.needs_input:
+            raise ValueError("CLARIFY sonucu kullanıcı girdisi istemeli.")
+        if self.needs_input and not self.ambiguities and not self.references:
+            raise ValueError("needs_input ambiguity veya candidate reference taşımalı.")
         if self.preview is not None and not isinstance(self.preview, EchoPreview):
             raise ValueError("preview EchoPreview olmalı.")
 
