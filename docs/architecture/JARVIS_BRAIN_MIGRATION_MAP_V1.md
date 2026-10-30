@@ -33,7 +33,7 @@ AGENTS / WORKERS
 
 Bu haritanın ana ayrımı şudur: **understanding authority tek Brain'de**, lifecycle/permission/completion authority **Core'da**, gerçek kayıt/evidence/safety doğrulaması **domain invariantlarında**, işin yapılması **worker/domain execution'da** kalır. Regex tek başına kötü sayılmamıştır; yalnız fast-gate için exact/bounded grammar, düşük false-positive, açık target/state, cross-domain seçim yapmama, determinism ve reference inference yapmama şartlarının altısı birlikte aranmıştır.
 
-Denetim sonucu: **91 migration bulgusu**. KEEP=40, MOVE=36, RETIRE=13, NEEDS_DECISION=2.
+Denetim sonucu: **91 migration bulgusu**. KEEP=39, MOVE=37, RETIRE=13, NEEDS_DECISION=2.
 
 ## 2. Migration bulguları
 
@@ -54,11 +54,11 @@ Denetim sonucu: **91 migration bulgusu**. KEEP=40, MOVE=36, RETIRE=13, NEEDS_DEC
 | BRAIN-MIG-013 | visual_chat.py:pending_visual | Görsel kaynağı sohbet/dosya seçimi | command_manager.dispatch | Bounded iki seçenekli pending state | KEEP_STATE_GATE | EXACT STATE GATE | Pending source selection typed view | Brain aynı seçim state'ini üretince | only sohbet/dosya; no accidental consume |
 | BRAIN-MIG-014 | learning.py:pending_facts | Onay bekleyen hafıza adayları | learning.handle; live prompt/app_actions | Durable approval state, memory truth değil | KEEP_STATE_GATE | EXACT STATE GATE | Brain yalnız read-only pending-memory status görür | Silinmez; storage domain-owned kalır | unapproved facts not memory |
 | BRAIN-MIG-015 | hoca.py:lesson.pending | Bekleyen kontrol sorusu | hoca.check_question/grade | Domain protocol state; cevabı başka domaine taşımamalı | KEEP_STATE_GATE | EXACT STATE GATE | ActiveContext pending Hoca question view | Silinmez; Hoca domain-owned | pending question correctness |
-| BRAIN-MIG-016 | watcher.py:_PENDING/run_pending | Saatlik kota nedeniyle bekleyen dosyalar | watcher.tick/handle | Gerçek operational pending queue | KEEP_STATE_GATE | EXACT STATE GATE | Brain read-only watcher pending count/ids görür | Silinmez; watcher domain-owned | hourly cap/no duplicate |
+| BRAIN-MIG-016 | watcher.py:_PENDING/run_pending | Saatlik kota nedeniyle bekleyen background dosyalar | watcher.tick/handle | Operational quota/background state; genel kullanıcı mesajlarını consume eden pending protocol değildir | MOVE_TO_ACTIVE_CONTEXT | ACTIVE CONTEXT / watcher status source | Watcher/domain-owned state korunur; Brain'e gerektiğinde read-only pending count/status görünümü verilir | Silinmez; watcher state domain-owned kalır ve unrelated mesajları tüketmez | hourly cap/no duplicate/no unrelated consume |
 | BRAIN-MIG-017 | engine_commands.py:_split_steps/_run_steps | 'önce/sonra/ardından' multi-step parser | engine_commands.handle | Global sequence understanding Brain'den önce yapılıyor | MOVE_TO_UNDERSTANDING | UNDERSTANDING | UnderstandingResult sequence/ordering taşımalı | Yeni Brain sequence acceptance geçince legacy parser kaldırılır | order, pending/effect boundaries |
 | BRAIN-MIG-018 | router.py:classify | Genel intent/domain/clarify/task kararı | engine_tools.route → engine_commands.handle | İkinci genel beyin; context+catalog+LLM+regex bir arada | MOVE_TO_UNDERSTANDING | UNDERSTANDING / CONFIDENCE | Brain contracts + parity corpus + fallback hazır | Tüm callers UnderstandingResult kullanınca router classifier emekli | routing corpus/product outcomes |
 | BRAIN-MIG-019 | work_modes.py:classify/action_request | chat/do/spec üst seviye semantik karar | router.classify | Cross-domain doğal dil kararı; fast-gate şartlarını sağlamıyor | MOVE_TO_UNDERSTANDING | UNDERSTANDING | Brain intent relation alanı aynı ayrımı taşımalı | router legacy guard kalkınca | question vs execution |
-| BRAIN-MIG-020 | freshness.py:fresh_request | Güncel dış veri ihtiyacı | router.classify; work_modes | Current-data ihtiyacı semantik; konu regex'i global intent seçiyor | MOVE_TO_UNDERSTANDING | UNDERSTANDING | UnderstandingResult.requires_current_data canonical olur | İki caller yeni field'a geçince | fresh vs static regression |
+| BRAIN-MIG-020 | freshness.py:fresh_request | Güncel dış veri ihtiyacı | router.classify; work_modes | Temporal ihtiyaç semantik; konu regex'i global intent seçiyor | MOVE_TO_UNDERSTANDING | UNDERSTANDING | Canonical `UnderstandingResult.temporal_need` kullanılır: STATIC / CURRENT / RECENT / HISTORICAL / UNSURE | İki caller canonical `temporal_need` sonucuna geçince | static/current/recent/historical/unsure regression |
 | BRAIN-MIG-021 | router.py:_definition_question/_open_only_request fast branches | Tanım ve open-only semantik shortcut | router.classify | Bounded görünse de cross-domain user outcome seçiyor | MOVE_TO_UNDERSTANDING | UNDERSTANDING | Brain confidence ile aynı sonuçlar | Router classifier cutover | definition/action regressions |
 | BRAIN-MIG-022 | router.py → app_actions.reference_context | Komuta göre task/not/event/fact/rule/source kayıtlarını prompta toplar | router.classify | Global singleton profile + lexical candidate retrieval | MOVE_TO_CANDIDATE_BUILDER | CANDIDATE BUILDER | Owner-scoped providerlar candidate API verir | Brain candidate builder canlı olduğunda helper kaldırılır | owner isolation/no secret exposure |
 | BRAIN-MIG-023 | engine_tools.py:route context assembly | recent_turns + last_command + pending_request JSON context | engine_commands.handle → runtime.route | Active context parçaları ad-hoc prompt stringi olarak birleşiyor | MOVE_TO_ACTIVE_CONTEXT | ACTIVE CONTEXT | Typed ActiveContext snapshot üretilecek | Router prompt context kaldırılınca | redaction/owner isolation |
@@ -111,7 +111,7 @@ Denetim sonucu: **91 migration bulgusu**. KEEP=40, MOVE=36, RETIRE=13, NEEDS_DEC
 | BRAIN-MIG-070 | task_agents.py:handle natural-language admin entry | 'görev akışı/devam/iptal/geçmiş' legacy entry | command_manager.dispatch/job_front | İkinci task front door ve genel NL interception | RETIRE_AFTER_CUTOVER | CORE entry | Canonical Brain/GoalState task continuation kapsar | Legacy task front door callers sıfırlanınca | existing job recovery |
 | BRAIN-MIG-071 | task_agents.py durable DAG/worker/_gate | Legacy durable specialist execution | task_agents.handle/specialist bridge | Gerçek execution/evidence; cutover planı dışında aniden silinemez | KEEP_EXECUTION | AGENTS / WORKERS | Core compatibility adapter altında kalır | GoalState canonical replacement + data migration kanıtı sonrası ayrıca karar | recovery/evidence/owner |
 | BRAIN-MIG-072 | task_agents.py:recent | Son task job seçimi | job_front | Durable task state lookup; active contextte read-only olmalı | MOVE_TO_ACTIVE_CONTEXT | ACTIVE CONTEXT | Legacy task summary provider | Task engine emekli olunca | owner/stale |
-| BRAIN-MIG-073 | advisory_router.py:_mode | decision/critique/guidance isteğini doğal dilden seçer | engine_tools._sys_prompt; finalize | Genel NL interpretation; Brain ile aynı resolved context'i kullanmalı | MOVE_TO_UNDERSTANDING | UNDERSTANDING | UnderstandingResult.advisor_mode | Legacy requested() regex entry kalkınca | explicit advisory request |
+| BRAIN-MIG-073 | advisory_router.py:_mode | decision/critique/guidance isteğini doğal dilden seçer | engine_tools._sys_prompt; finalize | Genel NL interpretation; Brain ile aynı resolved context'i kullanmalı | MOVE_TO_UNDERSTANDING | UNDERSTANDING → ADVISOR handoff | Canonical Understanding doğal dilde advisory ihtiyacını çözer; migration map yeni zorunlu `UnderstandingResult` field'ı dayatmaz | Legacy requested() regex entry kalkınca | explicit advisory request; no execution/permission authority |
 | BRAIN-MIG-074 | advisory_router.py:finalize + advisor renderers | Resolved advisory output schema/render | chat fallback | Execution/permission authority yok; response shaping | KEEP_EXECUTION | Advisor layer after Understanding | Brain resolved context + chat result ile beslenir | Silinmez | no dispatch/no permission |
 | BRAIN-MIG-075 | proactive_advisor.SuggestionPolicy | Suggestion enable/filter/render | advisory_router | İkinci Core değil; yalnız advisory output | KEEP_EXECUTION | ADVISOR | Resolved context ile suggestion üretir | Silinmez | no execution authority |
 | BRAIN-MIG-076 | engine_voice.py:_live_prompt | Live için goals/facts/rules/pending/history/STT context kurar | engine_loop → live.start | Text Brain'den ayrı context snapshot; drift riski | MOVE_TO_ACTIVE_CONTEXT | ACTIVE CONTEXT | Live aynı ActiveContext serializer'ı kullanır | Private live prompt context assembly kaldırılır | owner/redaction/reset |
@@ -145,7 +145,7 @@ Buradaki “duplicate”, aynı kullanıcı capability'sine birden fazla **entry
 | file/document | engine_commands → main_documents._file_command | router doc_* → engine_intents → _resolve_doc | Brain candidate+resolver → file execution adapter | _file_command global entry ve embedded resolver sonrası |
 | note/calendar | main_planner pre-route regex/helpers | router note/app_action event_* | Brain understanding/reference → profile/calendar execution | Legacy planner intent parser sonrası |
 | mail | engine_tools._mail_handle/Google/Outlook handles | router mail → engine_intents; task_agents account worker | Brain communication.mail; Core mode fast vs durable seçer | Pre-Brain mail cascade sonrası |
-| research | freshness/work_modes → router task | explicit goal/task → goal_executor; task_agents research legacy | Brain requires_current_data → Core research capability | Legacy task_agents front door ve freshness route sonrası |
+| research | freshness/work_modes → router task | explicit goal/task → goal_executor; task_agents research legacy | Brain `temporal_need` (STATIC/CURRENT/RECENT/HISTORICAL/UNSURE) → Core research capability | Legacy task_agents front door ve freshness route sonrası |
 | visual | visual_chat keyword/pending → visual_commands | main_documents visualize; Live/model tools where applicable | Brain visual intent/subtype; source pending State Gate | Global keyword detector entry after parity |
 | translation | command_manager → chat_translation.resolve | router translate/doc_translate → engine_intents/main_documents | Brain resolver source + translation capability | chat_translation resolver/_sources sonrası |
 | desktop | command_manager → desktop_agent.handle | router desktop_task → goal_executor → desktop worker | Brain desktop_task → Core/GoalExecutor canonical | Direct agent entry sonrası |
@@ -190,7 +190,7 @@ Gerçek konuşma/intent/reference bağlamı taşıdığı doğrulanan cepler:
 - `study.last_topic` / Hoca current step.
 - developer `state.turns` / `state.memory`.
 - Live `_recent_user` ve `_context_prompt` history görünümü.
-- watcher `_PENDING` gerçek operational state'tir; `_RECENT` kota penceresidir. Bunlar global sohbet hafızası değildir.
+- watcher `_PENDING` gerçek operational quota/background state'tir; `_RECENT` kota penceresidir. Bunlar global sohbet hafızası veya EXACT STATE GATE değildir ve unrelated kullanıcı mesajını consume etmemelidir.
 - `smart_router._LAST`/health benzeri provider operational kayıtları conversation reference değildir; Brain memory olarak taşınmamalıdır.
 
 İsim eşleştiği halde bağlam bulgusu sayılmayan örnekler: performans ölçümündeki `last_*`, audio timing, cursor/update counters, UI widget timestamps. Bunlar Brain context'i değildir.
@@ -239,9 +239,10 @@ Eski regex sırası, belirli helper çağrısı, `router.classify` intent enum'u
 
 Migration kararı:
 
-- `advisory_router._mode` ve `decision_advisor.requested` / `critique_advisor.requested` / `guidance_advisor.requested` doğal dil seçimi **MOVE_TO_UNDERSTANDING**.
+- `advisory_router._mode` ve `decision_advisor.requested` / `critique_advisor.requested` / `guidance_advisor.requested` doğal dil seçimi canonical Understanding/Advisor katmanına taşınır.
+- Migration map, Brain Contracts implementation'ından bağımsız yeni bir `advisor_mode` veya başka zorunlu `UnderstandingResult` schema field'ı tanımlamaz.
 - schema validation/render/finalize ve proactive suggestion policy **Advisor output layer** olarak kalabilir.
-- Advisor aynı `UnderstandingResult` ve resolved context'i tüketmeli; kendi history/reference resolver'ını kurmamalı.
+- Advisor aynı canonical resolved context'i tüketmeli; kendi history/reference resolver'ını kurmamalı.
 - Advisor'a execution, permission, target selection veya global completion authority verilmemeli.
 
 ## 8. En tehlikeli 10 legacy yol
@@ -267,31 +268,34 @@ Canonical replacement ve parity testleri geldikten sonra risk sırasına göre:
 4. engine_commands typo recursive handle — normalized/original text Brain inputunda taşındığında.
 5. router içindeki app_actions.reference_context prompt helper — Candidate Builder providerları devreye girince.
 
+Bu parçalar PR9/PR10'u beklemek zorunda değildir. Replacement + parity + product invariant acceptance hangi migration PR'ında tamamlanırsa ilgili legacy yol **aynı PR'da** kaldırılabilir. PR10 yalnız kalan zombie/duplicate yolların final sweep'idir.
+
 ## 10. Önerilen Migration Sırası
 
-Mevcut yaklaşık 10 PR yaklaşımı korunabilir; ancak **Active Context ve Candidate Builder, Understanding cutover'dan önce** gelmeli. Aksi halde yeni Brain eski prompt-string context ceplerini yeniden kullanarak ikinci truth-source riskini taşır.
+Canonical sıra aşağıdadır. **Active Context ve Candidate Builder Understanding'den önce** gelir; **Text/Web/Phone cutover ile Live parity ayrı PR** tutulur. Legacy retirement her aşamada replacement/parity/invariant kabulüne bağlıdır, yalnız PR9/PR10'a ertelenmez.
 
 | PR | Girecek yollar | Çıkacak legacy yollar | Önkoşul | Acceptance |
 |---|---|---|---|---|
-| PR 1 — brain-contracts-v1 (başka ajan) | Brain contracts/types | yok | mevcut | Contracts tests; bu rapor branch'inden bağımsız |
-| PR 2 — brain-active-context-v1 | SessionStore/history/profile/Hoca/GoalState read-only providers | ad-hoc prompt context assembly'e paralel adapter | PR1 | owner isolation; no copied truth; text/live same snapshot fields |
-| PR 3 — brain-candidates-v1 | file/profile/memory candidate providers | app_actions.reference_context retrieval side; _resolve_doc enumeration side | PR2 | candidate provenance/owner/allowed roots |
-| PR 4 — brain-reference-resolver-v1 | translation/file/note/visual/workbench references | chat_translation.resolve authority; embedded 'bu/son' resolvers | PR2-3 | ambiguous reference no action; reset/TTL/provenance |
-| PR 5 — brain-understanding-v1 | router/work_modes/freshness/sequence/advisor-mode outputs | legacy classifier shadow-mode only | PR1-4 | yonlendirme corpus + ambiguity/current-data/sequence parity |
-| PR 6 — brain-state-fast-gates-v1 | Exact State Gate + proven deterministic fast registry | scattered pending/engine_control/admin exact gate checks | PR2, PR5 | pending precedence, owner/TTL; every fast rule six criteria |
-| PR 7 — brain-core-entry-text-v1 | text/web/phone command transport → Brain result → Core | pre-router extra/file/watcher/mail/app/note entry paths begin shadow-disable | PR3-6 | duplicate matrix text parity; no prod capability loss |
-| PR 8 — brain-live-parity-v1 | Voice/Live/Phone same Brain entry/context/resolver | Live private reference authority and special semantic direct dispatch | PR7 | text/voice/live/phone same intent/reference outcome; source permissions preserved |
-| PR 9 — brain-legacy-retirement-v1 | canonical Brain only for migrated paths | router.classify legacy authority, extra cascade, translation cache, recursive reroutes, direct agent front doors | PR7-8 | full regression + product invariants; no duplicate entry in matrix |
-| PR 10 — brain-cutover-acceptance-v1 | cleanup/docs/architecture guards/test reclassification | remaining shadow flags/legacy implementation tests | PR9 | full validation; live/text parity; duplicate-path count canonicalized; no second truth source |
+| PR 1 — Brain Contracts | Canonical Brain contracts/types | yok | mevcut | Contracts tests; bu rapor branch'inden bağımsız |
+| PR 2 — Active Context | SessionStore/history/profile/Hoca/GoalState/watcher read-only providers | Replacement+parity tamamlanan ad-hoc context assembly parçaları | PR1 | owner isolation; no copied truth; domain state read-only; text/live aynı source tanımları |
+| PR 3 — Candidate Builder | file/profile/memory candidate providers | Replacement+parity tamamlanan app_actions.reference_context retrieval ve _resolve_doc enumeration tarafı | PR2 | candidate provenance/owner/allowed roots |
+| PR 4 — Reference Resolver | translation/file/note/visual/workbench referansları | Replacement+parity tamamlanan chat_translation authority, `_sources`, embedded `bu/son` resolvers | PR2-3 | ambiguous reference no action; reset/TTL/provenance |
+| PR 5 — Understanding Engine | router/work_modes/freshness/sequence doğal dil kararları; canonical `temporal_need` | Replacement+parity tamamlanan legacy classifier/semantic shortcuts | PR1-4 | yonlendirme corpus + ambiguity + temporal_need + sequence parity |
+| PR 6 — Exact State + Deterministic Fast Gates | Exact State Gate + proven deterministic fast registry | Replacement+parity tamamlanan scattered gate checks; operational watcher pending State Gate'e alınmaz | PR2, PR5 | pending precedence, owner/TTL; every fast rule six criteria; unrelated messages not consumed |
+| PR 7 — Text/Web/Phone Core Entry + Reverse Clarification / BrainFeedback | text/web/phone transport → Brain result → Core; structured reverse clarification ve BrainFeedback integration | Replacement+parity tamamlanan pre-router extra/file/watcher/mail/app/note entry yolları ve recursive clarification reroutes | PR3-6 | text/web/phone parity; clarification provenance; BrainFeedback round-trip; no duplicate effect |
+| PR 8 — Advisor + Echo + Failure Synthesis | canonical resolved context üstünde Advisor; Echo/Semantic Preview; failure synthesis/recovery presentation | Replacement+parity tamamlanan advisory NL selector ve duplicate presentation-only legacy yollar | PR7 | Advisor no execution/permission authority; preview no effect; failure presentation grounded in structured failures; blind retry yok |
+| PR 9 — Live Parity + Live-specific legacy retirement | Voice/Live aynı Brain entry/context/resolver/Core hattına | Live private reference authority ve special semantic direct dispatch; replacement+parity tamamlanan diğer Live-only legacy yollar | PR8 | text/voice/live/phone same intent/reference outcome; source permissions preserved; no Live semantic bypass |
+| PR 10 — Final legacy sweep + cutover acceptance | final zombie/duplicate sweep, docs/guards/test reclassification | Yalnız önceki PR'larda replacement/parity/invariant tamamlanmasına rağmen kalmış legacy/shadow yollar | PR9 | full validation; duplicate-path final sweep; no second truth source; canonical cutover acceptance |
 
-### PR 2-10 için önerilen düzeltme
-
-Evet: sıralamada iki düzeltme öneriyorum.
+### PR 2-10 için doğrulanan kararlar
 
 1. Active Context + Candidate Builder, Reference Resolver ve Understanding'den önce kurulmalı.
-2. Text cutover ile Live parity aynı PR'a sıkıştırılmamalı; önce text/web/phone command entry stabil hale gelmeli, sonra Live özel tool bypass'ları kaldırılmalı.
+2. Text/Web/Phone Core cutover ile Live parity aynı PR'a sıkıştırılmamalı.
+3. Reverse Clarification / BrainFeedback PR7'de canonical Core entry ile birlikte bağlanmalı.
+4. Advisor + Echo/Semantic Preview + Failure Synthesis/Recovery presentation PR8'de, execution/permission authority almadan aynı resolved context'i kullanmalı.
+5. Legacy retirement opportunistic'tir: replacement + parity + invariant acceptance hangi PR'da tamamlanırsa o PR'da yapılabilir; PR10 final zombie/duplicate sweep'tir.
 
-Yeni faz/özellik önerilmiyor; bu yalnız mevcut Brain migration işinin bağımlılık sırasıdır.
+Yeni faz/özellik önerilmiyor; bu mevcut Brain migration işinin canonical bağımlılık sırasıdır.
 
 ## 11. Cutover kuralları
 
@@ -299,9 +303,13 @@ Yeni faz/özellik önerilmiyor; bu yalnız mevcut Brain migration işinin bağı
 - Brain candidate/reference state'i kopyalamaz; domain state'ten read-only snapshot alır.
 - Agent clarification yalnız “eksik alanı bildirir”; global target/intent authority Brain'dedir.
 - Domain parser, Brain domain/capability seçtikten sonra kendi input grammar'ını yorumlayabilir.
-- `GoalExecutor`, permission/effect gates, worker evidence ve completion policy kaldırılmaz.
-- Her legacy yol ancak replacement + parity + product invariant acceptance birlikte yeşil olduğunda silinir.
-- Brain Contracts branch'i bağımsızdır; bu belge contracts implementation'ına dosya bağımlılığı eklemez.
+- `GoalExecutor`, permission/effect gates, worker evidence ve completion policy kaldırılmaz; **Core authority korunur**.
+- Agents uzman worker'dır; kendi genel intent router'ı/reference resolver'ı/global completion authority'si olmaz.
+- `WorkerResult` global completion kararı değildir; completion Core evidence/policy ile belirlenir.
+- Failure synthesis/recovery presentation structured failure kanıtını sunar; **blind retry yapmaz**.
+- Advisor execution/permission authority taşımaz.
+- Her legacy yol ancak replacement + parity + product invariant acceptance birlikte yeşil olduğunda, mümkün olan **ilk ilgili PR'da** silinir; PR10'u beklemek zorunda değildir.
+- Brain Contracts branch'i bağımsızdır; bu belge contracts implementation'ına dosya bağımlılığı veya yeni zorunlu schema field'ı eklemez.
 
 ## 12. Doğrulama beklentisi
 
