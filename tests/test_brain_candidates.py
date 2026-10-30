@@ -144,6 +144,17 @@ class CandidateBuilderTests(unittest.TestCase):
         refs = self._build(profile=profile, file_reader=broken)
         self.assertTrue(all(r.owner == "hamdi" for r in refs))
 
+    def test_profile_provider_exception_keeps_other_safe_candidates(self):
+        class BrokenProfile:
+            slug = "hamdi"
+            @property
+            def data(self):
+                raise OSError("profile unavailable")
+        live = ContextReference(id="live-1", kind="artifact", source="session_state", owner="hamdi")
+        context = self._context(active_artifacts=(live,))
+        refs = self._build(profile=BrokenProfile(), active_context=context)
+        self.assertEqual([(r.id, r.source) for r in refs], [("live-1", "session_state")])
+
     def test_no_llm_or_model_dependency_is_present(self):
         source = inspect.getsource(brain_candidates)
         self.assertNotIn("modules.llm", source)
@@ -232,6 +243,14 @@ class CandidateBuilderTests(unittest.TestCase):
     def test_bounded_file_provider(self):
         rows = [{"path": f"C:/tmp/{i}.txt", "name": f"{i}.txt"} for i in range(100)]
         refs = self._build(file_reader=lambda limit=80: rows, provider_limit=20)
+        self.assertEqual(len(refs), 20)
+
+    def test_total_candidate_set_is_bounded(self):
+        active = tuple(ContextReference(id=f"a-{i}", kind="artifact", source="session_state", owner="hamdi") for i in range(15))
+        context = self._context(active_artifacts=active)
+        profile = self._profile(tasks=[{"id": i, "text": str(i)} for i in range(15)], items=[], events=[])
+        rows = [{"path": f"C:/tmp/{i}.txt", "name": f"{i}.txt"} for i in range(15)]
+        refs = self._build(active_context=context, profile=profile, file_reader=lambda limit=80: rows, provider_limit=20)
         self.assertEqual(len(refs), 20)
 
 
