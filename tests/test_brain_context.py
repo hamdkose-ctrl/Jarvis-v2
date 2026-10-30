@@ -6,7 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from modules.brain_contracts import ActiveContext
 from modules.brain_context import build_active_context
@@ -49,6 +49,14 @@ class BrainContextTests(unittest.TestCase):
             + context.pending_references
             + context.memory_references
         )
+
+    @staticmethod
+    def _filesystem_snapshot(root: Path):
+        snapshot = {}
+        for item in sorted(root.rglob("*"), key=lambda path: path.as_posix()):
+            relative = item.relative_to(root).as_posix()
+            snapshot[relative] = None if item.is_dir() else item.read_bytes()
+        return snapshot
 
     def test_empty_owner_is_rejected(self):
         with self.assertRaises(ValueError):
@@ -133,6 +141,95 @@ class BrainContextTests(unittest.TestCase):
         self._build(history_reader=reader)
         self.assertEqual(seen, {"owner": "hamdi", "query": "", "limit": 12})
 
+    def test_default_history_missing_directory_does_not_create_source_state(self):
+        from modules import history
+
+        with tempfile.TemporaryDirectory() as tmp:
+            history_dir = Path(tmp) / "history-missing"
+            with patch.object(history, "DIR", history_dir):
+                context = build_active_context(
+                    owner="hamdi",
+                    request_id="req-default-history-missing",
+                    history_filter=lambda owner, rows: list(rows),
+                    goal_reader=lambda owner: None,
+                    goal_is_open=lambda row: False,
+                )
+            self.assertFalse(history_dir.exists())
+            self.assertFalse([ref for ref in context.recent_references if ref.source == "history"])
+
+    def test_default_goal_missing_owner_directory_does_not_create_source_state(self):
+        from modules import goal_executor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "goals"
+            store.mkdir()
+            owner_dir = store / "hamdi"
+            with patch.object(goal_executor, "STORE", store):
+                context = build_active_context(
+                    owner="hamdi",
+                    request_id="req-default-goal-missing",
+                    history_reader=lambda owner, limit=12: [],
+                    history_filter=lambda owner, rows: list(rows),
+                    goal_is_open=goal_executor.is_open,
+                )
+            self.assertFalse(owner_dir.exists())
+            self.assertFalse(context.active_goal_references)
+
+    def test_default_history_existing_data_is_read_without_source_mutation(self):
+        from modules import history
+
+        with tempfile.TemporaryDirectory() as tmp:
+            history_dir = Path(tmp) / "history"
+            with patch.object(history, "DIR", history_dir):
+                row = history.append("hamdi", "user", "mevcut konuşma", source="yazı")
+                before = self._filesystem_snapshot(Path(tmp))
+                context = build_active_context(
+                    owner="hamdi",
+                    request_id="req-default-history-existing",
+                    history_filter=lambda owner, rows: list(rows),
+                    goal_reader=lambda owner: None,
+                    goal_is_open=lambda row: False,
+                )
+                after = self._filesystem_snapshot(Path(tmp))
+            refs = [ref for ref in context.recent_references if ref.source == "history"]
+            self.assertEqual([ref.id for ref in refs], [row["id"]])
+            self.assertEqual(after, before)
+
+    def test_default_goal_existing_open_state_is_read_without_source_mutation(self):
+        from modules import goal_executor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "goals"
+            job = {"id": "0123456789abcdef", "owner": "hamdi", "state": "running"}
+            with patch.object(goal_executor, "STORE", store):
+                goal_executor._save(job)
+                before = self._filesystem_snapshot(Path(tmp))
+                context = build_active_context(
+                    owner="hamdi",
+                    request_id="req-default-goal-existing",
+                    history_reader=lambda owner, limit=12: [],
+                    history_filter=lambda owner, rows: list(rows),
+                    goal_is_open=goal_executor.is_open,
+                )
+                after = self._filesystem_snapshot(Path(tmp))
+            self.assertEqual([ref.id for ref in context.active_goal_references], ["0123456789abcdef"])
+            self.assertEqual(after, before)
+
+    def test_default_source_filesystem_is_identical_before_and_after_snapshot(self):
+        from modules import goal_executor, history
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            history_dir = root / "history"
+            goals_dir = root / "goals"
+            with patch.object(history, "DIR", history_dir), patch.object(goal_executor, "STORE", goals_dir):
+                history.append("hamdi", "user", "mevcut konuşma", source="yazı")
+                goal_executor._save({"id": "fedcba9876543210", "owner": "hamdi", "state": "running"})
+                before = self._filesystem_snapshot(root)
+                build_active_context(owner="hamdi", request_id="req-default-fs-stable")
+                after = self._filesystem_snapshot(root)
+            self.assertEqual(after, before)
+
     def test_active_hoca_lesson_is_read_only_context(self):
         lesson = {
             "topic": "Hücre",
@@ -172,11 +269,18 @@ class BrainContextTests(unittest.TestCase):
         profile.save.assert_not_called()
 
     def test_builder_creates_no_second_durable_brain_state(self):
+        from modules import goal_executor, history
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            before = list(root.iterdir())
-            self._build(profile=self._profile())
-            self.assertEqual(list(root.iterdir()), before)
+            history_dir = root / "history"
+            goals_dir = root / "goals"
+            before = self._filesystem_snapshot(root)
+            with patch.object(history, "DIR", history_dir), patch.object(goal_executor, "STORE", goals_dir):
+                build_active_context(owner="hamdi", request_id="req-no-brain-state")
+            self.assertEqual(self._filesystem_snapshot(root), before)
+            self.assertFalse(history_dir.exists())
+            self.assertFalse(goals_dir.exists())
 
     def test_same_input_state_produces_deterministic_snapshot(self):
         session = SimpleNamespace(
