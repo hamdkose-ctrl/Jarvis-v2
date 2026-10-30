@@ -167,7 +167,7 @@ def _history_refs(
     limit: int,
 ) -> tuple[list[ContextReference], ContextReference | None]:
     try:
-        rows = list(reader(owner, limit))
+        rows = list(reader(owner, limit=limit))
         rows = list(reset_filter(owner, rows))
     except Exception:
         return [], _status(owner, "history")
