@@ -96,4 +96,21 @@ class GeminiBillingGateTests(unittest.TestCase):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as raised:smart_router.run('alice','hello',fail)
             self.assertEqual(raised.exception.reason_code,'PROVIDER_POOL_EXHAUSTED');self.assertNotIn('secret',str(raised.exception))
 
+    def test_access_failure_identifies_safe_google_stage(self):
+        class Response:
+            def __init__(self,status,data=None):self.status_code=status;self._data=data or {}
+            def json(self):return self._data
+        session=Mock()
+        session.get.side_effect=[
+            Response(200,{'parent':'projects/892027413193/locations/global','name':'projects/892027413193/locations/global/keys/key-id'}),
+            Response(403),
+        ]
+        with patch.object(billing,'_session',return_value=session):
+            result=billing.verify('alice','AIza-not-a-real-key',interactive=True)
+        self.assertEqual(result['state'],'unverified')
+        self.assertEqual(result['reason_code'],'PROVIDER_ACCOUNT_ACCESS_REQUIRED')
+        self.assertEqual(result['failure_stage'],'project_lookup')
+        self.assertEqual(result['http_status'],403)
+        self.assertNotIn('AIza-not-a-real-key',str(result))
+
 if __name__=='__main__':unittest.main()
