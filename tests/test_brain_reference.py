@@ -65,6 +65,25 @@ class ReferenceResolverContractTests(unittest.TestCase):
         self.assertEqual(self.call("312 numaralı şeyi aç", [one]), ())
         self.assertEqual(self.call("12 numaralı şeyi aç", [one]), (one,))
 
+    def test_numeric_id_requires_explicit_identity_context(self):
+        one = ref("12", "task", text="Rapor")
+        for text in (
+            "12 dakika sonra beni uyar",
+            "saat 12'de toplantım var",
+            "12 TL kaç dolar",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text, [one]), ())
+
+        for text in (
+            "#12'yi aç",
+            "id 12'yi göster",
+            "id: 12",
+            "12 numaralı şeyi aç",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text, [one]), (one,))
+
     def test_exact_title_unique_and_same_title_preserves_ambiguity(self):
         one = ref("n1", "note", title="Toplantı notu")
         two = ref("n2", "note", title="Başka not")
