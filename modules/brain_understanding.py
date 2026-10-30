@@ -59,6 +59,28 @@ _COMMAND_TOKENS = (
     "özetle",
     "ozetle",
 )
+_NOTE_DOMAIN_TOKENS = (
+    "not",
+    "notu",
+    "notum",
+    "notlar",
+    "notları",
+    "notlari",
+    "notlarım",
+    "notlarim",
+    "notlarımı",
+    "notlarimi",
+)
+_WEATHER_DOMAIN_TOKENS = ("hava", "havayı", "havayi", "havanın", "havanin")
+_FILE_DOMAIN_TOKENS = (
+    "dosya",
+    "dosyayı",
+    "dosyayi",
+    "dosyalar",
+    "dosyaları",
+    "dosyalari",
+    "word",
+)
 _PLURAL_REFERENCE_MARKERS = (
     " iki ",
     "ikisini",
@@ -87,6 +109,7 @@ _RECENT_MARKERS = (
     "son gün",
     "son gun",
     "son hafta",
+    "son bir hafta",
     "son ay",
     "son zaman",
     "yakın zamanda",
@@ -106,6 +129,7 @@ _HISTORICAL_MARKERS = (
 _STATIC_MARKERS = (
     " nedir",
     " ne demek",
+    " ne anlama gelir",
     " nasıl çalışır",
     " nasil calisir",
     " kimdir",
@@ -162,7 +186,19 @@ def _contains_command_token(text: str, tokens: Iterable[str] = _COMMAND_TOKENS) 
     return any(_bounded_token(text, token) for token in tokens)
 
 
+def _is_meta_language(text: str) -> bool:
+    if re.fullmatch(r"(?:ara|bul)\s+ne demek\??", text) is not None:
+        return True
+    return re.fullmatch(
+        r"\S+\s+(?:kelimesi|sözcüğü|sozcugu|fiili|sayısı|sayisi)\s+"
+        r"(?:ne demek|ne anlama gelir|nedir)\??",
+        text,
+    ) is not None
+
+
 def _is_bosver_control(text: str) -> bool:
+    if _is_meta_language(text):
+        return False
     return any(re.match(rf"^{re.escape(signal)}(?:$|[\s,;.!])", text) is not None for signal in _BOSVER)
 
 
@@ -207,6 +243,8 @@ def _is_correction(text: str) -> bool:
 
 
 def _looks_like_capability(text: str) -> bool:
+    if _is_meta_language(text):
+        return False
     return _contains_command_token(text)
 
 
@@ -216,6 +254,8 @@ def _plural_reference_intent(text: str) -> bool:
 
 
 def _temporal_need(text: str) -> TemporalNeed:
+    if _is_meta_language(text):
+        return TemporalNeed.STATIC
     if _contains_any(text, _CURRENT_MARKERS):
         return TemporalNeed.CURRENT
     if _contains_any(text, _RECENT_MARKERS):
@@ -228,12 +268,24 @@ def _temporal_need(text: str) -> TemporalNeed:
     return TemporalNeed.UNSURE
 
 
+def _contains_domain_token(text: str, tokens: Iterable[str]) -> bool:
+    return any(_bounded_token(text, token) for token in tokens)
+
+
+def _has_file_domain(text: str) -> bool:
+    if _contains_domain_token(text, _FILE_DOMAIN_TOKENS):
+        return True
+    return re.search(r"\.(?:pdf|doc|docx)(?!\w)", text) is not None
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
-    if ("not" in text or "notlar" in text) and _looks_like_capability(text):
+    if _is_meta_language(text):
+        return None
+    if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _looks_like_capability(text):
         return "notes.read"
-    if "hava" in text:
+    if _contains_domain_token(text, _WEATHER_DOMAIN_TOKENS):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
-    if any(token in text for token in ("dosya", ".pdf", ".doc", "word")) and _looks_like_capability(text):
+    if _has_file_domain(text) and _looks_like_capability(text):
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
