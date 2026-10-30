@@ -212,7 +212,7 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
     if reference.id == "pending_event_title":
         if data is None or "confirm" not in data:
             return None
-        answer = _confirmation(text)
+        answer = _confirmation(text, extra=("ekle", "yine de ekle", "ekle gitsin"))
         return _hit(owner, request_id, "state", "session.pending_event_title.confirm", answer, "BOUNDED_EVENT_CONFIRM") if answer else None
 
     if reference.id == "pending_level":
