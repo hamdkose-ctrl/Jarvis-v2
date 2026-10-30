@@ -69,8 +69,10 @@ class ReferenceResolverContractTests(unittest.TestCase):
         one = ref("n1", "note", title="Toplantı notu")
         two = ref("n2", "note", title="Başka not")
         self.assertEqual(self.call("Toplantı notu", [one, two]), (one,))
+        self.assertEqual(self.call("Toplantı notu hakkında", [one, two]), (one,))
         duplicate_title = ref("n3", "note", title="Toplantı notu")
         self.assertEqual(self.call("Toplantı notu", [one, duplicate_title]), (one, duplicate_title))
+        self.assertEqual(self.call("Toplantı notu hakkında", [one, duplicate_title]), (one, duplicate_title))
 
     def test_same_text_different_ids_are_not_deduped(self):
         one = ref("n1", "note", text="aynı metin")
@@ -84,12 +86,14 @@ class ReferenceResolverContractTests(unittest.TestCase):
                     path=r"C:\Users\Hamdi\Documents\sunum.pdf", name="sunum.pdf")
         self.assertEqual(self.call(r"C:\Users\Hamdi\Documents\rapor.pdf", [one, other]), (one,))
         self.assertEqual(self.call("rapor.pdf", [one, other]), (one,))
+        self.assertEqual(self.call("rapor.pdf’i aç", [one, other]), (one,))
         self.assertEqual(self.call("rapor", [one, other]), (one,))
 
     def test_same_filename_or_stem_different_paths_preserves_ambiguity(self):
         one = ref(r"C:\A\rapor.pdf", "file", path=r"C:\A\rapor.pdf", name="rapor.pdf")
         two = ref(r"C:\B\rapor.pdf", "file", path=r"C:\B\rapor.pdf", name="rapor.pdf")
         self.assertEqual(self.call("rapor.pdf", [one, two]), (one, two))
+        self.assertEqual(self.call("rapor.pdf’i aç", [one, two]), (one, two))
         self.assertEqual(self.call("rapor", [one, two]), (one, two))
 
     def test_file_resolution_is_not_permission(self):
