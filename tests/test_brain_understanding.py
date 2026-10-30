@@ -509,5 +509,86 @@ class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
                 self.assertEqual(self.call(text).temporal_need, expected)
 
 
+class BrainUnderstandingFinalCloseoutTests(BrainUnderstandingReviewRegressionTests):
+    def test_weather_requests_are_capability_with_advisory_hint(self):
+        cases = (
+            ("şu an hava nasıl?", "weather.read.current", TemporalNeed.CURRENT),
+            ("hava nasıl?", "weather.read", TemporalNeed.UNSURE),
+            ("yarın hava nasıl?", "weather.read.current", TemporalNeed.CURRENT),
+        )
+        for text, hint, temporal in cases:
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+                self.assertEqual(result.capability_hint, hint)
+                self.assertEqual(result.temporal_need, temporal)
+                self.assertEqual(authority_keys(result.arguments), set())
+
+    def test_literal_weather_uses_are_chat_without_weather_hint(self):
+        for text in (
+            "hava yolu nedir?",
+            "hava kuvvetleri nedir?",
+            "“hava” kelimesi ne demek?",
+        ):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CHAT)
+                self.assertIsNone(result.capability_hint)
+                self.assertEqual(result.temporal_need, TemporalNeed.STATIC)
+
+    def test_temporal_clear_cases(self):
+        cases = (
+            ("son haber nedir?", TemporalNeed.RECENT),
+            ("yarın hava nasıl?", TemporalNeed.CURRENT),
+            ("dünkü hava nasıldı?", TemporalNeed.HISTORICAL),
+            ("bugünkü dolar kuru ne?", TemporalNeed.CURRENT),
+            ("son bir haftadaki haberler", TemporalNeed.RECENT),
+            ("2020 yılında ne oldu?", TemporalNeed.HISTORICAL),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text).temporal_need, expected)
+
+    def test_meta_static_temporal_variants(self):
+        for text in (
+            "güncel sözcüğünü İngilizceye çevir",
+            "2020 model ne demek?",
+            "güncel olmayan yaklaşım ne demek?",
+            "yakın zamanda ifadesi kaç günü anlatır?",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text).temporal_need, TemporalNeed.STATIC)
+        self.assertEqual(self.call("2020 model araba bugün kaç para?").temporal_need, TemporalNeed.CURRENT)
+
+    def test_literal_command_words_are_not_action_proposals(self):
+        for text in (
+            "bu metinde “sil” yazıyor",
+            "“göster” kelimesini yaz",
+            "“ara” komutu ne anlama gelir?",
+        ):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CHAT)
+                self.assertIsNone(result.capability_hint)
+
+    def test_real_command_words_still_propose_capability(self):
+        cases = (
+            ("dosyayı sil", "files.read"),
+            ("notlarımı göster", "notes.read"),
+            ("internette ara", "research.search"),
+        )
+        for text, hint in cases:
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+                self.assertEqual(result.capability_hint, hint)
+
+    def test_bosver_prefix_keeps_weather_semantics_while_dropping_topic(self):
+        result = self.call("boşver, hava nasıl?")
+        self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
+        self.assertEqual(result.capability_hint, "weather.read")
+        self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+
+
 if __name__ == "__main__":
     unittest.main()
