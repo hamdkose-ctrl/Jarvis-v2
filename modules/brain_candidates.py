@@ -14,6 +14,10 @@ _DEFAULT_PROVIDER_LIMIT = 40
 _MAX_PROVIDER_LIMIT = 100
 
 
+class _OwnerMismatch(ValueError):
+    pass
+
+
 def _required(name: str, value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} boş olamaz.")
@@ -65,7 +69,7 @@ def _profile_refs(owner: str, profile: Any, limit: int) -> list[ContextReference
         return []
     profile_owner = str(getattr(profile, "slug", "") or "")
     if profile_owner and profile_owner != owner:
-        raise ValueError("Profile başka owner'a ait.")
+        raise _OwnerMismatch("Profile başka owner'a ait.")
     data = getattr(profile, "data", None)
     if not isinstance(data, Mapping):
         return []
@@ -209,6 +213,11 @@ def build_candidates(
     refs: list[ContextReference] = []
     # Current/live observations precede profile inventory and memory observations.
     refs.extend(_active_context_refs(owner, active_context, provider_limit))
-    refs.extend(_profile_refs(owner, profile, provider_limit))
+    try:
+        refs.extend(_profile_refs(owner, profile, provider_limit))
+    except _OwnerMismatch:
+        raise
+    except Exception:
+        _record_failure("modules/brain_candidates.py:profile_provider")
     refs.extend(_file_refs(owner, reader, provider_limit))
-    return _dedupe(refs)
+    return _dedupe(refs)[:provider_limit]
