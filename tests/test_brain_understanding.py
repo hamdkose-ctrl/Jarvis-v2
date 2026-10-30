@@ -571,9 +571,10 @@ class BrainUnderstandingFinalCloseoutTests(BrainUnderstandingReviewRegressionTes
                 self.assertEqual(result.request_kind, RequestKind.CHAT)
                 self.assertIsNone(result.capability_hint)
 
-    def test_real_command_words_still_propose_capability(self):
+    def test_read_like_domain_commands_keep_read_hints(self):
         cases = (
-            ("dosyayı sil", "files.read"),
+            ("dosyayı bul", "files.read"),
+            ("dosyayı aç", "files.read"),
             ("notlarımı göster", "notes.read"),
             ("internette ara", "research.search"),
         )
@@ -582,6 +583,18 @@ class BrainUnderstandingFinalCloseoutTests(BrainUnderstandingReviewRegressionTes
                 result = self.call(text)
                 self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
                 self.assertEqual(result.capability_hint, hint)
+
+    def test_destructive_domain_commands_do_not_claim_read_capability(self):
+        cases = (
+            ("dosyayı sil", "files.read"),
+            ("notu sil", "notes.read"),
+        )
+        for text, forbidden_hint in cases:
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+                self.assertNotEqual(result.capability_hint, forbidden_hint)
+                self.assertIsNone(result.capability_hint)
 
     def test_bosver_prefix_keeps_weather_semantics_while_dropping_topic(self):
         result = self.call("boşver, hava nasıl?")
