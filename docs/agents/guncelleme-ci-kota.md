@@ -145,3 +145,9 @@ Watcher PR yorumu yalnız gerçekten çalıştırılan kabul bloklarının adın
 - Router durum tablosu kayıtlı model yerine mevcut backend effective çözümünü gösterir; model yoksa doğrulanamadı yazar. Son çağrı özeti tablodan önce gelir; RAM kaydı yoksa süreç/kullanıcı kaydı yokluğu açıkça belirtilir. Bu düzenleme restart dayanıklı health/last-call depolaması eklemez.
 
 - Durum tablosu effective çözümünde refresh_missing=False kullanır; boş model listesinin negatif önbelleği zorla atlanmaz. Cache süresi dolunca mevcut bounded tags probe davranışı sürer. Gerçek inference çözümünün varsayılan forced missing-model kontrolü korunur.
+
+## Ücretsiz hesap kullanıcı beyanı — 30 Ekim 2026
+- Hamdi kararı: Gemini/Groq konsoldan kontrol edilip kullanıcı tarafından ücretsiz hesap olarak onaylanabilir; ek OAuth/faturalama API bağlantısı şart değildir. Kullanıcı beyanı bağımsız kanıt veya hard-stop garantisi değildir.
+- Mevcut Tercihi Kaydet, yalnız açık True onayında mevcut Gemini/Groq anahtarlarına bağlı provider bazlı beyan kaydeder. Eski cloud_free_confirmed tek başına sessizce dönüştürülmez; bir kez yeniden kaydetmek gerekir. Anahtar değişiminde ilgili sağlayıcı yeniden onay ister; anahtarsız beyan sonradan eklenen anahtarı açmaz. Aynı anahtarla hesap planı dışarıdan değişirse uygulama bunu otomatik bilemez; kullanıcı yeniden kontrol etmeli veya onayı kaldırmalıdır.
+- Kayıt restart sonrası korunur, durum ekranı fingerprint/anahtar göstermez. Yerel mod, owner ayrımı, cooldown ve ücretsiz OpenRouter model sınırı değişmez. F-009 exact-model bağımsız evidence yolu korunur; kullanıcı beyanı onun verified/hard_stop alanlarını doldurmaz.
+- Bu iş yalnız ücretsiz hesap kapısının UI bağlantısıdır. GPT/Claude otomatik izinleri, ücretli bütçe, OpenRouter evidence kurulumu, sağlayıcı sırası ve canlı API/429 kabulü sonraki ayrı işlerdir. Test: test_free_account_confirmation.py; unit PASS canlı faturalama veya inference kanıtı değildir.

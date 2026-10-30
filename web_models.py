@@ -112,7 +112,8 @@ class WebModels:
     def smart_router_save(self, key: str='', model: str | None='openrouter/free', cloud_free_confirmed: bool | None=False) -> dict:
         runtime = self._runtime
         from modules import smart_router
-        state = smart_router.configure(runtime._p().slug, cloud_free_confirmed, model, key=key.strip() or None)
+        state = smart_router.configure(runtime._p().slug, cloud_free_confirmed, model, key=key.strip() or None,
+                                       confirm_free_accounts=cloud_free_confirmed is True)
         if not runtime.llm.gemini_aux_allowed() and runtime._live().get() is not None:
             runtime._live().get().close()
         return {'ok': True, 'msg': 'Model bağlantısı ve seçim tercihleri kaydedildi.', 'status': state}

@@ -1,6 +1,12 @@
 # F-009 — Free-tier evidence ile strict zero-cost routing
 
-## Amaç
+## 30 Ekim 2026 kullanıcı kararı — Gemini/Groq için ayrı beyan yolu
+
+Aşağıdaki strict evidence sözleşmesi bağımsız evidence yolu için korunur. Buna ek olarak Gemini/Groq hesapları için kullanıcı, sağlayıcı konsolunda ücretsiz katmanı ve kapalı ücretli faturalamayı kontrol ederek mevcut UI Tercihi Kaydet ile **kullanıcı beyanı** verebilir. Bu, otomatik faturalama doğrulaması veya hard-stop kanıtı değildir; strict zero-cost garantisi diye sunulmaz.
+
+Beyan owner/provider/anahtar özeti ve zamanıyla saklanır. Anahtar değişirse ilgili beyan geçersizdir; hesap planı dışarıda değişirse kullanıcı tekrar kontrol etmelidir. Otomatik OAuth eklenmez. Eski onay bool'u yeni kayıt sayılmaz. Beyan verified evidence üretmez ve OpenRouter'a uygulanmaz. Anahtar, owner, yerel mod ve cooldown kontrolleri korunur. Modelin gerçek erişimi/kotası çağrı sonucuyla belirlenir.
+
+## Önceki bağımsız evidence yolunun amacı
 
 Mevcut `smart_router` ve `failure_policy` altyapısını değiştirmeden, otomatik cloud rota seçimini yalnız doğrulanmış ve süresi geçmemiş ücretsiz-katman kanıtına bağlamak. Ücretli fallback eklenmez.
 

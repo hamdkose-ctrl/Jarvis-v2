@@ -407,3 +407,6 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - Router durum tablosu kayıtlı model yerine mevcut backend effective çözümünü gösterir; model yoksa doğrulanamadı yazar. Son çağrı özeti tablodan önce gelir; RAM kaydı yoksa süreç/kullanıcı kaydı yokluğu açıkça belirtilir. Bu düzenleme restart dayanıklı health/last-call depolaması eklemez.
 
 - 🔄 Hoca araştırma hata sınırı: kaynak keşif hatası yanlışlıkla genel planlayıcıya geçip ek model beklemesi yaratmaz. Aynı araştırma okuyucusu ve bütçesi korunur; arama hatası güvenli bildirilir, izin/iptal yutulmaz. Gerçek PC Hoca ve model performans kabulü henüz kapanmamıştır.
+
+
+- 🔄 Faz 1 ücretsiz hesap kapısı: kullanıcı konsol kontrolüyle Gemini/Groq ücretsiz hesap beyanı verebilir; mevcut UI onayı anahtara/provider'a bağlanır. Bağımsız doğrulama/hard-stop diye sunulmaz. Anahtar değişimi yeniden onay ister; eski bool sessizce göç edilmez. Canlı provider/429/fallback kabulü ve OpenRouter kurulumu açık; ücretli otomatik izin/bütçe bu kapsamda değildir.
