@@ -49,6 +49,24 @@ def _contains_bounded(text: str, needle: str) -> bool:
         start = idx + 1
 
 
+def _contains_numeric_identity(text: str, ident: str) -> bool:
+    escaped = re.escape(ident)
+    patterns = (
+        rf"(?<!\w)#\s*{escaped}(?!\d)",
+        rf"(?<!\w)id\s*:?\s*{escaped}(?!\d)",
+        rf"(?<!\d){escaped}\s+numaralı\b",
+    )
+    return any(re.search(pattern, text) is not None for pattern in patterns)
+
+
+def _contains_explicit_id(text: str, ident: str) -> bool:
+    if not ident:
+        return False
+    if ident.isdecimal():
+        return _contains_numeric_identity(text, ident)
+    return _contains_bounded(text, ident)
+
+
 def _phrase(text: str, phrase: str) -> bool:
     escaped = re.escape(phrase)
     return re.search(rf"(?<!\w){escaped}(?!\w)", text) is not None
@@ -123,7 +141,7 @@ def resolve_references(
     if not usable:
         return ()
 
-    explicit = tuple(candidate for candidate in usable if _contains_bounded(normalized, _norm(candidate.id)))
+    explicit = tuple(candidate for candidate in usable if _contains_explicit_id(normalized, _norm(candidate.id)))
     if explicit:
         return explicit
 
