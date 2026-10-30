@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from modules.brain_contracts import ActiveContext, ContextReference
+from modules import brain_candidates
 from modules.brain_candidates import build_candidates
 
 
@@ -142,10 +144,13 @@ class CandidateBuilderTests(unittest.TestCase):
         refs = self._build(profile=profile, file_reader=broken)
         self.assertTrue(all(r.owner == "hamdi" for r in refs))
 
-    def test_no_llm_or_model_dependency_is_called(self):
-        model = Mock(side_effect=AssertionError("model çağrılmamalı"))
-        self._build(model=model)
-        model.assert_not_called()
+    def test_no_llm_or_model_dependency_is_present(self):
+        source = inspect.getsource(brain_candidates)
+        self.assertNotIn("modules.llm", source)
+        self.assertNotIn("smart_router", source)
+        self.assertNotIn("router.classify", source)
+        self.assertNotIn("ask(", source)
+        self.assertNotIn("model=", inspect.signature(build_candidates).__str__())
 
     def test_builder_does_not_select_target(self):
         profile = self._profile(tasks=[{"id": 1, "text": "Rapor"}, {"id": 2, "text": "Rapor"}], items=[], events=[])
