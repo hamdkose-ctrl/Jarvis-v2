@@ -30,33 +30,34 @@ _CONTEXT_CONTROL = (
     "konuyu degistir",
 )
 _TOPIC_CHANGE = ("başka konu", "baska konu", "konuyu değiştir", "konuyu degistir")
-_COMMAND_MARKERS = (
-    " göster",
-    " goster",
-    " aç",
-    " ac",
-    " kapat",
-    " oluştur",
-    " olustur",
-    " hazırla",
-    " hazirla",
-    " karşılaştır",
-    " karsilastir",
-    " ara",
-    " bul",
-    " indir",
-    " yükle",
-    " yukle",
-    " sil",
-    " gönder",
-    " gonder",
-    " hatırlat",
-    " hatirlat",
-    " uyar",
-    " planla",
-    " listele",
-    " özetle",
-    " ozetle",
+_BOSVER = ("boşver", "bosver")
+_COMMAND_TOKENS = (
+    "göster",
+    "goster",
+    "aç",
+    "ac",
+    "kapat",
+    "oluştur",
+    "olustur",
+    "hazırla",
+    "hazirla",
+    "karşılaştır",
+    "karsilastir",
+    "ara",
+    "bul",
+    "indir",
+    "yükle",
+    "yukle",
+    "sil",
+    "gönder",
+    "gonder",
+    "hatırlat",
+    "hatirlat",
+    "uyar",
+    "planla",
+    "listele",
+    "özetle",
+    "ozetle",
 )
 _PLURAL_REFERENCE_MARKERS = (
     " iki ",
@@ -140,27 +141,73 @@ def _reference_tuple(name: str, value: object, owner: str) -> tuple[ContextRefer
     return rows
 
 
+def _require_reference_candidates(
+    candidates: tuple[ContextReference, ...],
+    references: tuple[ContextReference, ...],
+) -> None:
+    for reference in references:
+        if not any(reference is candidate for candidate in candidates):
+            raise ValueError("references yalnız supplied candidate nesnelerinden gelmeli.")
+
+
 def _contains_any(text: str, signals: Iterable[str]) -> bool:
     return any(signal in text for signal in signals)
 
 
+def _bounded_token(text: str, token: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(token)}(?!\w)", text) is not None
+
+
+def _contains_command_token(text: str, tokens: Iterable[str] = _COMMAND_TOKENS) -> bool:
+    return any(_bounded_token(text, token) for token in tokens)
+
+
+def _is_bosver_control(text: str) -> bool:
+    return any(re.match(rf"^{re.escape(signal)}(?:$|[\s,;.!])", text) is not None for signal in _BOSVER)
+
+
 def _is_context_control(text: str) -> bool:
-    return any(text == signal or text.startswith(signal + " ") for signal in _CONTEXT_CONTROL)
+    return _is_bosver_control(text) or text in _TOPIC_CHANGE
 
 
 def _is_topic_change(text: str) -> bool:
-    return any(signal in text for signal in _TOPIC_CHANGE)
+    return text in _TOPIC_CHANGE
+
+
+def _replacement_parts(text: str) -> tuple[str, str] | None:
+    if "?" in text:
+        return None
+    cleaned = text.strip().rstrip(".!").strip()
+    had_negative_prefix = False
+    prefix = re.match(r"^(?:hayır|hayir),?\s+", cleaned)
+    if prefix is not None:
+        had_negative_prefix = True
+        cleaned = cleaned[prefix.end():].strip()
+    parts = re.split(r"\s+(?:değil|degil)\s+", cleaned, maxsplit=1)
+    if len(parts) != 2:
+        return None
+    rejected, replacement = (part.strip() for part in parts)
+    if not rejected or not replacement:
+        return None
+    rejected_words = rejected.split()
+    replacement_words = replacement.split()
+    if had_negative_prefix:
+        if 1 <= len(rejected_words) <= 3 and 1 <= len(replacement_words) <= 3:
+            return rejected, replacement
+        return None
+    if len(rejected_words) == 1 and len(replacement_words) == 1:
+        return rejected, replacement
+    return None
 
 
 def _is_correction(text: str) -> bool:
-    if text in {"boşver", "bosver"}:
+    if _is_bosver_control(text):
         return True
-    return " değil " in f" {text} " or " degil " in f" {text} "
+    return _replacement_parts(text) is not None
 
 
 def _looks_like_capability(text: str) -> bool:
-    padded = f" {text} "
-    return _contains_any(padded, _COMMAND_MARKERS)
+    return _contains_command_token(text)
 
 
 def _plural_reference_intent(text: str) -> bool:
@@ -188,9 +235,9 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
     if any(token in text for token in ("dosya", ".pdf", ".doc", "word")) and _looks_like_capability(text):
         return "files.read"
-    if any(token in text for token in ("hatırlat", "hatirlat", "uyar")):
+    if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
-    if any(token in text for token in (" ara", " bul")) and _looks_like_capability(text):
+    if _contains_command_token(text, ("ara", "bul")):
         return "research.search"
     return None
 
@@ -222,27 +269,40 @@ def _is_pr6_protocol_answer(text: str) -> bool:
     return bool(re.fullmatch(r"\d+", text))
 
 
-def _answer_to_pending(text: str, active_context: ActiveContext) -> bool:
+def _looks_like_location_answer(text: str) -> bool:
+    raw = text.strip()
+    if not raw or any(mark in raw for mark in "?!,;:"):
+        return False
+    words = raw.split()
+    if not 1 <= len(words) <= 2:
+        return False
+    for word in words:
+        pieces = re.split(r"[-']", word)
+        if not pieces:
+            return False
+        for piece in pieces:
+            if not piece or not piece.isalpha() or not piece[0].isupper():
+                return False
+    return True
+
+
+def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
     if not active_context.pending_references:
         return False
-    if not text or _is_pr6_protocol_answer(text):
+    if not normalized or _is_pr6_protocol_answer(normalized):
         return False
-    if _is_context_control(text) or _is_correction(text) or _looks_like_capability(text):
+    if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
         return False
-    if _contains_any(text, _GENERIC_CHAT):
+    if _contains_any(normalized, _GENERIC_CHAT):
         return False
-    if "?" in text:
+    if "?" in normalized:
         return False
 
-    words = text.split()
     for pending in active_context.pending_references:
         if pending.kind != "pending_state":
             continue
         field = _pending_field(pending)
-        if "weather_location" in field and 1 <= len(words) <= 4:
-            return True
-        question = pending.provenance.get("question")
-        if isinstance(question, str) and question.strip() and 1 <= len(words) <= 12:
+        if field == "pending_weather_location" and _looks_like_location_answer(text):
             return True
     return False
 
@@ -255,16 +315,11 @@ def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...
 
 def _correction_arguments(original_text: str, normalized: str) -> dict[str, object]:
     arguments: dict[str, object] = {"original_text": original_text}
-    marker = " değil " if " değil " in f" {normalized} " else " degil "
-    padded = f" {normalized} "
-    if marker in padded:
-        left, right = padded.split(marker, 1)
-        rejected = left.strip()
-        replacement = right.strip()
-        if rejected:
-            arguments["rejected_text"] = rejected
-        if replacement:
-            arguments["replacement_text"] = replacement
+    parts = _replacement_parts(normalized)
+    if parts is not None:
+        rejected, replacement = parts
+        arguments["rejected_text"] = rejected
+        arguments["replacement_text"] = replacement
     return arguments
 
 
@@ -288,8 +343,9 @@ def understand(
         raise ValueError("ActiveContext owner eşleşmiyor.")
     if active_context.request_id != request_id:
         raise ValueError("ActiveContext request_id eşleşmiyor.")
-    _reference_tuple("candidates", candidates, owner)
+    candidates = _reference_tuple("candidates", candidates, owner)
     references = _reference_tuple("references", references, owner)
+    _require_reference_candidates(candidates, references)
 
     normalized = _norm(text)
     temporal_need = _temporal_need(normalized)
@@ -302,7 +358,7 @@ def understand(
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
         relation = ConversationRelation.CORRECTION
-    elif _answer_to_pending(normalized, active_context):
+    elif _answer_to_pending(text, normalized, active_context):
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
         relation = ConversationRelation.CONTINUE_ACTIVE
@@ -321,7 +377,7 @@ def understand(
     if topic_change:
         context_actions = (ContextAction.DROP_TOPIC,)
     elif correction:
-        if normalized in {"boşver", "bosver"}:
+        if _is_bosver_control(normalized):
             context_actions = (ContextAction.DROP_TOPIC,)
         else:
             context_actions = (ContextAction.REPLACE_REFERENCE,)
