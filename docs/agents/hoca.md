@@ -151,3 +151,5 @@ Uygulama sırası (rehberlik maddesi çıkarılmış hâliyle):
 - Ders planı ve ortak _ask, ProviderExhaustedError ayrıntısını diagnostics.safe_reason ile sınırlı/redakte gösterir; reason_code/recovery_class HocaError üzerinde korunur. Bilinmeyen exception mesajı gösterilmez. Başarısız planda ders kaydedilmez ve ek model denemesi yapılmaz.
 - Hoca araştırma söz dizimi `hoca modu: araştır fotosentez` biçimindedir; sonuna araştır eklemek mevcut araştırma komutunu seçmez. Bu PR söz dizimini değiştirmez.
 - Kullanıcının son gerçek PC ProviderExhaustedError nedeni henüz bilinmiyor; router durumu çıktısı bekleniyor. Kısa merhaba yerel kabulünün geçmesi 900-token ders çağrısının geçtiğini kanıtlamaz.
+
+- Hoca açık araştırmada search_public hatası HocaError olarak güvenli/redakte bildirilir; kaynak yokken ders/model çağrısı yapılmaz ve genel planlayıcıya None ile düşülmez. Search/extract izin reddi ve iptal engine_tools._study_intent sınırında da aynen yayılır. Arama retry, yeni sağlayıcı veya süre artışı yoktur. İzole regresyon gerçek PC ReadTimeout nedenini kanıtlamaz; canlı Hoca kabulü hâlâ açıktır.

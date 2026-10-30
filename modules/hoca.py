@@ -466,10 +466,18 @@ def _source_from(kind: str, original: str) -> dict:
 def _research_source(topic: str) -> dict:
     """Turn an explicit Hoca research request into one bounded public source."""
     from modules import research_providers
-    candidates = research_providers.search_public(topic)
+    from modules import diagnostics, requests_state
+    try:
+        candidates = research_providers.search_public(topic)
+    except (requests_state.Cancelled, PermissionError):
+        raise
+    except Exception as exc:
+        _record_failure('modules/hoca.py:research_source_search')
+        detail = diagnostics.safe_reason(exc)
+        raise HocaError('Kaynak araması tamamlanamadı; ders başlatılmadı.' +
+                        (' ' + detail if detail else '')) from exc
     if not candidates:
         raise HocaError("Bu konu için açık ve güvenilir bir kaynak bulunamadı.")
-    from modules import requests_state
     for candidate in candidates[:10]:
         requests_state.check()
         try:
