@@ -188,13 +188,11 @@ def build_candidates(
     profile: Any = None,
     file_reader: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
     provider_limit: int = _DEFAULT_PROVIDER_LIMIT,
-    model: Any = None,
 ) -> tuple[ContextReference, ...]:
     """Build bounded candidate references without resolving or authorizing a target.
 
-    ``text`` is validated as the original request text but v1 providers do not
-    infer intent from it. ``model`` is an inert compatibility/test probe and is
-    deliberately never called; semantic model work belongs to later Brain PRs.
+    ``text`` is validated as the original request text. V1 providers deliberately
+    do not infer intent, resolve references, or invoke a model from that text.
     """
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
