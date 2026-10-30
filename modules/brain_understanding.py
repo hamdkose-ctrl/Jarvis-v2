@@ -104,6 +104,8 @@ _CURRENT_MARKERS = (
     "güncel",
     "guncel",
     "mevcut durum",
+    "yarın",
+    "yarin",
 )
 _RECENT_MARKERS = (
     "son gün",
@@ -115,6 +117,7 @@ _RECENT_MARKERS = (
     "yakın zamanda",
     "yakin zamanda",
     "en son haber",
+    "son haber",
 )
 _HISTORICAL_MARKERS = (
     "geçmiş",
@@ -125,6 +128,10 @@ _HISTORICAL_MARKERS = (
     "yilinda",
     "tarihçe",
     "tarihce",
+    "dün",
+    "dun",
+    "dünkü",
+    "dunku",
 )
 _STATIC_MARKERS = (
     " nedir",
@@ -186,14 +193,56 @@ def _contains_command_token(text: str, tokens: Iterable[str] = _COMMAND_TOKENS) 
     return any(_bounded_token(text, token) for token in tokens)
 
 
+def _quoted_terms(text: str) -> tuple[str, ...]:
+    return tuple(match.strip() for match in re.findall(r"[\"“]([^\"”]+)[\"”]", text) if match.strip())
+
+
+def _is_literal_command_usage(text: str) -> bool:
+    quoted = _quoted_terms(text)
+    if not quoted or not any(term in _COMMAND_TOKENS for term in quoted):
+        return False
+    literal_markers = (
+        "metinde",
+        "kelimesi",
+        "kelimesini",
+        "sözcüğü",
+        "sözcüğünü",
+        "sozcugu",
+        "sozcugunu",
+        "komutu",
+        "yazıyor",
+        "yaziyor",
+        " yaz",
+    )
+    return _contains_any(f" {text}", literal_markers)
+
+
 def _is_meta_language(text: str) -> bool:
     if re.fullmatch(r"(?:ara|bul)\s+ne demek\??", text) is not None:
         return True
-    return re.fullmatch(
+    if re.fullmatch(
         r"\S+\s+(?:kelimesi|sözcüğü|sozcugu|fiili|sayısı|sayisi)\s+"
         r"(?:ne demek|ne anlama gelir|nedir)\??",
         text,
-    ) is not None
+    ) is not None:
+        return True
+    if re.fullmatch(
+        r"\S+\s+(?:kelimesini|sözcüğünü|sozcugunu)\s+\S+\s+(?:çevir|cevir)\??",
+        text,
+    ) is not None:
+        return True
+    if re.fullmatch(r"\S+\s+model\s+(?:ne demek|nedir)\??", text) is not None:
+        return True
+    if " ifadesi " in f" {text} " and re.search(
+        r"(?:ne demek|ne anlama gelir|nedir|kaç günü anlatır|kac gunu anlatir)\??$",
+        text,
+    ) is not None:
+        return True
+    if " olmayan " in f" {text} " and re.search(r"(?:ne demek|ne anlama gelir|nedir)\??$", text) is not None:
+        return True
+    if _is_literal_command_usage(text) and re.search(r"(?:ne demek|ne anlama gelir|nedir)\??$", text) is not None:
+        return True
+    return False
 
 
 def _is_bosver_control(text: str) -> bool:
@@ -243,7 +292,7 @@ def _is_correction(text: str) -> bool:
 
 
 def _looks_like_capability(text: str) -> bool:
-    if _is_meta_language(text):
+    if _is_meta_language(text) or _is_literal_command_usage(text):
         return False
     return _contains_command_token(text)
 
@@ -278,18 +327,28 @@ def _has_file_domain(text: str) -> bool:
     return re.search(r"\.(?:pdf|doc|docx)(?!\w)", text) is not None
 
 
+def _is_weather_request(text: str) -> bool:
+    if _is_meta_language(text) or _is_literal_command_usage(text):
+        return False
+    if not _contains_domain_token(text, _WEATHER_DOMAIN_TOKENS):
+        return False
+    if re.search(r"(?<!\w)hava\s+(?:yolu|kuvvetleri)(?!\w)", text) is not None:
+        return False
+    return re.search(r"(?<!\w)hava(?!\w).*\b(?:nasıl|nasil|nasıldı|nasildi)\b", text) is not None
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
-    if _is_meta_language(text):
+    if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
     if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _looks_like_capability(text):
         return "notes.read"
-    if _contains_domain_token(text, _WEATHER_DOMAIN_TOKENS):
+    if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
     if _has_file_domain(text) and _looks_like_capability(text):
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
-    if _contains_command_token(text, ("ara", "bul")):
+    if _looks_like_capability(text) and _contains_command_token(text, ("ara", "bul")):
         return "research.search"
     return None
 
@@ -405,6 +464,7 @@ def understand(
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
+    weather_request = _is_weather_request(normalized)
 
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
@@ -421,7 +481,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif _looks_like_capability(normalized):
+    elif weather_request or _looks_like_capability(normalized):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
