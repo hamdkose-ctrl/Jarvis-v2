@@ -10,6 +10,7 @@ import math
 from typing import Any, Callable, Iterable, Mapping
 
 from modules.brain_contracts import ActiveContext, ContextReference
+from modules.diagnostics import record_failure as _record_failure
 
 _HISTORY_LIMIT = 12
 _PENDING_FIELDS = (
@@ -102,6 +103,7 @@ def _session_state(owner: str, store: Any) -> tuple[Any | None, ContextReference
         with (lock if lock is not None else nullcontext()):
             state = states.get(owner)
     except Exception:
+        _record_failure("modules/brain_context.py:session_state")
         return None, _status(owner, "session_state")
     explicit_owner = getattr(state, "owner", owner) if state is not None else owner
     if explicit_owner != owner:
@@ -170,6 +172,7 @@ def _history_refs(
         rows = list(reader(owner, limit=limit))
         rows = list(reset_filter(owner, rows))
     except Exception:
+        _record_failure("modules/brain_context.py:history")
         return [], _status(owner, "history")
     refs = []
     for row in rows:
@@ -204,6 +207,7 @@ def _goal_refs(
     try:
         row = reader(owner)
     except Exception:
+        _record_failure("modules/brain_context.py:goal_read")
         return [], _status(owner, "goal_state")
     if not isinstance(row, Mapping):
         return [], None
@@ -213,6 +217,7 @@ def _goal_refs(
     try:
         open_now = bool(is_open(row))
     except Exception:
+        _record_failure("modules/brain_context.py:goal_open")
         return [], _status(owner, "goal_state")
     if not open_now:
         return [], None
