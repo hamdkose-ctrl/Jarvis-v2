@@ -4,7 +4,7 @@ import dataclasses
 import json
 import unittest
 
-from modules import worker_result
+from modules import brain_contracts, worker_result
 from modules.brain_contracts import (
     ActiveContext,
     BrainFeedback,
@@ -32,6 +32,9 @@ class BrainContractsTests(unittest.TestCase):
             relevance=Confidence.MEDIUM,
         )
 
+    def understanding(self, **kwargs):
+        return UnderstandingResult(owner="hamdi", request_id="req-1", **kwargs)
+
     def worker_row(self, status="succeeded"):
         return {
             "schema": worker_result.SCHEMA,
@@ -56,7 +59,55 @@ class BrainContractsTests(unittest.TestCase):
         fields = {field.name for field in dataclasses.fields(UnderstandingResult)}
         self.assertFalse(fields & forbidden)
         with self.assertRaises(TypeError):
-            UnderstandingResult(request_kind=RequestKind.CHAT, allowed=True)
+            UnderstandingResult(
+                owner="hamdi", request_id="req-1",
+                request_kind=RequestKind.CHAT, allowed=True,
+            )
+
+    def test_understanding_result_rejects_empty_owner(self):
+        with self.assertRaises(ValueError):
+            UnderstandingResult(owner="", request_id="req-1", request_kind=RequestKind.CHAT)
+
+    def test_understanding_result_rejects_empty_request_id(self):
+        with self.assertRaises(ValueError):
+            UnderstandingResult(owner="hamdi", request_id="", request_kind=RequestKind.CHAT)
+
+    def test_understanding_result_rejects_reference_from_other_owner(self):
+        with self.assertRaises(ValueError):
+            self.understanding(
+                request_kind=RequestKind.CAPABILITY,
+                references=(self.ref(owner="hasan"),),
+            )
+
+    def test_understanding_result_accepts_matching_owner_reference(self):
+        result = self.understanding(
+            request_kind=RequestKind.CAPABILITY,
+            references=(self.ref(owner="hamdi"),),
+        )
+        self.assertEqual(result.owner, "hamdi")
+        self.assertEqual(result.request_id, "req-1")
+        self.assertEqual(result.references[0].owner, result.owner)
+
+    def test_understanding_result_rejects_top_level_reserved_argument_key(self):
+        with self.assertRaises(ValueError):
+            self.understanding(
+                request_kind=RequestKind.CAPABILITY,
+                arguments={"permission": "allow"},
+            )
+
+    def test_understanding_result_rejects_nested_reserved_argument_key(self):
+        with self.assertRaises(ValueError):
+            self.understanding(
+                request_kind=RequestKind.CAPABILITY,
+                arguments={"metadata": {"permission_granted": True}},
+            )
+
+    def test_understanding_result_accepts_normal_capability_arguments(self):
+        result = self.understanding(
+            request_kind=RequestKind.CAPABILITY,
+            arguments={"path": "rapor.xlsx", "filters": {"days": [1, 7]}},
+        )
+        self.assertEqual(result.to_dict()["arguments"]["path"], "rapor.xlsx")
 
     def test_active_context_requires_owner_and_request_identity(self):
         with self.assertRaises(ValueError):
@@ -71,6 +122,9 @@ class BrainContractsTests(unittest.TestCase):
                 request_id="req-1",
                 recent_references=(self.ref(owner="hasan"),),
             )
+
+    def test_active_context_is_the_only_working_state_name(self):
+        self.assertFalse(hasattr(brain_contracts, "WorkingState"))
 
     def test_context_and_reference_are_json_compatible(self):
         context = ActiveContext(
@@ -89,7 +143,7 @@ class BrainContractsTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             ref.provenance["path"] = "baska.xlsx"
 
-        result = UnderstandingResult(
+        result = self.understanding(
             request_kind=RequestKind.CAPABILITY,
             arguments={"filters": {"days": [1, 7]}},
         )
@@ -99,7 +153,7 @@ class BrainContractsTests(unittest.TestCase):
             result.arguments["filters"]["days"] = ()
 
     def test_low_confidence_can_carry_real_ambiguity(self):
-        result = UnderstandingResult(
+        result = self.understanding(
             request_kind=RequestKind.CLARIFY,
             confidence=Confidence.LOW,
             ambiguities=("Hangi rapor kastediliyor?",),
@@ -110,7 +164,7 @@ class BrainContractsTests(unittest.TestCase):
         self.assertTrue(result.needs_input)
 
     def test_clarify_can_carry_candidate_references(self):
-        result = UnderstandingResult(
+        result = self.understanding(
             request_kind=RequestKind.CLARIFY,
             references=(self.ref(), self.ref(ident="ref-2")),
             confidence=Confidence.LOW,
@@ -119,8 +173,23 @@ class BrainContractsTests(unittest.TestCase):
         )
         self.assertEqual(len(result.references), 2)
 
+    def test_clarify_requires_needs_input(self):
+        with self.assertRaises(ValueError):
+            self.understanding(
+                request_kind=RequestKind.CLARIFY,
+                ambiguities=("Hangi rapor?",),
+                needs_input=False,
+            )
+
+    def test_needs_input_requires_ambiguity_or_candidate_reference(self):
+        with self.assertRaises(ValueError):
+            self.understanding(
+                request_kind=RequestKind.CAPABILITY,
+                needs_input=True,
+            )
+
     def test_context_action_is_advisory_not_goalstate_cancel_or_permission(self):
-        result = UnderstandingResult(
+        result = self.understanding(
             request_kind=RequestKind.CONTEXT_CONTROL,
             context_actions=(ContextAction.DROP_ACTIVE_TASK_REFERENCE,),
         )
@@ -174,7 +243,7 @@ class BrainContractsTests(unittest.TestCase):
 
     def test_contract_rejects_executable_callback(self):
         with self.assertRaises(ValueError):
-            UnderstandingResult(
+            self.understanding(
                 request_kind=RequestKind.CAPABILITY,
                 arguments={"callback": lambda: None},
             )
@@ -186,9 +255,9 @@ class BrainContractsTests(unittest.TestCase):
 
     def test_unknown_enum_values_fail_closed(self):
         with self.assertRaises(ValueError):
-            UnderstandingResult(request_kind="DO_SOMETHING")
+            self.understanding(request_kind="DO_SOMETHING")
         with self.assertRaises(ValueError):
-            UnderstandingResult(
+            self.understanding(
                 request_kind=RequestKind.CHAT,
                 conversation_relation="MAYBE",
             )
