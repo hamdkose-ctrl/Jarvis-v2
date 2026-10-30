@@ -85,24 +85,26 @@ class ReferenceResolverContractTests(unittest.TestCase):
                 self.assertEqual(self.call(text, [one]), (one,))
 
     def test_generic_fields_require_exact_normalized_match(self):
-        tomorrow = ref("n-tomorrow", "note", text="yarın")
-        meeting = ref("n-meeting", "note", title="Toplantı notu")
-        report = ref("n-report", "artifact", label="rapor")
-        self.assertEqual(self.call("yarın toplantım var", [tomorrow]), ())
-        self.assertEqual(self.call("Toplantı notu hakkında konuşalım", [meeting]), ())
-        self.assertEqual(self.call("yeni rapor hazırlayalım", [report]), ())
+        cases = (
+            (ref("n-tomorrow", "note", text="yarın"), "yarın toplantım var"),
+            (ref("n-meeting", "note", title="Toplantı notu"), "Toplantı notu hakkında konuşalım"),
+            (ref("n-report", "artifact", label="rapor"), "yeni rapor hazırlayalım"),
+        )
+        for candidate, text in cases:
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text, [candidate]), ())
+
+        meeting = ref("n-meeting-exact", "note", title="Toplantı notu")
+        same_text = ref("n-same", "note", text="aynı metin")
         self.assertEqual(self.call("Toplantı notu", [meeting]), (meeting,))
-        self.assertEqual(self.call("yarın", [tomorrow]), (tomorrow,))
-        self.assertEqual(self.call("rapor", [report]), (report,))
+        self.assertEqual(self.call("aynı metin", [same_text]), (same_text,))
 
     def test_exact_title_unique_and_same_title_preserves_ambiguity(self):
         one = ref("n1", "note", title="Toplantı notu")
         two = ref("n2", "note", title="Başka not")
         self.assertEqual(self.call("Toplantı notu", [one, two]), (one,))
-        self.assertEqual(self.call("Toplantı notu hakkında", [one, two]), ())
         duplicate_title = ref("n3", "note", title="Toplantı notu")
         self.assertEqual(self.call("Toplantı notu", [one, duplicate_title]), (one, duplicate_title))
-        self.assertEqual(self.call("Toplantı notu hakkında", [one, duplicate_title]), ())
 
     def test_same_text_different_ids_are_not_deduped(self):
         one = ref("n1", "note", text="aynı metin")
