@@ -1,0 +1,366 @@
+from __future__ import annotations
+
+import inspect
+import unittest
+
+from modules.brain_contracts import (
+    ActiveContext,
+    Confidence,
+    ContextAction,
+    ContextReference,
+    ConversationRelation,
+    RequestKind,
+    TemporalNeed,
+)
+from modules.brain_understanding import understand
+
+
+OWNER = "hamdi"
+RID = "req-understanding-1"
+RESERVED = {
+    "allowed",
+    "permission",
+    "permission_granted",
+    "approved",
+    "authorized",
+    "completed",
+    "done",
+    "effect_allowed",
+    "execute",
+}
+
+
+def ref(ident: str, kind: str, *, source: str = "test", **provenance) -> ContextReference:
+    return ContextReference(
+        id=ident,
+        kind=kind,
+        source=source,
+        owner=OWNER,
+        provenance=provenance,
+    )
+
+
+def ctx(*, owner: str = OWNER, request_id: str = RID, topic: str | None = None, **groups) -> ActiveContext:
+    return ActiveContext(owner=owner, request_id=request_id, topic=topic, **groups)
+
+
+def authority_keys(value) -> set[str]:
+    found: set[str] = set()
+    if isinstance(value, dict) or hasattr(value, "items"):
+        for key, item in value.items():
+            if isinstance(key, str) and key in RESERVED:
+                found.add(key)
+            found.update(authority_keys(item))
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            found.update(authority_keys(item))
+    return found
+
+
+class BrainUnderstandingTests(unittest.TestCase):
+    def call(
+        self,
+        text: str,
+        *,
+        active_context: ActiveContext | None = None,
+        candidates=(),
+        references=(),
+        owner: str = OWNER,
+        request_id: str = RID,
+    ):
+        return understand(
+            owner=owner,
+            request_id=request_id,
+            text=text,
+            active_context=active_context or ctx(),
+            candidates=tuple(candidates),
+            references=tuple(references),
+        )
+
+    def test_owner_request_and_context_fences_fail_closed(self):
+        with self.assertRaises(ValueError):
+            self.call("merhaba", owner="")
+        with self.assertRaises(ValueError):
+            self.call("merhaba", request_id="")
+        with self.assertRaises(ValueError):
+            self.call("merhaba", active_context=ctx(owner="other"))
+        with self.assertRaises(ValueError):
+            self.call("merhaba", active_context=ctx(request_id="other"))
+
+    def test_cross_owner_reference_fails_closed(self):
+        foreign = ContextReference(id="x", kind="note", source="test", owner="other")
+        with self.assertRaises(ValueError):
+            self.call("x", references=(foreign,))
+        with self.assertRaises(ValueError):
+            self.call("x", candidates=(foreign,))
+
+    def test_new_request_is_default_without_context_claim(self):
+        result = self.call("kuantum dolanıklık nedir?")
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+
+    def test_answer_to_open_pending_requires_semantic_fit(self):
+        pending = ref(
+            "pending_weather_location",
+            "pending_state",
+            source="session_state",
+            field="pending_weather_location",
+        )
+        active = ctx(pending_references=(pending,))
+        result = self.call("İstanbul", active_context=active, candidates=(pending,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertNotEqual(result.request_kind, RequestKind.CLARIFY)
+
+    def test_pending_exists_alone_is_not_answer_to_pending(self):
+        pending = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        active = ctx(pending_references=(pending,))
+        result = self.call("merhaba nasılsın", active_context=active, candidates=(pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_weather_pending_does_not_consume_unrelated_request(self):
+        pending = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        active = ctx(pending_references=(pending,))
+        result = self.call("notlarımı göster", active_context=active, candidates=(pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+
+    def test_exact_yes_no_and_bounded_number_are_left_to_pr6(self):
+        pending = ref("pending_choice", "pending_state", field="pending_choice")
+        active = ctx(pending_references=(pending,))
+        for text in ("evet", "hayır", "2"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_continue_active_when_resolved_reference_is_active(self):
+        task = ref("task-42", "task", text="Raporu bitir")
+        active = ctx(active_task_references=(task,))
+        result = self.call("ona devam et", active_context=active, candidates=(task,), references=(task,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.CONTINUE_ACTIVE)
+        self.assertIs(result.references[0], task)
+
+    def test_pdf_not_word_is_correction_without_durable_reset(self):
+        result = self.call("PDF değil Word")
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertIn(ContextAction.REPLACE_REFERENCE, result.context_actions)
+        self.assertNotIn(ContextAction.RESET_SESSION_CONTEXT, result.context_actions)
+
+    def test_onu_degil_otekini_is_reference_correction(self):
+        one = ref("file-a", "file", name="a.pdf")
+        two = ref("file-b", "file", name="b.pdf")
+        result = self.call("onu değil ötekini", candidates=(one, two), references=(one, two))
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertIn(ContextAction.REPLACE_REFERENCE, result.context_actions)
+
+    def test_bosver_is_context_control_but_not_completion(self):
+        result = self.call("boşver")
+        self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+        self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+        self.assertFalse(hasattr(result, "completed"))
+
+    def test_baska_konu_is_topic_change(self):
+        result = self.call("başka konu")
+        self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
+        self.assertEqual(result.conversation_relation, ConversationRelation.TOPIC_CHANGE)
+        self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+
+    def test_temporal_need_static(self):
+        self.assertEqual(self.call("Python nedir?").temporal_need, TemporalNeed.STATIC)
+
+    def test_temporal_need_current(self):
+        self.assertEqual(self.call("şu an hava nasıl?").temporal_need, TemporalNeed.CURRENT)
+
+    def test_temporal_need_recent(self):
+        self.assertEqual(self.call("son günlerde teknoloji haberleri").temporal_need, TemporalNeed.RECENT)
+
+    def test_temporal_need_historical(self):
+        self.assertEqual(self.call("2020 yılında ne oldu?").temporal_need, TemporalNeed.HISTORICAL)
+
+    def test_temporal_need_unsure(self):
+        self.assertEqual(self.call("bunun hakkında konuşalım").temporal_need, TemporalNeed.UNSURE)
+
+    def test_no_requires_current_data_parallel_field(self):
+        result = self.call("şu an hava nasıl?")
+        self.assertFalse(hasattr(result, "requires_current_data"))
+        self.assertNotIn("requires_current_data", result.to_dict())
+
+    def test_request_kind_chat(self):
+        self.assertEqual(self.call("merhaba nasılsın").request_kind, RequestKind.CHAT)
+
+    def test_request_kind_capability(self):
+        result = self.call("notlarımı göster")
+        self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(result.capability_hint, "notes.read")
+
+    def test_request_kind_context_control(self):
+        self.assertEqual(self.call("başka konu").request_kind, RequestKind.CONTEXT_CONTROL)
+
+    def test_singular_target_with_multiple_references_clarifies(self):
+        one = ref(r"C:\A\rapor.pdf", "file", path=r"C:\A\rapor.pdf", name="rapor.pdf")
+        two = ref(r"C:\B\rapor.pdf", "file", path=r"C:\B\rapor.pdf", name="rapor.pdf")
+        result = self.call("rapor.pdf'i aç", candidates=(one, two), references=(one, two))
+        self.assertEqual(result.request_kind, RequestKind.CLARIFY)
+        self.assertTrue(result.needs_input)
+        self.assertTrue(result.ambiguities)
+
+    def test_clarify_always_needs_input(self):
+        one = ref("a", "file", name="rapor.pdf")
+        two = ref("b", "file", name="rapor.pdf")
+        result = self.call("rapor.pdf'i aç", candidates=(one, two), references=(one, two))
+        self.assertTrue(result.needs_input)
+        self.assertEqual(result.request_kind, RequestKind.CLARIFY)
+
+    def test_needs_input_is_never_emitted_without_real_reason(self):
+        result = self.call("notlarımı göster")
+        self.assertFalse(result.needs_input)
+        self.assertFalse(result.ambiguities)
+
+    def test_multiple_references_are_not_automatically_ambiguous(self):
+        one = ref("f1", "file", name="a.pdf")
+        two = ref("f2", "file", name="b.pdf")
+        result = self.call("bu iki dosyayı karşılaştır", candidates=(one, two), references=(one, two))
+        self.assertNotEqual(result.request_kind, RequestKind.CLARIFY)
+        self.assertFalse(result.needs_input)
+        self.assertEqual(result.references, (one, two))
+
+    def test_no_candidate_never_creates_fake_reference(self):
+        result = self.call("rapor.pdf'i aç")
+        self.assertEqual(result.references, ())
+
+    def test_reference_identity_is_preserved(self):
+        candidate = ref("n1", "note", title="Notum")
+        result = self.call("Notum", candidates=(candidate,), references=(candidate,))
+        self.assertEqual(result.references, (candidate,))
+        self.assertIs(result.references[0], candidate)
+
+    def test_capability_hint_is_advisory_not_authority(self):
+        result = self.call("notlarımı göster")
+        self.assertEqual(result.capability_hint, "notes.read")
+        self.assertFalse(authority_keys(result.arguments))
+        for attr in ("allowed", "permission", "permission_granted", "authorized", "effect_allowed", "execute"):
+            self.assertFalse(hasattr(result, attr))
+
+    def test_reserved_authority_argument_keys_are_never_produced(self):
+        samples = (
+            "notlarımı göster",
+            "rapor.pdf'i aç",
+            "şu an hava nasıl?",
+            "boşver",
+            "PDF değil Word",
+        )
+        for text in samples:
+            with self.subTest(text=text):
+                self.assertEqual(authority_keys(self.call(text).arguments), set())
+
+    def test_memory_approved_and_done_are_non_authority_provenance(self):
+        approved = ref("m1", "memory", source="memory", approved=True, text="tercih")
+        done = ref("m2", "memory", source="memory", done=True, text="eski iş")
+        active = ctx(memory_references=(approved, done))
+        result = self.call("yeni bir şey konuşalım", active_context=active, candidates=(approved, done))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual(authority_keys(result.arguments), set())
+        self.assertFalse(hasattr(result, "permission"))
+        self.assertFalse(hasattr(result, "completed"))
+
+    def test_context_actions_are_canonical_enum_only(self):
+        for text in ("boşver", "başka konu", "PDF değil Word"):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertTrue(all(isinstance(action, ContextAction) for action in result.context_actions))
+
+    def test_original_user_text_is_preserved_as_semantic_source(self):
+        text = "  PDF değil Word  "
+        result = self.call(text)
+        self.assertEqual(result.arguments["original_text"], text)
+
+    def test_reason_codes_are_safe_labels_not_chain_of_thought(self):
+        result = self.call("PDF değil Word")
+        self.assertTrue(result.reason_codes)
+        for code in result.reason_codes:
+            self.assertLessEqual(len(code), 64)
+            self.assertRegex(code, r"^[A-Z0-9_]+$")
+            self.assertNotIn("because", code.casefold())
+            self.assertNotIn("çünkü", code.casefold())
+
+    def test_deterministic_fallback(self):
+        first = self.call("bunun hakkında konuşalım")
+        second = self.call("bunun hakkında konuşalım")
+        self.assertEqual(first, second)
+        self.assertEqual(first.confidence, Confidence.MEDIUM)
+
+    def test_malformed_inputs_fail_safe_without_model_repair(self):
+        with self.assertRaises(ValueError):
+            understand(owner=OWNER, request_id=RID, text=object(), active_context=ctx(), candidates=(), references=())
+        with self.assertRaises(ValueError):
+            understand(owner=OWNER, request_id=RID, text="x", active_context=ctx(), candidates=[], references=())
+        with self.assertRaises(ValueError):
+            understand(owner=OWNER, request_id=RID, text="x", active_context=ctx(), candidates=(), references=[])
+
+    def test_provider_independent_public_surface(self):
+        params = inspect.signature(understand).parameters
+        self.assertEqual(
+            tuple(params),
+            ("owner", "request_id", "text", "active_context", "candidates", "references"),
+        )
+        for forbidden in ("model", "provider", "gemini", "groq", "ollama", "openai"):
+            self.assertNotIn(forbidden, params)
+
+    def test_no_permission_effect_worker_completion_or_durable_brain_state(self):
+        import modules.brain_understanding as module
+
+        source = inspect.getsource(module).casefold()
+        forbidden = (
+            "nxapi.allowed",
+            "permission_granted",
+            "effect_allowed",
+            "worker.run",
+            "task_workers",
+            "goal_executor",
+            "sessionstore(",
+            "goalstate(",
+            ".save(",
+            ".write(",
+            "json.dump",
+            "completed=true",
+            "done=true",
+        )
+        for token in forbidden:
+            self.assertNotIn(token, source)
+
+    def test_no_second_sessionstore_or_goalstate_and_no_source_reads(self):
+        import modules.brain_understanding as module
+
+        source = inspect.getsource(module).casefold()
+        forbidden = (
+            "brain_context.build_active_context",
+            "brain_candidates.build_candidates",
+            "session_store",
+            "goal_state",
+            "history.read",
+            "profile(",
+            "nxapi.list_files",
+            "open(",
+            "requests.",
+            "urllib",
+            "socket",
+        )
+        for token in forbidden:
+            self.assertNotIn(token, source)
+
+    def test_no_model_provider_invocation_or_semantic_output_repair_path(self):
+        import modules.brain_understanding as module
+
+        source = inspect.getsource(module).casefold()
+        for token in ("openai", "gemini", "groq", "ollama", "modules.llm", "smart_router", "embedding", "model.generate"):
+            self.assertNotIn(token, source)
+
+    def test_production_wiring_is_not_in_understanding_module(self):
+        import modules.brain_understanding as module
+
+        source = inspect.getsource(module).casefold()
+        for token in ("modules.main", "modules.engine", "web.py", "nx.js", "live.py", "brainfeedback"):
+            self.assertNotIn(token, source)
+
+
+if __name__ == "__main__":
+    unittest.main()
