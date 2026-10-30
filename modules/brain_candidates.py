@@ -5,6 +5,7 @@ grant permission, run effects, call models, or own durable state.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Iterable, Mapping
 
 from modules.brain_contracts import ActiveContext, ContextReference
@@ -119,16 +120,27 @@ def _active_context_refs(owner: str, context: ActiveContext, limit: int) -> list
 
 
 def _default_file_reader(*, limit: int) -> Iterable[Mapping[str, Any]]:
-    """Observe nxapi inventory without calling list_files(), which creates/cache-mutates state."""
+    """Observe nxapi inventory without creating directories or refreshing its cache."""
     from modules import nxapi
 
     rows = None
     lock = getattr(nxapi, "_FILE_CACHE_LOCK", None)
     cache = getattr(nxapi, "_FILE_CACHE", None)
+    ttl = getattr(nxapi, "_FILE_TTL", 0.0)
     if lock is not None and isinstance(cache, dict):
         with lock:
             cached = cache.get("rows")
-            if isinstance(cached, list):
+            cached_at = cache.get("ts")
+            fresh = (
+                isinstance(cached, list)
+                and isinstance(cached_at, (int, float))
+                and not isinstance(cached_at, bool)
+                and isinstance(ttl, (int, float))
+                and not isinstance(ttl, bool)
+                and ttl > 0
+                and (time.monotonic() - cached_at) < ttl
+            )
+            if fresh:
                 rows = list(cached)
     if rows is None:
         rows = list(nxapi._scan_files())
