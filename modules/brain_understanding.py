@@ -59,6 +59,18 @@ _COMMAND_TOKENS = (
     "özetle",
     "ozetle",
 )
+_READ_LIKE_TOKENS = (
+    "göster",
+    "goster",
+    "aç",
+    "ac",
+    "bul",
+    "listele",
+    "özetle",
+    "ozetle",
+    "karşılaştır",
+    "karsilastir",
+)
 _NOTE_DOMAIN_TOKENS = (
     "not",
     "notu",
@@ -297,6 +309,10 @@ def _looks_like_capability(text: str) -> bool:
     return _contains_command_token(text)
 
 
+def _has_read_like_command(text: str) -> bool:
+    return _contains_command_token(text, _READ_LIKE_TOKENS)
+
+
 def _plural_reference_intent(text: str) -> bool:
     padded = f" {text} "
     return _contains_any(padded, _PLURAL_REFERENCE_MARKERS)
@@ -340,11 +356,11 @@ def _is_weather_request(text: str) -> bool:
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
-    if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _looks_like_capability(text):
+    if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _has_read_like_command(text):
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
-    if _has_file_domain(text) and _looks_like_capability(text):
+    if _has_file_domain(text) and _has_read_like_command(text):
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
