@@ -7,8 +7,7 @@ _NO_EXACT = {
     'kapatma', 'düzenleme', 'duzenleme', 'onaylamıyorum', 'onaylamiyorum',
     'istemiyorum', 'yapma',
 }
-_NO_WORD = (r'(?:hayır|hayir|iptal|boşver|bosver|gönderme|gonderme|kapatma|'
-            r'düzenleme|duzenleme|onaylamıyorum|onaylamiyorum|istemiyorum|yapma|vazgeç\w*|vazgec\w*)')
+_NO_WORD = r'(?:hayır|hayir|iptal|boşver|bosver|gönderme|gonderme|kapatma|düzenleme|duzenleme|onaylamıyorum|onaylamiyorum|istemiyorum|yapma|vazgeç\w*|vazgec\w*)'
 _YES_WORD = r'(?:evet|tamam|olur|onayla|onaylıyorum|onayliyorum)'
 
 
