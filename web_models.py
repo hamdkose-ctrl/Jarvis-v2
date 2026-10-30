@@ -54,6 +54,47 @@ class WebModels:
         runtime = self._runtime
         return runtime.llm.model_check(bool(force))
 
+    def gemini_profile_models(self, tier: str='free', key: str='') -> dict:
+        from modules import model_health
+        from google import genai
+        runtime=self._runtime;owner=runtime._p().slug
+        if owner != runtime.llm.current_user():raise PermissionError('Aktif kullanıcı değişmiş.')
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        if runtime.llm.privacy.mode() in ('yerel','gizli'):raise PermissionError('Yerel/gizli modda bulut model listesi alınmaz.')
+        if not isinstance(key,str) or len(key)>1000 or '\n' in key or '\r' in key:raise ValueError('Anahtar biçimi geçersiz.')
+        key=key.strip() or runtime.llm.user_key(owner,tier=tier)
+        result=model_health.check(owner,key,runtime.llm.model_names(owner,tier=tier),genai.Client,force=True)
+        ok=result['state'] in ('ok','missing_models')
+        return {'ok':ok,'models':result.get('available_models',[]),
+                'msg':'Model listesi erişim bilgisidir; ücretsiz kota veya fiyat garantisi değildir.' if ok else result.get('message','Model listesi alınamadı.')}
+
+    def gemini_profile_save(self, tier: str, key: str='', model: str='', fallback: str='') -> dict:
+        from modules import user_models
+        import re
+        runtime=self._runtime;owner=runtime._p().slug
+        if owner != runtime.llm.current_user():raise PermissionError('Aktif kullanıcı değişmiş.')
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        if not isinstance(key,str) or len(key)>1000 or re.search(r'[\r\n]',key):raise ValueError('Anahtar biçimi geçersiz.')
+        current=runtime.llm.model_names(owner,tier=tier)
+        names=[model.strip() or (current[0] if current else '')]+[v.strip() for v in fallback.split(',') if v.strip()]
+        if len(names)>8 or any(not re.fullmatch(r'[A-Za-z0-9._/-]{1,150}',v) for v in names):raise ValueError('Geçerli ana model ve en fazla 7 yedek model seç.')
+        user_models.save(owner,names,tier=tier)
+        if key.strip():runtime.llm.set_user_key(owner,key.strip(),tier=tier)
+        return {'ok':True,'msg':'Gemini '+('ücretsiz' if tier=='free' else 'ücretli')+' anahtar/model ayarları kaydedildi. Model çağrısı yapılmadı; kullanım izni açılmadı.'}
+
+    def gemini_billing_check(self, tier: str='free') -> dict:
+        from modules import gemini_billing
+        runtime=self._runtime;owner=runtime._p().slug
+        if tier not in ('free','paid'):raise ValueError('Geçersiz Gemini katmanı.')
+        key=runtime.llm.user_key(owner) if tier=='free' else runtime.llm.user_key(owner,tier='paid')
+        result=gemini_billing.verify(owner,key,interactive=True);state=result['state']
+        messages={
+            'billing_disabled':'Bu anahtarın projesinde ücretli faturalama kapalı. Ücretsiz model erişimi ve kota ayrıca değerlendirilir.',
+            'billing_enabled':'Bu anahtarın projesinde ücretli faturalama açık. Ücretsiz bağlantı olarak doğrulanmadı; ücretli kullanım izni açılmadı.',
+            'unverified':'Faturalama durumu doğrulanamadı. Google salt okunur bağlantısını ve proje erişimini kontrol et.'}
+        if tier=='paid' and state=='billing_enabled':messages[state]='Bu ücretli Gemini projesinde faturalama açık. Ücretli kullanım izni açılmadı.'
+        return {'ok':state==('billing_disabled' if tier=='free' else 'billing_enabled'),'msg':messages[state],'billing':result}
+
     def llm_status(self) -> dict:
         runtime = self._runtime
         st = runtime.llm.status()

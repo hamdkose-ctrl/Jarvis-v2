@@ -62,15 +62,17 @@ def key_state(slug: str | None = None) -> dict:
     return {"user": target or "", "configured": bool(k), "provider": provider()}
 
 
-def _key_file(slug: str):
+def _key_file(slug: str, tier: str = 'free'):
     from config import DATA_DIR
-    return DATA_DIR / "keys" / f"{slug}.txt"
+    if tier not in ('free','paid'):raise ValueError('Gemini katmanı free veya paid olmalı.')
+    if not re.fullmatch(r'[\w-]{1,100}',slug or ''):raise ValueError('Kullanıcı geçersiz.')
+    return DATA_DIR / "keys" / (f"{slug}.txt" if tier=='free' else f"{slug}.gemini-paid.txt")
 
 
-def user_key(slug: str | None) -> str:
+def user_key(slug: str | None, *, tier: str = 'free') -> str:
     if not slug:
         return ""
-    f = _key_file(slug)
+    f = _key_file(slug,tier)
     try:
         return privacy.unprotect(f.read_text(encoding="utf-8")).strip() if f.exists() else ""
     except (OSError, ValueError):
@@ -78,16 +80,16 @@ def user_key(slug: str | None) -> str:
         return ""
 
 
-def set_user_key(slug: str, key: str | None) -> None:
+def set_user_key(slug: str, key: str | None, *, tier: str = 'free') -> None:
     """Kullanıcının kendi anahtarını korumalı kaydeder; boş verilirse yalnız o kullanıcının anahtarı silinir."""
-    f = _key_file(slug)
+    f = _key_file(slug,tier)
     with _client_lock:
         if key and key.strip():
             f.parent.mkdir(exist_ok=True)
             f.write_text(privacy.protect(key.strip()), encoding="utf-8")
         elif f.exists():
             f.unlink()
-        _user_clients.pop(slug, None)
+        _user_clients.pop(slug if tier=='free' else (slug,'paid'), None)
 
 
 
@@ -747,8 +749,9 @@ def quota_wait_seconds(owner=None) -> int:
     return min(left) if left and all(left) else 0
 
 
-def model_names(owner=None):
+def model_names(owner=None, *, tier='free'):
     from modules import user_models
+    if tier != 'free':return user_models.get(owner if owner is not None else current_user(), [],tier=tier)
     return user_models.get(owner if owner is not None else current_user(), _MODELS)
 
 
@@ -762,12 +765,13 @@ def active_model(owner=None):
     return names[idx]
 
 
-def model_settings(owner, model, fallbacks):
+def model_settings(owner, model, fallbacks, *, tier='free'):
     from modules import user_models
-    current=model_names(owner)
-    names=[model.strip() or current[0]] + list(fallbacks)
-    user_models.save(owner, names)
-    return model_names(owner)
+    current=model_names(owner,tier=tier)
+    names=[model.strip() or (current[0] if current else '')] + list(fallbacks)
+    if tier=='free':user_models.save(owner,names)
+    else:user_models.save(owner,names,tier=tier)
+    return model_names(owner,tier=tier)
 
 
 def _metered(call, chars_in, kind='gemini'):

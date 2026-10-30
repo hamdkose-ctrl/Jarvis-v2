@@ -407,3 +407,5 @@ Medya düzenleme, ses sağlayıcısı, yedekleme, akıllı ev ve toplu işleme g
 - Router durum tablosu kayıtlı model yerine mevcut backend effective çözümünü gösterir; model yoksa doğrulanamadı yazar. Son çağrı özeti tablodan önce gelir; RAM kaydı yoksa süreç/kullanıcı kaydı yokluğu açıkça belirtilir. Bu düzenleme restart dayanıklı health/last-call depolaması eklemez.
 
 - 🔄 Hoca araştırma hata sınırı: kaynak keşif hatası yanlışlıkla genel planlayıcıya geçip ek model beklemesi yaratmaz. Aynı araştırma okuyucusu ve bütçesi korunur; arama hatası güvenli bildirilir, izin/iptal yutulmaz. Gerçek PC Hoca ve model performans kabulü henüz kapanmamıştır.
+
+- 🔄 Faz 1 Gemini hesap ayrımı geliştirme checkpoint: ayrı ücretsiz/ücretli anahtar-model kayıtları, Models API seçimi, ayrı salt okunur OAuth ile anahtarın gerçek projesinin billingInfo kontrolü. Router kapısı, ücretli izin/bütçe/runtime ve canlı kabul henüz açık. Kullanıcı beyanı gerçek faturalama kanıtı yerine geçmez; #452 merge edilmez.
