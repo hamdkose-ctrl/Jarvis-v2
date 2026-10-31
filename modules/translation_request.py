@@ -70,6 +70,20 @@ def parse(command):
     return Request(target=target, inline=inline, wants_assistant=bool(re.search(r'son (?:cevab|yanit)|ozet', low)))
 
 
+# "X'e çevir" where X is not a language ("bunu tabloya çevir", "kodu pythona çevir", "bu fotoğrafı çevir",
+# "ekrandaki yazıyı çevir") asks for another capability (table, codegen, photo, desktop). The legacy chain
+# answered those BEFORE it reached translation; Brain must not take them first.
+_OTHER_TARGET = re.compile(
+    r"(?<!\w)(?:tablo\w*|grafik\w*|pdf\w*|excel\w*|word\w*|docx?\w*|xlsx?\w*|csv\w*|json\w*|html\w*|markdown\w*|"
+    r"python\w*|java\w*|kod\w*|code\w*|ses\w*|sesli\w*|ses\s+dosya\w*|foto\w*|resim\w*|görsel\w*|gorsel\w*|"
+    r"ekran\w*|pencere\w*)")
+
+
+def non_text_target(command):
+    """True when a short 'çevir' sentence names a non-language target/object; the other capability owns it."""
+    return len(command) < 100 and _OTHER_TARGET.search(lower(command)) is not None
+
+
 def pick_source(request, command, rows: Iterable[Mapping[str, Any]], now=None):
     """(metin, köken, satır id) ya da ('', None, None). rows: sıfırlama kesitinden sonraki geçmiş, eskiden yeniye.
 

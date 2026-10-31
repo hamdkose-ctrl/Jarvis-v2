@@ -399,7 +399,7 @@ def _translate_proposal(text: str, candidates: tuple[ContextReference, ...]):
     The single grammar and source rule live in modules.translation_request (shared with the legacy chain)."""
     from modules import translation_request
     request = translation_request.parse(text)
-    if request is None:
+    if request is None or translation_request.non_text_target(text):
         return None, {}
     turns = sorted(
         ({"id": ref.id, "role": ref.provenance.get("role"), "text": ref.provenance.get("text"),

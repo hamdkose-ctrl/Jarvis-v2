@@ -130,3 +130,43 @@ class EndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NonTextTargetTests(unittest.TestCase):
+    """'bunu tabloya çevir' & co. belong to table/codegen/photo/desktop paths, never to text translation."""
+    SENTENCES = ("bunu tabloya çevir", "kodu pythona çevir", "bu fotoğrafı çevir", "ekrandaki yazıyı çevir",
+                 "bunu pdf'e çevir", "bunu excele çevir", "bunu sese çevir")
+
+    def understand(self, text):
+        return brain_understanding.understand(owner=fx.OWNER, request_id=fx.RID, text=text, active_context=fx.context(),
+                                              candidates=(turn("t1", "user", "merhaba dünya"),), references=())
+
+    def test_other_capability_sentences_are_not_text_translation(self):
+        for text in self.SENTENCES:
+            r = self.understand(text)
+            self.assertNotEqual(r.capability_hint, "text.translate", text)
+            self.assertNotIn("translate", r.arguments, text)
+
+    def test_real_language_targets_still_translate(self):
+        for text in ("bunu ingilizceye çevir", "merhaba nasılsın almancaya çevir", "çevir: günaydın"):
+            self.assertEqual(self.understand(text).capability_hint, "text.translate", text)
+
+    def test_guard_is_what_keeps_them_out_mutation(self):
+        with patch("modules.translation_request.non_text_target", return_value=False):
+            hits = [t for t in self.SENTENCES if self.understand(t).capability_hint == "text.translate"]
+        self.assertGreaterEqual(len(hits), 5, hits)   # without the guard they all become translations
+
+    def test_end_to_end_none_of_them_reach_core_translate(self):
+        rows = [{"id": "h1", "role": "user", "text": "merhaba dünya", "ts": NOW}]
+        case = EndToEndTests("test_translation_runs_core_translate_with_brain_text_and_not_legacy_resolver")
+        case.setUp()
+        try:
+            case.rows = rows
+            for text in self.SENTENCES:
+                try:
+                    entry, out, handle, dispatch = case.run_text(text)
+                except Exception:   # the legacy owner may need models; only the Core route matters here
+                    continue
+                self.assertFalse(any(c[0][1] == "translate" for c in dispatch.call_args_list), text)
+        finally:
+            case.doCleanups()

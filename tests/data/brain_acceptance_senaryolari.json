@@ -1066,6 +1066,61 @@
         "goal_question": "answer"
       },
       "not": "Closeout-B3b: soru bekleyen hedefe gelen cümle; cevap sayılır."
+    },
+    {
+      "id": "b4b-nottext-1",
+      "group": "ceviri",
+      "text": "bunu tabloya çevir",
+      "forbid": {
+        "capability_hint": [
+          "text.translate"
+        ]
+      },
+      "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
+    },
+    {
+      "id": "b4b-nottext-2",
+      "group": "ceviri",
+      "text": "kodu pythona çevir",
+      "forbid": {
+        "capability_hint": [
+          "text.translate"
+        ]
+      },
+      "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
+    },
+    {
+      "id": "b4b-nottext-3",
+      "group": "ceviri",
+      "text": "bu fotoğrafı çevir",
+      "forbid": {
+        "capability_hint": [
+          "text.translate"
+        ]
+      },
+      "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
+    },
+    {
+      "id": "b4b-nottext-4",
+      "group": "ceviri",
+      "text": "ekrandaki yazıyı çevir",
+      "forbid": {
+        "capability_hint": [
+          "text.translate"
+        ]
+      },
+      "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
+    },
+    {
+      "id": "b4b-nottext-5",
+      "group": "ceviri",
+      "text": "bunu pdf'e çevir",
+      "forbid": {
+        "capability_hint": [
+          "text.translate"
+        ]
+      },
+      "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
     }
   ]
 }
