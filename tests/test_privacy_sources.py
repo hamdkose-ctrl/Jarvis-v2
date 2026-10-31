@@ -24,6 +24,31 @@ class PublicProvenanceTests(unittest.TestCase):
         for source in ("", "WEB_SEARCH", " web_search", None, 7, ("web_search",), "web_search\n"):
             self.assertIs(classify([mark_public(source, "x")]), RouteClass.PRIVATE, repr(source))
 
+    def test_str_subclass_and_homoglyph_source_ids_are_private(self):
+        class Sneaky(str):
+            pass
+        for source in (Sneaky("web_search"), "web_seаrch", "ｗeb_search", "web_search\u200b"):  # Cyrillic а, fullwidth, ZWSP
+            label = mark_public(source, "x")
+            self.assertIs(label.route, RouteClass.PRIVATE, repr(source))
+            self.assertIs(classify([label]), RouteClass.PRIVATE, repr(source))
+
+    def test_genuine_label_with_str_subclass_source_is_not_public(self):
+        class Sneaky(str):
+            pass
+        genuine = mark_public("web_search", "x")
+        object.__setattr__(genuine, "source_id", Sneaky("web_search"))
+        self.assertIs(classify([genuine]), RouteClass.PRIVATE)
+
+    def test_classify_never_raises_on_hostile_iterables(self):
+        class Boom:
+            def __iter__(self):
+                raise RuntimeError("boom")
+        def gen():
+            yield mark_public("web_search", "x")
+            raise RuntimeError("boom")
+        self.assertIs(classify(Boom()), RouteClass.PRIVATE)
+        self.assertIs(classify(gen()), RouteClass.PRIVATE)
+
     def test_forged_dict_labels_are_private(self):
         forged = [
             {"privacy": "PUBLIC", "source": "web_search", "payload": "x"},

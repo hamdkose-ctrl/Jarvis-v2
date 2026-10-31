@@ -15,6 +15,10 @@ The guarantee is at rule and test level: code inside the process can still reach
 (in-process tampering is out of scope); ``dataclasses.replace``, hand-built labels, subclasses,
 dicts and pickles can not mint PUBLIC.
 
+A label proves where data came from, not what it contains. Producers must label their output at the
+binding point (P0-3), and ``mark_public`` over content that was already PRIVATE (history, memory,
+a ``mark_private`` payload) is forbidden by design rule.
+
 This module is a contract; nothing in the request path calls it yet (wired by the Router, P0-3).
 """
 from __future__ import annotations
@@ -22,6 +26,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
+
+from modules.diagnostics import record_failure as _record_failure
 
 
 class RouteClass(str, Enum):
@@ -60,17 +66,17 @@ class Labeled:
 
 def mark_public(source_id: str, payload: Any) -> Labeled:
     """Label payload PUBLIC when ``source_id`` is allowlisted; otherwise it stays PRIVATE."""
-    if isinstance(source_id, str) and source_id in PUBLIC_SOURCE_ALLOWLIST:
+    if type(source_id) is str and source_id in PUBLIC_SOURCE_ALLOWLIST:
         label = object.__new__(Labeled)  # skips __init__/__post_init__; the only PUBLIC minting path
         for name, value in (("payload", payload), ("source_id", source_id),
                             ("route", RouteClass.PUBLIC), ("_issuer", _ISSUER)):
             object.__setattr__(label, name, value)
         return label
-    return Labeled(payload, str(source_id) if isinstance(source_id, str) else "", RouteClass.PRIVATE)
+    return Labeled(payload, (source_id if type(source_id) is str else ""), RouteClass.PRIVATE)
 
 
 def mark_private(source_id: str, payload: Any) -> Labeled:
-    return Labeled(payload, str(source_id) if isinstance(source_id, str) else "", RouteClass.PRIVATE)
+    return Labeled(payload, (source_id if type(source_id) is str else ""), RouteClass.PRIVATE)
 
 
 def item_route(item: object) -> RouteClass:
@@ -78,7 +84,7 @@ def item_route(item: object) -> RouteClass:
     if type(item) is not Labeled:
         return RouteClass.PRIVATE
     if (item.route is RouteClass.PUBLIC and item._issuer is _ISSUER
-            and isinstance(item.source_id, str) and item.source_id in PUBLIC_SOURCE_ALLOWLIST):
+            and type(item.source_id) is str and item.source_id in PUBLIC_SOURCE_ALLOWLIST):
         return RouteClass.PUBLIC
     return RouteClass.PRIVATE
 
@@ -108,5 +114,6 @@ def classify(items: Iterable[object]) -> RouteClass:
     """PUBLIC only when every item is a genuine allowlisted PUBLIC label; otherwise PRIVATE."""
     try:
         return RouteContext(items).route
-    except TypeError:
+    except Exception:
+        _record_failure('modules/privacy_sources.py:classify')
         return RouteClass.PRIVATE
