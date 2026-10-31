@@ -1,0 +1,29 @@
+name: PR487 token scope fix
+on:
+  push:
+    branches:
+      - gpt/brain-notes-final-authority
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/brain-notes-final-authority
+          fetch-depth: 0
+      - name: Remove note-only verbs from global command tokens
+        shell: powershell
+        run: py -3.13 -X utf8 scripts/pr487_token_scope_fix.py
+      - name: Commit patch and remove one-shot assets
+        shell: powershell
+        run: |
+          git config user.name "jarvis-ci"
+          git config user.email "jarvis-ci@users.noreply.github.com"
+          git add -A
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "fix: keep note mutation verbs scoped to notes grammar"
+            git push origin HEAD:gpt/brain-notes-final-authority
+          }
