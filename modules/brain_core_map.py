@@ -46,6 +46,23 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
 }
 
 
+# Capability hints Understanding may emit that are NOT dispatched from the proposal. Each one has a
+# named legacy owner that parses the raw text itself; the hint stays advisory until that owner gets a
+# validated Core intent. A hint with neither a Core intent nor an owner here is a drift error (tested).
+LEGACY_OWNED_HINTS: dict[str, str] = {
+    "notes.read": "engine_tools._extra_commands (kb/tasks.handle)",
+    "files.read": "engine_commands._file_command",
+    "reminder.propose": "engine_tools._planner_command",
+    "research.search": "task intent (goal_executor) via _legacy_route_projection",
+}
+
+
+def hint_owner(hint: str) -> str | None:
+    if hint in CORE_INTENTS:
+        return "core:" + CORE_INTENTS[hint][0]
+    return LEGACY_OWNED_HINTS.get(hint)
+
+
 def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
     """Return (core_intent, validated_args) or None when the hint is not Core-mapped/invalid."""
     entry = CORE_INTENTS.get(hint or "")

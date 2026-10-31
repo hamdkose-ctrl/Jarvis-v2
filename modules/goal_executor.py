@@ -885,7 +885,11 @@ def handle(runtime,command):
     if explicit and explicit[1].split(None,1)[0].casefold().strip(' .!?') not in {'iptal','devam','sürdür','surdur','onayla','yanıtla'}:
         return run(runtime,explicit[1].strip())
     if job and job['state']=='question' and age(job)<=QUESTION_SECONDS:
-        from modules.work_modes import ends_with_action
-        if not ends_with_action(command) and not _is_fast_command(command):return run(runtime,command,resume=True)
+        from modules import brain_entry
+        superseded=brain_entry.goal_question_superseded(runtime)
+        if superseded is None:
+            from modules.work_modes import ends_with_action  # Brain'e girmeyen tek çağıran (Live): PR9 caller-zero
+            superseded=ends_with_action(command)
+        if not superseded and not _is_fast_command(command):return run(runtime,command,resume=True)
     return None
 
