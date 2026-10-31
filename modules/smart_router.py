@@ -16,6 +16,13 @@ _HEALTH = {}
 _LAST = {}
 _STORE = DATA_DIR / 'router'
 _CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'openrouter'})
+_FREE_PREFERENCES = frozenset({'gemini', 'groq', 'ollama', 'openrouter'})
+_TASK_ORDERS = {
+    'vision': ['gemini', 'ollama'],
+    'code': ['gemini', 'groq', 'ollama'],
+    'analysis': ['gemini', 'groq', 'ollama'],
+    'chat': ['groq', 'gemini', 'ollama'],
+}
 _EVIDENCE_MODELS_MAX = 32
 
 
@@ -205,50 +212,101 @@ def _skip(provider, reason, reason_code, seconds=0, model=''):
     return row
 
 
-def selection(owner,task):
+def provider_allowed(owner, provider, model=None, *, task=None):
+    """Read-only strict zero-cost decision for one provider/model.
+
+    The helper reuses the canonical Router evidence/cooldown policy. It never records
+    evidence, changes preference, calls a provider, or grants paid consent.
+    """
     from modules import llm
+    provider = str(provider or '').strip().casefold()
+    if provider not in _FREE_PREFERENCES:
+        return {'ok':False,'reason_code':'PROVIDER_TASK_UNSUPPORTED',
+                'reason':'Bu sağlayıcı strict zero-cost Router havuzunda değil.','model':str(model or '')}
+    if privacy.mode() == 'yerel':
+        if provider == 'ollama':
+            return {'ok':True,'reason_code':None,'reason':'Yerel mod yalnız yerel sağlayıcıya izin verir.','model':str(model or '')}
+        return {'ok':False,'reason_code':'PROVIDER_LOCAL_MODE','reason':'Yerel modda bulut kapalı.','model':str(model or '')}
+    if task and provider != 'openrouter' and provider not in _TASK_ORDERS.get(task, ()):
+        return {'ok':False,'reason_code':'PROVIDER_TASK_UNSUPPORTED','reason':'Bu görev türü desteklenmiyor.','model':str(model or '')}
+    if provider == 'ollama':
+        return {'ok':True,'reason_code':None,'reason':'Yerel sağlayıcı strict zero-cost havuzunda kullanılabilir.','model':str(model or '')}
+
+    state = settings(owner)
+    if not state.get('cloud_free_confirmed'):
+        return {'ok':False,'reason_code':'PROVIDER_FREE_ACCOUNT_UNCONFIRMED','reason':'Ücretsiz hesap onayı yok.','model':str(model or '')}
+    if provider == 'gemini':
+        resolved_model = str(model or llm.active_model(owner) or '')
+        has_key = bool(llm.user_key(owner))
+    elif provider == 'groq':
+        resolved_model = str(model or llm.groq_model() or '')
+        has_key = bool(llm.user_groq_key(owner))
+    else:
+        resolved_model = str(model or state.get('openrouter_model') or 'openrouter/free')
+        if resolved_model != 'openrouter/free' and not resolved_model.endswith(':free'):
+            return {'ok':False,'reason_code':'PROVIDER_FREE_TIER_NOT_ELIGIBLE',
+                    'reason':'OpenRouter otomatik rota yalnız openrouter/free veya :free model kullanabilir.',
+                    'model':resolved_model}
+        has_key = bool(api_key(owner))
+    if not has_key:
+        return {'ok':False,'reason_code':'PROVIDER_CONFIGURATION_REQUIRED',
+                'reason':'Bu kullanıcı için API anahtarı eksik.','model':resolved_model}
+    gate = _evidence_gate(owner, provider, resolved_model)
+    if not gate['ok']:
+        return {**gate, 'model':resolved_model}
+    with _LOCK:
+        seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
+    if seconds:
+        return {'ok':False,'reason_code':'PROVIDER_COOLDOWN',
+                'reason':'Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede.',
+                'seconds':seconds,'model':resolved_model}
+    return {'ok':True,'reason_code':None,'reason':'Doğrulanmış ücretsiz rota kullanılabilir.',
+            'model':resolved_model,'evidence':gate.get('evidence')}
+
+
+def selection(owner,task,preferred=None):
+    if task not in _TASK_ORDERS:
+        raise ValueError('Router görev türü geçersiz.')
+    preferred = str(preferred or '').strip().casefold()
+    if preferred not in _FREE_PREFERENCES:
+        preferred = ''
     if privacy.mode()=='yerel':
-        return {'candidates':['ollama'],'skipped':[
-            _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq')]}
-    state=settings(owner)
-    orders={'vision':['gemini','ollama'],'code':['gemini','groq','ollama'],
-            'analysis':['gemini','groq','ollama'],'chat':['groq','gemini','ollama']}
-    models={'gemini':llm.active_model(owner),'groq':llm.groq_model()}
+        skipped=[_skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq')]
+        if preferred=='openrouter':
+            skipped.append(_skip('openrouter','Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE'))
+        return {'candidates':['ollama'],'skipped':skipped}
+
+    order=list(_TASK_ORDERS[task])
+    if preferred == 'openrouter':
+        order.insert(0,'openrouter')
+    elif preferred in order:
+        order.remove(preferred);order.insert(0,preferred)
+    universe=['gemini','groq','ollama']
+    if preferred=='openrouter':
+        universe.append('openrouter')
     selected=[];skipped=[]
-    for provider in ('gemini','groq','ollama'):
-        reason=None;reason_code=None;seconds=0;model=models.get(provider,'')
-        if provider not in orders[task]:
-            reason='Bu görev türü desteklenmiyor';reason_code='PROVIDER_TASK_UNSUPPORTED'
-        elif provider!='ollama' and not state.get('cloud_free_confirmed'):
-            reason='Ücretsiz hesap onayı yok';reason_code='PROVIDER_FREE_ACCOUNT_UNCONFIRMED'
-        elif provider=='gemini' and not llm.user_key(owner):
-            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
-        elif provider=='groq' and not llm.user_groq_key(owner):
-            reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
-        elif provider!='ollama':
-            gate=_evidence_gate(owner,provider,model)
-            if not gate['ok']:
-                reason=gate['reason'];reason_code=gate['reason_code']
-        if reason is None:
-            with _LOCK:seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
-            if seconds:
-                reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede';reason_code='PROVIDER_COOLDOWN'
-        if reason:skipped.append(_skip(provider,reason,reason_code,seconds,model))
-        else:selected.append(provider)
-    return {'candidates':[p for p in orders[task] if p in selected],'skipped':skipped}
+    for provider in universe:
+        decision=provider_allowed(owner,provider,task=task)
+        model=str(decision.get('model') or '')
+        if decision['ok']:
+            selected.append(provider)
+        else:
+            skipped.append(_skip(provider,decision['reason'],decision['reason_code'],
+                                 int(decision.get('seconds') or 0),model))
+    return {'candidates':[p for p in order if p in selected],'skipped':skipped}
 
 
-def wait_seconds(owner, task='analysis'):
+def wait_seconds(owner, task='analysis', preferred=None):
     """Hiç uygun sağlayıcı kalmadıysa ve en az biri bekleme (kota/hata) içindeyse kalan en kısa saniye; yoksa 0."""
-    row = selection(owner, task)
+    row = selection(owner, task, preferred=preferred)
     if row['candidates']:
         return 0
     waits = [int(item.get('seconds') or 0) for item in row['skipped'] if item.get('seconds')]
     return min(waits) if waits else 0
 
 
-def candidates(owner, task):
-    return selection(owner,task)['candidates']
+def candidates(owner, task, preferred=None):
+    return selection(owner,task,preferred=preferred)['candidates']
 
 
 def failure_kind(exc):
@@ -291,16 +349,14 @@ def _free_emergency(owner, attempted):
     """Optional last-resort free route. It never enables paid models or bypasses local privacy mode."""
     if privacy.mode()=='yerel' or 'openrouter' in attempted:return False
     state=settings(owner)
-    if not state.get('cloud_free_confirmed') or not api_key(owner):return False
     model=state.get('openrouter_model') or 'openrouter/free'
-    if model!='openrouter/free' and not model.endswith(':free'):return False
-    return _evidence_gate(owner,'openrouter',model)['ok']
+    return provider_allowed(owner,'openrouter',model=model)['ok']
 
 
-def run(owner, prompt, callback, image=False):
+def run(owner, prompt, callback, image=False, preferred=None):
     task = task_type(prompt, image)
     attempts = []
-    route = selection(owner,task)
+    route = selection(owner,task,preferred=preferred)
     selected=list(route['candidates'])
     skipped=list(route['skipped'])
     providers=list(selected)
