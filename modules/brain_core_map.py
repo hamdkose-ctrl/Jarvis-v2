@@ -91,7 +91,7 @@ def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Core re-validates the research proposal. Brain can never claim PUBLIC provenance."""
+    """Core validates the proposal; execution still consumes the original user command."""
     row = arguments.get("research")
     if not isinstance(row, Mapping) or set(row) - {"query", "route"}:
         return None
@@ -142,8 +142,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "reminder.propose": ("reminder", _reminder_args),
     # Read-only: all notes or one resolved note; other notes.read operations stay legacy-owned.
     "notes.read": ("notes_read", _notes_args),
-    # Explicit public-web research request; Brain proposes a PRIVATE route only.
-    "research.search": ("research", _research_args),
+    # Explicit public-web research request. Existing Core task/GoalExecutor remains the execution owner;
+    # it consumes the raw command, so a Brain-proposed rewritten query can never become executable text.
+    "research.search": ("task", _research_args),
     # Text translation; the source text is a Brain-selected turn / inline text (see brain_entry.core_plan).
     "text.translate": ("translate", _translate_args),
 }
