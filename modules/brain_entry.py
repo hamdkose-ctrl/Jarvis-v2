@@ -676,6 +676,22 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     return output, result, job_id
 
 
+def goal_question_superseded() -> bool | None:
+    """Brain's decision whether this request replaces a goal's open question instead of answering it.
+
+    None when the request did not come through the canonical entry (Live): the caller keeps its
+    legacy rule until PR9. A new capability, a context-control request or a topic change supersedes
+    the question; any other utterance is the answer."""
+    entry = current()
+    if entry is None:
+        return None
+    semantic = entry.understanding
+    if semantic is None:
+        return False
+    return (semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL}
+            or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE)
+
+
 def matched_protocol(*protocols: str) -> bool:
     entry = current()
     return bool(entry is not None and entry.state_gate.matched and entry.state_gate.protocol in protocols)
