@@ -13,8 +13,14 @@ import re
 from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
-from modules.brain_understanding import (FILE_SUMMARIZE, FILE_TARGET_UNRESOLVED, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED,
-                                         TRANSLATE_SOURCE_MISSING)
+from modules.brain_understanding import (
+    FILE_SUMMARIZE,
+    FILE_TARGET_UNRESOLVED,
+    LEVEL_CAPABILITY,
+    LEVEL_UNSPECIFIED,
+    RESEARCH_MAX_QUERY,
+    TRANSLATE_SOURCE_MISSING,
+)
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
 
@@ -84,6 +90,20 @@ def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates the proposal; execution still consumes the original user command."""
+    row = arguments.get("research")
+    if not isinstance(row, Mapping) or set(row) - {"query", "route"}:
+        return None
+    query = row.get("query")
+    if row.get("route") != "PRIVATE" or not isinstance(query, str):
+        return None
+    query = query.strip()
+    if not 0 < len(query) <= RESEARCH_MAX_QUERY or "\x00" in query:
+        return None
+    return {"query": query, "route": "PRIVATE"}
+
+
 _TRANSLATE_ORIGINS = frozenset({"inline", "assistant", "user"})
 MAX_TRANSLATE_CHARS = 20000
 
@@ -122,6 +142,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "reminder.propose": ("reminder", _reminder_args),
     # Read-only: all notes or one resolved note; other notes.read operations stay legacy-owned.
     "notes.read": ("notes_read", _notes_args),
+    # Explicit public-web research request. Existing Core task/GoalExecutor remains the execution owner;
+    # it consumes the raw command, so a Brain-proposed rewritten query can never become executable text.
+    "research.search": ("task", _research_args),
     # Text translation; the source text is a Brain-selected turn / inline text (see brain_entry.core_plan).
     "text.translate": ("translate", _translate_args),
 }
@@ -130,13 +153,12 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
 # Capability hints Understanding may emit that are NOT dispatched from the proposal. Each one has a
 # named legacy owner that parses the raw text itself; the hint stays advisory until that owner gets a
 # validated Core intent. A hint with neither a Core intent nor an owner here is a drift error (tested).
-LEGACY_OWNED_HINTS: dict[str, str] = {
-    "research.search": "task intent (goal_executor) via _legacy_route_projection",
-}
+LEGACY_OWNED_HINTS: dict[str, str] = {}
 
 
 # Hints that are Core-mapped for some operations; the rest of the hint is still owned by this legacy path.
 PARTIAL_CORE_HINTS: dict[str, str] = {
+    "research.search": "ara/bul cümleleri açık web araştırma ipucu taşımıyorsa (mail/dosya/sayfa/not/deiktik): eski handler + goal_executor",
     "notes.read": "main_planner notlar dalları + engine_tools._extra_commands (kb/tasks.handle) (oku/say/sil/düzelt/özetle)",
     "files.read": "engine_commands._file_command + legacy handler (göster/aç/bul/listele/karşılaştır)",
 }

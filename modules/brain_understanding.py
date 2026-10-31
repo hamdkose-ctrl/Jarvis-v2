@@ -234,7 +234,7 @@ def _is_literal_command_usage(text: str) -> bool:
 
 
 def _is_meta_language(text: str) -> bool:
-    if re.fullmatch(r"(?:ara|bul)\s+ne demek\??", text) is not None:
+    if re.fullmatch(r"(?:ara|bul|araştır|arastir)\s+ne demek\??", text) is not None:
         return True
     if re.fullmatch(
         r"\S+\s+(?:kelimesi|sözcüğü|sozcugu|fiili|sayısı|sayisi)\s+"
@@ -373,6 +373,35 @@ def _is_weather_request(text: str) -> bool:
     return re.search(r"(?<!\w)hava(?!\w).*\b(?:nasıl|nasil|nasıldı|nasildi)\b", text) is not None
 
 
+RESEARCH_MAX_QUERY = 1000
+_RESEARCH_WEB_CUE = re.compile(r"(?<!\w)(?:internet\w*|web\w*|google\w*|haber\w*|araştır\w*|arastir\w*)")
+_RESEARCH_PRIVATE_TARGET = re.compile(
+    r"(?<!\w)(?:bunu|şunu|sunu|onu|mail\w*|e-?posta\w*|dosya\w*|belge\w*|not\w*|takvim\w*|"
+    r"sayfa\w*|site\w*|izleme|listem\w*|hesab\w*|gelen)(?!\w)"
+)
+
+
+def _is_explicit_research_request(text: str) -> bool:
+    """True only for an explicit public-web research ask; private/deictic targets stay with their owner."""
+    if _is_meta_language(text) or _is_literal_command_usage(text):
+        return False
+    if _RESEARCH_PRIVATE_TARGET.search(text) is not None:
+        return False
+    if _RESEARCH_WEB_CUE.search(text) is None:
+        return False
+    return _contains_command_token(text, ("ara", "bul", "araştır", "arastir"))
+
+
+def _research_arguments(original: str, normalized: str) -> dict[str, object]:
+    """Research proposal uses the user's exact request and never grants PUBLIC provenance."""
+    query = original.strip()
+    if not query or len(query) > RESEARCH_MAX_QUERY or "\x00" in query:
+        return {}
+    if not _is_explicit_research_request(normalized):
+        return {}
+    return {"research": {"query": query, "route": "PRIVATE"}}
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
@@ -384,6 +413,11 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
+    # New canonical path: explicit public-web research, including the Turkish verb "araştır".
+    if _is_explicit_research_request(text):
+        return "research.search"
+    # Preserve the pre-B4d advisory hint for generic ara/bul phrases. Without validated
+    # research arguments Core will not claim these; their existing legacy owner remains.
     if _looks_like_capability(text) and _contains_command_token(text, ("ara", "bul")):
         return "research.search"
     return None
@@ -642,6 +676,7 @@ def understand(
     context_control = _is_context_control(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     weather_request = _is_weather_request(normalized)
+    research_request = _is_explicit_research_request(normalized)
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
     translation, translate_args = (None, {})
     if level is None and not (context_control or topic_change or correction):
@@ -671,7 +706,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif level is not None or weather_request or translation is not None or _looks_like_capability(normalized):
+    elif level is not None or weather_request or research_request or translation is not None or _looks_like_capability(normalized):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -736,6 +771,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == "research.search":
+        arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":
         arguments = {**arguments, **_notes_arguments(normalized, references)}
     if level is not None:
