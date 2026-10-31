@@ -27,17 +27,27 @@ FRONT_GATES: tuple[str, ...] = (
 )
 
 
-def _gates(runtime: Any, command: str, lowered: str) -> dict[str, Callable[[], Any]]:
+def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
     def selfctl():
         from modules import selfctl as module
         return module.handle(lowered, runtime.emit)
+
+    def planner_gate():
+        # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
+        # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
+        # edit/snooze) answer first and later branches (calendar, agenda) are never reached.
+        if plan is None or plan[0] != "reminder":
+            return runtime._planner_command(command, lowered)
+        from modules import main_planner
+        with main_planner.core_reminder(plan[1]):
+            return runtime._planner_command(command, lowered)
 
     return {
         "file_command": lambda: runtime._file_command(command),
         "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
         "selfctl": selfctl,
         "user_command": lambda: runtime._user_command(command, lowered),
-        "planner_command": lambda: runtime._planner_command(command, lowered),
+        "planner_command": planner_gate,
         "macro_teach": lambda: runtime._macro_teach(command, lowered),
         "macro_manage": lambda: runtime._macro_manage(lowered),
         "macro_run": lambda: runtime._macro_run(lowered),
@@ -45,11 +55,11 @@ def _gates(runtime: Any, command: str, lowered: str) -> dict[str, Callable[[], A
     }
 
 
-def claim(runtime: Any, command: str) -> tuple[str, Any] | None:
+def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
     """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
     lower = getattr(runtime, "_tr_lower", None)
     lowered = lower(command) if callable(lower) else command.casefold()
-    table = _gates(runtime, command, lowered)
+    table = _gates(runtime, command, lowered, plan)
     for name in FRONT_GATES:
         try:
             reply = table[name]()

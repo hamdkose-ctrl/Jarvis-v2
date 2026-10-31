@@ -635,7 +635,12 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     ignore = frozenset({"pending_level"}) if semantic.capability_hint == LEVEL_CAPABILITY else frozenset()
     if _has_open_pending(entry, ignore=ignore):
         return None
-    return brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    if plan is not None and plan[0] == "notes_read" and plan[1].get("which") == "one":
+        # The id must be one of the note references Brain resolved for THIS request, not any string.
+        if plan[1]["id"] not in {ref.id for ref in semantic.references if ref.kind == "note"}:
+            return None
+    return plan
 
 
 def _use_existing_handler(entry: EntryResult) -> bool:
@@ -706,7 +711,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             plan = core_plan(entry)
             if plan is not None or not _use_existing_handler(entry):
                 _drop_stale_clarify(runtime, entry)
-            claimed = brain_precedence.claim(runtime, command) if plan is not None else None
+            claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
             if claimed is not None:
                 output = claimed[1]
             elif plan is not None:
