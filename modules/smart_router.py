@@ -8,14 +8,14 @@ import threading
 import time
 import requests
 from config import DATA_DIR, load_settings, save_settings
-from modules import privacy, requests_state
+from modules import privacy, provider_privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 _LOCK = threading.RLock()
 _HEALTH = {}
 _LAST = {}
 _STORE = DATA_DIR / 'router'
-_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'openrouter'})
+_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare', 'openrouter'})
 _EVIDENCE_MODELS_MAX = 32
 
 
@@ -150,8 +150,15 @@ def free_tier_evidence(owner, provider, model):
     return dict(row) if isinstance(row, dict) else None
 
 
-def _evidence_gate(owner, provider, model, *, now=None):
-    """Strict zero-cost gate. UNKNOWN is never ALLOW."""
+def _evidence_gate(owner, provider, model, *, route=None, now=None):
+    """Strict zero-cost gate. UNKNOWN is never ALLOW.
+
+    Two independent proofs are required: the provider-level privacy bundle (code, expiring, never
+    user-written; ``route`` narrows it) and the per-owner/model free-tier evidence below.
+    """
+    privacy_gate = provider_privacy.privacy_gate(provider, route, now=now)
+    if not privacy_gate['ok']:
+        return {'ok':False,'reason_code':privacy_gate['reason_code'],'reason':privacy_gate['reason']}
     row = free_tier_evidence(owner, provider, model)
     if not row or row.get('free_tier_verified') is not True or row.get('verification_status') != 'verified' \
             or not row.get('source') or not row.get('evidence_ref'):

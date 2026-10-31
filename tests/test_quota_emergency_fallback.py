@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import smart_router as router, llm
+from modules import smart_router as router, llm, provider_privacy
 
 
 class QuotaEmergencyFallbackTests(unittest.TestCase):
@@ -17,6 +17,12 @@ class QuotaEmergencyFallbackTests(unittest.TestCase):
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
         p=patch.object(router.privacy,'protect',side_effect=lambda s:'enc:'+s);p.start();self.addCleanup(p.stop)
         p=patch.object(router.privacy,'unprotect',side_effect=lambda s:s.removeprefix('enc:'));p.start();self.addCleanup(p.stop)
+
+        # OpenRouter has no privacy bundle entry and is deleted in P0-3; this fixture only keeps the
+        # legacy emergency-path mechanics testable until then.
+        legacy = dict(provider_privacy.PROVIDER_BUNDLE, openrouter=dict(
+            provider_privacy.PROVIDER_BUNDLE['groq'], allowed_routes=(provider_privacy.ROUTE_PUBLIC_RESEARCH,)))
+        p = patch.object(provider_privacy, 'PROVIDER_BUNDLE', legacy); p.start(); self.addCleanup(p.stop)
 
     def allow(self, provider, model):
         now=router.time.time()
