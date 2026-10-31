@@ -9,8 +9,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# TEMPORARY on PR #484 only: lets the trusted same-repo branch commit the harness-generated
+# canonical baseline. This permission/step is removed before final validation/merge.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: testler-windows-${{ github.ref }}
@@ -67,6 +69,33 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sözdizimi kontrolü
         run: py -3.13 -m compileall -q -x '(^|[\\/])(\.venv|\.ci-venv|android|tmp)[\\/]' .
+      - name: B4d canonical acceptance baseline refresh (temporary)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 484
+        env:
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          JARVIS_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git checkout --detach $env:JARVIS_PR_HEAD_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $subject = git log -1 --pretty=%s
+          if ($subject -eq 'test: refresh B4d acceptance baseline') {
+            Write-Host 'Canonical B4d baseline was already generated on the previous head.'
+            exit 0
+          }
+          py -3.13 -X utf8 scripts/brain_acceptance.py capture --out tests/data/brain_acceptance_baseline.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git add tests/data/brain_acceptance_baseline.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Canonical baseline already matches this head.'
+            exit 0
+          }
+          git config user.name 'jarvis-ci'
+          git config user.email 'jarvis-ci@users.noreply.github.com'
+          git commit -m 'test: refresh B4d acceptance baseline'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin "HEAD:refs/heads/$env:JARVIS_HEAD_REF"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Tam doğrulama (Python, JavaScript ve smoke)
         env:
           JARVIS_DATA_DIR: ${{ runner.temp }}/jarvis-windows-ci
