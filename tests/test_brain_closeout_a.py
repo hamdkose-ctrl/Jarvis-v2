@@ -128,6 +128,14 @@ class BareLevelTests(unittest.TestCase):
         self.assertEqual(session_state.fresh_property(context._session()), "volume")
         context.system_control.set_volume.assert_called_once_with(70)
 
+    def test_future_dated_property_asks_in_pipeline(self):
+        def future(state):
+            session_state.remember_property(state, "volume")
+            state.last_property_at += 3600
+        context, reply = self.run_pipeline("70 yap", future)
+        self.assertEqual(reply, "Yüzde 70, ses mi parlaklık mı?")
+        context.system_control.set_volume.assert_not_called()
+
     def test_failed_set_is_not_remembered(self):
         context, reply = self.run_pipeline("70 yap", lambda s: session_state.remember_property(s, "volume"))
         context.system_control.set_volume.return_value = False
@@ -296,6 +304,63 @@ class RealFeedbackTests(unittest.TestCase):
 
     def test_dead_canonical_fallback_removed(self):
         self.assertFalse(hasattr(brain_entry, "canonical_fallback"))
+
+
+class CloseoutAEdgeCaseTests(unittest.TestCase):
+    """Reviewer-added edge cases: history cap types, last_property owner/skew, continue_voice guards, feedback precedence."""
+
+    def test_history_limit_invalid_values_rejected(self):
+        h = HistoryLimitTests()
+        for bad in (0, -1, True, 50.0, "12", None):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                h.build(history_limit=bad)
+
+    def test_property_with_bad_timestamp_types_is_invalid(self):
+        for bad in (True, None, "1", float("nan"), float("inf"), float("-inf")):
+            state = SessionState()
+            state.last_property = "volume"
+            state.last_property_at = bad
+            self.assertIsNone(session_state.fresh_property(state), repr(bad))
+        state = SessionState()
+        session_state.remember_property(state, "volume")
+        self.assertEqual(session_state.fresh_property(state, state.last_property_at + session_state.LEVEL_PROPERTY_TTL), "volume")
+        self.assertIsNone(session_state.fresh_property(state, state.last_property_at + session_state.LEVEL_PROPERTY_TTL + 0.01))
+
+    def test_other_owner_property_never_used_in_pipeline_or_context(self):
+        alice, bob = SessionState(), SessionState()
+        session_state.remember_property(alice, "volume")
+        _, _, recent_bob = brain_context._session_refs("bob", bob)
+        self.assertFalse(any(r.id == "last_property" for r in recent_bob))
+        _, _, recent_alice = brain_context._session_refs("alice", alice)
+        self.assertTrue(any(r.id == "last_property" and r.owner == "alice" for r in recent_alice))
+
+    def test_continue_voice_guards(self):
+        profile, state = SimpleNamespace(slug="alice", data={}), SessionState()
+        base = {"stage": "clarify", "command": "x", "question": "?", "owner": "alice", "expires": 10**12,
+                "resume": {"action": "pc_window", "params": {"target": "c"}, "choices": ["A – X", "B – X"]}}
+        with patch("modules.router.classify", side_effect=AssertionError("router")), \
+             patch.object(app_actions, "run", side_effect=AssertionError("must not run")):
+            state.pending_action = dict(base, owner="bob")
+            self.assertIn("süresi doldu", app_actions.continue_voice("1", state, profile, lambda *a: None))
+            state.pending_action = dict(base, expires=0)
+            self.assertIn("süresi doldu", app_actions.continue_voice("1", state, profile, lambda *a: None))
+            state.pending_action = dict(base)
+            self.assertIn("iptal", app_actions.continue_voice("vazgeç", state, profile, lambda *a: None))
+            for answer in ("0", "-1", "3", "", "  ", "ab"):
+                state.pending_action = dict(base)
+                self.assertIsNone(app_actions.continue_voice(answer, state, profile, lambda *a: None), repr(answer))
+                self.assertIsNone(state.pending_action)
+
+    def test_entry_clarification_wins_and_keyboard_interrupt_is_failed(self):
+        t = RealFeedbackTests()
+        t.setUp()
+        rt, state = t.runtime()
+        with self.assertRaises(KeyboardInterrupt):
+            t.handoff(Mock(side_effect=KeyboardInterrupt()), rt)
+        self.assertEqual(brain_entry.last_feedback().result_status, "failed")
+        _, fb, _ = t.handoff(Mock(return_value="ok"), rt)
+        self.assertIs(brain_entry.last_feedback(), fb)
+        self.assertEqual(fb.result_status, "handled")   # stale failure feedback is reset per handoff
 
 
 if __name__ == "__main__":
