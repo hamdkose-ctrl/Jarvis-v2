@@ -180,15 +180,15 @@ class WaitSecondsTests(unittest.TestCase):
         with patch.object(llm, 'provider', return_value='auto'), patch.object(smart_router, 'wait_seconds', return_value=12):
             self.assertEqual(llm.quota_wait_seconds('alice'), 12)
 
-    def test_llm_helper_reads_gemini_rate_limit_marks(self):
+    def test_gemini_marks_never_make_a_gemini_selection_look_like_a_wait(self):
+        # Gemini private chain'de değil: Gemini-429 sayacı yok, karar Router'dan gelir; açık ücretli/yerel seçim 0.
         token = llm._key_context.set('alice'); self.addCleanup(llm._key_context.reset, token)
-        with patch.object(llm, 'provider', return_value='gemini'), patch.object(llm, 'user_groq_key', return_value=''), \
-                patch.object(llm, 'model_names', return_value=['m1', 'm2']), patch.dict(llm._rate_limited, clear=True):
-            self.assertEqual(llm.quota_wait_seconds('alice'), 0)
-            llm._mark_limited('gemini', 'm1', RuntimeError('429'), 60)
-            self.assertEqual(llm.quota_wait_seconds('alice'), 0)      # ikinci model hâlâ açık
-            llm._mark_limited('gemini', 'm2', RuntimeError('429'), 30)
-            self.assertTrue(0 < llm.quota_wait_seconds('alice') <= 30)
+        with patch.object(llm, 'provider', return_value='gemini'), patch.object(smart_router, 'wait_seconds', return_value=7) as wait:
+            self.assertEqual(llm.quota_wait_seconds('alice'), 7)
+            wait.assert_called_once()
+        for name in ('ollama', 'openai', 'anthropic'):
+            with patch.object(llm, 'provider', return_value=name), patch.object(smart_router, 'wait_seconds', side_effect=AssertionError('router')):
+                self.assertEqual(llm.quota_wait_seconds('alice'), 0)
 
 
 if __name__ == '__main__':

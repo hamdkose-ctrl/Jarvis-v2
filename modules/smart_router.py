@@ -373,6 +373,11 @@ def run(owner, prompt, callback, image=False, route=None):
     detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar, free-tier evidence ve bekleme durumunu router durumu ile kontrol et.'
     omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
     message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
+    tried_private_cloud = any(a['provider'] in ('groq', 'cloudflare') for a in attempts)
+    needs_user_action = _route_of(route) == provider_privacy.ROUTE_PRIVATE_GENERAL and not tried_private_cloud
+    if needs_user_action:
+        message += (' Özel sohbet için Groq veya Cloudflare anahtarı ekle ya da ücretsiz hesabı onayla; '
+                    'Gemini anahtarın yalnızca herkese açık araştırmada kullanılır (özel konuşma Gemini\'ye gönderilmez).')
     missing_key = not attempts and any(row.get('reason_code')=='PROVIDER_CONFIGURATION_REQUIRED' or 'anahtarı eksik' in row.get('reason','') for row in skipped)
     evidence_code = next((row.get('reason_code') for row in skipped
                           if str(row.get('reason_code','')).startswith('PROVIDER_FREE_TIER_')), None)
@@ -382,6 +387,8 @@ def run(owner, prompt, callback, image=False, route=None):
     if not attempts and evidence_code:
         raise failure_policy.ProviderExhaustedError(
             message, reason_code=evidence_code, recovery_class='user_action_required')
+    if needs_user_action:
+        raise failure_policy.ProviderExhaustedError(message, recovery_class='user_action_required')
     raise failure_policy.ProviderExhaustedError(message)
 
 

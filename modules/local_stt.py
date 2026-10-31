@@ -136,6 +136,15 @@ def status() -> dict:
             'preparing': preparing, 'error': error}
 
 
+def ready() -> bool:
+    """Package installed and the selected model fully downloaded: recognition can stay on this PC."""
+    try:
+        return importlib.util.find_spec('faster_whisper') is not None and _complete(model_dir(model_name()))
+    except Exception:
+        _record_failure('modules/local_stt.py:ready')
+        return False
+
+
 def prepare(name: str) -> dict:
     """Only this explicit UI action may fetch model weights; never install packages."""
     path = model_dir(name)

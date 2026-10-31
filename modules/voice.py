@@ -132,32 +132,38 @@ def _google_text(audio) -> str:
 
 
 def _engine() -> str:
-    """Yazıya çevirme: 'gemini' (isabetli, varsayılan), 'google' (eski, ücretsiz web servisi) ya da 'off'.
+    """Where command audio goes (Provider Routing Policy v1; audio is private):
 
-    Gizli ve yalnızca-yerel modda ses HİÇBİR servise gönderilmez ('off'): bu bilgisayarda çevrimdışı ses tanıma
-    olmadığı için sesli komut bu modlarda kapalıdır, komutlar yazıyla verilir. (Eskiden bu modlarda Google'ın
-    web servisine geçiliyordu; yani "buluta hiçbir şey gitmez" denirken ses Google'a gidiyordu.)"""
+    'local'  faster-whisper on this PC, whenever the model is ready (every mode, nothing leaves the PC);
+    'google' Google's free web recognizer, only in normal mode AND with the user's explicit
+             ``stt_google_consent`` setting (default off);
+    'off'    otherwise: no recognition, the user is told honestly to type.
+    Gemini is never used for audio."""
+    from modules import local_stt
+    if local_stt.ready():
+        return "local"
     if privacy.mode() in ("gizli", "yerel"):
         return "off"
-    from modules import llm
-    if not llm.gemini_aux_allowed():
-        return 'google'
-    e = str(config.load_settings().get("stt_engine") or "gemini")
-    return "google" if e == "google" else "gemini"
+    return "google" if config.load_settings().get("stt_google_consent") is True else "off"
 
 
 _last_off_notice = 0.0
 
 
 def _off_notice(announce: bool) -> None:
-    """Kapalı modda sesli komut gelince kullanıcıya (en fazla dakikada bir) neden duyulmadığını söyler."""
+    """Sesli komut kapalıyken (en fazla dakikada bir) kullanıcıya nedenini dürüstçe söyler."""
     global _last_off_notice
     if not announce or time.time() - _last_off_notice < 60:
         return
     _last_off_notice = time.time()
-    m = "Yalnızca yerel" if privacy.mode() == "yerel" else "Gizli"
+    if privacy.mode() in ("gizli", "yerel"):
+        text = ("Yalnızca yerel" if privacy.mode() == "yerel" else "Gizli") + \
+               " modda sesin dışarı gitmemesi için sesli komut kapalı. Lütfen yazarak söyle."
+    else:
+        text = ("Sesli komut kapalı: yerel ses modeli kurulu değil ve Google ses tanıma için onay verilmemiş. "
+                "Lütfen yazarak söyle ya da Ayarlar'dan yerel ses modelini indir.")
     try:
-        speak(f"{m} modda sesin dışarı gitmemesi için sesli komut kapalı. Lütfen yazarak söyle.")
+        speak(text)
     except Exception:   # noqa: BLE001
         _record_failure('modules/voice.py:_off_notice')
         pass
@@ -179,7 +185,7 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
               local: bool = False) -> str | None:
     """gate=True: "Hey Jarvis" denmeden dinlenen seslerde (sohbet devam ederken) önce gerçekten konuşma var mı diye bakılır;
     gürültü Gemini'ye "Hitachi" gibi uydurma bir komut olarak yazdırılmasın."""
-    """Kaydedilmiş sesi (16 kHz, 16 bit) yazıya çevirir: önce Gemini (kelime ipuçlarıyla), olmazsa Google. Anlaşılmazsa None."""
+    """Kaydedilmiş sesi (16 kHz, 16 bit) yazıya çevirir: yerel model, onay varsa Google; yoksa kapalı. Anlaşılmazsa None."""
     global last_speech_end
     if not raw:
         return None
@@ -191,41 +197,22 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
         if not text and announce_fail:
             speak("Anlayamadım, tekrar söyler misin?")
         return text
-    if _engine() == "off":                       # gizli / yalnızca-yerel: ses hiçbir servise gönderilmez
-        _log.info("Ses yazıya çevrilmedi: %s modda ses dışarı gönderilmez", privacy.mode())
+    engine = _engine()
+    if engine == "off":                          # yerel model yok ve Google onayı yok (ya da gizli/yerel mod)
+        _log.info("Ses yazıya çevrilmedi: ses tanıma kapalı (mod=%s)", privacy.mode())
         _off_notice(not cheap)
         return None
-    audio = sr.AudioData(raw, RATE, 2)
-    if _engine() == "gemini" and not cheap:     # cheap: ortamda ad aranırken (her ses Gemini'ye gitmesin)
-        google_future = None
-        if gate:                                 # Google'ın gürültü süzgeci, Gemini ile aynı anda (bekleme eklemez)
-            import concurrent.futures as cf
-            google_future = cf.ThreadPoolExecutor(max_workers=1).submit(_google_text, audio)
+    if engine == "local":                        # ses bu bilgisayardan çıkmaz
+        from modules import local_stt
         try:
-            from modules import llm
-            name = str(getattr(config, "ASSISTANT_NAME", "Jarvis")).lower()
-            words = list(dict.fromkeys([h for h in HINTS if h.lower() != name] + DEFAULT_HINTS + [w.strip() for w in str(
-                config.load_settings().get("stt_words") or "").split(",") if w.strip()]))
-            t0 = time.time()
-            text = llm.transcribe(data=audio.get_wav_data(), hints=words).strip().strip('"“”')
-            _log.info("İşlem kaydı: %s", 'modules/voice.py:recognize')
-            if google_future is not None:
-                try:
-                    heard = google_future.result(timeout=6)
-                except Exception:   # noqa: BLE001
-                    _record_failure('modules/voice.py:recognize')
-                    heard = "?"                  # Google'a ulaşılamadı: süzgeçsiz devam
-                if not heard:
-                    _log.info("İşlem kaydı: %s", 'modules/voice.py:recognize')
-                    return None
-            if text and not re.fullmatch(r"[\W_]*", text) and _guarded(text):
-                return text
-            print("(ses anlaşılamadı)")
-            if announce_fail:
-                speak("Anlayamadım, tekrar söyler misin?")
-            return None
-        except Exception as e:  # noqa: BLE001 - kota/internet: eski yönteme düş
+            text = _guarded(local_stt.transcribe(raw))
+        except Exception:   # noqa: BLE001
             _record_failure('modules/voice.py:recognize')
+            return None
+        if not text and announce_fail:
+            speak("Anlayamadım, tekrar söyler misin?")
+        return text
+    audio = sr.AudioData(raw, RATE, 2)           # 'google': kullanıcının açık onayı var
     try:
         t0 = time.time()
         text = _rec.recognize_google(audio, language=LANGUAGE)  # type: ignore[reportAttributeAccessIssue]

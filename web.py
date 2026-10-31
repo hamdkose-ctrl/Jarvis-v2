@@ -710,7 +710,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                 "input_device": "" if config.INPUT_DEVICE is None else str(config.INPUT_DEVICE),
                 "announce_unknown": bool(config.ANNOUNCE_UNKNOWN), "camera_index": config.CAMERA_INDEX,
                 "wake_engine": _wakeword().mode(), "wake_status": _wake_note(),
-                "wake_sensitivity": int(s.get("wake_sensitivity") or 3), "stt_engine": s.get("stt_engine") or "gemini",
+                "wake_sensitivity": int(s.get("wake_sensitivity") or 3), "stt_google_consent": s.get("stt_google_consent") is True,
                 "local_stt_enabled": bool(s.get('local_stt_enabled', False)), "local_stt_model": s.get('local_stt_model') or 'small', "local_stt_beam": local_stt.beam_size(),
                 "stt_words": s.get("stt_words") or "", "followup_no_wake": bool(s.get("followup_no_wake")), "hoca_enabled": bool(s.get("hoca_enabled", True)),
                 "hoca_voice_full": bool(s.get("hoca_voice_full")),
@@ -747,8 +747,8 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             ch["wake_engine"] = data["wake_engine"]
         if "wake_sensitivity" in data:
             ch["wake_sensitivity"] = max(1, min(5, int(data["wake_sensitivity"] or 3)))
-        if data.get("stt_engine") in ("gemini", "google"):
-            ch["stt_engine"] = data["stt_engine"]
+        if "stt_google_consent" in data:
+            ch["stt_google_consent"] = data["stt_google_consent"] is True
         if 'hoca_enabled' in data:
             ch['hoca_enabled'] = bool(data['hoca_enabled'])
         if 'hoca_voice_full' in data:

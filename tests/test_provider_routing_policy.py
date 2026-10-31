@@ -69,6 +69,27 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(router.run('alice', 'x', call, route=PUB), 'yerel')
         self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq', 'cloudflare', 'ollama'])
 
+    def test_gemini_only_user_gets_clear_user_action_guidance(self):
+        from modules import failure_policy
+        with patch.object(llm, 'user_groq_key', return_value=''), patch.object(cloudflare_chat, 'configured', return_value=False):
+            call = Mock(side_effect=RuntimeError('ollama down'))
+            with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
+                router.run('alice', 'özel not', call)
+        error = caught.exception
+        self.assertEqual(error.recovery_class, 'user_action_required')
+        self.assertIn('Groq veya Cloudflare anahtarı ekle ya da ücretsiz hesabı onayla', str(error))
+        self.assertIn('Gemini', str(error))
+        self.assertEqual([c.args[0] for c in call.call_args_list], ['ollama'])   # Gemini hiç denenmedi
+        self.assertEqual(failure_policy.structured_outcome(error)['recovery_class'], 'user_action_required')
+
+    def test_exhausted_after_real_private_cloud_attempts_is_not_a_user_action(self):
+        from modules import failure_policy
+        call = Mock(side_effect=RuntimeError('429'))
+        with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
+            router.run('alice', 'x', call)
+        self.assertNotEqual(caught.exception.recovery_class, 'user_action_required')
+        self.assertNotIn('anahtarı ekle', str(caught.exception))
+
     def test_missing_or_stale_evidence_skips_provider(self):
         router.set_free_tier_evidence('alice', provider='groq', model='groq-model', free_tier_verified=True,
             source='official_provider_docs', evidence_ref='https://example.invalid/f', verified_at=self.now - 7200,

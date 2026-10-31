@@ -38,8 +38,20 @@ class PrivacyVoiceTests(unittest.TestCase):
 
     def test_normal_mode_keeps_cloud_engine(self):
         from modules import voice
-        with patch.object(voice.privacy, "mode", return_value="normal"):
-            self.assertIn(voice._engine(), ("gemini", "google"))
+        # Ses nereye gider tablosu: yerel model > (normal mod + açık onay) Google > kapalı. Gemini asla.
+        from modules import local_stt
+        table = [  # (yerel hazır, mod, onay) -> motor
+            (True, "normal", False, "local"), (True, "gizli", False, "local"), (True, "yerel", True, "local"),
+            (False, "normal", True, "google"), (False, "normal", False, "off"), (False, "normal", None, "off"),
+            (False, "gizli", True, "off"), (False, "yerel", True, "off"),
+        ]
+        for ready, mode, consent, expected in table:
+            with self.subTest(ready=ready, mode=mode, consent=consent), \
+                 patch.object(local_stt, "ready", return_value=ready), \
+                 patch.object(voice.privacy, "mode", return_value=mode), \
+                 patch.object(voice.config, "load_settings", return_value={"stt_google_consent": consent}):
+                self.assertEqual(voice._engine(), expected)
+                self.assertNotEqual(voice._engine(), "gemini")
 
     def test_live_mode_off_in_private_modes(self):
         src = (ROOT / "modules" / "live.py").read_text(encoding="utf-8")
