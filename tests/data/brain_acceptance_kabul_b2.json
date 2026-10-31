@@ -1,4 +1,0 @@
-{
-  "k-cap-01": "Bilinçli (Closeout-B2): 'hava nasıl' hint'i weather.read artık Core allowlist'inde; handoff ham metni eski handler'a vermek yerine doğrulanmış 'weather' intent'ini dispatch ediyor. Outcome (action) ve tüm expect/forbid kriterleri aynı; yalnız handoff yolu ve legacy projeksiyonu (clarify → weather) değişti.",
-  "rota-20ef3a970a": "Bilinçli (Closeout-B2): hava sorusu için weather.read Core allowlist'ine alındı. Outcome (action) ve kriterler aynı; handoff yolu existing_handler → Core dispatch, legacy projeksiyonu clarify → weather."
-}

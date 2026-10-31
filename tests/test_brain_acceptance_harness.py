@@ -256,6 +256,14 @@ class BaselineFileTests(unittest.TestCase):
         for row in data["results"].values():
             self.assertTrue("decision" in row or "error" in row)
 
+    def test_default_compare_passes_without_arguments(self):
+        """The canonical gate: argümansız `compare` current main'de GEÇTİ demeli (accept dosyası yok)."""
+        pool = harness.load_pool()
+        baseline = json.loads(harness.DEFAULT_BASELINE.read_text(encoding="utf-8"))
+        report = harness.compare(pool, baseline, harness.capture(pool))
+        self.assertTrue(report["passed"], report["counts"])
+        self.assertEqual(report["counts"], {"same": len(pool)})
+
     def test_baseline_writer_roundtrips(self):
         data = harness.capture([{"id": "a", "text": "saat kaç"}])
         with tempfile.TemporaryDirectory() as tmp:
