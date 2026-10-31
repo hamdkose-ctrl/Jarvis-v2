@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import contextlib
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import brain_entry
+from modules import brain_entry, engine_loop
 from modules.brain_contracts import ActiveContext, Confidence, ContextReference, RequestKind, TemporalNeed, UnderstandingResult
-from modules.brain_gates import GateObservation
+from modules.brain_gates import GateObservation, deterministic_fast_gate
 
 OWNER = "hamdi"
 RID = "req-production-review"
+
+
+class _StopAfterCanonicalHandoff(BaseException):
+    pass
 
 
 def _context(*, pending=()) -> ActiveContext:
@@ -37,6 +43,17 @@ def _entry(*, text="selam", pending=(), fast=None):
         state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
         fast_gate=fast or GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
         understanding=_semantic(),
+    )
+
+
+def _fast(text: str, *, source: str = "yazı") -> GateObservation:
+    return deterministic_fast_gate(
+        owner=OWNER,
+        request_id=RID,
+        text=text,
+        active_context=_context(),
+        sleeping=False,
+        source=source,
     )
 
 
@@ -110,6 +127,89 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
                 command_manager._brain_legacy_engine_control = old_original
             elif hasattr(command_manager, "_brain_legacy_engine_control"):
                 delattr(command_manager, "_brain_legacy_engine_control")
+
+    def _assert_loop_fast_miss_reaches_handoff_without_close_effect(self, command: str, source: str = "yazı") -> None:
+        import test_engine_modular
+
+        runtime = test_engine_modular.ModularEngineTests.context(self)
+        user = runtime.profile.name
+        runtime.list_users = lambda: [user]
+        runtime.requests_state = SimpleNamespace(
+            is_cancelled=lambda *args: False,
+            activate=lambda *args, **kwargs: contextlib.nullcontext(),
+            Cancelled=type("Cancelled", (Exception,), {}),
+        )
+        runtime.as_user = lambda selected: contextlib.nullcontext()
+        runtime.emit = Mock()
+        runtime._finalize = lambda text: text
+        runtime._emit_route = Mock()
+        runtime._start_hang_watch = Mock()
+        runtime.profile.log_agent = Mock()
+        runtime.threading = SimpleNamespace(Thread=Mock(), Timer=Mock())
+        runtime.time = SimpleNamespace(
+            time=time.time,
+            sleep=lambda seconds: None,
+            strftime=time.strftime,
+            localtime=time.localtime,
+        )
+        runtime._llm = SimpleNamespace(set_history_seed=Mock(), take_route=Mock())
+        runtime.events.put(("command", command, source, user, RID))
+        voice = SimpleNamespace(
+            manual_local_stt=False,
+            listening_enabled=False,
+            speak_enabled=False,
+            live_on=False,
+            state={},
+            speak=Mock(),
+            read_keyboard=Mock(),
+        )
+        handoff = Mock()
+
+        def stop_after_handoff(*args, **kwargs):
+            self.assertFalse(runtime.stop_event.is_set(), f"{command!r} canonical handoff öncesi stop_event set edilmemeli")
+            raise _StopAfterCanonicalHandoff()
+
+        handoff.side_effect = stop_after_handoff
+        with patch("modules.engine_voice.VoiceSession", return_value=voice), \
+             patch("instance.take_over", return_value=False), \
+             patch("updater.pop_notice", return_value=None), \
+             patch("modules.perf.start"), \
+             patch("modules.task_queue.start"), \
+             patch("modules.webhook_server.start"), \
+             patch("release_guard.ready"), \
+             patch.object(brain_entry, "prepare", return_value=_entry(text=command)), \
+             patch.object(brain_entry, "handoff", handoff):
+            with self.assertRaises(_StopAfterCanonicalHandoff):
+                engine_loop.main(runtime, ui=Mock())
+        handoff.assert_called_once()
+
+    def test_typed_bare_kapat_fast_miss_reaches_canonical_handoff_without_direct_stop(self):
+        self.assertFalse(_fast("kapat", source="yazı").matched)
+        self._assert_loop_fast_miss_reaches_handoff_without_close_effect("kapat", "yazı")
+
+    def test_typed_bare_cik_fast_miss_reaches_canonical_handoff_without_direct_stop(self):
+        self.assertFalse(_fast("çık", source="yazı").matched)
+        self._assert_loop_fast_miss_reaches_handoff_without_close_effect("çık", "yazı")
+
+    def test_close_fast_grammar_stays_exact_and_preserves_phone_voice_boundaries(self):
+        for text, source in (
+            ("kapat", "yazı"),
+            ("çık", "yazı"),
+            ("kapat", "ses"),
+            ("Jarvis'i kapatma", "yazı"),
+            ("Jarvis'i kapatmak", "yazı"),
+            ("Jarvis kapanma", "yazı"),
+            ("Jarvis çıkma", "yazı"),
+            ("Jarvis sonlandırma", "yazı"),
+            ("Jarvis'i kapat", "telefon"),
+        ):
+            with self.subTest(text=text, source=source):
+                self.assertFalse(_fast(text, source=source).matched)
+
+        hit = _fast("Jarvis'i kapat", source="yazı")
+        self.assertTrue(hit.matched)
+        self.assertEqual(hit.protocol, "fast.engine.close")
+        self.assertEqual(hit.selection, "close")
 
 
 if __name__ == "__main__":
