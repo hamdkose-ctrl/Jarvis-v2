@@ -70,6 +70,19 @@ def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"title": title, "when": when, "repeat": repeat}
 
 
+def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core re-validates the read-only notes proposal; the id is checked against the profile at execution."""
+    row = arguments.get("notes")
+    if not isinstance(row, Mapping) or set(row) - {"which", "id"}:
+        return None
+    which, ident = row.get("which"), row.get("id")
+    if which == "all" and ident is None:
+        return {"which": "all"}
+    if which == "one" and isinstance(ident, str) and 0 < len(ident.strip()) <= 64:
+        return {"which": "one", "id": ident.strip()}
+    return None
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
@@ -81,6 +94,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "files.read": ("doc_summary", _file_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
+    # Read-only: all notes or one resolved note; other notes.read operations stay legacy-owned.
+    "notes.read": ("notes_read", _notes_args),
 }
 
 
@@ -88,13 +103,13 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
 # named legacy owner that parses the raw text itself; the hint stays advisory until that owner gets a
 # validated Core intent. A hint with neither a Core intent nor an owner here is a drift error (tested).
 LEGACY_OWNED_HINTS: dict[str, str] = {
-    "notes.read": "engine_tools._extra_commands (kb/tasks.handle)",
     "research.search": "task intent (goal_executor) via _legacy_route_projection",
 }
 
 
 # Hints that are Core-mapped for some operations; the rest of the hint is still owned by this legacy path.
 PARTIAL_CORE_HINTS: dict[str, str] = {
+    "notes.read": "main_planner notlar dalları + engine_tools._extra_commands (kb/tasks.handle) (oku/say/sil/düzelt/özetle)",
     "files.read": "engine_commands._file_command + legacy handler (göster/aç/bul/listele/karşılaştır)",
 }
 

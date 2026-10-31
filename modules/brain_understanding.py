@@ -389,6 +389,25 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+_NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
+_NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
+_NOTES_SHOW_VERBS = ("göster", "goster")
+
+
+def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
+    """Read-only notes proposal: all notes (plural noun) or ONE resolved note reference by stable id.
+
+    Only the show verb is proposed; other verbs or a second action stay with the legacy owner."""
+    if not _contains_command_token(text, _NOTES_SHOW_VERBS) or _other_actions(text):
+        return {}
+    if _contains_domain_token(text, _NOTES_PLURAL):
+        return {"notes": {"which": "all"}}
+    notes = [ref for ref in references if ref.kind == "note"]
+    if len(notes) == 1 and _contains_domain_token(text, _NOTES_SINGULAR):
+        return {"notes": {"which": "one", "id": notes[0].id}}
+    return {}
+
+
 def _reminder_arguments(text: str) -> dict[str, object]:
     """title/when/repeat from the single reminder parser (modules.when underneath); creation sentences only."""
     from modules import reminder_parse
@@ -668,6 +687,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == "notes.read":
+        arguments = {**arguments, **_notes_arguments(normalized, references)}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

@@ -272,6 +272,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "reminder":
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
+        case "notes_read":
+            if a.get("which") == "one":
+                note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
+                return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
+            return runtime._notes_text()
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
