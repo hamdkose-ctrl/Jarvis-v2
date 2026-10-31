@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: testler-windows-${{ github.ref }}
@@ -30,6 +30,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: PR486 roadmap truth sync (one-shot)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 486
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git fetch origin "$env:BRANCH`:refs/remotes/origin/$env:BRANCH"
+          git checkout -B $env:BRANCH "refs/remotes/origin/$env:BRANCH"
+          @'
+          from pathlib import Path
+          p = Path('docs/Jarvis_Yol_Haritasi.md')
+          s = p.read_text(encoding='utf-8')
+          old = "- 🔄 (PR7 Closeout-B3c-2) `[1✓ 2🔄 3✓ 4✗]` Hatırlatma oluşturma Core `reminder` intent'ine alındı; `modules/reminder_parse.py` tek ayrıştırıcıdır ve planner mevcut conflict/confirmation sırasını korur. Hatırlatma başlığındaki tek başına apostrof kusuru B4c v2 #485'te düzeltiliyor; exact-head Windows CI + gerçek PC watcher PASS gelmeden tamamlandı sayılmaz."
+          new = "- 🔄 (PR7 Closeout-B3c-2) `[1✓ 2🔄 3✓ 4✗]` Hatırlatma oluşturma Core `reminder` intent'ine alındı; `modules/reminder_parse.py` tek ayrıştırıcıdır ve planner mevcut conflict/confirmation sırasını korur. Hatırlatma başlığındaki tek başına apostrof kusuru B4c v2 #485'te düzeltildi; exact-head Windows CI + gerçek PC watcher PASS sonrası #485 merge edildi."
+          if old not in s: raise SystemExit('PR485 roadmap satırı bulunamadı')
+          s = s.replace(old, new, 1)
+          old = "- 🟡 (#477 / PR7 Closeout-B3c-3) `[1✓ 2🔄 3🔄 4✗]` `notes.read` kısmen Core'a alındı: salt-okunur `notes_read`. Understanding yalnız çıplak tek komutta önerir; tek note id'si Brain referanslarıyla doğrulanır. Üretimde `selfctl` ön kapısı `notlarımı göster/notları göster` cümlelerini hâlâ UI navigation olarak yakalar; notes diğer işlemleri legacy/partial owner'dadır."
+          new = "- 🟡 (#477 + #486 / PR7 Closeout-B3c-3) `[1✓ 2🔄 3✓ 4✗]` `notes.read` kısmen Core'a alındı: salt-okunur `notes_read`. Understanding yalnız çıplak tek komutta önerir; tek note id'si Brain referanslarıyla doğrulanır. #486 canonical Core `notes_read` planının `selfctl` UI navigation kapısını geçmesini sağlar; `notlarımı göster/notları göster` veri isteği olarak Core'a gider, açık `notlar sayfasını/sekmesini aç` navigasyonu selfctl'de kalır. Notes diğer işlemleri legacy/partial owner'dadır."
+          if old not in s: raise SystemExit('notes roadmap satırı bulunamadı')
+          s = s.replace(old, new, 1)
+          old = "  1. **selfctl gölgesi:** `notlarımı göster/notları göster` hâlâ UI navigation kapısına düşüyor; `notlar sayfasını aç` ile veri isteme semantiği ayrılmalı.\n  2. **notes/files diğer işlemler:** notes oku/say/sil/düzelt/özetle/listele ile files göster/aç/bul/listele/karşılaştır/çevir/dönüştür/analiz operasyonları partial/legacy owner'da; exact UI `_file_command` deterministic front-gate olarak ayrı değerlendirilir.\n  3. **PR9 caller-zero listesi:**"
+          new = "  1. **notes/files diğer işlemler:** notes oku/say/sil/düzelt/özetle/listele ile files göster/aç/bul/listele/karşılaştır/çevir/dönüştür/analiz operasyonları partial/legacy owner'da; exact UI `_file_command` deterministic front-gate olarak ayrı değerlendirilir.\n  2. **PR9 caller-zero listesi:**"
+          if old not in s: raise SystemExit('kalan borç listesi bulunamadı')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          '@ | py -3.13 -
+          git config user.name jarvis-ci
+          git config user.email jarvis-ci@users.noreply.github.com
+          git add docs/Jarvis_Yol_Haritasi.md
+          git commit -m "docs: close PR486 notes selfctl shadow"
+          git push origin "HEAD:$env:BRANCH"
       - name: Roadmap drift kontrolü
         run: |
           # PR checkout'u merge ref olabilir; origin/main'i ayrı remote-tracking refte
