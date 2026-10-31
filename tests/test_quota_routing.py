@@ -93,11 +93,14 @@ class RateLimitMemoryTests(unittest.TestCase):
             p = patch.object(target, name, **kwargs); p.start(); self.addCleanup(p.stop)
         p = patch.object(llm, 'privacy', SimpleNamespace(mode=lambda: 'normal', redact=lambda t, **_: t))
         p.start(); self.addCleanup(p.stop)
+        from modules import smart_router
+        p = patch.object(smart_router, 'provider_allowed', return_value={'ok': True})
+        p.start(); self.addCleanup(p.stop)
         llm.take_route(); self.addCleanup(llm.take_route)
 
     def ask(self):
         with self.assertRaises(llm.errors.ClientError):
-            llm.ask('yapay zeka nedir', 'sistem')
+            llm._send('yapay zeka nedir', 'sistem', 2000, None, 'gemini', True)
 
     def test_429_model_is_not_retried_or_slept_on(self):
         self.ask()
