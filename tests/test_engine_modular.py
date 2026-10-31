@@ -101,7 +101,7 @@ class ModularEngineTests(unittest.TestCase):
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
         context.events.put(('command','selam','web',owner,'one'))
         voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,live_on=False,state={},speak=Mock())
-        with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
+        with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'),patch('modules.brain_entry._install_core_guards'):
             context.main(ui=Mock())
         context.handle.assert_called_once_with('selam')
         voice.speak.assert_called_once_with('Merhaba')
