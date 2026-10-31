@@ -31,8 +31,13 @@ class WeatherUnderstandingTests(unittest.TestCase):
             self.assertIn(result.capability_hint, {"weather.read", "weather.read.current"}, text)
             self.assertEqual(result.arguments.get("location"), location, text)
 
+    def test_capitalized_turkish_cities_keep_their_first_letter(self):
+        for text, location in [("İzmir'de hava nasıl", "izmir"), ("İstanbul'da hava nasıl", "istanbul"),
+                               ("Isparta'da hava nasıl", "ısparta"), ("ANKARA'DA HAVA NASIL", "ankara")]:
+            self.assertEqual(understood(text).arguments.get("location"), location, text)
+
     def test_filler_words_and_no_city_give_no_location(self):
-        for text in ("bugün hava nasıl", "hava nasıl", "yarın hava nasıl"):
+        for text in ("bugün hava nasıl", "hava nasıl", "yarın hava nasıl", "şu anda hava nasıl"):
             result = understood(text)
             self.assertIn(result.capability_hint, {"weather.read", "weather.read.current"}, text)
             self.assertNotIn("location", result.arguments, text)
@@ -152,6 +157,24 @@ class EndToEndTests(unittest.TestCase):
         entry, output, feedback, handler, dispatch = self.run_turn("ankara'da hava nasıl")
         handler.assert_not_called()
         self.assertEqual(dispatch.call_args.args[1:3], ("weather", {"location": "Ankara"}))
+
+    def test_sequenced_requests_fall_back_to_the_step_runner(self):
+        for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl ardından sesi 30 yap",
+                     "İzmir'de hava nasıl akabinde sesi aç"):
+            entry, output, feedback, handler, dispatch = self.run_turn(text)
+            self.assertIsNone(brain_entry.core_plan(entry), text)
+            handler.assert_called_once_with(text)
+            dispatch.assert_not_called()
+
+    def test_step_marker_matches_the_runtime_splitter(self):
+        import re as _re
+        from modules import engine_sequence
+        runtime = SimpleNamespace(re=_re, _STEP_SPLIT=_re.compile(
+            r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", _re.I))
+        for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl", "sesi 30 yap",
+                     "hava nasıl ardından sesi kıs", "önce sesi kıs", "İzmir'de hava nasıl"):
+            self.assertEqual(brain_entry._multi_step(text),
+                             engine_sequence._split_steps(runtime, text) is not None or text.startswith("önce"), text)
 
     def test_weather_answer_to_open_location_question_keeps_existing_path(self):
         self.state.pending_weather_location = True

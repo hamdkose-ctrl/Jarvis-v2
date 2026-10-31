@@ -6,6 +6,7 @@ work complete. Existing Core/domain handlers remain the only execution path.
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -588,12 +589,22 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
+_STEP_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+
+
+def _multi_step(text: str) -> bool:
+    """Same marker rule as engine_sequence._split_steps: a sequenced request belongs to the step runner."""
+    return _STEP_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+
+
 def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     """Core-validated intent for a mapped capability hint; None keeps the existing handler path."""
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
         return None
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
+        return None
+    if _multi_step(entry.text):
         return None
     # A fresh, explicit level request supersedes the open "ses mi parlaklık mı?" question;
     # every other open pending state still blocks the plan.

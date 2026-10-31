@@ -169,7 +169,8 @@ def _required(name: str, value: str) -> str:
 def _norm(value: object) -> str:
     if not isinstance(value, str):
         return ""
-    return " ".join(value.casefold().strip().split())
+    # Turkish dotted/dotless I must be mapped before casefold ("İzmir" -> "izmir", not "i̇zmir").
+    return " ".join(value.replace("İ", "i").replace("I", "ı").casefold().strip().split())
 
 
 def _reference_tuple(name: str, value: object, owner: str) -> tuple[ContextReference, ...]:
@@ -346,11 +347,15 @@ def _has_file_domain(text: str) -> bool:
 _WEATHER_LOCATION = re.compile(r"([a-zçğıöşü]{3,}?)(?:['’]?(?:da|de|ta|te|daki|deki|nın|nin))?\s+hava")
 
 
+# Fillers the legacy city parser never saw ("şu anda hava nasıl"); WEATHER_STOP itself is frozen by its own test.
+_WEATHER_EXTRA_STOP = frozenset({"anda"})
+
+
 def _weather_location(text: str) -> str | None:
     """City word before 'hava' ('ankara'da hava nasıl'); None when absent or a filler word."""
     from modules.tr_speech_sets import WEATHER_STOP
     match = _WEATHER_LOCATION.search(text)
-    if match is None or match.group(1) in WEATHER_STOP:
+    if match is None or match.group(1) in WEATHER_STOP or match.group(1) in _WEATHER_EXTRA_STOP:
         return None
     return match.group(1)
 
