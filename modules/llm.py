@@ -296,13 +296,15 @@ def _ollama_effective_model(c: dict, requested: str | None = None, *, refresh_mi
 
 
 def model_check(force=False):
-    from modules import model_health
+    from modules import model_health, smart_router
     if privacy.mode() in ("gizli", "yerel"):
         return {"state":"private", "message":"Gizli/yerel modda bulut model kontrolü kapalı."}
-    if not gemini_aux_allowed():
-        return {'state':'budget','message':'Smart Router: Gemini için doğrulanmış ücretsiz rota yok; bulut model kontrolü yapılmadı.'}
     owner = current_user() or ''
-    return model_health.check(owner, user_key(owner), model_names(owner), genai.Client, force)
+    allowed = [model for model in model_names(owner)
+               if smart_router.provider_allowed(owner, 'gemini', model=model).get('ok')]
+    if not allowed:
+        return {'state':'budget','message':'Smart Router: Gemini için doğrulanmış ücretsiz rota yok; bulut model kontrolü yapılmadı.'}
+    return model_health.check(owner, user_key(owner), allowed, genai.Client, force)
 def model_check_background():
     import threading
     owner = current_user()
@@ -453,7 +455,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     model = _ollama_effective_model(c, requested=model)
     msgs = ([{"role": "system", "content": system}] if system else []) + messages
     if images:
-        msgs[-1] = {**msgs[-1], "images": images}
+        msgs[-1] = {**msgs[-1], "images": images]
     try:
         r = requests.post(c["url"] + "/api/chat", timeout=(5, 45),
                           json={"model": model, "messages": msgs, "stream": False,
@@ -1047,7 +1049,7 @@ def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 
         if strict:raise PermissionError('Gizli modda görüntü analizi kapalı.')
         return 'Gizli modda görüntü analizi kapalı.'
     selected=provider()
-    if not strict and selected in _FREE_ROUTED_PROVIDERS:
+    if selected in _FREE_ROUTED_PROVIDERS:
         from modules import smart_router
         return smart_router.run(current_user(), prompt,
             lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True,
@@ -1056,7 +1058,7 @@ def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 
 
 
 def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
-    """Send the original image with its detected MIME type and the owner's client."""
+    """Execute only the selected image provider; provider transitions belong to Smart Router."""
     selected=selected or provider()
     if selected == 'openrouter':
         from modules import smart_router
@@ -1077,8 +1079,9 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
                 return _ollama([{"role": "user", "content": prompt}], system, max_tokens, images=[b64])
             except LocalModelError as e:
                 if strict: raise
-                if privacy.mode() == "yerel" or _cli() is None:
-                    return failure_policy.user_message(e)
+                return failure_policy.user_message(e)
+        if selected != 'gemini':
+            raise ValueError('Görüntü sağlayıcısı geçersiz.')
         if privacy.mode() == "yerel":
             return "Yalnızca yerel modda görüntü, yerel görüntü modeline (örn. llava) gider; o da yanıt vermedi."
         if _cli() is None:
@@ -1104,7 +1107,8 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
             _route.tokens = usage_meter.tokens_from(resp)
             return resp.text or ""
 
-        return _with_models(_metered(call, usage_meter.size(prompt, system)), router_authorized=strict)
+        metered = _metered(call, usage_meter.size(prompt, system))
+        return _with_models(metered, router_authorized=True) if strict else _with_models(metered)
     except requests_state.Cancelled:
         raise
     except Exception as e:
