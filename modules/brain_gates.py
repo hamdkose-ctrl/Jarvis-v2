@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import time
 from typing import Any, Iterable, Mapping
 
 from modules.brain_contracts import ActiveContext, ContextReference
-from modules.confirmation import decision
+from modules.confirmation import choice_index, decision
 
 
 _CONTINUE = frozenset({"devam", "devam et", "sürdür", "surdur", "hedef devam", "hedef sürdür", "hedef surdur"})
@@ -190,8 +191,22 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
         return None
 
     if reference.id == "pending_action":
-        if data is None or data.get("stage") == "clarify":
+        if data is None:
             return None
+        if data.get("stage") == "clarify":
+            # Only an answer that selects exactly one OFFERED choice belongs to the clarification.
+            # Open-ended clarify (no resume choices) is never consumed: the reply is a new request.
+            resume = _mapping(data.get("resume"))
+            choices = resume.get("choices") if resume is not None else None
+            if not isinstance(choices, (tuple, list)) or not choices or not all(isinstance(c, str) and c.strip() for c in choices):
+                return None
+            expires = data.get("expires")
+            if isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires < time.time():
+                return None
+            index = choice_index(text, choices)
+            if index is None:
+                return None
+            return _hit(owner, request_id, "state", "session.pending_action.clarify_select", index + 1, "BOUNDED_ACTION_CLARIFY_SELECT")
         answer = _confirmation(text)
         return _hit(owner, request_id, "state", "session.pending_action.confirm", answer, "BOUNDED_ACTION_CONFIRM") if answer else None
 

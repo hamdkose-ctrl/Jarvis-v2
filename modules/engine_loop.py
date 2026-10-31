@@ -234,6 +234,8 @@ def main(runtime, ui=None):
                     with runtime.as_user(user), runtime.requests_state.activate(owner, rid):
                         from modules import brain_entry
                         runtime.emit("user", "📷 Fotoğraf" + (f": {question}" if question else ""), source)
+                        entry = None
+                        awaiting_question = False
                         try:
                             kept = runtime._keep_photo(img_path)
                             artifact = brain_entry.photo_artifact(owner=owner, request_id=rid, path=kept)
@@ -251,6 +253,7 @@ def main(runtime, ui=None):
                                     if development['enabled'] and development['unlocked']:
                                         out = developer.handle(runtime.profile.slug, '"' + kept + '" ' + (question or 'Bu görseli geliştirme referansı olarak incele.'), runtime.emit)
                                     elif not question:
+                                        awaiting_question = True
                                         runtime._pending_photo[runtime.profile.slug] = {
                                             "path": kept,
                                             "t": runtime.time.time(),
@@ -261,10 +264,13 @@ def main(runtime, ui=None):
                                     else:
                                         runtime.emit("state", "thinking")
                                         out = runtime._photo_action(kept, question)
-                            fb = brain_entry.feedback(entry, result_status="handled", reason_code="PHOTO_CORE_HANDOFF_RETURNED")
-                            runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s", rid, entry.stage, fb.result_status)
+                            fb = brain_entry.photo_feedback(entry, awaiting_question=awaiting_question)
+                            runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
+                            if entry is not None:
+                                fb = brain_entry.photo_feedback(entry, error=exc)
+                                runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
                             from modules import failure_policy
                             out = "Fotoğrafı işleyemedim: " + failure_policy.user_message(exc)
                         out = runtime._finalize(out)
