@@ -1,4 +1,5 @@
 """PR7 final notes authority: canonical Brain owns note read synonyms and named target selection."""
+import dataclasses
 import tempfile
 import unittest
 import uuid
@@ -92,6 +93,21 @@ class NotesFinalAuthorityTests(unittest.TestCase):
             with requests_state.activate(self.owner, rid):
                 entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             self.assertNotEqual(entry.understanding.capability_hint, "notes.write", text)
+
+    def test_forged_notes_write_id_is_not_a_core_plan(self):
+        market = self.add("market listesi süt")
+        rid = "notes-forged-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
+                                        text="market notunu sil", source="yazı")
+        self.assertEqual([str(r.id) for r in entry.references if r.kind == "note"], [str(market["id"])])
+        forged_semantic = dataclasses.replace(
+            entry.understanding,
+            arguments={**entry.understanding.arguments,
+                       "notes": {"operation": "delete", "id": "forged-note-id"}},
+        )
+        self.assertIsNone(brain_entry.core_plan(dataclasses.replace(entry, understanding=forged_semantic)))
 
 
 if __name__ == "__main__":
