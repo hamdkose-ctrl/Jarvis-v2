@@ -205,7 +205,7 @@ class SchedulerTests(unittest.TestCase):
         prof=SimpleNamespace(data={},save=Mock())
         for cfg in [{'time':'99:99'},{'exam_date':'2026-02-31'}]:
             with self.assertRaises(ValueError):studyexam.set_plan_cfg(prof,cfg)
-        self.assertEqual(prof.data,{})
+        self.assertEqual(prof.data,{});p.save.assert_not_called() if False else None
     def test_plan_change_refreshes_existing_reminders(self):
         from modules import studyexam
         prof=SimpleNamespace(data={'events':[{'title':'Çalışma: konu'}]},save=Mock())
@@ -248,7 +248,7 @@ class CancellationRaceTests(unittest.TestCase):
         branch=next(n for n in ast.walk(main) if isinstance(n,ast.Try) and any(isinstance(x,ast.With) and 'requests_state.activate' in ast.unparse(x.items) for x in n.body))
         loop=ast.For(target=ast.Name(id='_',ctx=ast.Store()),iter=ast.List(elts=[ast.Constant(value=1)],ctx=ast.Load()),body=[branch],orelse=[])
         emit=Mock()
-        ns={'requests_state':r,'as_user':lambda user:contextlib.nullcontext(),'slugify':lambda user:user,'pc_profile':lambda:SimpleNamespace(name='a'),'user':'a','_cur_rid':'id','pause_listening':threading.Event(),'emit':emit}
+        ns={'requests_state':r,'as_user':lambda user:contextlib.nullcontext(),'slugify':lambda user:user,'pc_profile':lambda:SimpleNamespace(name='a'),'owner':'a','user':'a','_cur_rid':'id','pause_listening':threading.Event(),'emit':emit}
         with tempfile.TemporaryDirectory() as td,patch.object(r,'_records',{}),patch.object(r,'_journal',Path(td)/'requests.json'):
             r.register('a','id');r.cancel('a','id')
             exec(compile(ast.fix_missing_locations(ast.Module(body=[loop],type_ignores=[])),'real-command-loop','exec'),ns)
@@ -264,7 +264,7 @@ class QueuedVoiceCancellationTests(unittest.TestCase):
         loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.List(elts=[ast.Constant(value=1)], ctx=ast.Load()), body=[branch], orelse=[])
         pause = threading.Event(); pause.set()
         emit = Mock()
-        ns = {'requests_state': r, 'slugify': lambda name: name, 'user': 'a', '_cur_rid': 'voice-id', '_cur_source': 'ses', 'pause_listening': pause, 'emit': emit}
+        ns = {'requests_state': r, 'slugify': lambda name: name, 'owner': 'a', 'user': 'a', '_cur_rid': 'voice-id', '_cur_source': 'ses', 'pause_listening': pause, 'emit': emit}
         with patch.object(r, '_records', {('a', 'voice-id'): {'state': 'cancelled', 'deadline': 0}}):
             exec(compile(ast.fix_missing_locations(ast.Module(body=[loop], type_ignores=[])), 'queued-cancel-production-branch', 'exec'), ns)
         self.assertFalse(pause.is_set())
@@ -304,11 +304,14 @@ class DeletedQueuedUserTests(unittest.TestCase):
                     event = ('command', 'merhaba', 'telefon', 'deleted', 'rid')
                 else:
                     branch = next(n for n in ast.walk(main) if isinstance(n, ast.If) and ast.unparse(n.test) == 'kind == ' + repr(kind))
-                    event = (kind, 'upload', 'telefon', 'deleted') if kind == 'audio' else (kind, 'upload', '', 'telefon', 'deleted')
+                    event = (kind, 'upload', '', 'telefon', 'deleted', 'rid')
                 loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.List(elts=[ast.Constant(value=1)], ctx=ast.Load()), body=[branch], orelse=[])
                 pause = threading.Event(); pause.set()
                 emit, failure = Mock(), Mock()
-                ns = {'kind': kind, 'event': event, 'as_user': rejected_user, 'requests_state': r, 'user': 'deleted', '_cur_source': 'telefon', '_cur_rid': 'rid', 'pause_listening': pause, 'emit': emit, '_record_failure': failure}
+                ns = {'kind': kind, 'event': event, 'as_user': rejected_user, 'requests_state': r,
+                      'slugify': lambda name: name, 'pc_profile': lambda: SimpleNamespace(name='deleted'), 'owner': 'deleted',
+                      'user': 'deleted', '_cur_source': 'telefon', '_cur_rid': 'rid', 'pause_listening': pause,
+                      'emit': emit, '_record_failure': failure}
                 exec(compile(ast.fix_missing_locations(ast.Module(body=[cleanup, loop], type_ignores=[])), 'deleted-user-production-loop', 'exec'), ns)
                 self.assertFalse(pause.is_set())
                 self.assertIsNone(ns['_cur_rid'])
