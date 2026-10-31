@@ -8,10 +8,11 @@ policy; the dispatched Core intents keep their existing guards.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Callable, Mapping
 
-from modules.brain_understanding import LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
+from modules.brain_understanding import FILE_SUMMARIZE, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
 
@@ -37,12 +38,33 @@ def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"location": location[:1].replace("i", "İ").replace("ı", "I").upper() + location[1:]}
 
 
+def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core re-validates the Brain-resolved file: exact summarize op, absolute existing file, allowed root."""
+    path = arguments.get("path")
+    if arguments.get("operation") != FILE_SUMMARIZE or not isinstance(path, str) or not path.strip():
+        return None
+    if "\x00" in path or not os.path.isabs(path):
+        return None
+    try:
+        from pathlib import Path
+        from modules import nxapi
+        target = Path(path)
+        if not target.is_file() or not nxapi.allowed(target):
+            return None
+    except Exception:
+        return None
+    return {"path": path}
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
+    # Only the summarize operation on a Brain-resolved file; other files.read operations stay
+    # on the legacy owner (PARTIAL_CORE_HINTS) because they carry no validated operation.
+    "files.read": ("doc_summary", _file_args),
 }
 
 
@@ -51,9 +73,14 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
 # validated Core intent. A hint with neither a Core intent nor an owner here is a drift error (tested).
 LEGACY_OWNED_HINTS: dict[str, str] = {
     "notes.read": "engine_tools._extra_commands (kb/tasks.handle)",
-    "files.read": "engine_commands._file_command",
     "reminder.propose": "engine_tools._planner_command",
     "research.search": "task intent (goal_executor) via _legacy_route_projection",
+}
+
+
+# Hints that are Core-mapped for some operations; the rest of the hint is still owned by this legacy path.
+PARTIAL_CORE_HINTS: dict[str, str] = {
+    "files.read": "engine_commands._file_command + legacy handler (göster/aç/bul/listele/karşılaştır)",
 }
 
 

@@ -89,6 +89,8 @@ _FILE_DOMAIN_TOKENS = (
     "dosya",
     "dosyayı",
     "dosyayi",
+    "dosyasını",
+    "dosyasini",
     "dosyalar",
     "dosyaları",
     "dosyalari",
@@ -342,7 +344,7 @@ def _contains_domain_token(text: str, tokens: Iterable[str]) -> bool:
 def _has_file_domain(text: str) -> bool:
     if _contains_domain_token(text, _FILE_DOMAIN_TOKENS):
         return True
-    return re.search(r"\.(?:pdf|doc|docx)(?!\w)", text) is not None
+    return re.search(r"\.(?:pdf|doc|docx|txt|md|csv|xls|xlsx|ppt|pptx)(?!\w)", text) is not None
 
 
 _WEATHER_LOCATION = re.compile(r"([a-zçğıöşü]{3,}?)(?:['’]?(?:da|de|ta|te|daki|deki|nın|nin))?\s+hava")
@@ -385,6 +387,25 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _looks_like_capability(text) and _contains_command_token(text, ("ara", "bul")):
         return "research.search"
     return None
+
+
+FILE_SUMMARIZE = "summarize"
+
+
+def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
+    """Semantic target + operation for files.read: only a single RESOLVED file reference is a target.
+
+    The path comes from the Candidate Builder inventory via the Reference Resolver, never from the
+    raw text. Only the summarize operation is proposed; other read-like verbs stay unmapped."""
+    if not _contains_command_token(text, ("özetle", "ozetle")):
+        return {}
+    files = [ref for ref in references if ref.kind == "file"]
+    if len(files) != 1:
+        return {}
+    path = files[0].provenance.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return {}
+    return {"operation": FILE_SUMMARIZE, "path": path}
 
 
 _LEVEL_WORDS = {
@@ -616,6 +637,8 @@ def understand(
         location = _weather_location(normalized)
         if location is not None:
             arguments = {**arguments, "location": location}
+    if capability_hint == "files.read":
+        arguments = {**arguments, **_file_arguments(normalized, references)}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

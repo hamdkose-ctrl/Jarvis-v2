@@ -144,6 +144,7 @@ class FrontGatePrecedenceTests(_Pipeline):
     def test_contract_names_match_engine_commands_order(self):
         source = inspect.getsource(engine_commands.handle)
         markers = {
+            "file_command": "runtime._file_command(",
             "windows_settings": "system_control.windows_settings(",
             "selfctl": "selfctl.handle(",
             "user_command": "runtime._user_command(",
@@ -178,7 +179,7 @@ class FrontGatePrecedenceTests(_Pipeline):
         table["selfctl"] = lambda: (seen.append("selfctl"), "S")[1]
         with patch.object(brain_precedence, "_gates", return_value=table):
             self.assertEqual(brain_precedence.claim(self.ctx, "x"), ("selfctl", "S"))
-        self.assertEqual(seen, ["windows_settings", "selfctl"])
+        self.assertEqual(seen, ["file_command", "windows_settings", "selfctl"])
 
     def test_real_windows_settings_gate_is_consulted_before_core(self):
         self.ctx.system_control.windows_settings.return_value = "Ayarlar açıldı"

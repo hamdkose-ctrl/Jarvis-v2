@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 # Order is the contract. Do not reorder without changing engine_commands.handle.
 FRONT_GATES: tuple[str, ...] = (
+    "file_command",
     "windows_settings",
     "selfctl",
     "user_command",
@@ -32,6 +33,7 @@ def _gates(runtime: Any, command: str, lowered: str) -> dict[str, Callable[[], A
         return module.handle(lowered, runtime.emit)
 
     return {
+        "file_command": lambda: runtime._file_command(command),
         "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
         "selfctl": selfctl,
         "user_command": lambda: runtime._user_command(command, lowered),
@@ -61,7 +63,7 @@ def claim(runtime: Any, command: str) -> tuple[str, Any] | None:
 
 
 _ATTRS = {
-    "windows_settings": ("system_control",), "selfctl": ("emit",), "user_command": ("_user_command",),
+    "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",), "user_command": ("_user_command",),
     "planner_command": ("_planner_command",), "macro_teach": ("_macro_teach",),
     "macro_manage": ("_macro_manage",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
 }
