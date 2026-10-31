@@ -23,6 +23,7 @@ from modules.brain_contracts import (
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
 from modules.brain_understanding import understand
+from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
 _RESERVED = frozenset({
@@ -157,6 +158,7 @@ def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextRefer
         from modules import job_front
         job = job_front.observe(owner)
     except Exception:
+        _record_failure("modules/brain_entry.py:job_front_observe")
         job = None
     if isinstance(job, dict) and job.get("id"):
         rows.append(ContextReference(
@@ -181,6 +183,7 @@ def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextRefer
         from modules import desktop_agent
         desktop = desktop_agent._load(owner)
     except Exception:
+        _record_failure("modules/brain_entry.py:desktop_consent_observe")
         desktop = None
     if isinstance(desktop, dict) and desktop.get("status") == "consent":
         rows.append(ContextReference(
@@ -313,6 +316,7 @@ def core_proposal(entry: EntryResult) -> dict[str, object]:
         try:
             ids = {str(row.get("id")) for row in capability_manifest.catalog().get("capabilities", [])}
         except Exception:
+            _record_failure("modules/brain_entry.py:capability_manifest")
             ids = set()
         if hint in ids:
             manifest_id = hint
@@ -402,6 +406,7 @@ def _correlated_job_id(entry: EntryResult) -> str | None:
         from modules import goal_executor
         row = goal_executor.latest(entry.owner)
     except Exception:
+        _record_failure("modules/brain_entry.py:goal_correlation")
         return None
     if not isinstance(row, dict):
         return None
