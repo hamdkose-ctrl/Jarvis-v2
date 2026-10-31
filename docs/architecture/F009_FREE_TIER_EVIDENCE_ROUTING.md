@@ -105,3 +105,22 @@ UI yalnız key/preference kaydeder ve doğru durumu gösterir. Gerçek generatio
 ## Kota gözlemi sınırı
 
 `usage_meter.observe_limits()` ile kaydedilen provider limit başlıkları router durumunda gözlem olarak gösterilebilir; tek başına `free_tier_verified`, eligibility veya hard-stop guarantee üretmez. Bu ayrım, sağlayıcının bir limit başlığı döndürmesini yanlışlıkla “ücretsizdir” kanıtına çevirmeyi engeller.
+
+## PUBLIC / SENSITIVE veri politikası
+
+Provider'ın ücretsiz olması, her veri sınıfına uygun olduğu anlamına gelmez. Manager tarafından ayrıca doğrulanan provider veri-politikası araştırması P0 routing'e ikinci bir eligibility sınırı ekler; bu yeni router veya ikinci authority değildir, mevcut Smart Router kararının bir girdisidir.
+
+Mevcut implementasyon için kural:
+
+- Gemini cloud rotaları **PUBLIC-only** kabul edilir; SENSITIVE içerik Gemini'ye otomatik veya preference ile gönderilmez.
+- Groq mevcut desteklediği text görevlerinde **PUBLIC/SENSITIVE** rota olabilir; yine exact free-tier evidence, anahtar, quota ve cooldown kapılarının tümünü geçmek zorundadır.
+- OpenRouter için aynı SENSITIVE veri-politikası kanıtı bu iş kapsamında yoktur; fail-closed biçimde **PUBLIC-only** kalır.
+- Ollama/yerel rota **PUBLIC/SENSITIVE** kullanılabilir ve cloud evidence gerektirmez.
+- Cloudflare mevcut kodda yalnız görsel üretim transport'udur; araştırma sonucu SENSITIVE kullanım için uygun kabul edilse de Smart Router'a text LLM provider olarak eklenmez.
+- NVIDIA bugün Jarvis'te implement edilmiş provider değildir; yalnız araştırma sonucu var diye provider/router'a eklenmez. İleride ayrı bir provider gerçekten eklenirse PUBLIC-only kabul edilmesi gerekir.
+
+Router SENSITIVE sinyalini mevcut privacy primitive'lerinden üretir: `gizli` mod fail-closed SENSITIVE'dir; normal modda `privacy.redact(..., force=True)` tarafından gerçekten hassas olarak yakalanan prompt da SENSITIVE kabul edilir. Bu sınıflandırma permission/effect authority değildir ve içerik gövdesini trace'e yazmaz.
+
+Capability farkı korunur: Groq bugün vision provider değildir. Bu yüzden SENSITIVE text `Groq → Ollama` yönünde ilerleyebilirken SENSITIVE vision mevcut capability matrix içinde yalnız uygun yerel vision modeline düşer. Cloudflare görsel **üretim**, `ask_image` ise görsel **anlama** yoludur; ikisi birbirine karıştırılmaz.
+
+PUBLIC request'lerde mevcut task sıraları ve explicit free-provider preference davranışı korunur. SENSITIVE request'te Gemini/OpenRouter preference strict data-policy gate'i bypass etmez; uygun Groq/local route yoksa paid/public-only provider'a sessiz geçiş yerine dürüst stop uygulanır.
