@@ -25,15 +25,15 @@ class BridgeModuleTests(unittest.TestCase):
         a._runtime.llm.model_settings.assert_called_once_with('hamdi','model-a',['backup-a'])
         b._runtime.llm.model_settings.assert_called_once_with('ebru','model-b',[])
 
-    def test_key_validation_uses_owner_model_and_bounded_client(self):
+    def test_key_save_does_not_generate_or_claim_free_validation(self):
         from google import genai
         bridge=self.models('hamdi');bridge._runtime.llm.model_names.return_value=['mine']
-        client=Mock()
-        with patch.object(genai,'Client',return_value=client) as factory:
+        with patch.object(genai,'Client',side_effect=AssertionError('key save must not generate')) as factory:
             result=bridge.user_key_set('Hamdi','key')
         self.assertTrue(result['ok'])
-        factory.assert_called_once_with(api_key='key',http_options={'timeout':45000})
-        client.models.generate_content.assert_called_once_with(model='mine',contents="Yalnızca 'tamam' yaz.")
+        factory.assert_not_called()
+        bridge._runtime.llm.set_user_key.assert_called_once_with('hamdi','key')
+        self.assertIn('doğrulan',result['msg'].casefold())
 
     def test_model_measure_retains_owner_after_profile_switch(self):
         bridge=self.models('hamdi');gate=threading.Event();entered=threading.Event()
@@ -42,7 +42,8 @@ class BridgeModuleTests(unittest.TestCase):
         def get_client():entered.set();gate.wait(2);return Mock()
         bridge._runtime.llm.gemini_client.side_effect=get_client
         try:
-            job=bridge.llm_measure()['job'];self.assertTrue(entered.wait(1))
+            with patch('modules.smart_router.provider_allowed',return_value={'ok':True,'reason_code':None,'reason':'ok'}):
+                job=bridge.llm_measure()['job'];self.assertTrue(entered.wait(1))
             bridge._runtime._p=lambda:SimpleNamespace(slug='ebru',name='ebru')
             with self.assertRaises(ValueError):bridge.ui_job_status(job)
         finally:gate.set()
