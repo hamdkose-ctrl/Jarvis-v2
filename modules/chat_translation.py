@@ -3,19 +3,13 @@ import re
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
-from config import DATA_DIR
 from modules.turkish_text import lower
-import json
-import os
-import threading
-_lock = threading.RLock()
-_reset_file = DATA_DIR / "chat_sessions.json"
+from modules import conversation_reset
 
 _sources = {}
-try:
-    _resets = json.loads(_reset_file.read_text(encoding="utf-8"))
-except (OSError, ValueError):
-    _resets = {}
+# Sıfırlama kesiti conversation_reset'in sözlüğüdür (aynı nesne); eski adlar uyumluluk için durur.
+_resets = conversation_reset._resets
+_reset_file = conversation_reset._reset_file
 # Yalnız başta/sonda komut; metin içindeki sıradan 'çeviri' sözcüğü komut sayılmaz.
 _ACTION = r"(?:(?:tam|tamamını|tümünü|metni|bu metni|bunu|yazdığımı|yazdigimi|önceki metni|son cevabını|son yanıtını|özeti)\s+)*(?:(?:türkçe|turkce|ingilizce|almanca|fransızca|arapça|rusça|ispanyolca)(?:ye|ya|e|a)?\s+)?(?:çevir(?:i)?|cevir(?:i)?|tercüme(?: et)?|translate)"
 _START = re.compile(r"^" + _ACTION + r"\s*[:：\n]+\s*(.+)$", re.I | re.S)
@@ -24,15 +18,10 @@ _END = re.compile(r"(?:^|\s+)" + _ACTION + r"\s*[.!?]*$", re.I)
 
 def reset(slug):
     _sources.pop(slug, None)
-    with _lock:
-        _resets[slug] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        tmp = _reset_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(_resets), encoding="utf-8")
-        os.replace(tmp, _reset_file)
+    conversation_reset.mark(slug, _resets, _reset_file)
 
 def recent(slug, rows):
-    cutoff = _resets.get(slug, "")
-    return [r for r in rows if str(r.get("ts", "")) > cutoff] if cutoff else rows
+    return conversation_reset.recent(slug, rows, _resets)
 
 
 def _parts(command):

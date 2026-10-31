@@ -125,8 +125,8 @@ def _doc_ready_line(runtime, kind: str, text: str = "") -> str:
 
 def _summarize_chat(runtime) -> str:
     """'Bu konuşmayı özetle': bugünkü sohbet kayıtlarını kısaca özetler (dosya istemez)."""
-    from modules import chat_translation
-    rows = chat_translation.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
+    from modules import conversation_reset
+    rows = conversation_reset.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
     today = runtime.datetime.now().strftime("%Y-%m-%d")
     rows = [r for r in rows if str(r.get("ts", "")).startswith(today)][:-1] or rows[-30:]
     if not rows:
@@ -138,8 +138,8 @@ def _summarize_chat(runtime) -> str:
 
 def _table_chat(runtime) -> str:
     """Önceki Jarvis yanıtını dosya üretmeden sohbet içinde tabloya çevirir."""
-    from modules import chat_translation
-    rows = chat_translation.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
+    from modules import conversation_reset
+    rows = conversation_reset.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
     source = next((str(r.get("text", "")).strip() for r in reversed(rows)
                    if r.get("role") == "assistant" and str(r.get("text", "")).strip()), "")
     if not source:

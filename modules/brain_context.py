@@ -353,8 +353,8 @@ def build_active_context(
     if history_reader is None:
         history_reader = _default_history_reader
     if history_filter is None:
-        from modules import chat_translation
-        history_filter = chat_translation.recent
+        from modules import conversation_reset
+        history_filter = conversation_reset.recent
     if goal_reader is None:
         goal_reader = _default_goal_reader
     if goal_is_open is None:
