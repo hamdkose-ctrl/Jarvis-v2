@@ -36,8 +36,8 @@ class PublicProvenanceTests(unittest.TestCase):
     def test_hand_built_public_label_is_rejected(self):
         with self.assertRaises(ValueError):
             Labeled("x", "web_search", RouteClass.PUBLIC)
-        with self.assertRaises(ValueError):
-            Labeled("x", "web_search", RouteClass.PUBLIC, object())
+        with self.assertRaises(TypeError):
+            Labeled("x", "web_search", RouteClass.PUBLIC, object())  # issuer is not an init argument
 
     def test_subclass_and_copies_cannot_smuggle_public(self):
         class Fake(Labeled):
@@ -48,7 +48,13 @@ class PublicProvenanceTests(unittest.TestCase):
         self.assertIs(classify([fake]), RouteClass.PRIVATE)
         self.assertIs(classify([copy.copy(genuine)]), RouteClass.PUBLIC)  # same issuer, still genuine
         with self.assertRaises(ValueError):
+            dataclasses.replace(genuine, payload="özel bilgi")  # cannot re-wrap private data as PUBLIC
+        with self.assertRaises(ValueError):
+            dataclasses.replace(genuine, source_id="web_search")
+        with self.assertRaises(TypeError):
             dataclasses.replace(genuine, _issuer=None)
+        private = dataclasses.replace(mark_private("history", "x"), payload="y")
+        self.assertIs(classify([private]), RouteClass.PRIVATE)
         try:
             restored = pickle.loads(pickle.dumps(genuine))
         except Exception:

@@ -11,11 +11,15 @@ Single place that decides whether data may be treated as PUBLIC. Rules (all fail
   There is no API that lifts PRIVATE back to PUBLIC.
 * A new public source becomes PUBLIC only by adding its id to the allowlist here, with a test.
 
+The guarantee is at rule and test level: code inside the process can still reach ``_ISSUER``
+(in-process tampering is out of scope); ``dataclasses.replace``, hand-built labels, subclasses,
+dicts and pickles can not mint PUBLIC.
+
 This module is a contract; nothing in the request path calls it yet (wired by the Router, P0-3).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
@@ -45,17 +49,23 @@ class Labeled:
     payload: Any
     source_id: str
     route: RouteClass
-    _issuer: object = None
+    # Not an __init__ argument: ``Labeled(...)`` and ``dataclasses.replace`` can never carry it,
+    # so a genuine PUBLIC label can not be re-created with a different payload.
+    _issuer: object = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self.route is RouteClass.PUBLIC and self._issuer is not _ISSUER:
+        if self.route is RouteClass.PUBLIC:
             raise ValueError("PUBLIC provenance yalnız mark_public ile üretilebilir.")
 
 
 def mark_public(source_id: str, payload: Any) -> Labeled:
     """Label payload PUBLIC when ``source_id`` is allowlisted; otherwise it stays PRIVATE."""
     if isinstance(source_id, str) and source_id in PUBLIC_SOURCE_ALLOWLIST:
-        return Labeled(payload, source_id, RouteClass.PUBLIC, _ISSUER)
+        label = object.__new__(Labeled)  # skips __init__/__post_init__; the only PUBLIC minting path
+        for name, value in (("payload", payload), ("source_id", source_id),
+                            ("route", RouteClass.PUBLIC), ("_issuer", _ISSUER)):
+            object.__setattr__(label, name, value)
+        return label
     return Labeled(payload, str(source_id) if isinstance(source_id, str) else "", RouteClass.PRIVATE)
 
 
