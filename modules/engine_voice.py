@@ -82,8 +82,8 @@ def _recent_turns(runtime, slug: str, hours: float = 2.0, limit: int = 12) -> li
     """Kalıcı geçmişten (sesli + yazılı) son konuşmalar: [(rol, metin)], yalnızca son 'hours' saat."""
     cut = (runtime.datetime.now() - runtime.timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
     try:
-        from modules import chat_translation
-        rows = chat_translation.recent(slug, runtime.history.read(slug, "", 80))
+        from modules import conversation_reset
+        rows = conversation_reset.recent(slug, runtime.history.read(slug, "", 80))
     except Exception:
         runtime._record_failure('main.py:_recent_turns')
         return []
