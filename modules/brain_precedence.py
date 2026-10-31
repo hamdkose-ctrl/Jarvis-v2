@@ -8,8 +8,8 @@ user macro, a saved custom command, a planner phrase, a Windows-settings page or
 self-control command always beats weather/level Core dispatch.
 
 Canonical data requests are the narrow exception when Brain has already produced a validated
-Core plan for the same surface. In that case UI navigation must not shadow the data operation;
-explicit page/section navigation still stays in selfctl when there is no such plan.
+Core plan for the same surface. In that case legacy UI/read gates must not shadow the data
+operation; explicit page/section navigation and unmigrated planner operations stay unchanged.
 
 This module decides nothing about permission or effect: it only calls the existing handlers.
 """
@@ -42,6 +42,11 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         return module.handle(lowered, runtime.emit)
 
     def planner_gate():
+        # Canonical notes_read already has a validated Core plan. Do not let the planner's old
+        # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
+        # branches are unchanged and remain domain-owned until their own migration decision.
+        if plan is not None and plan[0] == "notes_read":
+            return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
         # edit/snooze) answer first and later branches (calendar, agenda) are never reached.
