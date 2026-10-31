@@ -234,7 +234,7 @@ class FieldNoteTests(unittest.TestCase):
         self.assertEqual(p.data,{});p.save.assert_not_called()
     def test_simultaneous_retries_produce_one_note(self):
         from modules import fieldnotes
-        p=SimpleNamespace(slug='a',data={'items':[]};_new_id=lambda:1,save=Mock())
+        p=SimpleNamespace(slug='a',data={'items':[]},_new_id=lambda:1,save=Mock())
         with concurrent.futures.ThreadPoolExecutor(3) as pool:
             futures=[pool.submit(fieldnotes.sync,p,[{'uid':'note-12345678','text':'saha notu'}]) for _ in range(3)]
             for f in futures:f.result()
