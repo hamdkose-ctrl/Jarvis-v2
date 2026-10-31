@@ -25,11 +25,13 @@ class NotesFinalAuthorityTests(unittest.TestCase):
     def add(self, text):
         return self.ctx.profile.add_note_item(text)
 
-    def run(self, text, *, forbid_legacy_lookup=False):
+    def through_brain(self, text, *, forbid_legacy_lookup=False):
         rid = "notes-final-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         handler = Mock(wraps=self.ctx.handle)
-        cm = patch("modules.main_planner._note_lookup", side_effect=AssertionError("canonical not hedefi legacy resolver'a dönmemeli")) if forbid_legacy_lookup else patch("modules.main_planner._note_lookup", wraps=__import__("modules.main_planner", fromlist=["_note_lookup"])._note_lookup)
+        real_lookup = __import__("modules.main_planner", fromlist=["_note_lookup"])._note_lookup
+        cm = (patch("modules.main_planner._note_lookup", side_effect=AssertionError("canonical not hedefi legacy resolver'a dönmemeli"))
+              if forbid_legacy_lookup else patch("modules.main_planner._note_lookup", wraps=real_lookup))
         with requests_state.activate(self.owner, rid), cm:
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, text)
@@ -38,7 +40,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
     def test_read_synonyms_reach_core_without_legacy_planner(self):
         self.add("süt al")
         for text in ("notlarımı oku", "notlarımı say", "notları listele"):
-            entry, out, feedback, handler = self.run(text, forbid_legacy_lookup=True)
+            entry, out, feedback, handler = self.through_brain(text, forbid_legacy_lookup=True)
             self.assertEqual(entry.understanding.capability_hint, "notes.read", text)
             self.assertEqual(entry.understanding.arguments.get("notes"), {"which": "all"}, text)
             self.assertIn("süt al", out, text)
@@ -48,7 +50,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
     def test_named_delete_uses_brain_resolved_stable_id(self):
         market = self.add("market listesi süt ekmek")
         other = self.add("kitap listesi sefiller")
-        entry, out, feedback, handler = self.run("market notunu sil", forbid_legacy_lookup=True)
+        entry, out, feedback, handler = self.through_brain("market notunu sil", forbid_legacy_lookup=True)
         self.assertEqual(entry.understanding.capability_hint, "notes.write")
         self.assertEqual(entry.understanding.arguments.get("notes"), {"operation": "delete", "id": str(market["id"])})
         self.assertEqual([str(r.id) for r in entry.references if r.kind == "note"], [str(market["id"])])
@@ -60,7 +62,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
     def test_named_edit_uses_brain_resolved_stable_id_and_exact_new_text(self):
         market = self.add("market listesi süt")
         other = self.add("kitap listesi sefiller")
-        entry, out, _feedback, handler = self.run("market notunu düzelt: süt ve ekmek", forbid_legacy_lookup=True)
+        entry, out, _feedback, handler = self.through_brain("market notunu düzelt: süt ve ekmek", forbid_legacy_lookup=True)
         self.assertEqual(entry.understanding.capability_hint, "notes.write")
         self.assertEqual(entry.understanding.arguments.get("notes"), {
             "operation": "update", "id": str(market["id"]), "text": "süt ve ekmek",
@@ -74,7 +76,7 @@ class NotesFinalAuthorityTests(unittest.TestCase):
     def test_ambiguous_named_delete_never_mutates_or_falls_to_legacy_resolver(self):
         one = self.add("market listesi süt")
         two = self.add("market listesi ekmek")
-        entry, out, feedback, handler = self.run("market notunu sil", forbid_legacy_lookup=True)
+        entry, out, feedback, handler = self.through_brain("market notunu sil", forbid_legacy_lookup=True)
         self.assertTrue(entry.understanding.needs_input)
         self.assertEqual(feedback.result_status, "needs_input")
         self.assertFalse(handler.called)
