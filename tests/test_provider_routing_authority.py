@@ -41,7 +41,8 @@ class ProviderRoutingAuthorityTests(unittest.TestCase):
         p.start(); self.addCleanup(p.stop)
         p = patch.object(router.privacy, "unprotect", side_effect=lambda text: text.removeprefix("enc:"))
         p.start(); self.addCleanup(p.stop)
-        router.configure(self.OWNER, True, key="openrouter-key")
+        with patch.object(router, "status", return_value={}):
+            router.configure(self.OWNER, True, key="openrouter-key")
 
     def evidence(self, provider: str, model: str) -> None:
         now = router.time.time()
@@ -174,11 +175,16 @@ class ProviderRoutingAuthorityTests(unittest.TestCase):
                 self.assertNotIn("anthropic", candidates)
 
     def test_manual_provider_preference_is_not_paid_consent(self):
-        from modules import paid_providers
-        with patch.object(paid_providers, "generate", side_effect=AssertionError("paid")) as paid:
+        from modules import paid_providers, user_models
+        with patch.object(paid_providers, "configure") as paid_configure, \
+             patch.object(paid_providers, "generate", side_effect=AssertionError("paid")) as paid_generate, \
+             patch.object(user_models, "save_choice") as save_choice, \
+             patch.object(llm, "save_settings") as save_settings:
             llm.set_provider("gemini")
-            self.assertEqual(llm.provider(), "gemini")
-        paid.assert_not_called()
+        paid_configure.assert_not_called()
+        paid_generate.assert_not_called()
+        save_choice.assert_called_once_with(self.OWNER, provider="gemini")
+        self.assertEqual(save_settings.call_args.kwargs["ai_mode"], "gemini")
 
     def test_auxiliary_gemini_is_denied_for_non_auto_preference_without_evidence(self):
         for preferred in ("groq", "gemini"):
