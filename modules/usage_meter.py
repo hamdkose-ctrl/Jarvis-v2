@@ -1,6 +1,6 @@
 """Model çağrısı sayacı: neyin kota harcadığını kanıtla göstermek için.
 
-Her gerçek sağlayıcı çağrısı (Gemini, Groq, Ollama, OpenRouter, ücretli, gömme, ses, Live bağlantısı)
+Her gerçek sağlayıcı çağrısı (Gemini, Groq, Ollama, Cloudflare, ücretli, gömme, ses, Live bağlantısı)
 kullanıcıya özel `~/.jarvis/kota/<kullanıcı>.jsonl` dosyasına bir satır yazar: zaman, sağlayıcı, model,
 çağıran yer (modül.fonksiyon), giden/gelen karakter ve sonuç (ok, 429, hata kodu). İstem veya cevap
 metni yazılmaz. Karakter sayısı token değildir; yaklaşık büyüklük içindir. Sağlayıcı yanıtında token sayısı
@@ -279,7 +279,7 @@ def rows(owner: str | None = None, day: str | None = None) -> list[dict]:
     return _read_rows(owner, day)[0]
 
 
-_LABEL = {'gemini': 'Gemini', 'groq': 'Groq', 'ollama': 'Ollama (yerel)', 'openrouter': 'OpenRouter',
+_LABEL = {'gemini': 'Gemini', 'groq': 'Groq', 'ollama': 'Ollama (yerel)', 'cloudflare': 'Cloudflare',
           'openai': 'OpenAI', 'anthropic': 'Claude', 'gemini-embed': 'Gemini gömme',
           'gemini-ses': 'Gemini ses çevirme', 'gemini-live': 'Gemini Live bağlantısı'}
 

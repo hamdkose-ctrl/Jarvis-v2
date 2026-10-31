@@ -132,7 +132,8 @@ class RouterGateTests(unittest.TestCase):
         self.assertEqual(router._LEGACY_ROUTE, PUB)
 
     def test_owner_evidence_alone_is_not_enough_without_privacy_bundle(self):
-        self.evidence("openrouter")
+        with self.assertRaises(ValueError):
+            self.evidence("openrouter")
         result = router._evidence_gate("alice", "openrouter", "m")
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason_code"], "PROVIDER_PRIVACY_EVIDENCE_MISSING")

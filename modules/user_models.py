@@ -11,7 +11,7 @@ from config import DATA_DIR
 import release_guard
 
 _LOCK = threading.RLock()
-PROVIDERS = ('auto', 'openrouter', 'gemini', 'groq', 'ollama', 'openai', 'anthropic')
+PROVIDERS = ('auto', 'gemini', 'groq', 'ollama', 'openai', 'anthropic')
 _GEMINI_NAME = r'[A-Za-z0-9._/-]{1,150}'
 _MODEL_NAME = r'[A-Za-z0-9._:/@-]{1,150}'      # Ollama etiketi (llama3.2:3b) ve Groq kimliği (openai/gpt-oss-120b)
 _CHOICE_KEYS = ('provider', 'groq_model', 'local_model')
@@ -61,8 +61,17 @@ def choice(owner) -> dict:
         record_failure('modules/user_models.py:choice')
         return {}
     out = {}
-    if value.get('provider') in PROVIDERS:
-        out['provider'] = value['provider']
+    stored = value.get('provider')
+    if stored in PROVIDERS:
+        out['provider'] = stored
+    elif stored is not None:
+        # Unknown or removed provider name: fall back to the router policy and clear the stale record.
+        out['provider'] = 'auto'
+        try:
+            _write(owner, provider='auto')
+        except (OSError, ValueError):
+            from modules.diagnostics import record_failure
+            record_failure('modules/user_models.py:choice:migrate')
     for key in ('groq_model', 'local_model'):
         if isinstance(value.get(key), str) and re.fullmatch(_MODEL_NAME, value[key]):
             out[key] = value[key]

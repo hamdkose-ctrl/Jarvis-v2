@@ -81,8 +81,7 @@ class GoalFailurePolicyTests(unittest.TestCase):
             {'provider': 'groq', 'reason': 'Bu kullanıcı için API anahtarı eksik', 'seconds': 0},
         ]
         with patch.object(smart_router, 'candidates', return_value=[]), \
-             patch.object(smart_router, 'selection', return_value={'candidates': [], 'skipped': skipped}), \
-             patch.object(smart_router, '_free_emergency', return_value=False):
+             patch.object(smart_router, 'selection', return_value={'candidates': [], 'skipped': skipped}):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
                 smart_router.run('alice', 'python', Mock(side_effect=AssertionError('no call')))
         self.assertEqual(caught.exception.reason_code, 'PROVIDER_CONFIGURATION_REQUIRED')
@@ -92,8 +91,7 @@ class GoalFailurePolicyTests(unittest.TestCase):
     def test_all_providers_exhausted_has_stable_structured_failure(self):
         errors = [RuntimeError('429 quota PRIVATE'), TimeoutError('PRIVATE'), ConnectionError('PRIVATE')]
         with patch.object(smart_router, 'candidates', return_value=['groq', 'gemini', 'ollama']), \
-             patch.object(smart_router, 'selection', return_value={'candidates': ['groq', 'gemini', 'ollama'], 'skipped': []}), \
-             patch.object(smart_router, '_free_emergency', return_value=False):
+             patch.object(smart_router, 'selection', return_value={'candidates': ['groq', 'gemini', 'ollama'], 'skipped': []}):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
                 smart_router.run('alice', 'python', Mock(side_effect=errors))
         exc = caught.exception

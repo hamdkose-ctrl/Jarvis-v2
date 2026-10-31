@@ -165,8 +165,8 @@ def _cfg() -> dict:
     s = load_settings()
     mine = _choice()
     configured = mine.get("provider") or s.get("provider") or "gemini"
-    if configured not in {"auto", "openrouter", "gemini", "groq", "ollama", "openai", "anthropic"}:
-        configured = "gemini"
+    if configured not in {"auto", "gemini", "groq", "ollama", "openai", "anthropic"}:
+        configured = "auto"   # unknown or removed provider names fall back to the router policy
     backend = s.get("local_backend") if s.get("local_backend") in LOCAL_BACKENDS else "ollama"
     if backend == "ollama":
         url, model = s.get("ollama_url") or LOCAL_BACKENDS["ollama"], mine.get("local_model") or s.get("ollama_model") or "llama3.2"
@@ -347,7 +347,7 @@ def set_local_backend(backend: str, url: str = "", model: str = "") -> None:
 
 
 def set_provider(name: str, model: str | None = None, url: str | None = None) -> None:
-    if name not in ("auto", "openrouter", "gemini", "ollama", "groq", "openai", "anthropic"):
+    if name not in ("auto", "gemini", "ollama", "groq", "openai", "anthropic"):
         raise ValueError("Sağlayıcı gemini, groq, ollama, openai veya anthropic olmalı.")
     if name == "groq" and not user_groq_key(current_user()):
         raise ValueError("Bu kullanıcı için önce Groq API anahtarını Bağlantılar sayfasından ekle.")
@@ -834,7 +834,7 @@ def _with_models(call):
 LAST_SEC: dict = {}
 
 
-_LABELS = {"gemini": "Gemini", "groq": "Groq", "ollama": "Ollama (yerel)", "openrouter": "OpenRouter",
+_LABELS = {"gemini": "Gemini", "groq": "Groq", "ollama": "Ollama (yerel)",
            "openai": "OpenAI", "anthropic": "Claude"}
 _route = threading.local()   # bu iş parçacığındaki isteğin model izi; yalnız sağlayıcı/model adı, metin yok
 
@@ -893,10 +893,6 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         from modules import smart_router
         return smart_router.run(current_user(), prompt + '\n' + system,
             lambda name: _send(prompt, system, max_tokens, history, name, True))
-    if selected == 'openrouter':
-        from modules import smart_router
-        return _timed('openrouter',lambda:smart_router.openrouter(current_user(),
-            _ohist_msgs(history)+[{'role':'user','content':prompt}],system,max_tokens))
     if selected != 'ollama' and history:
         history = [types.Content(role=h.role,parts=[types.Part(text=privacy.redact(p.text)) for p in h.parts if getattr(p,'text',None)]) for h in history]
     if selected in ('openai','anthropic'):
@@ -1075,9 +1071,6 @@ def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 
 def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
     """Send the original image with its detected MIME type and the owner's client."""
     selected=selected or provider()
-    if selected == 'openrouter':
-        from modules import smart_router
-        return smart_router.openrouter(current_user(),[{'role':'user','content':prompt}],system,max_tokens,image_path)
     requests_state.check()
     if privacy.mode() == "gizli":
         return "Gizli modda görüntü analizi kapalı."

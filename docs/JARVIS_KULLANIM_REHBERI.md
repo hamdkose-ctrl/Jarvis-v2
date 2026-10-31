@@ -92,7 +92,7 @@ Yapay Zekâ sekmesi model seçimi ve durum görünümü içindir. Bağlantılar 
 
 ### Ücretsiz Öncelik
 
-Gemini ve Groq’un ücretsiz hesapları, OpenRouter’ın ücretsiz model seçeneği ve yerel Ollama havuzu önceliklidir. Ücretsiz servislerin kotası ve erişilebilirliği değişebilir. Ollama için yerel kurulum ve indirilmiş model gerekir; performans bilgisayarına bağlıdır.
+Gemini ve Groq’un ücretsiz hesapları ve yerel Ollama havuzu önceliklidir. Ücretsiz servislerin kotası ve erişilebilirliği değişebilir. Ollama için yerel kurulum ve indirilmiş model gerekir; performans bilgisayarına bağlıdır.
 
 ### Ücretli Seçenekler
 

@@ -6,7 +6,7 @@ Mevcut `smart_router` ve `failure_policy` altyapısını değiştirmeden, otomat
 
 ## Mevcut yapının reuse edilen parçaları
 
-- `modules/smart_router.py`: görev türü, provider sırası, owner state, health/cooldown, fail-closed provider exhaustion ve OpenRouter ücretsiz acil rota.
+- `modules/smart_router.py`: görev türü, provider sırası, owner state, health/cooldown, fail-closed provider exhaustion (OpenRouter ve acil rota Provider P0-3a ile tamamen kaldırıldı).
 - `modules/failure_policy.py`: provider hata sınıflandırması, cooldown ve `PROVIDER_*` reason-code standardı.
 - `modules/usage_meter.py`: gerçek çağrı ve sağlayıcının bildirdiği son limit başlıklarını gözlemleme. Bu limit kaydı ücretsiz-katman kanıtı değildir.
 
@@ -43,9 +43,8 @@ Otomatik cloud candidate ancak aşağıdaki koşulların tümünde açılır:
 
 ## Korunan davranış
 
-- `openrouter/free` veya `:free` dışındaki model otomatik ücretsiz rota olamaz.
 - OpenAI/Anthropic otomatik havuza eklenmez.
-- OpenRouter acil yedeği de kendi exact model evidence'ı olmadan çalışmaz.
+- Acil/üçüncü bir yedek rota yoktur; zincir dışı hiçbir sağlayıcı denenmez. Eski router state'indeki OpenRouter anahtarı, modeli ve evidence satırları açılışta diskten silinir.
 - 429/ağ/kimlik hatalarının mevcut `failure_policy` cooldown ve fallback akışı korunur.
 - Uygun ücretsiz route kalmazsa `ProviderExhaustedError` ile fail-closed durulur ve kullanıcı mesajında `Ücretli modele geçilmedi` korunur.
 - Yerel/Ollama rota cloud evidence gerektirmez.

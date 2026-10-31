@@ -533,7 +533,7 @@ def ui_set(key: str, value) -> dict:
         save_settings(live_silence_ms=max(300, min(2500, int(value))))
     elif key == "bg" and not value:                  # arka plan resmini kaldır (yerine çizilen gece salonu)
         (DATA_DIR / "arka_plan.img").unlink(missing_ok=True)
-    elif key == "ai_mode" and value in ("auto", "openrouter", "gemini", "groq", "ollama"):
+    elif key == "ai_mode" and value in ("auto", "gemini", "groq", "ollama"):
         from modules import llm
         llm.set_provider(value)   # anahtar yoksa ValueError
         save_settings(ai_mode=value)

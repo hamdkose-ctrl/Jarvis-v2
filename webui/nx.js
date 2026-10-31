@@ -636,7 +636,7 @@ const MENU_VIEW={hafiza:/hedefler|ogrenme durumu|onay bekleyen|bildiklerim|ogret
 const MENU_INFO={   // rol, ne yapar, durum (online/standby/integration)
   chat:['Konuşma ve dosyalar',['Yazarak ya da sesle her şeyi sorarsın','Dosya ekleyip özetletir, tabloya döktürürsün','Sohbet geçmişin kullanıcıya özel saklanır'],'online'],
   hafiza:['Uzun süreli hafıza',['Senin hakkında öğrendiklerini tutar','Öğrettiğin kurallara her konuşmada uyar','Önce onayına sunar, sonra kaydeder'],'online'],
-  ai:['Model ve bağlantılar',['Gemini, Groq, Ollama ve OpenRouter arasında seçim','Her kullanıcı kendi anahtarını kullanır','Google ve GitHub bağlantıları'],'online'],
+  ai:['Model ve bağlantılar',['Gemini, Groq ve Ollama arasında seçim','Her kullanıcı kendi anahtarını kullanır','Google ve GitHub bağlantıları'],'online'],
   study:['Çalışma alanı',['Konu çalışma, soru çözme, kaynak ekleme','Matematik çalışma masası','Derse özel notlar'],'online'],
   ses:['Mikrofon, uyanma ve konuşma',['Mikrofon, sesli yanıt, konuşma sesi','Canlı konuşma ve yerel ses tanıma','Uyanma sesi ve hassasiyet'],'online'],
   takvim:['Aylık görünüm ve etkinlikler',['Aylık görünüm ve günün etkinlikleri','Yaklaşan etkinlikler'],'online'],
@@ -1403,7 +1403,7 @@ function stepsHtml(card){
 }
 // ---- Sohbet köşe orb'u (APEX "mini" kipi): başlıkta küçük orb Jarvis'in durumunu gösterir; cevap gelirken hangi modelin yanıtladığı yanında bir an çiçek gibi açılıp kaybolur.
 // Yalnız yerel çizim (model/ağ yok); veri mevcut 'step' olaylarındaki model satırlarından (m1, m2…) gelir. Sakin modda kare atlar.
-const MO_CHIP={gemini:'#00e5ff',groq:'#f5a623',ollama:'#34d399',openrouter:'#a78bfa',claude:'#ff7ac6',gpt:'#7f9bb3'};
+const MO_CHIP={gemini:'#00e5ff',groq:'#f5a623',ollama:'#34d399',claude:'#ff7ac6',gpt:'#7f9bb3'};
 function miniBloom(text,status){const c=document.querySelector('.mo-chip');if(!c)return;const t=String(text||'').replace(/^(Cevabı veren|Yanıtlayan|Model)\s*[:·-]\s*/i,'').trim()||'Model';
   const key=Object.keys(MO_CHIP).find(k=>t.toLowerCase().includes(k)),col=status==='error'?'#ff8a6a':(MO_CHIP[key]||'#00e5ff');
   c.textContent=t.length>34?t.slice(0,33)+'…':t;c.style.setProperty('--c',col);c.classList.add('on');clearTimeout(c._t);c._t=setTimeout(()=>c.classList.remove('on'),4200);
@@ -1990,7 +1990,7 @@ TV.tarama=async el=>{el.innerHTML='<section class="card"><div class="empty">Tara
 // ======================================================================= AYARLAR
 // Ayarlar: tek adres, 7 bölüm. keys = Ayarlar kutuları (drawSettings), tools = eski araç görünümleri (TV.*); alias/keys/tools eski adresleri bölüme çevirir.
 const SECS=[
-  {id:'ai',kw:'yapay zeka gemini groq model anahtar api ollama openrouter claude openai google gmail baglanti',t:'Yapay zekâ',i:'spark',c:'purple',alias:['baglanti']},
+  {id:'ai',kw:'yapay zeka gemini groq model anahtar api ollama claude openai google gmail baglanti',t:'Yapay zekâ',i:'spark',c:'purple',alias:['baglanti']},
   {id:'ses',kw:'ses mikrofon konusma sesli yanit hey jarvis uyanma kulaklik',t:'Ses ve konuşma',i:'vol',c:'cyan',keys:['ses']},
   {id:'takvim',kw:'takvim gorev hatirlatma ajanda not',t:'Takvim ve görevler',i:'calendar',c:'orange',tools:['takvim'],alias:['gorev','araclar']},
   {id:'iletisim',kw:'telefon mesaj whatsapp qr kisi',t:'Telefon ve mesajlar',i:'phone',c:'green',tools:['telefon','mesaj']},
@@ -2014,7 +2014,6 @@ const SX={};          // sayfa içi geçici durum (mesajlar)
 const AI_CARDS=[['auto','Otomatik Model Seçimi','Jarvis seçer · anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],
   ['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],
   ['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],
-  ['openrouter','OpenRouter','Yalnız ücretsiz modeller','<span class="lg">R</span>'],
   ['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],
   ['openai','OpenAI','Kendi API anahtarın · ücretli','<span class="lg">O</span>'],
   ['anthropic','Claude','Kendi API anahtarın · ücretli','<span class="lg">C</span>'],
@@ -2023,14 +2022,14 @@ const AI_CARDS=[['auto','Otomatik Model Seçimi','Jarvis seçer · anahtar gerek
 function aiStates(sn){
   const l=sn.llm||{},q=l.groq||{},paid=l.paid||{},g=sn.google||{},y=sn.youtube||{},r=SX.router||{};
   const on=(v,t='Bağlı')=>v?['ok',t]:['bad','Bağlı değil'];
-  return {auto:['ok','Hazır'],gemini:on(l.key),groq:on(q.key),openrouter:on(Boolean(r.key||r.configured||r.has_key)),ollama:on(l.ollama_up,'Çalışıyor'),
+  return {auto:['ok','Hazır'],gemini:on(l.key),groq:on(q.key),ollama:on(l.ollama_up,'Çalışıyor'),
     openai:on(paid.openai?.key),anthropic:on(paid.anthropic?.key),google:g.token?['ok','Bağlı']:g.cred?['warn','İzin bekliyor']:['bad','Bağlı değil'],
     youtube:!y.key?['bad','Bağlı değil']:y.ok===false?['bad','Hata']:y.ok===true?['ok','Bağlı']:['warn','Deneniyor']};
 }
 function aiPage(sn,panels,extra=''){
   const l=sn.llm||{},raw=String(l.provider||'gemini').toLowerCase(),active=raw==='smart_router'?'auto':raw,st=aiStates(sn),sel=panels[SX.aiSel]?SX.aiSel:(panels[active]?active:'auto');
   const cards=AI_CARDS.map(([id,t,s,lg])=>`<button class="apv st-${st[id][0]} ${sel===id?'sel':''} ${active===id?'act':''}" data-act="aipick" data-k="${id}" title="${esc(st[id][1])}" aria-label="${esc(t+': '+st[id][1]+(active===id?' · şu an kullanılıyor':''))}" aria-pressed="${sel===id}">${lg}<span><b>${t}</b><small>${s}</small></span><i class="sd"></i></button>`).join('');
-  const usable=['auto','gemini','groq','openrouter','ollama'].includes(sel);
+  const usable=['auto','gemini','groq','ollama'].includes(sel);
   const use=usable?`<div class="apuse">${active===sel?'<span class="pill good">Şu an kullanılıyor</span>':`<button class="btn sm pri" data-act="sval" data-k="ai_mode" data-v="${sel}">Bunu kullan</button>`}</div>`:'';
   return `<div class="apgrid">${cards}</div>${use}<div class="appanel">${panels[sel]}</div>${$('#mn-win')?'':extra}`;
 }
@@ -2165,7 +2164,6 @@ async function drawSettings(){
         pad18(`<button class="btn sm" data-act="gpick">${ic('file')} JSON seç</button> <button class="btn sm pri" data-act="gconn">${ic('link')} Bağlan</button> <button class="btn sm" data-act="greset">Sıfırla</button><div class="mut" style="margin-top:8px;white-space:pre-wrap">${esc(SX.g||'')}</div>`)+
         srow('home','Bu bilgisayar','Ev/iş devir listesi (Google Görevler) için',`<div class="seg">${[['is','İş'],['ev','Ev']].map(([v,t])=>`<button class="${ho.place===v?'on':''}" data-act="hoplace" data-v="${v}">${t}</button>`).join('')}</div>`)+
         pad18(`<button class="btn sm" data-act="hoconn">${ic('link')} Görevler iznini ver</button> <span class="mut">${esc(SX.ho||(ho.ready?'Görevler izni kayıtlı; düşerse buradan yenile.':''))}</span>`));
-    const pOr=routerBox('openrouter');
     const lb=SX.lb||l.local_backend||'ollama',lbSame=lb===(l.local_backend||'ollama');
     const LB_URL={ollama:'http://127.0.0.1:11434',lmstudio:'http://127.0.0.1:1234/v1',llamacpp:'http://127.0.0.1:8080/v1'};
     const pOll=sbox('bolt',esc(l.local_label||'Ollama')+' · Yerel model','Bilgisayarında çalışan yerel model; internet ve anahtar gerekmez. Ollama, LM Studio veya llama.cpp (llama-server) seçilebilir; hepsi isteğe bağlıdır.',
@@ -2179,7 +2177,7 @@ async function drawSettings(){
         srow('bolt','Groq',q.key?'Kayıtlı …'+esc(q.tail||''):'Yok','')+field('Groq anahtarı',inp('qk','gsk_…','','password'))+field('Groq modeli',inp('qm','openai/gpt-oss-120b',q.model))+pad18(`<button class="btn sm pri" data-act="qsave">Kaydet ve dene</button> <span class="mut">${esc(SX.q||'')}</span>`));
     const pYt=sbox('play','YouTube · Çalışma videoları (isteğe bağlı)','Çalışma ekranında anlatılan konunun videoları yanda listelensin. Anahtar: console.cloud.google.com › YouTube Data API v3 › Kimlik Bilgileri › API anahtarı',
         srow('play','YouTube',(()=>{const y=sn.youtube||{};return !y.key?'Yok — yalnız “YouTube’da ara” bağlantısı':y.ok===true?'Kayıtlı · çalışıyor':y.ok===false?'Kayıtlı · HATA: '+esc(y.msg||''):'Kayıtlı · deneniyor…'})(),'')+field('YouTube API anahtarı',inp('ytk','AIza…','','password'))+pad18(`<button class="btn sm pri" data-act="ytsave">Kaydet</button>${sn.youtube_key?' <button class="btn sm" data-act="ytdel">Sil</button>':''}`));
-    h=aiPage(sn,{auto:routerBox('policy'),gemini:pGem,groq:pGroq,openrouter:pOr,ollama:pOll,openai:paidProviderBoxes(sn,'openai'),anthropic:paidProviderBoxes(sn,'anthropic'),google:gsBox+pGoogle,youtube:pYt},learnBox)}
+    h=aiPage(sn,{auto:routerBox('policy'),gemini:pGem,groq:pGroq,ollama:pOll,openai:paidProviderBoxes(sn,'openai'),anthropic:paidProviderBoxes(sn,'anthropic'),google:gsBox+pGoogle,youtube:pYt},learnBox)}
   else if(k==='ses'){let st={},vo={voices:[]},devs=[],ls={};try{[st,vo,devs,ls]=await Promise.all([api('settings'),api('voice_options'),api('input_devices'),api('local_stt_status')])}catch(e){}
     const sel=(id,opts,cur)=>`<select class="sel" id="${id}" style="width:100%">${opts.map(([v,t])=>`<option value="${esc(v)}" ${String(cur)===String(v)?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
     h+=$('#mn-win')?sesBoxes({st,vo,devs,ls,sel,f,u,sn}):sbox('vol','Ses','Konuşma ve dinleme.',
@@ -2237,7 +2235,7 @@ async function drawSettings(){
   const vs=$('#vsel');if(vs)vs.onchange=()=>tryApi('voice_set',vs.value);
 }
 function connectionHelpProvider(title){
-  return [['gemini',/^Gemini/],['github',/^GitHub/],['google',/^Gmail/],['openrouter',/^OpenRouter/],['groq',/^Groq/],['openai',/^OpenAI/],['anthropic',/^Claude/],['youtube',/^YouTube/],['ollama',/^Ollama/]].find(([,re])=>re.test(title))?.[0]||'';
+  return [['gemini',/^Gemini/],['github',/^GitHub/],['google',/^Gmail/],['groq',/^Groq/],['openai',/^OpenAI/],['anthropic',/^Claude/],['youtube',/^YouTube/],['ollama',/^Ollama/]].find(([,re])=>re.test(title))?.[0]||'';
 }
 function installConnectionHelp(el){
   if(!el.querySelectorAll)return;
@@ -2262,22 +2260,17 @@ ACT.connecthelp=el=>{
   overlay.addEventListener('click',e=>{if(e.target===overlay)close()});
   document.body.appendChild(overlay);document.addEventListener('keydown',keydown,true);overlay.querySelector('.guide-close').focus();
 };const sAfter=async p=>{try{await p}catch(e){toast(e.message,'bad')}await refresh();drawSettings()};
-function routerBox(mode){   // mode: 'policy' (Otomatik Model Seçimi) | 'openrouter'; verilmezse Ayarlar sekmesine göre
+function routerBox(mode){   // Otomatik Model Seçimi kartı
   const owner=((S.snap||{}).user||{}).slug;if(SX.routerOwner!==owner){SX.router=null;SX.routerOwner=owner}const r=SX.router||{};
   if(!SX.routerLoading&&!SX.router){SX.routerLoading=true;api('smart_router_status').then(v=>{if(SX.routerOwner!==owner){SX.routerLoading=false;return}SX.router=v;SX.routerLoading=false;if(S.sset==='baglanti'||S.sset==='ai')drawSettings()}).catch(()=>{SX.routerLoading=false})}
   if(mode==='policy'||(!mode&&S.sset==='ai'))return sbox('bolt','Otomatik Model Seçimi','Jarvis işe göre bağlı sağlayıcılar arasından seçim yapar. Bu özellik için ayrı API anahtarı gerekmez.',
-    pad18(`<label class="router-confirm"><input type="checkbox" id="rfree" ${r.cloud_free_confirmed?'checked':''}><span>Gemini Ve Groq Hesaplarımda Ücretli Faturalama Kapalı; Otomatik Seçimde Kullanılabilir.</span></label><div class="connection-actions"><button class="btn sm pri" data-act="routerpolicy">Tercihi Kaydet</button><button class="btn sm" data-act="routerstatus">Model Yetenekleri</button></div><p class="mut">Anahtarlar her yapay zekânın kendi kartında yönetilir. OpenRouter zorunlu değildir. OpenAI ve Claude otomatik havuza dahil edilmez.</p>`));
-  return sbox('play','OpenRouter Model Servisi','İsteğe bağlı dış model servisi. Jarvis’in otomatik model seçicisinden ayrıdır.',
-    field('OpenRouter API Anahtarı',inp('rk','sk-or-…','','password'),r.key?'Anahtar kayıtlı. Boş bırakırsan korunur.':'Yalnız OpenRouter kullanmak istiyorsan ekle.')+
-    field('OpenRouter Ücretsiz Modeli',inp('rm','openrouter/free',r.model||'openrouter/free'),'Bu bağlantı yalnız openrouter/free veya :free modellerini kabul eder.')+
-    pad18(`<div class="connection-actions"><button class="btn sm pri" data-act="routersave">Bağlantıyı Kaydet</button>${r.key?'<button class="btn sm" data-act="routerdelete">Anahtarı Sil</button>':''}</div><p class="mut">Kaydetmek seçili sağlayıcıyı değiştirmez. Otomatik seçim ayarları Otomatik Model Seçimi kartındadır.</p>`));
+    pad18(`<label class="router-confirm"><input type="checkbox" id="rfree" ${r.cloud_free_confirmed?'checked':''}><span>Gemini Ve Groq Hesaplarımda Ücretli Faturalama Kapalı; Otomatik Seçimde Kullanılabilir.</span></label><div class="connection-actions"><button class="btn sm pri" data-act="routerpolicy">Tercihi Kaydet</button><button class="btn sm" data-act="routerstatus">Model Yetenekleri</button></div><p class="mut">Anahtarlar her yapay zekânın kendi kartında yönetilir. OpenAI ve Claude otomatik havuza dahil edilmez.</p>`));
+  return '';
 }
-ACT.routersave=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save',$('#rk').value.trim(),$('#rm').value.trim(),null);if(owner!==((S.snap||{}).user||{}).slug)return;const keyInput=$('#rk');if(keyInput)keyInput.value='';SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
-ACT.routerpolicy=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save','',null,$('#rfree').checked);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
+ACT.routerpolicy=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_save',$('#rfree').checked);if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r.status;toast(r.msg);await refresh();drawSettings()}catch(e){toast(e.message,'bad')}};
 ACT.routerstatus=()=>say('router durumu');
-ACT.routerdelete=async()=>{const owner=((S.snap||{}).user||{}).slug;try{const r=await api('smart_router_key_delete');if(owner!==((S.snap||{}).user||{}).slug)return;SX.router=r;drawSettings()}catch(e){toast(e.message,'bad')}};
 function modes(){const u=S.ui||{},selected=((S.snap||{}).llm||{}).provider||u.provider||'gemini',m=selected;
-  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Jarvis seçer · ayrı anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],['openrouter','OpenRouter','Yalnız ücretsiz modeller','<span class="lg">R</span>'],['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],['openai','OpenAI','Kendi API anahtarın · ücretli','<span class="lg">O</span>'],['anthropic','Claude','Kendi API anahtarın · ücretli','<span class="lg">C</span>']]
+  return `<div class="modes">${[['auto','Otomatik Model Seçimi','Jarvis seçer · ayrı anahtar gerekmez','<span class="lg" style="color:#7fd0ff">✦</span>'],['gemini','Gemini','Google’ın güçlü modeli','<span class="lg" style="background:linear-gradient(135deg,#4285f4,#ea4335,#fbbc05,#34a853);-webkit-background-clip:text;color:transparent">G</span>'],['groq','Groq','Ultra hızlı yanıtlar','<span class="lg" style="color:#ff4d6a">g</span>'],['ollama','Ollama','Yerel ve gizli çalışma','<span class="lg">🦙</span>'],['openai','OpenAI','Kendi API anahtarın · ücretli','<span class="lg">O</span>'],['anthropic','Claude','Kendi API anahtarın · ücretli','<span class="lg">C</span>']]
     .map(([v,t,s,l])=>`<button class="mode ${m===v?'on':''}" data-act="${['openai','anthropic'].includes(v)?'paidmode':'sval'}" data-k="ai_mode" data-v="${v}">${l}<span><b>${t}</b><small>${s}</small></span><span class="rd"></span></button>`).join('')}</div>`}
 async function setUi(k,v){const r=await tryApi('nx_set',k,v);if(r){S.ui=r;await refresh();applyTheme();drawSettings();toast('Kaydedildi.')}}
 ACT.smenu=el=>{S.sset=el.dataset.k;S.sq='';render()};

@@ -10,7 +10,7 @@ Bu ek, Fikir Deposu'nda doğrulanmış ve Faz 0–4'e değen dört fikrin yol ha
 
 **Faz:** 1 — Provider dayanıklılığı.
 
-**Kod durumu:** KISMİ. Mevcut `smart_router.py` paid fallback'i fail-closed engeller; yalnız `openrouter/free` veya `:free` model kabul eder, ücretsiz hesap onayı yoksa cloud rotalarını atlar, cooldown/fallback uygular ve ücretsiz yollar tükenince ücretliye geçmeden durur.
+**Kod durumu:** KISMİ. Mevcut `smart_router.py` paid fallback'i fail-closed engeller; ücretsiz hesap onayı yoksa cloud rotalarını atlar, cooldown/fallback uygular ve ücretsiz yollar tükenince ücretliye geçmeden durur.
 
 **Gerçek eksik:**
 - `cloud_free_confirmed` yalnız kullanıcı tarafından verilen boolean onaydır.

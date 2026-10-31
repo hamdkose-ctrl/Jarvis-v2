@@ -63,7 +63,6 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         wrapped = llm.LocalModelError(llm.local_hint())
         wrapped.__cause__ = cause
         with patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
-             patch.object(smart_router, '_free_emergency', return_value=False), \
              patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
              patch.object(llm, 'note_route') as note:
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
@@ -79,7 +78,6 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         wrapped = llm.LocalModelError(llm.local_hint())
         wrapped.__cause__ = requests.ConnectionError('private-secret')
         with patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
-             patch.object(smart_router, '_free_emergency', return_value=False), \
              patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
              patch.object(llm, 'note_route'):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:

@@ -32,8 +32,8 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         p = patch.object(router.time, 'time', return_value=self.now)
         p.start(); self.addCleanup(p.stop)
 
-        fresh_bundle(self, legacy_openrouter=True)
-        router.configure('alice', True, key='openrouter-key')
+        fresh_bundle(self)
+        router.configure('alice', True)
 
     def evidence(self, provider, model, **overrides):
         row = dict(
@@ -97,12 +97,6 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         self.assertEqual(row['reason_code'], 'PROVIDER_FREE_TIER_QUOTA_EXHAUSTED')
         self.assertIn('kota', row['reason'].casefold())
 
-    def test_openrouter_emergency_requires_its_own_model_evidence(self):
-        self.evidence('groq', 'groq-model')
-        self.assertFalse(router._free_emergency('alice', ['groq']))
-        self.evidence('openrouter', 'openrouter/free')
-        self.assertTrue(router._free_emergency('alice', ['groq']))
-
     def test_evidence_is_persisted_with_provenance_and_expiry(self):
         saved = self.evidence('groq', 'groq-model')
         self.assertEqual(saved['provider'], 'groq')
@@ -111,7 +105,6 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         self.assertEqual(saved['expires_at'], self.now - 60 + 3600)
         raw = json.loads(router.owner_path('alice').read_text(encoding='utf-8'))
         self.assertEqual(raw['free_tier_evidence']['groq']['groq-model']['verification_status'], 'verified')
-        self.assertNotIn('openrouter-key', json.dumps(router.status('alice')))
 
 
 if __name__ == '__main__':
