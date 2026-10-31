@@ -238,12 +238,12 @@ def _semantic_pass(
     return candidates, references, semantic
 
 
-def _needs_file_discovery(candidates: tuple[ContextReference, ...], semantic: Any) -> bool:
-    """Use existing Understanding evidence to decide whether cold file discovery is needed."""
+def _needs_file_discovery(references: tuple[ContextReference, ...], semantic: Any) -> bool:
+    """Use resolved Understanding evidence to decide whether cold file discovery is needed."""
     return bool(
         semantic is not None
         and semantic.capability_hint == "files.read"
-        and not any(reference.kind == "file" for reference in candidates)
+        and not any(reference.kind == "file" for reference in references)
     )
 
 
@@ -291,7 +291,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         active=active,
         allow_file_scan=False,
     )
-    if _needs_file_discovery(candidates, semantic):
+    if _needs_file_discovery(references, semantic):
         candidates, references, semantic = _semantic_pass(
             runtime,
             owner=owner,
