@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 from modules import smart_router as router, llm, requests_state
+from provider_fixture import fresh_bundle
 
 
 class SmartRouterTests(unittest.TestCase):
@@ -11,6 +12,7 @@ class SmartRouterTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{}),('_LAST',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)
+        fresh_bundle(self)
         p=patch.object(router.privacy,'mode',return_value='normal');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_key',return_value='gem-key');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)

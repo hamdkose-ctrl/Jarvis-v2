@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from modules import smart_router as router, llm
+from provider_fixture import fresh_bundle
 
 
 class QuotaEmergencyFallbackTests(unittest.TestCase):
@@ -17,6 +18,8 @@ class QuotaEmergencyFallbackTests(unittest.TestCase):
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
         p=patch.object(router.privacy,'protect',side_effect=lambda s:'enc:'+s);p.start();self.addCleanup(p.stop)
         p=patch.object(router.privacy,'unprotect',side_effect=lambda s:s.removeprefix('enc:'));p.start();self.addCleanup(p.stop)
+
+        fresh_bundle(self, legacy_openrouter=True)
 
     def allow(self, provider, model):
         now=router.time.time()

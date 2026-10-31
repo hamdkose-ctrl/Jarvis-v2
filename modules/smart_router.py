@@ -8,15 +8,18 @@ import threading
 import time
 import requests
 from config import DATA_DIR, load_settings, save_settings
-from modules import privacy, requests_state
+from modules import privacy, provider_privacy, requests_state
 from modules.diagnostics import record_failure as _record_failure
 
 _LOCK = threading.RLock()
 _HEALTH = {}
 _LAST = {}
 _STORE = DATA_DIR / 'router'
-_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'openrouter'})
+_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare', 'openrouter'})
 _EVIDENCE_MODELS_MAX = 32
+# The pre-P0-3 selection has no route concept yet, so it keeps today's behavior by declaring the only
+# route Gemini may serve. The Router (P0-3) replaces this with the real route class of each request.
+_LEGACY_ROUTE = provider_privacy.ROUTE_PUBLIC_RESEARCH
 
 
 def owner_path(owner):
@@ -150,8 +153,15 @@ def free_tier_evidence(owner, provider, model):
     return dict(row) if isinstance(row, dict) else None
 
 
-def _evidence_gate(owner, provider, model, *, now=None):
-    """Strict zero-cost gate. UNKNOWN is never ALLOW."""
+def _evidence_gate(owner, provider, model, *, route=None, now=None):
+    """Strict zero-cost gate. UNKNOWN is never ALLOW.
+
+    Two independent proofs are required: the provider-level privacy bundle (code, expiring, never
+    user-written; ``route`` narrows it) and the per-owner/model free-tier evidence below.
+    """
+    privacy_gate = provider_privacy.privacy_gate(provider, route, now=now)
+    if not privacy_gate['ok']:
+        return {'ok':False,'reason_code':privacy_gate['reason_code'],'reason':privacy_gate['reason']}
     row = free_tier_evidence(owner, provider, model)
     if not row or row.get('free_tier_verified') is not True or row.get('verification_status') != 'verified' \
             or not row.get('source') or not row.get('evidence_ref'):
@@ -226,7 +236,7 @@ def selection(owner,task):
         elif provider=='groq' and not llm.user_groq_key(owner):
             reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
         elif provider!='ollama':
-            gate=_evidence_gate(owner,provider,model)
+            gate=_evidence_gate(owner,provider,model,route=_LEGACY_ROUTE)
             if not gate['ok']:
                 reason=gate['reason'];reason_code=gate['reason_code']
         if reason is None:
@@ -294,7 +304,7 @@ def _free_emergency(owner, attempted):
     if not state.get('cloud_free_confirmed') or not api_key(owner):return False
     model=state.get('openrouter_model') or 'openrouter/free'
     if model!='openrouter/free' and not model.endswith(':free'):return False
-    return _evidence_gate(owner,'openrouter',model)['ok']
+    return _evidence_gate(owner,'openrouter',model,route=_LEGACY_ROUTE)['ok']
 
 
 def run(owner, prompt, callback, image=False):
@@ -401,7 +411,7 @@ def status(owner):
             return 'Ücretsiz hesap onayı gerekli'
         if not has_key:
             return 'Ücretsiz hesap onaylı; bu kullanıcı için API anahtarı eksik'
-        gate=_evidence_gate(owner,provider,model)
+        gate=_evidence_gate(owner,provider,model,route=_LEGACY_ROUTE)
         if not gate['ok']:
             return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
         if provider in cooldowns:

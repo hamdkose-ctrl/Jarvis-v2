@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from modules import developer as dev, llm, nxapi, smart_router as router, task_agents as agents, task_results
+from provider_fixture import fresh_bundle
 
 
 TESTS = '''import unittest
@@ -17,6 +18,7 @@ class AdditionTests(unittest.TestCase):
 
 class CoderRecoveryTests(unittest.TestCase):
     def setUp(self):
+        fresh_bundle(self)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.project=self.root/'project';self.project.mkdir()
         (self.project/'original.py').write_text('untouched = True\n')
