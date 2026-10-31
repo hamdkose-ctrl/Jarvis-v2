@@ -27,7 +27,7 @@ def _queued_audio(runtime, event):
             if heard:
                 runtime.privacy.audit("ses kaydı", source)
                 if runtime._tr_lower(heard).strip(" .!") in ("dur", "sus", "yeter", "stop"):
-                    runtime.submit(heard, source, user)
+                    runtime.submit(heard, source, user, rid=rid)
                 else:
                     runtime.requests_state.check()
                     runtime.events.put(("command", heard, source, user, rid))
@@ -101,7 +101,7 @@ def main(runtime, ui=None):
         print("Telefon erişimi açık. Telefonda (aynı Wi-Fi) şu adresi aç:", PhoneServer(runtime).start())
     if voice_session.live_on:
         from modules.engine_voice import prepare_live_tool
-        runtime.live.set_speak_check(lambda: runtime.flags["speak"])   # susturma düğmesi canlı modun sesini de keser
+        runtime.live.set_speak_check(lambda: runtime.flags["speak"])
         runtime.live.start(runtime._live_command, runtime.emit, runtime._live_prompt, mic_on=lambda: runtime.flags["mic"],
                    wants_sleep=lambda: runtime.flags["sleep"], stop_event=runtime.stop_event, vocab=runtime._live_vocab,
                    on_session_end=runtime._live_session_end,
@@ -135,13 +135,13 @@ def main(runtime, ui=None):
         runtime.threading.Thread(target=voice_session.read_keyboard, daemon=True).start()
     if voice_session.listening_enabled and voice_session.manual_local_stt:
         from modules import local_stt
-        local_stt.preload()      # inmiş modeli arka planda yükle; ilk Konuş basışı beklemesin (indirme/ağ yok)
+        local_stt.preload()
         print('Yerel ses hazır: bir komut için Konuş düğmesine bas. Hey Jarvis bu denemede kapalı.')
     elif voice_session.listening_enabled:
         print(f"Jarvis hazır (model: {runtime.MODEL}). Ses için '{runtime.WAKE_WORD}' de ya da komutunu yazıp Enter'a bas. "
-              "Çıkış: 'kapat'")
+              "Çıkış: \"Jarvis'i kapat\"")
     else:
-        print(f"Jarvis hazır (model: {runtime.MODEL}), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: 'kapat'")
+        print(f"Jarvis hazır (model: {runtime.MODEL}), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: \"Jarvis'i kapat\"")
     runtime.log.info("Jarvis başladı (pid %d): model=%s dinleme=%s ses=%s canlı=%s", runtime.os.getpid(), runtime.MODEL, voice_session.listening_enabled, voice_session.speak_enabled, voice_session.live_on)
     runtime.threading.Thread(target=runtime._reminder_loop, daemon=True, name="hatirlatma").start()
     from modules import watcher
@@ -156,7 +156,7 @@ def main(runtime, ui=None):
                 continue
 
             kind = event[0]
-            runtime._cur_rid = None                 # önceki sorunun kimliği sonraki olaylara (hatırlatma vb.) taşınmasın
+            runtime._cur_rid = None
             if kind == "status":
                 print(f"[{event[1]}]")
                 continue
@@ -166,7 +166,6 @@ def main(runtime, ui=None):
                 runtime.pause_listening.set()
                 try:
                     with runtime.audio_lock:
-                        # Sahibi belirtilmiş "say" olayı arka plandan gelir ve metni `_emit_for` ile sohbete zaten yazmıştır.
                         voice_session.speak(event[1], slow=(kind == "say_slow"), shown=len(event) > 2)
                 finally:
                     runtime.time.sleep(0.3)
@@ -178,11 +177,11 @@ def main(runtime, ui=None):
                 runtime.emit("state", "idle")
                 continue
 
-            if kind == "listen" and voice_session.live_on and runtime.live.get() is not None and runtime.live.enabled():   # arayüzde "Konuş" düğmesi: canlı oturumu hemen aç
+            if kind == "listen" and voice_session.live_on and runtime.live.get() is not None and runtime.live.enabled():
                 runtime.live.get().wake()
                 continue
 
-            if kind == "listen":      # arayüzde "Konuş" düğmesine basıldı: uyandırma adı beklemeden bir komut dinle
+            if kind == "listen":
                 runtime.pause_listening.set()
                 runtime.emit("state", "listening")
                 try:
@@ -215,23 +214,46 @@ def main(runtime, ui=None):
                 continue
 
             if kind == "photo":
-                _, img_path, question, source, user = (tuple(event) + (None,))[:5]
+                _, img_path, question, source, user, rid = (tuple(event) + (None, None))[:6]
+                owner = runtime.slugify(user or runtime.pc_profile().name)
+                runtime._cur_source = source
+                runtime._cur_rid = rid
+                if not rid or runtime.requests_state.is_cancelled(owner, rid):
+                    runtime._reject_queued_input()
+                    continue
                 try:
-                    with runtime.as_user(user):
+                    with runtime.as_user(user), runtime.requests_state.activate(owner, rid):
+                        from modules import brain_entry
                         runtime.emit("user", "📷 Fotoğraf" + (f": {question}" if question else ""), source)
                         try:
                             kept = runtime._keep_photo(img_path)
-                            from modules import developer
-                            development = developer.status(runtime.profile.slug)
-                            if development['enabled'] and development['unlocked']:
-                                out = developer.handle(runtime.profile.slug, '"' + kept + '" ' + (question or 'Bu görseli geliştirme referansı olarak incele.'), runtime.emit)
-                            elif not question:
-                                runtime._pending_photo[runtime.profile.slug] = {"path": kept, "t": runtime.time.time()}
-                                out = ("Fotoğrafı aldım. Ne yapayım? “Analiz et”, “çevir”, “not olarak kaydet” de "
-                                       "ya da fotoğrafla ilgili sorunu yaz.")
+                            artifact = brain_entry.photo_artifact(owner=owner, request_id=rid, path=kept)
+                            entry = brain_entry.prepare(
+                                runtime, owner=owner, request_id=rid,
+                                text=question or "Fotoğraf", source=source, artifact=artifact,
+                            )
+                            clarification = brain_entry.clarification(entry)
+                            if clarification is not None:
+                                out = clarification
                             else:
-                                runtime.emit("state", "thinking")
-                                out = runtime._photo_action(kept, question)
+                                from modules import developer
+                                development = developer.status(runtime.profile.slug)
+                                with brain_entry.bind(entry):
+                                    if development['enabled'] and development['unlocked']:
+                                        out = developer.handle(runtime.profile.slug, '"' + kept + '" ' + (question or 'Bu görseli geliştirme referansı olarak incele.'), runtime.emit)
+                                    elif not question:
+                                        runtime._pending_photo[runtime.profile.slug] = {
+                                            "path": kept,
+                                            "t": runtime.time.time(),
+                                            "origin_request_id": rid,
+                                        }
+                                        out = ("Fotoğrafı aldım. Ne yapayım? “Analiz et”, “çevir”, “not olarak kaydet” de "
+                                               "ya da fotoğrafla ilgili sorunu yaz.")
+                                    else:
+                                        runtime.emit("state", "thinking")
+                                        out = runtime._photo_action(kept, question)
+                            fb = brain_entry.feedback(entry, result_status="handled", reason_code="PHOTO_CORE_HANDOFF_RETURNED")
+                            runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s", rid, entry.stage, fb.result_status)
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
                             from modules import failure_policy
@@ -243,50 +265,55 @@ def main(runtime, ui=None):
                 except ValueError:
                     runtime._record_failure('main.py:queued_photo')
                     runtime._reject_queued_input()
+                finally:
+                    runtime._cur_source = ""
+                    runtime._cur_rid = None
                 continue
 
             _, cmd, source, user, runtime._cur_rid = (tuple(event) + (None, None))[:5]
             runtime._cur_source = source
-            if runtime.requests_state.is_cancelled(runtime.slugify(user or runtime.pc_profile().name), runtime._cur_rid):
+            owner = runtime.slugify(user or runtime.pc_profile().name)
+            if runtime.requests_state.is_cancelled(owner, runtime._cur_rid):
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
                 runtime.emit("state", "idle")
                 continue
             try:
-                with runtime.as_user(user), runtime.requests_state.activate(runtime.slugify(user or runtime.pc_profile().name), runtime._cur_rid):
+                with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid):
+                    from modules import brain_entry
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
+                    entry = brain_entry.prepare(
+                        runtime, owner=owner, request_id=runtime._cur_rid,
+                        text=cmd, source=source,
+                    )
 
-                    bare = runtime._tr_lower(cmd).strip(" .!")
-                    # Telefondan Jarvis kapatılamaz. Sesle tek başına duyulan "kapat" belirsizdir (yanlış duyma,
-                    # uygulama/paylaşım kastı olabilir): Jarvis kapanmaz, komut "Neyi kapatmamı istiyorsun?" diye sorar.
-                    if bare in ("kapat", "çık") and source != "telefon" and not (bare == "kapat" and source == "ses"):
-                        runtime.stop_event.set()
-                        break
-
-                    # Yanıt sırasında mikrofonun Jarvis'in sesini komut sanmasını önle
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
                     try:
                         t_cmd = runtime.time.time()
-                        runtime._llm.take_route()   # önceki istekten kalan model izi bu cevaba karışmasın
+                        runtime._llm.take_route()
                         try:
-                            out = runtime.handle(cmd)
+                            out, brain_feedback, brain_job_id = brain_entry.handoff(runtime, entry, runtime.handle, cmd)
+                            runtime.log.info(
+                                "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
+                                runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
+                            )
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
-                                continue  # unchanged screen: no repeated instruction or synthetic error
+                                continue
                         except runtime.requests_state.Cancelled as exc:
                             out = str(exc)
                         except (FileNotFoundError, ValueError) as exc:
-                            out = str(exc)   # dosya yok / desteklenmeyen tür: nedeni olduğu gibi söyle
+                            out = str(exc)
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
                             print(f"[Hata] {type(exc).__name__}: {type(exc).__name__}")
-                            runtime._record_failure('main.py:main')  # privacy-safe diagnostic is emitted at the catch boundary
+                            runtime._record_failure('main.py:main')
                             try:
                                 from modules import diagnose
-                                out = diagnose.explain(exc)     # "internete ulaşamıyorum", "kota doldu" gibi açık sebep
+                                out = diagnose.explain(exc)
                             except Exception:
                                 runtime._record_failure('main.py:main')
                                 out = "Şu anda yanıt veremiyorum, biraz sonra tekrar dener misiniz?"
@@ -306,23 +333,21 @@ def main(runtime, ui=None):
                         runtime.emit("assistant", out)
                         with runtime.audio_lock:
                             if source == "telefon":
-                                runtime._session().speech_override = None  # Never reuse the phone's short reply on PC.
+                                runtime._session().speech_override = None
                             elif runtime._session().speech_override:
                                 spoken, runtime._session().speech_override = runtime._session().speech_override, None
-                                voice_session.speak(spoken)   # yabancı dildeki çeviriyi Türkçe sesle okumak anlamsız
+                                voice_session.speak(spoken)
                             elif runtime._session().last_doc is not None and out.startswith(runtime._session().last_doc[0][:50]):
-                                # analiz/özet uzun: tamamını sesli okumak yerine ekrana yazılır, kısaca haber verilir
                                 voice_session.speak(runtime._doc_ready_line(runtime._session().last_doc[2], out))
                             else:
                                 voice_session.speak(runtime._short_for_speech(runtime.richtext.speakable(out)))
                     finally:
                         runtime._cur_source = ""
                         runtime._cur_rid = None
-                        # Cevaptan sonra "Hey Jarvis" demeden devam: varsayılan KAPALI (TV/YouTube sesini komut sanıyordu)
                         from config import load_settings as _ls
                         if source == "ses" and _ls().get("followup_no_wake"):
                             voice_session.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS
-                        runtime.time.sleep(0.3)   # hoparlörün son sesi mikrofona karışmasın
+                        runtime.time.sleep(0.3)
                         runtime.pause_listening.clear()
                         runtime.emit("state", "idle")
             except runtime.requests_state.Cancelled:

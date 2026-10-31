@@ -119,33 +119,50 @@ def _active_context_refs(owner: str, context: ActiveContext, limit: int) -> list
     return refs
 
 
-def _default_file_reader(*, limit: int) -> Iterable[Mapping[str, Any]]:
-    """Observe nxapi inventory without creating directories or refreshing its cache."""
+def _fresh_cached_file_rows() -> list[Mapping[str, Any]] | None:
+    """Return a snapshot only when nxapi's existing file cache is fresh."""
     from modules import nxapi
 
-    rows = None
     lock = getattr(nxapi, "_FILE_CACHE_LOCK", None)
     cache = getattr(nxapi, "_FILE_CACHE", None)
     ttl = getattr(nxapi, "_FILE_TTL", 0.0)
-    if lock is not None and isinstance(cache, dict):
-        with lock:
-            cached = cache.get("rows")
-            cached_at = cache.get("ts")
-            fresh = (
-                isinstance(cached, list)
-                and isinstance(cached_at, (int, float))
-                and not isinstance(cached_at, bool)
-                and isinstance(ttl, (int, float))
-                and not isinstance(ttl, bool)
-                and ttl > 0
-                and (time.monotonic() - cached_at) < ttl
-            )
-            if fresh:
-                rows = list(cached)
+    if lock is None or not isinstance(cache, dict):
+        return None
+    with lock:
+        cached = cache.get("rows")
+        cached_at = cache.get("ts")
+        fresh = (
+            isinstance(cached, list)
+            and isinstance(cached_at, (int, float))
+            and not isinstance(cached_at, bool)
+            and isinstance(ttl, (int, float))
+            and not isinstance(ttl, bool)
+            and ttl > 0
+            and (time.monotonic() - cached_at) < ttl
+        )
+        return list(cached) if fresh else None
+
+
+def _sorted_file_rows(rows: Iterable[Mapping[str, Any]], limit: int) -> list[Mapping[str, Any]]:
+    out = list(rows)
+    out.sort(key=lambda row: (-float(row.get("mtime") or 0), str(row.get("path") or "").casefold()))
+    return out[:limit]
+
+
+def _cached_file_reader(*, limit: int) -> Iterable[Mapping[str, Any]]:
+    """Observe only an already-fresh nxapi cache; never start synchronous discovery."""
+    rows = _fresh_cached_file_rows()
+    return _sorted_file_rows(rows or (), limit)
+
+
+def _default_file_reader(*, limit: int) -> Iterable[Mapping[str, Any]]:
+    """Observe nxapi inventory, scanning only when no fresh cache exists."""
+    from modules import nxapi
+
+    rows = _fresh_cached_file_rows()
     if rows is None:
         rows = list(nxapi._scan_files())
-    rows.sort(key=lambda row: (-float(row.get("mtime") or 0), str(row.get("path") or "").casefold()))
-    return rows[:limit]
+    return _sorted_file_rows(rows, limit)
 
 
 def _file_refs(
@@ -204,16 +221,21 @@ def build_candidates(
     profile: Any = None,
     file_reader: Callable[..., Iterable[Mapping[str, Any]]] | None = None,
     provider_limit: int = _DEFAULT_PROVIDER_LIMIT,
+    allow_file_scan: bool = True,
 ) -> tuple[ContextReference, ...]:
     """Build bounded candidate references without resolving or authorizing a target.
 
     ``text`` is validated as the original request text. V1 providers deliberately
     do not infer intent, resolve references, or invoke a model from that text.
+    ``allow_file_scan=False`` keeps Active/Profile/fresh-cache observations while
+    preventing a cold or stale cache from synchronously walking the PC filesystem.
     """
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
     _required("text", text)
     provider_limit = _limit(provider_limit)
+    if not isinstance(allow_file_scan, bool):
+        raise ValueError("allow_file_scan bool olmalı.")
     if not isinstance(active_context, ActiveContext):
         raise ValueError("active_context ActiveContext olmalı.")
     if active_context.owner != owner:
@@ -221,7 +243,10 @@ def build_candidates(
     if active_context.request_id != request_id:
         raise ValueError("ActiveContext request_id eşleşmiyor.")
 
-    reader = file_reader or _default_file_reader
+    if file_reader is not None:
+        reader = file_reader
+    else:
+        reader = _default_file_reader if allow_file_scan else _cached_file_reader
     refs: list[ContextReference] = []
     # Current/live observations precede profile inventory and memory observations.
     refs.extend(_active_context_refs(owner, active_context, provider_limit))

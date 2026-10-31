@@ -41,9 +41,16 @@ def submit_audio(runtime, path: str, source: str = "telefon", user: str | None =
     runtime.events.put(("audio", path, source, user, rid))
     return True
 
-def submit_photo(runtime, path: str, question: str = "", source: str = "telefon", user: str | None = None) -> None:
-    """Telefon kamerasından gelen fotoğrafı analiz kuyruğuna koyar (Gemini/yerel görüntü modeli)."""
-    runtime.events.put(("photo", path, question.strip()[:300], source, user or runtime.pc_profile().name))
+def submit_photo(runtime, path: str, question: str = "", source: str = "telefon",
+                 user: str | None = None, rid: str | None = None) -> bool:
+    """Queue a phone photo with the same owner-bound canonical request identity as text/audio."""
+    user = user or runtime.pc_profile().name
+    owner = runtime.slugify(user)
+    rid = rid or runtime.secrets.token_hex(16)
+    if not runtime.requests_state.register(owner, rid):
+        return False
+    runtime.events.put(("photo", path, question.strip()[:300], source, user, rid))
+    return True
 
 def _reject_queued_input(runtime):
     pass  # Shared fields are held by the explicit engine context.

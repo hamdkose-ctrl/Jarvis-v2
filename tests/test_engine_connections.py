@@ -79,7 +79,9 @@ class EngineConnectionTests(unittest.TestCase):
         audio = context.events.get_nowait()
         self.assertEqual(audio[:4],('audio','record.wav','telefon',original))
         self.assertTrue(audio[4])
-        self.assertEqual(context.events.get_nowait(),('photo','picture.png','anlat','telefon',original))
+        photo = context.events.get_nowait()
+        self.assertEqual(photo[:5],('photo','picture.png','anlat','telefon',original))
+        self.assertTrue(photo[5])
 
     def test_web_bridge_surfaces_rejection_and_immediate_stop(self):
         context=self.context()

@@ -32,12 +32,42 @@ def wants(cmd_lower):
     return low in _CONTINUE or low in _CANCEL
 
 
-def route(owner, emit, cmd_lower, session, *, photo_pending=False):
-    """Çıplak devam/iptal için açık görev işi yanıtı; uygun değilse None (eski yol aynen sürer)."""
+def observe(owner):
+    """Return the domain-owned resumable task view without consuming the request.
+
+    Freshness remains owned here; Brain receives only this read-only observation
+    and route() rechecks the real task before any continuation/cancellation.
+    """
+    from modules import task_agents
+    try:
+        job = task_agents.recent(owner)
+    except Exception:
+        _record_failure('modules/job_front.py:observe')
+        return None
+    if not isinstance(job, dict) or not job.get('id'):
+        return None
+    updated = job.get('updated')
+    stale = not isinstance(updated, (int, float)) or time.time() - float(updated) > _FRESH_SECONDS
+    return {
+        'id': str(job['id']),
+        'state': str(job.get('state') or ''),
+        'updated': updated,
+        'stale': stale,
+    }
+
+
+def route(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False):
+    """Çıplak devam/iptal için açık görev işi yanıtı; uygun değilse None (eski yol aynen sürer).
+
+    ``bounded=True`` yalnız canonical Exact State Gate bu utterance'ı job.resume
+    veya job.cancel olarak eşleştirdiğinde kullanılır. Bu durumda unrelated
+    session pending varlığı işi yutamaz; domain goal/freshness/owner kontrolleri
+    yine burada yeniden uygulanır.
+    """
     low = cmd_lower.strip(' .!?')
     if low not in _CONTINUE and low not in _CANCEL:
         return None
-    if any(getattr(session, name, None) for name in _PENDING):
+    if not bounded and any(getattr(session, name, None) for name in _PENDING):
         return None                                     # bekleyen soru kendi cevabını alır
     if photo_pending and low in _CANCEL:
         return None                                     # fotoğrafın mevcut iptal yanıtına bırak
