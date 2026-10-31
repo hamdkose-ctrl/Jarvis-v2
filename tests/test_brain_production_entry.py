@@ -99,12 +99,21 @@ class BrainProductionEntryTests(unittest.TestCase):
     def test_audio_stt_handoff_preserves_same_rid_for_shared_text_entry(self):
         events = queue.Queue()
         activation = Mock(return_value=nullcontext())
+        check = Mock()
+        cancel = Mock()
         runtime = SimpleNamespace(
             slugify=lambda value: value.casefold(),
             pc_profile=lambda: SimpleNamespace(name="Hamdi"),
-            requests_state=SimpleNamespace(is_cancelled=lambda *args: False, activate=activation, Cancelled=RuntimeError),
+            requests_state=SimpleNamespace(
+                is_cancelled=lambda *args: False,
+                activate=activation,
+                check=check,
+                cancel=cancel,
+                Cancelled=RuntimeError,
+            ),
             as_user=lambda user: nullcontext(),
             llm_transcribe=Mock(return_value="notlarımı göster"),
+            _tr_lower=lambda value: value.casefold(),
             emit=Mock(),
             events=events,
             pause_listening=SimpleNamespace(clear=Mock()),
@@ -113,9 +122,11 @@ class BrainProductionEntryTests(unittest.TestCase):
             privacy=SimpleNamespace(audit=Mock()),
             os=SimpleNamespace(remove=Mock()),
         )
-        self.assertTrue(engine_loop._queued_audio(runtime, ("audio", "clip.wav", "telefon", "Hamdi", RID)))
+        engine_loop._queued_audio(runtime, ("audio", "clip.wav", "telefon", "Hamdi", RID))
         self.assertEqual(events.get_nowait(), ("command", "notlarımı göster", "telefon", "Hamdi", RID))
         activation.assert_called_once_with("hamdi", RID, complete=False)
+        check.assert_called()
+        cancel.assert_not_called()
 
     def test_phone_photo_queue_creates_registers_and_carries_canonical_rid(self):
         events = queue.Queue()
