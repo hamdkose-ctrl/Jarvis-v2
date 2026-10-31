@@ -79,7 +79,7 @@ def enabled() -> bool:
     """Canlı konuşma, mikrofon sesini sürekli Gemini Live'a akıtır; gizli ve yalnızca-yerel modda kapalıdır."""
     try:
         from modules import privacy, llm
-        if not llm.gemini_aux_allowed():
+        if not llm.gemini_aux_allowed(model_name()):
             return False
         if llm.provider() in ("openai", "anthropic"):
             return False
