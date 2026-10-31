@@ -29,6 +29,7 @@ _RESERVED = frozenset({
     "allowed", "permission", "permission_granted", "approved", "authorized",
     "completed", "done", "effect_allowed", "execute",
 })
+_FAST_ENGINE_PROTOCOLS = frozenset({"fast.engine.close", "fast.engine.sleep", "fast.engine.wake"})
 
 
 @dataclass(frozen=True)
@@ -373,9 +374,11 @@ def _install_route_guard(runtime: Any) -> None:
     original = getattr(runtime, "route", None)
     if not callable(original):
         return
+
     def guarded(command: str):
         entry = current()
         return original(command) if entry is None else _legacy_route_projection(entry)
+
     runtime._brain_legacy_route = original
     runtime.route = guarded
     runtime._brain_route_guard_installed = True
@@ -386,9 +389,11 @@ def _install_job_guard() -> None:
     if getattr(job_front, "_brain_gate_guard_installed", False):
         return
     original = job_front.route
+
     def guarded(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False):
         canonical = matched_protocol("job.resume", "job.cancel")
         return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
+
     job_front._brain_legacy_route = original
     job_front.route = guarded
     job_front._brain_gate_guard_installed = True
@@ -400,24 +405,70 @@ def _install_goal_save_guard() -> None:
     if getattr(goal_executor, "_brain_save_guard_installed", False):
         return
     original = goal_executor._save
+
     def guarded(job):
         entry = current()
         if entry is not None and isinstance(job, dict) and job.get("owner") == entry.owner:
             job["brain"] = execution_metadata(entry.owner)
         return original(job)
+
     goal_executor._brain_legacy_save = original
     goal_executor._save = guarded
     goal_executor._brain_save_guard_installed = True
+
+
+def allow_legacy_engine_control(entry: EntryResult | None = None) -> bool:
+    """Allow legacy close/sleep/wake effects only after an exact canonical Fast match.
+
+    Unmigrated callers remain unchanged. A canonical request that missed Fast Gate
+    must never regain the broader legacy engine-control grammar later in handle().
+    """
+    row = current() if entry is None else entry
+    if row is None:
+        return True
+    if not isinstance(row, EntryResult):
+        raise ValueError("entry EntryResult olmalı.")
+    return bool(
+        row.fast_gate is not None
+        and row.fast_gate.matched
+        and row.fast_gate.protocol in _FAST_ENGINE_PROTOCOLS
+    )
+
+
+def _install_engine_control_guard() -> None:
+    from modules import command_manager
+    if getattr(command_manager, "_brain_engine_control_guard_installed", False):
+        return
+    original = command_manager.engine_control
+
+    def guarded(normalized, *, source, sleeping, close, set_sleep):
+        if not allow_legacy_engine_control():
+            return None
+        return original(normalized, source=source, sleeping=sleeping, close=close, set_sleep=set_sleep)
+
+    command_manager._brain_legacy_engine_control = original
+    command_manager.engine_control = guarded
+    command_manager._brain_engine_control_guard_installed = True
 
 
 def _install_core_guards(runtime: Any) -> None:
     _install_route_guard(runtime)
     _install_job_guard()
     _install_goal_save_guard()
+    _install_engine_control_guard()
 
 
 def _has_pending(entry: EntryResult, field: str) -> bool:
     return any(ref.source == "session_state" and ref.id == field for ref in entry.active_context.pending_references)
+
+
+def _has_open_pending(entry: EntryResult) -> bool:
+    if entry.active_context.pending_references:
+        return True
+    return any(
+        ref.kind == "photo" and ref.source == "engine_queue.photo"
+        for ref in entry.active_context.active_artifacts
+    )
 
 
 def _use_existing_handler(entry: EntryResult) -> bool:
@@ -430,10 +481,8 @@ def _use_existing_handler(entry: EntryResult) -> bool:
         return True
     if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references):
         return True
-    if semantic.request_kind is RequestKind.CAPABILITY:
-        if any(_has_pending(entry, field) for field in ("pending_weather_location", "pending_request", "pending_msg")):
-            return False
-        return True
+    if semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CHAT}:
+        return not _has_open_pending(entry)
     return False
 
 
