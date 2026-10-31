@@ -318,23 +318,15 @@ def main(runtime, ui=None):
                             )
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
                                 continue
-                        except runtime.requests_state.Cancelled as exc:
-                            out = str(exc)
-                            _log_core_feedback(runtime, entry)
-                        except (FileNotFoundError, ValueError) as exc:
-                            out = str(exc)
-                            _log_core_feedback(runtime, entry)
                         except Exception as exc:
+                            # Cancelled, FileNotFound/ValueError and every other Core failure: one synthesis point,
+                            # raw exception text never reaches the user (Brain PR8).
                             runtime._record_failure('main.py:main')
+                            from modules import brain_failure
                             _log_core_feedback(runtime, entry)
-                            print(f"[Hata] {type(exc).__name__}: {type(exc).__name__}")
-                            runtime._record_failure('main.py:main')
-                            try:
-                                from modules import diagnose
-                                out = diagnose.explain(exc)
-                            except Exception:
-                                runtime._record_failure('main.py:main')
-                                out = "Şu anda yanıt veremiyorum, biraz sonra tekrar dener misiniz?"
+                            print(f"[Hata] {type(exc).__name__}")
+                            row = brain_entry.last_feedback()
+                            out = brain_failure.synthesize(row if row is not None and row.request_id == entry.request_id else None, exc)
 
                         try:
                             runtime.profile.log_agent(runtime.agents.classify(runtime._tr_lower(cmd)))

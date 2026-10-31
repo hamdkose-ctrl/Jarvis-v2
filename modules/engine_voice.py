@@ -157,16 +157,10 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
                 runtime.requests_state.check()
             except runtime.requests_state.Cancelled:
                 raise
-            except (FileNotFoundError, ValueError) as exc:
-                out = str(exc)
             except Exception as exc:
                 runtime._record_failure('main.py:_live_command')
-                try:
-                    from modules import diagnose
-                    out = diagnose.explain(exc)
-                except Exception:
-                    runtime._record_failure('main.py:_live_command')
-                    out = "Şu anda yapamadım, biraz sonra tekrar dener misin?"
+                from modules import brain_failure
+                out = brain_failure.synthesize(None, exc)
             runtime.requests_state.check()
             from modules import developer
             if runtime._session().speech_override:
@@ -189,8 +183,9 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
                             f"'{runtime._doc_ready_line(runtime._session().last_doc[2], out)}' de.]\n\n" + out[:1500])
             return out
     except runtime.requests_state.Cancelled as exc:
+        from modules import brain_failure
         runtime._session().speech_override = None
-        return str(exc)
+        return brain_failure.synthesize(None, exc)
     finally:
         runtime._cur_source, runtime._cur_rid, runtime._typo_pass, runtime._typo_orig = previous
 
@@ -441,9 +436,9 @@ class VoiceSession:
                 runtime._record_failure('main.py:listen_for_wake_word')  # privacy-safe diagnostic is emitted at the catch boundary
                 if str(exc) != last_error:
                     last_error = str(exc)
-                    runtime.emit("system", f"İnternetsiz uyandırmada hata, Google yöntemiyle devam: {exc}")
+                    runtime.emit("system", "İnternetsiz uyandırmada hata, Google yöntemiyle devam ediliyor.")
                 from modules import wakeword
-                wakeword._set("failed", str(exc))      # bu oturumda tekrar deneme, eski yönteme dön
+                wakeword._set("failed", type(exc).__name__)      # bu oturumda tekrar deneme, eski yönteme dön
                 continue
 
             try:
