@@ -640,7 +640,19 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         # The id must be one of the note references Brain resolved for THIS request, not any string.
         if plan[1]["id"] not in {ref.id for ref in semantic.references if ref.kind == "note"}:
             return None
+    if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
+        return None
     return plan
+
+
+def _translate_source_is_brains(entry: EntryResult, args: Mapping[str, Any]) -> bool:
+    """The text to translate must be the user's own inline text or a turn from THIS request's candidates."""
+    text = str(args.get("text") or "")
+    if args.get("origin") == "inline":
+        return text in entry.text
+    turn_id = args.get("turn_id")
+    return any(ref.kind == "conversation_turn" and ref.id == turn_id
+               and str(ref.provenance.get("text") or "").strip() == text for ref in entry.candidates)
 
 
 def _use_existing_handler(entry: EntryResult) -> bool:

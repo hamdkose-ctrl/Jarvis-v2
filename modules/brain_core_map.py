@@ -13,7 +13,8 @@ import re
 from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
-from modules.brain_understanding import FILE_SUMMARIZE, FILE_TARGET_UNRESOLVED, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
+from modules.brain_understanding import (FILE_SUMMARIZE, FILE_TARGET_UNRESOLVED, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED,
+                                         TRANSLATE_SOURCE_MISSING)
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
 
@@ -83,6 +84,31 @@ def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+_TRANSLATE_ORIGINS = frozenset({"inline", "assistant", "user"})
+MAX_TRANSLATE_CHARS = 20000
+
+
+def _translate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core re-validates the proposed translation; provenance of the text is checked at handoff."""
+    row = arguments.get("translate")
+    if not isinstance(row, Mapping) or set(row) - {"target", "text", "origin", "turn_id"}:
+        return None
+    target, text, origin = row.get("target"), row.get("text"), row.get("origin")
+    if not isinstance(target, str) or not 0 < len(target.strip()) <= 120:
+        return None
+    if not isinstance(text, str) or not 0 < len(text.strip()) <= MAX_TRANSLATE_CHARS or "\x00" in text:
+        return None
+    if origin not in _TRANSLATE_ORIGINS:
+        return None
+    turn_id = row.get("turn_id")
+    if (origin == "inline") != (turn_id is None) or (turn_id is not None and not isinstance(turn_id, str)):
+        return None
+    result = {"target": target.strip(), "text": text.strip(), "origin": origin}
+    if turn_id is not None:
+        result["turn_id"] = turn_id
+    return result
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
@@ -96,6 +122,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "reminder.propose": ("reminder", _reminder_args),
     # Read-only: all notes or one resolved note; other notes.read operations stay legacy-owned.
     "notes.read": ("notes_read", _notes_args),
+    # Text translation; the source text is a Brain-selected turn / inline text (see brain_entry.core_plan).
+    "text.translate": ("translate", _translate_args),
 }
 
 
@@ -133,6 +161,8 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
     if FILE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi dosyayı özetleyeyim? Dosya adını yaz ya da dosyayı sohbete ekle."
+    if TRANSLATE_SOURCE_MISSING in ambiguities:
+        return "Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin."
     if LEVEL_UNSPECIFIED in ambiguities:
         level = arguments.get("level")
         if isinstance(level, int) and not isinstance(level, bool):
