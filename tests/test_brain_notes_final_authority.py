@@ -48,6 +48,15 @@ class NotesFinalAuthorityTests(unittest.TestCase):
             self.assertFalse(handler.called, text)
             self.assertEqual(feedback.result_status, "handled", text)
 
+    def test_note_read_verbs_do_not_expand_global_file_read_scope(self):
+        rid = "notes-scope-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
+                                        text="rapor.pdf'i oku", source="yazı")
+        self.assertNotEqual(entry.understanding.capability_hint, "notes.read")
+        self.assertNotEqual(entry.understanding.capability_hint, "files.read")
+
     def test_named_delete_uses_brain_resolved_stable_id(self):
         market = self.add("market listesi süt ekmek")
         other = self.add("kitap listesi sefiller")
