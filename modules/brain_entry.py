@@ -1,8 +1,8 @@
 """Canonical production entry for the non-authoritative Brain foundation.
 
 This module composes the already-merged Brain context/gates/reference/understanding
-layers.  It never grants permission, runs an effect, selects a worker, or marks
-work complete.  Existing Core/domain handlers remain the only execution path.
+layers. It never grants permission, runs an effect, selects a worker, or marks
+work complete. Existing Core/domain handlers remain the only execution path.
 """
 from __future__ import annotations
 
@@ -84,10 +84,10 @@ def _runtime_owner(runtime: Any) -> str:
 
 def _verify_activation(runtime: Any, owner: str, request_id: str) -> None:
     requests = getattr(runtime, "requests_state", None)
-    current = getattr(requests, "_current", None)
-    if current is None or not hasattr(current, "get"):
+    current_request = getattr(requests, "_current", None)
+    if current_request is None or not hasattr(current_request, "get"):
         return
-    active = current.get()
+    active = current_request.get()
     if active != (owner, request_id):
         raise ValueError("Canonical Brain yalnız aktif owner/request içinde çalışabilir.")
 
@@ -152,7 +152,6 @@ def _build_context(runtime: Any, owner: str, request_id: str,
 
 def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextReference, ...]:
     rows: list[ContextReference] = []
-
     try:
         from modules import job_front
         job = job_front.observe(owner)
@@ -328,6 +327,76 @@ def _correlated_job_id(entry: EntryResult) -> str | None:
     return str(ident) if ident else None
 
 
+def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
+    """Legacy-dispatch compatible output built only from the canonical result.
+
+    It never calls the old classifier. Unsupported capability hints fail closed as
+    a no-effect clarification instead of being reinterpreted by a second brain.
+    """
+    question = clarification(entry)
+    if question is not None:
+        return {"intent": "clarify", "args": {"question": question}}
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return {"intent": "clarify", "args": {"question": "Bounded komut Core handler tarafından işlenemedi; işlem başlatılmadı."}}
+    semantic = entry.understanding
+    if semantic is None:
+        return {"intent": "clarify", "args": {"question": "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."}}
+    if semantic.request_kind is RequestKind.CAPABILITY:
+        proposal = core_proposal(entry)
+        if proposal["manifest_capability_id"] is None:
+            return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
+        return {"intent": "task", "args": {}}
+    if semantic.request_kind is RequestKind.CONTEXT_CONTROL:
+        return {"intent": "chat", "args": {}}
+    return {"intent": "chat", "args": {}}
+
+
+def _install_route_guard(runtime: Any) -> None:
+    """Wrap runtime.route once; bound requests never invoke the legacy classifier."""
+    if getattr(runtime, "_brain_route_guard_installed", False):
+        return
+    original = getattr(runtime, "route", None)
+    if not callable(original):
+        return
+
+    def guarded(command: str):
+        entry = current()
+        if entry is None:
+            return original(command)
+        return _legacy_route_projection(entry)
+
+    runtime._brain_legacy_route = original
+    runtime.route = guarded
+    runtime._brain_route_guard_installed = True
+
+
+def _has_pending(entry: EntryResult, field: str) -> bool:
+    return any(
+        ref.source == "session_state" and ref.id == field
+        for ref in entry.active_context.pending_references
+    )
+
+
+def _use_existing_handler(entry: EntryResult) -> bool:
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return True
+    semantic = entry.understanding
+    if semantic is None:
+        return False
+    if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+        return True
+    if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(
+        row.kind == "photo" for row in semantic.references
+    ):
+        return True
+    if semantic.request_kind is RequestKind.CAPABILITY:
+        # An unrelated open-ended pending pocket must never steal a new capability request.
+        if any(_has_pending(entry, field) for field in ("pending_weather_location", "pending_request", "pending_msg")):
+            return False
+        return True
+    return False
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -337,8 +406,17 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
     if not callable(handler):
         raise ValueError("Core handler callable olmalı.")
+    _install_route_guard(runtime)
     with bind(entry):
-        output = handler(command)
+        if _use_existing_handler(entry):
+            output = handler(command)
+        else:
+            semantic = entry.understanding
+            if semantic is not None and semantic.request_kind is RequestKind.CONTEXT_CONTROL:
+                output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
+            else:
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, "chat", {}, command, command.casefold())
     job_id = _correlated_job_id(entry)
     return output, feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED"), job_id
 
@@ -391,24 +469,12 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
 
 
 def canonical_fallback(runtime: Any, command: str, cmd_lower: str) -> str:
-    """Replace only the legacy global semantic-classifier tail for bound requests."""
+    """Explicit no-second-classifier fallback for callers that need a string result."""
     entry = current()
     if entry is None:
         raise RuntimeError("Canonical fallback yalnız bound Brain request için kullanılabilir.")
-    question = clarification(entry)
-    if question is not None:
-        return question
-    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
-        return "Bounded komut mevcut Core handler tarafından işlenemedi; işlem başlatılmadı."
-    semantic = entry.understanding
-    if semantic is None:
-        return "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."
-    if semantic.request_kind is RequestKind.CAPABILITY:
-        proposal = core_proposal(entry)
-        if proposal["manifest_capability_id"] is None:
-            return "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."
-        return "Capability önerisi doğrulandı ancak yürütme adapteri bu giriş sürümünde bağlı değil; işlem başlatılmadı."
-    if semantic.request_kind is RequestKind.CONTEXT_CONTROL:
-        return "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
+    route = _legacy_route_projection(entry)
+    if route["intent"] == "clarify":
+        return str(route["args"]["question"])
     from modules.engine_intents import dispatch
-    return dispatch(runtime, "chat", {}, command, cmd_lower)
+    return dispatch(runtime, str(route["intent"]), dict(route["args"]), command, cmd_lower)
