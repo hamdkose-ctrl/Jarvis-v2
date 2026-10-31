@@ -1,4 +1,5 @@
 """PR #481 regression: saat eki kaldırılınca tek başına kalan kesme işareti başlığa girmemeli."""
+import logging
 import unittest
 from datetime import datetime
 
@@ -28,6 +29,22 @@ class TitleParserTests(unittest.TestCase):
 
 
 class SavedEventTests(Pipeline):
+    def setUp(self):
+        root = logging.getLogger()
+        before = root.handlers[:]
+        super().setUp()
+        created = [handler for handler in root.handlers if handler not in before]
+
+        def close_created_handlers():
+            for handler in created:
+                if handler in root.handlers:
+                    root.removeHandler(handler)
+                handler.close()
+
+        # Pipeline's TemporaryDirectory cleanup is older, so this LIFO cleanup closes
+        # Windows file handles before the temp directory is removed.
+        self.addCleanup(close_created_handlers)
+
     def test_saved_event_title_is_clean_through_brain_and_legacy_planner(self):
         text = "cuma günü 14:30'da dişçiyi hatırlat"
         self.through_brain(text)
