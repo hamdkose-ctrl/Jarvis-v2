@@ -35,8 +35,6 @@ _BOSVER = ("boşver", "bosver")
 _COMMAND_TOKENS = (
     "göster",
     "goster",
-    "oku",
-    "say",
     "aç",
     "ac",
     "kapat",
@@ -71,8 +69,6 @@ _COMMAND_TOKENS = (
 _READ_LIKE_TOKENS = (
     "göster",
     "goster",
-    "oku",
-    "say",
     "aç",
     "ac",
     "bul",
@@ -492,12 +488,16 @@ def _notes_write_arguments(original: str, normalized: str,
     return {"notes": row}
 
 
+def _is_notes_read_request(text: str) -> bool:
+    return _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _contains_command_token(text, _NOTES_READ_VERBS)
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
     if _note_write_request(text) is not None:
         return "notes.write"
-    if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _has_read_like_command(text):
+    if _is_notes_read_request(text):
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
@@ -734,6 +734,7 @@ def understand(
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
     note_write = None if (context_control or topic_change or correction) else _note_write_request(normalized)
+    notes_read_request = False if (context_control or topic_change or correction) else _is_notes_read_request(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     if note_write is not None:
         note_refs = [ref for ref in references if ref.kind == "note"]
@@ -774,7 +775,8 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif level is not None or weather_request or research_request or translation is not None or _looks_like_capability(normalized):
+    elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
+          or translation is not None or _looks_like_capability(normalized)):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
