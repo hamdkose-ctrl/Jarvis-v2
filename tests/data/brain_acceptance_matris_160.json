@@ -1,0 +1,1431 @@
+{
+ "aciklama": "Çalışan 1 Resource/Stopping audit'inin 160 maddelik adversarial kabul matrisi (audit metni: 'yeni test implementation'ı değildir; kabul matrisi taslağıdır'). senaryo/beklenen/esleme metinden aynen alınır. Yalnız 'girdi' taşıyan satırlar canonical Brain harness'inde koşar; diğerleri 'katman'daki runtime/provider/worker testlerine aittir.",
+ "kaynak": null,
+ "senaryolar": [
+  {
+   "beklenen": "direct Gemini yerine zero-cost canonical policy uygulanmalı; verified route yoksa stop",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 1,
+   "senaryo": "provider user/settings'te hiç yok"
+  },
+  {
+   "beklenen": "automatic cloud çağrı YOK",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 2,
+   "senaryo": "Gemini key var ama free evidence yok"
+  },
+  {
+   "beklenen": "Gemini skip",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 3,
+   "senaryo": "Gemini evidence stale"
+  },
+  {
+   "beklenen": "Gemini skip",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 4,
+   "senaryo": "Gemini eligibility unknown"
+  },
+  {
+   "beklenen": "Gemini skip",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 5,
+   "senaryo": "Gemini hard-stop unverified"
+  },
+  {
+   "beklenen": "Groq verified-free/local/model-free denenir",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 6,
+   "senaryo": "Gemini quota exhausted"
+  },
+  {
+   "beklenen": "aynı modele immediate hammer yok; cooldown",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 7,
+   "senaryo": "Gemini rate-limit geçici"
+  },
+  {
+   "beklenen": "automatic Groq çağrı yok",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 8,
+   "senaryo": "Groq free evidence eksik"
+  },
+  {
+   "beklenen": "next verified-free/local route",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 9,
+   "senaryo": "Groq quota exhausted"
+  },
+  {
+   "beklenen": "auto candidate olamaz",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 10,
+   "senaryo": "OpenRouter model `:free` değil"
+  },
+  {
+   "beklenen": "OpenAI çağrılmamalı",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 11,
+   "senaryo": "OpenAI key mevcut ama provider auto"
+  },
+  {
+   "beklenen": "Claude çağrılmamalı",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 12,
+   "senaryo": "Claude key mevcut ama provider auto"
+  },
+  {
+   "beklenen": "yalnız explicit paid provider kullanımı; fail sonrası auto provider change yok",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 13,
+   "senaryo": "kullanıcı explicit OpenAI seçmiş"
+  },
+  {
+   "beklenen": "honest ProviderExhausted; paid fallback yok",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 14,
+   "senaryo": "bütün free routes unavailable"
+  },
+  {
+   "beklenen": "yalnız local; hiçbir cloud fallback yok",
+   "esleme": "Faz1",
+   "kategori": "A — FREE-FIRST / PROVIDER",
+   "no": 15,
+   "senaryo": "privacy=yerel"
+  },
+  {
+   "beklenen": "bounded retry, sonra stop",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 16,
+   "senaryo": "Gemini first model 500 sonra success"
+  },
+  {
+   "beklenen": "max3 o model, sonra next configured model",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 17,
+   "senaryo": "Gemini model sürekli500"
+  },
+  {
+   "beklenen": "aynı model retry loop yok",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 18,
+   "senaryo": "Gemini 429"
+  },
+  {
+   "beklenen": "next model/provider immediately",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 19,
+   "senaryo": "Gemini daily quota"
+  },
+  {
+   "beklenen": "finite traversal; 9. model yok",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 20,
+   "senaryo": "8 Gemini model hepsi quick404"
+  },
+  {
+   "beklenen": "yalnız second bounded retry",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 21,
+   "senaryo": "Groq network error first attempt"
+  },
+  {
+   "beklenen": "model cooldown, next model",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 22,
+   "senaryo": "Groq model 429"
+  },
+  {
+   "beklenen": "finite stop/next provider",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 23,
+   "senaryo": "tüm3 Groq model fail"
+  },
+  {
+   "beklenen": "base local model denenebilir, sonra stop/fallback policy",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 24,
+   "senaryo": "Ollama big model yok"
+  },
+  {
+   "beklenen": "yalnız bir repair",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 25,
+   "senaryo": "structured answer first malformed"
+  },
+  {
+   "beklenen": "provider call başarısız; third repair yok",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 26,
+   "senaryo": "repair da malformed"
+  },
+  {
+   "beklenen": "clarify; router kendi kendine sonsuz repair etmez",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 27,
+   "senaryo": "router invalid JSON"
+  },
+  {
+   "beklenen": "HocaError; yeniden otomatik call zinciri yok",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 28,
+   "senaryo": "Hoca plan invalid JSON"
+  },
+  {
+   "beklenen": "second owner call başlatılmamalı",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 29,
+   "senaryo": "previous timed-out model thread hâlâ running"
+  },
+  {
+   "beklenen": "backoff kesilmeli",
+   "esleme": "Faz1 + runtime acceptance",
+   "kategori": "B — MODEL ATTEMPT / REPAIR",
+   "no": 30,
+   "senaryo": "request cancel model backoff sırasında"
+  },
+  {
+   "beklenen": "router semantic model yok; cevap için gerekirse tek chat model",
+   "esleme": "PR6/7",
+   "girdi": "merhaba",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 31,
+   "not": "Brain deterministik; legacy router model çağrısı info.legacy_router.model_called ile izlenir.",
+   "senaryo": "“merhaba”"
+  },
+  {
+   "beklenen": "PR6 gate; semantic model yok",
+   "esleme": "PR6",
+   "expect": {
+    "stage": "state"
+   },
+   "girdi": "evet",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 32,
+   "senaryo": "exact deterministic state reply",
+   "setup": {
+    "session": {
+     "pending_confirm": {
+      "action": "delete",
+      "target": "rapor.docx"
+     }
+    }
+   }
+  },
+  {
+   "beklenen": "PR7 sonrası legacy router model + answer model çifti kalmamalı",
+   "esleme": "PR7/10",
+   "kategori": "C — BRAIN / ROUTING",
+   "no": 33,
+   "senaryo": "ordinary non-fast chat"
+  },
+  {
+   "beklenen": "deterministic `temporal_need`; ikinci freshness model yok",
+   "esleme": "PR5/7",
+   "kategori": "C — BRAIN / ROUTING",
+   "no": 34,
+   "senaryo": "current-data request"
+  },
+  {
+   "beklenen": "clarify, rastgele first-pick yok",
+   "esleme": "PR7",
+   "expect": {
+    "outcome": "clarify"
+   },
+   "girdi": "rapor.pdf dosyasını aç",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 35,
+   "senaryo": "two exact references",
+   "setup": {
+    "files": [
+     {
+      "ext": "pdf",
+      "mtime": 2,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Desktop/rapor.pdf"
+     },
+     {
+      "ext": "pdf",
+      "mtime": 1,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Belgeler/rapor.pdf"
+     }
+    ]
+   }
+  },
+  {
+   "beklenen": "candidate fabricate etme",
+   "esleme": "PR7",
+   "girdi": "onu yap",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 36,
+   "not": "Kriter yok: 'candidate fabricate etme' karar alanına çevrilemez; yalnız baseline'a göre izlenir.",
+   "senaryo": "`onu yap` + zero candidate"
+  },
+  {
+   "beklenen": "resolver only supplied candidate",
+   "esleme": "PR7",
+   "girdi": "onu yap",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 37,
+   "not": "Kriter yok; info.references izlenir.",
+   "senaryo": "`onu yap` + one valid candidate",
+   "setup": {
+    "session": {
+     "last_doc": [
+      "doc",
+      "C:/Users/hamdi/Desktop/rapor.pdf",
+      "rapor.pdf"
+     ]
+    }
+   }
+  },
+  {
+   "beklenen": "kısa clarification; 40 satırlık UI dump yok",
+   "esleme": "PR8",
+   "expect": {
+    "outcome": "clarify"
+   },
+   "girdi": "onu yap",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_harness",
+   "no": 38,
+   "senaryo": "`onu yap` + 40 candidates",
+   "setup": {
+    "files": [
+     {
+      "ext": "txt",
+      "mtime": 0,
+      "name": "dosya00.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya00.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 1,
+      "name": "dosya01.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya01.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 2,
+      "name": "dosya02.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya02.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 3,
+      "name": "dosya03.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya03.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 4,
+      "name": "dosya04.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya04.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 5,
+      "name": "dosya05.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya05.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 6,
+      "name": "dosya06.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya06.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 7,
+      "name": "dosya07.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya07.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 8,
+      "name": "dosya08.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya08.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 9,
+      "name": "dosya09.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya09.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 10,
+      "name": "dosya10.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya10.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 11,
+      "name": "dosya11.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya11.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 12,
+      "name": "dosya12.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya12.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 13,
+      "name": "dosya13.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya13.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 14,
+      "name": "dosya14.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya14.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 15,
+      "name": "dosya15.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya15.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 16,
+      "name": "dosya16.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya16.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 17,
+      "name": "dosya17.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya17.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 18,
+      "name": "dosya18.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya18.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 19,
+      "name": "dosya19.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya19.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 20,
+      "name": "dosya20.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya20.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 21,
+      "name": "dosya21.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya21.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 22,
+      "name": "dosya22.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya22.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 23,
+      "name": "dosya23.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya23.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 24,
+      "name": "dosya24.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya24.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 25,
+      "name": "dosya25.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya25.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 26,
+      "name": "dosya26.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya26.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 27,
+      "name": "dosya27.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya27.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 28,
+      "name": "dosya28.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya28.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 29,
+      "name": "dosya29.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya29.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 30,
+      "name": "dosya30.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya30.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 31,
+      "name": "dosya31.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya31.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 32,
+      "name": "dosya32.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya32.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 33,
+      "name": "dosya33.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya33.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 34,
+      "name": "dosya34.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya34.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 35,
+      "name": "dosya35.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya35.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 36,
+      "name": "dosya36.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya36.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 37,
+      "name": "dosya37.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya37.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 38,
+      "name": "dosya38.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya38.txt"
+     },
+     {
+      "ext": "txt",
+      "mtime": 39,
+      "name": "dosya39.txt",
+      "path": "C:/Users/hamdi/Belgeler/dosya39.txt"
+     }
+    ]
+   }
+  },
+  {
+   "beklenen": "permission sayılmamalı",
+   "esleme": "PR7",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_invariant",
+   "no": 39,
+   "not": "Harness her senaryoda karar/info içinde authority alanı olmadığını doğrular (tests/test_brain_acceptance_harness.py).",
+   "senaryo": "candidate bulundu"
+  },
+  {
+   "beklenen": "doğrudan execution command sayılmamalı",
+   "esleme": "PR7",
+   "kategori": "C — BRAIN / ROUTING",
+   "katman": "brain_invariant",
+   "no": 40,
+   "not": "Harness her senaryoda karar/info içinde authority alanı olmadığını doğrular (tests/test_brain_acceptance_harness.py).",
+   "senaryo": "Brain Understanding output"
+  },
+  {
+   "beklenen": "history max12",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 41,
+   "senaryo": "default context build"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 42,
+   "senaryo": "caller history_limit=0"
+  },
+  {
+   "beklenen": "canonical bounded production profile bunu kullanmamalı",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 43,
+   "senaryo": "production caller çok büyük history_limit ister"
+  },
+  {
+   "beklenen": "file inventory work'in gerekliliği ölçülmeli; authority değişmemeli",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 44,
+   "senaryo": "active refs already fill40"
+  },
+  {
+   "beklenen": "disk rescan yok",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 45,
+   "senaryo": "nxapi cache fresh"
+  },
+  {
+   "beklenen": "matching rows max4000",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 46,
+   "senaryo": "nxapi cache miss"
+  },
+  {
+   "beklenen": "scan result 4000'de stop",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 47,
+   "senaryo": "file inventory >4000 matching file"
+  },
+  {
+   "beklenen": "tek candidate",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 48,
+   "senaryo": "duplicate candidate kind/id"
+  },
+  {
+   "beklenen": "effect target olamaz",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 49,
+   "senaryo": "`source_status` reference"
+  },
+  {
+   "beklenen": "yapmamalı; supplied candidates üzerinden clarify",
+   "esleme": "Brain PR7/Faz5",
+   "kategori": "D — CANDIDATE / HISTORY",
+   "no": 50,
+   "senaryo": "resolver needs semantic external search"
+  },
+  {
+   "beklenen": "1 verified article enough",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 51,
+   "senaryo": "user single explicit URL"
+  },
+  {
+   "beklenen": "continue; tek source yeterli değil",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 52,
+   "senaryo": "general news first publisher verified"
+  },
+  {
+   "beklenen": "remaining read plan stop",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 53,
+   "senaryo": "second independent publisher verified"
+  },
+  {
+   "beklenen": "ikinci batch okunmamalı",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 54,
+   "senaryo": "first batch already has2 publisher"
+  },
+  {
+   "beklenen": "max page budget sonrası honest insufficient evidence",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 55,
+   "senaryo": "all catalog articles fail"
+  },
+  {
+   "beklenen": "same run aynı URL blind retry yok",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 56,
+   "senaryo": "publisher403"
+  },
+  {
+   "beklenen": "same run repeat loop yok",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 57,
+   "senaryo": "publisher timeout"
+  },
+  {
+   "beklenen": "dead source yeniden denenebilir; health optimization gap gözlemlenmeli",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 58,
+   "senaryo": "user retries same query immediately"
+  },
+  {
+   "beklenen": "7 gün",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 59,
+   "senaryo": "default news request"
+  },
+  {
+   "beklenen": "30/90 güne otomatik genişleme yok",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 60,
+   "senaryo": "no recent result"
+  },
+  {
+   "beklenen": "30 kullanılabilir",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 61,
+   "senaryo": "user explicitly30 gün ister"
+  },
+  {
+   "beklenen": "hard max90",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 62,
+   "senaryo": "user 200 gün ister"
+  },
+  {
+   "beklenen": "max8 source",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 63,
+   "senaryo": "normal catalog"
+  },
+  {
+   "beklenen": "max20 source",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 64,
+   "senaryo": "broad discovery"
+  },
+  {
+   "beklenen": "first12/source",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 65,
+   "senaryo": "source emits100 headlines"
+  },
+  {
+   "beklenen": "max36 reads",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 66,
+   "senaryo": "article plan huge"
+  },
+  {
+   "beklenen": "max4",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 67,
+   "senaryo": "verification parallel"
+  },
+  {
+   "beklenen": "external public search yalnız bir expansion aşaması",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 68,
+   "senaryo": "catalog evidence insufficient"
+  },
+  {
+   "beklenen": "Bing RSS single fallback",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 69,
+   "senaryo": "DDG blocked"
+  },
+  {
+   "beklenen": "deterministic/model-free delivery devam",
+   "esleme": "Faz4/Faz1",
+   "kategori": "E — RESEARCH / NEWS",
+   "no": 70,
+   "senaryo": "model quota exhausted but verified news exists"
+  },
+  {
+   "beklenen": "duplicate execution yok",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 71,
+   "senaryo": "planner same successful tool+input immediately"
+  },
+  {
+   "beklenen": "retry yok",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 72,
+   "senaryo": "non-replay-safe same signature"
+  },
+  {
+   "beklenen": "third repetition sonrası stop",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 73,
+   "senaryo": "replay-safe same signature repeatedly"
+  },
+  {
+   "beklenen": "invalid counter",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 74,
+   "senaryo": "planner empty/invalid action"
+  },
+  {
+   "beklenen": "stop/pause",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 75,
+   "senaryo": "three invalid decisions"
+  },
+  {
+   "beklenen": "continue",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 76,
+   "senaryo": "planner premature finish once"
+  },
+  {
+   "beklenen": "bounded stop",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 77,
+   "senaryo": "premature finish repeated"
+  },
+  {
+   "beklenen": "rejected",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 78,
+   "senaryo": "planner re-plans after plan exists"
+  },
+  {
+   "beklenen": "bounded failure",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 79,
+   "senaryo": "repeated re-plan"
+  },
+  {
+   "beklenen": "this execution run stop",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 80,
+   "senaryo": "24 new tool steps reached"
+  },
+  {
+   "beklenen": "hard stop",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 81,
+   "senaryo": "total job reaches96 step"
+  },
+  {
+   "beklenen": "planner loop ends",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 82,
+   "senaryo": "turn48 reached"
+  },
+  {
+   "beklenen": "model-free recovery attempted",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 83,
+   "senaryo": "planner unavailable during news"
+  },
+  {
+   "beklenen": "completion path; new tool not necessary",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 84,
+   "senaryo": "verified completion evidence already sufficient"
+  },
+  {
+   "beklenen": "goal continue",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 85,
+   "senaryo": "WorkerResult succeeded but global objective incomplete"
+  },
+  {
+   "beklenen": "no next turn",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 86,
+   "senaryo": "cancellation during planner"
+  },
+  {
+   "beklenen": "cooperative check terminates",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 87,
+   "senaryo": "cancellation during worker"
+  },
+  {
+   "beklenen": "second open goal not silently started",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 88,
+   "senaryo": "user new unrelated goal while old running"
+  },
+  {
+   "beklenen": "review/unknown, blind rerun yok",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 89,
+   "senaryo": "interrupted effectful step after restart"
+  },
+  {
+   "beklenen": "acceptance should detect semantic no-progress before ceiling",
+   "esleme": "runtime/worker + PR7/8",
+   "kategori": "F — GOAL / NO-PROGRESS",
+   "no": 90,
+   "senaryo": "tool variants change but evidence never changes"
+  },
+  {
+   "beklenen": "not_started",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 91,
+   "senaryo": "effect no intent"
+  },
+  {
+   "beklenen": "unknown",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 92,
+   "senaryo": "intent but no receipt"
+  },
+  {
+   "beklenen": "read-only reconcile",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 93,
+   "senaryo": "unknown effect"
+  },
+  {
+   "beklenen": "blind retry yok",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 94,
+   "senaryo": "unknown effect timeout"
+  },
+  {
+   "beklenen": "succeeded/no retry",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 95,
+   "senaryo": "verified receipt"
+  },
+  {
+   "beklenen": "contract violation",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 96,
+   "senaryo": "receipt before intent"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 97,
+   "senaryo": "duplicate receipt"
+  },
+  {
+   "beklenen": "user input bekle",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 98,
+   "senaryo": "permission ASK"
+  },
+  {
+   "beklenen": "worker/effect başlamaz",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 99,
+   "senaryo": "permission DENY"
+  },
+  {
+   "beklenen": "permission authority kazanamaz",
+   "esleme": "Core/runtime + PR7/8",
+   "kategori": "G — EFFECT / PERMISSION",
+   "no": 100,
+   "senaryo": "model says “onaylandı”"
+  },
+  {
+   "beklenen": "validation reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 101,
+   "senaryo": "browser 21 actions"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 102,
+   "senaryo": "readonly browser click"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 103,
+   "senaryo": "click without expected result"
+  },
+  {
+   "beklenen": "automatic retry yok",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 104,
+   "senaryo": "click happens but expectation absent"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 105,
+   "senaryo": "approval older600s"
+  },
+  {
+   "beklenen": "serialization",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 106,
+   "senaryo": "second concurrent browser run"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 107,
+   "senaryo": "Gmail list limit21"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 108,
+   "senaryo": "Gmail read by invalid index"
+  },
+  {
+   "beklenen": "unavailable/ask connection; retry storm yok",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 109,
+   "senaryo": "account OAuth missing"
+  },
+  {
+   "beklenen": "adapter maxResults50",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 110,
+   "senaryo": "calendar >50 returned server items requested"
+  },
+  {
+   "beklenen": "first500 maximum",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 111,
+   "senaryo": "FileWorker >500 files"
+  },
+  {
+   "beklenen": "full digest yapılmamalı",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 112,
+   "senaryo": ">200MB digest source"
+  },
+  {
+   "beklenen": "process timeout",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 113,
+   "senaryo": "PDF parse >900s"
+  },
+  {
+   "beklenen": "process timeout",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 114,
+   "senaryo": "MarkItDown >300s"
+  },
+  {
+   "beklenen": "reject before heavy parse",
+   "esleme": "Faz4/runtime",
+   "kategori": "H — BROWSER / ACCOUNT / FILE",
+   "no": 115,
+   "senaryo": "Office unzip >500MB"
+  },
+  {
+   "beklenen": "second register reject",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 116,
+   "senaryo": "same text RID twice"
+  },
+  {
+   "beklenen": "second reject",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 117,
+   "senaryo": "same audio RID twice"
+  },
+  {
+   "beklenen": "tombstone rejects duplicate",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 118,
+   "senaryo": "terminal RID after restart"
+  },
+  {
+   "beklenen": "fail closed",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 119,
+   "senaryo": "tombstone DB corrupt/unreadable"
+  },
+  {
+   "beklenen": "current gap: no RID; acceptance PR7'de canonical identity istemeli",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 120,
+   "senaryo": "photo retransmit"
+  },
+  {
+   "beklenen": "original RID command handoff'a korunmalı",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 121,
+   "senaryo": "queued audio transcribed"
+  },
+  {
+   "beklenen": "command event enqueue olmamalı",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 122,
+   "senaryo": "user cancels during audio transcription"
+  },
+  {
+   "beklenen": "same job_id journal continue",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 123,
+   "senaryo": "task queue restart running job"
+  },
+  {
+   "beklenen": "second job başlamaz",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 124,
+   "senaryo": "queue `run_now` while running"
+  },
+  {
+   "beklenen": "PersistentSeen reject",
+   "esleme": "PR7/PR10 + runtime",
+   "kategori": "I — DUPLICATE / RESTART / TRANSPORT",
+   "no": 125,
+   "senaryo": "duplicate RuntimeEvent after restart"
+  },
+  {
+   "beklenen": "rule pause",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 126,
+   "senaryo": "watcher folder inaccessible"
+  },
+  {
+   "beklenen": "two stable-size scans beklenmeli",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 127,
+   "senaryo": "file still downloading"
+  },
+  {
+   "beklenen": "remainder pending",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 128,
+   "senaryo": ">5 automatic files/hour"
+  },
+  {
+   "beklenen": "same file second kez pending queue'ya girmemeli",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 129,
+   "senaryo": "600 new files pending"
+  },
+  {
+   "beklenen": "OUTPUTS loop prevention",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 130,
+   "senaryo": "watcher-generated file appears in watched folder"
+  },
+  {
+   "beklenen": "baseline only; old article new diye bildirilmez",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 131,
+   "senaryo": "source watch first poll"
+  },
+  {
+   "beklenen": "notification yok",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 132,
+   "senaryo": "source watch unchanged article"
+  },
+  {
+   "beklenen": "interval polling bounded but permanent failure state görünür olmalı",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 133,
+   "senaryo": "source watch permanent404"
+  },
+  {
+   "beklenen": "configured repeat only",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 134,
+   "senaryo": "recurring one-shot completed"
+  },
+  {
+   "beklenen": "bugün reschedule olur; acceptance permanent blocker için silent infinite churn istememeli",
+   "esleme": "runtime/Faz2/Faz5",
+   "kategori": "J — WATCHER / SCHEDULE / BACKGROUND",
+   "no": 135,
+   "senaryo": "cron permanent blocked"
+  },
+  {
+   "beklenen": "cloud call yok",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 136,
+   "senaryo": "privacy=yerel + cloud STT"
+  },
+  {
+   "beklenen": "cloud fallback yok",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 137,
+   "senaryo": "explicit local STT failure"
+  },
+  {
+   "beklenen": "reject",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 138,
+   "senaryo": "local STT >30 sec audio"
+  },
+  {
+   "beklenen": "preload network yapmaz",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 139,
+   "senaryo": "local model already installed"
+  },
+  {
+   "beklenen": "recognition sırasında auto-download yok",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 140,
+   "senaryo": "local model missing"
+  },
+  {
+   "beklenen": "Gemini STT/Live kapalı",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 141,
+   "senaryo": "auto provider + Gemini free account false"
+  },
+  {
+   "beklenen": "**current gap**; future acceptance exact evidence istemeli",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 142,
+   "senaryo": "auto provider + free account true ama exact evidence stale"
+  },
+  {
+   "beklenen": "auxiliary Gemini'nin implicit açılması acceptance'ta yasaklanmalı",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 143,
+   "senaryo": "provider Ollama + privacy normal"
+  },
+  {
+   "beklenen": "Google+Gemini concurrent work resource metriğinde görünmeli",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 144,
+   "senaryo": "gated voice"
+  },
+  {
+   "beklenen": "bounded Google fallback; repeated cloud loop yok",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 145,
+   "senaryo": "Gemini STT fails"
+  },
+  {
+   "beklenen": "close around12s",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 146,
+   "senaryo": "Live wakes but no speech"
+  },
+  {
+   "beklenen": "idle timeout around configured90s",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 147,
+   "senaryo": "Live inactive"
+  },
+  {
+   "beklenen": "global goal completion sayılmamalı",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 148,
+   "senaryo": "Live tool finished"
+  },
+  {
+   "beklenen": "request cancel ile karıştırılmamalı",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 149,
+   "senaryo": "user stops playback"
+  },
+  {
+   "beklenen": "paid image provider fallback yok",
+   "esleme": "Faz1 + Brain PR9",
+   "kategori": "K — LIVE / STT / VISION",
+   "no": 150,
+   "senaryo": "direct image model fails"
+  },
+  {
+   "beklenen": "queue depth observable; unbounded silent RAM growth acceptance'ta yakalanmalı",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 151,
+   "senaryo": "event producer floods engine queue"
+  },
+  {
+   "beklenen": "trim",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 152,
+   "senaryo": "5001 history rows"
+  },
+  {
+   "beklenen": "trim",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 153,
+   "senaryo": "history >24MB"
+  },
+  {
+   "beklenen": "rotate",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 154,
+   "senaryo": "log >500KB"
+  },
+  {
+   "beklenen": "dedup remains correct; storage cost measured",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 155,
+   "senaryo": "thousands of RuntimeEvents"
+  },
+  {
+   "beklenen": "dedup remains correct; storage growth measurable/compaction-safe",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 156,
+   "senaryo": "years of request tombstones"
+  },
+  {
+   "beklenen": "orphan artifact retention acceptance",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 157,
+   "senaryo": "browser repeated screenshots"
+  },
+  {
+   "beklenen": "canonical/effect evidence not silently deleted; archival strategy testable",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 158,
+   "senaryo": "many completed Goal jobs"
+  },
+  {
+   "beklenen": "thread count eventually returns stable range",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 159,
+   "senaryo": "repeated voice gate requests"
+  },
+  {
+   "beklenen": "perf monitor reports CPU/RAM/thread without altering execution",
+   "esleme": "Faz5/runtime",
+   "kategori": "L — PC RESOURCE / STORAGE",
+   "no": 160,
+   "senaryo": "high CPU"
+  }
+ ]
+}
