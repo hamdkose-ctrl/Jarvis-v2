@@ -1,0 +1,1251 @@
+{
+ "aciklama": "PR10 final legacy sweep / cutover ön denetiminin 'final cutover acceptance' 160 maddelik matrisi. Madde metni ('senaryo') aynen alınır. Yalnız 'girdi' taşıyan maddeler canonical Brain harness'inde koşar ve kriterleri madde metninden birebir türetilir; diğerleri 'katman'daki unit/Core/statik testlere aittir. Denetimin durum ve blocker tabloları 30 Ekim tarihlidir, buraya alınmadı.",
+ "kaynak": null,
+ "senaryolar": [
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 1,
+   "senaryo": "Understanding owner required."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 2,
+   "senaryo": "Understanding request_id required."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 3,
+   "senaryo": "Cross-owner reference reject."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 4,
+   "senaryo": "Recursive `approved` argument reject."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 5,
+   "senaryo": "Recursive `done` reject."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 6,
+   "senaryo": "Recursive `execute` reject."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 7,
+   "senaryo": "CLARIFY → needs_input true."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 8,
+   "senaryo": "needs_input without ambiguity/ref reject."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 9,
+   "senaryo": "BrainFeedback owner fence."
+  },
+  {
+   "kategori": "Contracts",
+   "katman": "brain_unit",
+   "no": 10,
+   "senaryo": "callable/non-JSON contract value reject."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 11,
+   "senaryo": "missing SessionState create edilmez."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 12,
+   "senaryo": "missing GoalState create edilmez."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 13,
+   "senaryo": "owner mismatch SessionState reject."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 14,
+   "senaryo": "owner mismatch history reject."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 15,
+   "senaryo": "owner mismatch Goal reject."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 16,
+   "senaryo": "reset-aware history."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 17,
+   "senaryo": "pending refs read-only."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 18,
+   "senaryo": "active artifact identity korunur."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 19,
+   "senaryo": "Hoca active step read-only."
+  },
+  {
+   "kategori": "ActiveContext",
+   "katman": "brain_unit",
+   "no": 20,
+   "senaryo": "source failure status only, authority yok."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 21,
+   "senaryo": "bounded global candidate limit."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 22,
+   "senaryo": "ActiveContext before memory."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 23,
+   "senaryo": "source_status target candidate değil."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 24,
+   "senaryo": "stable Profile task ID."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 25,
+   "senaryo": "unstable Profile strings target değil."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 26,
+   "senaryo": "file inventory read-only."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 27,
+   "senaryo": "inventory cache refresh/write yok."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 28,
+   "senaryo": "dedupe `(kind,id)`."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 29,
+   "senaryo": "cross-owner Profile reject."
+  },
+  {
+   "kategori": "Candidate Builder",
+   "katman": "brain_unit",
+   "no": 30,
+   "senaryo": "candidate existence permission değildir."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 31,
+   "senaryo": "empty candidates → empty result."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 32,
+   "senaryo": "unknown target uydurmaz."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 33,
+   "senaryo": "opaque exact ID."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 34,
+   "senaryo": "bare numeric ID ordinary number olarak çözülmez."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 35,
+   "senaryo": "explicit `id 12`."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 36,
+   "senaryo": "`#12`."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 37,
+   "senaryo": "same filename two refs preserved."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 38,
+   "senaryo": "same stem two refs preserved."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 39,
+   "senaryo": "“son dosya” bounded resolution."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 40,
+   "senaryo": "“onu” candidate set dışına çıkamaz."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 41,
+   "senaryo": "cross-owner candidate reject."
+  },
+  {
+   "kategori": "Resolver",
+   "katman": "brain_unit",
+   "no": 42,
+   "senaryo": "resolver result input object identity’den gelir."
+  },
+  {
+   "expect": {
+    "conversation_relation": "NEW_REQUEST"
+   },
+   "girdi": "notlarımı göster",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 43,
+   "senaryo": "NEW_REQUEST."
+  },
+  {
+   "expect": {
+    "conversation_relation": "ANSWER_TO_PENDING"
+   },
+   "girdi": "Ankara",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 44,
+   "senaryo": "ANSWER_TO_PENDING.",
+   "setup": {
+    "session": {
+     "pending_weather_location": true
+    }
+   }
+  },
+  {
+   "kategori": "Understanding",
+   "katman": "brain_unit",
+   "no": 45,
+   "senaryo": "CONTINUE_ACTIVE."
+  },
+  {
+   "expect": {
+    "conversation_relation": "CORRECTION"
+   },
+   "girdi": "hayır öyle değil, PDF değil Word olsun",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 46,
+   "senaryo": "CORRECTION."
+  },
+  {
+   "expect": {
+    "conversation_relation": "TOPIC_CHANGE"
+   },
+   "girdi": "başka konu",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 47,
+   "senaryo": "TOPIC_CHANGE."
+  },
+  {
+   "forbid": {
+    "conversation_relation": [
+     "ANSWER_TO_PENDING"
+    ]
+   },
+   "girdi": "notlarımı göster",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 48,
+   "senaryo": "pending existence alone ≠ answer.",
+   "setup": {
+    "session": {
+     "pending_weather_location": true
+    }
+   }
+  },
+  {
+   "expect": {
+    "temporal_need": "STATIC"
+   },
+   "girdi": "fotosentez nedir",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 49,
+   "senaryo": "STATIC."
+  },
+  {
+   "expect": {
+    "temporal_need": "CURRENT"
+   },
+   "girdi": "dolar şu an kaç",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 50,
+   "senaryo": "CURRENT."
+  },
+  {
+   "expect": {
+    "temporal_need": "RECENT"
+   },
+   "girdi": "son bir haftanın teknoloji haberleri",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 51,
+   "senaryo": "RECENT."
+  },
+  {
+   "expect": {
+    "temporal_need": "HISTORICAL"
+   },
+   "girdi": "Osmanlı Devleti ne zaman kuruldu",
+   "kategori": "Understanding",
+   "katman": "brain_harness",
+   "no": 52,
+   "senaryo": "HISTORICAL."
+  },
+  {
+   "kategori": "Understanding",
+   "katman": "brain_unit",
+   "no": 53,
+   "senaryo": "UNSURE."
+  },
+  {
+   "kategori": "Understanding",
+   "katman": "brain_unit",
+   "no": 54,
+   "senaryo": "capability_hint authority değil."
+  },
+  {
+   "kategori": "Understanding",
+   "katman": "brain_unit",
+   "no": 55,
+   "senaryo": "assumptions explicit."
+  },
+  {
+   "kategori": "Understanding",
+   "katman": "brain_unit",
+   "no": 56,
+   "senaryo": "malformed Understanding fail-closed."
+  },
+  {
+   "expect": {
+    "protocol": "goal.resume"
+   },
+   "girdi": "devam",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 57,
+   "senaryo": "Goal resume exact.",
+   "setup": {
+    "goal": {
+     "id": "goal-1",
+     "state": "running"
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "goal.cancel"
+   },
+   "girdi": "iptal",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 58,
+   "senaryo": "Goal cancel exact.",
+   "setup": {
+    "goal": {
+     "id": "goal-1",
+     "state": "running"
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "job.resume"
+   },
+   "girdi": "devam",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 59,
+   "senaryo": "job continue exact.",
+   "setup": {
+    "job": {
+     "id": "job-1",
+     "state": "interrupted"
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "session.pending_app.select"
+   },
+   "girdi": "2",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 60,
+   "senaryo": "valid app candidate number.",
+   "setup": {
+    "session": {
+     "pending_app": {
+      "choices": [
+       "Chrome",
+       "Edge"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "forbid": {
+    "protocol": [
+     "session.pending_app.select"
+    ]
+   },
+   "girdi": "5",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 61,
+   "senaryo": "invalid app number no first pick.",
+   "setup": {
+    "session": {
+     "pending_app": {
+      "choices": [
+       "Chrome",
+       "Edge"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "session.pending_confirm.confirm"
+   },
+   "girdi": "evet",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 62,
+   "senaryo": "exact confirmation yes.",
+   "setup": {
+    "session": {
+     "pending_confirm": {
+      "action": "delete",
+      "target": "rapor.docx"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "session.pending_confirm.confirm"
+   },
+   "girdi": "hayır",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 63,
+   "senaryo": "exact confirmation no.",
+   "setup": {
+    "session": {
+     "pending_confirm": {
+      "action": "delete",
+      "target": "rapor.docx"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "session.pending_visual.select"
+   },
+   "girdi": "sohbet",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 64,
+   "senaryo": "visual sohbet/dosya.",
+   "setup": {
+    "session": {
+     "pending_visual": {
+      "stage": "source"
+     }
+    }
+   }
+  },
+  {
+   "forbid": {
+    "stage": [
+     "state"
+    ]
+   },
+   "girdi": "yarın hava nasıl olacak",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 65,
+   "senaryo": "unrelated utterance not consumed.",
+   "setup": {
+    "session": {
+     "pending_confirm": {
+      "action": "delete",
+      "target": "rapor.docx"
+     }
+    }
+   }
+  },
+  {
+   "forbid": {
+    "protocol": [
+     "job.resume"
+    ]
+   },
+   "girdi": "devam",
+   "kategori": "Exact State Gate",
+   "katman": "brain_harness",
+   "no": 66,
+   "senaryo": "source-owned expiry respected.",
+   "setup": {
+    "job": {
+     "id": "job-1",
+     "stale": true,
+     "state": "interrupted"
+    }
+   }
+  },
+  {
+   "expect": {
+    "protocol": "fast.engine.sleep"
+   },
+   "girdi": "uyu",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 67,
+   "senaryo": "exact sleep."
+  },
+  {
+   "forbid": {
+    "protocol": [
+     "fast.engine.wake"
+    ]
+   },
+   "girdi": "uyan",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 68,
+   "not": "Uyanıkken; uykudaki hali k-fast-uyan-uykuda.",
+   "senaryo": "wake only when sleeping."
+  },
+  {
+   "expect": {
+    "protocol": "fast.engine.close"
+   },
+   "girdi": "Jarvis kapat",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 69,
+   "senaryo": "exact Jarvis close."
+  },
+  {
+   "expect": {
+    "protocol": "fast.date.read"
+   },
+   "girdi": "bugünün tarihi",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 70,
+   "senaryo": "date exact grammar."
+  },
+  {
+   "forbid": {
+    "protocol": [
+     "fast.date.read"
+    ]
+   },
+   "girdi": "Osmanlı tarihçesi anlat",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 71,
+   "senaryo": "unrelated “tarihçe” not date."
+  },
+  {
+   "forbid": {
+    "stage": [
+     "fast"
+    ]
+   },
+   "girdi": "saatimi ileri al ve tarihi değiştir",
+   "kategori": "Fast Gate",
+   "katman": "brain_harness",
+   "no": 72,
+   "senaryo": "no fuzzy general intent."
+  },
+  {
+   "kategori": "Fast Gate",
+   "katman": "brain_unit",
+   "no": 73,
+   "senaryo": "no model call."
+  },
+  {
+   "kategori": "Fast Gate",
+   "katman": "brain_unit",
+   "no": 74,
+   "senaryo": "no capability authority."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 75,
+   "senaryo": "original owner preserved."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 76,
+   "senaryo": "original request_id preserved."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 77,
+   "senaryo": "unknown capability reject."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 78,
+   "senaryo": "registered capability still domain validate."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 79,
+   "senaryo": "bad args reject."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 80,
+   "senaryo": "reference owner check."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 81,
+   "senaryo": "context action validated."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 82,
+   "senaryo": "Core before worker."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 83,
+   "senaryo": "permission gate mandatory."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 84,
+   "senaryo": "effect policy mandatory."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 85,
+   "senaryo": "no Brain→worker direct call."
+  },
+  {
+   "kategori": "Core Entry",
+   "katman": "core/runtime",
+   "no": 86,
+   "senaryo": "no second request identity system."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 87,
+   "senaryo": "original owner."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 88,
+   "senaryo": "original RID."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 89,
+   "senaryo": "evidence owner-bound."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 90,
+   "senaryo": "safe reason_code."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 91,
+   "senaryo": "safe recovery_class."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 92,
+   "senaryo": "raw secret rejected."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 93,
+   "senaryo": "permission authority absent."
+  },
+  {
+   "kategori": "BrainFeedback",
+   "katman": "brain_unit",
+   "no": 94,
+   "senaryo": "fake completion absent."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 95,
+   "senaryo": "simple factual no Advisor."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 96,
+   "senaryo": "explicit pros/cons Advisor."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 97,
+   "senaryo": "no first-option auto-pick."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 98,
+   "senaryo": "no evidence fake certainty."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 99,
+   "senaryo": "Echo preview not permission."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 100,
+   "senaryo": "Echo not completion."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 101,
+   "senaryo": "provider raw body hidden."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 102,
+   "senaryo": "stack trace hidden."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 103,
+   "senaryo": "unknown not collapsed to failed."
+  },
+  {
+   "kategori": "Advisor/Echo/Failure",
+   "katman": "core/runtime",
+   "no": 104,
+   "senaryo": "synthesis failure deterministic safe fallback."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 105,
+   "senaryo": "same text + state → same ref."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 106,
+   "senaryo": "same relation."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 107,
+   "senaryo": "same temporal_need."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 108,
+   "senaryo": "same capability proposal."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 109,
+   "senaryo": "same ambiguity."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 110,
+   "senaryo": "same permission requirement."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 111,
+   "senaryo": "same effect truth."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 112,
+   "senaryo": "same completion truth."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 113,
+   "senaryo": "Phone token owner fence."
+  },
+  {
+   "kategori": "Text/Web/Phone/Live parity",
+   "katman": "parity (çok-kaynak karşılaştırma)",
+   "no": 114,
+   "senaryo": "Live shorter wording only."
+  },
+  {
+   "expect": {
+    "conversation_relation": "CORRECTION"
+   },
+   "girdi": "PDF değil Word",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 115,
+   "senaryo": "PDF değil Word."
+  },
+  {
+   "expect": {
+    "conversation_relation": "CORRECTION"
+   },
+   "girdi": "onu değil ötekini",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 116,
+   "senaryo": "onu değil ötekini."
+  },
+  {
+   "expect": {
+    "request_kind": "CONTEXT_CONTROL"
+   },
+   "girdi": "boşver",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 117,
+   "senaryo": "boşver."
+  },
+  {
+   "expect": {
+    "request_kind": "CONTEXT_CONTROL"
+   },
+   "girdi": "başka konu",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 118,
+   "senaryo": "başka konu."
+  },
+  {
+   "expect": {
+    "request_kind": "CONTEXT_CONTROL"
+   },
+   "girdi": "öncekini unut",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 119,
+   "senaryo": "öncekini unut."
+  },
+  {
+   "expect": {
+    "outcome": "clarify"
+   },
+   "girdi": "rapor.pdf dosyasını aç",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 120,
+   "senaryo": "two same-name files.",
+   "setup": {
+    "files": [
+     {
+      "ext": "pdf",
+      "mtime": 2,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Desktop/rapor.pdf"
+     },
+     {
+      "ext": "pdf",
+      "mtime": 1,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Belgeler/rapor.pdf"
+     }
+    ]
+   }
+  },
+  {
+   "kategori": "Correction/Ambiguity",
+   "katman": "core/runtime",
+   "no": 121,
+   "senaryo": "two tasks."
+  },
+  {
+   "forbid": {
+    "outcome": [
+     "clarify"
+    ]
+   },
+   "girdi": "iki raporu da aç",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 122,
+   "senaryo": "plural request accepts two refs.",
+   "setup": {
+    "files": [
+     {
+      "ext": "pdf",
+      "mtime": 2,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Desktop/rapor.pdf"
+     },
+     {
+      "ext": "pdf",
+      "mtime": 1,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Belgeler/rapor.pdf"
+     }
+    ]
+   }
+  },
+  {
+   "expect": {
+    "outcome": "clarify"
+   },
+   "girdi": "raporu aç",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 123,
+   "senaryo": "singular request + two candidates clarifies.",
+   "setup": {
+    "files": [
+     {
+      "ext": "pdf",
+      "mtime": 2,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Desktop/rapor.pdf"
+     },
+     {
+      "ext": "pdf",
+      "mtime": 1,
+      "name": "rapor.pdf",
+      "path": "C:/Users/hamdi/Belgeler/rapor.pdf"
+     }
+    ]
+   }
+  },
+  {
+   "girdi": "onu aç",
+   "kategori": "Correction/Ambiguity",
+   "katman": "brain_harness",
+   "no": 124,
+   "not": "Kriter yok: madde yalnız 'no candidates' diyor; baseline'a göre izlenir.",
+   "senaryo": "no candidates."
+  },
+  {
+   "kategori": "Correction/Ambiguity",
+   "katman": "core/runtime",
+   "no": 125,
+   "senaryo": "malformed candidate."
+  },
+  {
+   "kategori": "Correction/Ambiguity",
+   "katman": "core/runtime",
+   "no": 126,
+   "senaryo": "cross-owner candidate."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 127,
+   "senaryo": "WorkerResult success ≠ global done."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 128,
+   "senaryo": "receipt-required no receipt → no completion."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 129,
+   "senaryo": "verified receipt → evidence possible."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 130,
+   "senaryo": "unknown effect → no blind retry."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 131,
+   "senaryo": "not_started distinct."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 132,
+   "senaryo": "stale WorkerResult reject."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 133,
+   "senaryo": "stale GoalState CAS reject."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 134,
+   "senaryo": "tool-progress done ≠ complete."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 135,
+   "senaryo": "Live tool-finished ≠ complete."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 136,
+   "senaryo": "effect confirmation does not grant unrelated capability."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 137,
+   "senaryo": "retry still passes normal policy."
+  },
+  {
+   "kategori": "Effects/Completion",
+   "katman": "core/runtime",
+   "no": 138,
+   "senaryo": "reconcile read-only."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 139,
+   "senaryo": "stop speech only playback."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 140,
+   "senaryo": "cancel request cancels correct RID."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 141,
+   "senaryo": "cancel before effect prevents effect."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 142,
+   "senaryo": "cancel after effect intent preserves unknown truth."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 143,
+   "senaryo": "restart GoalState identity preserved."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 144,
+   "senaryo": "Live reconnect handle ≠ RID."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 145,
+   "senaryo": "previous session result not current."
+  },
+  {
+   "kategori": "Cancellation/Restart",
+   "katman": "core/runtime",
+   "no": 146,
+   "senaryo": "async result correct request fence."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 147,
+   "senaryo": "router import callers zero before removal."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 148,
+   "senaryo": "router direct calls zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 149,
+   "senaryo": "router dynamic dispatch sweep."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 150,
+   "senaryo": "work_modes callers zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 151,
+   "senaryo": "freshness callers zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 152,
+   "senaryo": "legacy doc resolver callers zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 153,
+   "senaryo": "broad weather consumer callers zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 154,
+   "senaryo": "Live `_context_prompt` semantic authority zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 155,
+   "senaryo": "direct Live effect bypass zero."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 156,
+   "senaryo": "Brain→permission import guard."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 157,
+   "senaryo": "transport→direct authority guard."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 158,
+   "senaryo": "no second Brain durable store."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 159,
+   "senaryo": "migration map all findings dispositioned."
+  },
+  {
+   "kategori": "Caller-zero / Guards / Docs",
+   "katman": "statik/caller-zero",
+   "no": 160,
+   "senaryo": "roadmap statuses match real code."
+  }
+ ]
+}
