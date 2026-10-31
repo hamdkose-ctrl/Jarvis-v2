@@ -45,8 +45,6 @@ _COMMAND_TOKENS = (
     "karşılaştır",
     "karsilastir",
     "ara",
-    "araştır",
-    "arastir",
     "bul",
     "indir",
     "yükle",
@@ -415,7 +413,12 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
+    # New canonical path: explicit public-web research, including the Turkish verb "araştır".
     if _is_explicit_research_request(text):
+        return "research.search"
+    # Preserve the pre-B4d advisory hint for generic ara/bul phrases. Without validated
+    # research arguments Core will not claim these; their existing legacy owner remains.
+    if _looks_like_capability(text) and _contains_command_token(text, ("ara", "bul")):
         return "research.search"
     return None
 
@@ -673,6 +676,7 @@ def understand(
     context_control = _is_context_control(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     weather_request = _is_weather_request(normalized)
+    research_request = _is_explicit_research_request(normalized)
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
     translation, translate_args = (None, {})
     if level is None and not (context_control or topic_change or correction):
@@ -702,7 +706,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif level is not None or weather_request or translation is not None or _looks_like_capability(normalized):
+    elif level is not None or weather_request or research_request or translation is not None or _looks_like_capability(normalized):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
