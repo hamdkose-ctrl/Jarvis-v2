@@ -106,6 +106,8 @@ class HintOwnershipTests(unittest.TestCase):
         self.assertTrue({"notes.read", "weather.read", "files.read", "reminder.propose", "research.search"} <= hints, hints)
         for hint in hints:
             self.assertIsNotNone(brain_core_map.hint_owner(hint), hint)
+            if hint in brain_core_map.PARTIAL_CORE_HINTS:
+                self.assertIn(hint, brain_core_map.CORE_INTENTS)
 
     def test_owners_do_not_overlap_core_intents(self):
         self.assertFalse(set(brain_core_map.CORE_INTENTS) & set(brain_core_map.LEGACY_OWNED_HINTS))
@@ -127,7 +129,9 @@ class CallerZeroGuards(unittest.TestCase):
         body = source[source.index("def _legacy_route_projection"):source.index("def _install_route_guard")]
         intents = set(re.findall(r'"intent": "([a-z_]+)"', body))
         self.assertLessEqual(intents, {"clarify", "task", "chat"})
-        self.assertFalse({i for i, _ in brain_core_map.CORE_INTENTS.values()} & {"doc_summary", "doc_insight", "doc_convert", "doc_translate"})
+        # B3c-1: the only document intent Core may plan is doc_summary, from a validated resolved path.
+        self.assertEqual({i for i, _ in brain_core_map.CORE_INTENTS.values()} & {"doc_summary", "doc_insight", "doc_convert", "doc_translate"},
+                         {"doc_summary"})
 
     def test_resolve_doc_is_only_reachable_from_intent_dispatch(self):
         self.assertEqual(_referencing(r"\._resolve_doc\("), {"engine_intents.py", "engine_tools.py"})  # engine_tools = thin wrapper
