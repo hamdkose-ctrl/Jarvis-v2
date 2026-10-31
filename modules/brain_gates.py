@@ -334,6 +334,20 @@ def exact_state_gate(
     return matches[0]
 
 
+def goal_status_selection(text: object) -> str | None:
+    """Single canonical recognizer for the exact goal-status phrases ('summary' | 'details').
+
+    The engine queue answers these while the command loop is busy, so it must share this
+    recognizer instead of keeping its own phrase list.
+    """
+    normalized = _norm(text)
+    if normalized in {"hedef durumu", "işin durumu"}:
+        return "summary"
+    if normalized == "hedef ayrıntıları":
+        return "details"
+    return None
+
+
 def deterministic_fast_gate(
     *,
     owner: str,
@@ -373,6 +387,10 @@ def deterministic_fast_gate(
 
     if re.fullmatch(r"(?:konuşmayı|konuşmanı|cevabı|seslendirmeyi)\s+(?:durdur|kes|sustur)", normalized):
         return _hit(owner, request_id, "fast", "fast.speech.stop", "stop_speaking", "EXACT_SPEECH_CONTROL")
+
+    status = goal_status_selection(text)
+    if status is not None:
+        return _hit(owner, request_id, "fast", "fast.goal.status", status, "EXACT_LOCAL_READ")
 
     if normalized in {"saat kaç", "saat kac", "saat ne", "saati"}:
         return _hit(owner, request_id, "fast", "fast.time.read", "time", "EXACT_LOCAL_READ")

@@ -2,6 +2,15 @@
 from __future__ import annotations
 import contextlib
 
+def _log_core_feedback(runtime, entry) -> None:
+    """Log the real Core outcome (failed/cancelled) that handoff correlated before re-raising."""
+    from modules import brain_entry
+    row = brain_entry.last_feedback()
+    if row is not None and row.request_id == entry.request_id:
+        runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s",
+                         entry.request_id, entry.stage, row.result_status, row.reason_code or "-")
+
+
 def _queued_audio(runtime, event):
     """Carry the accepted recording ID through transcription and command handoff."""
     _, aud_path, source, user, rid = (tuple(event) + (None,))[:5]
@@ -305,10 +314,13 @@ def main(runtime, ui=None):
                                 continue
                         except runtime.requests_state.Cancelled as exc:
                             out = str(exc)
+                            _log_core_feedback(runtime, entry)
                         except (FileNotFoundError, ValueError) as exc:
                             out = str(exc)
+                            _log_core_feedback(runtime, entry)
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
+                            _log_core_feedback(runtime, entry)
                             print(f"[Hata] {type(exc).__name__}: {type(exc).__name__}")
                             runtime._record_failure('main.py:main')
                             try:

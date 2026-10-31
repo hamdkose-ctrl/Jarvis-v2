@@ -13,6 +13,7 @@ from modules.brain_contracts import ActiveContext, ContextReference
 from modules.diagnostics import record_failure as _record_failure
 
 _HISTORY_LIMIT = 12
+_MAX_HISTORY_LIMIT = 50
 _PENDING_FIELDS = (
     "pending_weather_location",
     "pending_confirm",
@@ -169,6 +170,17 @@ def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[
             kind="artifact",
             source="session_state",
             provenance={"field": "last_visual", "kind": last_visual.get("kind"), "text": last_visual.get("text")},
+        ))
+
+    from modules import session_state
+    last_property = session_state.fresh_property(state)
+    if last_property is not None:
+        recent.append(_ref(
+            owner=owner,
+            ident="last_property",
+            kind="conversation_state",
+            source="session_state",
+            provenance={"field": "last_property", "value": last_property},
         ))
 
     last_command = getattr(state, "last_command", "")
@@ -335,6 +347,8 @@ def build_active_context(
     request_id = _required("request_id", request_id)
     if not isinstance(history_limit, int) or isinstance(history_limit, bool) or history_limit <= 0:
         raise ValueError("history_limit pozitif int olmalı.")
+    if history_limit > _MAX_HISTORY_LIMIT:
+        raise ValueError(f"history_limit en çok {_MAX_HISTORY_LIMIT} olabilir.")
 
     if history_reader is None:
         history_reader = _default_history_reader
