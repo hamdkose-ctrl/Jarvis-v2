@@ -62,13 +62,27 @@ def _purge_legacy(owner, state):
         _record_failure('modules/smart_router.py:_purge_legacy')
 
 
+def _reset_unreadable(owner):
+    """A corrupt or non-dict state file can still hold a removed provider's key. It can not be parsed, and a
+    backup would keep the secret, so it is replaced by the fail-closed default (the owner re-confirms)."""
+    try:
+        _save_state(owner, {'cloud_free_confirmed': False, 'free_tier_evidence': {}})
+    except OSError:
+        _record_failure('modules/smart_router.py:_reset_unreadable')
+
+
 def settings(owner):
     defaults={'cloud_free_confirmed':False,'free_tier_evidence':{}}
     try:
         state=json.loads(owner_path(owner).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+    except OSError:
         return defaults
-    if not isinstance(state,dict): return defaults
+    except ValueError:
+        _reset_unreadable(owner)
+        return defaults
+    if not isinstance(state,dict):
+        _reset_unreadable(owner)
+        return defaults
     _purge_legacy(owner, state)
     return {'cloud_free_confirmed':state.get('cloud_free_confirmed') is True,
             'free_tier_evidence':_safe_evidence_catalog(state.get('free_tier_evidence'))}

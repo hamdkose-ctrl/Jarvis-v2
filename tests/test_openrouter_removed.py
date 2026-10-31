@@ -28,10 +28,33 @@ class OpenRouterRemovedTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             llm.set_provider("openrouter")
 
-    def test_stored_openrouter_choice_falls_back_to_the_router_policy(self):
-        with patch.object(llm, "_choice", return_value={"provider": "openrouter"}), \
-             patch.object(llm, "load_settings", return_value={"provider": "openrouter"}):
-            self.assertEqual(llm._cfg()["provider"], "auto")
+    def test_stored_openrouter_choice_falls_back_to_the_router_policy_with_real_records(self):
+        from modules import user_models
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "models").mkdir()
+            record = root / "models" / "alice.json"
+            for stored in ("openrouter", "no-such-provider", 7):
+                record.write_text(json.dumps({"provider": stored, "groq_model": "openai/gpt-oss-120b"}), encoding="utf-8")
+                with patch.object(user_models, "DATA_DIR", root), patch.object(llm, "current_user", return_value="alice"), \
+                     patch.object(llm, "load_settings", return_value={}):
+                    self.assertEqual(user_models.choice("alice")["provider"], "auto", stored)
+                    self.assertEqual(llm._cfg()["provider"], "auto", stored)
+                on_disk = json.loads(record.read_text(encoding="utf-8"))
+                self.assertEqual(on_disk["provider"], "auto", stored)          # stale record cleared
+                self.assertEqual(on_disk["groq_model"], "openai/gpt-oss-120b")  # other choices kept
+
+    def test_valid_stored_choice_is_untouched(self):
+        from modules import user_models
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "models").mkdir()
+            record = root / "models" / "alice.json"
+            record.write_text(json.dumps({"provider": "groq"}), encoding="utf-8")
+            before = record.stat().st_mtime_ns
+            with patch.object(user_models, "DATA_DIR", root):
+                self.assertEqual(user_models.choice("alice"), {"provider": "groq"})
+            self.assertEqual(record.stat().st_mtime_ns, before)
 
     def test_router_has_no_openrouter_surface(self):
         for name in ("openrouter", "api_key", "_free_emergency"):
@@ -72,6 +95,18 @@ class LegacyStatePurgeTests(unittest.TestCase):
         self.assertIn("groq", on_disk["free_tier_evidence"])
         self.assertTrue(on_disk["cloud_free_confirmed"])
         self.assertNotIn("sk-or-secret", path.read_text(encoding="utf-8"))
+
+    def test_corrupt_or_non_dict_state_is_replaced_without_keeping_the_secret(self):
+        for content in ('{"key": "enc:sk-or-secret", broken', '["enc:sk-or-secret"]', '"enc:sk-or-secret"', 'null'):
+            path = router.owner_path("alice")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            state = router.settings("alice")
+            self.assertFalse(state["cloud_free_confirmed"], content)
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("sk-or-secret", text, content)
+            self.assertEqual(json.loads(text), {"cloud_free_confirmed": False, "free_tier_evidence": {}})
+            self.assertEqual([p.name for p in path.parent.iterdir()], [path.name], "no backup copy of the secret")
 
     def test_clean_state_is_not_rewritten(self):
         path = self.write({"cloud_free_confirmed": False, "free_tier_evidence": {}})
