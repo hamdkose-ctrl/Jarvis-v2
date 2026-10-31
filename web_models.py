@@ -10,7 +10,7 @@ class WebModels:
         return [u for u in list_users() if runtime.llm.user_key(slugify(u))]
 
     def user_key_set(self, name: str, key: str='') -> dict:
-        """Kullanıcıya kendi Gemini anahtarını verir (önce dener); boş anahtar yalnız o kullanıcıdan silinir."""
+        """Kullanıcının Gemini anahtarını kaydeder; kaydetme işlemi generation testi yapmaz."""
         runtime = self._runtime
         from modules.personalization import slugify
         slug, key = (slugify(name or ''), (key or '').strip())
@@ -19,19 +19,8 @@ class WebModels:
         if not key:
             runtime.llm.set_user_key(slug, None)
             return {'ok': True, 'msg': f'{name} için Gemini anahtarı silindi. Başka kullanıcının anahtarı kullanılmayacak.'}
-        try:
-            from google import genai as _g
-            test_client = _g.Client(api_key=key, http_options={'timeout': 45000})
-            test_client.models.generate_content(model=runtime.llm.model_names(slug)[0], contents="Yalnızca 'tamam' yaz.")
-        except Exception as e:
-            runtime._record_failure('web_models.py:user_key_set')
-            low = str(e).lower()
-            if 'api key' in low or 'api_key' in low or 'permission' in low or ('401' in low) or ('403' in low) or ('400' in low):
-                return {'ok': False, 'msg': 'Bu anahtar çalışmıyor. aistudio.google.com/apikey adresinden kopyaladığını kontrol et.'}
-            if '429' not in low and 'quota' not in low and ('exhausted' not in low):
-                return {'ok': False, 'msg': f'Anahtar denenemedi: {str(e)[:120]}'}
         runtime.llm.set_user_key(slug, key)
-        return {'ok': True, 'msg': f'Kaydedildi. {name} konuşurken artık kendi anahtarı kullanılacak.'}
+        return {'ok': True, 'msg': f'Anahtar kaydedildi ({name}); ücretsiz kullanım uygunluğu ayrıca doğrulanmalıdır.'}
 
     def api_key_save(self, key: str, model: str='', fallback: str='') -> dict:
         """Bağlantılar ekranındaki Gemini anahtarını aktif kullanıcıya kaydeder.
@@ -123,7 +112,7 @@ class WebModels:
         return smart_router.configure(runtime._p().slug, key='')
 
     def groq_key_save(self, key: str='', model: str='', activate: bool=False) -> dict:
-        """Groq anahtarını kaydeder, küçük bir çağrıyla dener. activate=True ise sağlayıcı Groq olur."""
+        """Groq anahtarını/preference'ı kaydeder; kaydetme işlemi generation testi yapmaz."""
         runtime = self._runtime
         p = runtime._p()
         key = (key or '').strip()
@@ -134,15 +123,12 @@ class WebModels:
             runtime.llm.choose_model(p.slug, 'groq', model)
         if not runtime.llm.user_groq_key(p.slug):
             return {'ok': False, 'msg': f'{p.name} için Groq anahtarı girilmedi.'}
-        t0 = runtime.time.time()
-        try:
-            runtime.llm.test_groq()
-        except runtime.llm.CloudError as e:
-            return {'ok': False, 'msg': str(e)}
-        runtime.privacy.audit('groq anahtarı', 'kaydedildi ve denendi')
+        runtime.privacy.audit('groq anahtarı', 'kaydedildi; generation testi yapılmadı')
         if activate:
             runtime.llm.set_provider('groq')
-        return {'ok': True, 'msg': f'Groq yanıt verdi ({round(runtime.time.time() - t0, 1)} sn).', 'status': runtime.llm.status()}
+        return {'ok': True,
+                'msg': 'Groq anahtarı kaydedildi; ücretsiz kullanım uygunluğu ayrıca doğrulanmalıdır.',
+                'status': runtime.llm.status()}
 
     def model_choice_save(self, provider: str, model: str='') -> dict:
         """Aktif kullanıcının Groq veya yerel modelini kaydeder; seçili sağlayıcıyı değiştirmez."""
@@ -183,17 +169,26 @@ class WebModels:
 
     def llm_measure(self) -> dict:
         runtime = self._runtime
-        from modules import ui_jobs
+        from modules import smart_router, ui_jobs
         p = runtime._p()
         owner, names = (p.slug, runtime.llm.model_names(p.slug))
 
         def measure():
             runtime.llm.set_user_context(owner)
+            decisions = {name: smart_router.provider_allowed(owner, 'gemini', model=name) for name in names}
+            out = {
+                name: {'ok': False, 'error': decision['reason'], 'reason_code': decision['reason_code']}
+                for name, decision in decisions.items() if not decision['ok']
+            }
+            allowed = [name for name, decision in decisions.items() if decision['ok']]
+            if not allowed:
+                return out
             client = runtime.llm.gemini_client()
             if client is None:
-                return {'Gemini': {'ok': False, 'error': 'Bu kullanıcı için anahtar yok.'}}
-            out = {}
-            for name in names:
+                for name in allowed:
+                    out[name] = {'ok': False, 'error': 'Bu kullanıcı için anahtar yok.'}
+                return out
+            for name in allowed:
                 t0 = runtime.time.monotonic()
                 try:
                     client.models.generate_content(model=name, contents="Sadece 'tamam' yaz.")
