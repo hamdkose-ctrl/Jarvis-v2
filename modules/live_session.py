@@ -19,12 +19,12 @@ async def converse(self, services) -> None:
     self._diagnostics = services.AudioDiagnostics() if services._cfg('live_audio_diagnostics', False) else None
     retries = 0
     try:
-        cli = llm.gemini_client()
+        if not services.enabled():
+            self.emit('system', 'Canlı konuşma kapalı: ses dışarı (buluta) gönderilmez. Yazarak söyleyebilirsin.')
+            return
+        cli = llm.gemini_client()   # Live politika gereği kapalı (enabled() False); kod PR9'da silinir
         if cli is None:
             self.emit('system', "Gemini anahtarı yok; Ayarlar'dan ekle.")
-            return
-        if not services.enabled():
-            self.emit('system', 'Gizli ya da yalnızca yerel modda canlı konuşma kapalı: ses dışarı gönderilmez. Yazarak söyleyebilirsin.')
             return
         if time.monotonic() > self._resumable_until:
             self._resume = None

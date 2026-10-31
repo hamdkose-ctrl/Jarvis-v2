@@ -177,21 +177,23 @@ class DirectToolTests(unittest.TestCase):
 
 
 class VisionTests(unittest.TestCase):
-    def test_user_fallback_and_original_mime_for_png_jpeg_webp(self):
+    def test_image_goes_only_to_local_model_never_to_gemini(self):
         from PIL import Image
-        for fmt, mime in [('PNG','image/png'), ('JPEG','image/jpeg'), ('WEBP','image/webp')]:
+        for fmt in ['PNG', 'JPEG', 'WEBP']:
             with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as td:
                 path=Path(td)/'image.any'; Image.new('RGB',(4,4)).save(path,fmt)
-                client=Mock();client.models.generate_content.return_value=SimpleNamespace(text='answer')
-                with patch.object(llm, '_client', None), patch.object(llm,'_cli',return_value=client), \
-                     patch.object(llm,'_ollama',side_effect=llm.LocalModelError('no vision')), \
-                     patch.object(llm.privacy,'mode',return_value='normal'), patch.object(llm.privacy,'redact',side_effect=lambda s:'MASKED '+s), \
-                     patch.object(llm,'_with_models',side_effect=lambda fn:fn('fake')):
-                    self.assertEqual(llm._ask_image(str(path),'prompt','system',selected='ollama'),'answer')
-                args=client.models.generate_content.call_args.kwargs
-                self.assertEqual(args['contents'][0].inline_data.mime_type,mime)
-                self.assertEqual(args['contents'][0].inline_data.data,path.read_bytes())
-                self.assertEqual(args['config'].system_instruction,'MASKED system')
+                client=Mock()
+                with patch.object(llm,'_cli',return_value=client), patch.object(llm,'_ollama',return_value='yerel') as local, \
+                     patch.object(llm.privacy,'mode',return_value='normal'):
+                    self.assertEqual(llm._ask_image(str(path),'prompt','system',selected='ollama'),'yerel')
+                    self.assertEqual(local.call_args.kwargs['images'][0],__import__('base64').b64encode(path.read_bytes()).decode())
+                    with self.assertRaises(llm.LocalModelError):llm._ask_image(str(path),'p',selected='gemini',strict=True)
+                client.models.generate_content.assert_not_called()
+
+    def test_local_vision_failure_has_no_gemini_fallback(self):
+        with patch.object(llm,'_cli',side_effect=AssertionError('cloud')), patch.object(llm,'_ollama',side_effect=llm.LocalModelError('no vision')), \
+             patch.object(llm.privacy,'mode',return_value='normal'), patch('builtins.open',__import__('unittest').mock.mock_open(read_data=b'x')):
+            with self.assertRaises(llm.LocalModelError):llm._ask_image('x.png','p',selected='ollama',strict=True)
 
 
 class UploadTests(unittest.TestCase):

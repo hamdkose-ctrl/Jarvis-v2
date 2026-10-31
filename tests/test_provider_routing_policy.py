@@ -165,5 +165,50 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(router._DEFAULT_ROUTE, PRIV)
 
 
+class PrivateContentNeverReachesGeminiTests(unittest.TestCase):
+    """P0-3c: documents (embed), voice (STT/Live) and screens (vision) are PRIVATE content."""
+
+    def setUp(self):
+        p = patch.object(llm, '_cli', side_effect=AssertionError('Gemini istemcisi özel içerik için açılamaz'))
+        p.start(); self.addCleanup(p.stop)
+
+    def test_aux_gemini_is_closed_in_every_state(self):
+        for mode in ('normal', 'gizli', 'yerel'):
+            with patch.object(llm.privacy, 'mode', return_value=mode):
+                self.assertFalse(llm.gemini_aux_allowed())
+
+    def test_embed_is_local_only(self):
+        with patch.object(llm, '_backend', return_value='ollama'), patch.object(llm, 'load_settings', return_value={}), \
+             patch('modules.ollama_embed.run', return_value=[[1.0]]) as local:
+            self.assertEqual(llm.embed(['gizli belge']), [[1.0]])
+        local.assert_called_once()
+        with patch.object(llm, '_backend', return_value='lmstudio'):
+            with self.assertRaises(ValueError):
+                llm.embed(['x'])
+
+    def test_transcribe_never_sends_audio_to_gemini(self):
+        with self.assertRaises(RuntimeError):
+            llm.transcribe(data=b'wav')
+
+    def test_live_is_closed(self):
+        from modules import live
+        self.assertFalse(live.enabled())
+
+    def test_vision_chain_is_local_only(self):
+        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        with patch.object(router, '_STORE', Path(tmp.name)), patch.object(router, '_HEALTH', {}), patch.object(router, '_LAST', {}), \
+             patch.object(llm, 'user_key', return_value='k'), patch.object(llm, 'user_groq_key', return_value='k'), \
+             patch.object(router.privacy, 'mode', return_value='normal'):
+            router.configure('alice', True)
+            sel = router.selection('alice', 'vision')
+            self.assertEqual(sel['candidates'], ['ollama'])
+            self.assertEqual({r['provider'] for r in sel['skipped']}, {'gemini', 'groq', 'cloudflare'})
+
+    def test_no_gemini_content_call_remains_in_llm(self):
+        source = inspect.getsource(llm)
+        for needle in ('generate_content', 'embed_content', 'Part.from_bytes', 'gemini-embedding'):
+            self.assertNotIn(needle, source)
+
+
 if __name__ == '__main__':
     unittest.main()

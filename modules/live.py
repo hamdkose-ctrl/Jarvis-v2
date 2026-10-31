@@ -76,19 +76,9 @@ def voice_name() -> str:
 
 
 def enabled() -> bool:
-    """Canlı konuşma, mikrofon sesini sürekli Gemini Live'a akıtır; gizli ve yalnızca-yerel modda kapalıdır."""
-    try:
-        from modules import privacy, llm
-        if not llm.gemini_aux_allowed():
-            return False
-        if llm.provider() in ("openai", "anthropic"):
-            return False
-        if privacy.mode() in ("gizli", "yerel"):
-            return False
-    except Exception:   # noqa: BLE001
-        _record_failure('modules/live.py:enabled')
-        pass
-    return bool(_cfg("live_mode", True))
+    """Canlı konuşma mikrofon sesini sürekli Gemini Live'a akıtırdı. Ses özeldir (Provider Routing Policy v1):
+    Gemini yalnız herkese açık araştırma rotasıdır, bu yüzden Live her modda kapalıdır (kaldırma: PR9)."""
+    return False
 
 
 # Yazıya dökmenin sık yanlış yazdığı ifadeler -> asıl söylenen ("yanlış=doğru"). Ses sekmesinden değiştirilebilir (stt_fixes).

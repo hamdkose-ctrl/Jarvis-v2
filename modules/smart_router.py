@@ -19,7 +19,6 @@ _EVIDENCE_MODELS_MAX = 32
 # Route class of a request is decided by its provenance (privacy_sources); callers never pick a provider.
 # Vision still keeps its legacy order until the image path moves to the router chains (P0-3c).
 _DEFAULT_ROUTE = provider_privacy.ROUTE_PRIVATE_GENERAL
-_VISION_ROUTE = provider_privacy.ROUTE_PUBLIC_RESEARCH
 
 
 def owner_path(owner):
@@ -251,7 +250,7 @@ def selection(owner,task,route=None):
             _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq','cloudflare')]}
     state=settings(owner)
     if task=='vision':
-        order,gate_route=['gemini','ollama'],_VISION_ROUTE
+        order,gate_route=['ollama'],_DEFAULT_ROUTE   # görüntü özel: yalnız yerel
     else:
         order,gate_route=list(provider_privacy.CHAINS[route]),route
     models={'gemini':llm.active_model(owner),'groq':llm.groq_model(),'cloudflare':cloudflare_chat.MODEL}
@@ -412,7 +411,7 @@ def status(owner):
         local_model='—'
         local_policy='Yerel effective model doğrulanamadı; yerel sunucuyu ve kurulu modelleri kontrol et'
     table = [
-      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':'Yalnız herkese açık araştırma; '+cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)),provider_privacy.ROUTE_PUBLIC_RESEARCH)},
+      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis'],'policy':'Yalnız herkese açık araştırma; '+cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)),provider_privacy.ROUTE_PUBLIC_RESEARCH)},
       {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)),provider_privacy.ROUTE_PRIVATE_GENERAL)},
       {'provider':'cloudflare','model':cloudflare_chat.MODEL,'tasks':['chat','code','analysis'],'policy':cloud_policy('cloudflare',cloudflare_chat.MODEL,cloudflare_chat.configured(owner),provider_privacy.ROUTE_PRIVATE_GENERAL)},
       {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy},

@@ -42,7 +42,7 @@ class SmartRouterTests(unittest.TestCase):
     def test_paid_model_rejected_and_paid_provider_never_fallback(self):
         with self.assertRaises(TypeError): router.configure('alice',model='openai/gpt-paid')
         router.configure('alice',True)
-        self.assertEqual(router.candidates('alice','vision'),['gemini','ollama'])
+        self.assertEqual(router.candidates('alice','vision'),['ollama'])   # görüntü özel: yalnız yerel
         self.assertNotIn('openai',router.candidates('alice','code'))
         self.assertNotIn('anthropic',router.candidates('alice','code'))
 
@@ -192,7 +192,7 @@ class SmartRouterTests(unittest.TestCase):
             self.assertEqual(llm.model_check()['state'],'budget')
             with self.assertRaises(ValueError):llm.embed(['x'])
             with self.assertRaises(RuntimeError):llm.transcribe(data=b'wav')
-            router.configure('alice',True);self.assertTrue(llm.gemini_aux_allowed())
+            router.configure('alice',True);self.assertFalse(llm.gemini_aux_allowed())   # onaylı hesapta bile içerik Gemini'ye gitmez
 
     def test_corrupt_router_state_fails_closed_and_still_allows_local_fallback(self):
         for content in ('[]','null','"invalid"','{"cloud_free_confirmed":"false","key":42}'):
