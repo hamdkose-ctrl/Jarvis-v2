@@ -44,7 +44,7 @@ class PrivacyVoiceTests(unittest.TestCase):
     def test_live_mode_off_in_private_modes(self):
         src = (ROOT / "modules" / "live.py").read_text(encoding="utf-8")
         body = src[src.index("def enabled()"):src.index("def parse_fixes")]
-        self.assertIn('("gizli", "yerel")', body)
+        self.assertIn('return False', body)   # ses özel: Live her modda kapalı (Provider Routing Policy v1)
         try:
             from modules import live
         except Exception as exc:   # noqa: BLE001 - Gemini kütüphanesi bu ortamda yoksa yalnızca kaynak denetimi
@@ -52,6 +52,8 @@ class PrivacyVoiceTests(unittest.TestCase):
         with patch("modules.privacy.mode", return_value="yerel"):
             self.assertFalse(live.enabled())
         with patch("modules.privacy.mode", return_value="gizli"):
+            self.assertFalse(live.enabled())
+        with patch("modules.privacy.mode", return_value="normal"):
             self.assertFalse(live.enabled())
 
 

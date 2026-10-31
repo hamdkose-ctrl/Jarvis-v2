@@ -74,8 +74,9 @@ class ClassificationTests(unittest.TestCase):
     def test_ask_image_soft_failure_does_not_leak_raw_provider_text(self):
         with patch.object(llm, 'provider', return_value='gemini'), \
              patch.object(llm.privacy, 'mode', return_value='normal'), \
-             patch.object(llm, '_cli', return_value=object()), \
-             patch('PIL.Image.open', side_effect=Http(429, 'PerDay key=PRIVATE')):
+             patch.object(llm, '_cli', side_effect=AssertionError('görüntü buluta gitmez')), \
+             patch.object(llm, '_ollama', side_effect=Http(429, 'PerDay key=PRIVATE')), \
+             patch('builtins.open', unittest.mock.mock_open(read_data=b'img')):
             text = llm.ask_image('missing.png', 'ne var?')
         self.assertNotIn('PRIVATE', text)
         self.assertIn('günlük kota', text)

@@ -217,7 +217,13 @@ def provider() -> str:
 
 
 def gemini_aux_allowed() -> bool:
-    """In automatic mode, auxiliary Gemini calls share the free-account policy."""
+    """Provider Routing Policy v1: embed, STT, vision and Live carry private content (documents, voice,
+    screen), so none of them may reach Gemini. Gemini is only the PUBLIC_RESEARCH route (``research``)."""
+    return False
+
+
+def _cloud_confirmed() -> bool:
+    """Owner confirmed the free-account policy (used for key-health checks that send no user content)."""
     if provider() != 'auto': return True
     from modules import smart_router
     return bool(smart_router.settings(current_user()).get('cloud_free_confirmed'))
@@ -296,7 +302,7 @@ def model_check(force=False):
     from modules import model_health
     if privacy.mode() in ("gizli", "yerel"):
         return {"state":"private", "message":"Gizli/yerel modda bulut model kontrolü kapalı."}
-    if not gemini_aux_allowed():
+    if not _cloud_confirmed():
         return {'state':'budget','message':'Smart Router: Gemini ücretsiz hesap doğrulaması yok; bulut model kontrolü yapılmadı.'}
     owner = current_user() or ''
     return model_health.check(owner, user_key(owner), model_names(owner), genai.Client, force)
@@ -593,39 +599,16 @@ def _need_cloud(prompt: str) -> str:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Metin vektörleri (anlamsal arama). Yerel modda Ollama, aksi halde Gemini. Başarısızsa ValueError."""
+    """Metin vektörleri (anlamsal arama). Belgeler/sorular özeldir: yalnız yerel Ollama; buluta (Gemini) gitmez."""
     c = _cfg()
-    out: list[list[float]] = []
-    if provider() == "ollama":
-        if _backend(c) != "ollama":
-            raise ValueError("Yerel gömme (anlamsal arama) şimdilik yalnız Ollama ile çalışır.")
-        model = load_settings().get("ollama_embed_model") or "nomic-embed-text"
-        try:
-            from modules import ollama_embed
-            out = ollama_embed.run(texts, c["url"], model)
-        except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
-            raise ValueError("Yerel gömme modeli yok (`ollama pull nomic-embed-text`).") from e
-        return out
-    if not gemini_aux_allowed():
-        raise ValueError('Smart Router: Gemini gömme için ücretsiz hesap doğrulaması gerekli.')
-    client = _cli()
-    if client is None:
-        raise ValueError("Bu kullanıcının Gemini anahtarı yok.")
+    if _backend(c) != "ollama":
+        raise ValueError("Yerel gömme (anlamsal arama) şimdilik yalnız Ollama ile çalışır.")
+    model = load_settings().get("ollama_embed_model") or "nomic-embed-text"
     try:
-        for i in range(0, len(texts), 50):
-            part = [privacy.redact(t) for t in texts[i:i + 50]]
-            try:
-                resp = client.models.embed_content(model="gemini-embedding-001", contents=part)
-            except Exception as e:
-                _record_failure('modules/llm.py:embed_call')
-                usage_meter.record('gemini-embed', 'gemini-embedding-001', usage_meter.size(part), 0, usage_meter.outcome(e))
-                raise
-            usage_meter.record('gemini-embed', 'gemini-embedding-001', usage_meter.size(part))
-            out += [list(e.values) for e in resp.embeddings]
-    except Exception as e:
-        _record_failure('modules/llm.py:embed')
-        raise ValueError(f"Gömme alınamadı: {e}") from e
-    return out
+        from modules import ollama_embed
+        return ollama_embed.run(texts, c["url"], model)
+    except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
+        raise ValueError("Yerel gömme modeli yok (`ollama pull nomic-embed-text`).") from e
 
 
 _SWITCH_CODES = {404, 429, 500, 502, 503, 504}   # bunlarda bekleme/yedek modele geçiş denenir
@@ -1059,62 +1042,36 @@ def commit_chat(prompt: str, text: str, user: str = "default") -> None:
 
 
 def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 2000, *, strict: bool = False) -> str:
+    """Ekran/görüntü özeldir: yalnız yerel görüntü modeli (veya açıkça seçilmiş ücretli sağlayıcı); Gemini yok."""
     if privacy.mode() == 'gizli':
         if strict:raise PermissionError('Gizli modda görüntü analizi kapalı.')
         return 'Gizli modda görüntü analizi kapalı.'
-    if provider() == 'auto':
-        from modules import smart_router
+    selected = provider()
+    if selected in _PAID:
+        return _ask_image(image_path,prompt,system,max_tokens,selected,strict=strict)
+    from modules import smart_router
+    if provider() == 'auto' or strict:
         return smart_router.run(current_user(), prompt, lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True)
-    return _ask_image(image_path,prompt,system,max_tokens,strict=strict)
+    return _ask_image(image_path,prompt,system,max_tokens,'ollama',strict=strict)
 
 
 def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
-    """Send the original image with its detected MIME type and the owner's client."""
+    """Transport only: one provider, no fallback. Images never go to a Gemini/Groq/Cloudflare cloud."""
     selected=selected or provider()
     requests_state.check()
     if privacy.mode() == "gizli":
         return "Gizli modda görüntü analizi kapalı."
     try:
-        if selected in ('openai','anthropic'):
+        if selected in _PAID:
             from modules import paid_providers
             return _timed(selected,lambda:paid_providers.generate(current_user(),selected,
                           [{'role':'user','content':prompt}],system,max_tokens,image_path=image_path))
-        if selected == "ollama":
-            import base64
-            with open(image_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            try:
-                return _ollama([{"role": "user", "content": prompt}], system, max_tokens, images=[b64])
-            except LocalModelError as e:
-                if strict: raise
-                if privacy.mode() == "yerel" or _cli() is None:
-                    return failure_policy.user_message(e)
-        if privacy.mode() == "yerel":
-            return "Yalnızca yerel modda görüntü, yerel görüntü modeline (örn. llava) gider; o da yanıt vermedi."
-        if _cli() is None:
-            if strict: raise LocalModelError("Görüntü modeli yok.")
-            return "Bu kullanıcının görüntü analizi için Gemini anahtarı ya da yerel görüntü modeli gerekli."
-        prompt = privacy.redact(prompt)
-        system = privacy.redact(system)
-        from PIL import Image
-        with Image.open(image_path) as image:
-            mime = Image.MIME.get(image.format)
-        if mime not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
-            raise ValueError("Desteklenmeyen görüntü biçimi.")
+        if selected != "ollama":
+            raise LocalModelError("Görüntü yalnızca yerel görüntü modeline gider.")
+        import base64
         with open(image_path, "rb") as f:
-            image_part = types.Part.from_bytes(data=f.read(), mime_type=mime)
-
-        cfg = types.GenerateContentConfig(
-            system_instruction=system or None,
-            max_output_tokens=max_tokens,
-        )
-
-        def call(model: str) -> str:
-            resp = _cli().models.generate_content(model=model, contents=[image_part, prompt], config=cfg)
-            _route.tokens = usage_meter.tokens_from(resp)
-            return resp.text or ""
-
-        return _with_models(_metered(call, usage_meter.size(prompt, system)))
+            b64 = base64.b64encode(f.read()).decode()
+        return _ollama([{"role": "user", "content": prompt}], system, max_tokens, images=[b64])
     except requests_state.Cancelled:
         raise
     except Exception as e:
@@ -1125,36 +1082,13 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
 
 def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: bytes | None = None,
                hints: list[str] | None = None) -> str:
-    """Kısa bir ses kaydını Türkçe metne çevirir (Gemini). Gizli/yerel modda ses buluta gitmez.
-    hints: sık geçen özel kelimeler/adlar (doğru yazılsın diye: "irsaliye", "Nevzat Bey"…)."""
-    if privacy.mode() in ("gizli", "yerel"):
-        raise RuntimeError("Ses kaydını yazıya çevirmek için ses buluta gitmesi gerekir; bu mod buna izin vermiyor.")
-    if not gemini_aux_allowed():
-        raise RuntimeError('Smart Router: Gemini ses için ücretsiz hesap doğrulaması gerekli; ücretsiz web STT kullan.')
-    if _cli() is None:
-        raise RuntimeError("Bu kullanıcının Gemini anahtarı yok; Ayarlar'dan ekle.")
-    if data is None:
-        with open(audio_path, "rb") as f:
-            data = f.read()
-    part = types.Part.from_bytes(data=data, mime_type=mime)
-    prompt = ("Bu kısa ses kaydı, bir kişinin bilgisayardaki sesli asistanına Türkçe söylediği bir komut ya da soru. "
-              "Söyleneni olduğu gibi, düzgün Türkçe yazımla yaz. Başta asistanın adı ya da 'hey' duyulursa onu yazma. "
-              "Yalnızca söylenen metni ver: açıklama, tırnak, not ekleme; "
-              "cevap verme. Anlaşılır bir konuşma yoksa (gürültü, öksürük, sessizlik) hiçbir şey yazma.")
-    if hints:
-        prompt += (" Yazım için yardımcı liste (yalnızca bu kelimeler kayıtta AÇIKÇA söylendiyse bu yazımı kullan; "
-                   "listeden kelime uydurma, duymadığını yazma): " + ", ".join(hints[:60]) + ".")
-    cfg = types.GenerateContentConfig(max_output_tokens=300, temperature=0.0,
-                                      automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
-
-    def call(model: str) -> str:
-        return (_cli().models.generate_content(model=model, contents=[part, prompt], config=cfg).text or "").strip()
-
-    return _with_models(_metered(call, len(prompt) + len(data), 'gemini-ses')).strip()
+    """Ses özeldir: Gemini'ye gönderilmez. Çağıranlar yerel/ücretsiz web STT'ye düşer."""
+    raise RuntimeError("Ses kaydı buluta (Gemini) gönderilmez; yerel/web STT kullanılır.")
 
 
 def gemini_client():
-    """Return only the current user's client; preserves the existing key isolation."""
+    """Current user's client (key isolation). Used only for key checks and the Live code PR9 removes;
+    user content (documents, voice, screen) never goes through it: see ``gemini_aux_allowed``."""
     return _cli()
 
 
