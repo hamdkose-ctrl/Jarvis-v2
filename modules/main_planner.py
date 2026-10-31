@@ -824,18 +824,19 @@ def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
                 "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
 
-# Brain flow: while Core executes a validated ``reminder`` intent at the planner's precedence slot,
-# the planner must not also create one from raw text. Every other planner branch is unchanged.
-_CORE_OWNS_REMINDER: ContextVar[bool] = ContextVar("jarvis_core_owns_reminder", default=False)
+# Brain flow: the validated Core ``reminder`` arguments are handed to the planner, which consumes them
+# at its OWN creation slot (after pending answers, notes, edit/snooze; before calendar/agenda branches),
+# so the branch order is identical to the legacy path and nothing falls through to later branches.
+_CORE_REMINDER: ContextVar["dict | None"] = ContextVar("jarvis_core_reminder", default=None)
 
 
 @contextmanager
-def core_owns_reminder():
-    token = _CORE_OWNS_REMINDER.set(True)
+def core_reminder(args: dict):
+    token = _CORE_REMINDER.set(dict(args))
     try:
         yield
     finally:
-        _CORE_OWNS_REMINDER.reset(token)
+        _CORE_REMINDER.reset(token)
 
 
 def reminder_create(runtime, parsed: dict) -> str:
@@ -907,8 +908,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     edited = _edit_reminder(runtime, cmd_lower, now)
     if edited is not None:
         return edited
-    if reminder_parse.is_creation_request(cmd_lower) and not _CORE_OWNS_REMINDER.get():
-        return reminder_create(runtime, reminder_parse.parse(command, now))
+    if reminder_parse.is_creation_request(cmd_lower):
+        core = _CORE_REMINDER.get()
+        return reminder_create(runtime, core if core is not None else reminder_parse.parse(command, now))
     if runtime.re.search('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*', cmd_lower) and (not runtime.re.search('\\b(ekle|yaz|sil|not et)\\b', cmd_lower)):
         day_txt = runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
         if runtime.re.search('\\b(aç|açar mısın|açsana|göster|getir)', cmd_lower) and runtime.google_api._ready() is None:

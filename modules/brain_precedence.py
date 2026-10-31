@@ -33,16 +33,14 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         return module.handle(lowered, runtime.emit)
 
     def planner_gate():
-        # Reminder creation is a Core intent that runs AT the planner's slot: the planner's other
-        # branches (pending answers, notes, edit/snooze, calendar) still answer first and unchanged.
+        # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
+        # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
+        # edit/snooze) answer first and later branches (calendar, agenda) are never reached.
         if plan is None or plan[0] != "reminder":
             return runtime._planner_command(command, lowered)
         from modules import main_planner
-        with main_planner.core_owns_reminder():
-            reply = runtime._planner_command(command, lowered)
-        if reply is not None:
-            return reply
-        return main_planner.reminder_core(runtime, plan[1], command, lowered)
+        with main_planner.core_reminder(plan[1]):
+            return runtime._planner_command(command, lowered)
 
     return {
         "file_command": lambda: runtime._file_command(command),
