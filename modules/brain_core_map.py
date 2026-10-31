@@ -12,6 +12,7 @@ import os
 import re
 from typing import Any, Callable, Mapping
 
+from modules.diagnostics import record_failure as _record_failure
 from modules.brain_understanding import FILE_SUMMARIZE, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
@@ -52,6 +53,7 @@ def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if not target.is_file() or not nxapi.allowed(target):
             return None
     except Exception:
+        _record_failure("modules/brain_core_map.py:file_args")
         return None
     return {"path": path}
 
