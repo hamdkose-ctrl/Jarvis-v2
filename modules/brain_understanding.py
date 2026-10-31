@@ -394,11 +394,25 @@ _NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
 _NOTES_SHOW_VERBS = ("göster", "goster")
 
 
+_NOTES_FILLERS = frozenset({"lütfen", "lutfen", "bana", "bir", "bu", "şu", "su", "o", "tüm", "tum", "bütün", "butun",
+                            "hepsini", "son", "şunu", "bunu", "mi", "mı", "mu", "mü", "misin", "mısın", "musun", "müsün", "jarvis"})
+
+
+def _is_bare_notes_command(text: str) -> bool:
+    """True only when the WHOLE sentence is a note noun + show verb (+ filler words).
+
+    Anything else ('... ve hava nasıl', 'göster, not al: süt', 'sonra ...') is multi-intent or another
+    request, and a notes proposal would swallow the remaining part: no proposal then."""
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text.lower())
+    known = set(_NOTES_PLURAL) | set(_NOTES_SINGULAR) | set(_NOTES_SHOW_VERBS) | _NOTES_FILLERS
+    return bool(words) and all(word in known for word in words)
+
+
 def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
     """Read-only notes proposal: all notes (plural noun) or ONE resolved note reference by stable id.
 
-    Only the show verb is proposed; other verbs or a second action stay with the legacy owner."""
-    if not _contains_command_token(text, _NOTES_SHOW_VERBS) or _other_actions(text):
+    Only a bare single 'notes + göster' command is proposed (see _is_bare_notes_command)."""
+    if not _contains_command_token(text, _NOTES_SHOW_VERBS) or not _is_bare_notes_command(text):
         return {}
     if _contains_domain_token(text, _NOTES_PLURAL):
         return {"notes": {"which": "all"}}

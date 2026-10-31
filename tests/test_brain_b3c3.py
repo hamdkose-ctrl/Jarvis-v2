@@ -80,14 +80,52 @@ class EndToEndTests(unittest.TestCase):
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         return entry, out, handle
 
-    def test_all_notes_read_through_core_without_mutation(self):
-        before = [dict(n) for n in self.ctx.profile.data["items"]]
-        with patch.object(brain_precedence, "claim", return_value=None):
-            entry, out, handle = self.through_brain("notlarımı göster")
-        self.assertIn("süt al", out)
-        self.assertIn("diş randevusu", out)
+    def real_claim_run(self, text):
+        """prepare -> handoff with the REAL brain_precedence.claim (front gates included)."""
+        with patch("modules.engine_intents.dispatch", return_value="CORE") as dispatch:
+            entry, out, handle = self.through_brain(text)
+        core = dispatch.call_args[0][1:3] if dispatch.called else None
+        return entry, out, handle, core
+
+    def test_plural_show_is_taken_by_selfctl_front_gate_not_core(self):
+        # Honest scope: in production the selfctl gate ("Notlar sayfasını açıyorum") answers these
+        # BEFORE a Core plan, so the "all" proposal is currently shadowed (front gate beats Core).
+        for text in ("notlarımı göster", "notları göster", "notlarımı bana göster"):
+            entry, out, handle, core = self.real_claim_run(text)
+            self.assertEqual(entry.understanding.arguments["notes"], {"which": "all"}, text)
+            self.assertIsNone(core, text)
+            self.assertEqual(out, "Notlar sayfasını açıyorum.", text)
+
+    def test_single_note_reaches_core_with_its_id_through_real_claim(self):
+        self.ctx.profile.data["items"] = [self.second]
+        entry, out, handle, core = self.real_claim_run("son notu göster")
+        self.assertEqual(core, ("notes_read", {"which": "one", "id": str(self.second["id"])}))
+        self.assertEqual(out, "CORE")
         self.assertFalse(handle.called)
-        self.assertEqual(before, [dict(n) for n in self.ctx.profile.data["items"]])
+
+    def test_two_notes_make_son_notu_ambiguous_and_never_pick_one(self):
+        entry, out, handle, core = self.real_claim_run("son notu göster")
+        self.assertIsNone(core)
+        self.assertTrue(entry.understanding.needs_input)
+
+    def test_multi_intent_sentences_get_no_notes_proposal_and_keep_legacy_path(self):
+        for text in ("notları göster ve hava durumu nasıl", "notlarımı göster ve not al: süt",
+                     "notlarımı göster saat kaç", "notlarımı göster, haberleri oku",
+                     "notlarımı göster 5 çarpı 7 kaç", "notlarımı göster sonra hava nasıl"):
+            entry, out, handle, core = self.real_claim_run(text)
+            self.assertNotIn("notes", entry.understanding.arguments, text)
+            self.assertNotEqual((core or ("",))[0], "notes_read", text)
+
+    def test_handoff_rejects_id_not_in_brain_references(self):
+        import dataclasses
+        self.ctx.profile.data["items"] = [self.second]
+        rid = "b3c3-ref-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="son notu göster", source="yazı")
+            self.assertIsNotNone(brain_entry.core_plan(entry))
+            forged = dataclasses.replace(entry.understanding, arguments={"notes": {"which": "one", "id": "forged-id"}})
+            self.assertIsNone(brain_entry.core_plan(dataclasses.replace(entry, understanding=forged)))
 
     def test_unknown_note_id_is_reported_not_guessed(self):
         from modules import engine_intents
