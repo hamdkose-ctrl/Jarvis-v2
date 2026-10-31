@@ -13,7 +13,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
-from modules.brain_understanding import FILE_SUMMARIZE, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
+from modules.brain_understanding import FILE_SUMMARIZE, FILE_TARGET_UNRESOLVED, LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
 
@@ -103,6 +103,8 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 
 
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
+    if FILE_TARGET_UNRESOLVED in ambiguities:
+        return "Hangi dosyayı özetleyeyim? Dosya adını yaz ya da dosyayı sohbete ekle."
     if LEVEL_UNSPECIFIED in ambiguities:
         level = arguments.get("level")
         if isinstance(level, int) and not isinstance(level, bool):

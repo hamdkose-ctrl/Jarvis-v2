@@ -69,21 +69,21 @@ class EndToEndTests(unittest.TestCase):
         self.file = Path(self.temp.name) / "rapor.txt"
         self.file.write_text("içerik")
         original = brain_entry.build_candidates
-        rows = [{"path": str(self.file), "name": "rapor.txt", "ext": ".txt"}]
+        self.rows = [{"path": str(self.file), "name": "rapor.txt", "ext": ".txt"}]
         patcher = patch.object(brain_entry, "build_candidates",
-                               lambda **kw: original(**{**kw, "file_reader": lambda *, limit: rows[:limit]}))
+                               lambda **kw: original(**{**kw, "file_reader": lambda *, limit: self.rows[:limit]}))
         patcher.start()
         self.addCleanup(patcher.stop)
         roots = patch.object(nxapi, "_roots", return_value=[Path(self.temp.name)])
         roots.start()
         self.addCleanup(roots.stop)
 
-    def through_brain(self, text):
+    def through_brain(self, text, handler=None):
         rid = "b3c1-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
-            handle = Mock(wraps=self.ctx.handle)
+            handle = handler or Mock(wraps=self.ctx.handle)
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         return entry, out, handle
 
@@ -117,6 +117,70 @@ class EndToEndTests(unittest.TestCase):
             entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
         self.assertEqual(out, "DÜĞME")
         dispatch.assert_not_called()
+
+    def test_summary_without_candidate_asks_and_never_guesses(self):
+        self.rows = []
+        with patch("modules.engine_intents.dispatch", side_effect=AssertionError("dispatch yok")), \
+             patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("_resolve_doc tahmin etmemeli"), create=True):
+            entry, out, handle = self.through_brain("dosyayı özetle")
+        self.assertIn("Hangi dosyayı", out)
+        self.assertFalse(handle.called)
+        self.assertTrue(entry.understanding.needs_input)
+
+    def test_summary_with_many_candidates_asks(self):
+        other = Path(self.temp.name) / "rapor.md"
+        other.write_text("y")
+        self.rows = [{"path": str(self.file), "name": "rapor.txt"}, {"path": str(other), "name": "rapor.md"}]
+        with patch("modules.engine_intents.dispatch", side_effect=AssertionError("dispatch yok")):
+            entry, out, handle = self.through_brain("rapor dosyasını özetle")
+        self.assertTrue(entry.understanding.needs_input)
+        self.assertFalse(handle.called)
+
+    def test_resolved_file_outside_allowed_roots_is_refused_honestly(self):
+        with tempfile.TemporaryDirectory() as outside:
+            secret = Path(outside) / "gizli.txt"
+            secret.write_text("x")
+            self.rows = [{"path": str(secret), "name": "gizli.txt"}]
+            with patch("modules.engine_intents.dispatch", side_effect=AssertionError("dispatch yok")):
+                rid = "b3c1-" + uuid.uuid4().hex[:8]
+                requests_state.register(self.owner, rid)
+                with requests_state.activate(self.owner, rid):
+                    entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="gizli.txt dosyasını özetle", source="yazı")
+                    handle = Mock()
+                    out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, "gizli.txt dosyasını özetle")
+        self.assertIn("erişemiyorum", out)
+        self.assertEqual((feedback.result_status, feedback.reason_code), ("failed", "FILE_TARGET_NOT_ACCESSIBLE"))
+        handle.assert_not_called()
+
+    def test_symlink_escape_is_refused(self):
+        with tempfile.TemporaryDirectory() as outside:
+            secret = Path(outside) / "gizli.txt"
+            secret.write_text("x")
+            link = Path(self.temp.name) / "kisayol.txt"
+            try:
+                link.symlink_to(secret)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink oluşturulamıyor")
+            self.rows = [{"path": str(link), "name": "kisayol.txt"}]
+            rid = "b3c1-" + uuid.uuid4().hex[:8]
+            requests_state.register(self.owner, rid)
+            with patch("modules.engine_intents.dispatch", side_effect=AssertionError("dispatch yok")):
+                with requests_state.activate(self.owner, rid):
+                    entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="kisayol.txt dosyasını özetle", source="yazı")
+                    handle = Mock()
+                    out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, "kisayol.txt dosyasını özetle")
+        self.assertIn("erişemiyorum", out)
+        self.assertEqual(feedback.result_status, "failed")
+        handle.assert_not_called()
+
+    def test_compound_request_is_not_planned_as_a_single_summary(self):
+        for text in ("rapor.txt dosyasını özetle ve çevir", "rapor.txt dosyasını özetle ve kaydet"):
+            with self.subTest(text=text), patch("modules.engine_intents.dispatch", return_value="X") as dispatch, \
+                    patch.object(brain_precedence, "claim", return_value=None):
+                entry, out, handle = self.through_brain(text, handler=Mock(return_value="LEGACY"))
+            self.assertNotIn("operation", entry.understanding.arguments)
+            self.assertEqual(out, "LEGACY")   # whole sentence goes to the legacy owner; no half is dropped by Core
+            self.assertFalse(any(call[0][1] == "doc_summary" for call in dispatch.call_args_list), text)
 
 
 if __name__ == "__main__":

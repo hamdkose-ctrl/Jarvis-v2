@@ -667,6 +667,21 @@ def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
             _record_failure("modules/brain_entry.py:drop_stale_clarify")
 
 
+def _file_access_refusal(entry: EntryResult) -> str | None:
+    """Brain resolved a file but Core refuses it (outside allowed roots, symlink escape, missing).
+
+    Honest answer instead of falling to the legacy handler, which would guess another target."""
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return None
+    semantic = entry.understanding
+    if (semantic is None or semantic.request_kind is not RequestKind.CAPABILITY
+            or semantic.capability_hint != "files.read" or "path" not in semantic.arguments):
+        return None
+    if brain_core_map.core_plan(semantic.capability_hint, semantic.arguments) is not None:
+        return None
+    return "Bu dosyaya erişemiyorum (izinli klasörlerin dışında ya da bulunamıyor); işlem başlatılmadı."
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -676,6 +691,11 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         if entry.understanding is not None:
             brain_core_map.clarification_effect(runtime, entry.understanding.ambiguities, entry.understanding.arguments)
         return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
+    refusal = _file_access_refusal(entry)
+    if refusal is not None:
+        row = feedback(entry, result_status="failed", reason_code="FILE_TARGET_NOT_ACCESSIBLE")
+        _LAST_FEEDBACK.set(row)
+        return refusal, row, None
     if not callable(handler):
         raise ValueError("Core handler callable olmalı.")
     _install_core_guards(runtime)

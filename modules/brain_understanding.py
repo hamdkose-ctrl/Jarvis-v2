@@ -390,6 +390,18 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
 
 
 FILE_SUMMARIZE = "summarize"
+FILE_TARGET_UNRESOLVED = "file target unresolved"
+
+
+def _asks_file_summary(text: str) -> bool:
+    return (_has_file_domain(text) and _contains_command_token(text, ("özetle", "ozetle"))
+            and not _is_meta_language(text) and not _is_literal_command_usage(text))
+
+
+def _other_actions(text: str) -> bool:
+    """A second action verb ('özetle ve çevir') makes the request multi-step: no single-operation proposal."""
+    from modules.brain_actions import _ACTION, _fold
+    return _ACTION.search(_fold(text)) is not None
 
 
 def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
@@ -397,7 +409,7 @@ def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict
 
     The path comes from the Candidate Builder inventory via the Reference Resolver, never from the
     raw text. Only the summarize operation is proposed; other read-like verbs stay unmapped."""
-    if not _contains_command_token(text, ("özetle", "ozetle")):
+    if not _contains_command_token(text, ("özetle", "ozetle")) or _other_actions(text):
         return {}
     files = [ref for ref in references if ref.kind == "file"]
     if len(files) != 1:
@@ -565,6 +577,10 @@ def understand(
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
     if level is not None and level[0] is None:
         ambiguities = (LEVEL_UNSPECIFIED,)
+    elif (not ambiguities and not context_control and _asks_file_summary(normalized)
+          and not any(ref.kind == "file" for ref in references)):
+        # A file summary with no resolved file must ask; Core never guesses a target from raw text.
+        ambiguities = (FILE_TARGET_UNRESOLVED,)
 
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
@@ -609,6 +625,8 @@ def understand(
         reason_codes.append("NEW_REQUEST_DEFAULT")
     if LEVEL_UNSPECIFIED in ambiguities:
         reason_codes.append("LEVEL_TARGET_UNSPECIFIED")
+    elif FILE_TARGET_UNRESOLVED in ambiguities:
+        reason_codes.append("FILE_TARGET_UNRESOLVED")
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
