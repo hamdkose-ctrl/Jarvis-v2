@@ -20,8 +20,9 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     if not runtime.requests_state.register(owner, rid):
         return False
     user = user or runtime.pc_profile().name
-    from modules import brain_gates
-    status = brain_gates.goal_status_selection(runtime._tr_lower(text))
+    from modules import brain_entry
+    lane = brain_entry.fast_lane(owner, rid, runtime._tr_lower(text), source)
+    status = lane.selection if lane is not None else None
     if status is not None:
         from modules import goal_executor
         profile=runtime._get_profile(user)

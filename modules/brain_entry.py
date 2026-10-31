@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
-from modules import brain_context, capability_manifest
+from modules import brain_context, brain_core_map, capability_manifest
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -342,6 +342,9 @@ def clarification(entry: EntryResult) -> str | None:
     semantic = entry.understanding
     if semantic is None or (not semantic.needs_input and semantic.request_kind is not RequestKind.CLARIFY):
         return None
+    specific = brain_core_map.clarification_question(semantic.ambiguities, semantic.arguments)
+    if specific is not None:
+        return specific
     if "multiple target references" in semantic.ambiguities:
         return "Birden fazla hedef eşleşti; hangisini kastettiğini netleştir."
     return "İsteğini güvenli biçimde sürdürebilmem için neyi kastettiğini netleştir."
@@ -450,6 +453,9 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     if semantic is None:
         return {"intent": "clarify", "args": {"question": "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."}}
     if semantic.request_kind is RequestKind.CAPABILITY:
+        plan = core_plan(entry)
+        if plan is not None:
+            return {"intent": plan[0], "args": dict(plan[1])}
         proposal = core_proposal(entry)
         if proposal["manifest_capability_id"] is None:
             return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
@@ -560,6 +566,37 @@ def _has_open_pending(entry: EntryResult) -> bool:
     )
 
 
+# Protocols that may be answered before the (possibly busy) command loop: read-only,
+# context-independent, exact. Anything else must go through the full canonical entry.
+QUEUE_SAFE_PROTOCOLS = frozenset({"fast.goal.status"})
+
+
+def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> GateObservation | None:
+    """Pre-queue Brain lane: run only the deterministic Fast Gate on an empty context.
+
+    Returns the observation when the exact text is a queue-safe protocol, else None
+    (the caller then enqueues normally). No history, state, model or worker is touched,
+    so it stays answerable while the command loop is blocked on a long goal.
+    """
+    context = ActiveContext(owner=owner, request_id=request_id)
+    observation = deterministic_fast_gate(
+        owner=owner, request_id=request_id, text=text, active_context=context, source=source,
+    )
+    if observation.matched and observation.protocol in QUEUE_SAFE_PROTOCOLS:
+        return observation
+    return None
+
+
+def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
+    """Core-validated intent for a mapped capability hint; None keeps the existing handler path."""
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return None
+    semantic = entry.understanding
+    if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY or _has_open_pending(entry):
+        return None
+    return brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+
+
 def _use_existing_handler(entry: EntryResult) -> bool:
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
         return True
@@ -581,6 +618,8 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         raise ValueError("Core handoff owner eşleşmiyor.")
     question = clarification(entry)
     if question is not None:
+        if entry.understanding is not None:
+            brain_core_map.clarification_effect(runtime, entry.understanding.ambiguities, entry.understanding.arguments)
         return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
     if not callable(handler):
         raise ValueError("Core handler callable olmalı.")
@@ -589,7 +628,11 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     before = _open_core_pending(runtime)
     try:
         with bind(entry):
-            if _use_existing_handler(entry):
+            plan = core_plan(entry)
+            if plan is not None:
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
+            elif _use_existing_handler(entry):
                 output = handler(command)
             elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
                 output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."

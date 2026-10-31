@@ -369,6 +369,47 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+_LEVEL_WORDS = {
+    "ses": "volume", "sesi": "volume", "sesin": "volume", "sesini": "volume",
+    "ses seviyesi": "volume", "ses seviyesini": "volume",
+    "parlaklık": "brightness", "parlaklığı": "brightness", "parlaklığını": "brightness",
+    "parlaklik": "brightness", "parlakligi": "brightness", "parlakligini": "brightness",
+    "ekran parlaklığı": "brightness", "ekran parlaklığını": "brightness",
+    "ekran parlaklıgı": "brightness", "ekran parlakligi": "brightness",
+}
+_LEVEL_VERBS = r"(?:yap|olsun|ayarla|yapar mısın|yapsana)"
+_LEVEL_EXPLICIT = re.compile(
+    r"(" + "|".join(sorted((re.escape(word) for word in _LEVEL_WORDS), key=len, reverse=True)) + r")"
+    r"\s+(?:yüzde\s*)?(\d{1,3})(?:\s*yüzde)?(?:\s+" + _LEVEL_VERBS + r")?"
+)
+_LEVEL_BARE = re.compile(r"(?:yüzde\s*(\d{1,3})(?:\s+" + _LEVEL_VERBS + r")?|(\d{1,3})\s+" + _LEVEL_VERBS + r")")
+LEVEL_CAPABILITY = "pc.level.set"
+LEVEL_UNSPECIFIED = "level target unspecified"
+
+
+def _level_request(normalized: str, active_context: ActiveContext) -> tuple[str | None, int] | None:
+    """Return (property|None, level) for a level-setting utterance, else None.
+
+    The property is explicit in the text, or comes from the fresh ``last_property``
+    reference the ActiveContext carries (owner-bound, TTL-checked by its provider).
+    A bare number without either stays property=None so Core can ask.
+    """
+    text = normalized.strip(" .!?")
+    explicit = _LEVEL_EXPLICIT.fullmatch(text)
+    if explicit is not None:
+        return _LEVEL_WORDS[explicit.group(1)], min(int(explicit.group(2)), 100)
+    bare = _LEVEL_BARE.fullmatch(text)
+    if bare is None:
+        return None
+    level = min(int(bare.group(1) or bare.group(2)), 100)
+    for ref in active_context.recent_references:
+        if ref.source == "session_state" and ref.id == "last_property":
+            value = ref.provenance.get("value")
+            if value in {"volume", "brightness"}:
+                return value, level
+    return None, level
+
+
 def _active_identity_set(active_context: ActiveContext) -> set[tuple[str, str]]:
     refs = (
         active_context.active_goal_references
@@ -481,6 +522,9 @@ def understand(
     context_control = _is_context_control(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     weather_request = _is_weather_request(normalized)
+    level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
+    if level is not None and level[0] is None:
+        ambiguities = (LEVEL_UNSPECIFIED,)
 
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
@@ -497,7 +541,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif weather_request or _looks_like_capability(normalized):
+    elif level is not None or weather_request or _looks_like_capability(normalized):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -523,8 +567,12 @@ def understand(
         reason_codes.append("USER_TOPIC_CHANGE")
     else:
         reason_codes.append("NEW_REQUEST_DEFAULT")
-    if ambiguities:
+    if LEVEL_UNSPECIFIED in ambiguities:
+        reason_codes.append("LEVEL_TARGET_UNSPECIFIED")
+    elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
+    if level is not None and level[0] is not None:
+        reason_codes.append("LEVEL_REQUEST")
 
     confidence = Confidence.MEDIUM
     if relation in {
@@ -542,12 +590,20 @@ def understand(
         if correction
         else {"original_text": text}
     )
+    capability_hint = _capability_hint(normalized, temporal_need)
+    if level is not None:
+        arguments = {**arguments, "level": level[1]}
+        if level[0] is not None:
+            arguments["property"] = level[0]
+            capability_hint = LEVEL_CAPABILITY
+        else:
+            capability_hint = None
 
     return UnderstandingResult(
         owner=owner,
         request_id=request_id,
         request_kind=request_kind,
-        capability_hint=_capability_hint(normalized, temporal_need),
+        capability_hint=capability_hint,
         arguments=arguments,
         references=references,
         conversation_relation=relation,

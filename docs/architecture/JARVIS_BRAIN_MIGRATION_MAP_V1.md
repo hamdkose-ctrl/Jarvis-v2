@@ -305,6 +305,8 @@ Yeni faz/özellik önerilmiyor; bu mevcut Brain migration işinin canonical bağ
 
 PR1-PR7 merge edildi ancak eski yolların silinmesi (her PR'ın "legacy retirement" görevi) yapılmadı. Kapanış iki parçadır: **Closeout-A** (continue_voice yapılandırılmış resume, history_limit üst sınırı, last_property, tek geçişli yazım düzeltme, gerçek BrainFeedback, doküman) ve **Closeout-B** (capability_hint → Core, eski router/work_modes/freshness otoritesi, regex ön kapıları, candidate/reference execution, `reference_context`, `_resolve_doc`, `chat_translation._sources`). Closeout-B'nin kabul kapısı 160 senaryolu regresyon havuzudur. Not: `engine_queue` hedef durumu kısayolu, komut döngüsü doluyken yanıt verebilmek için Brain girişinden önce çalışır; kaldırılması için Brain öncesi bir fast lane tasarımı gerekir (Closeout-B).
 
+**Closeout-B1 sonucu:** `brain_core_map` Core allowlist'i ve `level_set` intent'i eklendi; `router.classify` yalnız Live (`_live_command`) gibi Brain'e girmeyen çağıranlar için duruyor ve PR9'da Live bağlanınca caller-zero olarak silinecek. `engine_queue` kısayolu `brain_entry.fast_lane` üzerinden Brain Fast Gate'e bağlandı.
+
 ## 11. Cutover kuralları
 
 - Shadow/dual-run varsa **tek effect owner Core** olmalı; legacy ve Brain aynı anda effect üretemez.

@@ -158,6 +158,17 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return runtime.desktop.screenshot()
         case "volume":
             return runtime.desktop.volume(int(a.get("delta", 2)))
+        case "level_set":
+            level = max(0, min(100, int(a["level"])))
+            if a["property"] == "volume":
+                if runtime.system_control.set_volume(level):
+                    _remember(runtime, "volume")
+                    return f"Ses seviyesini yüzde {level} yaptım."
+                return "Ses seviyesini ayarlayamadım."
+            if runtime.system_control.set_brightness_verified(level):
+                _remember(runtime, "brightness")
+                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
+            return "Ekran parlaklığını doğrulayamadım."
         case "brightness":
             try:
                 level = max(0, min(100, int(str(a.get("level")))))
