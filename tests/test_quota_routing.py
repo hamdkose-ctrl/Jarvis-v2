@@ -97,7 +97,7 @@ class RateLimitMemoryTests(unittest.TestCase):
 
     def ask(self):
         with self.assertRaises(llm.errors.ClientError):
-            llm.ask('yapay zeka nedir', 'sistem')
+            llm._send_provider('gemini', 'yapay zeka nedir', 'sistem', 2000, None)   # Gemini aktarımı; sağlayıcıyı Router seçer
 
     def test_429_model_is_not_retried_or_slept_on(self):
         self.ask()

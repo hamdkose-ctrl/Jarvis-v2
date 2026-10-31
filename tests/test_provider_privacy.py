@@ -128,8 +128,9 @@ class RouterGateTests(unittest.TestCase):
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_REQUIRED")
 
-    def test_legacy_selection_route_is_the_public_research_route_only(self):
-        self.assertEqual(router._LEGACY_ROUTE, PUB)
+    def test_default_route_is_private_and_legacy_route_is_gone(self):
+        self.assertEqual(router._DEFAULT_ROUTE, PRIV)
+        self.assertFalse(hasattr(router, "_LEGACY_ROUTE"))
 
     def test_owner_evidence_alone_is_not_enough_without_privacy_bundle(self):
         with self.assertRaises(ValueError):

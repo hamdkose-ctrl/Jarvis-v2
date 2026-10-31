@@ -42,44 +42,30 @@ class OllamaRouteTextTests(unittest.TestCase):
             error.__cause__ = ConnectionRefusedError(111, 'Connection refused')
         return error
 
-    def gemini_quota(self, error):
+    def test_gemini_quota_has_no_cross_provider_fallback(self):
         llm = self.llm
         quota = llm.errors.ClientError(429, {'error': {'message': 'SECRET_FAKE_PROVIDER_DETAIL', 'code': 429, 'status': 'RESOURCE_EXHAUSTED'}})
         def timed(name, function):
             if name == 'gemini':
                 raise quota
-            return function()
-        with patch.object(llm, '_timed', side_effect=timed), patch.object(llm, '_ollama_task', side_effect=error), patch.object(llm, '_groq', side_effect=AssertionError('Anahtar yokken Groq çağrılmamalı')):
+            raise AssertionError('Gemini hatasından sonra başka sağlayıcı denenmemeli: ' + name)
+        with patch.object(llm, '_timed', side_effect=timed), patch.object(llm, '_ollama_task', side_effect=AssertionError('Ollama çağrılmamalı')), patch.object(llm, '_groq', side_effect=AssertionError('Groq çağrılmamalı')):
             with self.assertRaises(llm.errors.ClientError) as raised:
-                llm._send('Haber isteği', '', 100, [], 'gemini')
+                llm._send_provider('gemini', 'Haber isteği', '', 100, [])
         from modules import failure_policy
-        # Final user diagnosis and route notes are separate production channels.
-        return failure_policy.explain(raised.exception) + '\n' + '\n'.join(self.notes)
-
-    def test_connection_refused_after_quota_explains_install(self):
-        text = self.gemini_quota(self.error(True))
-        self.assertIn('Ollama yüklemelisin', text)
-        self.assertNotIn('Ollama yanıt vermedi', text)
-        self.assertNotIn('Ollama (yerel) de yanıt vermedi', text)
-
-    def test_running_service_error_retains_existing_wording(self):
-        text = self.gemini_quota(self.error(False))
-        self.assertIn('Ollama (yerel) de yanıt vermedi', text)
-        self.assertNotIn('Ollama yüklemelisin', text)
-
-    def test_no_groq_key_means_no_groq_error_and_quota_is_masked(self):
-        text = self.gemini_quota(self.error(True))
-        self.assertNotIn('Groq', text)
+        text = failure_policy.explain(raised.exception)
         self.assertIn('kullanım sınırı', text)
         self.assertNotIn('429', text)
         self.assertNotIn('SECRET_FAKE_PROVIDER_DETAIL', text)
 
-    def test_selected_ollama_fallback_uses_same_install_hint(self):
+    def test_ollama_failure_is_not_retried_on_gemini(self):
         def timed(name, function):
-            return 'Taklit Gemini cevabı' if name == 'gemini' else function()
+            if name == 'gemini':
+                raise AssertionError('Ollama hatasında Gemini denenmemeli')
+            return function()
         with patch.object(self.llm, '_timed', side_effect=timed), patch.object(self.llm, '_ollama_task', side_effect=self.error(True)):
-            self.assertEqual(self.llm._send('Haber', '', 100, [], 'ollama'), 'Taklit Gemini cevabı')
-        self.assertIn('Ollama yüklemelisin', '\n'.join(self.notes))
+            with self.assertRaises(self.llm.LocalModelError):
+                self.llm._send_provider('ollama', 'Haber', '', 100, [])
 
     def test_timeout_is_not_claimed_to_be_missing_service(self):
         from modules import ollama_hint

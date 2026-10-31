@@ -834,7 +834,7 @@ def _with_models(call):
 LAST_SEC: dict = {}
 
 
-_LABELS = {"gemini": "Gemini", "groq": "Groq", "ollama": "Ollama (yerel)",
+_LABELS = {"gemini": "Gemini", "groq": "Groq", "cloudflare": "Cloudflare", "ollama": "Ollama (yerel)",
            "openai": "OpenAI", "anthropic": "Claude"}
 _route = threading.local()   # bu iş parçacığındaki isteğin model izi; yalnız sağlayıcı/model adı, metin yok
 
@@ -887,38 +887,49 @@ def _timed(name: str, fn):
     return out
 
 
-def _send(prompt: str, system: str, max_tokens: int, history, selected=None, strict=False) -> str:
-    selected=selected or provider()
-    if selected == 'auto':
-        from modules import smart_router
-        return smart_router.run(current_user(), prompt + '\n' + system,
-            lambda name: _send(prompt, system, max_tokens, history, name, True))
-    if selected != 'ollama' and history:
+_PAID = ('openai', 'anthropic')
+
+
+def _send(prompt: str, system: str, max_tokens: int, history, route=None) -> str:
+    """Text generation. Only the Router chooses a provider and decides every fallback; this function never
+    switches provider by itself. An explicit paid choice (OpenAI/Claude) stays outside the automatic pool."""
+    selected = provider()
+    if selected in _PAID or selected == 'ollama':   # explicit paid or local-only choice: no automatic pool
+        return _send_provider(selected, prompt, system, max_tokens, history)
+    from modules import smart_router
+    return smart_router.run(current_user(), prompt + '\n' + system,
+        lambda name: _send_provider(name, prompt, system, max_tokens, history), route=route)
+
+
+def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history) -> str:
+    """One provider, one attempt: transport only. No cross-provider fallback (the Router owns that)."""
+    if name != 'ollama' and history:
         history = [types.Content(role=h.role,parts=[types.Part(text=privacy.redact(p.text)) for p in h.parts if getattr(p,'text',None)]) for h in history]
-    if selected in ('openai','anthropic'):
+    if name in _PAID:
         from modules import paid_providers
-        return _timed(selected,lambda:paid_providers.generate(current_user(),selected,
+        return _timed(name,lambda:paid_providers.generate(current_user(),name,
                       _ohist_msgs(history)+[{'role':'user','content':prompt}],system,max_tokens))
-    if selected == "groq":
+    if name == "groq":
         try:
             return _timed("groq", lambda: _groq(_ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
                          privacy.redact(system), max_tokens))
         except CloudError as e:
-            if strict or _cli() is None:
-                raise LocalModelError(str(e)) from e
-            print(f"({e} Gemini'ye geçiliyor)")
-            note_route("Groq yanıt vermedi, Gemini'ye geçildi", False)
-    if selected == "ollama":
+            raise LocalModelError(str(e)) from e
+    if name == "ollama":
+        return _timed("ollama", lambda: _ollama_task(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
+    if name == "cloudflare":
+        from modules import cloudflare_chat
         try:
-            return _timed("ollama", lambda: _ollama_task(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
-        except LocalModelError as e:
-            if strict or privacy.mode() == "yerel" or _cli() is None:
-                raise                      # buluta düşmek yasak ya da bu kullanıcının Gemini anahtarı yok
-            print("(Yerel model yok, Gemini'ye geçiliyor)")
-            note_route(_local_unavailable(e) or local_label() + " yanıt vermedi, Gemini'ye geçildi", False)
+            return _timed("cloudflare", lambda: cloudflare_chat.chat(
+                _ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
+                privacy.redact(system), max_tokens, slug=current_user()))
+        except cloudflare_chat.CloudflareChatError as e:
+            raise LocalModelError(str(e)) from e
+    if name != "gemini":
+        raise ValueError("Bilinmeyen sağlayıcı.")
     prompt = _need_cloud(prompt)
     if _cli() is None:
-        raise LocalModelError("Bu kullanıcının Gemini anahtarı yok ve seçili sağlayıcı kullanılamadı.")
+        raise LocalModelError("Bu kullanıcının Gemini anahtarı yok.")
     system = privacy.redact(system)
     cfg = types.GenerateContentConfig(
         system_instruction=system or None,
@@ -934,31 +945,7 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
-    try:
-        return _timed("gemini", lambda: _with_models(_metered(call, usage_meter.size(prompt, system, history))))
-    except (errors.ServerError, errors.ClientError) as e:
-        if strict or getattr(e, "code", None) not in _SWITCH_CODES:
-            raise
-        from modules import smart_router
-        note_route("Gemini " + smart_router.failure_text(e), False)
-        return _after_gemini(prompt, system, max_tokens, history, e, selected)
-
-
-def _after_gemini(prompt: str, system: str, max_tokens: int, history, error: Exception, tried: str) -> str:
-    """Tüm Gemini modelleri kota/sunucu hatası verdi: aynı kullanıcının Groq'u, sonra yerel Ollama denenir."""
-    for name in ("groq", "ollama"):
-        if name == tried or (name == "groq" and not user_groq_key(current_user())):
-            continue
-        requests_state.check()
-        try:
-            print("(Gemini yanıt vermedi, " + {"groq": "Groq'a", "ollama": "Ollama'ya"}[name] + " geçiliyor)")
-            answer = _send(prompt, system, max_tokens, history, name, True)
-        except (LocalModelError, CloudError) as e:
-            note_route((_local_unavailable(e) if name == 'ollama' else None) or provider_label(name) + " de yanıt vermedi", False)
-            continue
-        if isinstance(answer, str) and answer.strip():
-            return answer
-    raise error
+    return _timed("gemini", lambda: _with_models(_metered(call, usage_meter.size(prompt, system, history))))
 
 
 def _ohist_msgs(history) -> list[dict]:
@@ -993,17 +980,30 @@ def _provider_name() -> str:
 
 
 def ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
-    """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için)."""
+    """Tek seferlik soru, geçmişi hatırlamaz (router ve araçlar için). Etiketsiz içerik daima PRIVATE rotadır."""
     return _observed("ask", lambda: _ask(prompt, system, max_tokens, validator=validator))
 
 
-def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
+def research(query: str, evidence, system: str = "", max_tokens: int = 2000, *, validator=None) -> str:
+    """Herkese açık araştırma: Gemini'ye giden tek kapı. Girdi yalnız maskelenmiş bağımsız sorgu ve etiketli
+    kamuya açık kaynaklardır (geçmiş/hafıza/ek yok). Kaynaklardan biri bile PUBLIC etiketli değilse istek
+    PRIVATE olur ve Gemini hiçbir hatada denenmez."""
+    from modules import privacy_sources, provider_privacy
+    items = list(evidence or [])
+    public = privacy_sources.classify(items) is privacy_sources.RouteClass.PUBLIC
+    route = provider_privacy.ROUTE_PUBLIC_RESEARCH if public else provider_privacy.ROUTE_PRIVATE_GENERAL
+    parts = [str(getattr(item, "payload", item)) for item in items]
+    prompt = privacy.redact(query) + ("\n\nKaynaklar:\n" + "\n\n".join(parts) if parts else "")
+    return _observed("research", lambda: _ask(prompt, system, max_tokens, validator=validator, route=route))
+
+
+def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None, route=None) -> str:
     if validator is not None:
-        def checked(selected):
+        def checked(name):
             for attempt in range(2):
                 notes = len(getattr(_route, 'notes', None) or [])
                 instruction = prompt if not attempt else prompt + '\nSon yanıt araç sözleşmesini karşılamadı. Sistem şemasına uygun tek JSON araç komutu üret; açıklama/kod bloğu ile bitirme.'
-                answer = _send(instruction, system, max_tokens, None, selected, True)
+                answer = _send_provider(name, instruction, system, max_tokens, None)
                 try:
                     validator(answer)
                 except (ValueError, TypeError, KeyError):
@@ -1013,11 +1013,11 @@ def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=Non
                     if attempt: raise
                     continue
                 return answer
-        if provider() == 'auto':
-            from modules import smart_router
-            return smart_router.run(current_user(), prompt + '\n' + system, checked)
-        return checked(provider())
-    return _send(prompt, system, max_tokens, None)
+        if provider() in _PAID or provider() == 'ollama':
+            return checked(provider())
+        from modules import smart_router
+        return smart_router.run(current_user(), prompt + '\n' + system, checked, route=route)
+    return _send(prompt, system, max_tokens, None, route)
 
 
 def chat(prompt: str, system: str = "", max_tokens: int = 2000, user: str = "default") -> str:

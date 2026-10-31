@@ -16,9 +16,10 @@ _LAST = {}
 _STORE = DATA_DIR / 'router'
 _CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare'})
 _EVIDENCE_MODELS_MAX = 32
-# The pre-P0-3 selection has no route concept yet, so it keeps today's behavior by declaring the only
-# route Gemini may serve. The Router (P0-3) replaces this with the real route class of each request.
-_LEGACY_ROUTE = provider_privacy.ROUTE_PUBLIC_RESEARCH
+# Route class of a request is decided by its provenance (privacy_sources); callers never pick a provider.
+# Vision still keeps its legacy order until the image path moves to the router chains (P0-3c).
+_DEFAULT_ROUTE = provider_privacy.ROUTE_PRIVATE_GENERAL
+_VISION_ROUTE = provider_privacy.ROUTE_PUBLIC_RESEARCH
 
 
 def owner_path(owner):
@@ -47,43 +48,59 @@ def _safe_evidence_catalog(value) -> dict:
 _STATE_KEYS = ('cloud_free_confirmed', 'free_tier_evidence')
 
 
-def _purge_legacy(owner, state):
-    """Keep only the known state keys on disk: a removed provider's stored key, model and evidence rows go away."""
-    evidence = state.get('free_tier_evidence')
-    stale = isinstance(evidence, dict) and any(name not in _CLOUD_PROVIDERS for name in evidence)
-    if not stale and all(name in _STATE_KEYS for name in state):
-        return
-    clean = {k: v for k, v in state.items() if k in _STATE_KEYS}
-    if isinstance(evidence, dict):
-        clean['free_tier_evidence'] = _safe_evidence_catalog(evidence)
+def _read_state(owner):
+    """Parsed state dict, {} when the file is missing, None when it is unreadable (corrupt or not a dict)."""
     try:
-        _save_state(owner, clean)
+        state = json.loads(owner_path(owner).read_text(encoding='utf-8'))
     except OSError:
-        _record_failure('modules/smart_router.py:_purge_legacy')
+        return {}
+    except ValueError:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _purge_legacy(owner, state=None):
+    """Keep only the known state keys on disk: a removed provider's stored key, model and evidence rows go away.
+    Runs under the lock on a fresh read, so a concurrent ``configure`` write is never overwritten by a stale copy."""
+    with _LOCK:
+        state = _read_state(owner)
+        if state is None:
+            return _reset_unreadable(owner)
+        evidence = state.get('free_tier_evidence')
+        stale = isinstance(evidence, dict) and any(name not in _CLOUD_PROVIDERS for name in evidence)
+        if not stale and all(name in _STATE_KEYS for name in state):
+            return
+        clean = {k: v for k, v in state.items() if k in _STATE_KEYS}
+        if isinstance(evidence, dict):
+            clean['free_tier_evidence'] = _safe_evidence_catalog(evidence)
+        try:
+            _save_state(owner, clean)
+        except OSError:
+            _record_failure('modules/smart_router.py:_purge_legacy')
 
 
 def _reset_unreadable(owner):
     """A corrupt or non-dict state file can still hold a removed provider's key. It can not be parsed, and a
-    backup would keep the secret, so it is replaced by the fail-closed default (the owner re-confirms)."""
-    try:
-        _save_state(owner, {'cloud_free_confirmed': False, 'free_tier_evidence': {}})
-    except OSError:
-        _record_failure('modules/smart_router.py:_reset_unreadable')
+    backup would keep the secret, so it is replaced by the fail-closed default (the owner re-confirms).
+    Re-checked under the lock: a file another writer has just made valid is left alone."""
+    with _LOCK:
+        if _read_state(owner) is not None:
+            return
+        try:
+            _save_state(owner, {'cloud_free_confirmed': False, 'free_tier_evidence': {}})
+        except OSError:
+            _record_failure('modules/smart_router.py:_reset_unreadable')
 
 
 def settings(owner):
     defaults={'cloud_free_confirmed':False,'free_tier_evidence':{}}
-    try:
-        state=json.loads(owner_path(owner).read_text(encoding='utf-8'))
-    except OSError:
-        return defaults
-    except ValueError:
+    state=_read_state(owner)
+    if state is None:
         _reset_unreadable(owner)
         return defaults
-    if not isinstance(state,dict):
-        _reset_unreadable(owner)
-        return defaults
-    _purge_legacy(owner, state)
+    if state:
+        _purge_legacy(owner)
+        state=_read_state(owner) or {}
     return {'cloud_free_confirmed':state.get('cloud_free_confirmed') is True,
             'free_tier_evidence':_safe_evidence_catalog(state.get('free_tier_evidence'))}
 
@@ -222,28 +239,37 @@ def _skip(provider, reason, reason_code, seconds=0, model=''):
     return row
 
 
-def selection(owner,task):
-    from modules import llm
+def _route_of(route):
+    return route if route in provider_privacy.ROUTES else _DEFAULT_ROUTE
+
+
+def selection(owner,task,route=None):
+    from modules import llm, cloudflare_chat
+    route=_route_of(route)
     if privacy.mode()=='yerel':
         return {'candidates':['ollama'],'skipped':[
-            _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq')]}
+            _skip(p,'Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE') for p in ('gemini','groq','cloudflare')]}
     state=settings(owner)
-    orders={'vision':['gemini','ollama'],'code':['gemini','groq','ollama'],
-            'analysis':['gemini','groq','ollama'],'chat':['groq','gemini','ollama']}
-    models={'gemini':llm.active_model(owner),'groq':llm.groq_model()}
+    if task=='vision':
+        order,gate_route=['gemini','ollama'],_VISION_ROUTE
+    else:
+        order,gate_route=list(provider_privacy.CHAINS[route]),route
+    models={'gemini':llm.active_model(owner),'groq':llm.groq_model(),'cloudflare':cloudflare_chat.MODEL}
     selected=[];skipped=[]
-    for provider in ('gemini','groq','ollama'):
+    for provider in ('gemini','groq','cloudflare','ollama'):
         reason=None;reason_code=None;seconds=0;model=models.get(provider,'')
-        if provider not in orders[task]:
-            reason='Bu görev türü desteklenmiyor';reason_code='PROVIDER_TASK_UNSUPPORTED'
+        if provider not in order:
+            reason='Bu istek türü için izinli değil';reason_code='PROVIDER_ROUTE_NOT_ALLOWED'
         elif provider!='ollama' and not state.get('cloud_free_confirmed'):
             reason='Ücretsiz hesap onayı yok';reason_code='PROVIDER_FREE_ACCOUNT_UNCONFIRMED'
         elif provider=='gemini' and not llm.user_key(owner):
             reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
         elif provider=='groq' and not llm.user_groq_key(owner):
             reason='Bu kullanıcı için API anahtarı eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
+        elif provider=='cloudflare' and not cloudflare_chat.configured(owner):
+            reason='Bu kullanıcı için Cloudflare hesap/anahtar eksik';reason_code='PROVIDER_CONFIGURATION_REQUIRED'
         elif provider!='ollama':
-            gate=_evidence_gate(owner,provider,model,route=_LEGACY_ROUTE)
+            gate=_evidence_gate(owner,provider,model,route=gate_route)
             if not gate['ok']:
                 reason=gate['reason'];reason_code=gate['reason_code']
         if reason is None:
@@ -252,20 +278,20 @@ def selection(owner,task):
                 reason='Önceki başarısız çağrı nedeniyle '+str(seconds)+' saniye beklemede';reason_code='PROVIDER_COOLDOWN'
         if reason:skipped.append(_skip(provider,reason,reason_code,seconds,model))
         else:selected.append(provider)
-    return {'candidates':[p for p in orders[task] if p in selected],'skipped':skipped}
+    return {'candidates':[p for p in order if p in selected],'skipped':skipped}
 
 
-def wait_seconds(owner, task='analysis'):
+def wait_seconds(owner, task='analysis', route=None):
     """Hiç uygun sağlayıcı kalmadıysa ve en az biri bekleme (kota/hata) içindeyse kalan en kısa saniye; yoksa 0."""
-    row = selection(owner, task)
+    row = selection(owner, task, route)
     if row['candidates']:
         return 0
     waits = [int(item.get('seconds') or 0) for item in row['skipped'] if item.get('seconds')]
     return min(waits) if waits else 0
 
 
-def candidates(owner, task):
-    return selection(owner,task)['candidates']
+def candidates(owner, task, route=None):
+    return selection(owner,task,route)['candidates']
 
 
 def failure_kind(exc):
@@ -304,12 +330,12 @@ def cooldown(provider, exc):
     return failure_policy.cooldown_seconds(provider, exc)
 
 
-def run(owner, prompt, callback, image=False):
+def run(owner, prompt, callback, image=False, route=None):
     task = task_type(prompt, image)
     attempts = []
-    route = selection(owner,task)
-    selected=list(route['candidates'])
-    skipped=list(route['skipped'])
+    chosen = selection(owner,task,route)
+    selected=list(chosen['candidates'])
+    skipped=list(chosen['skipped'])
     providers=list(selected)
     for provider in providers:
         requests_state.check(); start = time.monotonic()
@@ -362,16 +388,16 @@ def run(owner, prompt, callback, image=False):
 
 def status(owner):
     state = settings(owner)
-    from modules import llm, usage_meter
+    from modules import llm, usage_meter, cloudflare_chat
     with _LOCK:
         cooldowns={p:max(0,round(v['until']-time.monotonic())) for (u,p),v in _HEALTH.items() if u==owner and v['until']>time.monotonic()}
         last=_LAST.get(owner,{})
-    def cloud_policy(provider, model, has_key):
+    def cloud_policy(provider, model, has_key, route):
         if not state.get('cloud_free_confirmed'):
             return 'Ücretsiz hesap onayı gerekli'
         if not has_key:
             return 'Ücretsiz hesap onaylı; bu kullanıcı için API anahtarı eksik'
-        gate=_evidence_gate(owner,provider,model,route=_LEGACY_ROUTE)
+        gate=_evidence_gate(owner,provider,model,route=route)
         if not gate['ok']:
             return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
         if provider in cooldowns:
@@ -386,8 +412,9 @@ def status(owner):
         local_model='—'
         local_policy='Yerel effective model doğrulanamadı; yerel sunucuyu ve kurulu modelleri kontrol et'
     table = [
-      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))},
-      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))},
+      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':'Yalnız herkese açık araştırma; '+cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)),provider_privacy.ROUTE_PUBLIC_RESEARCH)},
+      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)),provider_privacy.ROUTE_PRIVATE_GENERAL)},
+      {'provider':'cloudflare','model':cloudflare_chat.MODEL,'tasks':['chat','code','analysis'],'policy':cloud_policy('cloudflare',cloudflare_chat.MODEL,cloudflare_chat.configured(owner),provider_privacy.ROUTE_PRIVATE_GENERAL)},
       {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
     return {'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),

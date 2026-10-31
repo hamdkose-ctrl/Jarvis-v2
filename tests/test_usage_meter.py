@@ -24,7 +24,7 @@ class _Chat:
 
 def ask_from_router():
     # Kaynak tespiti: çağrıyı başlatan Jarvis fonksiyonu kaydedilmeli.
-    return llm.ask('gizli soru metni', 'sistem metni')
+    return llm._send_provider('gemini', 'gizli soru metni', 'sistem metni', 2000, None)
 
 
 class UsageMeterTests(unittest.TestCase):
