@@ -201,6 +201,7 @@ def local_hint() -> str:
 GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
 _DEPRECATED_GROQ = {"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.6-27b"}
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+_FREE_ROUTED_PROVIDERS = frozenset({"auto", "gemini", "groq", "ollama", "openrouter"})
 
 
 def groq_model() -> str:
@@ -216,11 +217,13 @@ def provider() -> str:
     return "ollama" if privacy.mode() == "yerel" else _cfg()["provider"]
 
 
-def gemini_aux_allowed() -> bool:
-    """In automatic mode, auxiliary Gemini calls share the free-account policy."""
-    if provider() != 'auto': return True
+def gemini_aux_allowed(model: str | None = None) -> bool:
+    """Auxiliary Gemini use shares the exact Smart Router free-tier evidence policy."""
+    owner = current_user()
+    if not owner:
+        return False
     from modules import smart_router
-    return bool(smart_router.settings(current_user()).get('cloud_free_confirmed'))
+    return bool(smart_router.provider_allowed(owner, 'gemini', model=model or active_model(owner)).get('ok'))
 
 
 _ollama_tags_lock = threading.Lock()
@@ -297,7 +300,7 @@ def model_check(force=False):
     if privacy.mode() in ("gizli", "yerel"):
         return {"state":"private", "message":"Gizli/yerel modda bulut model kontrolü kapalı."}
     if not gemini_aux_allowed():
-        return {'state':'budget','message':'Smart Router: Gemini ücretsiz hesap doğrulaması yok; bulut model kontrolü yapılmadı.'}
+        return {'state':'budget','message':'Smart Router: Gemini için doğrulanmış ücretsiz rota yok; bulut model kontrolü yapılmadı.'}
     owner = current_user() or ''
     return model_health.check(owner, user_key(owner), model_names(owner), genai.Client, force)
 def model_check_background():
@@ -328,7 +331,7 @@ def status() -> dict:
 
 
 def set_local_backend(backend: str, url: str = "", model: str = "") -> None:
-    """Yerel model sunucusunu seçer (Ollama, LM Studio, llama.cpp). Sağlayıcı seçimini değiştirmez."""
+    """Yerel model sunucusunu seçer (Ollama, LM Studio veya llama.cpp). Sağlayıcı seçimini değiştirmez."""
     if backend not in LOCAL_BACKENDS:
         raise ValueError("Yerel sunucu ollama, lmstudio veya llamacpp olmalı.")
     url = (url or "").strip().rstrip("/")
@@ -523,17 +526,22 @@ class CloudError(RuntimeError):
 
 
 
-def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
-    """Groq OpenAI-uyumlu Chat Completions API."""
-    key = user_groq_key(current_user())
+def _groq(messages: list[dict], system: str, max_tokens: int, *, router_authorized: bool = False) -> str:
+    """Groq OpenAI-uyumlu Chat Completions API; fallback yalnız aynı provider içindedir."""
+    owner = current_user()
+    key = user_groq_key(owner)
     if not key:
         raise CloudError("Bu kullanıcının Groq API anahtarı yok. Bağlantılar sayfasından ekle.")
     msgs = ([{"role": "system", "content": system}] if system else []) + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     from modules import smart_router
-    alternatives = GROQ_MODELS if smart_router.settings(current_user()).get('cloud_free_confirmed') else []
+    alternatives = GROQ_MODELS if smart_router.settings(owner).get('cloud_free_confirmed') else []
     models = list(dict.fromkeys([groq_model(), *alternatives]))[:3]
-    identity = ('groq', current_user(), tuple(models))
+    if router_authorized:
+        models = [m for m in models if smart_router.provider_allowed(owner, 'groq', model=m).get('ok')]
+        if not models:
+            raise CloudError('Smart Router: doğrulanmış ücretsiz Groq modeli yok.')
+    identity = ('groq', owner, tuple(models))
     with _fallback_lock:
         active, since = _fallback_states.get(identity, (0, 0))
     if time.time() - since > 600: active = 0
@@ -593,7 +601,7 @@ def _need_cloud(prompt: str) -> str:
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """Metin vektörleri (anlamsal arama). Yerel modda Ollama, aksi halde Gemini. Başarısızsa ValueError."""
+    """Metin vektörleri (anlamsal arama). Yerel modda Ollama, aksi halde kanıtlı Gemini."""
     c = _cfg()
     out: list[list[float]] = []
     if provider() == "ollama":
@@ -606,8 +614,8 @@ def embed(texts: list[str]) -> list[list[float]]:
         except (requests.RequestException, KeyError, ValueError, AttributeError) as e:
             raise ValueError("Yerel gömme modeli yok (`ollama pull nomic-embed-text`).") from e
         return out
-    if not gemini_aux_allowed():
-        raise ValueError('Smart Router: Gemini gömme için ücretsiz hesap doğrulaması gerekli.')
+    if not gemini_aux_allowed('gemini-embedding-001'):
+        raise ValueError('Smart Router: Gemini gömme için doğrulanmış ücretsiz model kanıtı gerekli.')
     client = _cli()
     if client is None:
         raise ValueError("Bu kullanıcının Gemini anahtarı yok.")
@@ -628,7 +636,7 @@ def embed(texts: list[str]) -> list[list[float]]:
     return out
 
 
-_SWITCH_CODES = {404, 429, 500, 502, 503, 504}   # bunlarda bekleme/yedek modele geçiş denenir
+_SWITCH_CODES = {404, 429, 500, 502, 503, 504}   # bunlarda aynı provider içinde bekleme/yedek model denenir
 _MODELS = [MODEL, *[m for m in FALLBACK_MODELS if m != MODEL]]
 _MAX_TRIES = failure_policy.MAX_RETRIES   # aynı modele en fazla kaç deneme (araya artan bekleme: ~1, ~2 sn)
 _MAX_TURNS = 8        # son kaç karşılıklı konuşma hatırlansın
@@ -682,7 +690,7 @@ def _seed(user: str) -> None:
 
 
 def _daily_quota(e: Exception) -> bool:
-    """Günlük kota dolduysa beklemek işe yaramaz, hemen yedek modele geçilir."""
+    """Günlük kota dolduysa beklemek işe yaramaz, aynı provider içinde sonraki kanıtlı modele geçilir."""
     return failure_policy.quota_exhausted_text(e)
 
 
@@ -732,14 +740,14 @@ def _limited(provider_name: str, model: str):
 
 
 def quota_wait_seconds(owner=None) -> int:
-    """Seçili sağlayıcıların hepsi 429/bekleme içindeyse kalan en kısa saniye; denenebilecek yol varsa 0."""
+    """Seçili sağlayıcıların hepsi 429 beklemesindeyse kalan en kısa saniye; denenebilecek yol varsa 0."""
     owner = owner if owner is not None else current_user()
     name = provider()
     if name == 'auto':
         from modules import smart_router
         return smart_router.wait_seconds(owner)
     if name != 'gemini' or user_groq_key(owner):
-        return 0                       # Groq/Ollama yedeği ya da başka sağlayıcı: denemeden bilemeyiz
+        return 0
     now = time.monotonic()
     with _fallback_lock:
         left = [int(until - now + .999) if until > now else 0
@@ -775,14 +783,16 @@ def _metered(call, chars_in, kind='gemini'):
     return call
 
 
-def _with_models(call):
-    """call(model) fonksiyonunu çalıştırır: geçici hatada bekleyip tekrar dener, olmazsa yedek modele geçer.
-
-    Kota sayacı için giden karakter ve tür call.chars_in / call.kind niteliklerinden okunur.
-    """
+def _with_models(call, *, router_authorized: bool = False):
+    """Run Gemini retry/model fallback; provider transition remains Smart Router authority."""
     chars_in, kind = getattr(call, 'chars_in', 0), getattr(call, 'kind', 'gemini')
     owner=current_user()
     models=model_names(owner)
+    if router_authorized:
+        from modules import smart_router
+        models=[model for model in models if smart_router.provider_allowed(owner,'gemini',model=model).get('ok')]
+        if not models:
+            raise CloudError('Smart Router: doğrulanmış ücretsiz Gemini modeli yok.')
     identity=(owner,tuple(models))
     with _fallback_lock:
         active, switched_at=_fallback_states.get(identity,(0,0))
@@ -822,7 +832,6 @@ def _with_models(call):
                     break
                 if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
                     break   # bu modelde ısrar etme, sıradakine geç
-                # artan bekleme (~1, ~2 sn, üst sınır 8 sn); iptal beklemenin ortasında da yakalanır
                 wait = failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
                 print(f"(Gemini {code} verdi, {wait:.1f} sn beklendi, tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
     if last is None:
@@ -889,10 +898,13 @@ def _timed(name: str, fn):
 
 def _send(prompt: str, system: str, max_tokens: int, history, selected=None, strict=False) -> str:
     selected=selected or provider()
-    if selected == 'auto':
+    if selected not in _FREE_ROUTED_PROVIDERS and selected not in ('openai','anthropic'):
+        raise ValueError('Sağlayıcı geçersiz.')
+    if not strict and selected in _FREE_ROUTED_PROVIDERS:
         from modules import smart_router
+        preferred=None if selected=='auto' else selected
         return smart_router.run(current_user(), prompt + '\n' + system,
-            lambda name: _send(prompt, system, max_tokens, history, name, True))
+            lambda name: _send(prompt, system, max_tokens, history, name, True), preferred=preferred)
     if selected == 'openrouter':
         from modules import smart_router
         return _timed('openrouter',lambda:smart_router.openrouter(current_user(),
@@ -904,22 +916,13 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         return _timed(selected,lambda:paid_providers.generate(current_user(),selected,
                       _ohist_msgs(history)+[{'role':'user','content':prompt}],system,max_tokens))
     if selected == "groq":
-        try:
-            return _timed("groq", lambda: _groq(_ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
-                         privacy.redact(system), max_tokens))
-        except CloudError as e:
-            if strict or _cli() is None:
-                raise LocalModelError(str(e)) from e
-            print(f"({e} Gemini'ye geçiliyor)")
-            note_route("Groq yanıt vermedi, Gemini'ye geçildi", False)
+        return _timed("groq", lambda: _groq(
+            _ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
+            privacy.redact(system), max_tokens, router_authorized=True))
     if selected == "ollama":
-        try:
-            return _timed("ollama", lambda: _ollama_task(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
-        except LocalModelError as e:
-            if strict or privacy.mode() == "yerel" or _cli() is None:
-                raise                      # buluta düşmek yasak ya da bu kullanıcının Gemini anahtarı yok
-            print("(Yerel model yok, Gemini'ye geçiliyor)")
-            note_route(_local_unavailable(e) or local_label() + " yanıt vermedi, Gemini'ye geçildi", False)
+        return _timed("ollama", lambda: _ollama_task(
+            _ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
+
     prompt = _need_cloud(prompt)
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok ve seçili sağlayıcı kullanılamadı.")
@@ -927,9 +930,8 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
     cfg = types.GenerateContentConfig(
         system_instruction=system or None,
         max_output_tokens=max_tokens,
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),   # araç çağrısı kullanmıyoruz
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
-
     cli = [_cli()]
 
     def call(model: str) -> str:
@@ -938,31 +940,8 @@ def _send(prompt: str, system: str, max_tokens: int, history, selected=None, str
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
-    try:
-        return _timed("gemini", lambda: _with_models(_metered(call, usage_meter.size(prompt, system, history))))
-    except (errors.ServerError, errors.ClientError) as e:
-        if strict or getattr(e, "code", None) not in _SWITCH_CODES:
-            raise
-        from modules import smart_router
-        note_route("Gemini " + smart_router.failure_text(e), False)
-        return _after_gemini(prompt, system, max_tokens, history, e, selected)
-
-
-def _after_gemini(prompt: str, system: str, max_tokens: int, history, error: Exception, tried: str) -> str:
-    """Tüm Gemini modelleri kota/sunucu hatası verdi: aynı kullanıcının Groq'u, sonra yerel Ollama denenir."""
-    for name in ("groq", "ollama"):
-        if name == tried or (name == "groq" and not user_groq_key(current_user())):
-            continue
-        requests_state.check()
-        try:
-            print("(Gemini yanıt vermedi, " + {"groq": "Groq'a", "ollama": "Ollama'ya"}[name] + " geçiliyor)")
-            answer = _send(prompt, system, max_tokens, history, name, True)
-        except (LocalModelError, CloudError) as e:
-            note_route((_local_unavailable(e) if name == 'ollama' else None) or provider_label(name) + " de yanıt vermedi", False)
-            continue
-        if isinstance(answer, str) and answer.strip():
-            return answer
-    raise error
+    return _timed("gemini", lambda: _with_models(
+        _metered(call, usage_meter.size(prompt, system, history)), router_authorized=True))
 
 
 def _ohist_msgs(history) -> list[dict]:
@@ -1011,16 +990,17 @@ def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=Non
                 try:
                     validator(answer)
                 except (ValueError, TypeError, KeyError):
-                    # A fluent answer is not a successful tool call. Keep failure notes only.
                     current = getattr(_route, 'notes', None) or []
                     _route.notes = current[:notes] + [n for n in current[notes:] if not n[1]]
                     if attempt: raise
                     continue
                 return answer
-        if provider() == 'auto':
+        selected=provider()
+        if selected in _FREE_ROUTED_PROVIDERS:
             from modules import smart_router
-            return smart_router.run(current_user(), prompt + '\n' + system, checked)
-        return checked(provider())
+            return smart_router.run(current_user(), prompt + '\n' + system, checked,
+                                    preferred=None if selected=='auto' else selected)
+        return checked(selected)
     return _send(prompt, system, max_tokens, None)
 
 
@@ -1066,10 +1046,13 @@ def ask_image(image_path: str, prompt: str, system: str = "", max_tokens: int = 
     if privacy.mode() == 'gizli':
         if strict:raise PermissionError('Gizli modda görüntü analizi kapalı.')
         return 'Gizli modda görüntü analizi kapalı.'
-    if provider() == 'auto':
+    selected=provider()
+    if not strict and selected in _FREE_ROUTED_PROVIDERS:
         from modules import smart_router
-        return smart_router.run(current_user(), prompt, lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True)
-    return _ask_image(image_path,prompt,system,max_tokens,strict=strict)
+        return smart_router.run(current_user(), prompt,
+            lambda name: _ask_image(image_path,prompt,system,max_tokens,name,True),image=True,
+            preferred=None if selected=='auto' else selected)
+    return _ask_image(image_path,prompt,system,max_tokens,selected=selected,strict=strict)
 
 
 def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, strict=False):
@@ -1121,7 +1104,7 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
             _route.tokens = usage_meter.tokens_from(resp)
             return resp.text or ""
 
-        return _with_models(_metered(call, usage_meter.size(prompt, system)))
+        return _with_models(_metered(call, usage_meter.size(prompt, system)), router_authorized=strict)
     except requests_state.Cancelled:
         raise
     except Exception as e:
@@ -1132,12 +1115,11 @@ def _ask_image(image_path, prompt, system='', max_tokens=2000, selected=None, st
 
 def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: bytes | None = None,
                hints: list[str] | None = None) -> str:
-    """Kısa bir ses kaydını Türkçe metne çevirir (Gemini). Gizli/yerel modda ses buluta gitmez.
-    hints: sık geçen özel kelimeler/adlar (doğru yazılsın diye: "irsaliye", "Nevzat Bey"…)."""
+    """Kısa bir ses kaydını Türkçe metne çevirir (Gemini). Gizli/yerel modda ses buluta gitmez."""
     if privacy.mode() in ("gizli", "yerel"):
         raise RuntimeError("Ses kaydını yazıya çevirmek için ses buluta gitmesi gerekir; bu mod buna izin vermiyor.")
     if not gemini_aux_allowed():
-        raise RuntimeError('Smart Router: Gemini ses için ücretsiz hesap doğrulaması gerekli; ücretsiz web STT kullan.')
+        raise RuntimeError('Smart Router: Gemini ses için doğrulanmış ücretsiz rota gerekli; ücretsiz web STT kullan.')
     if _cli() is None:
         raise RuntimeError("Bu kullanıcının Gemini anahtarı yok; Ayarlar'dan ekle.")
     if data is None:
@@ -1157,7 +1139,7 @@ def transcribe(audio_path: str | None = None, mime: str = "audio/wav", data: byt
     def call(model: str) -> str:
         return (_cli().models.generate_content(model=model, contents=[part, prompt], config=cfg).text or "").strip()
 
-    return _with_models(_metered(call, len(prompt) + len(data), 'gemini-ses')).strip()
+    return _with_models(_metered(call, len(prompt) + len(data), 'gemini-ses'), router_authorized=True).strip()
 
 
 def gemini_client():
@@ -1171,5 +1153,11 @@ def provider_configuration():
 
 
 def test_groq():
-    """Explicit connection test; saving a key alone does not imply this call."""
-    return _groq([{"role":"user","content":"Sadece 'tamam' yaz."}], "", 20)
+    """Explicit Groq generation test; it still requires verified-free Router evidence."""
+    from modules import smart_router
+    owner=current_user()
+    decision=smart_router.provider_allowed(owner,'groq',model=groq_model())
+    if not decision.get('ok'):
+        raise CloudError('Smart Router: '+decision.get('reason','Doğrulanmış ücretsiz Groq rotası yok.')+
+                         ' ['+str(decision.get('reason_code') or 'PROVIDER_POOL_EXHAUSTED')+']')
+    return _groq([{"role":"user","content":"Sadece 'tamam' yaz."}], "", 20, router_authorized=True)
