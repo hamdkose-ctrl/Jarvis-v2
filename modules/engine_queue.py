@@ -21,7 +21,11 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
         return False
     user = user or runtime.pc_profile().name
     from modules import brain_entry
-    lane = brain_entry.fast_lane(owner, rid, runtime._tr_lower(text), source)
+    try:
+        lane = brain_entry.fast_lane(owner, rid, runtime._tr_lower(text), source)
+    except Exception:
+        runtime._record_failure('modules/engine_queue.py:fast_lane')
+        lane = None   # hızlı yol bozulsa da komut kaybolmaz: normal kuyruğa girer
     status = lane.selection if lane is not None else None
     if status is not None:
         from modules import goal_executor

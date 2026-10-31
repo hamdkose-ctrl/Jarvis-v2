@@ -189,24 +189,73 @@ class FastLaneTests(unittest.TestCase):
         self.assertTrue(engine_queue.submit(rt, "saat kaç", user="Alice", rid="r2"))
         self.assertEqual(rt.events.get_nowait()[1], "saat kaç")
 
+    def test_broken_fast_lane_never_loses_the_command(self):
+        profile = SimpleNamespace(name="Alice", slug="alice")
+        rt = SimpleNamespace(_tr_lower=str.casefold, slugify=lambda value: "alice", pc_profile=lambda: profile,
+                             _get_profile=Mock(return_value=profile), _emit_for=Mock(), events=queue.Queue(),
+                             requests_state=SimpleNamespace(register=Mock(return_value=True), activate=lambda *a: nullcontext()),
+                             voice=Mock(), secrets=SimpleNamespace(token_hex=lambda n: "rid"), _record_failure=Mock())
+        with patch.object(brain_entry, "fast_lane", side_effect=RuntimeError("bozuk")):
+            self.assertTrue(engine_queue.submit(rt, "hedef durumu", user="Alice", rid="r9"))
+        self.assertEqual(rt.events.get_nowait()[1], "hedef durumu")
+        rt._record_failure.assert_called_once_with('modules/engine_queue.py:fast_lane')
+
     def test_queue_has_no_phrase_list_of_its_own(self):
         source = (ROOT / "modules" / "engine_queue.py").read_text(encoding="utf-8")
         self.assertNotIn("hedef durumu", source)
 
 
 class RouterAuthorityTests(unittest.TestCase):
-    def test_production_router_callers_are_only_the_unbound_route(self):
+    LEGACY = {"router", "work_modes", "freshness"}
+
+    def production_files(self):
+        files = sorted((ROOT / "modules").glob("*.py")) + sorted(ROOT.glob("*.py"))
+        return [path for path in files if path.stem not in self.LEGACY]
+
+    def legacy_imports(self):
+        """(file, legacy module, local alias) for every import form that reaches a legacy module."""
+        found = set()
+        for path in self.production_files():
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+                if isinstance(node, ast.ImportFrom):
+                    last = (node.module or "").split(".")[-1]
+                    for alias in node.names:
+                        if last in self.LEGACY:                      # from modules.router import classify [as x]
+                            found.add((path.name, last, alias.asname or alias.name))
+                        elif alias.name in self.LEGACY:              # from modules import router [as x]
+                            found.add((path.name, alias.name, alias.asname or alias.name))
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        last = alias.name.split(".")[-1]
+                        if last in self.LEGACY:                      # import modules.router [as x]
+                            found.add((path.name, last, alias.asname or alias.name))
+        return found
+
+    def test_legacy_modules_have_only_the_known_production_importers(self):
+        self.assertEqual(self.legacy_imports(), {
+            ("engine_runtime.py", "router", "intent_router"),    # unbound Live path (PR9)
+            ("goal_executor.py", "work_modes", "ends_with_action"),   # moves behind Brain in B2
+        })
+
+    def test_freshness_is_imported_by_nobody_but_the_router(self):
+        self.assertFalse([row for row in self.legacy_imports() if row[1] == "freshness"])
+
+    def test_router_classify_is_called_only_from_the_unbound_route(self):
+        aliases = {(name, alias) for name, module, alias in self.legacy_imports() if module == "router"}
         callers = []
-        for path in sorted((ROOT / "modules").glob("*.py")) + sorted(ROOT.glob("*.py")):
-            if path.name in {"router.py"}:
-                continue
-            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "classify":
-                    base = node.func.value
+        for path in self.production_files():
+            local = {alias for name, alias in aliases if name == path.name} | {"router", "intent_router"}
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8-sig"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if isinstance(func, ast.Attribute) and func.attr == "classify":
+                    base = func.value
                     name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
-                    if name in {"router", "intent_router"}:
+                    if name in local:
                         callers.append(f"{path.name}:{name}")
+                elif isinstance(func, ast.Name) and func.id in local and func.id not in {"router", "intent_router"}:
+                    callers.append(f"{path.name}:{func.id}")      # from-import alias of classify
         self.assertEqual(callers, ["engine_tools.py:intent_router"])
 
     def test_brain_entered_request_never_reaches_the_legacy_classifier(self):
