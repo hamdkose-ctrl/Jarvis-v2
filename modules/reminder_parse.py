@@ -18,6 +18,7 @@ _TIME_WORD = re.compile(
     r"\d{1,2}[:.]\d{2}|\d{1,2}['’]?(?:da|de|ta|te)\b)")
 _REPEAT_OK = re.compile(r'^(?:weekdays|daily|weekly:[0-6]|monthly:(?:[1-9]|[12]\d|3[01])|unknown)$')
 _WHEN_OK = re.compile(r'^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?$')
+_STRAY_APOSTROPHE = re.compile(r"(?:(?<=\s)|^)['’](?=\s|$)")
 
 
 def is_creation_request(command: str) -> bool:
@@ -27,6 +28,8 @@ def is_creation_request(command: str) -> bool:
 
 
 def _plain(text: str) -> str:
+    """Normalize whitespace and remove apostrophes left alone after time-suffix removal."""
+    text = _STRAY_APOSTROPHE.sub(' ', text)
     return re.sub(r'\s+', ' ', text).strip(' .,:;!-')
 
 
