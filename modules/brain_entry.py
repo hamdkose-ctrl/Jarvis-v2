@@ -10,9 +10,9 @@ import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Mapping
 
-from modules import brain_context, brain_core_map, capability_manifest
+from modules import brain_context, brain_core_map, brain_precedence, capability_manifest
 from modules.brain_understanding import LEVEL_CAPABILITY
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
@@ -377,6 +377,23 @@ def feedback(entry: EntryResult, *, result_status: str,
     )
 
 
+def photo_feedback(entry: EntryResult, *, awaiting_question: bool = False,
+                   error: BaseException | None = None) -> BrainFeedback:
+    """Real outcome of the photo path: question pending -> needs_input, exception -> failed, cancel -> cancelled."""
+    if error is not None:
+        from modules import requests_state
+        cancelled = isinstance(error, requests_state.Cancelled)
+        row = feedback(entry, result_status="cancelled" if cancelled else "failed",
+                       reason_code="PHOTO_CANCELLED" if cancelled else "PHOTO_HANDLER_FAILED")
+    elif awaiting_question:
+        row = feedback(entry, result_status="needs_input", reason_code="PHOTO_AWAITING_QUESTION",
+                       core_ambiguities=("core pending: pending_photo",))
+    else:
+        row = feedback(entry, result_status="handled", reason_code="PHOTO_CORE_HANDOFF_RETURNED")
+    _LAST_FEEDBACK.set(row)
+    return row
+
+
 _LAST_FEEDBACK: ContextVar["BrainFeedback | None"] = ContextVar("jarvis_brain_feedback", default=None)
 
 
@@ -559,8 +576,15 @@ def _has_pending(entry: EntryResult, field: str) -> bool:
     return any(ref.source == "session_state" and ref.id == field for ref in entry.active_context.pending_references)
 
 
+def _is_clarify_pending(ref: ContextReference) -> bool:
+    value = ref.provenance.get("value")
+    return ref.source == "session_state" and ref.id == "pending_action" and isinstance(value, Mapping) and value.get("stage") == "clarify"
+
+
 def _has_open_pending(entry: EntryResult, *, ignore: frozenset[str] = frozenset()) -> bool:
-    if any(ref.id not in ignore for ref in entry.active_context.pending_references):
+    # A clarify question never blocks a new request: only an exact offered-choice answer is
+    # consumed (state gate protocol session.pending_action.clarify_select); anything else is a new request.
+    if any(ref.id not in ignore and not _is_clarify_pending(ref) for ref in entry.active_context.pending_references):
         return True
     return any(
         ref.kind == "photo" and ref.source == "engine_queue.photo"
@@ -629,6 +653,20 @@ def _use_existing_handler(entry: EntryResult) -> bool:
     return False
 
 
+def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
+    """Core-owned: a request that bypasses the legacy handler supersedes an unanswered clarify question.
+
+    When the handler runs, ``app_actions.continue_voice`` consumes or clears it itself."""
+    if any(_is_clarify_pending(ref) for ref in entry.active_context.pending_references):
+        try:
+            state = runtime._session()
+            pending = getattr(state, "pending_action", None)
+            if isinstance(pending, dict) and pending.get("stage") == "clarify":
+                state.pending_action = None
+        except Exception:
+            _record_failure("modules/brain_entry.py:drop_stale_clarify")
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -646,7 +684,12 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     try:
         with bind(entry):
             plan = core_plan(entry)
-            if plan is not None:
+            if plan is not None or not _use_existing_handler(entry):
+                _drop_stale_clarify(runtime, entry)
+            claimed = brain_precedence.claim(runtime, command) if plan is not None else None
+            if claimed is not None:
+                output = claimed[1]
+            elif plan is not None:
                 from modules.engine_intents import dispatch
                 output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
             elif _use_existing_handler(entry):
