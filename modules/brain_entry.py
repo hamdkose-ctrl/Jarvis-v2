@@ -201,6 +201,52 @@ def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextRefer
     return tuple(rows)
 
 
+def _semantic_pass(
+    runtime: Any,
+    *,
+    owner: str,
+    request_id: str,
+    text: str,
+    active: ActiveContext,
+    allow_file_scan: bool,
+):
+    candidates = build_candidates(
+        owner=owner,
+        request_id=request_id,
+        text=text,
+        active_context=active,
+        profile=getattr(runtime, "profile", None),
+        allow_file_scan=allow_file_scan,
+    )
+    references = resolve_references(
+        owner=owner,
+        request_id=request_id,
+        text=text,
+        active_context=active,
+        candidates=candidates,
+    )
+    semantic = understand(
+        owner=owner,
+        request_id=request_id,
+        text=text,
+        active_context=active,
+        candidates=candidates,
+        references=references,
+    )
+    if semantic.owner != owner or semantic.request_id != request_id:
+        raise ValueError("Understanding owner/request fence eşleşmiyor.")
+    return candidates, references, semantic
+
+
+def _needs_file_discovery(candidates: tuple[ContextReference, ...], semantic: Any) -> bool:
+    """Use existing Understanding evidence to decide whether cold file discovery is needed."""
+    return bool(
+        semantic is not None
+        and semantic.capability_hint == "files.read"
+        and not any(reference.kind == "file" for reference in candidates)
+    )
+
+
 def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str,
             artifact: ContextReference | None = None) -> EntryResult:
     """Build one canonical Brain observation/proposal for the already-active request."""
@@ -237,20 +283,23 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     if fast.matched:
         return EntryResult(owner, request_id, source, text, active, state, fast)
 
-    candidates = build_candidates(
-        owner=owner, request_id=request_id, text=text,
-        active_context=active, profile=getattr(runtime, "profile", None),
+    candidates, references, semantic = _semantic_pass(
+        runtime,
+        owner=owner,
+        request_id=request_id,
+        text=text,
+        active=active,
+        allow_file_scan=False,
     )
-    references = resolve_references(
-        owner=owner, request_id=request_id, text=text,
-        active_context=active, candidates=candidates,
-    )
-    semantic = understand(
-        owner=owner, request_id=request_id, text=text,
-        active_context=active, candidates=candidates, references=references,
-    )
-    if semantic.owner != owner or semantic.request_id != request_id:
-        raise ValueError("Understanding owner/request fence eşleşmiyor.")
+    if _needs_file_discovery(candidates, semantic):
+        candidates, references, semantic = _semantic_pass(
+            runtime,
+            owner=owner,
+            request_id=request_id,
+            text=text,
+            active=active,
+            allow_file_scan=True,
+        )
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
 
@@ -294,13 +343,26 @@ def clarification(entry: EntryResult) -> str | None:
     return "İsteğini güvenli biçimde sürdürebilmem için neyi kastettiğini netleştir."
 
 
+def _feedback_clarification(entry: EntryResult) -> tuple[bool, tuple[str, ...], str | None]:
+    if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+        return True, ("multiple bounded state matches",), "MULTIPLE_BOUNDED_STATE_MATCHES"
+    semantic = entry.understanding
+    if semantic is not None and (semantic.needs_input or semantic.request_kind is RequestKind.CLARIFY):
+        return True, tuple(semantic.ambiguities), "BRAIN_CLARIFICATION_REQUIRED"
+    return False, (), None
+
+
 def feedback(entry: EntryResult, *, result_status: str,
              reason_code: str | None = None) -> BrainFeedback:
+    requested_status = _required("result_status", result_status)
+    needs_input, ambiguities, clarification_reason = _feedback_clarification(entry)
     return BrainFeedback(
         owner=entry.owner,
         request_id=entry.request_id,
-        result_status=_required("result_status", result_status),
-        reason_code=reason_code,
+        result_status="needs_input" if needs_input else requested_status,
+        reason_code=clarification_reason if needs_input else reason_code,
+        needs_input=needs_input,
+        ambiguities=ambiguities,
     )
 
 
