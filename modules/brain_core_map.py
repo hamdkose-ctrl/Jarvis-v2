@@ -58,6 +58,18 @@ def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"path": path}
 
 
+def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core re-validates the Brain-proposed reminder fields; no fields -> not planned (planner keeps it)."""
+    from modules import reminder_parse
+    row = arguments.get("reminder")
+    if not isinstance(row, Mapping) or set(row) - {"title", "when", "repeat"}:
+        return None
+    title, when, repeat = row.get("title"), row.get("when"), row.get("repeat")
+    if not reminder_parse.valid_args(title, when, repeat):
+        return None
+    return {"title": title, "when": when, "repeat": repeat}
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
@@ -67,6 +79,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # Only the summarize operation on a Brain-resolved file; other files.read operations stay
     # on the legacy owner (PARTIAL_CORE_HINTS) because they carry no validated operation.
     "files.read": ("doc_summary", _file_args),
+    # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
+    "reminder.propose": ("reminder", _reminder_args),
 }
 
 
@@ -75,7 +89,6 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
 # validated Core intent. A hint with neither a Core intent nor an owner here is a drift error (tested).
 LEGACY_OWNED_HINTS: dict[str, str] = {
     "notes.read": "engine_tools._extra_commands (kb/tasks.handle)",
-    "reminder.propose": "engine_tools._planner_command",
     "research.search": "task intent (goal_executor) via _legacy_route_projection",
 }
 

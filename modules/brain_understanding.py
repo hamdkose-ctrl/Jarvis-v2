@@ -389,6 +389,15 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+def _reminder_arguments(text: str) -> dict[str, object]:
+    """title/when/repeat from the single reminder parser (modules.when underneath); creation sentences only."""
+    from modules import reminder_parse
+    if not reminder_parse.is_creation_request(text):
+        return {}
+    parsed = reminder_parse.parse(text)
+    return {"reminder": {"title": parsed["title"], "when": parsed["when"], "repeat": parsed["repeat"]}}
+
+
 FILE_SUMMARIZE = "summarize"
 FILE_TARGET_UNRESOLVED = "file target unresolved"
 
@@ -655,6 +664,8 @@ def understand(
         location = _weather_location(normalized)
         if location is not None:
             arguments = {**arguments, "location": location}
+    if capability_hint == "reminder.propose":
+        arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
     if level is not None:

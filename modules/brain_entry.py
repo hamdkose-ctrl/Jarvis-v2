@@ -706,7 +706,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             plan = core_plan(entry)
             if plan is not None or not _use_existing_handler(entry):
                 _drop_stale_clarify(runtime, entry)
-            claimed = brain_precedence.claim(runtime, command) if plan is not None else None
+            claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
             if claimed is not None:
                 output = claimed[1]
             elif plan is not None:

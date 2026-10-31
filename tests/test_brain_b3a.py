@@ -161,7 +161,7 @@ class FrontGatePrecedenceTests(_Pipeline):
         for gate in brain_precedence.FRONT_GATES:
             with self.subTest(gate=gate), self.spy_dispatch() as dispatch:
                 reply = f"{gate}-reply"
-                with patch.object(brain_precedence, "_gates", side_effect=lambda r, c, l, g=gate: {
+                with patch.object(brain_precedence, "_gates", side_effect=lambda r, c, l, p=None, g=gate: {
                         n: (lambda n=n: reply if n == g else None) for n in brain_precedence.FRONT_GATES}):
                     entry, out, feedback, handle = self.through_brain("hava nasıl")
                 self.assertEqual(out, reply)
