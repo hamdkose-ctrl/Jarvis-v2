@@ -1,5 +1,0 @@
-{
-  "k-cap-01": "Bilinçli (Closeout-B2): 'hava nasıl' hint'i weather.read artık Core allowlist'inde; handoff ham metni eski handler'a vermek yerine doğrulanmış 'weather' intent'ini dispatch ediyor. Outcome (action) ve tüm expect/forbid kriterleri aynı; yalnız handoff yolu ve legacy projeksiyonu (clarify → weather) değişti.",
-  "rota-20ef3a970a": "Bilinçli (Closeout-B2): hava sorusu için weather.read Core allowlist'ine alındı. Outcome (action) ve kriterler aynı; handoff yolu existing_handler → Core dispatch, legacy projeksiyonu clarify → weather.",
-  "k-clarify-cevap": "Bilinçli (Closeout-B3a): seçenekli clarify cevabı artık Exact State Gate'te (session.pending_action.clarify_select) eşleşir ve mevcut handler'a (continue_voice) gider; eskiden açık pending_action yüzünden chat dispatch'e düşüyordu (gerçek bug). Outcome aynı, handoff yolu chat_dispatch → existing_handler."
-}
