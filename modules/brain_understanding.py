@@ -389,6 +389,39 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+_NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
+_NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
+_NOTES_SHOW_VERBS = ("göster", "goster")
+
+
+_NOTES_FILLERS = frozenset({"lütfen", "lutfen", "bana", "bir", "bu", "şu", "su", "o", "tüm", "tum", "bütün", "butun",
+                            "hepsini", "son", "şunu", "bunu", "mi", "mı", "mu", "mü", "misin", "mısın", "musun", "müsün", "jarvis"})
+
+
+def _is_bare_notes_command(text: str) -> bool:
+    """True only when the WHOLE sentence is a note noun + show verb (+ filler words).
+
+    Anything else ('... ve hava nasıl', 'göster, not al: süt', 'sonra ...') is multi-intent or another
+    request, and a notes proposal would swallow the remaining part: no proposal then."""
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text.lower())
+    known = set(_NOTES_PLURAL) | set(_NOTES_SINGULAR) | set(_NOTES_SHOW_VERBS) | _NOTES_FILLERS
+    return bool(words) and all(word in known for word in words)
+
+
+def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
+    """Read-only notes proposal: all notes (plural noun) or ONE resolved note reference by stable id.
+
+    Only a bare single 'notes + göster' command is proposed (see _is_bare_notes_command)."""
+    if not _contains_command_token(text, _NOTES_SHOW_VERBS) or not _is_bare_notes_command(text):
+        return {}
+    if _contains_domain_token(text, _NOTES_PLURAL):
+        return {"notes": {"which": "all"}}
+    notes = [ref for ref in references if ref.kind == "note"]
+    if len(notes) == 1 and _contains_domain_token(text, _NOTES_SINGULAR):
+        return {"notes": {"which": "one", "id": notes[0].id}}
+    return {}
+
+
 def _reminder_arguments(text: str) -> dict[str, object]:
     """title/when/repeat from the single reminder parser (modules.when underneath); creation sentences only."""
     from modules import reminder_parse
@@ -668,6 +701,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == "notes.read":
+        arguments = {**arguments, **_notes_arguments(normalized, references)}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:
