@@ -139,9 +139,9 @@ def main(runtime, ui=None):
         print('Yerel ses hazır: bir komut için Konuş düğmesine bas. Hey Jarvis bu denemede kapalı.')
     elif voice_session.listening_enabled:
         print(f"Jarvis hazır (model: {runtime.MODEL}). Ses için '{runtime.WAKE_WORD}' de ya da komutunu yazıp Enter'a bas. "
-              "Çıkış: 'kapat'")
+              "Çıkış: \"Jarvis'i kapat\"")
     else:
-        print(f"Jarvis hazır (model: {runtime.MODEL}), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: 'kapat'")
+        print(f"Jarvis hazır (model: {runtime.MODEL}), mikrofon kapalı. Komutunu yazıp Enter'a bas. Çıkış: \"Jarvis'i kapat\"")
     runtime.log.info("Jarvis başladı (pid %d): model=%s dinleme=%s ses=%s canlı=%s", runtime.os.getpid(), runtime.MODEL, voice_session.listening_enabled, voice_session.speak_enabled, voice_session.live_on)
     runtime.threading.Thread(target=runtime._reminder_loop, daemon=True, name="hatirlatma").start()
     from modules import watcher
