@@ -258,6 +258,8 @@ class BrainProductionEntryTests(unittest.TestCase):
         original = goal_executor._save
         marker = Mock()
         had_flag = getattr(goal_executor, "_brain_save_guard_installed", False)
+        had_legacy = hasattr(goal_executor, "_brain_legacy_save")
+        old_legacy = getattr(goal_executor, "_brain_legacy_save", None)
         old_flag = getattr(goal_executor, "_brain_gate_guard_installed", None)
         try:
             if hasattr(goal_executor, "_brain_save_guard_installed"):
@@ -276,6 +278,10 @@ class BrainProductionEntryTests(unittest.TestCase):
                 delattr(goal_executor, "_brain_save_guard_installed")
             if had_flag:
                 goal_executor._brain_save_guard_installed = True
+            if had_legacy:
+                goal_executor._brain_legacy_save = old_legacy
+            elif hasattr(goal_executor, "_brain_legacy_save"):
+                delattr(goal_executor, "_brain_legacy_save")
             if old_flag is not None:
                 goal_executor._brain_gate_guard_installed = old_flag
 
