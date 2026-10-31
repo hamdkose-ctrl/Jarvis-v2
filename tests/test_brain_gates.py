@@ -283,6 +283,21 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result.protocol, protocol)
                 self.assertEqual(result.selection, selection)
 
+    def test_fast_gate_self_close_rejects_suffix_broadening(self):
+        for text in (
+            "Jarvis'i kapatma",
+            "Jarvis'i kapatmak",
+            "Jarvis kapanma",
+            "uygulamayı kapatma",
+            "kendini kapatma",
+            "Jarvis'i çıkma",
+            "Jarvis'i sonlandırma",
+        ):
+            with self.subTest(text=text):
+                result = self.fast(text)
+                self.assertFalse(result.matched)
+                self.assertNotEqual(result.protocol, "fast.engine.close")
+
     def test_fast_gate_is_context_bounded_and_not_second_router(self):
         self.assertFalse(self.fast("uyan", sleeping=False).matched)
         self.assertFalse(self.fast("Jarvis'i kapat", source="telefon").matched)
