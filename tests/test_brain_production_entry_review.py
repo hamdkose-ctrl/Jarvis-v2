@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import brain_entry, engine_commands
-from modules.brain_contracts import ActiveContext, Confidence, RequestKind, TemporalNeed, UnderstandingResult
+from modules import brain_entry
+from modules.brain_contracts import ActiveContext, Confidence, ContextReference, RequestKind, TemporalNeed, UnderstandingResult
 from modules.brain_gates import GateObservation
 
 OWNER = "hamdi"
@@ -54,6 +54,16 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         self.assertEqual(feedback.request_id, RID)
         self.assertIsNone(job_id)
 
+    def test_open_pending_unrelated_chat_does_not_fall_back_to_existing_pending_handler(self):
+        pending = ContextReference(
+            id="pending_weather_location",
+            kind="pending_state",
+            source="session_state",
+            owner=OWNER,
+            provenance={"field": "pending_weather_location", "value": True},
+        )
+        self.assertFalse(brain_entry._use_existing_handler(_entry(pending=(pending,))))
+
     def test_bound_fast_miss_does_not_reenable_legacy_engine_control(self):
         row = _entry(text="Jarvis'i kapatma")
         self.assertFalse(brain_entry.allow_legacy_engine_control(row))
@@ -63,10 +73,43 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         )
         self.assertTrue(brain_entry.allow_legacy_engine_control(_entry(text="Jarvis'i kapat", fast=close_hit)))
 
-    def test_engine_commands_consults_canonical_fast_fence_before_legacy_engine_control(self):
-        source = __import__("inspect").getsource(engine_commands.handle)
-        self.assertIn("allow_legacy_engine_control", source)
-        self.assertLess(source.index("allow_legacy_engine_control"), source.index("engine_control("))
+    def test_installed_engine_control_guard_obeys_canonical_fast_observation(self):
+        from modules import command_manager
+
+        original = command_manager.engine_control
+        marker = Mock(return_value="legacy effect")
+        had_flag = getattr(command_manager, "_brain_engine_control_guard_installed", False)
+        old_original = getattr(command_manager, "_brain_legacy_engine_control", None)
+        try:
+            command_manager.engine_control = marker
+            if hasattr(command_manager, "_brain_engine_control_guard_installed"):
+                delattr(command_manager, "_brain_engine_control_guard_installed")
+            brain_entry._install_engine_control_guard()
+            guarded = command_manager.engine_control
+
+            with brain_entry.bind(_entry(text="Jarvis'i kapatma")):
+                self.assertIsNone(guarded("jarvis'i kapatma", source="yazı", sleeping=False, close=Mock(), set_sleep=Mock()))
+            marker.assert_not_called()
+
+            close_hit = GateObservation(
+                OWNER, RID, "fast", True, "EXACT_ENGINE_CONTROL", "fast.engine.close", "close"
+            )
+            with brain_entry.bind(_entry(text="Jarvis'i kapat", fast=close_hit)):
+                self.assertEqual(
+                    guarded("jarvis'i kapat", source="yazı", sleeping=False, close=Mock(), set_sleep=Mock()),
+                    "legacy effect",
+                )
+            marker.assert_called_once()
+        finally:
+            command_manager.engine_control = original
+            if hasattr(command_manager, "_brain_engine_control_guard_installed"):
+                delattr(command_manager, "_brain_engine_control_guard_installed")
+            if had_flag:
+                command_manager._brain_engine_control_guard_installed = True
+            if old_original is not None:
+                command_manager._brain_legacy_engine_control = old_original
+            elif hasattr(command_manager, "_brain_legacy_engine_control"):
+                delattr(command_manager, "_brain_legacy_engine_control")
 
 
 if __name__ == "__main__":
