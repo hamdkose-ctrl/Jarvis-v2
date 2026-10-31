@@ -81,7 +81,7 @@ class CoreMapTests(unittest.TestCase):
         for args in ({}, {"property": "banana", "level": 5}, {"property": "volume", "level": "70"},
                      {"property": "volume", "level": True}, {"level": 5}):
             self.assertIsNone(brain_core_map.core_plan(LEVEL_CAPABILITY, args), args)
-        for hint in (None, "", "notes.read", "files.read", "weather.read", "shutdown", "pc.level.set.x"):
+        for hint in (None, "", "notes.read", "files.read", "reminder.propose", "research.search", "shutdown", "pc.level.set.x"):
             self.assertIsNone(brain_core_map.core_plan(hint, {"property": "volume", "level": 5}), hint)
 
     def test_proposal_stays_free_of_authority(self):

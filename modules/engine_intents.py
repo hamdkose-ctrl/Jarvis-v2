@@ -159,6 +159,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "volume":
             return runtime.desktop.volume(int(a.get("delta", 2)))
         case "level_set":
+            runtime._session().pending_level = None   # yeni açık istek eski "ses mi parlaklık mı?" sorusunu geçersiz kılar
             level = max(0, min(100, int(a["level"])))
             if a["property"] == "volume":
                 if runtime.system_control.set_volume(level):

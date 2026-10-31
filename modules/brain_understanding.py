@@ -343,6 +343,18 @@ def _has_file_domain(text: str) -> bool:
     return re.search(r"\.(?:pdf|doc|docx)(?!\w)", text) is not None
 
 
+_WEATHER_LOCATION = re.compile(r"([a-zçğıöşü]{3,}?)(?:['’]?(?:da|de|ta|te|daki|deki|nın|nin))?\s+hava")
+
+
+def _weather_location(text: str) -> str | None:
+    """City word before 'hava' ('ankara'da hava nasıl'); None when absent or a filler word."""
+    from modules.tr_speech_sets import WEATHER_STOP
+    match = _WEATHER_LOCATION.search(text)
+    if match is None or match.group(1) in WEATHER_STOP:
+        return None
+    return match.group(1)
+
+
 def _is_weather_request(text: str) -> bool:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return False
@@ -591,6 +603,10 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = _capability_hint(normalized, temporal_need)
+    if capability_hint in {"weather.read", "weather.read.current"}:
+        location = _weather_location(normalized)
+        if location is not None:
+            arguments = {**arguments, "location": location}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

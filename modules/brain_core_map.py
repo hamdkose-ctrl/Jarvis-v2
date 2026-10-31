@@ -8,6 +8,7 @@ policy; the dispatched Core intents keep their existing guards.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Mapping
 
 from modules.brain_understanding import LEVEL_CAPABILITY, LEVEL_UNSPECIFIED
@@ -23,10 +24,25 @@ def _level_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"property": prop, "level": max(0, min(100, level))}
 
 
+_CITY = re.compile(r"[a-zçğıöşü]{3,30}")
+
+
+def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    location = arguments.get("location")
+    if location is None:
+        return {}
+    if not isinstance(location, str) or _CITY.fullmatch(location) is None:
+        return None
+    # Same Turkish-aware capitalization the legacy city parser used.
+    return {"location": location[:1].replace("i", "İ").replace("ı", "I").upper() + location[1:]}
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     LEVEL_CAPABILITY: ("level_set", _level_args),
+    "weather.read": ("weather", _weather_args),
+    "weather.read.current": ("weather", _weather_args),
 }
 
 
