@@ -7,6 +7,10 @@ order (pinned by tests/test_brain_precedence.py). A gate that answers owns the r
 user macro, a saved custom command, a planner phrase, a Windows-settings page or a Jarvis
 self-control command always beats weather/level Core dispatch.
 
+Canonical data requests are the narrow exception when Brain has already produced a validated
+Core plan for the same surface. In that case UI navigation must not shadow the data operation;
+explicit page/section navigation still stays in selfctl when there is no such plan.
+
 This module decides nothing about permission or effect: it only calls the existing handlers.
 """
 from __future__ import annotations
@@ -29,6 +33,11 @@ FRONT_GATES: tuple[str, ...] = (
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
     def selfctl():
+        # A canonical notes_read plan means the user asked for note DATA, not the Notlar UI page.
+        # Keep the legacy selfctl grammar unchanged for Live/old callers until PR9; only the
+        # canonical Brain/Core handoff gets this semantic distinction.
+        if plan is not None and plan[0] == "notes_read":
+            return None
         from modules import selfctl as module
         return module.handle(lowered, runtime.emit)
 
