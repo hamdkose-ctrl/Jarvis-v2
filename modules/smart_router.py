@@ -17,6 +17,7 @@ _LAST = {}
 _STORE = DATA_DIR / 'router'
 _CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'openrouter'})
 _FREE_PREFERENCES = frozenset({'gemini', 'groq', 'ollama', 'openrouter'})
+_PUBLIC_ONLY_PROVIDERS = frozenset({'gemini', 'openrouter'})
 _TASK_ORDERS = {
     'vision': ['gemini', 'ollama'],
     'code': ['gemini', 'groq', 'ollama'],
@@ -205,6 +206,18 @@ def task_type(prompt, image=False):
     return 'chat'
 
 
+def _sensitive_prompt(prompt) -> bool:
+    """Reuse the existing privacy detector; it is routing evidence, never authority over content."""
+    if privacy.mode() == 'gizli':
+        return True
+    text = str(prompt or '')
+    try:
+        return privacy.redact(text, force=True) != text
+    except Exception:
+        _record_failure('modules/smart_router.py:sensitive_prompt')
+        return True
+
+
 def _skip(provider, reason, reason_code, seconds=0, model=''):
     row = {'provider':provider,'reason':reason,'reason_code':reason_code,'seconds':seconds}
     if model:
@@ -212,8 +225,8 @@ def _skip(provider, reason, reason_code, seconds=0, model=''):
     return row
 
 
-def provider_allowed(owner, provider, model=None, *, task=None):
-    """Read-only strict zero-cost decision for one provider/model.
+def provider_allowed(owner, provider, model=None, *, task=None, sensitive=None):
+    """Read-only strict zero-cost and data-policy decision for one provider/model.
 
     The helper reuses the canonical Router evidence/cooldown policy. It never records
     evidence, changes preference, calls a provider, or grants paid consent.
@@ -227,6 +240,10 @@ def provider_allowed(owner, provider, model=None, *, task=None):
         if provider == 'ollama':
             return {'ok':True,'reason_code':None,'reason':'Yerel mod yalnız yerel sağlayıcıya izin verir.','model':str(model or '')}
         return {'ok':False,'reason_code':'PROVIDER_LOCAL_MODE','reason':'Yerel modda bulut kapalı.','model':str(model or '')}
+    sensitive = privacy.mode() == 'gizli' if sensitive is None else bool(sensitive)
+    if sensitive and provider in _PUBLIC_ONLY_PROVIDERS:
+        return {'ok':False,'reason_code':'PROVIDER_DATA_POLICY_BLOCKED',
+                'reason':'Bu sağlayıcı yalnız PUBLIC içerik için kullanılabilir.','model':str(model or '')}
     if task and provider != 'openrouter' and provider not in _TASK_ORDERS.get(task, ()):
         return {'ok':False,'reason_code':'PROVIDER_TASK_UNSUPPORTED','reason':'Bu görev türü desteklenmiyor.','model':str(model or '')}
     if provider == 'ollama':
@@ -264,7 +281,7 @@ def provider_allowed(owner, provider, model=None, *, task=None):
             'model':resolved_model,'evidence':gate.get('evidence')}
 
 
-def selection(owner,task,preferred=None):
+def selection(owner,task,preferred=None, *, sensitive=None):
     if task not in _TASK_ORDERS:
         raise ValueError('Router görev türü geçersiz.')
     preferred = str(preferred or '').strip().casefold()
@@ -275,18 +292,19 @@ def selection(owner,task,preferred=None):
         if preferred=='openrouter':
             skipped.append(_skip('openrouter','Yerel modda bulut kapalı','PROVIDER_LOCAL_MODE'))
         return {'candidates':['ollama'],'skipped':skipped}
+    sensitive = privacy.mode() == 'gizli' if sensitive is None else bool(sensitive)
 
     order=list(_TASK_ORDERS[task])
-    if preferred == 'openrouter':
+    if preferred == 'openrouter' and not sensitive:
         order.insert(0,'openrouter')
-    elif preferred in order:
+    elif preferred in order and not (sensitive and preferred in _PUBLIC_ONLY_PROVIDERS):
         order.remove(preferred);order.insert(0,preferred)
     universe=['gemini','groq','ollama']
     if preferred=='openrouter':
         universe.append('openrouter')
     selected=[];skipped=[]
     for provider in universe:
-        decision=provider_allowed(owner,provider,task=task)
+        decision=provider_allowed(owner,provider,task=task,sensitive=sensitive)
         model=str(decision.get('model') or '')
         if decision['ok']:
             selected.append(provider)
@@ -296,17 +314,17 @@ def selection(owner,task,preferred=None):
     return {'candidates':[p for p in order if p in selected],'skipped':skipped}
 
 
-def wait_seconds(owner, task='analysis', preferred=None):
+def wait_seconds(owner, task='analysis', preferred=None, *, sensitive=None):
     """Hiç uygun sağlayıcı kalmadıysa ve en az biri bekleme (kota/hata) içindeyse kalan en kısa saniye; yoksa 0."""
-    row = selection(owner, task, preferred=preferred)
+    row = selection(owner, task, preferred=preferred, sensitive=sensitive)
     if row['candidates']:
         return 0
     waits = [int(item.get('seconds') or 0) for item in row['skipped'] if item.get('seconds')]
     return min(waits) if waits else 0
 
 
-def candidates(owner, task, preferred=None):
-    return selection(owner,task,preferred=preferred)['candidates']
+def candidates(owner, task, preferred=None, *, sensitive=None):
+    return selection(owner,task,preferred=preferred,sensitive=sensitive)['candidates']
 
 
 def failure_kind(exc):
@@ -345,22 +363,23 @@ def cooldown(provider, exc):
     return failure_policy.cooldown_seconds(provider, exc)
 
 
-def _free_emergency(owner, attempted):
-    """Optional last-resort free route. It never enables paid models or bypasses local privacy mode."""
-    if privacy.mode()=='yerel' or 'openrouter' in attempted:return False
+def _free_emergency(owner, attempted, *, sensitive=False):
+    """Optional last-resort free route. It never bypasses local or sensitive-data policy."""
+    if privacy.mode()=='yerel' or sensitive or 'openrouter' in attempted:return False
     state=settings(owner)
     model=state.get('openrouter_model') or 'openrouter/free'
-    return provider_allowed(owner,'openrouter',model=model)['ok']
+    return provider_allowed(owner,'openrouter',model=model,sensitive=False)['ok']
 
 
 def run(owner, prompt, callback, image=False, preferred=None):
     task = task_type(prompt, image)
+    sensitive = _sensitive_prompt(prompt)
     attempts = []
-    route = selection(owner,task,preferred=preferred)
+    route = selection(owner,task,preferred=preferred,sensitive=sensitive)
     selected=list(route['candidates'])
     skipped=list(route['skipped'])
     providers=list(selected)
-    if _free_emergency(owner,providers):providers.append('openrouter')
+    if _free_emergency(owner,providers,sensitive=sensitive):providers.append('openrouter')
     for provider in providers:
         requests_state.check(); start = time.monotonic()
         try:
@@ -390,10 +409,13 @@ def run(owner, prompt, callback, image=False, preferred=None):
             continue
         attempts.append({'provider':provider,'ok':True,'seconds':round(time.monotonic()-start,2)})
         with _LOCK:
-            _LAST[owner] = {'task':task,'provider':provider,'attempts':attempts,'skipped':skipped}
+            _LAST[owner] = {'task':task,'data_class':'sensitive' if sensitive else 'public',
+                            'provider':provider,'attempts':attempts,'skipped':skipped}
             _HEALTH.pop((owner,provider),None)
         return answer
-    with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts,'skipped':skipped}
+    with _LOCK:
+        _LAST[owner] = {'task':task,'data_class':'sensitive' if sensitive else 'public',
+                        'provider':None,'attempts':attempts,'skipped':skipped}
     from modules import failure_policy
     detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar, free-tier evidence ve bekleme durumunu router durumu ile kontrol et.'
     omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
@@ -472,16 +494,16 @@ def status(owner):
     groq_model=llm.groq_model()
     openrouter_model=state.get('openrouter_model','openrouter/free')
     openrouter_policy=('Yerel modda kullanılmaz' if privacy.mode()=='yerel' else
-        cloud_policy('openrouter',openrouter_model,bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
-    local_policy='Yerel; görüntü için ayrıca vision modeli gerekir'
+        cloud_policy('openrouter',openrouter_model,bool(api_key(owner)))+'; PUBLIC-only; ana havuz tükenirse ücretsiz son yedek')
+    local_policy='Yerel; PUBLIC/SENSITIVE; görüntü için ayrıca vision modeli gerekir'
     try:
         local_model=llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
     except llm.LocalModelError:
         local_model='—'
         local_policy='Yerel effective model doğrulanamadı; yerel sunucuyu ve kurulu modelleri kontrol et'
     table = [
-      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))},
-      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))},
+      {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))+'; PUBLIC-only'},
+      {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))+'; PUBLIC/SENSITIVE'},
       {'provider':'openrouter','model':openrouter_model,'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
       {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
