@@ -290,11 +290,6 @@ def main(runtime, ui=None):
                         text=cmd, source=source,
                     )
 
-                    bare = runtime._tr_lower(cmd).strip(" .!")
-                    if bare in ("kapat", "çık") and source != "telefon" and not (bare == "kapat" and source == "ses"):
-                        runtime.stop_event.set()
-                        break
-
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
                     try:
