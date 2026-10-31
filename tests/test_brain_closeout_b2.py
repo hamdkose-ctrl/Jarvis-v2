@@ -1,0 +1,186 @@
+"""PR7 Closeout-B2: weather via Core, open pending_level superseded by an explicit level request, end-to-end."""
+import sys
+import unittest
+from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock, patch
+
+import test_privacy_voice_and_pending
+if 'pyautogui' not in sys.modules:
+    _keyboard = ModuleType('pyautogui')
+    _keyboard.__getattr__ = lambda name: Mock()
+    sys.modules['pyautogui'] = _keyboard
+
+from modules import brain_core_map, brain_entry, engine_intents, session_state
+from modules.brain_contracts import ActiveContext, ContextReference, RequestKind
+from modules.brain_understanding import understand
+
+OWNER = "hamdi"
+RID = "req-b2-1"
+
+
+def understood(text, refs=(), pending=()):
+    active = ActiveContext(owner=OWNER, request_id=RID, recent_references=tuple(refs), pending_references=tuple(pending))
+    return understand(owner=OWNER, request_id=RID, text=text, active_context=active, candidates=(), references=())
+
+
+class WeatherUnderstandingTests(unittest.TestCase):
+    def test_location_is_extracted_like_the_legacy_city_parser(self):
+        for text, location in [("ankara'da hava nasıl", "ankara"), ("izmir hava nasıl", "izmir"),
+                               ("istanbul'da hava nasıl olacak", "istanbul")]:
+            result = understood(text)
+            self.assertIn(result.capability_hint, {"weather.read", "weather.read.current"}, text)
+            self.assertEqual(result.arguments.get("location"), location, text)
+
+    def test_capitalized_turkish_cities_keep_their_first_letter(self):
+        for text, location in [("İzmir'de hava nasıl", "izmir"), ("İstanbul'da hava nasıl", "istanbul"),
+                               ("Isparta'da hava nasıl", "ısparta"), ("ANKARA'DA HAVA NASIL", "ankara")]:
+            self.assertEqual(understood(text).arguments.get("location"), location, text)
+
+    def test_filler_words_and_no_city_give_no_location(self):
+        for text in ("bugün hava nasıl", "hava nasıl", "yarın hava nasıl", "şu anda hava nasıl"):
+            result = understood(text)
+            self.assertIn(result.capability_hint, {"weather.read", "weather.read.current"}, text)
+            self.assertNotIn("location", result.arguments, text)
+
+    def test_non_weather_text_never_gets_a_location(self):
+        for text in ("hava yolu bileti al", "ankara notlarımı göster"):
+            self.assertNotIn("location", understood(text).arguments, text)
+
+
+class WeatherCoreMapTests(unittest.TestCase):
+    def test_plan_validates_and_capitalizes_city(self):
+        for hint in ("weather.read", "weather.read.current"):
+            self.assertEqual(brain_core_map.core_plan(hint, {"location": "izmir"}), ("weather", {"location": "İzmir"}))
+            self.assertEqual(brain_core_map.core_plan(hint, {"location": "ısparta"}), ("weather", {"location": "Isparta"}))
+            self.assertEqual(brain_core_map.core_plan(hint, {}), ("weather", {}))
+
+    def test_invalid_location_is_not_executed(self):
+        for location in ("ab", "x" * 40, "izmir; rm -rf", 5, "", "izmir hava"):
+            self.assertIsNone(brain_core_map.core_plan("weather.read", {"location": location}), location)
+
+
+class WeatherIntentTests(unittest.TestCase):
+    def test_dispatch_uses_the_validated_location(self):
+        runtime = SimpleNamespace(_weather=Mock(return_value="Güneşli"), _session=lambda: session_state.SessionState())
+        with patch("modules.requests_state.check"):
+            self.assertEqual(engine_intents.dispatch(runtime, "weather", {"location": "İzmir"}, "x", "x"), "Güneşli")
+        runtime._weather.assert_called_once_with("İzmir")
+        runtime._weather.reset_mock()
+        with patch("modules.requests_state.check"):
+            engine_intents.dispatch(runtime, "weather", {}, "x", "x")
+        runtime._weather.assert_called_once_with(None)
+
+
+class EndToEndTests(unittest.TestCase):
+    """Real SessionStore -> build_active_context -> prepare (gates, candidates, understanding) -> handoff."""
+
+    def setUp(self):
+        self.store = session_state.SessionStore()
+        self.state = self.store.for_owner(OWNER)
+        self.runtime = SimpleNamespace(
+            profile=SimpleNamespace(slug=OWNER, name="Hamdi", data={}),
+            _sessions=self.store, _session=lambda: self.state,
+            flags={"sleep": False}, _pending_photo={},
+        )
+
+    def run_turn(self, text):
+        history = lambda owner, *, limit: []
+        original = brain_entry.brain_context.build_active_context
+
+        def context(**kwargs):
+            kwargs.setdefault("history_reader", history)
+            kwargs.setdefault("history_filter", lambda owner, rows: rows)
+            kwargs.setdefault("goal_reader", lambda owner: None)
+            kwargs.setdefault("goal_is_open", lambda row: False)
+            return original(**kwargs)
+
+        handler = Mock(return_value="<<handler>>")
+        with patch.object(brain_entry.brain_context, "build_active_context", context), \
+             patch("modules.job_front.observe", lambda owner: None), \
+             patch("modules.desktop_agent._load", lambda owner: None), \
+             patch.object(brain_entry, "_install_core_guards"), \
+             patch.object(brain_entry, "_correlated_job_id", return_value=None), \
+             patch("modules.engine_intents.dispatch", return_value="<<dispatch>>") as dispatch:
+            entry = brain_entry.prepare(self.runtime, owner=OWNER, request_id=RID, text=text, source="yazı")
+            output, feedback, _ = brain_entry.handoff(self.runtime, entry, handler, text)
+        return entry, output, feedback, handler, dispatch
+
+    def test_open_pending_level_is_superseded_by_an_explicit_level_request(self):
+        self.state.pending_level = 70
+        entry, output, feedback, handler, dispatch = self.run_turn("sesi 30 yap")
+        handler.assert_not_called()   # eski handler pending'deki 70'i uygulamamalı
+        dispatch.assert_called_once()
+        self.assertEqual(dispatch.call_args.args[1:3], ("level_set", {"property": "volume", "level": 30}))
+
+    def test_level_set_intent_clears_the_stale_question(self):
+        self.state.pending_level = 70
+        runtime = SimpleNamespace(_session=lambda: self.state,
+                                  system_control=Mock(set_volume=Mock(return_value=True)))
+        with patch("modules.requests_state.check"):
+            engine_intents.dispatch(runtime, "level_set", {"property": "volume", "level": 30}, "x", "x")
+        self.assertIsNone(self.state.pending_level)
+        runtime.system_control.set_volume.assert_called_once_with(30)
+
+    def test_answer_to_the_level_question_still_goes_through_state_gate(self):
+        self.state.pending_level = 70
+        entry, output, feedback, handler, dispatch = self.run_turn("ses")
+        self.assertEqual((entry.stage, entry.state_gate.protocol), ("state", "session.pending_level.select"))
+        handler.assert_called_once_with("ses")
+        dispatch.assert_not_called()
+
+    def test_other_pending_states_still_block_the_level_plan(self):
+        self.state.pending_confirm = "shutdown"
+        entry, output, feedback, handler, dispatch = self.run_turn("sesi 30 yap")
+        self.assertIsNone(brain_entry.core_plan(entry))
+        for call in dispatch.call_args_list:
+            self.assertNotEqual(call.args[1], "level_set")
+
+    def test_bare_number_with_fresh_last_property_end_to_end(self):
+        session_state.remember_property(self.state, "brightness")
+        entry, output, feedback, handler, dispatch = self.run_turn("70 yap")
+        handler.assert_not_called()
+        self.assertEqual(dispatch.call_args.args[1:3], ("level_set", {"property": "brightness", "level": 70}))
+
+    def test_bare_number_without_property_asks_and_opens_pending_level_end_to_end(self):
+        entry, output, feedback, handler, dispatch = self.run_turn("70 yap")
+        self.assertEqual(output, "Yüzde 70, ses mi parlaklık mı?")
+        self.assertEqual(self.state.pending_level, 70)
+        handler.assert_not_called()
+        dispatch.assert_not_called()
+
+    def test_other_owner_property_is_not_used_end_to_end(self):
+        session_state.remember_property(self.store.for_owner("hasan"), "volume")
+        entry, output, feedback, handler, dispatch = self.run_turn("70 yap")
+        self.assertEqual(output, "Yüzde 70, ses mi parlaklık mı?")
+
+    def test_weather_with_city_dispatches_core_intent_end_to_end(self):
+        entry, output, feedback, handler, dispatch = self.run_turn("ankara'da hava nasıl")
+        handler.assert_not_called()
+        self.assertEqual(dispatch.call_args.args[1:3], ("weather", {"location": "Ankara"}))
+
+    def test_sequenced_requests_fall_back_to_the_step_runner(self):
+        for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl ardından sesi 30 yap",
+                     "İzmir'de hava nasıl akabinde sesi aç"):
+            entry, output, feedback, handler, dispatch = self.run_turn(text)
+            self.assertIsNone(brain_entry.core_plan(entry), text)
+            handler.assert_called_once_with(text)
+            dispatch.assert_not_called()
+
+    def test_step_marker_matches_the_runtime_splitter(self):
+        import re as _re
+        from modules import engine_sequence
+        runtime = SimpleNamespace(re=_re, _STEP_SPLIT=_re.compile(
+            r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", _re.I))
+        for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl", "sesi 30 yap",
+                     "hava nasıl ardından sesi kıs", "önce sesi kıs", "İzmir'de hava nasıl"):
+            self.assertEqual(brain_entry._multi_step(text),
+                             engine_sequence._split_steps(runtime, text) is not None or text.startswith("önce"), text)
+
+    def test_weather_answer_to_open_location_question_keeps_existing_path(self):
+        self.state.pending_weather_location = True
+        entry, output, feedback, handler, dispatch = self.run_turn("hava nasıl")
+        self.assertIsNone(brain_entry.core_plan(entry))
+
+
+if __name__ == "__main__":
+    unittest.main()

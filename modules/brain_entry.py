@@ -6,12 +6,14 @@ work complete. Existing Core/domain handlers remain the only execution path.
 """
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
 from modules import brain_context, brain_core_map, capability_manifest
+from modules.brain_understanding import LEVEL_CAPABILITY
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -557,8 +559,8 @@ def _has_pending(entry: EntryResult, field: str) -> bool:
     return any(ref.source == "session_state" and ref.id == field for ref in entry.active_context.pending_references)
 
 
-def _has_open_pending(entry: EntryResult) -> bool:
-    if entry.active_context.pending_references:
+def _has_open_pending(entry: EntryResult, *, ignore: frozenset[str] = frozenset()) -> bool:
+    if any(ref.id not in ignore for ref in entry.active_context.pending_references):
         return True
     return any(
         ref.kind == "photo" and ref.source == "engine_queue.photo"
@@ -587,12 +589,27 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
+_STEP_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+
+
+def _multi_step(text: str) -> bool:
+    """Same marker rule as engine_sequence._split_steps: a sequenced request belongs to the step runner."""
+    return _STEP_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+
+
 def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     """Core-validated intent for a mapped capability hint; None keeps the existing handler path."""
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
         return None
     semantic = entry.understanding
-    if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY or _has_open_pending(entry):
+    if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
+        return None
+    if _multi_step(entry.text):
+        return None
+    # A fresh, explicit level request supersedes the open "ses mi parlaklık mı?" question;
+    # every other open pending state still blocks the plan.
+    ignore = frozenset({"pending_level"}) if semantic.capability_hint == LEVEL_CAPABILITY else frozenset()
+    if _has_open_pending(entry, ignore=ignore):
         return None
     return brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
 

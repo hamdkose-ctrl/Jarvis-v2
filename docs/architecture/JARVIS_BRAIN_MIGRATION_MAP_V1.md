@@ -307,6 +307,8 @@ PR1-PR7 merge edildi ancak eski yolların silinmesi (her PR'ın "legacy retireme
 
 **Closeout-B1 sonucu:** `brain_core_map` Core allowlist'i ve `level_set` intent'i eklendi; `router.classify` yalnız Live (`_live_command`) gibi Brain'e girmeyen çağıranlar için duruyor ve PR9'da Live bağlanınca caller-zero olarak silinecek. `work_modes`'u router'ın yanında `goal_executor` (`ends_with_action`) çağırıyor; bu çağrı B2'de Brain kararına taşınacak. `freshness`'ı yalnız router kullanıyor. `engine_queue` kısayolu `brain_entry.fast_lane` üzerinden Brain Fast Gate'e bağlandı.
 
+**Closeout-B2 sonucu:** hava durumu Core allowlist'ine eklendi; açık `pending_level` açık seviye isteğiyle geçersiz kılınıyor. Kalan regex ön kapıları ve `goal_executor` `work_modes` çağrısı PR9'da Live Brain girişine bağlanınca (caller-zero) taşınıp silinecek.
+
 ## 11. Cutover kuralları
 
 - Shadow/dual-run varsa **tek effect owner Core** olmalı; legacy ve Brain aynı anda effect üretemez.
