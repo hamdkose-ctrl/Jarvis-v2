@@ -177,17 +177,16 @@ class DirectToolTests(unittest.TestCase):
 
 
 class VisionTests(unittest.TestCase):
-    def test_user_fallback_and_original_mime_for_png_jpeg_webp(self):
+    def test_gemini_provider_preserves_original_mime_for_png_jpeg_webp(self):
         from PIL import Image
         for fmt, mime in [('PNG','image/png'), ('JPEG','image/jpeg'), ('WEBP','image/webp')]:
             with self.subTest(fmt=fmt), tempfile.TemporaryDirectory() as td:
                 path=Path(td)/'image.any'; Image.new('RGB',(4,4)).save(path,fmt)
                 client=Mock();client.models.generate_content.return_value=SimpleNamespace(text='answer')
                 with patch.object(llm, '_client', None), patch.object(llm,'_cli',return_value=client), \
-                     patch.object(llm,'_ollama',side_effect=llm.LocalModelError('no vision')), \
                      patch.object(llm.privacy,'mode',return_value='normal'), patch.object(llm.privacy,'redact',side_effect=lambda s:'MASKED '+s), \
                      patch.object(llm,'_with_models',side_effect=lambda fn:fn('fake')):
-                    self.assertEqual(llm._ask_image(str(path),'prompt','system',selected='ollama'),'answer')
+                    self.assertEqual(llm._ask_image(str(path),'prompt','system',selected='gemini'),'answer')
                 args=client.models.generate_content.call_args.kwargs
                 self.assertEqual(args['contents'][0].inline_data.mime_type,mime)
                 self.assertEqual(args['contents'][0].inline_data.data,path.read_bytes())
