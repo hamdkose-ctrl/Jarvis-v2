@@ -210,8 +210,12 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     source = _required("source", source)
     if _runtime_owner(runtime) != owner:
         raise ValueError("Brain request owner aktif profile ile eşleşmiyor.")
-    if artifact is not None and (not isinstance(artifact, ContextReference) or artifact.owner != owner):
-        raise ValueError("Photo artifact başka owner'a ait olamaz.")
+    if artifact is not None:
+        if not isinstance(artifact, ContextReference) or artifact.owner != owner:
+            raise ValueError("Photo artifact başka owner'a ait olamaz.")
+        origin_request_id = artifact.provenance.get("origin_request_id")
+        if origin_request_id is not None and str(origin_request_id) != request_id:
+            raise ValueError("Current photo artifact request_id eşleşmiyor.")
     _verify_activation(runtime, owner, request_id)
 
     active = _build_context(runtime, owner, request_id, artifact)
