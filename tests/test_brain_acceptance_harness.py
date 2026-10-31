@@ -264,5 +264,39 @@ class BaselineFileTests(unittest.TestCase):
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), data)
 
 
+class VerdictEdgeTests(unittest.TestCase):
+    """Reviewer-added: list-valued criteria, baseline-error recovery, unmet-criteria accounting."""
+
+    def test_list_valued_criteria_gain_and_regress(self):
+        scenario = {"id": "s", "text": "x", "forbid": {"protocol": ["a", "b"]}, "expect": {"stage": ["state", "fast"]}}
+        worse = _result(protocol="a", stage="understanding")
+        better = _result(protocol=None, stage="fast")
+        up = harness.verdict(scenario, worse, better)
+        self.assertEqual((up["verdict"], sorted(up["gained"])), ("better", ["expect:stage", "forbid:protocol"]))
+        self.assertEqual(harness.verdict(scenario, better, worse)["verdict"], "regression")
+
+    def test_baseline_error_then_decision_needs_review_not_silent_pass(self):
+        row = harness.verdict({"id": "s", "text": "x"}, {"error": "X: y"}, _result(outcome="chat"))
+        self.assertEqual(row["verdict"], "changed")
+
+    def test_missing_decision_fails_every_criterion(self):
+        scenario = {"id": "s", "text": "x", "expect": {"outcome": "chat"}, "forbid": {"stage": ["fast"]}}
+        self.assertEqual(harness.criteria_status(scenario, None), {"expect:outcome": False, "forbid:stage": False})
+
+    def test_unmet_expectation_is_not_counted_as_met(self):
+        pool = [{"id": "a", "text": "70 yap", "expect": {"outcome": "action"}}]
+        res = {"results": {"a": _result(outcome="chat")}}
+        report = harness.compare(pool, res, res)
+        self.assertEqual(report["expectations_met"], {"baseline": 0, "current": 0, "with_criteria": 1})
+        self.assertTrue(report["passed"])
+
+    def test_foreign_owner_property_not_visible_to_main_owner(self):
+        from modules import session_state
+        runtime = harness._runtime(
+            {"foreign_sessions": {"hasan": {"last_property": "volume", "last_property_age_seconds": 30}}}, "hamdi")
+        self.assertIsNone(session_state.fresh_property(runtime._session()))
+        self.assertEqual(session_state.fresh_property(runtime._sessions._states["hasan"]), "volume")
+
+
 if __name__ == "__main__":
     unittest.main()
