@@ -42,7 +42,7 @@ class ResearchUnderstandingRegressionTests(unittest.TestCase):
         self.assert_research("yapay zeka haberlerini ara")
         self.assert_research("python eğitimlerini internette bul")
 
-    def test_private_deictic_and_meta_searches_stay_out(self):
+    def test_private_deictic_and_meta_searches_never_get_core_research_args(self):
         for text in (
             "muhasebeden gelen son maili bul",
             "bu dosyada bütçe geçen yerleri bul",
@@ -53,8 +53,8 @@ class ResearchUnderstandingRegressionTests(unittest.TestCase):
             "araştır ne demek?",
         ):
             result = self.understand(text)
-            self.assertNotEqual(result.capability_hint, "research.search", text)
             self.assertNotIn("research", result.arguments, text)
+            self.assertIsNone(brain_core_map.core_plan(result.capability_hint, result.arguments), text)
 
     def test_overlong_or_nul_query_is_not_proposed(self):
         for text in ("haberleri araştır " + "x" * 1100, "haberleri araştır\x00x"):
