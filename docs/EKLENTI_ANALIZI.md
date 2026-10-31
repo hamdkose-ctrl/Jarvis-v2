@@ -9,7 +9,7 @@ Kaynak incelemesi: 10 Ekim 2026. PC'deki gerçek kurulum listesi bu kaynaktan g�
 | Yerel Türkçe STT | faster-whisper small/base, taslak PR #42 | Paket ve small modeli hazırlanır; ses tercihi değişmez |
 | Belge dönüşümü | MarkItDown ayrı süreçte kullanılıyor; eksikse eski okuyuculara düşüyordu | Word/Excel/PowerPoint eklentileriyle kurulur |
 | Tarayıcı ajanı | Playwright bağımlılıkları requirements-browser.txt içinde; eski ayrı kurulum kaldırıldı | Playwright + Chromium aynı kurulumda hazırlanır |
-| Gemini/Groq/OpenRouter | Sağlayıcı kodları mevcut | Paket kurulumu hesap/anahtar eklemez; mevcut kullanıcı ayarı korunur |
+| Gemini/Groq/Cloudflare | Sağlayıcı kodları mevcut | Paket kurulumu hesap/anahtar eklemez; mevcut kullanıcı ayarı korunur |
 | Google e-posta/takvim | Google API paketleri kilitte | OAuth hesabı kullanıcı tarafından bağlanır; kurulum yapmaz |
 | Ollama | Router yerel modeli kullanabiliyor | Harici Ollama uygulaması ve yüklü modeller raporlanır; bu kaynak paketi onları taşımaz |
 | Windows sesi | pyttsx3 mevcut | Çekirdek ortamdan kurulur; Piper bu sürümde yok |

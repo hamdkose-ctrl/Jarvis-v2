@@ -110,7 +110,7 @@ Kurulum ve kapsam: [README](../README.md), [sesli işlemler](SESLI_ISLEMLER.md),
 - Şifreli geliştirme modunda kullanıcının kendi modeliyle gerçek kod/tasarım isteği; kota, yanıt kalitesi ve Windows üzerinde test/geri alma akışı.
 - Gerçek mikrofonla geliştirme takip isteği ve telefondan görsel referans gönderimi.
 
-- Smart Router: kullanıcının ücretsiz Gemini/Groq hesapları ve OpenRouter/Ollama ile gerçek kota/fallback denemesi.
+- Smart Router: kullanıcının ücretsiz Gemini/Groq hesapları ve Cloudflare/Ollama ile gerçek kota/fallback denemesi.
 - Playwright Chromium: bu ortamda indirme başarısız; gerçek Windows tarayıcıda gezinme/form/onay/sonuç kontrolü.
 
 Smart Router, görev yürütücüsü, tarayıcı kodu ve PC/ses tanılama eklendi; otomatik testler donanım veya canlı servis denemesi yerine geçmez. [Kullanım](SMART_ROUTER_AJANLAR.md).

@@ -19,8 +19,8 @@ class SmartRouterTests(unittest.TestCase):
         self.crypto=patch.object(router.privacy,'protect',side_effect=lambda s:'enc:'+s);self.crypto.start();self.addCleanup(self.crypto.stop)
         p=patch.object(router.privacy,'unprotect',side_effect=lambda s:s.removeprefix('enc:'));p.start();self.addCleanup(p.stop)
         real_configure=router.configure
-        def configure_with_evidence(owner, cloud_free_confirmed=None, model=None, key=None):
-            result=real_configure(owner,cloud_free_confirmed,model,key)
+        def configure_with_evidence(owner, cloud_free_confirmed=None):
+            result=real_configure(owner,cloud_free_confirmed)
             if cloud_free_confirmed is True:
                 now=router.time.time()
                 for provider, model_name in [('gemini',llm.active_model(owner)),('groq',llm.groq_model())]:
@@ -34,15 +34,13 @@ class SmartRouterTests(unittest.TestCase):
 
     def test_no_assumption_key_means_free_account(self):
         self.assertEqual(router.candidates('alice','chat'),['ollama'])
-        router.configure('alice',True,key='abc')
+        router.configure('alice',True)
         self.assertEqual(router.candidates('alice','chat'),['groq','gemini','ollama'])
         self.assertEqual(router.candidates('bob','chat'),['ollama'])
-        self.assertNotIn('abc',json.dumps(router.status('alice')))
-        self.assertIn('enc:abc',router.owner_path('alice').read_text())
 
     def test_paid_model_rejected_and_paid_provider_never_fallback(self):
-        with self.assertRaises(ValueError): router.configure('alice',model='openai/gpt-paid')
-        router.configure('alice',True,model='x/y:free',key='abc')
+        with self.assertRaises(TypeError): router.configure('alice',model='openai/gpt-paid')
+        router.configure('alice',True)
         self.assertEqual(router.candidates('alice','vision'),['gemini','ollama'])
         self.assertNotIn('openai',router.candidates('alice','code'))
         self.assertNotIn('anthropic',router.candidates('alice','code'))
@@ -79,11 +77,6 @@ class SmartRouterTests(unittest.TestCase):
         router.configure('bob',True)
         self.assertIn('groq',router.candidates('bob','chat'))
 
-    def test_openrouter_key_never_joins_automatic_pool(self):
-        router.configure('alice',True,key='abc')
-        for task in ('chat','code','analysis','vision'):
-            self.assertNotIn('openrouter',router.candidates('alice',task))
-
     def test_cooldown_depends_on_error_kind(self):
         class Coded(Exception):
             def __init__(self,code):super().__init__('x');self.code=code
@@ -112,8 +105,7 @@ class SmartRouterTests(unittest.TestCase):
 
     def test_no_candidates_is_distinct_from_failed_call_and_does_not_call_model(self):
         call=Mock(side_effect=AssertionError('no call'))
-        with patch.object(router,'selection',return_value={'candidates':[],'skipped':[]}), \
-             patch.object(router,'_free_emergency',return_value=False):
+        with patch.object(router,'selection',return_value={'candidates':[],'skipped':[]}):
             with self.assertRaisesRegex(RuntimeError,'denenecek sağlayıcı yok'):
                 router.run('alice','python',call)
         call.assert_not_called()
@@ -180,7 +172,7 @@ class SmartRouterTests(unittest.TestCase):
         self.assertEqual(llm.take_route(),[('Cevap: Ollama (yerel)',True)])
 
     def test_local_mode_never_cloud_and_empty_answer_is_failure(self):
-        router.configure('alice',True,key='abc')
+        router.configure('alice',True)
         with patch.object(router.privacy,'mode',return_value='yerel'):
             self.assertEqual(router.candidates('alice','vision'),['ollama'])
             with self.assertRaises(RuntimeError):router.run('alice','x',lambda p:'')
@@ -201,15 +193,6 @@ class SmartRouterTests(unittest.TestCase):
         with patch.object(llm.privacy,'mode',return_value='gizli'),patch.object(router,'run',side_effect=AssertionError('cloud')):
             self.assertIn('Gizli',llm.ask_image('missing.png','x'))
 
-    def test_openrouter_payload_and_secrets_not_in_status(self):
-        router.configure('alice',key='secret',model='openrouter/free')
-        response=Mock();response.json.return_value={'choices':[{'message':{'content':'answer'}}]}
-        with patch.object(router.requests,'post',return_value=response) as post:
-            self.assertEqual(router.openrouter('alice',[{'role':'user','content':'hi'}],'sys',200),'answer')
-            self.assertEqual(post.call_args.kwargs['json']['model'],'openrouter/free')
-            self.assertEqual(post.call_args.kwargs['headers']['Authorization'],'Bearer secret')
-        router.configure('alice',key='');self.assertFalse(router.status('alice')['key'])
-
     def test_auxiliary_gemini_calls_cannot_bypass_budget_policy(self):
         from modules import live
         with patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',side_effect=AssertionError('cloud')):
@@ -220,11 +203,11 @@ class SmartRouterTests(unittest.TestCase):
             router.configure('alice',True);self.assertTrue(llm.gemini_aux_allowed())
 
     def test_corrupt_router_state_fails_closed_and_still_allows_local_fallback(self):
-        for content in ('[]','null','"invalid"','{"cloud_free_confirmed":"false","key":42,"openrouter_model":"paid-model"}'):
+        for content in ('[]','null','"invalid"','{"cloud_free_confirmed":"false","key":42}'):
             router.owner_path('alice').write_text(content)
             self.assertFalse(router.settings('alice')['cloud_free_confirmed'])
             self.assertEqual(router.candidates('alice','chat'),['ollama'])
-            self.assertEqual(router.status('alice')['model'],'openrouter/free')
+            self.assertNotIn('model',router.status('alice'))
 
     def test_cancellation_after_provider_response_is_not_success(self):
         with patch.object(router.requests_state,'check',side_effect=[None,requests_state.Cancelled()]):

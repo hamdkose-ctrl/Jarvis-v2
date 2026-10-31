@@ -2,14 +2,14 @@
 
 Ayarlar > Bağlantılar bölümünde Smart Router anahtarını/ücretsiz hesap seçimini kaydet; Ayarlar > Yapay zekâ bölümünde Smart Router seç. Sohbetten `smart router aç` da aynı seçimi yapar. Mevcut elle seçilmiş sağlayıcı değişmez.
 
-API anahtarı tek başına hesabın ücretsiz olduğunu kanıtlamaz. Gemini/Groq otomatik havuzuna yalnız kullanıcı bu hesapların ücretsiz planda ve ücretli faturalamasının kapalı olduğunu doğrulayınca girer. Jarvis hesap faturalamasını uzaktan doğrulayamaz. OpenRouter yalnız `openrouter/free` veya `:free` modelini kabul eder. Kota/bağlantı hatasında sonraki sağlayıcı denenir; hata veren sağlayıcı 60 saniye bekletilir. Otomatik modda Gemini ücretsiz hesap doğrulaması yoksa Gemini Live, Gemini STT, gömme ve arka plan model kontrolü de buluta çağrı yapmaz. Normal gizlilik modunda ses için mevcut ücretsiz Google web STT kullanılır; yerel/gizli modda web STT de kapalıdır. OpenAI/Claude hiçbir zaman otomatik fallback değildir; mevcut açık kullanıcı seçimiyle çalışır.
+API anahtarı tek başına hesabın ücretsiz olduğunu kanıtlamaz. Gemini/Groq otomatik havuzuna yalnız kullanıcı bu hesapların ücretsiz planda ve ücretli faturalamasının kapalı olduğunu doğrulayınca girer. Jarvis hesap faturalamasını uzaktan doğrulayamaz. Kota/bağlantı hatasında sonraki sağlayıcı denenir; hata veren sağlayıcı 60 saniye bekletilir. Otomatik modda Gemini ücretsiz hesap doğrulaması yoksa Gemini Live, Gemini STT, gömme ve arka plan model kontrolü de buluta çağrı yapmaz. Normal gizlilik modunda ses için mevcut ücretsiz Google web STT kullanılır; yerel/gizli modda web STT de kapalıdır. OpenAI/Claude hiçbir zaman otomatik fallback değildir; mevcut açık kullanıcı seçimiyle çalışır.
 
 | Görev | Otomatik tercih sırası |
 |---|---|
-| Kısa sohbet | Groq, Gemini, OpenRouter, Ollama |
-| Kod | OpenRouter, Gemini, Groq, Ollama |
-| Uzun metin/analiz | Gemini, OpenRouter, Groq, Ollama |
-| Görüntü | Gemini, OpenRouter, Ollama |
+| Kısa sohbet | Groq, Gemini, Ollama |
+| Kod | Gemini, Groq, Ollama |
+| Uzun metin/analiz | Gemini, Groq, Ollama |
+| Görüntü | Gemini, Ollama |
 
 Anahtarı/doğrulaması bulunmayan sağlayıcılar atlanır. Ollama seçili modelinin yerelde bulunması gerekir; görüntü için model ayrıca görüntü desteklemelidir. Yerel gizlilik modu buluta çıkmaz. Gizli modda görüntü ve web ajanı kapalıdır. Sıralama görev profiline dayalı bir politikadır; model kalite benchmark'ı veya daha iyi yanıt garantisi değildir. OpenRouter ücretsiz router, istekteki özellikleri destekleyen ücretsiz modelleri süzer.
 
@@ -41,4 +41,4 @@ Sohbete `pc ses kontrolü` yaz. Python, Windows, ses/tarayıcı paketleri, mikro
 
 Otomatik kontroller `scripts/run_tests.bat` içinde. Bu paketin hazırlandığı Linux ortamında gerçek Windows pencere/klavye işlemleri, mikrofon/hoparlör ve gerçek kullanıcı model anahtarları doğrulanmadı. Chromium indirmesi ortamda geçersiz/eksik ZIP döndüğü için gerçek Chromium uçtan uca testi çalıştırılamadı; tarayıcı izin/hedef/plan/doğrulama akışları taklit adaptörlerle test edildi. Bu sınırlamalar çalışan gerçek tarayıcı veya donanım testleri gibi sunulmaz.
 
-Resmî API referansları: [OpenRouter ücretsiz router](https://openrouter.ai/docs/guides/routing/routers/free-router), [Playwright Python kurulum](https://playwright.dev/python/docs/library), [Groq Chat API](https://console.groq.com/docs/api-reference).
+Resmî API referansları: [Playwright Python kurulum](https://playwright.dev/python/docs/library), [Groq Chat API](https://console.groq.com/docs/api-reference).

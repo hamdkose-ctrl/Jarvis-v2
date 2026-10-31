@@ -184,7 +184,6 @@ class CoderRecoveryTests(unittest.TestCase):
     def test_no_eligible_provider_does_not_call_network_or_deliver_files(self):
         empty={'candidates':[],'skipped':[]}
         with patch.object(router,'selection',return_value=empty), \
-             patch.object(router,'_free_emergency',return_value=False), \
              patch.object(llm,'_send') as send:
             job=agents.execute('alice',self.plan())
         self.assertEqual(job['state'],'incomplete');send.assert_not_called()

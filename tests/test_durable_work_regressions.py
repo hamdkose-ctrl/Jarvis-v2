@@ -77,7 +77,7 @@ class DurableWorkTests(unittest.TestCase):
         successful=Mock(status_code=200);successful.json.return_value={'message':{'content':'metin cevabı'}}
         with patch.object(router,'_HEALTH',{}),patch.object(router,'_LAST',{}), \
              patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'key':''}), \
-             patch.object(router,'api_key',return_value=''),patch.object(router.privacy,'mode',return_value='normal'), \
+             patch.object(router.privacy,'mode',return_value='normal'), \
              patch.object(llm,'provider',return_value='auto'),patch.object(llm,'current_user',return_value='alice'), \
              patch.object(llm,'_cfg',return_value={'url':'http://ollama.invalid','model':'text-only'}), \
              patch.object(llm,'ollama_models',return_value=['text-only']), \
@@ -91,6 +91,6 @@ class DurableWorkTests(unittest.TestCase):
         for error in (llm.LocalModelError('connection failed'),llm.CloudError('quota')):
             with self.subTest(error=type(error).__name__),patch.object(router,'_HEALTH',{}), \
                  patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'key':''}), \
-                 patch.object(router,'api_key',return_value=''),patch.object(router.privacy,'mode',return_value='normal'):
+                 patch.object(router.privacy,'mode',return_value='normal'):
                 with self.assertRaises(RuntimeError):router.run('alice','image',Mock(side_effect=error),image=True)
                 self.assertNotIn('ollama',router.candidates('alice','chat'))

@@ -193,15 +193,6 @@ class VisionTests(unittest.TestCase):
                 self.assertEqual(args['contents'][0].inline_data.data,path.read_bytes())
                 self.assertEqual(args['config'].system_instruction,'MASKED system')
 
-    def test_openrouter_bad_schemas_fail_clearly(self):
-        from modules import smart_router
-        malformed=[{}, {'choices':[]}, {'choices':[{}]}, {'choices':[{'message':{'content':[]}}]}, {'choices':[{'message':{'content':None}}]}]
-        with patch.object(smart_router,'api_key',return_value='fake'), patch.object(smart_router,'settings',return_value={'openrouter_model':'openrouter/free'}):
-            for data in malformed:
-                response=Mock();response.json.return_value=data
-                with self.subTest(data=data), patch.object(smart_router.requests,'post',return_value=response):
-                    with self.assertRaisesRegex(RuntimeError,'geçerli bir metin'): smart_router.openrouter('a',[],'',100)
-
 
 class UploadTests(unittest.TestCase):
     def handler(self, root, stream, target='files'):

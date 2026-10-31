@@ -34,7 +34,7 @@ Bu kayıt, verilen statik inceleme listesini önceki v7 paketi ve bu devam çal�
 | Uzun intent dağıtıcısı, handoff özel yardımcılarına erişim | engine_intents ayrıldı, public yardımcılar kullanılıyor. |
 | llm kullanıcı istemcisi/histories kilidi, yeni sohbet eski taslak yanıtı | Kilit/epoch ve public reset_history; eski taslak yanıtı yeni sohbete kaydetmeme koruması. |
 | llm görüntü fallback yanlış global istemci, sabit PNG MIME, system redaction | Kullanıcı istemcisi ve gerçek görsel türü, maskeleme; ilgili kontrollü testler korunuyor. |
-| smart_router anahtar okuma, beklenmeyen OpenRouter gövdesi, yetenek hatasında sağlayıcı cooldown | Önceki pakette ele alındı; görüntü yeteneği hatası metni engellemez. |
+| smart_router anahtar okuma, beklenmeyen OpenRouter gövdesi (OpenRouter sonradan kaldırıldı), yetenek hatasında sağlayıcı cooldown | Önceki pakette ele alındı; görüntü yeteneği hatası metni engellemez. |
 | llm status Ollama ağ isteği, gömme N tekil istek, assert ile hata | Kısa model listesi önbelleği, toplu embedding ve açık hata yolu. |
 | web yeni sohbet bekleyen onayları, _histories doğrudan değişimi | Önceki pakette iptal/alan temizliği ve public history API. |
 | web Hub event_log kilitsiz içerik taraması | Motor olay kimlikleriyle metadata; içerik eşleştirme taraması kaldırıldı. |

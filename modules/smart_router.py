@@ -1,6 +1,5 @@
 """Budget-aware task routing. Paid providers never belong to the automatic pool."""
 from __future__ import annotations
-import base64
 import json
 from pathlib import Path
 import re
@@ -15,7 +14,7 @@ _LOCK = threading.RLock()
 _HEALTH = {}
 _LAST = {}
 _STORE = DATA_DIR / 'router'
-_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare', 'openrouter'})
+_CLOUD_PROVIDERS = frozenset({'gemini', 'groq', 'cloudflare'})
 _EVIDENCE_MODELS_MAX = 32
 # The pre-P0-3 selection has no route concept yet, so it keeps today's behavior by declaring the only
 # route Gemini may serve. The Router (P0-3) replaces this with the real route class of each request.
@@ -45,19 +44,33 @@ def _safe_evidence_catalog(value) -> dict:
     return out
 
 
+_STATE_KEYS = ('cloud_free_confirmed', 'free_tier_evidence')
+
+
+def _purge_legacy(owner, state):
+    """Keep only the known state keys on disk: a removed provider's stored key, model and evidence rows go away."""
+    evidence = state.get('free_tier_evidence')
+    stale = isinstance(evidence, dict) and any(name not in _CLOUD_PROVIDERS for name in evidence)
+    if not stale and all(name in _STATE_KEYS for name in state):
+        return
+    clean = {k: v for k, v in state.items() if k in _STATE_KEYS}
+    if isinstance(evidence, dict):
+        clean['free_tier_evidence'] = _safe_evidence_catalog(evidence)
+    try:
+        _save_state(owner, clean)
+    except OSError:
+        _record_failure('modules/smart_router.py:_purge_legacy')
+
+
 def settings(owner):
-    defaults={'cloud_free_confirmed':False,'openrouter_model':'openrouter/free','key':'','free_tier_evidence':{}}
+    defaults={'cloud_free_confirmed':False,'free_tier_evidence':{}}
     try:
         state=json.loads(owner_path(owner).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return defaults
     if not isinstance(state,dict): return defaults
-    model=state.get('openrouter_model')
-    if not isinstance(model,str) or not (model=='openrouter/free' or model.endswith(':free')):
-        model='openrouter/free'
+    _purge_legacy(owner, state)
     return {'cloud_free_confirmed':state.get('cloud_free_confirmed') is True,
-            'openrouter_model':model,
-            'key':state.get('key') if isinstance(state.get('key'),str) else '',
             'free_tier_evidence':_safe_evidence_catalog(state.get('free_tier_evidence'))}
 
 
@@ -67,24 +80,13 @@ def _save_state(owner, state):
         tmp = path.with_suffix('.tmp'); tmp.write_text(json.dumps(state), encoding='utf-8'); tmp.replace(path)
 
 
-def configure(owner, cloud_free_confirmed=None, model=None, key=None):
+def configure(owner, cloud_free_confirmed=None):
     with _LOCK:
-        return _configure(owner,cloud_free_confirmed,model,key)
-
-
-def _configure(owner,cloud_free_confirmed=None,model=None,key=None):
-    state = settings(owner)
-    if cloud_free_confirmed is not None:
-        state['cloud_free_confirmed'] = bool(cloud_free_confirmed)
-    if model is not None:
-        model = model.strip() or 'openrouter/free'
-        if model != 'openrouter/free' and not model.endswith(':free'):
-            raise ValueError('Otomatik havuz yalnız openrouter/free veya :free modellerini kabul eder.')
-        state['openrouter_model'] = model
-    if key is not None:
-        state['key'] = privacy.protect(key.strip()) if key.strip() else ''
-    _save_state(owner, state)
-    return status(owner)
+        state = settings(owner)
+        if cloud_free_confirmed is not None:
+            state['cloud_free_confirmed'] = bool(cloud_free_confirmed)
+        _save_state(owner, state)
+        return status(owner)
 
 
 def set_free_tier_evidence(owner, *, provider, model, free_tier_verified, source, evidence_ref,
@@ -191,15 +193,6 @@ def _evidence_gate(owner, provider, model, *, route=None, now=None):
     return {'ok':True,'reason_code':None,'reason':'Doğrulanmış ücretsiz katman evidence geçerli.','evidence':row}
 
 
-def api_key(owner):
-    protected = settings(owner).get('key', '')
-    try:
-        return privacy.unprotect(protected) if protected else ''
-    except (ValueError, OSError, UnicodeError):
-        _record_failure('modules/smart_router.py:api_key')
-        return ''
-
-
 def task_type(prompt, image=False):
     if image: return 'vision'
     p = prompt.casefold()
@@ -297,16 +290,6 @@ def cooldown(provider, exc):
     return failure_policy.cooldown_seconds(provider, exc)
 
 
-def _free_emergency(owner, attempted):
-    """Optional last-resort free route. It never enables paid models or bypasses local privacy mode."""
-    if privacy.mode()=='yerel' or 'openrouter' in attempted:return False
-    state=settings(owner)
-    if not state.get('cloud_free_confirmed') or not api_key(owner):return False
-    model=state.get('openrouter_model') or 'openrouter/free'
-    if model!='openrouter/free' and not model.endswith(':free'):return False
-    return _evidence_gate(owner,'openrouter',model,route=_LEGACY_ROUTE)['ok']
-
-
 def run(owner, prompt, callback, image=False):
     task = task_type(prompt, image)
     attempts = []
@@ -314,7 +297,6 @@ def run(owner, prompt, callback, image=False):
     selected=list(route['candidates'])
     skipped=list(route['skipped'])
     providers=list(selected)
-    if _free_emergency(owner,providers):providers.append('openrouter')
     for provider in providers:
         requests_state.check(); start = time.monotonic()
         try:
@@ -364,42 +346,6 @@ def run(owner, prompt, callback, image=False):
     raise failure_policy.ProviderExhaustedError(message)
 
 
-def openrouter(owner, messages, system, max_tokens, image_path=None):
-    key = api_key(owner)
-    if not key: raise ValueError('OpenRouter anahtarı yok.')
-    model = settings(owner).get('openrouter_model') or 'openrouter/free'
-    if model != 'openrouter/free' and not model.endswith(':free'): raise ValueError('Ücretli model engellendi.')
-    messages = [dict(m, content=privacy.redact(m['content'])) for m in messages]
-    if image_path:
-        from PIL import Image
-        import io
-        with Image.open(image_path) as img:
-            img.thumbnail((1600,1600)); output = io.BytesIO(); img.convert('RGB').save(output,format='PNG')
-        data = base64.b64encode(output.getvalue()).decode()
-        messages[-1]['content'] = [{'type':'text','text':messages[-1]['content']},
-          {'type':'image_url','image_url':{'url':'data:image/png;base64,'+data}}]
-    if system: messages.insert(0, {'role':'system','content':privacy.redact(system)})
-    requests_state.check()
-    from modules import usage_meter
-    sent = usage_meter.size(messages)
-    try:
-        response = requests.post('https://openrouter.ai/api/v1/chat/completions',
-            headers={'Authorization':'Bearer '+key}, json={'model':model,'messages':messages,'max_tokens':max_tokens}, timeout=(5,45))
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        usage_meter.record('openrouter', model, sent, 0, usage_meter.outcome(exc))
-        raise
-    usage_meter.record('openrouter', model, sent)
-    requests_state.check()
-    try:
-        content = response.json()['choices'][0]['message']['content']
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError('empty content')
-    except (ValueError, TypeError, KeyError, IndexError) as exc:
-        raise RuntimeError('OpenRouter geçerli bir metin yanıtı döndürmedi.') from exc
-    return content
-
-
 def status(owner):
     state = settings(owner)
     from modules import llm, usage_meter
@@ -419,9 +365,6 @@ def status(owner):
         return 'Kanıtlı ücretsiz rota; evidence geçerli ve strict zero-cost seçimde kullanılabilir'
     gemini_model=llm.active_model(owner)
     groq_model=llm.groq_model()
-    openrouter_model=state.get('openrouter_model','openrouter/free')
-    openrouter_policy=('Yerel modda kullanılmaz' if privacy.mode()=='yerel' else
-        cloud_policy('openrouter',openrouter_model,bool(api_key(owner)))+'; ana havuz tükenirse ücretsiz son yedek')
     local_policy='Yerel; görüntü için ayrıca vision modeli gerekir'
     try:
         local_model=llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
@@ -431,11 +374,10 @@ def status(owner):
     table = [
       {'provider':'gemini','model':gemini_model,'tasks':['chat','code','analysis','vision'],'policy':cloud_policy('gemini',gemini_model,bool(llm.user_key(owner)))},
       {'provider':'groq','model':groq_model,'tasks':['chat','code','analysis'],'policy':cloud_policy('groq',groq_model,bool(llm.user_groq_key(owner)))},
-      {'provider':'openrouter','model':openrouter_model,'tasks':['chat','code','analysis','vision'],'policy':openrouter_policy},
       {'provider':'ollama','model':local_model,'tasks':['chat','code','analysis'],'policy':local_policy},
       {'provider':'openai/anthropic','model':'Kullanıcının seçtiği','tasks':[],'policy':'Otomatik havuz dışında; yalnız elle seçim'}]
-    return {'key':bool(api_key(owner)), 'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
-            'model':openrouter_model,'capabilities':table,'last':last,'cooldowns':cooldowns,
+    return {'cloud_free_confirmed':bool(state.get('cloud_free_confirmed')),
+            'capabilities':table,'last':last,'cooldowns':cooldowns,
             'free_tier_evidence':state.get('free_tier_evidence',{}),
             'observed_limits':usage_meter.limits(owner)}
 

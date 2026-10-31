@@ -28,7 +28,7 @@ Sen Jarvis için salt okunur bir kural denetçisisin. Değişikliği incelersin,
 - Yeni iş parçacığı, arka plan döngüsü veya zamanlayıcı kullanıcı bağlamını (`set_user_context`) kurmadan model çağırıyor mu? Telefon/misafir kullanıcı PC kullanıcısının anahtarına düşebilir mi?
 
 **2. Ücretli sağlayıcı havuzu** (AGENTS "Model yedeği")
-- Ücretli sağlayıcı (`paid_providers`) `smart_router` otomatik havuzuna veya otomatik yedek zincirine (Gemini → Groq → Ollama) giriyor mu? Havuz yalnız Gemini, Groq, Ollama olmalı; OpenRouter ve ücretliler yalnız elle seçilir.
+- Ücretli sağlayıcı (`paid_providers`) `smart_router` otomatik havuzuna veya otomatik yedek zincirine (Gemini → Groq → Ollama) giriyor mu? Havuz yalnız Gemini, Groq, Cloudflare, Ollama olmalı; ücretliler yalnız elle seçilir.
 - Gemini/Groq'un havuza girişi "Ücretli faturalama kapalı" kutusu şartına bağlı kalıyor mu?
 - Yeni sağlayıcı eklenmişse kullanıcının kendi anahtarı olmadan çağrılabiliyor mu?
 - `smart_router.cooldown` süreleri (anahtar 30 dk, kota 5 dk, Ollama 30 sn, diğerleri 60 sn) değişmiş mi?
