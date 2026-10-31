@@ -398,6 +398,11 @@ def run(owner, prompt, callback, image=False, preferred=None):
     detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar, free-tier evidence ve bekleme durumunu router durumu ile kontrol et.'
     omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
     message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
+    preferred_row = next((row for row in skipped if row.get('provider') == preferred), None)
+    preferred_code = str((preferred_row or {}).get('reason_code') or '')
+    if preferred_code == 'PROVIDER_CONFIGURATION_REQUIRED' or preferred_code.startswith('PROVIDER_FREE_'):
+        raise failure_policy.ProviderExhaustedError(
+            message, reason_code=preferred_code, recovery_class='user_action_required')
     missing_key = not attempts and any(row.get('reason_code')=='PROVIDER_CONFIGURATION_REQUIRED' or 'anahtarı eksik' in row.get('reason','') for row in skipped)
     evidence_code = next((row.get('reason_code') for row in skipped
                           if str(row.get('reason_code','')).startswith('PROVIDER_FREE_TIER_')), None)
