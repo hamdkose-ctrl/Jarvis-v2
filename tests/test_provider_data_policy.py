@@ -38,7 +38,8 @@ class ProviderDataPolicyTests(unittest.TestCase):
             p = patch.object(obj, name, side_effect=value if callable(value) else None,
                              return_value=None if callable(value) else value)
             p.start(); self.addCleanup(p.stop)
-        router.configure(self.OWNER, True, model="openrouter/free", key="openrouter-key")
+        with patch.object(router, "status", return_value={}):
+            router.configure(self.OWNER, True, model="openrouter/free", key="openrouter-key")
         self._evidence("gemini", "gem-model")
         self._evidence("groq", "groq-model")
         self._evidence("openrouter", "openrouter/free")
