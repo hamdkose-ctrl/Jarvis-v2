@@ -210,6 +210,8 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     source = _required("source", source)
     if _runtime_owner(runtime) != owner:
         raise ValueError("Brain request owner aktif profile ile eşleşmiyor.")
+    if artifact is not None and (not isinstance(artifact, ContextReference) or artifact.owner != owner):
+        raise ValueError("Photo artifact başka owner'a ait olamaz.")
     _verify_activation(runtime, owner, request_id)
 
     active = _build_context(runtime, owner, request_id, artifact)
@@ -312,115 +314,6 @@ def current() -> EntryResult | None:
     return _CURRENT.get()
 
 
-def _correlated_job_id(entry: EntryResult) -> str | None:
-    try:
-        from modules import goal_executor
-        row = goal_executor.latest(entry.owner)
-    except Exception:
-        return None
-    if not isinstance(row, dict):
-        return None
-    meta = row.get("brain")
-    if not isinstance(meta, dict) or meta.get("request_id") != entry.request_id:
-        return None
-    ident = row.get("id")
-    return str(ident) if ident else None
-
-
-def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
-    """Legacy-dispatch compatible output built only from the canonical result.
-
-    It never calls the old classifier. Unsupported capability hints fail closed as
-    a no-effect clarification instead of being reinterpreted by a second brain.
-    """
-    question = clarification(entry)
-    if question is not None:
-        return {"intent": "clarify", "args": {"question": question}}
-    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
-        return {"intent": "clarify", "args": {"question": "Bounded komut Core handler tarafından işlenemedi; işlem başlatılmadı."}}
-    semantic = entry.understanding
-    if semantic is None:
-        return {"intent": "clarify", "args": {"question": "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."}}
-    if semantic.request_kind is RequestKind.CAPABILITY:
-        proposal = core_proposal(entry)
-        if proposal["manifest_capability_id"] is None:
-            return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
-        return {"intent": "task", "args": {}}
-    if semantic.request_kind is RequestKind.CONTEXT_CONTROL:
-        return {"intent": "chat", "args": {}}
-    return {"intent": "chat", "args": {}}
-
-
-def _install_route_guard(runtime: Any) -> None:
-    """Wrap runtime.route once; bound requests never invoke the legacy classifier."""
-    if getattr(runtime, "_brain_route_guard_installed", False):
-        return
-    original = getattr(runtime, "route", None)
-    if not callable(original):
-        return
-
-    def guarded(command: str):
-        entry = current()
-        if entry is None:
-            return original(command)
-        return _legacy_route_projection(entry)
-
-    runtime._brain_legacy_route = original
-    runtime.route = guarded
-    runtime._brain_route_guard_installed = True
-
-
-def _has_pending(entry: EntryResult, field: str) -> bool:
-    return any(
-        ref.source == "session_state" and ref.id == field
-        for ref in entry.active_context.pending_references
-    )
-
-
-def _use_existing_handler(entry: EntryResult) -> bool:
-    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
-        return True
-    semantic = entry.understanding
-    if semantic is None:
-        return False
-    if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
-        return True
-    if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(
-        row.kind == "photo" for row in semantic.references
-    ):
-        return True
-    if semantic.request_kind is RequestKind.CAPABILITY:
-        # An unrelated open-ended pending pocket must never steal a new capability request.
-        if any(_has_pending(entry, field) for field in ("pending_weather_location", "pending_request", "pending_msg")):
-            return False
-        return True
-    return False
-
-
-def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
-    """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
-    if _runtime_owner(runtime) != entry.owner:
-        raise ValueError("Core handoff owner eşleşmiyor.")
-    question = clarification(entry)
-    if question is not None:
-        return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
-    if not callable(handler):
-        raise ValueError("Core handler callable olmalı.")
-    _install_route_guard(runtime)
-    with bind(entry):
-        if _use_existing_handler(entry):
-            output = handler(command)
-        else:
-            semantic = entry.understanding
-            if semantic is not None and semantic.request_kind is RequestKind.CONTEXT_CONTROL:
-                output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
-            else:
-                from modules.engine_intents import dispatch
-                output = dispatch(runtime, "chat", {}, command, command.casefold())
-    job_id = _correlated_job_id(entry)
-    return output, feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED"), job_id
-
-
 def execution_metadata(owner: str) -> dict[str, object] | None:
     entry = current()
     if entry is None:
@@ -437,13 +330,137 @@ def execution_metadata(owner: str) -> dict[str, object] | None:
     }
 
 
+def _correlated_job_id(entry: EntryResult) -> str | None:
+    try:
+        from modules import goal_executor
+        row = goal_executor.latest(entry.owner)
+    except Exception:
+        return None
+    if not isinstance(row, dict):
+        return None
+    meta = row.get("brain")
+    if not isinstance(meta, dict) or meta.get("request_id") != entry.request_id:
+        return None
+    ident = row.get("id")
+    return str(ident) if ident else None
+
+
+def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
+    """Build a legacy-dispatch-shaped result without invoking the legacy classifier."""
+    question = clarification(entry)
+    if question is not None:
+        return {"intent": "clarify", "args": {"question": question}}
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return {"intent": "clarify", "args": {"question": "Bounded komut Core handler tarafından işlenemedi; işlem başlatılmadı."}}
+    semantic = entry.understanding
+    if semantic is None:
+        return {"intent": "clarify", "args": {"question": "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."}}
+    if semantic.request_kind is RequestKind.CAPABILITY:
+        proposal = core_proposal(entry)
+        if proposal["manifest_capability_id"] is None:
+            return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
+        return {"intent": "task", "args": {}}
+    return {"intent": "chat", "args": {}}
+
+
+def _install_route_guard(runtime: Any) -> None:
+    if getattr(runtime, "_brain_route_guard_installed", False):
+        return
+    original = getattr(runtime, "route", None)
+    if not callable(original):
+        return
+    def guarded(command: str):
+        entry = current()
+        return original(command) if entry is None else _legacy_route_projection(entry)
+    runtime._brain_legacy_route = original
+    runtime.route = guarded
+    runtime._brain_route_guard_installed = True
+
+
+def _install_job_guard() -> None:
+    from modules import job_front
+    if getattr(job_front, "_brain_gate_guard_installed", False):
+        return
+    original = job_front.route
+    def guarded(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False):
+        canonical = matched_protocol("job.resume", "job.cancel")
+        return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
+    job_front._brain_legacy_route = original
+    job_front.route = guarded
+    job_front._brain_gate_guard_installed = True
+
+
+def _install_goal_save_guard() -> None:
+    """Attach metadata only to ExecutionRecord payloads; GoalState remains lean."""
+    from modules import goal_executor
+    if getattr(goal_executor, "_brain_save_guard_installed", False):
+        return
+    original = goal_executor._save
+    def guarded(job):
+        entry = current()
+        if entry is not None and isinstance(job, dict) and job.get("owner") == entry.owner:
+            job["brain"] = execution_metadata(entry.owner)
+        return original(job)
+    goal_executor._brain_legacy_save = original
+    goal_executor._save = guarded
+    goal_executor._brain_save_guard_installed = True
+
+
+def _install_core_guards(runtime: Any) -> None:
+    _install_route_guard(runtime)
+    _install_job_guard()
+    _install_goal_save_guard()
+
+
+def _has_pending(entry: EntryResult, field: str) -> bool:
+    return any(ref.source == "session_state" and ref.id == field for ref in entry.active_context.pending_references)
+
+
+def _use_existing_handler(entry: EntryResult) -> bool:
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return True
+    semantic = entry.understanding
+    if semantic is None:
+        return False
+    if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+        return True
+    if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references):
+        return True
+    if semantic.request_kind is RequestKind.CAPABILITY:
+        if any(_has_pending(entry, field) for field in ("pending_weather_location", "pending_request", "pending_msg")):
+            return False
+        return True
+    return False
+
+
+def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
+    """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
+    if _runtime_owner(runtime) != entry.owner:
+        raise ValueError("Core handoff owner eşleşmiyor.")
+    question = clarification(entry)
+    if question is not None:
+        return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
+    if not callable(handler):
+        raise ValueError("Core handler callable olmalı.")
+    _install_core_guards(runtime)
+    with bind(entry):
+        if _use_existing_handler(entry):
+            output = handler(command)
+        elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
+            output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
+        else:
+            from modules.engine_intents import dispatch
+            output = dispatch(runtime, "chat", {}, command, command.casefold())
+    job_id = _correlated_job_id(entry)
+    return output, feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED"), job_id
+
+
 def matched_protocol(*protocols: str) -> bool:
     entry = current()
     return bool(entry is not None and entry.state_gate.matched and entry.state_gate.protocol in protocols)
 
 
 def open_pending_answer(entry: EntryResult, field: str) -> bool:
-    """Only let legacy open-ended pockets consume when canonical semantics supports it."""
     if not isinstance(entry, EntryResult):
         return False
     if entry.state_gate.matched:
@@ -462,14 +479,11 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if field == "pending_weather_location":
         return semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
     if field == "pending_photo":
-        return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(
-            row.kind == "photo" for row in semantic.references
-        )
+        return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references)
     return False
 
 
 def canonical_fallback(runtime: Any, command: str, cmd_lower: str) -> str:
-    """Explicit no-second-classifier fallback for callers that need a string result."""
     entry = current()
     if entry is None:
         raise RuntimeError("Canonical fallback yalnız bound Brain request için kullanılabilir.")
