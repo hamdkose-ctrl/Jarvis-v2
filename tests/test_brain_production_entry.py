@@ -58,12 +58,24 @@ def understanding(*, owner: str = OWNER, request_id: str = RID,
     )
 
 
+def entry(module, *, semantic=None, active=None, state=None, fast=None):
+    return module.EntryResult(
+        owner=OWNER,
+        request_id=RID,
+        source="yazı",
+        text="istek",
+        active_context=active or context(),
+        state_gate=state or GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
+        fast_gate=fast or GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
+        candidates=(),
+        references=(),
+        understanding=semantic or understanding(),
+    )
+
+
 class BrainProductionEntryTests(unittest.TestCase):
     def module(self):
-        try:
-            return importlib.import_module("modules.brain_entry")
-        except ModuleNotFoundError:
-            self.fail("modules.brain_entry production wiring henüz yok")
+        return importlib.import_module("modules.brain_entry")
 
     def runtime(self, owner: str = OWNER):
         return SimpleNamespace(
@@ -74,13 +86,15 @@ class BrainProductionEntryTests(unittest.TestCase):
             event_log=[],
         )
 
-    def test_text_command_runs_brain_after_request_activation_before_core_handler(self):
+    def test_text_command_runs_brain_after_request_activation_before_core_handoff(self):
         source = inspect.getsource(engine_loop.main)
-        activate = source.index("requests_state.activate")
+        command = source.index("_, cmd, source")
+        activate = source.index("requests_state.activate", command)
         brain = source.index("brain_entry.prepare", activate)
-        handler = source.index("runtime.handle(cmd)", brain)
+        handoff = source.index("brain_entry.handoff", brain)
+        self.assertLess(command, activate)
         self.assertLess(activate, brain)
-        self.assertLess(brain, handler)
+        self.assertLess(brain, handoff)
 
     def test_audio_stt_handoff_preserves_same_rid_for_shared_text_entry(self):
         events = queue.Queue()
@@ -88,7 +102,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         runtime = SimpleNamespace(
             slugify=lambda value: value.casefold(),
             pc_profile=lambda: SimpleNamespace(name="Hamdi"),
-            requests_state=SimpleNamespace(is_cancelled=lambda *args: False, activate=activation),
+            requests_state=SimpleNamespace(is_cancelled=lambda *args: False, activate=activation, Cancelled=RuntimeError),
             as_user=lambda user: nullcontext(),
             llm_transcribe=Mock(return_value="notlarımı göster"),
             emit=Mock(),
@@ -96,6 +110,8 @@ class BrainProductionEntryTests(unittest.TestCase):
             pause_listening=SimpleNamespace(clear=Mock()),
             richtext=SimpleNamespace(speakable=lambda text: text),
             submit=Mock(),
+            privacy=SimpleNamespace(audit=Mock()),
+            os=SimpleNamespace(remove=Mock()),
         )
         self.assertTrue(engine_loop._queued_audio(runtime, ("audio", "clip.wav", "telefon", "Hamdi", RID)))
         self.assertEqual(events.get_nowait(), ("command", "notlarımı göster", "telefon", "Hamdi", RID))
@@ -122,6 +138,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         brain = source.index("brain_entry.prepare", activate)
         self.assertLess(photo, activate)
         self.assertLess(activate, brain)
+        self.assertIn("request_id=rid", source[brain:brain + 400])
 
     def test_prepare_owner_mismatch_fails_closed(self):
         module = self.module()
@@ -144,9 +161,9 @@ class BrainProductionEntryTests(unittest.TestCase):
              patch.object(module, "exact_state_gate", side_effect=lambda **k: (order.append("state") or hit)), \
              patch.object(module, "deterministic_fast_gate", side_effect=lambda **k: (order.append("fast") or None)), \
              patch.object(module, "understand", side_effect=lambda **k: (order.append("understanding") or understanding())):
-            entry = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="devam", source="yazı")
+            result = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="devam", source="yazı")
         self.assertEqual(order, ["context", "state"])
-        self.assertTrue(entry.state_gate.matched)
+        self.assertTrue(result.state_gate.matched)
 
     def test_fast_gate_runs_before_understanding_and_short_circuits_semantics(self):
         module = self.module()
@@ -158,9 +175,9 @@ class BrainProductionEntryTests(unittest.TestCase):
              patch.object(module, "exact_state_gate", side_effect=lambda **k: (order.append("state") or state_miss)), \
              patch.object(module, "deterministic_fast_gate", side_effect=lambda **k: (order.append("fast") or fast_hit)), \
              patch.object(module, "understand", side_effect=lambda **k: (order.append("understanding") or understanding())):
-            entry = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="saat kaç", source="yazı")
+            result = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="saat kaç", source="yazı")
         self.assertEqual(order, ["state", "fast"])
-        self.assertTrue(entry.fast_gate.matched)
+        self.assertTrue(result.fast_gate.matched)
 
     def test_state_and_fast_miss_reach_candidate_reference_understanding(self):
         module = self.module()
@@ -168,71 +185,99 @@ class BrainProductionEntryTests(unittest.TestCase):
         miss_state = GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH")
         miss_fast = GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH")
         candidate = ContextReference(id="n1", kind="note", source="profile.items", owner=OWNER, provenance={"text": "Pompa"})
-        result = understanding(kind=RequestKind.CAPABILITY, hint="notes.read")
+        semantic = understanding(kind=RequestKind.CAPABILITY, hint="notes.read")
         with patch.object(module, "_build_context", return_value=context()), \
              patch.object(module, "_state_refs", return_value=()), \
              patch.object(module, "exact_state_gate", side_effect=lambda **k: (order.append("state") or miss_state)), \
              patch.object(module, "deterministic_fast_gate", side_effect=lambda **k: (order.append("fast") or miss_fast)), \
              patch.object(module, "build_candidates", side_effect=lambda **k: (order.append("candidates") or (candidate,))), \
              patch.object(module, "resolve_references", side_effect=lambda **k: (order.append("references") or ())), \
-             patch.object(module, "understand", side_effect=lambda **k: (order.append("understanding") or result)):
-            entry = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="notlarımı göster", source="yazı")
+             patch.object(module, "understand", side_effect=lambda **k: (order.append("understanding") or semantic)):
+            result = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="notlarımı göster", source="yazı")
         self.assertEqual(order, ["state", "fast", "candidates", "references", "understanding"])
-        self.assertIs(entry.understanding, result)
+        self.assertIs(result.understanding, semantic)
 
     def test_needs_input_short_circuits_core_handler_and_worker_effects(self):
         module = self.module()
-        entry = module.EntryResult(
-            owner=OWNER, request_id=RID, source="yazı", text="onu aç",
-            active_context=context(),
-            state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
-            fast_gate=GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
-            candidates=(), references=(),
-            understanding=understanding(kind=RequestKind.CLARIFY, needs_input=True, ambiguities=("multiple target references",)),
-        )
+        result = entry(module, semantic=understanding(
+            kind=RequestKind.CLARIFY, needs_input=True, ambiguities=("multiple target references",)
+        ))
         handler = Mock(side_effect=AssertionError("effect/worker çalışmamalı"))
-        output, feedback, job_id = module.handoff(self.runtime(), entry, handler, "onu aç")
+        output, brain_feedback, job_id = module.handoff(self.runtime(), result, handler, "onu aç")
         handler.assert_not_called()
         self.assertIn("netleştir", output.casefold())
-        self.assertEqual(feedback.request_id, RID)
+        self.assertEqual(brain_feedback.request_id, RID)
         self.assertIsNone(job_id)
 
     def test_capability_hint_is_advisory_and_never_authority(self):
         module = self.module()
-        entry = module.EntryResult(
-            owner=OWNER, request_id=RID, source="yazı", text="notlarımı göster",
-            active_context=context(),
-            state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
-            fast_gate=GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
-            candidates=(), references=(), understanding=understanding(kind=RequestKind.CAPABILITY, hint="notes.read"),
-        )
-        proposal = module.core_proposal(entry)
+        result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY, hint="notes.read"))
+        proposal = module.core_proposal(result)
         self.assertFalse(_RESERVED.intersection(proposal))
         self.assertEqual(proposal["capability_hint"], "notes.read")
         self.assertIsNone(proposal["manifest_capability_id"])
 
     def test_canonical_request_does_not_call_legacy_semantic_classifier_twice(self):
         module = self.module()
-        source = inspect.getsource(importlib.import_module("modules.engine_commands").handle)
-        guard = source.index("brain_entry.current")
-        legacy = source.index("runtime.route(command)")
-        self.assertLess(guard, legacy)
-        self.assertIn("canonical_fallback", source[guard:legacy])
+        legacy = Mock(return_value={"intent": "legacy", "args": {}})
+        runtime = self.runtime()
+        runtime.route = legacy
+        module._install_route_guard(runtime)
+        result = entry(module, semantic=understanding())
+        with module.bind(result):
+            routed = runtime.route("merhaba")
+        self.assertEqual(routed["intent"], "chat")
+        legacy.assert_not_called()
+        self.assertEqual(runtime.route("legacy request")["intent"], "legacy")
+        legacy.assert_called_once_with("legacy request")
 
     def test_feedback_and_core_handoff_keep_same_request_identity(self):
         module = self.module()
-        entry = module.EntryResult(
-            owner=OWNER, request_id=RID, source="yazı", text="merhaba", active_context=context(),
-            state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
-            fast_gate=GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
-            candidates=(), references=(), understanding=understanding(),
-        )
-        handler = Mock(return_value="Merhaba")
-        output, feedback, job_id = module.handoff(self.runtime(), entry, handler, "merhaba")
-        self.assertEqual(output, "Merhaba")
-        self.assertEqual(feedback.owner, OWNER)
-        self.assertEqual(feedback.request_id, RID)
+        result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY))
+        handler = Mock(return_value="Core sonucu")
+        with patch.object(module, "_install_core_guards"), patch.object(module, "_correlated_job_id", return_value=None):
+            output, brain_feedback, job_id = module.handoff(self.runtime(), result, handler, "işlem")
+        handler.assert_called_once_with("işlem")
+        self.assertEqual(output, "Core sonucu")
+        self.assertEqual(brain_feedback.owner, OWNER)
+        self.assertEqual(brain_feedback.request_id, RID)
         self.assertIsNone(job_id)
+
+    def test_execution_metadata_uses_same_rid_and_has_no_authority(self):
+        module = self.module()
+        result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY, hint="files.read"))
+        with module.bind(result):
+            metadata = module.execution_metadata(OWNER)
+        self.assertEqual(metadata["request_id"], RID)
+        self.assertFalse(_RESERVED.intersection(metadata))
+
+    def test_goal_execution_save_guard_adds_metadata_not_goal_authority(self):
+        module = self.module()
+        from modules import goal_executor
+        result = entry(module, semantic=understanding(kind=RequestKind.CAPABILITY))
+        original = goal_executor._save
+        marker = Mock()
+        had_flag = getattr(goal_executor, "_brain_save_guard_installed", False)
+        old_flag = getattr(goal_executor, "_brain_gate_guard_installed", None)
+        try:
+            if hasattr(goal_executor, "_brain_save_guard_installed"):
+                delattr(goal_executor, "_brain_save_guard_installed")
+            goal_executor._save = marker
+            module._install_goal_save_guard()
+            job = {"id": "0" * 16, "owner": OWNER, "request": "x", "state": "running", "goals": [], "steps": [], "outputs": {}}
+            with module.bind(result):
+                goal_executor._save(job)
+            self.assertEqual(job["brain"]["request_id"], RID)
+            self.assertFalse(_RESERVED.intersection(job["brain"]))
+            marker.assert_called_once_with(job)
+        finally:
+            goal_executor._save = original
+            if hasattr(goal_executor, "_brain_save_guard_installed"):
+                delattr(goal_executor, "_brain_save_guard_installed")
+            if had_flag:
+                goal_executor._brain_save_guard_installed = True
+            if old_flag is not None:
+                goal_executor._brain_gate_guard_installed = old_flag
 
     def test_photo_artifact_cannot_cross_owner(self):
         module = self.module()
@@ -251,25 +296,19 @@ class BrainProductionEntryTests(unittest.TestCase):
             provenance={"state": "incomplete", "updated": 1},
         )
         active = context(pending=(weather,))
-        with patch.object(module, "_build_context", return_value=active), \
-             patch.object(module, "_state_refs", return_value=(job,)):
-            entry = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="devam", source="yazı")
-        self.assertTrue(entry.state_gate.matched)
-        self.assertEqual(entry.state_gate.protocol, "job.resume")
+        with patch.object(module, "_build_context", return_value=active), patch.object(module, "_state_refs", return_value=(job,)):
+            result = module.prepare(self.runtime(), owner=OWNER, request_id=RID, text="devam", source="yazı")
+        self.assertTrue(result.state_gate.matched)
+        self.assertEqual(result.state_gate.protocol, "job.resume")
 
     def test_topic_change_and_correction_are_not_open_pending_consumption(self):
         module = self.module()
         for relation in (ConversationRelation.TOPIC_CHANGE, ConversationRelation.CORRECTION):
             with self.subTest(relation=relation):
-                entry = module.EntryResult(
-                    owner=OWNER, request_id=RID, source="yazı", text="başka konu", active_context=context(),
-                    state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
-                    fast_gate=GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
-                    candidates=(), references=(), understanding=understanding(relation=relation),
-                )
-                self.assertFalse(module.open_pending_answer(entry, "pending_weather_location"))
-                self.assertFalse(module.open_pending_answer(entry, "pending_msg"))
-                self.assertFalse(module.open_pending_answer(entry, "pending_photo"))
+                result = entry(module, semantic=understanding(relation=relation))
+                self.assertFalse(module.open_pending_answer(result, "pending_weather_location"))
+                self.assertFalse(module.open_pending_answer(result, "pending_msg"))
+                self.assertFalse(module.open_pending_answer(result, "pending_photo"))
 
     def test_fast_gate_suffix_regression_stays_closed(self):
         result = deterministic_fast_gate(
@@ -280,16 +319,11 @@ class BrainProductionEntryTests(unittest.TestCase):
 
     def test_entry_and_feedback_contracts_never_expose_authority_fields(self):
         module = self.module()
-        entry = module.EntryResult(
-            owner=OWNER, request_id=RID, source="yazı", text="merhaba", active_context=context(),
-            state_gate=GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH"),
-            fast_gate=GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH"),
-            candidates=(), references=(), understanding=understanding(),
-        )
-        self.assertFalse(_RESERVED.intersection(entry.to_dict()))
-        feedback = module.feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
-        self.assertEqual(feedback.request_id, RID)
-        self.assertFalse(_RESERVED.intersection(feedback.to_dict()))
+        result = entry(module)
+        self.assertFalse(_RESERVED.intersection(result.to_dict()))
+        brain_feedback = module.feedback(result, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
+        self.assertEqual(brain_feedback.request_id, RID)
+        self.assertFalse(_RESERVED.intersection(brain_feedback.to_dict()))
 
 
 if __name__ == "__main__":
