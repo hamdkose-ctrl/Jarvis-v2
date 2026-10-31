@@ -1,5 +1,5 @@
 {
- "aciklama": "PR7 Closeout-B kabul havuzunun elle derlenen kritik kısmı. Kaynak: brain_pr1_7_kapanis_analizi.md (kapanış maddeleri), Hamdi'nin '70 yap' kabul kriterleri, Brain gate protokolleri ve adversarial yetki denemeleri. 'expect' sağlanması beklenen, 'forbid' asla görülmemesi gereken canonical karar alanlarıdır; kriteri olmayan senaryo yalnız baseline'a göre 'aynı' kalmalıdır. last_property kurulumu Closeout-A'nın alan adına (session.last_property {property, owner, ts}) göre A merge olduktan sonra gerekirse güncellenir. Hamdi'nin 160 adversarial senaryo dosyası aynı şemayla --pool ile eklenir.",
+ "aciklama": "PR7 Closeout-B kabul havuzunun elle derlenen kritik kısmı. Kaynak: brain_pr1_7_kapanis_analizi.md (kapanış maddeleri), Hamdi'nin '70 yap' kabul kriterleri, Brain gate protokolleri ve adversarial yetki denemeleri. 'expect' sağlanması beklenen, 'forbid' asla görülmemesi gereken canonical karar alanlarıdır; kriteri olmayan senaryo yalnız baseline'a göre 'aynı' kalmalıdır. last_property kurulumu Closeout-A'nın SessionState alanlarını (last_property + last_property_at; *_age_seconds yardımcısı) kullanır. Hamdi'nin 160 adversarial senaryo dosyası aynı şemayla --pool ile eklenir.",
  "senaryolar": [
   {
    "id": "k-70-bos",
@@ -17,11 +17,8 @@
    "text": "70 yap",
    "setup": {
     "session": {
-     "last_property": {
-      "property": "volume",
-      "owner": "hamdi",
-      "age_seconds": 30
-     }
+     "last_property": "volume",
+     "last_property_age_seconds": 30
     }
    },
    "expect": {
@@ -41,11 +38,8 @@
    "text": "70 yap",
    "setup": {
     "session": {
-     "last_property": {
-      "property": "brightness",
-      "owner": "hamdi",
-      "age_seconds": 30
-     }
+     "last_property": "brightness",
+     "last_property_age_seconds": 30
     }
    },
    "expect": {
@@ -66,11 +60,8 @@
    "setup": {
     "foreign_sessions": {
      "hasan": {
-      "last_property": {
-       "property": "volume",
-       "owner": "hasan",
-       "age_seconds": 30
-      }
+      "last_property": "volume",
+      "last_property_age_seconds": 30
      }
     }
    },
@@ -86,11 +77,8 @@
    "text": "70 yap",
    "setup": {
     "session": {
-     "last_property": {
-      "property": "volume",
-      "owner": "hamdi",
-      "age_seconds": 604800
-     }
+     "last_property": "volume",
+     "last_property_age_seconds": 3600
     }
    },
    "expect": {
@@ -105,11 +93,8 @@
    "text": "70 yap",
    "setup": {
     "session": {
-     "last_property": {
-      "property": "sicaklik",
-      "owner": "hamdi",
-      "age_seconds": 5
-     }
+     "last_property": "sicaklik",
+     "last_property_age_seconds": 5
     }
    },
    "expect": {
@@ -124,11 +109,8 @@
    "text": "yüzde 70 yap",
    "setup": {
     "session": {
-     "last_property": {
-      "property": "volume",
-      "owner": "hamdi",
-      "age_seconds": 30
-     }
+     "last_property": "volume",
+     "last_property_age_seconds": 30
     }
    },
    "expect": {

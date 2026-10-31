@@ -106,6 +106,15 @@ class RunTests(unittest.TestCase):
         self.assertEqual(result["decision"]["protocol"], "session.pending_level.select")
         self.assertEqual(result["info"]["selection"], "volume")
 
+    def test_last_property_setup_reaches_active_context_with_owner_and_ttl_rules(self):
+        def seen(setup):
+            return harness.run_scenario({"id": "t-lp", "text": "70 yap", "setup": setup})["info"]["context_last_property"]
+        self.assertEqual(seen({"session": {"last_property": "volume", "last_property_age_seconds": 30}}), "volume")
+        self.assertIsNone(seen({}))
+        self.assertIsNone(seen({"session": {"last_property": "volume", "last_property_age_seconds": 3600}}))
+        self.assertIsNone(seen({"session": {"last_property": "sicaklik", "last_property_age_seconds": 5}}))
+        self.assertIsNone(seen({"foreign_sessions": {"hasan": {"last_property": "volume", "last_property_age_seconds": 5}}}))
+
     def test_capture_is_deterministic_and_keeps_errors_per_scenario(self):
         pool = [{"id": "a", "text": "saat kaç"}, {"id": "b", "text": "notlarımı göster"}]
         first = harness.capture(pool)["results"]

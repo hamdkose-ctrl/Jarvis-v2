@@ -204,15 +204,27 @@ def _timed(value: Any) -> Any:
     return value
 
 
+def _session_fields(fields: Mapping[str, Any]) -> dict:
+    """``<alan>_age_seconds`` anahtarını ``<alan>_at`` zaman damgasına çevirir (last_property_at gibi)."""
+    out = {}
+    for key, value in fields.items():
+        if key.endswith("_age_seconds"):
+            out[key[: -len("_age_seconds")] + "_at"] = time.time() - float(value)
+        else:
+            out[key] = _timed(value)
+    return out
+
+
 def _runtime(setup: Mapping[str, Any], owner: str):
-    states = {owner: _session_state({k: _timed(v) for k, v in dict(setup.get("session") or {}).items()})}
+    states = {owner: _session_state(_session_fields(dict(setup.get("session") or {})))}
     for foreign_owner, fields in dict(setup.get("foreign_sessions") or {}).items():
-        state = _session_state({k: _timed(v) for k, v in dict(fields).items()})
+        state = _session_state(_session_fields(dict(fields)))
         states[str(foreign_owner)] = state
     photo = setup.get("pending_photo")
     return SimpleNamespace(
         profile=SimpleNamespace(slug=owner, name=owner.title(), data=dict(setup.get("profile") or {})),
         _sessions=SimpleNamespace(_states=states, _lock=None),
+        _session=lambda: states[owner],
         flags={"sleep": bool(setup.get("sleeping"))},
         _pending_photo={owner: dict(photo)} if isinstance(photo, Mapping) else {},
         event_log=[],
@@ -374,6 +386,8 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         "ambiguities": list(semantic.ambiguities) if semantic is not None else [],
         "reason_codes": list(semantic.reason_codes) if semantic is not None else [],
         "references": _ref_summary(entry.references),
+        "context_last_property": next((ref.provenance.get("value") for ref in entry.active_context.recent_references
+                                       if ref.id == "last_property"), None),
         "candidate_count": len(entry.candidates),
         "clarification": output if handoff_path in {"clarify", "context_control"} else None,
         "dispatch_intents": [intent for intent, _ in dispatch_calls],
