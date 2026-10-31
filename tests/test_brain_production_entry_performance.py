@@ -108,6 +108,26 @@ class BrainProductionEntryPerformanceTests(unittest.TestCase):
         self.assertTrue(any(ref.kind == "file" and ref.id == row["path"] for ref in result.candidates))
         self.assertTrue(any(ref.kind == "file" and ref.id == row["path"] for ref in result.references))
 
+    def test_unrelated_active_file_does_not_suppress_needed_file_discovery(self):
+        active_file = ContextReference(
+            id="C:/Users/Hamdi/Documents/eski.docx",
+            kind="file",
+            source="active_context",
+            owner=OWNER,
+            provenance={"path": "C:/Users/Hamdi/Documents/eski.docx", "name": "eski.docx"},
+        )
+        wanted = {
+            "path": "C:/Users/Hamdi/Documents/rapor.docx",
+            "name": "rapor.docx",
+            "ext": "docx",
+            "mtime": 10.0,
+        }
+        with _file_cache(None, 0.0), \
+             patch.object(nxapi, "_scan_files", return_value=[wanted]) as scan:
+            result = _prepare("rapor.docx dosyasını bul", active=_context(recent=(active_file,)))
+        scan.assert_called_once_with()
+        self.assertTrue(any(ref.id == wanted["path"] for ref in result.references))
+
     def test_fresh_cached_file_inventory_keeps_fast_file_candidate_behavior(self):
         row = {
             "path": "C:/Users/Hamdi/Documents/rapor.docx",
