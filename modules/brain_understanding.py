@@ -389,6 +389,30 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+RESEARCH_MAX_QUERY = 1000
+
+
+_RESEARCH_WEB_CUE = re.compile(r"(?<!\w)(?:internet\w*|web\w*|google\w*|haber\w*|araştır\w*|arastir\w*)")
+_RESEARCH_NOT_PUBLIC = re.compile(
+    r"(?<!\w)(?:bu|bunu|bunun|şu|şunu|onu|mail\w*|e-?posta\w*|dosya\w*|belge\w*|not\w*|takvim\w*|"
+    r"sayfa\w*|site\w*|izleme|listem\w*|hesab\w*|gelen)(?!\w)")
+
+
+def _research_arguments(original: str, normalized: str) -> dict[str, object]:
+    """Research proposal ONLY for an explicit public-web research ask; the query is the user's own request.
+
+    'bul/ara' sentences about mail, files, a page, notes or a deictic target ('bunu ara') are not public
+    research and stay with their legacy owner. Route is always PRIVATE: Brain never claims PUBLIC;
+    PUBLIC provenance is minted only by source producers (privacy_sources.mark_public) and enforced by
+    the Router (llm.research)."""
+    query = original.strip()
+    if not query or len(query) > RESEARCH_MAX_QUERY:
+        return {}
+    if _RESEARCH_WEB_CUE.search(normalized) is None or _RESEARCH_NOT_PUBLIC.search(normalized) is not None:
+        return {}
+    return {"research": {"query": query, "route": "PRIVATE"}}
+
+
 _NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
 _NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
 _NOTES_SHOW_VERBS = ("göster", "goster")
@@ -701,6 +725,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == "research.search":
+        arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":
         arguments = {**arguments, **_notes_arguments(normalized, references)}
     if level is not None:

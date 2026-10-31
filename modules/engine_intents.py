@@ -131,6 +131,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "task":
             from modules import goal_executor
             return goal_executor.run(runtime,command)
+        case "research":
+            # Core validated the query (user's own request, route PRIVATE); execution stays the goal executor.
+            from modules import goal_executor
+            return goal_executor.run(runtime, command)
         case "desktop_task":
             target, goal = str(a.get('target') or '').strip(), str(a.get('goal') or '').strip()
             if not target or not goal or '|' in target or '|' in goal:

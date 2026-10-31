@@ -636,6 +636,8 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     if _has_open_pending(entry, ignore=ignore):
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    if plan is not None and plan[0] == "research" and plan[1]["query"] != entry.text.strip():
+        return None   # the query is the user's own request, never rewritten text
     if plan is not None and plan[0] == "notes_read" and plan[1].get("which") == "one":
         # The id must be one of the note references Brain resolved for THIS request, not any string.
         if plan[1]["id"] not in {ref.id for ref in semantic.references if ref.kind == "note"}:
