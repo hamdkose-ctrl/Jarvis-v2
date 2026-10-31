@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
+from modules.brain_actions import ends_with_action
 from modules.brain_contracts import (
     ActiveContext,
     Confidence,
@@ -401,6 +402,7 @@ _LEVEL_EXPLICIT = re.compile(
 )
 _LEVEL_BARE = re.compile(r"(?:yüzde\s*(\d{1,3})(?:\s+" + _LEVEL_VERBS + r")?|(\d{1,3})\s+" + _LEVEL_VERBS + r")")
 LEVEL_CAPABILITY = "pc.level.set"
+ACTION_REQUEST_CODE = "ENDS_WITH_ACTION"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -590,6 +592,8 @@ def understand(
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
         reason_codes.append("LEVEL_REQUEST")
+    if ends_with_action(text):
+        reason_codes.append(ACTION_REQUEST_CODE)
 
     confidence = Confidence.MEDIUM
     if relation in {

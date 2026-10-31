@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from modules import brain_context, brain_core_map, capability_manifest
-from modules.brain_understanding import LEVEL_CAPABILITY
+from modules.brain_understanding import ACTION_REQUEST_CODE, LEVEL_CAPABILITY
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -676,20 +676,30 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     return output, result, job_id
 
 
-def goal_question_superseded() -> bool | None:
+def goal_question_superseded(runtime: Any = None) -> bool | None:
     """Brain's decision whether this request replaces a goal's open question instead of answering it.
 
-    None when the request did not come through the canonical entry (Live): the caller keeps its
-    legacy rule until PR9. A new capability, a context-control request or a topic change supersedes
-    the question; any other utterance is the answer."""
+    None when the request did not come through the canonical entry (Live) or when this call is a
+    nested step (``önce X sonra Y`` / macro action): the bound entry describes the whole utterance,
+    not the step, so the caller keeps its legacy rule until PR9. Otherwise a new capability, a
+    context-control request, a topic change or an utterance ending with an action verb
+    (``ENDS_WITH_ACTION``, rule owned by brain_actions) supersedes the question."""
     entry = current()
     if entry is None:
         return None
+    if runtime is not None:
+        try:
+            state = runtime._session()
+            if getattr(state, "_in_multi", False) or getattr(state, "_in_macro", False):
+                return None
+        except Exception:
+            _record_failure("modules/brain_entry.py:goal_question_nested")
     semantic = entry.understanding
     if semantic is None:
         return False
     return (semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL}
-            or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE)
+            or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE
+            or ACTION_REQUEST_CODE in semantic.reason_codes)
 
 
 def matched_protocol(*protocols: str) -> bool:

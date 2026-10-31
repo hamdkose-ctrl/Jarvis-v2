@@ -886,7 +886,7 @@ def handle(runtime,command):
         return run(runtime,explicit[1].strip())
     if job and job['state']=='question' and age(job)<=QUESTION_SECONDS:
         from modules import brain_entry
-        superseded=brain_entry.goal_question_superseded()
+        superseded=brain_entry.goal_question_superseded(runtime)
         if superseded is None:
             from modules.work_modes import ends_with_action  # Brain'e girmeyen tek çağıran (Live): PR9 caller-zero
             superseded=ends_with_action(command)

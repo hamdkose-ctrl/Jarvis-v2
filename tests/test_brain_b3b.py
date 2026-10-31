@@ -7,49 +7,88 @@ from unittest.mock import patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 import test_brain_production_entry as fx
-from modules import brain_core_map, brain_entry, brain_understanding, goal_executor
+from modules import brain_actions, brain_core_map, brain_entry, brain_understanding, goal_executor, work_modes
 from modules.brain_contracts import ConversationRelation, RequestKind
 
 MODULES = Path(__file__).resolve().parent.parent / "modules"
 
 
+OLD_NEW_SENTENCES = [
+    "devam et", "raporu dosyaya yaz", "masaüstünü düzenle", "kaydet", "bunu araştır", "bunu yap", "bir uygulama yaz",
+    "evet", "tübitak kaynaklarını kullan", "yapay zeka nedir", "yazın tatile nereye gidelim", "bunu nasıl yaparım",
+    "yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl", "sesi 50 yap",
+    "kırmızı olsun", "hayır", "mavi", "excel olarak kaydet", "pdf'e çevir", "dosyayı sil", "chrome'u aç",
+    "notlarımı oku", "hepsi", "ikincisi", "tamam", "olur", "2", "bugün ne yapıyoruz", "kaynakları listele",
+    "raporu gönder", "e-postayı gönderir misin", "bunu kapat", "hava durumunu söyle", "rapor.pdf'i oku",
+    "evet devam et", "hayır iptal", "python ile yaz",
+]
+# Intentional improvements: Understanding sees a new capability the old verb rule could not.
+IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl"}
+
+
+def real_entry(text):
+    semantic = brain_understanding.understand(owner=fx.OWNER, request_id=fx.RID, text=text,
+                                              active_context=fx.context(), candidates=(), references=())
+    return fx.entry(brain_entry, semantic=semantic)
+
+
+def superseded(text, runtime=None):
+    with brain_entry.bind(real_entry(text)):
+        return brain_entry.goal_question_superseded(runtime)
+
+
 class GoalQuestionTests(unittest.TestCase):
-    def handle(self, entry, text="x"):
+    """Real Understanding, no synthetic UnderstandingResult."""
+
+    def test_old_vs_new_table_has_no_regression_and_only_the_listed_improvements(self):
+        self.assertEqual(len(OLD_NEW_SENTENCES), 40)
+        regressions, improvements = [], set()
+        for text in OLD_NEW_SENTENCES:
+            old, new = work_modes.ends_with_action(text), superseded(text)
+            if old and not new:
+                regressions.append(text)
+            if new and not old:
+                improvements.add(text)
+        self.assertEqual(regressions, [])
+        self.assertEqual(improvements, IMPROVED)
+
+    def test_action_rule_is_one_definition_owned_by_brain(self):
+        self.assertIs(work_modes.ends_with_action, brain_actions.ends_with_action)
+        for text in ("raporu dosyaya yaz", "masaüstünü düzenle", "kaydet", "bunu araştır", "bunu yap", "bir uygulama yaz"):
+            self.assertIn(brain_understanding.ACTION_REQUEST_CODE, real_entry(text).understanding.reason_codes, text)
+
+    def handle(self, text, runtime_flags=None):
         job = {"state": "question", "updated": 0}
-        runtime = SimpleNamespace(profile=SimpleNamespace(slug="alice"))
+        state = SimpleNamespace(_in_multi=False, _in_macro=False, **(runtime_flags or {}))
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug="alice"), _session=lambda: state)
         with patch.object(goal_executor, "latest", return_value=job), patch.object(goal_executor, "age", return_value=1), \
              patch.object(goal_executor, "run", return_value="RESUMED") as run, \
              patch.object(goal_executor, "_is_fast_command", return_value=False):
-            if entry is None:
-                with patch("modules.work_modes.ends_with_action", return_value=False) as legacy:
-                    out = goal_executor.handle(runtime, text)
-                    return out, run, legacy
-            with brain_entry.bind(entry):
+            with brain_entry.bind(real_entry(text)):
                 with patch("modules.work_modes.ends_with_action", side_effect=AssertionError("work_modes çağrılmamalı")):
-                    return goal_executor.handle(runtime, text), run, None
+                    return goal_executor.handle(runtime, text), run
 
-    def entry(self, kind, relation=ConversationRelation.NEW_REQUEST):
-        semantic = fx.understanding(kind=kind, relation=relation)
-        return fx.entry(brain_entry, semantic=semantic)
+    def test_goal_question_scenarios_through_goal_executor(self):
+        for text in ("kırmızı olsun", "evet", "tübitak kaynaklarını kullan", "bunu nasıl yaparım"):
+            with self.subTest(answer=text):
+                out, run = self.handle(text)
+                self.assertEqual(out, "RESUMED")
+        for text in ("raporu dosyaya yaz", "masaüstünü düzenle", "kaydet", "bunu araştır", "bunu yap",
+                     "bir uygulama yaz", "yarın hava nasıl olacak"):
+            with self.subTest(new_request=text):
+                out, run = self.handle(text)
+                self.assertIsNone(out)
+                run.assert_not_called()
 
-    def test_plain_answer_resumes_goal_without_work_modes(self):
-        out, run, _ = self.handle(self.entry(RequestKind.CHAT))
-        self.assertEqual(out, "RESUMED")
-        run.assert_called_once()
-
-    def test_new_capability_supersedes_question(self):
-        out, run, _ = self.handle(self.entry(RequestKind.CAPABILITY))
-        self.assertIsNone(out)
-        run.assert_not_called()
-
-    def test_topic_change_supersedes_question(self):
-        out, run, _ = self.handle(self.entry(RequestKind.CHAT, ConversationRelation.TOPIC_CHANGE))
-        self.assertIsNone(out)
+    def test_nested_step_falls_back_to_legacy_rule_not_the_whole_utterance_entry(self):
+        for flag in ("_in_multi", "_in_macro"):
+            state = SimpleNamespace(_in_multi=False, _in_macro=False)
+            setattr(state, flag, True)
+            runtime = SimpleNamespace(_session=lambda s=state: s)
+            self.assertIsNone(superseded("raporu dosyaya yaz", runtime))
 
     def test_without_entry_live_keeps_legacy_rule(self):
-        out, run, legacy = self.handle(None)
-        self.assertEqual(out, "RESUMED")
-        legacy.assert_called_once()
+        self.assertIsNone(brain_entry.goal_question_superseded())
 
 
 class HintOwnershipTests(unittest.TestCase):
@@ -97,7 +136,7 @@ class CallerZeroGuards(unittest.TestCase):
         self.assertEqual(_referencing(r"reference_context\("), {"app_actions.py", "router.py"})
 
     def test_work_modes_only_router_and_live_fallback(self):
-        self.assertEqual(_referencing(r"work_modes"), {"router.py", "goal_executor.py", "freshness.py"})
+        self.assertEqual(_referencing(r"work_modes"), {"router.py", "goal_executor.py", "freshness.py", "brain_actions.py"})
         source = (MODULES / "goal_executor.py").read_text(encoding="utf-8")
         self.assertEqual(source.count("work_modes"), 1)  # the Live-only fallback, behind brain_entry.goal_question_superseded()
 

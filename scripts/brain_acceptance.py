@@ -84,6 +84,7 @@ DECISION_KEYS = (
     "temporal_need",
     "handoff_path",
     "legacy_projection_intent",
+    "goal_question",
 )
 FAILING_VERDICTS = frozenset({"regression", "changed", "error", "missing"})
 _HANDLER_OUTPUT = "<<core-handler>>"
@@ -292,6 +293,13 @@ def _ref_summary(refs: Iterable[Any]) -> list[str]:
     return sorted(f"{ref.kind}:{ref.source}:{ref.id}" for ref in refs)
 
 
+def _goal_question(entry: Any) -> str:
+    """Brain's verdict if this utterance arrived while a goal waited for an answer."""
+    from modules import brain_entry
+    with brain_entry.bind(entry):
+        return "new_request" if brain_entry.goal_question_superseded() else "answer"
+
+
 def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
     """Bir senaryoyu yalıtılmış canonical Brain akışından geçirip kararını döndürür."""
     from modules import brain_candidates, brain_context, brain_entry
@@ -376,6 +384,7 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         "temporal_need": semantic.temporal_need.value if semantic is not None else None,
         "handoff_path": handoff_path,
         "legacy_projection_intent": projection.get("intent") if isinstance(projection, Mapping) else None,
+        "goal_question": _goal_question(entry),
     }
     gate = entry.state_gate if entry.state_gate.matched else entry.fast_gate
     info = {
@@ -455,6 +464,9 @@ def verdict(scenario: Mapping[str, Any], base: Mapping[str, Any] | None, current
     base_decision = base.get("decision")
     if base_decision == cur_decision:
         return {"verdict": "same"}
+    if isinstance(base_decision, Mapping) and isinstance(cur_decision, Mapping) \
+            and base_decision == {k: cur_decision.get(k) for k in base_decision}:
+        return {"verdict": "same"}  # keys added after the baseline was captured do not count as change
     base_status = criteria_status(scenario, base_decision)
     cur_status = criteria_status(scenario, cur_decision)
     lost = sorted(k for k, ok in base_status.items() if ok and not cur_status.get(k))

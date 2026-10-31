@@ -14,6 +14,13 @@ class ActionRuleTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertFalse(work_modes.ends_with_action(text))
 
+    def test_brain_path_gives_the_same_answer_as_the_legacy_rule(self):
+        # Gerçek yol: Understanding -> reason code -> brain_entry.goal_question_superseded (work_modes çağrılmaz).
+        from test_brain_b3b import superseded
+        for text in ('devam et', 'raporu dosyaya yaz', 'masaüstünü düzenle', 'kaydet', 'evet', 'yapay zeka nedir'):
+            with self.subTest(text=text):
+                self.assertEqual(superseded(text), work_modes.ends_with_action(text))
+
     def test_rule_scope_needs_explicit_scope_phrase(self):
         cases = {
             'Haber araştırırken gerçek kaynağı doğrula.': 'research',
