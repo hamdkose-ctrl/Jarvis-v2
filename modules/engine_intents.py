@@ -269,6 +269,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if which == "gmail" or not outlook.installed():
                 return runtime.google_api.unread_mail()
             return "Gmail: " + runtime.google_api.unread_mail() + " İş (Outlook): " + outlook.unread_mail()
+        case "reminder":
+            from modules import main_planner
+            return main_planner.reminder_core(runtime, a, command, cmd_lower)
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)

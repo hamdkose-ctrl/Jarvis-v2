@@ -5,7 +5,11 @@ from modules.diagnostics import record_failure as _record_failure
 import json
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
+
+from modules import reminder_parse
 
 def _plain(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', text).strip(' .,:;!-')
@@ -820,6 +824,43 @@ def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
                 "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
 
+# Brain flow: while Core executes a validated ``reminder`` intent at the planner's precedence slot,
+# the planner must not also create one from raw text. Every other planner branch is unchanged.
+_CORE_OWNS_REMINDER: ContextVar[bool] = ContextVar("jarvis_core_owns_reminder", default=False)
+
+
+@contextmanager
+def core_owns_reminder():
+    token = _CORE_OWNS_REMINDER.set(True)
+    try:
+        yield
+    finally:
+        _CORE_OWNS_REMINDER.reset(token)
+
+
+def reminder_create(runtime, parsed: dict) -> str:
+    """Execute a parsed/validated reminder creation through the existing conflict-confirm pipeline."""
+    if parsed.get('repeat') == 'unknown':
+        return _REPEAT_HELP
+    title, when, repeat = parsed.get('title'), parsed.get('when'), parsed.get('repeat')
+    if not title:
+        return 'Neyi eklememi istersin?'
+    if repeat:
+        return _reminder_or_confirm(runtime, title, when, repeat)
+    if when:
+        return _reminder_or_confirm(runtime, title, when)
+    runtime._session().pending_event_title = title
+    return f"'{title}' için ne zaman? Örneğin 'yarın 10'da'."
+
+
+def reminder_core(runtime, args: dict, command: str, cmd_lower: str) -> str:
+    """Core ``reminder`` intent: edit/snooze words keep their existing planner path, otherwise create."""
+    edited = _edit_reminder(runtime, cmd_lower, runtime.datetime.now())
+    if edited is not None:
+        return edited
+    return reminder_create(runtime, args)
+
+
 def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     """Not defteri ve takvim komutları (kullanıcıya özel)."""
     now = runtime.datetime.now()
@@ -866,25 +907,8 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     edited = _edit_reminder(runtime, cmd_lower, now)
     if edited is not None:
         return edited
-    m = runtime.re.search('\\btakvime\\s+(?:ekle|yaz|not et)\\w*\\s*$', tr) or runtime.re.match('^(?:takvime ekle|takvime not et|takvime yaz|hatırlat|bana hatırlat|bana .*hatırlat|randevu ekle|etkinlik ekle)\\b', tr) or (runtime.re.search('\\bhatırlat\\w*\\b', tr) and runtime.re.search("\\b(yarın|bugün|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar|saat|gün sonra|saat sonra|dakika sonra|her\\s|hergün|hafta\\s*içi|\\d{1,2}[:.]\\d{2}|\\d{1,2}['’]?(?:da|de|ta|te)\\b)", tr))
-    if m:
-        body = runtime.re.sub('^(?:bana\\s+)?(?:takvime (?:ekle|not et|yaz)|hat[ıi]rlat\\w*|randevu ekle|etkinlik ekle)\\s*[:,]?\\s*', '', command, flags=runtime.re.I)
-        body = runtime.re.sub('\\b(?:diye\\s+)?hat[ıi]rlat\\w*\\b|\\b(?:için\\s+)?takvime\\s+(?:ekle|yaz|not et)\\w*', '', body, flags=runtime.re.I)
-        repeat, body = runtime.whenmod.parse_repeat(body)
-        if repeat == 'unknown':
-            return _REPEAT_HELP
-        when, title = runtime.whenmod.parse_when(body, now)
-        title = runtime.re.sub('^(?:günü|gün|günleri)\\s+', '', runtime._plain(title))
-        if not title:
-            return 'Neyi eklememi istersin?'
-        if repeat:
-            hhmm = when[11:16] if when and len(when) > 10 else '09:00'   # saat yoksa tüm gün kaydı gibi 09:00
-            first = runtime.whenmod.next_occurrence(repeat, now, int(hhmm[:2]), int(hhmm[3:]))
-            return _reminder_or_confirm(runtime, title, first.strftime('%Y-%m-%dT%H:%M'), repeat)
-        if when:
-            return _reminder_or_confirm(runtime, title, when)
-        runtime._session().pending_event_title = title
-        return f"'{title}' için ne zaman? Örneğin 'yarın 10'da'."
+    if reminder_parse.is_creation_request(cmd_lower) and not _CORE_OWNS_REMINDER.get():
+        return reminder_create(runtime, reminder_parse.parse(command, now))
     if runtime.re.search('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*', cmd_lower) and (not runtime.re.search('\\b(ekle|yaz|sil|not et)\\b', cmd_lower)):
         day_txt = runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
         if runtime.re.search('\\b(aç|açar mısın|açsana|göster|getir)', cmd_lower) and runtime.google_api._ready() is None:
