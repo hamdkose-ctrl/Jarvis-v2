@@ -1,0 +1,39 @@
+name: PR487 scope fix one-shot
+on:
+  push:
+    branches: [gpt/brain-notes-final-authority]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/brain-notes-final-authority
+          fetch-depth: 0
+      - name: Remove note mutation verbs from global command tokens
+        run: |
+          @'
+          from pathlib import Path
+          p=Path('modules/brain_understanding.py')
+          text=p.read_text(encoding='utf-8')
+          old='''    "sil",\n    "düzelt",\n    "duzelt",\n    "değiştir",\n    "degistir",\n    "güncelle",\n    "guncelle",\n    "gönder",'''
+          new='''    "sil",\n    "gönder",'''
+          if text.count(old) != 1:
+              raise SystemExit(f'global mutation token block expected once, found {text.count(old)}')
+          p.write_text(text.replace(old,new), encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 .pr487_scope_fix.py
+          py -3.13 -X utf8 .pr487_scope_fix.py
+          Remove-Item .pr487_scope_fix.py
+      - name: Commit bounded scope fix and remove workflow
+        run: |
+          git config user.name "jarvis-ci"
+          git config user.email "jarvis-ci@users.noreply.github.com"
+          git add modules/brain_understanding.py
+          git rm .github/workflows/pr487-scope-fix-one-shot.yml
+          git commit -m "fix: keep note mutation verbs note-scoped"
+          git push origin HEAD:gpt/brain-notes-final-authority
