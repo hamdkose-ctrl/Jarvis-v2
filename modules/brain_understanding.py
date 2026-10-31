@@ -381,11 +381,23 @@ _RESEARCH_PRIVATE_TARGET = re.compile(
 )
 
 
+# Sentences another existing handler answers (finance, weather, sports, prayer times) or that only mention a
+# product/app/setting ("internet hızı", "Excel'de ... ara", "Google Drive'da ... bul"): not public research.
+_RESEARCH_OTHER_OWNER = re.compile(
+    r"(?<!\w)(?:altın\w*|altin\w*|dolar\w*|euro\w*|sterlin\w*|kur|kuru\w*|döviz\w*|doviz\w*|bitcoin\w*|btc|kripto\w*|"
+    r"borsa\w*|hisse\w*|faiz\w*|fiyat\w*|enflasyon\w*|parite\w*|"
+    r"hava(?:nın|nin|da|de|yı|yi)?|yağış\w*|yagis\w*|sıcaklık\w*|sicaklik\w*|"
+    r"maç\w*|skor\w*|puan\s+durum\w*|namaz\w*|ezan\w*|imsak|iftar|sahur|"
+    r"excel\w*|word\w*|powerpoint\w*|chrome\w*|edge\w*|firefox\w*|outlook\w*|drive\w*|onedrive\w*|"
+    r"sütun\w*|sutun\w*|hücre\w*|hucre\w*|tablo\w*|geçmiş\w*|gecmis\w*|hız\w*|hiz\w*|kafe\w*|"
+    r"bağlantı\w*|baglanti\w*|wifi|wi-fi|modem\w*)(?!\w)")
+
+
 def _is_explicit_research_request(text: str) -> bool:
     """True only for an explicit public-web research ask; private/deictic targets stay with their owner."""
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return False
-    if _RESEARCH_PRIVATE_TARGET.search(text) is not None:
+    if _RESEARCH_PRIVATE_TARGET.search(text) is not None or _RESEARCH_OTHER_OWNER.search(text) is not None:
         return False
     if _RESEARCH_WEB_CUE.search(text) is None:
         return False

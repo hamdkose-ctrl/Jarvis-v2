@@ -80,8 +80,21 @@ _OTHER_TARGET = re.compile(
 
 
 def non_text_target(command):
-    """True when a short 'çevir' sentence names a non-language target/object; the other capability owns it."""
-    return len(command) < 100 and _OTHER_TARGET.search(lower(command)) is not None
+    """True when a short 'çevir' sentence names a non-language target/object; the other capability owns it.
+
+    An explicit language in the command phrase ("ingilizceye çevir: sessiz kal") makes it text translation.
+    In the "çevir: <metin>" form only the command phrase is inspected, never the user's own text."""
+    if len(command) >= 100:
+        return False
+    found = parts(command)
+    if found is None:
+        return False
+    instruction, inline = found
+    folded = unicodedata.normalize('NFKD', lower(instruction).replace('ı', 'i')).encode('ascii', 'ignore').decode()
+    if any(key in folded for key, _ in _TARGETS):
+        return False
+    started = bool(_START.match(command.strip()))
+    return _OTHER_TARGET.search(lower(instruction if started else command)) is not None
 
 
 def pick_source(request, command, rows: Iterable[Mapping[str, Any]], now=None):

@@ -1121,6 +1121,112 @@
         ]
       },
       "not": "B4b: dil hedefi olmayan 'X'e çevir' (tablo/kod/foto/ekran/pdf) metin çevirisi değildir; eski zincirdeki sahibi cevap verir."
+    },
+    {
+      "id": "b4f-notresearch-1",
+      "group": "arastirma",
+      "text": "altın fiyatını internette bul",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-2",
+      "group": "arastirma",
+      "text": "bitcoin kurunu google'da ara",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-3",
+      "group": "arastirma",
+      "text": "hava durumunu google'da bul",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-4",
+      "group": "arastirma",
+      "text": "euro dolar kurunu internette ara",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-5",
+      "group": "arastirma",
+      "text": "internet hızımı bul",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-6",
+      "group": "arastirma",
+      "text": "internet kafe bul",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-7",
+      "group": "arastirma",
+      "text": "Excel'de haber sütununu ara",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-notresearch-8",
+      "group": "arastirma",
+      "text": "Google Drive'da bütçe tablosunu bul",
+      "forbid": {
+        "handoff_path": [
+          "chat_dispatch"
+        ]
+      },
+      "not": "B4f: başka sahibi olan (finans/hava/spor/namaz) ya da ürün/ayar geçen cümle Core research/task'a gitmez; eski handler cevaplar."
+    },
+    {
+      "id": "b4f-inlinetr-1",
+      "group": "ceviri",
+      "text": "ingilizceye çevir: sessiz kal",
+      "expect": {
+        "capability_hint": "text.translate"
+      },
+      "not": "B4f: satır içi metin hedef kelimesi içerse de çeviridir."
+    },
+    {
+      "id": "b4f-inlinetr-2",
+      "group": "ceviri",
+      "text": "almancaya çevir: bu resim çok güzel",
+      "expect": {
+        "capability_hint": "text.translate"
+      },
+      "not": "B4f: satır içi metin hedef kelimesi içerse de çeviridir."
     }
   ]
 }
