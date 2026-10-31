@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: PR486 roadmap truth sync (one-shot)
+      - name: PR486 roadmap caller-zero repair (one-shot)
         if: github.event_name == 'pull_request' && github.event.pull_request.number == 486
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
@@ -42,34 +42,20 @@ jobs:
           import base64
           p = Path('docs/Jarvis_Yol_Haritasi.md')
           lines = p.read_text(encoding='utf-8').splitlines()
-          b64 = lambda s: base64.b64decode(s).decode('utf-8')
-          reminder = b64('LSDwn5SEIChQUjcgQ2xvc2VvdXQtQjNjLTIpIGBbMeKckyAy8J+UhCAz4pyTIDTinJddYCBIYXTEsXJsYXRtYSBvbHXFn3R1cm1hIENvcmUgYHJlbWluZGVyYCBpbnRlbnQnaW5lIGFsxLFuZMSxOyBgbW9kdWxlcy9yZW1pbmRlcl9wYXJzZS5weWAgdGVrIGF5csSxxZ90xLFyxLFjxLFkxLFyIHZlIHBsYW5uZXIgbWV2Y3V0IGNvbmZsaWN0L2NvbmZpcm1hdGlvbiBzxLFyYXPEsW7EsSBrb3J1ci4gSGF0xLFybGF0bWEgYmHFn2zEscSfxLFuZGFraSB0ZWsgYmHFn8SxbmEgYXBvc3Ryb2Yga3VzdXJ1IEI0YyB2MiAjNDg1J3RlIGTDvHplbHRpbGRpOyBleGFjdC1oZWFkIFdpbmRvd3MgQ0kgKyBnZXLDp2VrIFBDIHdhdGNoZXIgUEFTUyBzb25yYXPEsSAjNDg1IG1lcmdlIGVkaWxkaS4=')
-          notes = b64('LSDwn5+hICgjNDc3ICsgIzQ4NiAvIFBSNyBDbG9zZW91dC1CM2MtMykgYFsx4pyTIDLwn5SEIDPinJMgNOKcl11gIGBub3Rlcy5yZWFkYCBrxLFzbWVuIENvcmUnYSBhbMSxbmTEsTogc2FsdC1va3VudXIgYG5vdGVzX3JlYWRgLiBVbmRlcnN0YW5kaW5nIHlhbG7EsXogw6fEsXBsYWsgdGVrIGtvbXV0dGEgw7ZuZXJpcjsgdGVrIG5vdGUgaWQnc2kgQnJhaW4gcmVmZXJhbnNsYXLEsXlsYSBkb8SfcnVsYW7EsXIuICM0ODYgY2Fub25pY2FsIENvcmUgYG5vdGVzX3JlYWRgIHBsYW7EsW7EsW4gYHNlbGZjdGxgIFVJIG5hdmlnYXRpb24ga2FwxLFzxLFuxLEgZ2XDp21lc2luaSBzYcSfbGFyOyBgbm90bGFyxLFtxLEgZ8O2c3Rlci9ub3RsYXLEsSBnw7ZzdGVyYCB2ZXJpIGlzdGXEn2kgb2xhcmFrIENvcmUnYSBnaWRlciwgYcOnxLFrIGBub3RsYXIgc2F5ZmFzxLFuxLEvc2VrbWVzaW5pIGHDp2AgbmF2aWdhc3lvbnUgc2VsZmN0bCdkZSBrYWzEsXIuIE5vdGVzIGRpxJ9lciBpxZ9sZW1sZXJpIGxlZ2FjeS9wYXJ0aWFsIG93bmVyJ2RhZMSxci4=')
-          debt1 = b64('ICAxLiAqKm5vdGVzL2ZpbGVzIGRpxJ9lciBpxZ9sZW1sZXI6Kiogbm90ZXMgb2t1L3NheS9zaWwvZMO8emVsdC/DtnpldGxlL2xpc3RlbGUgaWxlIGZpbGVzIGfDtnN0ZXIvYcOnL2J1bC9saXN0ZWxlL2thcsWfxLFsYcWfdMSxci/Dp2V2aXIvZMO2bsO8xZ90w7xyL2FuYWxpeiBvcGVyYXN5b25sYXLEsSBwYXJ0aWFsL2xlZ2FjeSBvd25lcidkYTsgZXhhY3QgVUkgYF9maWxlX2NvbW1hbmRgIGRldGVybWluaXN0aWMgZnJvbnQtZ2F0ZSBvbGFyYWsgYXlyxLEgZGXEn2VybGVuZGlyaWxpci4=')
-          debt2 = b64('ICAyLiAqKlBSOSBjYWxsZXItemVybyBsaXN0ZXNpOioq')
-          found = {'reminder':0,'notes':0,'selfctl':0,'debt':0,'pr9':0}
-          out = []
-          for line in lines:
-              if 'PR7 Closeout-B3c-2' in line and '#485' in line:
-                  out.append(reminder); found['reminder'] += 1; continue
-              if 'PR7 Closeout-B3c-3' in line and '#477' in line:
-                  out.append(notes); found['notes'] += 1; continue
-              if line.startswith('  1.') and 'selfctl' in line:
-                  found['selfctl'] += 1; continue
-              if line.startswith('  2.') and 'notes/files' in line:
-                  out.append(debt1); found['debt'] += 1; continue
-              if line.startswith('  3.') and 'PR9 caller-zero' in line:
-                  out.append(debt2); found['pr9'] += 1; continue
-              out.append(line)
-          if found != {'reminder':1,'notes':1,'selfctl':1,'debt':1,'pr9':1}:
-              raise SystemExit(f'roadmap markers mismatch: {found}')
-          p.write_text('\n'.join(out) + '\n', encoding='utf-8')
+          replacement = base64.b64decode('ICAyLiAqKlBSOSBjYWxsZXItemVybyBsaXN0ZXNpOioqIExpdmUgdmUgbmVzdGVkLXN0ZXAgbmVkZW5peWxlIGthbGFuIGByb3V0ZXIuY2xhc3NpZnkvd29ya19tb2Rlcy9mcmVzaG5lc3NgLCBgYXBwX2FjdGlvbnMucmVmZXJlbmNlX2NvbnRleHRgLCBgY2hhdF90cmFuc2xhdGlvbi5yZXNvbHZlL19zb3VyY2VzYCBsZWdhY3kgd3JhcHBlcifEsSB2ZSDDp29rLWFkxLFtbMSxIGBoYW5kbGUoc3RlcClgIGl6ZMO8xZ/DvG1sZXJpIExpdmUgY2Fub25pY2FsIGVudHJ5J3llIGdlw6dpbmNlIGNhbGxlci16ZXJvIGlsZSBmaXppa3NlbCB0ZW1pemxlbmVjZWsu').decode('utf-8')
+          hits = 0
+          for i, line in enumerate(lines):
+              if line.startswith('  2.') and 'PR9 caller-zero listesi' in line:
+                  lines[i] = replacement
+                  hits += 1
+          if hits != 1: raise SystemExit(f'caller-zero marker mismatch: {hits}')
+          p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           '@ | py -3.13 -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git config user.name jarvis-ci
           git config user.email jarvis-ci@users.noreply.github.com
           git add docs/Jarvis_Yol_Haritasi.md
-          git commit -m "docs: close PR486 notes selfctl shadow"
+          git commit -m "docs: restore PR9 caller-zero detail"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git push origin "HEAD:$env:BRANCH"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -114,10 +100,7 @@ jobs:
         run: |
           $changed = git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($changed -contains 'scripts/local_model_acceptance.py' -and (Test-Path 'scripts/local_model_acceptance.py')) {
-            py -3.13 -m playwright install chromium
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else { Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor; Chromium kurulmadı.' }
+          if ($changed -contains 'scripts/local_model_acceptance.py' -and (Test-Path 'scripts/local_model_acceptance.py')) { py -3.13 -m playwright install chromium; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } else { Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor; Chromium kurulmadı.' }
       - name: Yerel model canlı kabulü (acceptance script bootstrap)
         if: github.event_name == 'pull_request'
         env:
@@ -125,7 +108,4 @@ jobs:
         run: |
           $changed = git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($changed -contains 'scripts/local_model_acceptance.py' -and (Test-Path 'scripts/local_model_acceptance.py')) {
-            py -3.13 -X utf8 scripts/local_model_acceptance.py
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else { Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor.' }
+          if ($changed -contains 'scripts/local_model_acceptance.py' -and (Test-Path 'scripts/local_model_acceptance.py')) { py -3.13 -X utf8 scripts/local_model_acceptance.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } else { Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor.' }
