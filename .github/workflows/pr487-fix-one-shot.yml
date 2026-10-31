@@ -1,0 +1,29 @@
+name: PR487 bounded fix
+on:
+  push:
+    branches:
+      - gpt/brain-notes-final-authority
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/brain-notes-final-authority
+          fetch-depth: 0
+      - name: Apply exact root-cause patches
+        shell: powershell
+        run: py -3.13 -X utf8 scripts/pr487_fix_one_shot.py
+      - name: Commit patch and remove one-shot assets
+        shell: powershell
+        run: |
+          git config user.name "jarvis-ci"
+          git config user.email "jarvis-ci@users.noreply.github.com"
+          git add -A
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "fix: contain PR487 notes authority to canonical note targets"
+            git push origin HEAD:gpt/brain-notes-final-authority
+          }
