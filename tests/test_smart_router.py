@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch, Mock
-from modules import smart_router as router, llm, requests_state
+from modules import smart_router as router, llm, requests_state, failure_policy
 
 
 class SmartRouterTests(unittest.TestCase):
