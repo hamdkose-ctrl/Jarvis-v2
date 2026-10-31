@@ -389,6 +389,32 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     return None
 
 
+TRANSLATE_CAPABILITY = "text.translate"
+TRANSLATE_SOURCE_MISSING = "translate source missing"
+
+
+def _translate_proposal(text: str, candidates: tuple[ContextReference, ...]):
+    """(Request, arguments) for a text-translation command; the source comes from Candidate Builder turns.
+
+    The single grammar and source rule live in modules.translation_request (shared with the legacy chain)."""
+    from modules import translation_request
+    request = translation_request.parse(text)
+    if request is None or translation_request.non_text_target(text):
+        return None, {}
+    turns = sorted(
+        ({"id": ref.id, "role": ref.provenance.get("role"), "text": ref.provenance.get("text"),
+          "ts": ref.provenance.get("ts")} for ref in candidates if ref.kind == "conversation_turn"),
+        key=lambda row: str(row["ts"] or ""),
+    )
+    source, origin, turn_id = translation_request.pick_source(request, text, turns)
+    if not source:
+        return request, {}
+    row = {"target": request.target, "text": source, "origin": origin}
+    if turn_id is not None:
+        row["turn_id"] = str(turn_id)
+    return request, {"translate": row}
+
+
 _NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
 _NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
 _NOTES_SHOW_VERBS = ("göster", "goster")
@@ -617,6 +643,12 @@ def understand(
     ambiguities = _ambiguity_for_references(normalized, references)
     weather_request = _is_weather_request(normalized)
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
+    translation, translate_args = (None, {})
+    if level is None and not (context_control or topic_change or correction):
+        translation, translate_args = _translate_proposal(text, candidates)
+        if translation is not None:
+            # The translation source rule owns "which text"; reference ambiguity does not apply to it.
+            ambiguities = () if translate_args else (TRANSLATE_SOURCE_MISSING,)
     if level is not None and level[0] is None:
         ambiguities = (LEVEL_UNSPECIFIED,)
     elif (not ambiguities and not context_control and _asks_file_summary(normalized)
@@ -639,7 +671,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif level is not None or weather_request or _looks_like_capability(normalized):
+    elif level is not None or weather_request or translation is not None or _looks_like_capability(normalized):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -693,6 +725,9 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = _capability_hint(normalized, temporal_need)
+    if translation is not None:
+        capability_hint = TRANSLATE_CAPABILITY
+        arguments = {**arguments, **translate_args}
     if capability_hint in {"weather.read", "weather.read.current"}:
         location = _weather_location(normalized)
         if location is not None:
