@@ -87,14 +87,13 @@ class EndToEndTests(unittest.TestCase):
         core = dispatch.call_args[0][1:3] if dispatch.called else None
         return entry, out, handle, core
 
-    def test_plural_show_is_taken_by_selfctl_front_gate_not_core(self):
-        # Honest scope: in production the selfctl gate ("Notlar sayfasını açıyorum") answers these
-        # BEFORE a Core plan, so the "all" proposal is currently shadowed (front gate beats Core).
+    def test_plural_show_reaches_core_instead_of_selfctl_navigation(self):
         for text in ("notlarımı göster", "notları göster", "notlarımı bana göster"):
             entry, out, handle, core = self.real_claim_run(text)
             self.assertEqual(entry.understanding.arguments["notes"], {"which": "all"}, text)
-            self.assertIsNone(core, text)
-            self.assertEqual(out, "Notlar sayfasını açıyorum.", text)
+            self.assertEqual(core, ("notes_read", {"which": "all"}), text)
+            self.assertEqual(out, "CORE", text)
+            self.assertFalse(handle.called, text)
 
     def test_single_note_reaches_core_with_its_id_through_real_claim(self):
         self.ctx.profile.data["items"] = [self.second]
