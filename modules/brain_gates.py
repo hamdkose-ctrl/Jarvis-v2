@@ -354,7 +354,7 @@ def deterministic_fast_gate(
 
     self_close = re.fullmatch(
         r"(?:(?:hey\s+)?jarvis(?:'i|i)?|kendini|uygulamayı|uygulamayi)\s+"
-        r"(?:kapat|kapan|çık|cik|sonlandır|sonlandir)\w*",
+        r"(?:kapat|kapan|çık|cik|sonlandır|sonlandir)",
         normalized,
     )
     if self_close and src != "telefon" and not re.search(r"\b(?:bilgisayar|pc|windows|sistem)\b", normalized):
