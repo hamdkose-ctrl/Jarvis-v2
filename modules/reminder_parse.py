@@ -26,7 +26,13 @@ def is_creation_request(command: str) -> bool:
     return bool(_CALENDAR_TAIL.search(tr) or _START.match(tr) or (_REMIND.search(tr) and _TIME_WORD.search(tr)))
 
 
+_STRAY_APOSTROPHE = re.compile(r"(?:(?<=\s)|^)['’](?=\s|$)")
+
+
 def _plain(text: str) -> str:
+    """Whitespace and punctuation cleanup. A lone apostrophe is the leftover of a removed time suffix
+    ("14:30'da" -> "'"); apostrophes inside words ("Ahmet'e") are kept."""
+    text = _STRAY_APOSTROPHE.sub(' ', text)
     return re.sub(r'\s+', ' ', text).strip(' .,:;!-')
 
 
