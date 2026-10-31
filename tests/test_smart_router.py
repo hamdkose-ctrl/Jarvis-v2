@@ -124,24 +124,32 @@ class SmartRouterTests(unittest.TestCase):
             self.assertNotIn('Son çağrı denemeleri',router.handle('bob','router durumu'))
         self.assertNotIn('PRIVATE',router.handle('alice','router durumu'))
 
-    def test_gemini_mode_falls_back_to_own_groq_then_ollama_on_quota(self):
+    def test_gemini_preference_uses_router_for_cross_provider_fallbacks(self):
+        router.configure('alice',True)
         quota=llm.errors.ClientError(429,{'error':{'message':'quota','status':'RESOURCE_EXHAUSTED'}})
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=quota), \
-             patch.object(llm,'ollama_models',return_value=['router-local']):
+             patch.object(llm,'_with_models',side_effect=quota):
             with patch.object(llm,'_groq',return_value='groq answer') as groq:
-                self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'groq answer');groq.assert_called_once()
-            with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')),patch.object(llm,'_ollama',return_value='yerel'):
+                self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'groq answer')
+                self.assertTrue(groq.call_args.kwargs['router_authorized'])
+            router._HEALTH.clear()
+            with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')), \
+                 patch.object(llm,'_ollama_task',return_value='yerel'):
                 self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'yerel')
-            with patch.object(llm,'user_groq_key',return_value=''),patch.object(llm,'_groq',side_effect=AssertionError('no key')), \
-                 patch.object(llm,'_ollama',side_effect=llm.LocalModelError('yok')):
-                with self.assertRaises(llm.errors.ClientError):llm._send('merhaba','',100,None,'gemini')
-            # Auto mode (strict) leaves fallback to the router; a non-quota error is not hidden.
+            router._HEALTH.clear()
+            with patch.object(llm,'user_groq_key',return_value=''), \
+                 patch.object(llm,'_groq',side_effect=AssertionError('no key')), \
+                 patch.object(llm,'_ollama_task',side_effect=llm.LocalModelError('yok')):
+                with self.assertRaises(failure_policy.ProviderExhaustedError):
+                    llm._send('merhaba','',100,None,'gemini')
             with patch.object(llm,'_groq',side_effect=AssertionError('strict')):
-                with self.assertRaises(llm.errors.ClientError):llm._send('merhaba','',100,None,'gemini',True)
+                with self.assertRaises(llm.errors.ClientError):
+                    llm._send('merhaba','',100,None,'gemini',True)
+        router._HEALTH.clear()
         with patch.object(llm,'current_user',return_value='alice'),patch.object(llm,'_cli',return_value=Mock()), \
-             patch.object(llm,'_with_models',side_effect=llm.errors.ClientError(400,{'error':{'message':'bad'}})),patch.object(llm,'_groq',side_effect=AssertionError('400')):
-            with self.assertRaises(llm.errors.ClientError):llm._send('merhaba','',100,None,'gemini')
+             patch.object(llm,'_with_models',side_effect=llm.errors.ClientError(400,{'error':{'message':'bad'}})), \
+             patch.object(llm,'_groq',return_value='router fallback'):
+            self.assertEqual(llm._send('merhaba','',100,None,'gemini'),'router fallback')
 
     def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
@@ -190,7 +198,7 @@ class SmartRouterTests(unittest.TestCase):
             self.assertEqual(llm.ask('test'),'fast')
             self.assertEqual(groq.call_args.args[0][-1]['content'],'test')
         with patch.object(llm,'_groq',side_effect=llm.CloudError('quota')),patch.object(llm,'_cli',side_effect=AssertionError('legacy fallback')):
-            with self.assertRaises(llm.LocalModelError):llm._send('x','',100,None,'groq',True)
+            with self.assertRaises(llm.CloudError):llm._send('x','',100,None,'groq',True)
 
     def test_task_classification_and_gizli_image_gate(self):
         self.assertEqual(router.task_type('Python hatasını düzelt'),'code')
