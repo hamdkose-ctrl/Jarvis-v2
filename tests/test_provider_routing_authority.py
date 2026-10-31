@@ -186,10 +186,71 @@ class ProviderRoutingAuthorityTests(unittest.TestCase):
         save_choice.assert_called_once_with(self.OWNER, provider="gemini")
         self.assertEqual(save_settings.call_args.kwargs["ai_mode"], "gemini")
 
+    def test_gemini_same_provider_model_fallback_stays_available_with_exact_evidence(self):
+        calls = []
+        def execute(model):
+            calls.append(model)
+            if model == "gem-a":
+                raise llm.errors.ClientError(404, {"error": {"message": "missing"}})
+            return "gem-b-answer"
+        with patch.object(llm, "model_names", return_value=["gem-a", "gem-b"]), \
+             patch.object(router, "provider_allowed", return_value={"ok": True}), \
+             patch.object(llm, "_fallback_states", {}), patch.object(llm, "_rate_limited", {}):
+            self.assertEqual(llm._with_models(execute, router_authorized=True), "gem-b-answer")
+        self.assertEqual(calls, ["gem-a", "gem-b"])
+
+    def test_gemini_fallback_model_without_exact_evidence_is_not_called(self):
+        calls = []
+        def execute(model):
+            calls.append(model)
+            raise llm.errors.ClientError(404, {"error": {"message": "missing"}})
+        def allowed(owner, provider, model=None, **_):
+            return {"ok": model == "gem-a"}
+        with patch.object(llm, "model_names", return_value=["gem-a", "gem-b"]), \
+             patch.object(router, "provider_allowed", side_effect=allowed), \
+             patch.object(llm, "_fallback_states", {}), patch.object(llm, "_rate_limited", {}):
+            with self.assertRaises(llm.errors.ClientError):
+                llm._with_models(execute, router_authorized=True)
+        self.assertEqual(calls, ["gem-a"])
+
+    def test_groq_same_provider_model_fallback_stays_available_with_exact_evidence(self):
+        first = Mock(status_code=404, headers={}, text="missing")
+        second = Mock(status_code=200, headers={})
+        second.json.return_value = {"choices": [{"message": {"content": "groq-b-answer"}}]}
+        seen = []
+        def post(_url, *, headers, json, timeout):
+            seen.append(json["model"])
+            return first if json["model"] == "groq-a" else second
+        with patch.object(llm, "GROQ_MODELS", ["groq-a", "groq-b"]), \
+             patch.object(llm, "groq_model", return_value="groq-a"), \
+             patch.object(router, "settings", return_value={"cloud_free_confirmed": True}), \
+             patch.object(router, "provider_allowed", return_value={"ok": True}), \
+             patch.object(llm.requests, "post", side_effect=post), \
+             patch.object(llm, "_fallback_states", {}), patch.object(llm, "_rate_limited", {}):
+            self.assertEqual(llm._groq([], "", 100, router_authorized=True), "groq-b-answer")
+        self.assertEqual(seen, ["groq-a", "groq-b"])
+
+    def test_public_strict_image_request_still_enters_router(self):
+        with patch.object(llm.privacy, "mode", return_value="normal"), \
+             patch.object(llm, "provider", return_value="ollama"), \
+             patch.object(router, "run", return_value="router-image") as routed, \
+             patch.object(llm, "_ask_image", side_effect=AssertionError("direct bypass")):
+            result = llm.ask_image("missing.png", "buna bak", strict=True)
+        self.assertEqual(result, "router-image")
+        routed.assert_called_once()
+        self.assertEqual(routed.call_args.kwargs.get("preferred"), "ollama")
+        self.assertTrue(routed.call_args.kwargs.get("image"))
+
     def test_auxiliary_gemini_is_denied_for_non_auto_preference_without_evidence(self):
         for preferred in ("groq", "gemini"):
             with self.subTest(preferred=preferred), patch.object(llm, "provider", return_value=preferred):
                 self.assertFalse(llm.gemini_aux_allowed())
+
+    def test_live_uses_exact_live_model_for_auxiliary_gate(self):
+        from modules import live
+        with patch.object(llm, "gemini_aux_allowed", return_value=False) as allowed:
+            self.assertFalse(live.enabled())
+        allowed.assert_called_once_with(live.model_name())
 
     def test_embedding_requires_exact_embedding_model_evidence(self):
         self.evidence("gemini", "gem-model")
@@ -257,7 +318,7 @@ class ProviderSetupGenerationBoundaryTests(unittest.TestCase):
             "reason_code": "PROVIDER_FREE_TIER_EVIDENCE_MISSING",
             "reason": "Geçerli ücretsiz katman kanıtı yok; yeniden doğrulama gerekli.",
         }
-        with patch.object(router, "provider_allowed", return_value=denied, create=True), \
+        with patch.object(router, "provider_allowed", return_value=denied), \
              patch.object(ui_jobs, "start", side_effect=lambda owner, kind, fn: {"owner": owner, "kind": kind, "data": fn()}):
             result = bridge.llm_measure()
         runtime.llm.gemini_client.assert_not_called()
