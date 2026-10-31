@@ -22,7 +22,7 @@ class UnderstandingTests(unittest.TestCase):
                                               candidates=tuple(refs), references=tuple(refs))
 
     def test_plural_show_proposes_all(self):
-        for text in ("notlarımı göster", "notları göster"):
+        for text in ("notlarımı göster", "notları göster", "notlarımı oku", "notlarımı say", "notları listele"):
             result = self.understand(text)
             self.assertEqual(result.capability_hint, "notes.read", text)
             self.assertEqual(result.arguments["notes"], {"which": "all"}, text)
@@ -36,7 +36,7 @@ class UnderstandingTests(unittest.TestCase):
         self.assertNotIn("notes", self.understand("notu göster", [note_ref("a"), note_ref("b")]).arguments)
 
     def test_other_verbs_or_second_action_stay_legacy(self):
-        for text in ("notlarımı özetle", "notlarımı göster ve sil", "notlarımı listele"):
+        for text in ("notlarımı özetle", "notlarımı göster ve sil"):
             self.assertNotIn("notes", self.understand(text).arguments, text)
 
 
