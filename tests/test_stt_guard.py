@@ -213,7 +213,7 @@ if __name__ == '__main__':
 
 
 class EngineClarifyTests(unittest.TestCase):
-    """Gerçek komut motoru: nesnesiz işlem modele/tahmine gitmez; sesle tek 'kapat' Jarvis'i kapatmaz."""
+    """Gerçek komut motoru: nesnesiz işlem modele/tahmine gitmez; bare close Jarvis'i doğrudan kapatmaz."""
     def context(self):
         import test_engine_modular
         return test_engine_modular.ModularEngineTests.context(self)
@@ -227,14 +227,41 @@ class EngineClarifyTests(unittest.TestCase):
             self.assertEqual(answer, f'Neyi {word} istiyorsun?', text)
             self.assertEqual(context._session().pending_request['question'], answer)
 
-    def test_voice_bare_close_reaches_handler_but_typed_close_still_quits(self):
+    def test_voice_and_typed_bare_close_reach_handler_without_direct_stop(self):
         import contextlib
         import time
+        from modules.brain_contracts import ActiveContext
+        from modules.brain_gates import deterministic_fast_gate
+
         context = self.context()
         owner = context.profile.name
+        canonical_owner = context.profile.slug
         context.list_users = lambda: [owner]
         context.requests_state = SimpleNamespace(is_cancelled=lambda *a: False, activate=lambda *a: contextlib.nullcontext())
-        context.handle = Mock(return_value='Neyi kapatmamı istiyorsun?')
+
+        for text, source, rid in (('Kapat.', 'ses', 'voice-probe'), ('kapat', 'yazı', 'typed-probe')):
+            gate = deterministic_fast_gate(
+                owner=canonical_owner,
+                request_id=rid,
+                text=text,
+                active_context=ActiveContext(owner=canonical_owner, request_id=rid),
+                sleeping=False,
+                source=source,
+            )
+            self.assertFalse(gate.matched, (text, source))
+            self.assertNotEqual(gate.protocol, 'fast.engine.close')
+
+        seen = []
+        test_terminated = {'value': False}
+
+        def clarify_and_stop_after_second(command):
+            seen.append((command, context._cur_source, context.stop_event.is_set()))
+            if len(seen) == 2:
+                test_terminated['value'] = True
+                context.stop_event.set()
+            return 'Neyi kapatmamı istiyorsun?'
+
+        context.handle = Mock(side_effect=clarify_and_stop_after_second)
         context.emit = Mock(); context._finalize = lambda text: text
         context._start_hang_watch = Mock(); context.profile.log_agent = Mock()
         context.threading = SimpleNamespace(Thread=Mock(), Timer=Mock())
@@ -243,7 +270,16 @@ class EngineClarifyTests(unittest.TestCase):
         context.events.put(('command', 'kapat', 'yazı', owner, 'two'))
         voice = SimpleNamespace(manual_local_stt=False, listening_enabled=False, speak_enabled=False, live_on=False, state={}, speak=Mock())
         with patch('modules.engine_voice.VoiceSession', return_value=voice), patch('instance.take_over', return_value=False), \
-                patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'):
+                patch('updater.pop_notice', return_value=None), patch('modules.perf.start'), patch('release_guard.ready'), \
+                patch('modules.brain_entry._install_core_guards'):
             context.main(ui=Mock())
-        context.handle.assert_called_once_with('Kapat.')
+
+        self.assertEqual(
+            seen,
+            [('Kapat.', 'ses', False), ('kapat', 'yazı', False)],
+        )
+        self.assertEqual(context.handle.call_count, 2)
+        assistant = [call.args[1] for call in context.emit.call_args_list if call.args and call.args[0] == 'assistant']
+        self.assertEqual(assistant, ['Neyi kapatmamı istiyorsun?', 'Neyi kapatmamı istiyorsun?'])
+        self.assertTrue(test_terminated['value'])
         self.assertTrue(context.stop_event.is_set())
