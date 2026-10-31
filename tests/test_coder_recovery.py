@@ -55,14 +55,14 @@ class CoderRecoveryTests(unittest.TestCase):
 
     def test_bad_provider_then_real_test_failure_repaired_and_files_delivered(self):
         responses=iter(self.calls());seen=[];prompts=[]
-        def send(prompt,system,tokens,history,selected,strict):
+        def send(selected,prompt,system,tokens,history):
             seen.append(selected);prompts.append(prompt)
-            text='İşte kod açıklaması' if selected=='gemini' else json.dumps(next(responses))
+            text='İşte kod açıklaması' if selected=='groq' else json.dumps(next(responses))
             return llm._timed(selected,lambda:text)
-        with patch.object(llm,'_send',side_effect=send),patch.object(dev,'_test',return_value=(True,'Full suite passed')) as suite:
+        with patch.object(llm,'_send_provider',side_effect=send),patch.object(dev,'_test',return_value=(True,'Full suite passed')) as suite:
             job=agents.execute('alice',self.plan())
         self.assertEqual(job['state'],'done',agents.render(job))
-        self.assertEqual(seen[:3],['gemini','gemini','groq'])
+        self.assertEqual(seen[:3],['groq','groq','ollama'])
         self.assertTrue(any('AssertionError' in prompt for prompt in prompts))
         self.assertEqual(suite.call_count,1)  # broken new-code test fails before expensive full suite
         output=job['outputs']['code']
@@ -148,12 +148,11 @@ class CoderRecoveryTests(unittest.TestCase):
 
     def test_manual_provider_can_repair_schema_without_silently_switching_provider(self):
         def validate(text): dev._tool_call(text)
-        with patch.object(llm,'provider',return_value='gemini'), \
-             patch.object(llm,'_send',side_effect=['duz yazi','{"tool":"list"}']) as send:
+        with patch.object(llm,'provider',return_value='ollama'), \
+             patch.object(llm,'_send_provider',side_effect=['duz yazi','{"tool":"list"}']) as send:
             result=llm.ask('incele','schema',validator=validate)
         self.assertEqual(dev._tool_call(result)['tool'],'list')
-        self.assertEqual([c.args[4] for c in send.call_args_list],['gemini','gemini'])
-        self.assertTrue(all(c.args[5] for c in send.call_args_list))
+        self.assertEqual([c.args[0] for c in send.call_args_list],['ollama','ollama'])   # elle seçilen yerel sağlayıcı sessizce değişmez
 
     def test_new_non_addition_program_uses_same_generic_delivery_flow(self):
         calls=[{'tool':'read','path':'names.py'},

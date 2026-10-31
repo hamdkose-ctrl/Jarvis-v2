@@ -34,13 +34,19 @@ class QuotaFallbackTests(unittest.TestCase):
     def test_exhausted_pool_stops_at_the_configured_chain_with_no_extra_route(self):
         self.allow_main_pool()
         call=Mock(side_effect=[RuntimeError('429 quota'),RuntimeError('429 quota'),RuntimeError('ollama down')])
-        with self.assertRaises(RuntimeError):router.run('alice','araştırma raporu',call)
+        with self.assertRaises(RuntimeError):router.run('alice','araştırma raporu',call,route='PUBLIC_RESEARCH')
         self.assertEqual([c.args[0] for c in call.call_args_list],['gemini','groq','ollama'])
+
+    def test_private_chain_never_falls_to_gemini(self):
+        self.allow_main_pool()
+        private=Mock(side_effect=[RuntimeError('429'),RuntimeError('down')])
+        with self.assertRaises(RuntimeError):router.run('alice','özel not',private)
+        self.assertEqual([c.args[0] for c in private.call_args_list],['groq','ollama'])
 
     def test_paid_providers_never_enter_automatic_attempts(self):
         self.allow_main_pool()
         call=Mock(side_effect=[RuntimeError('a'),RuntimeError('b'),RuntimeError('c')])
-        with self.assertRaises(RuntimeError):router.run('alice','kod hatasını düzelt',call)
+        with self.assertRaises(RuntimeError):router.run('alice','kod hatasını düzelt',call,route='PUBLIC_RESEARCH')
         names=[c.args[0] for c in call.call_args_list]
         self.assertEqual(names,['gemini','groq','ollama'])
         self.assertNotIn('openai',names);self.assertNotIn('anthropic',names)

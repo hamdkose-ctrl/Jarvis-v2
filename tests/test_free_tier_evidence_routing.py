@@ -54,13 +54,14 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         row.update(overrides)
         return router.set_free_tier_evidence('alice', **row)
 
-    def skip(self, provider, task='chat'):
-        return next(row for row in router.selection('alice', task)['skipped'] if row['provider'] == provider)
+    def skip(self, provider, task='chat', route=None):
+        return next(row for row in router.selection('alice', task, route)['skipped'] if row['provider'] == provider)
 
     def test_valid_evidence_allows_only_verified_cloud_route(self):
         self.evidence('groq', 'groq-model')
         self.assertEqual(router.candidates('alice', 'chat'), ['groq', 'ollama'])
-        missing = self.skip('gemini')
+        self.assertEqual(self.skip('gemini')['reason_code'], 'PROVIDER_ROUTE_NOT_ALLOWED')   # PRIVATE zincirde Gemini yok
+        missing = self.skip('gemini', route='PUBLIC_RESEARCH')
         self.assertEqual(missing['reason_code'], 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
         self.assertIn('kanıt', missing['reason'].casefold())
 
@@ -92,7 +93,7 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
     def test_exhausted_quota_skips_to_next_verified_free_provider(self):
         self.evidence('groq', 'groq-model', quota_state='exhausted', quota_remaining=0)
         self.evidence('gemini', 'gem-model')
-        self.assertEqual(router.candidates('alice', 'chat'), ['gemini', 'ollama'])
+        self.assertEqual(router.candidates('alice', 'chat', route='PUBLIC_RESEARCH'), ['gemini', 'ollama'])
         row = self.skip('groq')
         self.assertEqual(row['reason_code'], 'PROVIDER_FREE_TIER_QUOTA_EXHAUSTED')
         self.assertIn('kota', row['reason'].casefold())
