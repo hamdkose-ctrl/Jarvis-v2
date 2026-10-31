@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from modules import llm, provider_privacy, smart_router as router
+from modules import llm, smart_router as router
+from provider_fixture import fresh_bundle
 
 
 class FreeTierEvidenceRoutingTests(unittest.TestCase):
@@ -31,11 +32,7 @@ class FreeTierEvidenceRoutingTests(unittest.TestCase):
         p = patch.object(router.time, 'time', return_value=self.now)
         p.start(); self.addCleanup(p.stop)
 
-        # OpenRouter has no privacy bundle entry and is deleted in P0-3; this fixture only keeps the
-        # legacy emergency-path mechanics testable until then.
-        legacy = dict(provider_privacy.PROVIDER_BUNDLE, openrouter=dict(
-            provider_privacy.PROVIDER_BUNDLE['groq'], allowed_routes=(provider_privacy.ROUTE_PUBLIC_RESEARCH,)))
-        p = patch.object(provider_privacy, 'PROVIDER_BUNDLE', legacy); p.start(); self.addCleanup(p.stop)
+        fresh_bundle(self, legacy_openrouter=True)
         router.configure('alice', True, key='openrouter-key')
 
     def evidence(self, provider, model, **overrides):

@@ -23,6 +23,15 @@ class BundleTests(unittest.TestCase):
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_NOT_ALLOWED")
 
+    def test_training_provider_requires_an_explicit_route(self):
+        denied = pp.privacy_gate("gemini", None, now=INSIDE)
+        self.assertFalse(denied["ok"])
+        self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_REQUIRED")
+        forged = {"nvidia_like": dict(pp.PROVIDER_BUNDLE["gemini"])}
+        self.assertEqual(pp.privacy_gate("nvidia_like", None, now=INSIDE, bundle=forged)["reason_code"],
+                         "PROVIDER_ROUTE_REQUIRED")
+        self.assertTrue(pp.privacy_gate("gemini", PUB, now=INSIDE)["ok"])
+
     def test_training_provider_never_serves_private_even_if_listed(self):
         bundle = {"x": dict(pp.PROVIDER_BUNDLE["gemini"], allowed_routes=(PUB, PRIV))}
         self.assertFalse(pp.privacy_gate("x", PRIV, now=INSIDE, bundle=bundle)["ok"])
@@ -112,6 +121,15 @@ class RouterGateTests(unittest.TestCase):
         self.assertIn("cloudflare", router._CLOUD_PROVIDERS)
         self.evidence("cloudflare")
         self.assertTrue(router._evidence_gate("alice", "cloudflare", "m", route=PRIV)["ok"])
+
+    def test_gate_without_route_denies_gemini(self):
+        self.evidence("gemini")
+        denied = router._evidence_gate("alice", "gemini", "m")
+        self.assertFalse(denied["ok"])
+        self.assertEqual(denied["reason_code"], "PROVIDER_ROUTE_REQUIRED")
+
+    def test_legacy_selection_route_is_the_public_research_route_only(self):
+        self.assertEqual(router._LEGACY_ROUTE, PUB)
 
     def test_owner_evidence_alone_is_not_enough_without_privacy_bundle(self):
         self.evidence("openrouter")

@@ -93,7 +93,11 @@ def privacy_gate(provider: str, route: str | None = None, *, now: float | None =
     allowed = facts.get("allowed_routes")
     if not isinstance(allowed, (tuple, list, frozenset)) or not set(allowed) <= ROUTES:
         return _deny("PROVIDER_PRIVACY_EVIDENCE_MISSING", "İzinli rota listesi geçersiz.")
-    if route is not None:
+    if route is None:
+        # A provider that may train on data is only eligible for an explicit route.
+        if facts["trains_on_data"]:
+            return _deny("PROVIDER_ROUTE_REQUIRED", "Veriyi eğitimde kullanabilen sağlayıcı için rota belirtilmeli.")
+    else:
         if route not in ROUTES or route not in allowed:
             return _deny("PROVIDER_ROUTE_NOT_ALLOWED", "Bu sağlayıcı bu rota için izinli değil.")
         if facts["trains_on_data"] and route != ROUTE_PUBLIC_RESEARCH:
