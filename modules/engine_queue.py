@@ -20,13 +20,15 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     if not runtime.requests_state.register(owner, rid):
         return False
     user = user or runtime.pc_profile().name
-    if runtime._tr_lower(text).strip(' .!?') in {'hedef durumu','işin durumu','hedef ayrıntıları'}:
+    from modules import brain_gates
+    status = brain_gates.goal_status_selection(runtime._tr_lower(text))
+    if status is not None:
         from modules import goal_executor
         profile=runtime._get_profile(user)
         with runtime.requests_state.activate(owner,rid):
             job=goal_executor.latest(owner)
             runtime._emit_for(profile,'user',text,source,rid=rid)
-            formatter = goal_executor.render if runtime._tr_lower(text).strip(' .!?') == 'hedef ayrıntıları' else goal_executor.status_summary
+            formatter = goal_executor.render if status == 'details' else goal_executor.status_summary
             runtime._emit_for(profile,'assistant',formatter(job) if job else 'Kayıtlı hedef yok.',source,rid=rid)
         return True
     runtime.events.put(("command", text, source, user, rid))

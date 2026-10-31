@@ -357,9 +357,11 @@ def _feedback_clarification(entry: EntryResult) -> tuple[bool, tuple[str, ...], 
 
 
 def feedback(entry: EntryResult, *, result_status: str,
-             reason_code: str | None = None) -> BrainFeedback:
+             reason_code: str | None = None, core_ambiguities: tuple[str, ...] = ()) -> BrainFeedback:
     requested_status = _required("result_status", result_status)
     needs_input, ambiguities, clarification_reason = _feedback_clarification(entry)
+    if not needs_input and core_ambiguities:
+        needs_input, ambiguities, clarification_reason = True, tuple(core_ambiguities), reason_code
     return BrainFeedback(
         owner=entry.owner,
         request_id=entry.request_id,
@@ -367,6 +369,26 @@ def feedback(entry: EntryResult, *, result_status: str,
         reason_code=clarification_reason if needs_input else reason_code,
         needs_input=needs_input,
         ambiguities=ambiguities,
+    )
+
+
+_LAST_FEEDBACK: ContextVar["BrainFeedback | None"] = ContextVar("jarvis_brain_feedback", default=None)
+
+
+def last_feedback() -> BrainFeedback | None:
+    """BrainFeedback of the most recent handoff in this request context (also set when Core raised)."""
+    return _LAST_FEEDBACK.get()
+
+
+def _open_core_pending(runtime: Any) -> frozenset[str]:
+    try:
+        state = runtime._session()
+    except Exception:
+        _record_failure("modules/brain_entry.py:core_pending_snapshot")
+        return frozenset()
+    return frozenset(
+        field for field in brain_context._PENDING_FIELDS
+        if getattr(state, field, None) not in (None, False, "", (), [], {})
     )
 
 
@@ -563,16 +585,35 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     if not callable(handler):
         raise ValueError("Core handler callable olmalı.")
     _install_core_guards(runtime)
-    with bind(entry):
-        if _use_existing_handler(entry):
-            output = handler(command)
-        elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
-            output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
-        else:
-            from modules.engine_intents import dispatch
-            output = dispatch(runtime, "chat", {}, command, command.casefold())
+    _LAST_FEEDBACK.set(None)
+    before = _open_core_pending(runtime)
+    try:
+        with bind(entry):
+            if _use_existing_handler(entry):
+                output = handler(command)
+            elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
+                output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
+            else:
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, "chat", {}, command, command.casefold())
+    except BaseException as exc:
+        from modules import requests_state
+        cancelled = isinstance(exc, requests_state.Cancelled)
+        _LAST_FEEDBACK.set(feedback(
+            entry,
+            result_status="cancelled" if cancelled else "failed",
+            reason_code="CORE_CANCELLED" if cancelled else "CORE_HANDLER_FAILED",
+        ))
+        raise
+    opened = tuple(sorted(_open_core_pending(runtime) - before))
+    if opened:
+        result = feedback(entry, result_status="needs_input", reason_code="CORE_AWAITING_INPUT",
+                          core_ambiguities=tuple(f"core pending: {field}" for field in opened))
+    else:
+        result = feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
+    _LAST_FEEDBACK.set(result)
     job_id = _correlated_job_id(entry)
-    return output, feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED"), job_id
+    return output, result, job_id
 
 
 def matched_protocol(*protocols: str) -> bool:
@@ -601,14 +642,3 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if field == "pending_photo":
         return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references)
     return False
-
-
-def canonical_fallback(runtime: Any, command: str, cmd_lower: str) -> str:
-    entry = current()
-    if entry is None:
-        raise RuntimeError("Canonical fallback yalnız bound Brain request için kullanılabilir.")
-    route = _legacy_route_projection(entry)
-    if route["intent"] == "clarify":
-        return str(route["args"]["question"])
-    from modules.engine_intents import dispatch
-    return dispatch(runtime, str(route["intent"]), dict(route["args"]), command, cmd_lower)

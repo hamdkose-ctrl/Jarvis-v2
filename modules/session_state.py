@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import threading
+import time
 
 @dataclass
 class SessionState:
@@ -21,9 +22,32 @@ class SessionState:
     pending_visual: object = None
     last_visual: object = None
     last_command: str = ''
+    last_property: object = None   # 'volume' | 'brightness': son başarıyla ayarlanan seviye özelliği
+    last_property_at: float = 0.0
     speech_override: object = None
     _in_macro: bool = False
     _in_multi: bool = False
+
+LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
+LEVEL_PROPERTY_TTL = 600.0   # 10 dk: daha eski "son özellik" bağlam sayılmaz, tekrar sorulur
+
+
+def remember_property(state, name):
+    """Record the level property that was just verified as set; unknown names are ignored."""
+    if name in LEVEL_PROPERTIES:
+        state.last_property = name
+        state.last_property_at = time.time()
+
+
+def fresh_property(state, now=None):
+    """Return 'volume'/'brightness' only while valid and fresh, else None."""
+    name = getattr(state, "last_property", None)
+    at = getattr(state, "last_property_at", 0.0)
+    if name not in LEVEL_PROPERTIES or not isinstance(at, (int, float)) or isinstance(at, bool):
+        return None
+    now = time.time() if now is None else now
+    return name if 0 <= now - at <= LEVEL_PROPERTY_TTL else None
+
 
 class SessionStore:
     def __init__(self):

@@ -94,7 +94,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                        '_google_health'),
  'engine_queue': ('submit', 'submit_audio', 'submit_photo', '_reject_queued_input'),
  'engine_sequence': ('_split_steps', '_run_steps', '_close_jarvis'),
- 'engine_commands': ('handle',),
+ 'engine_commands': ('handle_request',),
  'engine_loop': ('main',),
  'engine_tools': ('route',
                   '_tr_lower',
@@ -155,6 +155,7 @@ class EngineContext:
             component = import_module('modules.' + module)
             for name in names:
                 setattr(self, name, partial(getattr(component, name), self))
+        self.handle = self.handle_request   # tek giriş: yazım düzeltme yeniden denemesi dahil
         for name in ('_live_prompt', '_live_command'):
             setattr(self, name, self._pc_context(getattr(self, name)))
         from modules.pc_steps import ReportedControl

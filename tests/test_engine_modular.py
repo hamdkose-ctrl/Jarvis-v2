@@ -64,7 +64,7 @@ class ModularEngineTests(unittest.TestCase):
 
     def test_command_and_queue_handlers_are_bound_to_their_own_context(self):
         context=self.context()
-        self.assertIs(context.handle.func,engine_commands.handle)
+        self.assertIs(context.handle.func,engine_commands.handle_request)
         self.assertIs(context.handle.args[0],context)
         context.requests_state=SimpleNamespace(register=Mock(return_value=True))
         context.submit('merhaba','web',context.profile.name,'rid')

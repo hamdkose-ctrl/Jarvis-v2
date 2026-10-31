@@ -2,7 +2,36 @@
 from __future__ import annotations
 import contextlib
 
-def handle(runtime, command: str) -> str:
+
+def _remember(runtime, name: str) -> None:
+    from modules import session_state
+    session_state.remember_property(runtime._session(), name)
+
+class _TypoRetry:
+    """Signal that the whole pipeline should run once more on the typo-corrected text."""
+    __slots__ = ("text",)
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+def handle_request(runtime, command: str) -> str:
+    """Public entry: run the pipeline; at most one explicit retry on typo-corrected text, same request id."""
+    reply = handle(runtime, command)
+    if not isinstance(reply, _TypoRetry):
+        return reply
+    original = command.strip()
+    runtime._typo_pass, runtime._typo_orig = True, original
+    try:
+        reply = handle(runtime, reply.text)
+    finally:
+        runtime._typo_pass, runtime._typo_orig = False, ""
+    if isinstance(reply, _TypoRetry):   # ikinci geçiş tekrar düzeltme isteyemez
+        raise RuntimeError("Yazım düzeltme ikinci kez tekrar istenemez.")
+    return reply
+
+
+def handle(runtime, command: str):
 
     from modules import requests_state
     requests_state.check()
@@ -146,11 +175,15 @@ def handle(runtime, command: str) -> str:
     if runtime._session().pending_level is not None:
         level, runtime._session().pending_level = runtime._session().pending_level, None
         if runtime.re.search(r"\bses\w*", cmd_lower):
-            return f"Ses seviyesini yüzde {level} yaptım." if runtime.system_control.set_volume(level) \
-                else "Ses seviyesini ayarlayamadım."
+            if runtime.system_control.set_volume(level):
+                _remember(runtime, "volume")
+                return f"Ses seviyesini yüzde {level} yaptım."
+            return "Ses seviyesini ayarlayamadım."
         if runtime.re.search(r"parlak\w*|ekran", cmd_lower):
-            return f"Ekran parlaklığını yüzde {level} olarak ayarladım." if runtime.system_control.set_brightness_verified(level) \
-                else "Ekran parlaklığını doğrulayamadım."
+            if runtime.system_control.set_brightness_verified(level):
+                _remember(runtime, "brightness")
+                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
+            return "Ekran parlaklığını doğrulayamadım."
         # başka bir komut geldi: soru iptal, normal akışa devam
 
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
@@ -216,8 +249,19 @@ def handle(runtime, command: str) -> str:
     # Hedefi söylenmemiş sayı ("70 yap"): modele sormadan hemen netleştir
     bare = runtime.re.fullmatch(r"(yüzde\s*)?(\d{1,3})\s*(yap|olsun|ayarla|yapar mısın|yapsana)?", cmd_lower.strip(" .!"))
     if bare:
-        runtime._session().pending_level = min(int(bare.group(2)), 100)
-        return f"Yüzde {runtime._session().pending_level}, ses mi parlaklık mı?"
+        level = min(int(bare.group(2)), 100)
+        session = runtime._session()
+        # Son ayarlanan özellik biliniyorsa onunla devam et; bilinmiyorsa eskisi gibi sor.
+        from modules import session_state
+        known = session_state.fresh_property(session)
+        if known == "volume" and runtime.system_control.set_volume(level):
+            session_state.remember_property(session, "volume")
+            return f"Ses seviyesini yüzde {level} yaptım."
+        if known == "brightness" and runtime.system_control.set_brightness_verified(level):
+            session_state.remember_property(session, "brightness")
+            return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
+        session.pending_level = level
+        return f"Yüzde {level}, ses mi parlaklık mı?"
 
     # Sessize alma / sessizden çıkarma: durum tersine çevrilmez ("sessize al" iki kez denince ses açılmaz)
     if runtime.re.search(r"sessiz(?:i|den)\s+(?:kaldır|çık|aç)\w*|sesi\s+geri\s+(?:aç|getir)\w*|sessiz\s*modu?nu?\s+kapat\w*", cmd_lower):
@@ -237,6 +281,7 @@ def handle(runtime, command: str) -> str:
         if nums:
             level = min(nums[0], 100)
             if runtime.system_control.set_volume(level):
+                _remember(runtime, "volume")
                 return f"Ses seviyesini yüzde {level} yaptım."
             return "Ses seviyesini ayarlayamadım."
         if any(w in cmd_lower for w in ("kapat", "sessiz", "sıfır", "sustur")):
@@ -258,6 +303,7 @@ def handle(runtime, command: str) -> str:
         if nums:
             level = min(nums[0], 100)
             if runtime.system_control.set_brightness_verified(level):
+                _remember(runtime, "brightness")
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
             return "Ekran parlaklığını doğrulayamadım."
 
@@ -372,11 +418,7 @@ def handle(runtime, command: str) -> str:
         fixed = runtime.typo.fix(cmd_lower)
         if fixed != cmd_lower:
             runtime.log.info("İşlem kaydı: %s", 'main.py:handle')
-            runtime._typo_pass, runtime._typo_orig = True, command
-            try:
-                return runtime.handle(fixed)
-            finally:
-                runtime._typo_pass, runtime._typo_orig = False, ""
+            return _TypoRetry(fixed)
     elif runtime._typo_orig:
         # Düzeltilmiş hâli de hızlı komutlara uymadı: yapay zekaya kullanıcının yazdığı asıl cümle gitsin
         # ("yarış merhaba" -> "yarın merhaba" gibi bozulmalar olmasın; yapay zeka yazım hatasını zaten anlar).

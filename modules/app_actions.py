@@ -267,11 +267,41 @@ def voice(args,session,profile,emit,command=''):
             return spec['label']+(' · '+detail if detail else '')+'. Onaylıyor musun?'
         with _owned(profile) as bridge:result=run(bridge,profile,action,values)
         if result.get('needs_clarification'):
-            session.pending_action={'stage':'clarify','command':command,'question':result['message'],'owner':profile.slug,'expires':time.time()+90}
+            choices=[str(c) for c in (result.get('choices') or [])]
+            session.pending_action={'stage':'clarify','command':command,'question':result['message'],'owner':profile.slug,'expires':time.time()+90,
+                                    'resume':{'action':action,'params':values,'choices':choices} if choices and 'target' in values else None}
         if result.get('ok'):emit('action',action)
         return result['message']
     except (ValueError,TypeError,AttributeError) as e:
         return 'İşlemi yapamadım: '+str(e)
+
+def _choice_index(answer,choices):
+    """Pick exactly one offered choice by 1-based number, exact title or unique substring; else None."""
+    text=answer.casefold().strip(' .!?')
+    if text.isdigit() and 1<=int(text)<=len(choices):return int(text)-1
+    exact=[i for i,c in enumerate(choices) if c.casefold().strip()==text]
+    if len(exact)==1:return exact[0]
+    if len(text)>=3:
+        part=[i for i,c in enumerate(choices) if text in c.casefold()]
+        if len(part)==1:return part[0]
+    return None
+
+def _resume_clarification(pending,answer,session,profile,emit):
+    """Structured resume: the answer may only select one of the choices we offered. No re-classification."""
+    resume=pending.get('resume')
+    if not isinstance(resume,dict):return None  # Free-form question: the answer re-enters the canonical entry as a new request.
+    choices=resume.get('choices') or []
+    index=_choice_index(answer,choices)
+    if index is None:return None  # Not an answer to our choices: treat as a new request.
+    params=dict(resume['params']);params['target']=choices[index]
+    try:
+        with _owned(profile) as bridge:result=run(bridge,profile,resume['action'],params)
+        if result.get('needs_clarification'):
+            session.pending_action={'stage':'clarify','command':pending.get('command',''),'question':result['message'],'owner':profile.slug,'expires':time.time()+90,
+                                    'resume':{'action':resume['action'],'params':params,'choices':list(result.get('choices') or [])}}
+        if result.get('ok'):emit('action',resume['action'])
+        return result['message']
+    except (ValueError,TypeError,AttributeError) as e:return 'İşlemi yapamadım: '+str(e)
 
 def continue_voice(command,session,profile,emit):
     pending=session.pending_action
@@ -283,12 +313,7 @@ def continue_voice(command,session,profile,emit):
     if t in ('hayır','hayir','iptal','vazgeç','vazgec','boşver','bosver'):
         return 'Tamam, işlemi iptal ettim.'
     if pending.get('stage')=='clarify':
-        from modules import router
-        from main import ask
-        combined=pending['command']+'\nJarvis sorusu: '+pending.get('question','')+'\nEksik bilgiye cevabım: '+command
-        routed=router.classify(combined,ask)
-        if routed.get('intent')=='app_action':return voice(routed.get('args',{}),session,profile,emit,combined)
-        return None
+        return _resume_clarification(pending,command,session,profile,emit)
     if t not in ('evet','onaylıyorum','onayliyorum','onayla','tamam','olur'):
         return None  # A different request cancels the old confirmation.
     try:

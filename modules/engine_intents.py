@@ -6,6 +6,11 @@ This dispatcher does not classify again or create a new request identity.
 from __future__ import annotations
 
 
+
+def _remember(runtime, name: str) -> None:
+    from modules import session_state
+    session_state.remember_property(runtime._session(), name)
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -159,6 +164,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             except ValueError:
                 return "Parlaklığı yüzde kaç yapayım?"
             if runtime.system_control.set_brightness_verified(level):
+                _remember(runtime, "brightness")
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
             return "Ekran parlaklığını doğrulayamadım."
         case "media":

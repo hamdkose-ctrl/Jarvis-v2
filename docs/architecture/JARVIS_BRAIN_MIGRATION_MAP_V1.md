@@ -301,6 +301,10 @@ Canonical sıra aşağıdadır. **Active Context ve Candidate Builder Understand
 
 Yeni faz/özellik önerilmiyor; bu mevcut Brain migration işinin canonical bağımlılık sırasıdır.
 
+### PR1-PR7 kapanış durumu (2026-10-31)
+
+PR1-PR7 merge edildi ancak eski yolların silinmesi (her PR'ın "legacy retirement" görevi) yapılmadı. Kapanış iki parçadır: **Closeout-A** (continue_voice yapılandırılmış resume, history_limit üst sınırı, last_property, tek geçişli yazım düzeltme, gerçek BrainFeedback, doküman) ve **Closeout-B** (capability_hint → Core, eski router/work_modes/freshness otoritesi, regex ön kapıları, candidate/reference execution, `reference_context`, `_resolve_doc`, `chat_translation._sources`). Closeout-B'nin kabul kapısı 160 senaryolu regresyon havuzudur. Not: `engine_queue` hedef durumu kısayolu, komut döngüsü doluyken yanıt verebilmek için Brain girişinden önce çalışır; kaldırılması için Brain öncesi bir fast lane tasarımı gerekir (Closeout-B).
+
 ## 11. Cutover kuralları
 
 - Shadow/dual-run varsa **tek effect owner Core** olmalı; legacy ve Brain aynı anda effect üretemez.
