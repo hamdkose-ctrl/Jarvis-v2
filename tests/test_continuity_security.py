@@ -205,7 +205,7 @@ class SchedulerTests(unittest.TestCase):
         prof=SimpleNamespace(data={},save=Mock())
         for cfg in [{'time':'99:99'},{'exam_date':'2026-02-31'}]:
             with self.assertRaises(ValueError):studyexam.set_plan_cfg(prof,cfg)
-        self.assertEqual(prof.data,{});p.save.assert_not_called() if False else None
+        self.assertEqual(prof.data,{})
     def test_plan_change_refreshes_existing_reminders(self):
         from modules import studyexam
         prof=SimpleNamespace(data={'events':[{'title':'Çalışma: konu'}]},save=Mock())
@@ -234,7 +234,7 @@ class FieldNoteTests(unittest.TestCase):
         self.assertEqual(p.data,{});p.save.assert_not_called()
     def test_simultaneous_retries_produce_one_note(self):
         from modules import fieldnotes
-        p=SimpleNamespace(slug='a',data={'items':[]},_new_id=lambda:1,save=Mock())
+        p=SimpleNamespace(slug='a',data={'items':[]};_new_id=lambda:1,save=Mock())
         with concurrent.futures.ThreadPoolExecutor(3) as pool:
             futures=[pool.submit(fieldnotes.sync,p,[{'uid':'note-12345678','text':'saha notu'}]) for _ in range(3)]
             for f in futures:f.result()
@@ -304,7 +304,7 @@ class DeletedQueuedUserTests(unittest.TestCase):
                     event = ('command', 'merhaba', 'telefon', 'deleted', 'rid')
                 else:
                     branch = next(n for n in ast.walk(main) if isinstance(n, ast.If) and ast.unparse(n.test) == 'kind == ' + repr(kind))
-                    event = (kind, 'upload', '', 'telefon', 'deleted', 'rid')
+                    event = (kind, 'upload', 'telefon', 'deleted') if kind == 'audio' else (kind, 'upload', '', 'telefon', 'deleted', 'rid')
                 loop = ast.For(target=ast.Name(id='_', ctx=ast.Store()), iter=ast.List(elts=[ast.Constant(value=1)], ctx=ast.Load()), body=[branch], orelse=[])
                 pause = threading.Event(); pause.set()
                 emit, failure = Mock(), Mock()
