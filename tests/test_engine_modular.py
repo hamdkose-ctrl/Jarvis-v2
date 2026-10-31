@@ -90,14 +90,16 @@ class ModularEngineTests(unittest.TestCase):
         owner=context.profile.name
         context.list_users=lambda:[owner]
         context.requests_state=SimpleNamespace(is_cancelled=lambda *a:False,activate=lambda *a:contextlib.nullcontext())
-        context.handle=Mock(return_value='Merhaba')
+        def handle_once(command):
+            context.stop_event.set()
+            return 'Merhaba'
+        context.handle=Mock(side_effect=handle_once)
         context.emit=Mock();context._finalize=lambda text:text
         context._start_hang_watch=Mock()
         context.profile.log_agent=Mock()
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
         context.events.put(('command','selam','web',owner,'one'))
-        context.events.put(('command','kapat','yazı',owner,'two'))
         voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,live_on=False,state={},speak=Mock())
         with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
             context.main(ui=Mock())
@@ -120,8 +122,11 @@ class ModularEngineTests(unittest.TestCase):
         context=self.context();context.emit=Mock();context._start_hang_watch=Mock()
         context.list_users=lambda:[context.profile.name]
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
-        context.voice=SimpleNamespace(HINTS=[],listen=Mock(side_effect=ValueError('Yerel ses modeli hazır değil.')))
-        context.events.put(('listen',));context.events.put(('command','kapat','yazı',context.profile.name,'stop'))
+        def fail_local_listen(**kwargs):
+            context.stop_event.set()
+            raise ValueError('Yerel ses modeli hazır değil.')
+        context.voice=SimpleNamespace(HINTS=[],listen=Mock(side_effect=fail_local_listen))
+        context.events.put(('listen',))
         session=SimpleNamespace(manual_local_stt=True,listening_enabled=True,speak_enabled=False,live_on=False,state={})
         with patch('modules.engine_voice.VoiceSession',return_value=session),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
             context.main(ui=Mock())
