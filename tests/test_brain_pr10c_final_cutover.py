@@ -1,7 +1,8 @@
 """PR10c final cutover sözleşmeleri: production'da ikinci semantic authority kalmaz.
 
 Katmanlar: (1) caller-zero/statik authority, (2) router retirement, (3) file target authority,
-(4) Live context parity/read-only, (5) Live tool authority, (6) command_manager bounded gate.
+(4) Live context parity/read-only, (5) Live tool authority, (6) command_manager bounded gate,
+(7) yeni ikinci authority'ye karşı kanıtlı allowlist muhafızı.
 Her test ya bir modülün fiziksilğini ya da davranışsal bir fail-closed sınırını ölçer; hiçbir
 test legacy zinciri authority olarak kabul etmez. Yorum satırı/docstring taraması yapılmaz:
 statik kontroller AST üzerinden gerçek kimliklere (import, isim, nitelik, intent sabiti) bakar.
@@ -70,6 +71,81 @@ def production_authorities():
     for path in sorted(MODULES.glob("*.py")):
         text = path.read_text(encoding="utf-8")
         yield path.name, imported_modules(text), identities(text)
+
+
+# --- G katmanı: tarama evreni ve kanıtlı allowlist -----------------------------------------------
+# Muhafızın gördüğü alan production'ın ta kendisidir: modüller, web köprüleri ve main.
+PRODUCTION_FILES = (tuple(sorted(MODULES.glob("*.py"))) + tuple(sorted(ROOT.glob("web*.py")))
+                    + tuple(path for path in (ROOT / "main.py",) if path.exists()))
+
+
+def production_trees():
+    for path in PRODUCTION_FILES:
+        yield path.name, ast.parse(path.read_text(encoding="utf-8"))
+
+
+# Core handler'ın istek kararı bu anahtar çiftiyle taşınır; ikisini birlikte üreten her modül
+# fiilen ikinci sınıflandırıcıdır. Rastgele "intent" kelimesi değil, sözlük literali taranır.
+BRAIN_TURN_DOORS = frozenset({"prepare", "handoff", "bind", "route_command", "run_step"})
+# Semantic kapı isimleri: buradan yapılan her yazım bir authority kurulumudur.
+SEMANTIC_DOORS = frozenset({"route", "classify", "handle", "intent_router", "_resolve_doc",
+                            "_live_command", "_context_prompt", "ask", "chat"})
+
+ROUTE_DICT_ALLOWLIST = {
+    "brain_entry.py": "Kararı kendisi üretmez; bu turn'ün prepare() sonucunu Core handler şekline "
+                      "izdüşüren tek yer (_legacy_route_projection/route_command).",
+}
+BRAIN_TURN_ALLOWLIST = {
+    # Yüzey girdisi -> {çağrılan kapılar, neden}. Text/Web/kuyruk-audio/telefon/fotoğraf tek turda hazırlanır.
+    "engine_loop.py": ({"prepare", "handoff", "bind"},
+                       "Tek yüzey girdisi: motor olay döngüsü Brain turünü burada hazırlar ve Core'a devreder."),
+    "engine_live_brain.py": ({"prepare", "handoff"},
+                             "Live'ın canonical turu: _live_command aynı prepare→handoff kapısından geçer."),
+    "engine_commands.py": ({"route_command"},
+                           "Core handler'ın tek sınıflandırılmış-istek kapısı çağrısı; başka çağran yok."),
+}
+SEMANTIC_DOOR_ALLOWLIST = {
+    "brain_entry.py": {"route": "_install_job_guard kararı değiştirmez; yalnız canonical "
+                                "job.resume/job.cancel eşleşmesinde bounded işaretini OR eder."},
+    "engine_runtime.py": {"handle": "EngineContext.__init__'in kendi facade bağlaması: tek giriş handle_request."},
+}
+
+
+def route_decision_dict_files(trees=None):
+    return {name for name, tree in (trees or production_trees())
+            if any(isinstance(node, ast.Dict) and _dict_string_keys(node) >= {"intent", "args"}
+                   for node in ast.walk(tree))}
+
+
+def brain_turn_caller_map(trees=None):
+    found: dict[str, set[str]] = {}
+    for name, tree in (trees or production_trees()):
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id == "brain_entry" and node.attr in BRAIN_TURN_DOORS):
+                found.setdefault(name, set()).add(node.attr)
+    return found
+
+
+def semantic_door_write_map(trees=None):
+    found: dict[str, set[str]] = {}
+    for name, tree in (trees or production_trees()):
+        for node in ast.walk(tree):
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                    found.setdefault(name, set()).add(str(node.args[1].value))
+                    continue
+            for target in targets:
+                if isinstance(target, ast.Attribute) and target.attr in SEMANTIC_DOORS:
+                    found.setdefault(name, set()).add(target.attr)
+    return found
+
+
+def _dict_string_keys(node: ast.Dict):
+    return {key.value for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)}
 
 
 class RetiredModuleTests(unittest.TestCase):
@@ -286,6 +362,53 @@ class CommandManagerFrontDoorTests(unittest.TestCase):
     def test_dispatch_uses_the_bounded_recognizer(self):
         self.assertIn("table_request", identities(source("command_manager")))
         self.assertNotIn("(tablo\\w*|table|toplo)", source("command_manager"))
+
+
+class SecondAuthorityGuardTests(unittest.TestCase):
+    """G: yeni bir ikinci semantic authority production'a girdiği an bu testler RED olur.
+
+    Allowlist yalnız kanıtlı kimlikleri taşır; allowlist'teki bir yol artık yoksa eşitlik
+    bozulur (ölü izin) ve taramanın yakaladığı yeni bir yol varsa yine bozulur (yetki genişletme
+    yorumla değil davranışla olur)."""
+
+    def test_route_decision_authority_is_singular(self):
+        self.assertEqual(route_decision_dict_files(), set(ROUTE_DICT_ALLOWLIST))
+
+    def test_brain_turn_entries_have_only_the_allowlisted_surface_owners(self):
+        self.assertEqual(brain_turn_caller_map(),
+                         {name: set(rows) for name, (rows, _) in BRAIN_TURN_ALLOWLIST.items()})
+
+    def test_no_extra_semantic_door_is_installed_at_runtime(self):
+        self.assertEqual(semantic_door_write_map(),
+                         {name: set(rows) for name, rows in SEMANTIC_DOOR_ALLOWLIST.items()})
+
+    def test_allowlist_rows_each_state_a_reason(self):
+        for text in ROUTE_DICT_ALLOWLIST.values():
+            self.assertTrue(text.strip())
+        for _, reason in BRAIN_TURN_ALLOWLIST.values():
+            self.assertTrue(reason.strip())
+        for reasons in SEMANTIC_DOOR_ALLOWLIST.values():
+            for reason in reasons.values():
+                self.assertTrue(reason.strip())
+
+    def test_scan_detects_a_planted_second_authority(self):
+        planted = ast.parse(
+            'def route(o):\n'
+            '    o.handle = lambda c: {"intent": "chat", "args": {}}\n'
+            '    setattr(o, "classify", None)\n'
+            '    return brain_entry.prepare()\n')
+        trees = [("modules/planted_second_authority.py", planted)]
+        self.assertEqual(route_decision_dict_files(trees), {"modules/planted_second_authority.py"})
+        self.assertEqual(brain_turn_caller_map(trees), {"modules/planted_second_authority.py": {"prepare"}})
+        self.assertEqual(semantic_door_write_map(trees), {"modules/planted_second_authority.py": {"handle", "classify"}})
+
+    def test_scan_does_not_flag_lookalike_names(self):
+        # Bir payload'taki "intent" anahtarı, yorumdaki "route" kelimesi ve sıradan bir metot
+        # çağrısı authority kurulumu değildir; muhafız yalnız kurulumu (atama/setattr) görür.
+        tree = ast.parse('payload = {"intent": "mail", "limit": 5}  # route\nclassify = None\n'
+                         'context.handle("teşekkürler")\n')
+        self.assertEqual(route_decision_dict_files([("lookalike.py", tree)]), set())
+        self.assertEqual(semantic_door_write_map([("lookalike.py", tree)]), {})
 
 
 if __name__ == "__main__":

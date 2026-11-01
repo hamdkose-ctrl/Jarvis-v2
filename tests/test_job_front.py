@@ -6,7 +6,7 @@ ve "hedef …" önekleri, onay kelimeleri) aynen korunur.
 import time
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from test_mail_calendar_fixes import ProfileCase, _runtime
 from modules import goal_executor, task_agents
@@ -41,6 +41,9 @@ class JobFrontTests(ProfileCase):
             calls.append('task.cancel')
             return {**_task('cancelled'), 'id': 'tt1'}
 
+        # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi model kapılarının
+        # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmez.
+        model = Mock(side_effect=RuntimeError('sohbete düştü'))
         with patch.object(goal_executor, 'latest', return_value=g), \
                 patch.object(goal_executor, 'run', side_effect=lambda *a, **k: calls.append('goal.run') or 'G'), \
                 patch.object(goal_executor, '_save', side_effect=goal_save), \
@@ -48,7 +51,7 @@ class JobFrontTests(ProfileCase):
                 patch.object(task_agents, 'recent', return_value=task), \
                 patch.object(task_agents, 'continue_job', side_effect=task_continue), \
                 patch.object(task_agents, 'cancel_job', side_effect=task_cancel), \
-                patch('modules.router.classify', side_effect=RuntimeError('sohbete düştü')) as model:
+                patch.object(rt, 'ask', model), patch.object(rt, 'chat', model):
             try:
                 reply = rt.handle(text)
             except Exception:                       # sahte bekleyen durum sonraki yolları bozabilir; önemli olan çağrılar

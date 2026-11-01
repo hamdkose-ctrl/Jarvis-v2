@@ -363,6 +363,27 @@ def goal_status_selection(text: object) -> str | None:
     return None
 
 
+_TABLE_SUBJECT = r"(?:(?:bunu|şunu|onu|bu|şu|mevcut|son)\s+(?:yanıt\w*|cevap\w*|listeyi|sonucu)?\s*)?"
+_TABLE_NOUN = r"(?:tablo|table|toplo)(?:'?(?:ya|ye|suna|laştır|a|e))?(?:\s+ha?line)?"
+_TABLE_VERB = (r"(?:yap(?:ar\s+mısın)?|ver(?:ir\s+mısın)?|göster|çıkar|dök|oluştur|getir|çevir|cevir|"
+               r"dönüştür|donustur)")
+_TABLE_TAIL = r"(?:\s+(?:kısaca|madde\s+madde|lütfen|lwtfen|benim\s+için))?\s*"
+
+# "tablo" kelimesi geçen + herhangi bir fiil geçen cümleleri sahiplenmek yerine,
+# tüm cümlenin tabloya çevirme isteği olması aranır.
+_TABLE_REQUEST = re.compile(rf"^{_TABLE_SUBJECT}{_TABLE_NOUN}\s+{_TABLE_VERB}{_TABLE_TAIL}$", re.I)
+
+
+def table_request(text: object) -> bool:
+    """Tek exact tabloya-çevirme tanıyıcısı; command_manager ve yüzeyler bunu paylaşır.
+
+    'tabloda hangi sensörler yazıyordu' ya da 'yarınki toplantıda tablo gösterme, özeti söyle'
+    gibi başka bir isteğin parçası olan cümleleri tüketmez.
+    """
+    normalized = _norm(text)
+    return bool(normalized) and _TABLE_REQUEST.fullmatch(normalized) is not None
+
+
 def deterministic_fast_gate(
     *,
     owner: str,
