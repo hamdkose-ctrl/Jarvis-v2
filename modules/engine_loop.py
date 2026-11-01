@@ -2,13 +2,19 @@
 from __future__ import annotations
 import contextlib
 
-def _log_core_feedback(runtime, entry) -> None:
-    """Log the real Core outcome (failed/cancelled) that handoff correlated before re-raising."""
+def _log_core_feedback(runtime, entry):
+    """Log the real Core outcome (failed/cancelled) that handoff correlated before re-raising.
+
+    Returns that same BrainFeedback (or None) so the caller can ground its
+    failure presentation in it instead of re-classifying the exception.
+    """
     from modules import brain_entry
     row = brain_entry.last_feedback()
     if row is not None and row.request_id == entry.request_id:
         runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s",
                          entry.request_id, entry.stage, row.result_status, row.reason_code or "-")
+        return row
+    return None
 
 
 def _queued_audio(runtime, event):
@@ -268,11 +274,14 @@ def main(runtime, ui=None):
                             runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
+                            from modules import failure_policy
+                            message = failure_policy.user_message(exc)
                             if entry is not None:
                                 fb = brain_entry.photo_feedback(entry, error=exc)
                                 runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
-                            from modules import failure_policy
-                            out = "Fotoğrafı işleyemedim: " + failure_policy.user_message(exc)
+                                from modules import brain_failure_synthesis
+                                message = brain_failure_synthesis.synthesize(fb, exc)
+                            out = "Fotoğrafı işleyemedim: " + message
                         out = runtime._finalize(out)
                         print("Jarvis:", out)
                         runtime.emit("assistant", out)
@@ -326,12 +335,16 @@ def main(runtime, ui=None):
                             _log_core_feedback(runtime, entry)
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
-                            _log_core_feedback(runtime, entry)
+                            core_feedback = _log_core_feedback(runtime, entry)
                             print(f"[Hata] {type(exc).__name__}: {type(exc).__name__}")
                             runtime._record_failure('main.py:main')
                             try:
-                                from modules import diagnose
-                                out = diagnose.explain(exc)
+                                from modules import brain_failure_synthesis
+                                if core_feedback is not None:
+                                    out = brain_failure_synthesis.synthesize(core_feedback, exc)
+                                else:
+                                    from modules import diagnose
+                                    out = diagnose.explain(exc)
                             except Exception:
                                 runtime._record_failure('main.py:main')
                                 out = "Şu anda yanıt veremiyorum, biraz sonra tekrar dener misiniz?"
