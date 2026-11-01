@@ -1,79 +1,60 @@
-"""Bound real routing waits without network, model, device or tool execution."""
-import json
-import threading
-import time
-from types import SimpleNamespace
+"""Legacy route turn'ünün beklemeye ait sözleşmeleri: kapı kaldırıldı, garantiler taşındı.
+
+Eski `engine_tools.route` modeli beklerken oturum durumunu tüketirdi. Canonical karar
+(model-free Understanding) beklemeye girmediği için bir geç yanıt artık karar aşamasında
+bekleyen isteği yiyemez; korunan sözleşme budur, model beklemesi yürütücüde kalır.
+"""
+import inspect
 import unittest
-from unittest.mock import Mock, patch
-from modules import engine_tools, llm, model_wait, requests_state, router
+from unittest.mock import patch
+
+from modules import brain_gates, brain_understanding, engine_runtime, llm
+from modules.brain_contracts import ActiveContext
+
+OWNER, RID = "hamdi", "rid-wait"
 
 
-class RouterWaitTests(unittest.TestCase):
-    def setUp(self):
-        token = llm._key_context.set(self.id())
-        self.addCleanup(llm._key_context.reset, token)
-        self.session = SimpleNamespace(last_command='önceki', pending_request={'question': 'Hangi dosya?'})
-        self.ask = Mock(return_value=json.dumps({'intent': 'app_action', 'args': {'action': 'files_list', 'params': {}}}))
-        self.runtime = SimpleNamespace(profile=SimpleNamespace(slug=self.id()),
-            _session=lambda: self.session, _recent_turns=lambda *a, **k: [],
-            json=json, intent_router=router, ask=self.ask)
-
-    def release_worker(self, release):
-        release.set()
-        deadline = time.monotonic() + 2
-        while self.id() in model_wait._PENDING and time.monotonic() < deadline:
-            time.sleep(.001)
-        self.assertNotIn(self.id(), model_wait._PENDING)
-
-    def test_timeout_does_not_accept_late_route_or_consume_pending(self):
-        release = threading.Event()
-        self.ask.side_effect = lambda *a, **k: (release.wait(1), json.dumps({'intent': 'task', 'args': {}}))[1]
-        before = dict(vars(self.session))
-        with patch.object(model_wait, 'DEFAULT_SECONDS', .03):
-            try:
-                with self.assertRaisesRegex(RuntimeError, 'Geç yanıt') as timed_out:
-                    engine_tools.route(self.runtime, 'hangi dosya yazıldı')
-                from modules import failure_policy
-                self.assertEqual(failure_policy.classify(timed_out.exception), failure_policy.TIMEOUT)
-                with self.assertRaisesRegex(RuntimeError, 'henüz kapanmadı'):
-                    engine_tools.route(self.runtime, 'başka bir dosyayı bul')
-                self.assertEqual(self.ask.call_count, 1)
-            finally:
-                self.release_worker(release)
-        self.assertEqual(vars(self.session), before)
-
-    def test_cancel_returns_before_provider_finishes_and_keeps_pending(self):
-        release, started = threading.Event(), threading.Event()
-        def provider(*args, **kwargs):
-            started.set()
-            release.wait(1)
-            return json.dumps({'intent': 'task', 'args': {}})
-        self.ask.side_effect = provider
-        def check():
-            if started.is_set():
-                raise requests_state.Cancelled('Test iptali')
-        before = dict(vars(self.session))
-        with model_wait.guard(check):
-            try:
-                with self.assertRaises(requests_state.Cancelled):
-                    engine_tools.route(self.runtime, 'hangi dosya yazıldı')
-                self.assertFalse(release.is_set())
-            finally:
-                self.release_worker(release)
-        self.assertEqual(vars(self.session), before)
-
-    def test_success_preserves_injected_ask_and_route_and_context(self):
-        self.assertEqual(engine_tools.route(self.runtime, 'hangi dosya yazıldı')['intent'], 'app_action')
-        self.ask.assert_called_once()
-        self.assertIn('Hangi dosya?', self.ask.call_args.args[1])
-        self.assertIsNone(self.session.pending_request)
-        self.assertEqual(self.session.last_command, 'hangi dosya yazıldı')
-
-    def test_fast_greeting_needs_no_model_or_user_wait_slot(self):
-        with patch.object(model_wait, 'ask', side_effect=AssertionError('Hızlı kural model beklememeli')):
-            self.assertEqual(engine_tools.route(self.runtime, 'merhaba')['intent'], 'chat')
-        self.ask.assert_not_called()
+def understand(text: str):
+    return brain_understanding.understand(owner=OWNER, request_id=RID, text=text,
+                                          active_context=ActiveContext(owner=OWNER, request_id=RID),
+                                          candidates=(), references=())
 
 
-if __name__ == '__main__':
+class RetiredRouteWaitTests(unittest.TestCase):
+    def test_the_engine_exports_no_route_door_to_wait_on(self):
+        self.assertNotIn("route", engine_runtime._HANDLERS["engine_tools"])
+        self.assertNotIn("intent_router", engine_runtime._DEPENDENCIES)
+
+    def test_the_canonical_decision_never_waits_on_a_model(self):
+        def no_provider(*_a, **_k):
+            raise AssertionError("canonical karar modeli beklememeli")
+        texts = ("merhaba", "bu konuşmayı özetle", "ekranı analiz et", "Açık pencereleri listele",
+                 "İstanbul son haberler neler?", "yarın 10'da ilaç hatırlat", "rapor.txt dosyasını özetle",
+                 "Chrome penceresini öne getir")
+        with patch.object(llm, "ask", no_provider), patch.object(llm, "chat", no_provider):
+            for text in texts:
+                with self.subTest(text=text):
+                    self.assertIsNotNone(understand(text).request_kind, text)
+
+    def test_no_semantic_door_clears_the_pending_request_slot(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1] / "modules"
+        for name in ("brain_entry", "brain_gates", "brain_understanding", "command_manager", "engine_tools"):
+            with self.subTest(module=name):
+                text = (root / f"{name}.py").read_text(encoding="utf-8")
+                self.assertNotIn(".pending_request = None", text, name)
+
+    def test_the_pending_request_is_a_bounded_state_key(self):
+        # Bekleyen isteğin tek sahibi exact state gate; oradan geçen cümle modele düşmez.
+        self.assertIn("pending_request", brain_gates._PENDING_SESSION_IDS)
+        self.assertTrue(callable(brain_gates.exact_state_gate))
+
+    def test_route_projection_is_the_only_legacy_shaped_door(self):
+        from modules import brain_entry
+        body = inspect.getsource(brain_entry.route_command)
+        self.assertIn("nested_step(command, runtime)", body)
+        self.assertNotIn("classify", body)
+
+
+if __name__ == "__main__":
     unittest.main()

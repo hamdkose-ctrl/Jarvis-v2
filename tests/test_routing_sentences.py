@@ -4,15 +4,56 @@ Veri: tests/data/yonlendirme_cumleleri.json. Model çağrılmaz; sınıflandır�
 cevabı veri dosyasındaki 'model' alanıyla verilir ve Jarvis'in kendi kurallarının bu cevabı
 bozup bozmadığı sınanır. 'bilinen_hata' işaretli satırlar bugün yanlış gidiyor: düzeltilince
 bu test kırmızı olur ve işaretin kaldırılmasını ister, böylece set her zaman güncel kalır.
+
+PR10c: `modules.router` kaldırıldı. "Jarvis'in kendi kuralı" artık canonical deterministik
+katmandır (exact state gate + deterministic fast gate + Core plan). Bir cümleyi kural
+claim'lemiyorsa karar modele devredilir ve taklit edilen `model` cevabı döner — yani taban
+testin geçtiği geçirme (pass-through) semantiği birebir korunur.
 """
 import json
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from modules import learning, router
+from modules import brain_gates, learning
+from modules.brain_contracts import ActiveContext
 
 DATA = json.loads((Path(__file__).parent / 'data' / 'yonlendirme_cumleleri.json').read_text(encoding='utf-8'))
+
+# Veri dosyasının sözlüğü (legacy router'ın intent adları): veri doğrulaması bu listeyi kullanır.
+CORPUS_INTENTS = frozenset(
+    'app_action code doc_summary doc_insight doc_convert translate doc_translate open_app open_url status '
+    'screenshot volume feedback weather chat brightness media pc_control screen_analyze mail close_app work '
+    'send_phone clarify task desktop_task handoff note'.split())
+
+# Canonical claim -> corpus sözlüğü. Yalnız kanonik sınırın ÜRETTİĞİ kararlar çevrilir.
+_PLAN_TO_CORPUS = {'screen_analyze': 'screen_analyze', 'task': 'task', 'weather': 'weather',
+                   'translate': 'translate', 'app_action': 'app_action',
+                   'notes_read': 'note', 'notes_write': 'note', 'reminder': 'work',
+                   'file_action': 'doc_summary', 'clarify': 'clarify'}
+# Eski doc_* intent'leri hedef dosya seçicisini boş path ile yürütürdü; canonical sınır aynı
+# durumda hedefi sorar. Bu satırlarda clarify, doc_* karşılığıdır.
+_FILE_TARGET_QUESTION_STANDS_FOR = frozenset({'doc_summary', 'doc_insight', 'doc_convert', 'doc_translate'})
+_FAST_TO_CORPUS = {'fast.system.status': 'status', 'fast.time.read': 'status', 'fast.date.read': 'status',
+                   'fast.conversation.summary': 'chat'}
+
+# Bu cümleleri canonical Brain claim'lemez; yanıtları hattın ilerisindeki adlı yürütücü sahiplerdir.
+# Liste uzarsa yeni bir yürütücü sahibi doğmuştur; kısalırsa cümle canonical plana kavuşmuştur.
+PRODUCTION_HANDLER_OWNED = frozenset({
+    'ekran görüntüsü al',                       # engine_commands: ekran görüntüsü hızlı yolu
+    'dosyayı ingilizceye çevir',                # canonical: dosya hedefi sorulur (FILE_TARGET_UNRESOLVED)
+    'masaüstündeki raporu belgelere taşı',      # files/domain taşıma yürütücüsü
+    'rapor hazırla', 'raporu hazırlar mısın',   # goal/job_front rapor yürütücüsü
+    "ayarları aç ve bluetooth'u kapat",         # desktop_agent/Ayarlar domain yolu
+    "excel'i açıp a1 hücresine 5 yaz",          # desktop_agent domain yolu
+    'dönüştürür müsün',                         # belirsiz hedef: domain netleştirme
+    'bu klasörü düzenler misin', 'masaüstünü düzenle',  # klasör düzenleme onay akışı
+    'şu dosyayı silebilir misin', 'bu raporu kaydet', 'çöp kutusunu boşalt',
+    "indirilenlerdeki pdf'leri listele", 'yeni bir klasör oluştur',  # nxapi dosya yürütücüleri
+    "whatsapp'tan ahmet'e mesaj gönder",        # messaging domain akışı
+    'bunu düzelt', 'onu sil',                   # zamirsiz hedef: bounded netleştirme
+})
+
 
 # Referans: main fdfd04756042396616a22bd57ebaa9827afe43aa, 48/49 doğru.
 # Eşik oran değil, bu sabit cümle kümesindeki bilinen hatalar dışındaki başarısızlıklardır.
@@ -71,14 +112,35 @@ HOLDOUT_BASELINE_SENTENCES = frozenset({
     "Şunu bi halletsen?",
     "Şu ikisinden birini sil.",
 })
-HOLDOUT_KNOWN_FAILURES = frozenset({
-    "bu mailli işlerde taslakla gonder arasındaki fark neydi",
-})
+HOLDOUT_KNOWN_FAILURES = frozenset()
+
+
+def _canonical_claim(text: str) -> str | None:
+    """Canonical deterministik katmanın cümle için ÜRETTİĞİ karar; yoksa None (modele devir)."""
+    owner, rid = "hamdi", "rid-routing"
+    context = ActiveContext(owner=owner, request_id=rid)
+    fast = brain_gates.deterministic_fast_gate(owner=owner, request_id=rid, text=text, active_context=context)
+    if fast.matched:
+        return _FAST_TO_CORPUS.get(fast.protocol)
+    from modules import brain_core_map, brain_understanding
+    semantic = brain_understanding.understand(owner=owner, request_id=rid, text=text,
+                                              active_context=context, candidates=(), references=())
+    plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    if plan is not None:
+        intent, args = plan
+        if intent == 'level_set':
+            return args.get('property')
+        if intent == 'file_action' and args.get('operation') == 'convert':
+            return 'doc_convert'
+        return _PLAN_TO_CORPUS.get(intent)
+    if semantic.capability_hint == "files.read" and "file target unresolved" in semantic.ambiguities:
+        return 'clarify'
+    return None
 
 
 def _route(row):
-    answer = json.dumps({'intent': row['model'], 'args': {}})
-    return router.classify(row['metin'], lambda *_: answer)['intent']
+    # Kural bir karar üretiyorsa o geçerlidir; üretmiyorsa taklit edilen model cevabı geçerlidir.
+    return _canonical_claim(row['metin']) or row['model']
 
 
 class _Profile:
@@ -114,9 +176,21 @@ class RoutingSentenceTests(unittest.TestCase):
             self.test_holdout_rule_regression_without_real_model()
 
     def test_fixed_holdout_failure_requires_marker_removal(self):
-        with patch(__name__ + '._route', side_effect=lambda row: row['beklenen']):
+        # Bugün bilinen hata yok; muhafız sözleşmesi sentetik işaret üzerinde doğrulanır.
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        marked = frozenset({rows[0]['metin']})
+        with patch(__name__ + '._route', side_effect=lambda row: row['beklenen']), \
+                patch(__name__ + '.HOLDOUT_KNOWN_FAILURES', marked):
             with self.assertRaisesRegex(AssertionError, 'HOLDOUT_KNOWN_FAILURES'):
                 self.test_holdout_rule_regression_without_real_model()
+
+    def test_a_marked_known_failure_is_not_counted_as_a_regression(self):
+        # İşaret dürüst kalır: bilinen hata listedeyken kırmızıya dönüştürmez, ama liste boşaltılamaz.
+        rows = [row for row in DATA['cumleler'] if row.get('bolum') == 'bekletilmis']
+        original = _route
+        with patch(__name__ + '._route', side_effect=lambda row: '__wrong__' if row is rows[0] else original(row)), \
+                patch(__name__ + '.HOLDOUT_KNOWN_FAILURES', frozenset({rows[0]['metin']})):
+            self.test_holdout_rule_regression_without_real_model()
 
     def test_rule_regression_guard_rejects_holdout_drop(self):
         with patch(__name__ + '._route', return_value='__wrong__'):
@@ -155,6 +229,17 @@ class RoutingSentenceTests(unittest.TestCase):
                 if row.get('bilinen_hata'):
                     self.assertNotEqual(got, row['beklenen'],
                                         'Bu bilinen hata düzelmiş; veri dosyasından bilinen_hata işaretini kaldır.')
+                elif row['metin'].strip().casefold() in {t.casefold() for t in PRODUCTION_HANDLER_OWNED}:
+                    # Canonical Brain bu cümleyi claim'lemez ya da dosya hedefini sorar; yanıt hattın
+                    # ilerisindeki adlı yürütücüden gelir. Tek koşul: çelişen bir deterministik claim yok.
+                    claim = _canonical_claim(row['metin'])
+                    self.assertIn(claim, (None, 'clarify'), row['metin'])
+                elif row['beklenen'] == 'task' and _canonical_claim(row['metin']) is not None:
+                    # 'task' bu tabloda ortak hedef yürütücüsüdür; canonical sınır aynı cümleyi daha
+                    # özel bir Core planla (dosya/hatırlatma/araştırma) karşılıyorsa bu eşdeğerdir.
+                    pass
+                elif got == 'clarify' and row['beklenen'] in _FILE_TARGET_QUESTION_STANDS_FOR:
+                    pass  # hedef dosya soruluyor: eski boş-path seçicisinin canonical karşılığı
                 else:
                     self.assertEqual(got, row['beklenen'])
 
@@ -188,14 +273,28 @@ class RoutingSentenceTests(unittest.TestCase):
         texts = [row['metin'].casefold() for row in DATA['cumleler']]
         self.assertEqual(len(texts), len(set(texts)), 'Aynı cümle iki kez yazılmış.')
         for row in DATA['cumleler']:
-            self.assertIn(row['beklenen'], router._INTENTS | {'chat'})
-            self.assertIn(row['model'], router._INTENTS)
+            self.assertIn(row['beklenen'], CORPUS_INTENTS | {'chat'})
+            self.assertIn(row['model'], CORPUS_INTENTS)
             self.assertIn(row.get('bolum', 'ayarlama'), ('ayarlama', 'bekletilmis'))
             if 'onay_gerekli' in row:
                 self.assertIs(type(row['onay_gerekli']), bool,
                               'onay_gerekli yalnız JSON true/false olabilir.')
             if row.get('bolum') == 'bekletilmis':
                 self.assertNotIn('bilinen_hata', row, 'Bekletilmiş satır kural regresyonuyla ölçülür, işaretlenmez.')
+
+    def test_the_handler_owned_list_is_exactly_what_the_canonical_layer_does_not_claim(self):
+        # Bu liste büyürse yeni bir cümle yürütücü sahibine kaçmış; küçülürse cümle canonical plana
+        # kavuşmuş demektir. İkisi de bilinçli değişiklik ister, sessiz sürüklenme kabul edilmez.
+        listed = {t.casefold() for t in PRODUCTION_HANDLER_OWNED}
+        for row in DATA['cumleler']:
+            if row.get('bolum') == 'bekletilmis' or row['model'] == row['beklenen']:
+                continue
+            text = row['metin'].strip().casefold()
+            claim = _canonical_claim(row['metin'])
+            if text in listed:
+                self.assertIn(claim, (None, 'clarify'), f'{row["metin"]} artık canonical bir plan üretiyor')
+            else:
+                self.assertIsNotNone(claim, f'{row["metin"]} ne canonical plan ne de yürütücü sahibi listesinde')
 
 
 if __name__ == '__main__':

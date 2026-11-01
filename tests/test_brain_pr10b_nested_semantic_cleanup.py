@@ -74,7 +74,7 @@ def _entry(text: str, *, owner: str, request_id: str = "pr10b-entry", understand
 
 
 class EngineFixture(unittest.TestCase):
-    """Gerçek EngineContext; classifier her zaman kapalıdır (ikinci semantic authority yasak)."""
+    """Gerçek EngineContext; ikinci semantic authority fiziksel olarak yoktur (aşağıdaki muhafız)."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -83,9 +83,6 @@ class EngineFixture(unittest.TestCase):
             self.ctx = engine_runtime.EngineContext()
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
-        classifier = patch("modules.router.classify", side_effect=AssertionError("router.classify ikinci semantic authority olarak çağrıldı"))
-        classifier.start()
-        self.addCleanup(classifier.stop)
 
     def prepare(self, text: str):
         rid = "pr10b-" + uuid.uuid4().hex[:8]
@@ -107,11 +104,11 @@ class NestedStepBoundaryTests(EngineFixture):
 
     def test_bound_entry_projects_only_its_own_text(self):
         with brain_entry.bind(self.entry):
-            self.assertEqual(self.ctx.route(self.entry.text), self.parent)
+            self.assertEqual(brain_entry.route_command(self.ctx, self.entry.text), self.parent)
 
     def test_nested_step_never_receives_the_parents_decision(self):
         with brain_entry.bind(self.entry):
-            step = self.ctx.route("sesi 30 yap")
+            step = brain_entry.route_command(self.ctx, "sesi 30 yap")
         self.assertIsInstance(step, dict)
         self.assertEqual(step["intent"], "clarify")
         self.assertEqual(set(step["args"]), {"question"})
@@ -120,8 +117,8 @@ class NestedStepBoundaryTests(EngineFixture):
 
     def test_nested_step_refusal_is_closed_and_carries_no_target(self):
         with brain_entry.bind(self.entry):
-            first = self.ctx.route("raporu özetle")
-            second = self.ctx.route("sesi 30 yap")
+            first = brain_entry.route_command(self.ctx, "raporu özetle")
+            second = brain_entry.route_command(self.ctx, "sesi 30 yap")
         for row in (first, second):
             self.assertEqual(row["intent"], "clarify")
             self.assertEqual(set(row["args"]), {"question"})
@@ -134,18 +131,18 @@ class NestedStepBoundaryTests(EngineFixture):
         self.addCleanup(setattr, self.ctx, "_typo_pass", False)
         self.addCleanup(setattr, self.ctx, "_typo_orig", "")
         with brain_entry.bind(self.entry):
-            self.assertEqual(self.ctx.route("ankara'da hava nasıl ardından sesi 30"), self.parent)
+            self.assertEqual(brain_entry.route_command(self.ctx, "ankara'da hava nasıl ardından sesi 30"), self.parent)
 
-    def test_legacy_door_is_the_only_classifier_caller(self):
-        legacy = getattr(self.ctx, "_brain_legacy_route", None)
-        self.assertTrue(callable(legacy))
-        with patch("modules.router.classify", return_value={"intent": "chat", "args": {}}) as classify:
-            self.assertEqual(legacy("sesi 30 yap")["intent"], "chat")
-        classify.assert_called_once()
+    def test_legacy_door_projects_the_bound_turn_without_any_classifier(self):
+        # PR10c: classifier kapısı fiziksel olarak kalktı; route kapısı yalnız bağlı turn'ü izdüşürür.
+        self.assertEqual(_referencing(r"intent_router\.classify\(|router\.classify\("), set())
+        legacy = getattr(brain_entry, "_legacy_route_projection")
+        with brain_entry.bind(self.entry):
+            self.assertEqual(legacy(self.entry), self.parent)
 
 
 class CanonicalFileTargetTests(EngineFixture):
-    """C: canonical dosya isteği hedefi `_resolve_doc` ile tekrar seçmez."""
+    """C: canonical dosya isteği hedefi ikinci bir resolver ile tekrar seçmez."""
 
     def setUp(self):
         super().setUp()
@@ -173,26 +170,25 @@ class CanonicalFileTargetTests(EngineFixture):
         return entry, out
 
     def test_canonical_summary_uses_the_resolved_reference_and_no_legacy_resolver(self):
-        with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical hedef tekrar seçilemez")):
-            entry, out = self.through_brain("rapor.txt dosyasını özetle")
+        # Emekli ikinci hedef seçici fiziksel olarak yok; `patch.object` kurulamaz olur.
+        self.assertFalse(hasattr(type(self.ctx), "_resolve_doc"))
+        self.assertFalse(hasattr(self.ctx, "_resolve_doc"))
+        entry, out = self.through_brain("rapor.txt dosyasını özetle")
         self.assertEqual(brain_entry.core_plan(entry), ("file_action", {"operation": "summarize", "path": str(self.file)}))
         self.assertIn("ÖZET", out)
         self.assertEqual(Path(self.ctx.docs.summarize.call_args.args[0]).resolve(), self.file.resolve())
 
     def test_ambiguous_file_request_never_guesses_a_path(self):
-        with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("belirsiz istek tahmin edemez")):
-            entry, out = self.through_brain("dosyayı özetle")
+        entry, out = self.through_brain("dosyayı özetle")
         self.assertIsNone(brain_entry.core_plan(entry))
         self.assertIn("Hangi dosyayı", out)
 
-    def test_legacy_resolve_doc_is_reachable_only_from_the_legacy_route_chain(self):
-        self.assertEqual(_referencing(r"\._resolve_doc\("), {"engine_intents.py", "engine_tools.py"})
-        for name in ("engine_sequence.py", "main_planner.py", "command_manager.py", "brain_entry.py", "brain_core_map.py"):
-            self.assertNotIn("_resolve_doc", _source(name))
+    def test_legacy_file_target_resolver_is_physically_gone(self):
+        self.assertEqual(_referencing(r"_resolve_doc"), set())
+        self.assertEqual(_referencing(r"reference_context\("), set())
 
     def test_doc_intents_have_no_canonical_producer(self):
-        self.assertEqual(_referencing(r'"doc_(summary|insight|convert|translate)"'),
-                         {"engine_intents.py", "router.py"})
+        self.assertEqual(_referencing(r'"doc_(summary|insight|convert|translate)"'), set())
         self.assertNotIn("doc_", _source("brain_core_map.py"))
 
 
@@ -209,6 +205,7 @@ class CanonicalTranslationAuthorityTests(unittest.TestCase):
         context = command_manager.CommandContext(
             profile=SimpleNamespace(slug="hamdi"), session=session, emit=Mock(), table_chat=Mock(),
             history_read=lambda *a, **k: calls.append(a) or [], study_intent=Mock(return_value=None),
+            conversation_summary=Mock(return_value="Kısaca: …"),
             pc_owner=lambda: "hamdi", source="yazı")
         with patch("modules.visual_chat.handle", return_value=None), \
              patch("modules.usage_meter.handle", return_value=None), \
@@ -271,10 +268,10 @@ class NestedExecutionTests(unittest.TestCase):
 
     def test_run_steps_never_touches_the_legacy_semantic_chain(self):
         with patch.object(brain_entry, "run_step", return_value=("tamam", _Feedback("handled"))) as step, \
-             patch("modules.router.classify", side_effect=AssertionError("ikinci classifier yok")), \
-             patch("modules.app_actions.reference_context", side_effect=AssertionError("legacy reference resolver yok")):
+             patch("modules.engine_intents.dispatch", side_effect=AssertionError("adım envelope dışından dispatch edilemez")):
             engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "notları aç"])
         self.assertEqual([c.args[1] for c in step.call_args_list], ["sesi 30 yap", "notları aç"])
+        self.runtime.handle.assert_not_called()
         self.runtime.handle.assert_not_called()
 
     def test_unverified_step_result_stops_dependent_steps(self):
@@ -361,7 +358,7 @@ class NestedExecutionTests(unittest.TestCase):
             seen.append(text)
             return (f"{text} tamam", _Feedback("handled"))
         with patch.object(brain_entry, "run_step", side_effect=fake_run_step), \
-             patch("modules.router.classify", side_effect=AssertionError("ikinci classifier yok")):
+             patch("modules.engine_intents.dispatch", side_effect=AssertionError("kısayol adımı envelope dışından dispatch edilemez")):
             out = main_planner._macro_run(runtime, "kısayol")
         self.assertEqual(seen, ["chrome aç", "sesi kıs"])
         self.assertIn("kısayol", out)
@@ -438,7 +435,7 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
 
         def note(kind, command, intent=None):
             seen.append({"kind": kind, "command": command, "intent": intent,
-                         "entry": brain_entry.current(), "route": self.ctx.route(command)})
+                         "entry": brain_entry.current(), "route": brain_entry.route_command(self.ctx, command)})
 
         def dispatch_spy(runtime, intent, args, command, lower):
             note("dispatch", command, intent)
@@ -477,8 +474,14 @@ class PerStepEnvelopeIdentityTests(EngineFixture):
             self.assertNotEqual(row["route"], self.parent)
 
     def test_the_step_never_falls_back_to_the_legacy_classifier(self):
-        with patch("modules.router.classify", side_effect=AssertionError("ham adım classifier'a düşemez")):
-            self.observe(self.STEP)
+        # Adımın route kapısı yalnız kendi bağlı entry'sini izdüşürür; dışarıdan karar borç alınmaz
+        # ve emekli classifier'a dönüş yolu kalmamıştır.
+        seen, _out, _feedback = self.observe(self.STEP)
+        self.assertTrue(seen, "adım hiçbir canonical yola ulaşmadı")
+        for row in seen:
+            self.assertEqual(row["entry"].text, self.STEP)
+            self.assertEqual(row["route"], brain_entry._legacy_route_projection(row["entry"]))
+        self.assertEqual(_referencing(r"\bintent_router\.classify\("), set())
 
     def test_a_step_without_a_bound_canonical_entry_is_refused(self):
         with self.assertRaisesRegex(ValueError, "bağlı"):
@@ -544,11 +547,10 @@ class AuthorityInvariantsTests(EngineFixture):
 
     def test_core_guards_are_installed_once(self):
         brain_entry._install_core_guards(self.ctx)
-        route, control = self.ctx.route, command_manager.engine_control
+        control = command_manager.engine_control
         brain_entry._install_core_guards(self.ctx)
-        self.assertIs(self.ctx.route, route)
         self.assertIs(command_manager.engine_control, control)
-        self.assertTrue(getattr(self.ctx, "_brain_route_guard_installed", False))
+        self.assertTrue(getattr(command_manager, "_brain_engine_control_guard_installed", False))
 
     def test_engine_control_still_requires_an_exact_canonical_fast_match(self):
         brain_entry._install_core_guards(self.ctx)
@@ -578,8 +580,9 @@ class CallerZeroGuardTests(unittest.TestCase):
             for legacy in (r"\brouter\b", r"\bintent_router\b", r"\bwork_modes\b", r"\bfreshness\b", r"\breference_context\b"):
                 self.assertNotRegex(source, legacy, (name, legacy))
 
-    def test_classifier_has_only_the_unbound_legacy_route_door(self):
-        self.assertEqual(_referencing(r"intent_router\.classify"), {"engine_tools.py"})
+    def test_classifier_has_no_production_call_site_left(self):
+        self.assertEqual(_referencing(r"intent_router\.classify\(|import modules\.router|from modules import [^\n]*\brouter\b"), set())
+        self.assertFalse((MODULES / "router.py").exists())
 
 
 if __name__ == "__main__":

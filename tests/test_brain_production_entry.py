@@ -58,6 +58,24 @@ def understanding(*, owner: str = OWNER, request_id: str = RID,
     )
 
 
+def door(text: str, *, owner: str = OWNER, request_id: str = RID):
+    """Cümlenin canonical kapı kararı: Understand -> tek sınıflandırılmış-istek kapısı.
+
+    Model sınıfleyicisi yoktur; kapı yalnız bu turn'ün bağlı kararını izdüşürür.
+    Dönüş: (UnderstandingResult, decision dict)."""
+    import dataclasses
+
+    from modules import brain_entry, brain_understanding
+
+    semantic = brain_understanding.understand(owner=owner, request_id=request_id, text=text,
+                                              active_context=ActiveContext(owner=owner, request_id=request_id),
+                                              candidates=(), references=())
+    row = dataclasses.replace(entry(brain_entry, semantic=semantic), text=text)
+    runtime = SimpleNamespace(_typo_pass="", _typo_orig="")
+    with brain_entry.bind(row):
+        return semantic, brain_entry.route_command(runtime, text)
+
+
 def entry(module, *, semantic=None, active=None, state=None, fast=None):
     return module.EntryResult(
         owner=OWNER,
@@ -233,14 +251,14 @@ class BrainProductionEntryTests(unittest.TestCase):
         legacy = Mock(return_value={"intent": "legacy", "args": {}})
         runtime = self.runtime()
         runtime.route = legacy
-        module._install_route_guard(runtime)
         result = entry(module, semantic=understanding())
         with module.bind(result):
-            self.assertEqual(runtime.route("istek")["intent"], "chat")
-            self.assertEqual(runtime.route("adım metni")["intent"], "clarify")
+            self.assertEqual(module.route_command(runtime, "istek")["intent"], "chat")
+            self.assertEqual(module.route_command(runtime, "adım metni")["intent"], "clarify")
+        # Kapı yalnız bağlı turn'ün kendi kararını izdüşürür; runtime'e bağlı bir yoruma gitmez.
         legacy.assert_not_called()
-        self.assertEqual(runtime.route("legacy request")["intent"], "legacy")
-        legacy.assert_called_once_with("legacy request")
+        self.assertEqual(module.route_command(runtime, "legacy request")["intent"], "clarify")
+        legacy.assert_not_called()
 
     def test_feedback_and_core_handoff_keep_same_request_identity(self):
         module = self.module()

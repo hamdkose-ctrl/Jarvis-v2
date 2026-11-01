@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock,patch
 from openpyxl import Workbook,load_workbook
-from modules import translate as tr,router
+from modules import translate as tr
+from modules.brain_contracts import ActiveContext, RequestKind
 
 
 class TranslationTests(unittest.TestCase):
@@ -17,11 +18,27 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(tr.target_from_command('Türkçeden İngilizceye çevir'),'İngilizce')
 
     def test_language_translation_beats_file_format_words(self):
-        ask=Mock(side_effect=AssertionError('model router must not run'))
-        for text in ('Excel dosyasını Türkçeye çevir','PDF belgeyi turkceye cevir','Word Türkçeye çevir'):
-            result=router.classify(text,ask)
-            self.assertEqual(result['intent'],'doc_translate')
-            self.assertEqual(result['args']['target'],'Türkçe')
+        # PR10c: doc intent'leri legacy router'la birlikte kaldırıldı. Canonical sınır dil hedefini
+        # format dönüşümünden ayırır ve model sınıfleyicisi istemez; hedef dosyası yoksa sorar.
+        from modules import brain_core_map, brain_understanding
+        from modules.brain_contracts import ActiveContext
+
+        def decide(text):
+            semantic = brain_understanding.understand(owner='hamdi', request_id='rid-tr', text=text,
+                active_context=ActiveContext(owner='hamdi', request_id='rid-tr'), candidates=(), references=())
+            return semantic, brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+
+        for text in ('Excel dosyasını Türkçeye çevir', 'Word Türkçeye çevir'):
+            with self.subTest(text=text):
+                semantic, plan = decide(text)
+                self.assertEqual(semantic.capability_hint, 'files.read', text)
+                self.assertIsNone(plan, text)  # hedefsiz doc_translate yok: Core plan kurmaz
+                self.assertIn('file target unresolved', semantic.ambiguities, text)
+        # ASCII yazım ("turkceye cevir") da sohbet olarak bırakılmaz: icra isteği devredilir.
+        semantic, plan = decide('PDF belgeyi turkceye cevir')
+        self.assertIsNot(semantic.request_kind, RequestKind.CHAT)
+        self.assertIsNone(plan)
+        self.assertEqual(brain_understanding._file_language(brain_understanding._norm('PDF belgeyi turkceye cevir')), 'Türkçe')
 
     def test_file_button_uses_turkish_without_format_conversion(self):
         from modules.main_documents import _file_command

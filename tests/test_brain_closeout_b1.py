@@ -231,15 +231,17 @@ class RouterAuthorityTests(unittest.TestCase):
                             found.add((path.name, last, alias.asname or alias.name))
         return found
 
-    def test_legacy_modules_have_only_the_known_production_importers(self):
-        self.assertEqual(self.legacy_imports(), {
-            ("engine_runtime.py", "router", "intent_router"),    # unbound route tail (PR10b nested steps)
-        })
+    def test_legacy_modules_have_no_production_importer(self):
+        self.assertEqual(self.legacy_imports(), set())
 
-    def test_freshness_is_imported_by_nobody_but_the_router(self):
+    def test_legacy_module_files_are_physically_gone(self):
+        for name in sorted(self.LEGACY):
+            self.assertFalse((ROOT / "modules" / f"{name}.py").exists(), name)
+
+    def test_freshness_is_imported_by_nobody(self):
         self.assertFalse([row for row in self.legacy_imports() if row[1] == "freshness"])
 
-    def test_router_classify_is_called_only_from_the_unbound_route(self):
+    def test_no_production_source_calls_a_classifier_alias(self):
         aliases = {(name, alias) for name, module, alias in self.legacy_imports() if module == "router"}
         callers = []
         for path in self.production_files():
@@ -255,15 +257,16 @@ class RouterAuthorityTests(unittest.TestCase):
                         callers.append(f"{path.name}:{name}")
                 elif isinstance(func, ast.Name) and func.id in local and func.id not in {"router", "intent_router"}:
                     callers.append(f"{path.name}:{func.id}")      # from-import alias of classify
-        self.assertEqual(callers, ["engine_tools.py:intent_router"])
+        self.assertEqual(callers, [])
 
     def test_brain_entered_request_never_reaches_the_legacy_classifier(self):
+        # Sınıflandırılmış istek kapısı runtime'e bağlı bir yol değil: tek kapı brain_entry.route_command
+        # ve o kapı yalnız bağlı turn'ün kendi kararını izdüşürür.
         legacy = Mock(side_effect=AssertionError("router.classify çağrılmamalı"))
-        runtime = SimpleNamespace(route=legacy)
-        brain_entry._install_route_guard(runtime)
+        runtime = SimpleNamespace(route=legacy, intent_router=legacy, handle=lambda text: "CORE:" + text)
         for text in ("70 yap", "sesi 50 yap", "merhaba"):
             with brain_entry.bind(fixtures.entry(brain_entry, semantic=understood(text, "volume"))):
-                runtime.route(text)
+                self.assertIn(brain_entry.route_command(runtime, text)["intent"], {"chat", "clarify", "task"})
         legacy.assert_not_called()
 
 

@@ -13,7 +13,7 @@ import importlib.util
 import inspect
 import re
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -353,7 +353,10 @@ class CommandManagerFrontDoorTests(unittest.TestCase):
 
     def test_table_request_recognizer_is_bounded(self):
         from modules import brain_gates
-        for phrase in ("tabloya çevir", "bunu tablo yap", "tablo haline getir", "bu yanıtı tabloya çevir"):
+        # 'yazıları toplo yap' eski keyword-birleşim kapısının sahiplendiği gerçek kullanıcı
+        # ifadesiydi; exact kapı bunu da karşılar ama cümlenin tamamı tablo isteği olmalıdır.
+        for phrase in ("tabloya çevir", "bunu tablo yap", "tablo haline getir", "bu yanıtı tabloya çevir",
+                       "yazıları toplo yap"):
             self.assertTrue(brain_gates.table_request(phrase), phrase)
         for unrelated in ("tabloda hangi sensörler yazıyordu", "ben tabureyi sevmem",
                           "yarınki toplantıda tablo gösterme, özeti söyle", "table of contents ne demek",
@@ -646,6 +649,312 @@ class LearnedRuleAuthorityTests(unittest.TestCase):
         learning.add_rule(hamdi, "testlerden geçmeden tamam deme")
         self.assertEqual(learning.rules_prompt(ayse, "test"), "")
         self.assertIn("Testlerden geçmeden", learning.rules_prompt(hamdi, "test"))
+
+
+class ConversationSummaryParityTests(unittest.TestCase):
+    """Legacy doc_* fallback'iyle yaşayan "bu konuşmayı özetle" yeteneği canonical sınırdadır.
+
+    Tanıyıcı tek yerdedir (brain_gates), yürütücü domain sahibidir (engine_output), kapı ise
+    command_manager'ın bounded exact kapısıdır; hiçbiri cümleyi yeniden sınıflandırmaz."""
+
+    def context(self):
+        from modules.brain_contracts import ActiveContext
+        return ActiveContext(owner="hamdi", request_id="rid-cap")
+
+    def fast(self, text):
+        from modules import brain_gates
+        return brain_gates.deterministic_fast_gate(
+            owner="hamdi", request_id="rid-cap", text=text, active_context=self.context())
+
+    def test_recognizer_is_the_single_owner_and_matches_only_whole_requests(self):
+        from modules import brain_gates
+        self.assertTrue(brain_gates.conversation_summary_request("bu konuşmayı özetle"))
+        self.assertTrue(brain_gates.conversation_summary_request("Sohbeti özetler misin?"))
+        self.assertTrue(brain_gates.conversation_summary_request("bugünkü konuşmamızın özetini çıkar"))
+        # Dosya özeti canonical file_action'ın, ses kesme ise kendi fast protokolüdür.
+        self.assertFalse(brain_gates.conversation_summary_request("rapor.txt dosyasını özetle"))
+        self.assertFalse(brain_gates.conversation_summary_request("konuşmayı durdur"))
+        self.assertFalse(brain_gates.conversation_summary_request("yarınki toplantıda konuşmayı özetlememi istemiyorum"))
+
+    def test_fast_gate_observes_the_request_before_any_semantic_pass(self):
+        row = self.fast("bu konuşmayı özetle")
+        self.assertTrue(row.matched)
+        self.assertEqual(row.protocol, "fast.conversation.summary")
+        self.assertIsNone(self.fast("rapor.txt dosyasını özetle").protocol)
+
+    def test_the_door_runs_the_domain_owner_and_nothing_else(self):
+        from modules import command_manager
+        calls = []
+        context = command_manager.CommandContext(
+            profile=SimpleNamespace(slug="hamdi"),
+            session=SimpleNamespace(**{name: None for name in command_manager.PENDING_INPUT_FIELDS}),
+            emit=Mock(), table_chat=lambda: "tablo", history_read=lambda *_a: [],
+            study_intent=lambda *_a: None,
+            conversation_summary=lambda: (calls.append("summary"), "Kısaca: …")[1])
+        with patch("modules.visual_chat.handle", return_value=None):
+            out = command_manager.dispatch(context, "Bu konuşmayı özetle.", "bu konuşmayı özetle")
+        self.assertEqual(out, "Kısaca: …")
+        self.assertEqual(calls, ["summary"])
+        with patch("modules.visual_chat.handle", return_value=None):
+            self.assertIsNone(command_manager.dispatch(context, "rapor.txt dosyasını özetle", "rapor.txt dosyasını özetle"))
+
+    def test_the_domain_owner_reads_only_this_owners_recent_history(self):
+        from modules import engine_output
+        rows = [{"ts": "2026-11-01T10:00:00", "role": "user", "text": "kredi kartı borcu ne kadar?"},
+                {"ts": "2026-11-01T10:00:10", "role": "assistant", "text": "1.240 TL."}]
+        asked = []
+        runtime = SimpleNamespace(
+            profile=SimpleNamespace(slug="hamdi"), history=SimpleNamespace(read=lambda *_a, **_k: rows),
+            datetime=SimpleNamespace(now=lambda: SimpleNamespace(strftime=lambda _f: "2026-11-01")),
+            ask=lambda prompt: (asked.append(prompt), "Özet: kredi kartı borcu soruldu.")[1])
+        self.assertEqual(engine_output._conversation_summary(runtime), "Özet: kredi kartı borcu soruldu.")
+        self.assertIn("kredi kartı borcu", asked[0])
+        self.assertIn("en fazla 6 madde", asked[0])
+        empty = SimpleNamespace(**{**runtime.__dict__, "history": SimpleNamespace(read=lambda *_a, **_k: [])})
+        self.assertEqual(engine_output._conversation_summary(empty), "Özetlenecek bir konuşma bulamadım.")
+
+    def test_the_legacy_chat_summary_helper_is_not_revived(self):
+        # Yetenek geri kurulurken eski adı ve eski çağrı zinciri (doc_* fallback'i) diriltilmez.
+        for name in ("engine_output", "engine_intents", "engine_tools", "main_documents", "engine_runtime"):
+            self.assertNotIn("_summarize_chat", identities(source(name)), name)
+
+    def test_the_summary_reaches_every_surface_through_the_canonical_pipeline(self):
+        # Yüzeyler ortak handler'ı çalıştırdığı için exact kapı da ortaktır; hiçbir surface
+        # kendi konuşma özetini kuramaz.
+        from modules import engine_runtime
+        for name in ("engine_live_brain", "engine_loop", "engine_voice", "brain_entry"):
+            self.assertNotIn("_conversation_summary", identities(source(name)), name)
+        self.assertIn("conversation_summary=runtime._conversation_summary", source("engine_commands"))
+        self.assertIn("_conversation_summary", engine_runtime._HANDLERS["engine_output"])
+
+
+class ExplicitOutputFormatParityTests(unittest.TestCase):
+    """Tek cümlelik "özetle/analiz et ve <format> olarak kaydet" canonical file_action içindedir."""
+
+    OWNER, RID = "hamdi", "rid-fmt"
+
+    def setUp(self):
+        import tempfile
+        from modules import nxapi
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.file = Path(self.temp.name) / "rapor.txt"
+        self.file.write_text("veri", encoding="utf-8")
+        roots = patch.object(nxapi, "_roots", return_value=[Path(self.temp.name)])
+        roots.start()
+        self.addCleanup(roots.stop)
+
+    def understand(self, text):
+        from modules import brain_understanding
+        from modules.brain_contracts import ActiveContext, ContextReference
+        refs = (ContextReference(id=str(self.file), kind="file", source="nxapi.file_inventory", owner=self.OWNER,
+                                 provenance={"inventory_scope": "global_pc", "path": str(self.file),
+                                             "name": self.file.name}),)
+        return brain_understanding.understand(owner=self.OWNER, request_id=self.RID, text=text,
+                                              active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
+                                              candidates=refs, references=refs)
+
+    def test_summarize_with_an_explicit_format_is_one_canonical_plan(self):
+        from modules import brain_core_map
+        for text, fmt in (("rapor.txt dosyasını özetle ve excel olarak kaydet", "xlsx"),
+                          ("rapor.txt dosyasını özetle, sonucu word olarak hazırla", "docx"),
+                          ("rapor.txt dosyasını analiz et ve pdf olarak çıkar", "pdf")):
+            with self.subTest(text=text):
+                semantic = self.understand(text)
+                self.assertEqual(semantic.capability_hint, "files.read", text)
+                self.assertEqual(semantic.arguments["format"], fmt, text)
+                plan = brain_core_map.core_plan("files.read", semantic.arguments)
+                self.assertIsNotNone(plan, text)
+                self.assertEqual(plan[1]["format"], fmt, text)
+                self.assertEqual(plan[1]["path"], str(self.file), text)
+
+    def test_a_format_word_alone_does_not_change_a_plain_summary(self):
+        semantic = self.understand("rapor.txt dosyasını özetle")
+        self.assertNotIn("format", semantic.arguments)
+
+    def test_save_without_a_format_still_stays_compound(self):
+        # "ve kaydet" tek başına planlanamaz; bu sözleşme format kelimesiyle gevşemez.
+        semantic = self.understand("rapor.txt dosyasını özetle ve kaydet")
+        self.assertNotIn("operation", semantic.arguments)
+
+    def test_core_rejects_a_format_it_does_not_own(self):
+        from modules import brain_core_map
+        base = {"operation": "summarize", "path": str(self.file)}
+        self.assertEqual(brain_core_map.core_plan("files.read", {**base, "format": "pdf"})[1]["format"], "pdf")
+        self.assertNotIn("format", brain_core_map.core_plan("files.read", base)[1])
+        for bad in ("exe", "xlsx ", "", "PDF"):
+            self.assertIsNone(brain_core_map.core_plan("files.read", {**base, "format": bad}), bad)
+
+    def test_the_executor_saves_in_the_requested_format(self):
+        from modules import engine_intents
+        saved = []
+        session = SimpleNamespace(last_doc=None)
+        runtime = SimpleNamespace(
+            re=re, _session=lambda: session,
+            docs=SimpleNamespace(summarize=lambda _path: "ÖZET"),
+            output=SimpleNamespace(save_text_result=lambda text, path, label, preferred=None:
+                                    (saved.append((text, path, label, preferred)), f"/out/{label}.{preferred}")[1]))
+        command = "rapor.txt dosyasını özetle ve excel olarak kaydet"
+        out = engine_intents.dispatch(runtime, "file_action",
+                                      {"operation": "summarize", "path": str(self.file), "format": "xlsx"},
+                                      command, command)
+        self.assertEqual(saved, [("ÖZET", str(self.file), "ozet", "xlsx")])
+        self.assertIn("kaydettim", out)
+        self.assertEqual(session.last_doc, ("ÖZET", str(self.file), "ozet"))
+
+    def test_without_an_explicit_format_the_hint_line_is_unchanged(self):
+        from modules import engine_intents
+        runtime = SimpleNamespace(re=re, _session=lambda: SimpleNamespace(last_doc=None),
+                                  docs=SimpleNamespace(summarize=lambda _path: "ÖZET"),
+                                  output=SimpleNamespace(save_text_result=Mock()))
+        out = engine_intents.dispatch(runtime, "file_action", {"operation": "summarize", "path": str(self.file)},
+                                      "rapor.txt dosyasını özetle", "rapor.txt dosyasını özetle")
+        runtime.output.save_text_result.assert_not_called()
+        self.assertIn("çıktı al", out)
+
+
+class RetiredRouterDeterminismParityTests(unittest.TestCase):
+    """B: router zinciri silinirken onun deterministik hükümleri kullanıcıda kalmalı.
+
+    Üç hüküm canonical sınıra taşındı: taze dış veri → araştırma görevi, ekran okuma,
+    pencere listeleme/taşıma. Her biri Brain önerir + Core doğrular; hiçbirinde model
+    sınıfleyicisi çağrılmaz, hiçbirinde legacy modül diriltilmez."""
+
+    OWNER, RID = "hamdi", "rid-det"
+
+    def decide(self, text):
+        from modules import brain_core_map, brain_understanding
+        from modules.brain_contracts import ActiveContext
+        semantic = brain_understanding.understand(owner=self.OWNER, request_id=self.RID, text=text,
+                                                  active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
+                                                  candidates=(), references=())
+        return semantic, brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+
+    def test_fresh_external_data_is_a_research_task_not_a_chat_promise(self):
+        for text in ("İstanbul son haberler neler?", "dolar ne kadar", "borsa son durum", "haberleri özetle"):
+            with self.subTest(text=text):
+                semantic, plan = self.decide(text)
+                self.assertEqual(semantic.capability_hint, "research.search", text)
+                self.assertEqual(plan, ("task", {"query": text, "route": "PRIVATE"}), text)
+        for text in ("Haber nedir?", "kur nedir", "Haberlere bak", "son mailleri göster"):
+            with self.subTest(static=text):
+                self.assertNotEqual(self.decide(text)[0].capability_hint, "research.search", text)
+
+    def test_screen_analysis_is_an_exact_capability_with_the_users_question(self):
+        _semantic, plan = self.decide("ekranı analiz et")
+        self.assertEqual(plan, ("screen_analyze", {"question": ""}))
+        _semantic, plan = self.decide("Ekranımda ne var")
+        self.assertEqual(plan, ("screen_analyze", {"question": "Ekranımda ne var"}))
+        # Ekran kelimesi olmayan cümle ekranı okuma yeteneğine dönüşmez.
+        self.assertNotEqual(self.decide("raporu analiz et")[0].capability_hint, "screen.analyze")
+
+    def test_window_requests_map_to_the_existing_app_action_executor(self):
+        _semantic, plan = self.decide("Açık pencereleri listele")
+        self.assertEqual(plan, ("app_action", {"action": "pc_windows", "params": {}}))
+        _semantic, plan = self.decide("Chrome penceresini öne getir")
+        self.assertEqual(plan, ("app_action", {"action": "pc_window",
+                                               "params": {"target": "chrome", "action": "focus"}}))
+        self.assertIn('case "app_action"', source("engine_intents"))
+        self.assertIn('case "screen_analyze"', source("engine_intents"))
+
+    def test_core_refuses_a_window_action_it_does_not_own(self):
+        from modules import brain_core_map
+        for row in ({"window": {"action": "delete"}}, {"window": {"action": "focus", "target": ""}},
+                    {"window": {"action": "focus", "target": "a" * 200}}, {"window": {"action": "list", "extra": 1}}):
+            with self.subTest(row=row):
+                self.assertIsNone(brain_core_map.core_plan("desktop.window.op", row))
+
+    def test_the_rules_have_one_canonical_owner_and_no_legacy_revival(self):
+        owners = identities(source("brain_understanding"))
+        for name in ("_needs_fresh_external_data", "_screen_arguments", "_desktop_window_arguments"):
+            self.assertIn(name, owners, name)
+        for module in ("router", "work_modes", "freshness"):
+            self.assertIsNone(importlib.util.find_spec(f"modules.{module}"), module)
+
+
+class GenericExecutionEnvelopeTests(unittest.TestCase):
+    """B/nihai yakalama: eylem-shaped istek sohbet olarak bırakılmaz, hedef yürütücüsüne devredilir.
+
+    Eski `work_modes.classify == do / ends_with_action -> task` kuralının successor'ı iki parçalıdır:
+    Understanding turu Capability sayar, tek sınıflandırılmış-istek kapısı (route_command) doğrulanmış
+    bir plan yoksa cümlenin TAMAMINI Task zarfıyla Goal Runner'a verir. Kapı niyet yeniden üretmez;
+    çıplak deiktik hedefsizdir ve Clarify'de kalır."""
+
+    OWNER, RID = "hamdi", "rid-envelope"
+
+    def door(self, text):
+        import test_brain_production_entry as fixtures
+        return fixtures.door(text, owner=self.OWNER, request_id=self.RID)
+
+    def test_action_request_without_a_specific_capability_still_reaches_the_goal_runner(self):
+        from modules.brain_contracts import RequestKind
+        for text in ("raporu kaydet", "kodu düzelt", "dosyayı taşıyıp adını değiştir",
+                     "Excel'i açıp A1 hücresine Merhaba yaz", "Araştır ve belge üret"):
+            with self.subTest(text=text):
+                semantic, decision = self.door(text)
+                self.assertIs(semantic.request_kind, RequestKind.CAPABILITY, text)
+                self.assertIsNone(semantic.capability_hint, text)
+                self.assertEqual(decision, {"intent": "task", "args": {"request": text}}, text)
+
+    def test_a_bare_deictic_is_never_handed_to_the_goal_runner(self):
+        for text in ("onu sil", "bunu yap", "şunu kapat"):
+            with self.subTest(text=text):
+                self.assertEqual(self.door(text)[1]["intent"], "clarify", text)
+
+    def test_a_grounded_deictic_is_not_refused_by_a_second_target_question(self):
+        """Resolver hedefi bağladıysa kapı kendi hedef sorusunu üretmez (ikinci target yetkisi olmaz).
+
+        "onu aç" tek bir konuşma turuna dayanıyorsa Goal Runner cümlenin tamamını devralır; hükmü
+        Reference Resolver + Understanding verir. Sahipsiz deiktilde Clarify korunur (üstteki test)."""
+        import dataclasses
+
+        import test_brain_production_entry as fixtures
+        from modules import brain_entry, brain_understanding
+        from modules.brain_contracts import ActiveContext, ContextReference
+
+        ref = ContextReference(id="ref-paint", kind="conversation_turn", source="history", owner=self.OWNER)
+        semantic = brain_understanding.understand(owner=self.OWNER, request_id=self.RID, text="onu aç",
+                                                  active_context=ActiveContext(owner=self.OWNER, request_id=self.RID),
+                                                  candidates=(ref,), references=(ref,))
+        self.assertTrue(semantic.references, "bağlanan referans Understanding'e taşınmadı")
+        row = dataclasses.replace(fixtures.entry(brain_entry, semantic=semantic), text="onu aç")
+        runtime = SimpleNamespace(_typo_pass="", _typo_orig="")
+        with brain_entry.bind(row):
+            decision = brain_entry.route_command(runtime, "onu aç")
+        self.assertEqual(decision, {"intent": "task", "args": {"request": "onu aç"}})
+
+    def test_an_explanation_question_stays_chat(self):
+        for text in ("yapay zeka nedir", "HTTP nedir?", "Chrome nasıl açılır?"):
+            with self.subTest(text=text):
+                self.assertEqual(self.door(text)[1], {"intent": "chat", "args": {}}, text)
+
+    def test_a_validated_plan_wins_over_the_generic_envelope(self):
+        _semantic, decision = self.door("Bugünkü dolar kuru kaç lira?")
+        self.assertEqual(decision["intent"], "task")
+        self.assertEqual(decision["args"], {"query": "Bugünkü dolar kuru kaç lira?", "route": "PRIVATE"})
+
+    def test_the_envelope_needs_understandings_execution_verdict(self):
+        # Capability biçimli ama icra isteği olmayan cümle ("belgeyi özetle" gibi hedefi belirsiz
+        # dosya kelimesi) Goal Runner'a düşmez: kapı yalnız Understanding'ın kaydına bakar.
+        from modules import brain_understanding
+        from modules.brain_contracts import RequestKind
+        for text in ("belgeyi özetle", "mesajları göster"):
+            with self.subTest(text=text):
+                semantic, decision = self.door(text)
+                self.assertIs(semantic.request_kind, RequestKind.CAPABILITY, text)
+                self.assertNotIn(brain_understanding.EXECUTION_REQUEST_CODE, semantic.reason_codes, text)
+                self.assertEqual(decision["intent"], "clarify", text)
+
+    def test_the_envelope_has_one_owner_and_builds_no_second_intent(self):
+        from modules import brain_entry
+        door_source = inspect.getsource(brain_entry._legacy_route_projection)
+        self.assertEqual(door_source.count('"intent": "task"'), 2, door_source)
+        for forbidden in ("work_modes", "router.classify", "intent_router"):
+            self.assertNotIn(forbidden, door_source, forbidden)
+        self.assertIn("from modules.brain_actions import action_request", source("brain_understanding"))
+        # Kapı ham cümleyi kendi başına sınıflandırmaz; hükmü Understanding'ın reason code'u verir.
+        self.assertIn("EXECUTION_REQUEST_CODE in semantic.reason_codes", door_source)
+        self.assertNotIn("action_request(entry.text)", door_source)
 
 
 class SecondAuthorityGuardTests(unittest.TestCase):

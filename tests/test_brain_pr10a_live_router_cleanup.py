@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import functools
+import importlib.util
 import re
 import unittest
 from contextlib import nullcontext
@@ -168,16 +169,16 @@ class CanonicalRequestTests(unittest.TestCase):
         self.assertEqual(text_out, live_out)
 
     def test_live_and_text_never_call_the_legacy_classifier(self):
+        # Emekli classifier'ın yerinde ikinci bir yetki yok; çağrı kapısı fiziksel olarak kalktı.
+        self.assertIsNone(importlib.util.find_spec("modules.router"))
         for text in ("ankara'da hava nasıl", "sesi 50 yap", "merhaba"):
-            with self.subTest(text=text), \
-                 patch("modules.router.classify", side_effect=AssertionError("router.classify çağrılmamalı")):
+            with self.subTest(text=text):
                 self.text_turn(text, Mock(return_value="<<handler>>"))
                 self.live_turn(text, Mock(return_value="<<handler>>"))
 
     def test_canonical_reference_resolution_never_calls_legacy_reference_context(self):
-        with patch.object(app_actions, "reference_context",
-                          side_effect=AssertionError("reference_context çağrılmamalı")):
-            entry, _output, _dispatch = self.text_turn("bunu özetle", Mock(return_value="<<handler>>"))
+        self.assertFalse(hasattr(app_actions, "reference_context"))
+        entry, _output, _dispatch = self.text_turn("bunu özetle", Mock(return_value="<<handler>>"))
         self.assertEqual(entry.stage, "understanding")
 
     def test_live_path_still_uses_the_owner_request_fence(self):
@@ -190,35 +191,39 @@ class CanonicalRequestTests(unittest.TestCase):
 
 
 class CallerZeroGuardTests(unittest.TestCase):
-    """C, F — the legacy semantic chain may not gain or keep production owners."""
+    """C, F — PR10c: legacy semantic zinciri artık production'da değildir; yeni çağıran da eklenemez."""
 
-    def test_legacy_semantic_modules_have_no_production_importer_outside_the_router_chain(self):
-        self.assertEqual(legacy_imports(), {
-            ("engine_runtime.py", "router", "intent_router"),   # unbound fallback tail (PR10b nested steps)
-        })
+    def test_legacy_semantic_modules_have_no_production_importer(self):
+        self.assertEqual(legacy_imports(), set())
 
-    def test_classifier_has_exactly_one_legacy_call_site(self):
-        self.assertEqual(referencing(r"intent_router\.classify\(|\brouter\.classify\("), {"engine_tools.py"})
+    def test_legacy_semantic_modules_are_physically_gone(self):
+        for name in sorted(LEGACY):
+            self.assertFalse((MODULES / f"{name}.py").exists(), name)
+            self.assertIsNone(importlib.util.find_spec("modules." + name), name)
 
-    def test_reference_context_feeds_only_the_legacy_router(self):
-        self.assertEqual(referencing(r"reference_context\("), {"app_actions.py", "router.py"})
+    def test_classifier_has_no_production_call_site(self):
+        self.assertEqual(referencing(r"intent_router\.classify\("), set())
 
-    def test_goal_executor_uses_the_single_brain_action_definition(self):
+    def test_reference_context_has_no_producer_or_caller(self):
+        self.assertEqual(referencing(r"reference_context\("), set())
+
+    def test_goal_executor_falls_back_to_the_brain_action_definition(self):
         job = {"state": "question", "updated": 0}
         state = SimpleNamespace(_in_multi=False, _in_macro=False)
         runtime = SimpleNamespace(profile=SimpleNamespace(slug=OWNER), _session=lambda: state)
         with patch.object(goal_executor, "latest", return_value=job), \
              patch.object(goal_executor, "age", return_value=1), \
              patch.object(goal_executor, "_is_fast_command", return_value=False), \
-             patch.object(goal_executor, "run", return_value="RESUMED") as run, \
-             patch("modules.work_modes.ends_with_action", side_effect=AssertionError("work_modes çağrılmamalı")):
+             patch.object(brain_actions, "ends_with_action", wraps=brain_actions.ends_with_action) as rule, \
+             patch.object(goal_executor, "run", return_value="RESUMED") as run:
             output = goal_executor.handle(runtime, "raporu dosyaya yaz")
         self.assertIsNone(output)
         run.assert_not_called()
+        # Bağlı canonical entry yok; yedek kural tek tanımdan (brain_actions) gelir.
+        self.assertTrue(rule.called)
 
-    def test_work_modes_reexports_the_brain_definition(self):
-        from modules import work_modes
-        self.assertIs(work_modes.ends_with_action, brain_actions.ends_with_action)
+    def test_ends_with_action_has_a_single_definition(self):
+        self.assertEqual(referencing(r"def ends_with_action"), {"brain_actions.py"})
 
 
 if __name__ == "__main__":

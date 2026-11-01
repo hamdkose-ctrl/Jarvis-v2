@@ -2,7 +2,7 @@
 from datetime import datetime
 from unittest.mock import patch
 from test_mail_calendar_fixes import ProfileCase, _runtime
-from modules import goal_executor as goals, model_free_news
+from modules import brain_entry, goal_executor as goals, model_free_news
 
 
 class GoalCommandPrefixTests(ProfileCase):
@@ -12,10 +12,12 @@ class GoalCommandPrefixTests(ProfileCase):
                                   ('hedef hedef belirleme konusunda rapor hazırla', 'hedef belirleme konusunda rapor hazırla')]:
             with self.subTest(command=command):
                 rt = _runtime(self, self.profile, datetime(2026, 10, 20, 12))
+                # PR10c: `hedef:` öneki canonical karar kapısından önce yürür; bu cümle için
+                # brain_entry.route_command hiç çağrılmaz (tek sınıflandırma kapısı budur).
                 with patch.object(goals, 'active', return_value=False), \
                      patch.object(goals, 'latest', return_value=None), \
                      patch.object(goals, 'run', return_value='Görev başlangıcı') as run, \
-                     patch.object(rt, 'route', return_value={'intent': 'task', 'args': {}}) as route:
+                     patch.object(brain_entry, 'route_command', return_value={'intent': 'task', 'args': {}}) as route:
                     self.assertEqual(rt.handle(command), 'Görev başlangıcı')
                 run.assert_called_once_with(rt, expected)
                 route.assert_not_called()

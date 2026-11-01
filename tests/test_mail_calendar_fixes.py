@@ -53,10 +53,18 @@ def _runtime(case, profile, now, busy=()):
 
 
 def say(rt, text):
-    # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi artık model kapılarının
-    # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmemeli.
-    with patch.object(rt, 'ask', side_effect=AssertionError('model sınıflandırmasına gitmemeli')), \
-         patch.object(rt, 'chat', side_effect=AssertionError('model sınıflandırmasına gitmemeli')):
+    # PR10c: `modules.router` sınıfleyicisi fiziksel olarak kaldırıldı; bunu artık tabandaki
+    # `router.classify` bekçisi değil, caller-zero muhafızları kanıtlıyor
+    # (tests/test_brain_b3b.py, tests/test_brain_pr10a_live_router_cleanup.py). Domain'in
+    # kendi model çağrısı (örn. Outlook taslağı) meşrudur; beklenmeyen model kullanımı
+    # isteyen test `say_deterministic` kullanır.
+    return rt.handle(text)
+
+
+def say_deterministic(rt, text):
+    """Komut hiçbir model kapısına düşmeden cevaplanmalı: 'ask'/'chat' çağrılırsa test patlar."""
+    with patch.object(rt, 'ask', side_effect=AssertionError('deterministik yol modele düşmemeli')), \
+         patch.object(rt, 'chat', side_effect=AssertionError('deterministik yol modele düşmemeli')):
         return rt.handle(text)
 
 
