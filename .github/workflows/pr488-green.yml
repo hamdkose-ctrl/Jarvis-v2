@@ -52,19 +52,19 @@ jobs:
           path.write_text(text.replace(old_compound, new_compound, 1), encoding='utf-8', newline='\n')
           '@ | py -3.13 -X utf8 -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Apply bounded patch
+      - name: Apply bounded product patch
         shell: powershell
         run: |
           py -3.13 -X utf8 scripts/pr488_apply.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Apply focused file fixes and test migration
+      - name: Apply focused fixes and migrate old expectations
         shell: powershell
         run: |
           @'
           import re
           from pathlib import Path
 
-          # Product: do not collapse a compound "summarize and save/share/..." into one file_action.
+          # Product: a second effect after "ve" must not be silently dropped.
           path = Path('modules/brain_understanding.py')
           text = path.read_text(encoding='utf-8')
           old = '''    # Same operation may be expressed twice; different operations mean a compound request.
@@ -76,7 +76,7 @@ jobs:
               if len(unique) != 1:
                   return None
               if unique[0] != FILE_COMPARE and re.search(
-                  r"(?<!\\w)ve\\s+(?:kaydet\\w*|gönder\\w*|gonder\\w*|paylaş\\w*|paylas\\w*|yazdır\\w*|yazdir\\w*|çıktı\\s+al\\w*|cikti\\s+al\\w*)(?!\\w)",
+                  r"(?<!\\w)ve\\s+(?:kaydet\\w*|g\\u00f6nder\\w*|gonder\\w*|payla\\u015f\\w*|paylas\\w*|yazd\\u0131r\\w*|yazdir\\w*|\\u00e7\\u0131kt\\u0131\\s+al\\w*|cikti\\s+al\\w*)(?!\\w)",
                   text,
               ):
                   return None
@@ -86,7 +86,7 @@ jobs:
               raise SystemExit(f'compound guard source count={text.count(old)}')
           path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
 
-          # Test isolation: engine logging can keep jarvis.log open on Windows after the assertion body.
+          # Windows test isolation: logger may keep jarvis.log open briefly.
           path = Path('tests/test_brain_files_final_authority.py')
           text = path.read_text(encoding='utf-8')
           old = '        self.temp = tempfile.TemporaryDirectory()\n'
@@ -95,30 +95,27 @@ jobs:
               raise SystemExit(f'tempdir source count={text.count(old)}')
           path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
 
-          # Old B3c-1 expectations: "dosyayı göster" is intentionally locate in final file cutover.
           path = Path('tests/test_brain_b3c1.py')
           text = path.read_text(encoding='utf-8')
-          old = '''    def test_no_reference_or_other_verb_proposes_no_target(self):
-                  for text, refs in (("dosyayı özetle", []), ("dosyayı göster", [file_ref("/data/a.pdf")])):
-                      result = self.understand(text, refs)
-                      self.assertNotIn("operation", result.arguments, text)
-                      self.assertNotIn("path", result.arguments, text)
-          '''
-          new = '''    def test_no_reference_proposes_no_target(self):
-                  result = self.understand("dosyayı özetle", [])
+
+          # Final cutover intentionally makes the former "show" case a locate operation.
+          replacement = '''    def test_no_reference_proposes_no_target(self):
+                  result = self.understand("dosyay\\u0131 \\u00f6zetle", [])
                   self.assertNotIn("operation", result.arguments)
                   self.assertNotIn("path", result.arguments)
           
               def test_show_single_resolved_file_is_locate(self):
-                  result = self.understand("dosyayı göster", [file_ref("/data/a.pdf")])
+                  result = self.understand("dosyay\\u0131 g\\u00f6ster", [file_ref("/data/a.pdf")])
                   self.assertEqual(result.arguments.get("operation"), "locate")
                   self.assertEqual(result.arguments.get("path"), "/data/a.pdf")
+          
           '''
-          if text.count(old) != 1:
-              raise SystemExit(f'old show expectation count={text.count(old)}')
-          text = text.replace(old, new, 1)
+          pattern = r'^    def test_no_reference_or_other_verb_proposes_no_target\(self\):\n.*?(?=^    def test_path_never_comes_from_raw_text\(self\):)'
+          text, count = re.subn(pattern, lambda _m: replacement, text, count=1, flags=re.S | re.M)
+          if count != 1:
+              raise SystemExit(f'old show expectation structural count={count}')
 
-          # Caller-zero regression uses ASCII escapes in source so PowerShell cannot corrupt Turkish text.
+          # Canonical summary must not call the old target resolver. ASCII escapes avoid shell encoding drift.
           replacement = '''    def test_summary_uses_brain_path_without_legacy_resolve_doc(self):
                   self.ctx.docs = Mock(summarize=Mock(return_value="\\u00d6ZET"))
                   with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target cannot be reselected"), create=True), \\
@@ -132,7 +129,7 @@ jobs:
           pattern = r'^    def test_resolve_doc_receives_the_brain_path_and_does_not_reselect\(self\):\n.*?(?=^    def test_front_gate_file_command_beats_core_plan\(self\):)'
           text, count = re.subn(pattern, lambda _m: replacement, text, count=1, flags=re.S | re.M)
           if count != 1:
-              raise SystemExit(f'resolve_doc test structural match count={count}')
+              raise SystemExit(f'resolve_doc test structural count={count}')
           path.write_text(text, encoding='utf-8', newline='\n')
           '@ | py -3.13 -X utf8 -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
