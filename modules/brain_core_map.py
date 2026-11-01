@@ -14,8 +14,17 @@ from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.brain_understanding import (
+    FILE_ANALYZE,
+    FILE_COMPARE,
+    FILE_CONVERSION_FORMAT_MISSING,
+    FILE_CONVERT,
+    FILE_LIST,
+    FILE_LOCATE,
+    FILE_OPEN,
     FILE_SUMMARIZE,
     FILE_TARGET_UNRESOLVED,
+    FILE_TRANSLATE,
+    FILE_TRANSLATION_TARGET_MISSING,
     LEVEL_CAPABILITY,
     LEVEL_UNSPECIFIED,
     NOTE_TARGET_UNRESOLVED,
@@ -49,23 +58,56 @@ def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"location": location[:1].replace("i", "İ").replace("ı", "I").upper() + location[1:]}
 
 
-def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Core re-validates the Brain-resolved file: exact summarize op, absolute existing file, allowed root."""
-    path = arguments.get("path")
-    if arguments.get("operation") != FILE_SUMMARIZE or not isinstance(path, str) or not path.strip():
-        return None
-    if "\x00" in path or not os.path.isabs(path):
+def _validated_file_path(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip() or "\x00" in value or not os.path.isabs(value):
         return None
     try:
         from pathlib import Path
         from modules import nxapi
-        target = Path(path)
-        if not target.is_file() or not nxapi.allowed(target):
+        target = Path(value)
+        if not target.is_file() or nxapi.allowed(target) is None:
             return None
     except Exception:
         _record_failure("modules/brain_core_map.py:file_args")
         return None
-    return {"path": path}
+    return value
+
+
+_FILE_OPS = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_OPEN, FILE_LOCATE, FILE_LIST, FILE_COMPARE, FILE_TRANSLATE, FILE_CONVERT})
+_FILE_LANGUAGES = frozenset({"Türkçe", "İngilizce", "Almanca", "Fransızca", "Arapça", "Rusça", "İspanyolca"})
+_FILE_FORMATS = frozenset({"xlsx", "docx", "pdf"})
+
+
+def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates exact operation + resolved path(s); no raw-text target selection is allowed here."""
+    operation = arguments.get("operation")
+    if operation not in _FILE_OPS:
+        return None
+    if operation == FILE_LIST:
+        return {"operation": FILE_LIST}
+    if operation == FILE_COMPARE:
+        paths = arguments.get("paths")
+        if not isinstance(paths, (list, tuple)) or not 2 <= len(paths) <= 10:
+            return None
+        validated = tuple(_validated_file_path(value) for value in paths)
+        if any(value is None for value in validated) or len(set(validated)) != len(validated):
+            return None
+        return {"operation": FILE_COMPARE, "paths": validated}
+    path = _validated_file_path(arguments.get("path"))
+    if path is None:
+        return None
+    result: dict[str, Any] = {"operation": operation, "path": path}
+    if operation == FILE_TRANSLATE:
+        target = arguments.get("target")
+        if target not in _FILE_LANGUAGES:
+            return None
+        result["target"] = target
+    elif operation == FILE_CONVERT:
+        fmt = arguments.get("format")
+        if fmt not in _FILE_FORMATS:
+            return None
+        result["format"] = fmt
+    return result
 
 
 def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -159,9 +201,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
-    # Only the summarize operation on a Brain-resolved file; other files.read operations stay
-    # on the legacy owner (PARTIAL_CORE_HINTS) because they carry no validated operation.
-    "files.read": ("doc_summary", _file_args),
+    # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
+    "files.read": ("file_action", _file_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),
@@ -184,7 +225,6 @@ LEGACY_OWNED_HINTS: dict[str, str] = {}
 PARTIAL_CORE_HINTS: dict[str, str] = {
     "research.search": "ara/bul cümleleri açık web araştırma ipucu taşımıyorsa (mail/dosya/sayfa/not/deiktik): eski handler + goal_executor",
     "notes.read": "main_planner not arama/özetleme + bounded numara/tüm-not domain protokolleri",
-    "files.read": "engine_commands._file_command + legacy handler (göster/aç/bul/listele/karşılaştır)",
 }
 
 
@@ -206,7 +246,11 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
     if FILE_TARGET_UNRESOLVED in ambiguities:
-        return "Hangi dosyayı özetleyeyim? Dosya adını yaz ya da dosyayı sohbete ekle."
+        return "Hangi dosyayı veya dosyaları kastettiğini netleştir; dosya adını yaz ya da dosyayı sohbete ekle."
+    if FILE_TRANSLATION_TARGET_MISSING in ambiguities:
+        return "Dosyayı hangi dile çevireyim? Örneğin İngilizce veya Türkçe de."
+    if FILE_CONVERSION_FORMAT_MISSING in ambiguities:
+        return "Dosyayı hangi formata dönüştüreyim? Excel, Word veya PDF de."
     if NOTE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi notu kastettiğini netleştir; notun adından bir kelime söyle."
     if NOTE_UPDATE_TEXT_MISSING in ambiguities:
