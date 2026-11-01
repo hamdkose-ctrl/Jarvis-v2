@@ -506,22 +506,18 @@ _NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin ca
                          "Adımı ikinci kez kendim yorumlamam: adımı tek başına bir istek olarak söyle.")
 
 
-def _install_route_guard(runtime: Any) -> None:
-    if getattr(runtime, "_brain_route_guard_installed", False):
-        return
-    original = getattr(runtime, "route", None)
-    if not callable(original):
-        return
+def route_command(runtime: Any, command: str) -> dict[str, object]:
+    """Core handler'ın tek sınıflandırılmış-istek kapısı; kendisi sınıflandırmaz.
 
-    def guarded(command: str):
-        if nested_step(command, runtime):
-            return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
-        entry = current()
-        return original(command) if entry is None else _legacy_route_projection(entry)
-
-    runtime._brain_legacy_route = original
-    runtime.route = guarded
-    runtime._brain_route_guard_installed = True
+    Bu turn'de Brain'in zaten vermiş olduğu kararın izdüşümünü verir. Bağlı bir Brain girişi
+    yoksa cümle burada hiç yorumlanmaz ve istek fail-closed netleştirmeyle durur."""
+    if nested_step(command, runtime):
+        return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
+    entry = current()
+    if entry is None:
+        return {"intent": "clarify",
+                "args": {"question": "Bu cümle Brain turunda yorumlanmadı; işlem başlatılmadı."}}
+    return _legacy_route_projection(entry)
 
 
 def _install_job_guard() -> None:
@@ -592,7 +588,6 @@ def _install_engine_control_guard() -> None:
 
 
 def _install_core_guards(runtime: Any) -> None:
-    _install_route_guard(runtime)
     _install_job_guard()
     _install_goal_save_guard()
     _install_engine_control_guard()

@@ -35,7 +35,6 @@ from modules.llm import transcribe as llm_transcribe
 from modules.personalization import (Profile, delete_user, display_name, get_active, list_users, migrate_legacy,
                                      rename_user,
                                      set_active, slugify)
-from modules import router as intent_router
 from modules.session_state import SessionStore
 _DELETED_COMMAND_FIELD = object()
 
@@ -52,7 +51,7 @@ class _AnyAbort:
 
     def is_set(self) -> bool:
         return any(e.is_set() for e in self.events)
-_DEPENDENCIES = ['ANNOUNCE_UNKNOWN', 'ASSISTANT_NAME', 'DATA_DIR', 'MODEL', 'Profile', 'RotatingFileHandler', 'SESSION_SECONDS', 'SessionStore', 'WAKE_ALIASES', 'WAKE_WORD', '_AnyAbort', '_cf', '_llm', '_record_failure', 'agents', 'ask', 'ask_image', 'browser', 'chat', 'codegen', 'contextlib', 'datetime', 'delete_user', 'desktop', 'difflib', 'display_name', 'docs', 'files', 'get_active', 'google_api', 'history', 'intent_router', 'json', 'kb', 'list_users', 'live', 'llm_transcribe', 'logging', 'media', 'messaging', 'migrate_legacy', 'notify', 'os', 'output', 'plugins', 'privacy', 'queue', 'quote_plus', 're', 'rename_user', 'requests_state', 'richtext', 'secrets', 'set_active', 'slugify', 'subprocess', 'sys', 'system_control', 'tasks', 'tempfile', 'threading', 'time', 'timedelta', 'tr', 'typo', 'vision', 'voice', 'weather', 'whenmod']
+_DEPENDENCIES = ['ANNOUNCE_UNKNOWN', 'ASSISTANT_NAME', 'DATA_DIR', 'MODEL', 'Profile', 'RotatingFileHandler', 'SESSION_SECONDS', 'SessionStore', 'WAKE_ALIASES', 'WAKE_WORD', '_AnyAbort', '_cf', '_llm', '_record_failure', 'agents', 'ask', 'ask_image', 'browser', 'chat', 'codegen', 'contextlib', 'datetime', 'delete_user', 'desktop', 'difflib', 'display_name', 'docs', 'files', 'get_active', 'google_api', 'history', 'json', 'kb', 'list_users', 'live', 'llm_transcribe', 'logging', 'media', 'messaging', 'migrate_legacy', 'notify', 'os', 'output', 'plugins', 'privacy', 'queue', 'quote_plus', 're', 'rename_user', 'requests_state', 'richtext', 'secrets', 'set_active', 'slugify', 'subprocess', 'sys', 'system_control', 'tasks', 'tempfile', 'threading', 'time', 'timedelta', 'tr', 'typo', 'vision', 'voice', 'weather', 'whenmod']
 _HANDLERS = {'engine_context': ('_get_profile',
                     '_session',
                     'pc_profile',
@@ -70,7 +69,6 @@ _HANDLERS = {'engine_context': ('_get_profile',
                    '_short_for_speech',
                    '_finalize',
                    '_doc_ready_line',
-                   '_summarize_chat',
                    '_table_chat',
                    '_copy_text'),
  'engine_voice': ('_pc_context',
@@ -96,19 +94,14 @@ _HANDLERS = {'engine_context': ('_get_profile',
  'engine_sequence': ('_split_steps', '_run_steps', '_close_jarvis'),
  'engine_commands': ('handle_request',),
  'engine_loop': ('main',),
- 'engine_tools': ('route',
-                  '_tr_lower',
+ 'engine_tools': ('_tr_lower',
                   '_numbers',
                   '_has_word',
                   '_web_search',
                   '_weather',
                   '_city_in',
                   '_volume_step',
-                  '_explicit_output_format',
                   '_file_command',
-                  '_resolve_doc',
-                  '_folder_overview',
-                  '_study_answer',
                   '_study_media_topic',
                   '_study_intent',
                   '_translate_file',
@@ -268,10 +261,6 @@ def _initialize(runtime):
     runtime._WEATHER_STOP = tr_speech_sets.WEATHER_STOP
     runtime._FILE_CMD = runtime.re.compile(r'^((?:"[^"]{4,400}"\s+){1,10})(.+)$')   # bir veya birden çok tırnaklı dosya yolu + istek
     runtime._IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".heic")
-    runtime._HOME_DIRS = {"indirilenler": "Downloads", "indirilen": "Downloads", "downloads": "Downloads",
-                  "masaüstü": "Desktop", "masaustu": "Desktop", "desktop": "Desktop",
-                  "belgeler": "Documents", "belgelerim": "Documents", "documents": "Documents",
-                  "resimler": "Pictures", "resimlerim": "Pictures", "pictures": "Pictures"}
     runtime._MEDIA_Q = runtime.re.compile(r"(görsel\w*|resim\w*|fotoğraf\w*|şekil\w*|video\w*|wikipedia\w*|vikipedi\w*|youtube\w*)"
                           r".{0,40}(göster|aç|ver|bul|getir)|(göster|aç|ver|bul|getir)\w*.{0,20}(görsel|resim|video)")
     runtime._NAME_SUFFIXES = tr_speech_sets.NAME_SUFFIXES

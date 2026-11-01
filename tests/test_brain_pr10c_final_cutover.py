@@ -11,6 +11,7 @@ import importlib.util
 import inspect
 import re
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,6 +26,23 @@ RETIRED_IDENTIFIERS = frozenset({"reference_context", "catalog_prompt", "_resolv
 
 def source(name: str) -> str:
     return (MODULES / f"{name}.py").read_text(encoding="utf-8")
+
+
+def imported_modules(text: str):
+    """Modül kimliği yalnızca gerçek import'tan anlaşılır: ada göre yorumlanan yerel sembol
+    (örn. finance'ın kendi `freshness` yardımcısı) legacy router zinciri sayılmaz."""
+    found = set()
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                found.add(alias.name.split(".")[-1])
+                if alias.asname:
+                    found.add(alias.asname)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                found.add(node.module.split(".")[-1])
+            found |= {alias.name for alias in node.names}
+    return found
 
 
 def identities(text: str):
@@ -42,15 +60,16 @@ def identities(text: str):
             found.add(node.id if isinstance(node, ast.Name) else node.attr)
         elif isinstance(node, ast.FunctionDef):
             found.add(node.name)
-        elif isinstance(node, ast.MatchValue) and isinstance(node.pattern.value, ast.Constant):
-            if isinstance(node.pattern.value.value, str):
+        elif isinstance(node, ast.match_case) and isinstance(node.pattern, ast.MatchValue):
+            if isinstance(node.pattern.value, ast.Constant) and isinstance(node.pattern.value.value, str):
                 found.add(node.pattern.value.value)
     return found - {None}
 
 
-def production_identities():
+def production_authorities():
     for path in sorted(MODULES.glob("*.py")):
-        yield path.name, identities(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        yield path.name, imported_modules(text), identities(text)
 
 
 class RetiredModuleTests(unittest.TestCase):
@@ -63,9 +82,14 @@ class RetiredModuleTests(unittest.TestCase):
 
     def test_no_production_source_references_the_retired_authorities(self):
         offenders = []
-        for filename, used in production_identities():
-            offenders += [f"{filename}:{name}" for name in sorted(used & (RETIRED_MODULES | RETIRED_IDENTIFIERS))]
+        for filename, imports, names in production_authorities():
+            offenders += [f"{filename}:{name}" for name in sorted(imports & RETIRED_MODULES)]
+            offenders += [f"{filename}:{name}" for name in sorted(names & RETIRED_IDENTIFIERS)]
         self.assertEqual(offenders, [])
+
+    def test_legacy_classifier_chain_has_no_production_caller(self):
+        for filename in ("engine_commands", "engine_tools", "engine_intents", "command_manager"):
+            self.assertNotIn("classify", identities(source(filename)), filename)
 
     def test_engine_facade_does_not_export_the_legacy_classifier(self):
         from modules import engine_runtime
@@ -78,37 +102,52 @@ class RetiredModuleTests(unittest.TestCase):
 
 
 class CanonicalRouteAuthorityTests(unittest.TestCase):
-    """`runtime.route` tek kaynaktan beslenir: bağlı canonical Brain entry'nin izdüşümü."""
+    """Core handler'ın istek kapısının tek implementation'ı Brain izdüşümüdür; monkeypatch yok."""
 
-    def install(self, runtime):
+    def bound(self, entry):
         from modules import brain_entry
-        brain_entry._install_route_guard(runtime)
-        return runtime
+        return patch.object(brain_entry, "current", return_value=entry)
 
-    def test_guard_keeps_no_legacy_authority_reference(self):
-        runtime = self.install(SimpleNamespace(route=lambda command: {"intent": "chat", "args": {}},
-                                               _brain_route_guard_installed=False))
-        self.assertFalse(hasattr(runtime, "_brain_legacy_route"))
-        self.assertTrue(runtime._brain_route_guard_installed)
-
-    def test_route_without_a_bound_entry_fails_closed(self):
+    def test_route_command_projects_the_bound_entry(self):
         from modules import brain_entry
-        runtime = self.install(SimpleNamespace(route=lambda command: self.fail("legacy route çağrıldı"),
-                                               _brain_route_guard_installed=False))
-        self.assertIsNone(brain_entry.current())
-        decision = runtime.route("raporu özetle")
+        entry = SimpleNamespace(text="raporu özetle")
+        with self.bound(entry), patch.object(brain_entry, "_legacy_route_projection",
+                                             return_value={"intent": "task", "args": {}}) as project:
+            self.assertEqual(brain_entry.route_command(SimpleNamespace(), entry.text),
+                             {"intent": "task", "args": {}})
+            project.assert_called_once_with(entry)
+
+    def test_route_command_without_a_bound_entry_fails_closed(self):
+        from modules import brain_entry
+        with patch.object(brain_entry, "current", return_value=None),              patch.object(brain_entry, "_legacy_route_projection",
+                          side_effect=AssertionError("bağlantısız cümle yorumlandı")):
+            decision = brain_entry.route_command(SimpleNamespace(), "raporu özetle")
         self.assertEqual(decision["intent"], "clarify")
         self.assertIn("işlem başlatılmadı", decision["args"]["question"])
 
-    def test_the_guard_is_idempotent(self):
-        runtime = self.install(SimpleNamespace(route=lambda command: {}, _brain_route_guard_installed=False))
-        guarded = runtime.route
-        self.install(runtime)
-        self.assertIs(runtime.route, guarded)
-
-    def test_install_route_guard_takes_only_the_runtime(self):
+    def test_route_command_refuses_a_nested_step(self):
         from modules import brain_entry
-        self.assertEqual(list(inspect.signature(brain_entry._install_route_guard).parameters), ["runtime"])
+        entry = SimpleNamespace(text="raporu özetle")
+        with self.bound(entry):
+            step = brain_entry.route_command(SimpleNamespace(_typo_pass=False), "sesi 30 yap")
+        self.assertEqual(step["intent"], "clarify")
+        self.assertIn("adımı", step["args"]["question"])
+
+    def test_engine_facade_has_no_route_door_to_wrap(self):
+        from modules import engine_runtime
+        self.assertNotIn("route", engine_runtime._HANDLERS["engine_tools"])
+        self.assertFalse(hasattr(engine_runtime.EngineContext(), "route"))
+
+    def test_core_handler_uses_the_projection_by_name(self):
+        used = identities(source("engine_commands"))
+        self.assertIn("route_command", used)
+        self.assertNotIn("runtime.route", source("engine_commands"))
+
+    def test_route_guard_monkeypatch_is_gone(self):
+        text = source("brain_entry")
+        for name in ("_install_route_guard", "canonical_route", "_brain_route_guard_installed"):
+            self.assertNotIn(name, text)
+        self.assertNotIn("runtime._brain_legacy_route", text)
 
 
 class FileTargetAuthorityTests(unittest.TestCase):
@@ -118,8 +157,8 @@ class FileTargetAuthorityTests(unittest.TestCase):
         tree = ast.parse(source("engine_intents"))
         dispatch = next(node for node in tree.body
                         if isinstance(node, ast.FunctionDef) and node.name == "dispatch")
-        return {node.pattern.value.pattern.value for node in ast.walk(dispatch)
-                if isinstance(node, ast.MatchCase) and isinstance(node.pattern, ast.MatchValue)
+        return {node.pattern.value.value for node in ast.walk(dispatch)
+                if isinstance(node, ast.match_case) and isinstance(node.pattern, ast.MatchValue)
                 and isinstance(node.pattern.value, ast.Constant)}
 
     def test_second_file_target_resolver_is_gone(self):
@@ -131,8 +170,20 @@ class FileTargetAuthorityTests(unittest.TestCase):
         self.assertIn("file_action", self.dispatch_intents())
 
     def test_domain_file_helpers_survive(self):
-        for name in ("_file_command", "_folder_overview", "_translate_file", "_keep_photo", "_photo_action"):
+        for name in ("_file_command", "_translate_file", "_keep_photo", "_photo_action"):
             self.assertIn(name, identities(source("main_documents")), name)
+
+    def test_folder_listing_has_one_domain_owner(self):
+        # İkinci hedef seçiciyle gelen klasör listesi yardımcısı silinir; sahibi folder_analysis kalmalı.
+        self.assertNotIn("_folder_overview", identities(source("main_documents")))
+        self.assertNotIn("_folder_overview", identities(source("engine_tools")))
+        self.assertIn("folder_analysis", imported_modules(source("engine_tools")))
+
+    def test_doc_only_fallback_helpers_retired_with_their_caller(self):
+        # Bu yardımcıların tek çağrısı legacy doc_* case'leriydi; hedef seçiciyle birlikte kalktı.
+        for name in ("_summarize_chat", "_study_answer", "_explicit_output_format"):
+            for filename in ("engine_output", "engine_tools", "engine_intents", "main_documents"):
+                self.assertNotIn(name, identities(source(filename)), f"{filename}:{name}")
 
     def test_file_ask_exempt_policy_survives(self):
         from modules import brain_understanding
@@ -191,9 +242,10 @@ class LiveToolAuthorityTests(unittest.TestCase):
         self.assertNotIn("_add_handoff", identities(text))
 
     def test_transport_domain_tools_keep_their_fence(self):
-        text = source("live_tool_runner")
-        self.assertIn("prepare_tool", text)
-        self.assertIn("prepare_tool", source("engine_voice"))
+        # Ses ve yanlış-duyma araçlarının Text yüzeyi grameri yok: domain owner'da kalır, fence korunur.
+        self.assertIn("prepare_tool", identities(source("live_tool_runner")))
+        self.assertIn("prepare_live_tool", identities(source("engine_voice")))
+        self.assertIn("self.prepare_tool", source("live_tool_runner"))
 
 
 class CommandManagerFrontDoorTests(unittest.TestCase):

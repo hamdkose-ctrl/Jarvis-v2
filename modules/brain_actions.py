@@ -1,8 +1,8 @@
 """Brain-owned action-verb rule: does an utterance END with an imperative/request action verb?
 
 Single definition. Understanding exposes it as the ``ENDS_WITH_ACTION`` reason code so Core callers
-(e.g. a goal waiting for an answer) never re-run a regex of their own. ``work_modes`` imports these
-names for the Live-only legacy path until PR9 deletes it.
+(e.g. a goal waiting for an answer) never re-run a regex of their own. Production has no other
+consumer: the legacy router chain was retired in PR10c.
 """
 from __future__ import annotations
 import re

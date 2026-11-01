@@ -58,7 +58,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     def extra_commands():
         # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
-        # file_action, do not let the later legacy files.handle/_resolve_doc chain reinterpret the target.
+        # file_action, the later files.handle chain must not get a second chance at the same target.
         if plan is not None and plan[0] == "file_action":
             return None
         return runtime._extra_commands(command, lowered)

@@ -425,10 +425,11 @@ def handle(runtime, command: str):
         command = runtime._typo_orig
         cmd_lower = runtime._tr_lower(command)
 
-    # ---- Karmaşık istekler: LLM ile niyet tespiti ----
+    # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
+    from modules import brain_entry
     try:
-        r = runtime.route(command)
+        r = brain_entry.route_command(runtime, command)
     except Exception:
         runtime._record_failure('main.py:handle')
         raise

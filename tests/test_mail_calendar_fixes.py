@@ -53,7 +53,10 @@ def _runtime(case, profile, now, busy=()):
 
 
 def say(rt, text):
-    with patch('modules.router.classify', side_effect=AssertionError('model sınıflandırmasına gitmemeli')):
+    # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi artık model kapılarının
+    # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmemeli.
+    with patch.object(rt, 'ask', side_effect=AssertionError('model sınıflandırmasına gitmemeli')), \
+         patch.object(rt, 'chat', side_effect=AssertionError('model sınıflandırmasına gitmemeli')):
         return rt.handle(text)
 
 
