@@ -362,7 +362,8 @@ def _feedback_clarification(entry: EntryResult) -> tuple[bool, tuple[str, ...], 
 
 
 def feedback(entry: EntryResult, *, result_status: str,
-             reason_code: str | None = None, core_ambiguities: tuple[str, ...] = ()) -> BrainFeedback:
+             reason_code: str | None = None, recovery_class: str | None = None,
+             core_ambiguities: tuple[str, ...] = ()) -> BrainFeedback:
     requested_status = _required("result_status", result_status)
     needs_input, ambiguities, clarification_reason = _feedback_clarification(entry)
     if not needs_input and core_ambiguities:
@@ -372,6 +373,7 @@ def feedback(entry: EntryResult, *, result_status: str,
         request_id=entry.request_id,
         result_status="needs_input" if needs_input else requested_status,
         reason_code=clarification_reason if needs_input else reason_code,
+        recovery_class=None if needs_input else recovery_class,
         needs_input=needs_input,
         ambiguities=ambiguities,
     )
@@ -381,10 +383,13 @@ def photo_feedback(entry: EntryResult, *, awaiting_question: bool = False,
                    error: BaseException | None = None) -> BrainFeedback:
     """Real outcome of the photo path: question pending -> needs_input, exception -> failed, cancel -> cancelled."""
     if error is not None:
-        from modules import requests_state
+        from modules import failure_policy, requests_state
         cancelled = isinstance(error, requests_state.Cancelled)
+        structured = None if cancelled else failure_policy.structured_outcome(error)
         row = feedback(entry, result_status="cancelled" if cancelled else "failed",
-                       reason_code="PHOTO_CANCELLED" if cancelled else "PHOTO_HANDLER_FAILED")
+                       reason_code="PHOTO_CANCELLED" if cancelled else (
+                           structured["reason_code"] if structured else "PHOTO_HANDLER_FAILED"),
+                       recovery_class=structured["recovery_class"] if structured else None)
     elif awaiting_question:
         row = feedback(entry, result_status="needs_input", reason_code="PHOTO_AWAITING_QUESTION",
                        core_ambiguities=("core pending: pending_photo",))
@@ -749,12 +754,15 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                 from modules.engine_intents import dispatch
                 output = dispatch(runtime, "chat", {}, command, command.casefold())
     except BaseException as exc:
-        from modules import requests_state
+        from modules import failure_policy, requests_state
         cancelled = isinstance(exc, requests_state.Cancelled)
+        structured = None if cancelled else failure_policy.structured_outcome(exc)
         _LAST_FEEDBACK.set(feedback(
             entry,
             result_status="cancelled" if cancelled else "failed",
-            reason_code="CORE_CANCELLED" if cancelled else "CORE_HANDLER_FAILED",
+            reason_code="CORE_CANCELLED" if cancelled else (
+                structured["reason_code"] if structured else "CORE_HANDLER_FAILED"),
+            recovery_class=structured["recovery_class"] if structured else None,
         ))
         raise
     opened = tuple(sorted(_open_core_pending(runtime) - before))
