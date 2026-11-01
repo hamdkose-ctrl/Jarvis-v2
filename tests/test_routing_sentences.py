@@ -25,6 +25,7 @@ CORPUS_INTENTS = frozenset(
     'app_action code doc_summary doc_insight doc_convert translate doc_translate open_app open_url status '
     'screenshot volume feedback weather chat brightness media pc_control screen_analyze mail close_app work '
     'send_phone clarify task desktop_task handoff note'.split())
+_ACTION_EQUIVALENT_CLAIMS = CORPUS_INTENTS - {'chat', 'clarify'}
 
 # Canonical claim -> corpus sözlüğü. Yalnız kanonik sınırın ÜRETTİĞİ kararlar çevrilir.
 _PLAN_TO_CORPUS = {'screen_analyze': 'screen_analyze', 'task': 'task', 'weather': 'weather',
@@ -143,6 +144,11 @@ def _route(row):
     return _canonical_claim(row['metin']) or row['model']
 
 
+def _task_equivalent_claim(claim: str | None) -> bool:
+    """Legacy `task`, yalnız action sınıfındaki canonical planlarla eşdeğerdir."""
+    return claim in _ACTION_EQUIVALENT_CLAIMS
+
+
 class _Profile:
     def __init__(self, rule):
         self.data = {'rules': [rule]}
@@ -220,6 +226,14 @@ class RoutingSentenceTests(unittest.TestCase):
                     DATA, cumleler=[dict(DATA['cumleler'][0], onay_gerekli=value)]):
                 self.test_data_is_well_formed()
 
+    def test_task_equivalence_is_limited_to_action_claims(self):
+        for claim in (None, 'chat', 'clarify', '__unknown__'):
+            with self.subTest(claim=claim):
+                self.assertFalse(_task_equivalent_claim(claim))
+        for claim in ('task', 'weather', 'app_action', 'note', 'work', 'doc_summary'):
+            with self.subTest(claim=claim):
+                self.assertTrue(_task_equivalent_claim(claim))
+
     def test_sentences_reach_expected_route(self):
         for row in DATA['cumleler']:
             if row.get('bolum') == 'bekletilmis':
@@ -234,9 +248,9 @@ class RoutingSentenceTests(unittest.TestCase):
                     # ilerisindeki adlı yürütücüden gelir. Tek koşul: çelişen bir deterministik claim yok.
                     claim = _canonical_claim(row['metin'])
                     self.assertIn(claim, (None, 'clarify'), row['metin'])
-                elif row['beklenen'] == 'task' and _canonical_claim(row['metin']) is not None:
+                elif row['beklenen'] == 'task' and _task_equivalent_claim(_canonical_claim(row['metin'])):
                     # 'task' bu tabloda ortak hedef yürütücüsüdür; canonical sınır aynı cümleyi daha
-                    # özel bir Core planla (dosya/hatırlatma/araştırma) karşılıyorsa bu eşdeğerdir.
+                    # özel bir action Core planla (dosya/hatırlatma/araştırma) karşılıyorsa eşdeğerdir.
                     pass
                 elif got == 'clarify' and row['beklenen'] in _FILE_TARGET_QUESTION_STANDS_FOR:
                     pass  # hedef dosya soruluyor: eski boş-path seçicisinin canonical karşılığı
