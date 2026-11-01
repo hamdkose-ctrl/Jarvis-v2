@@ -329,35 +329,55 @@ class DeletedQueuedUserTests(unittest.TestCase):
 
 
 class MultiStepOwnershipTests(unittest.TestCase):
-    def test_no_step_can_consume_a_pending_answer(self):
+    def envelope(self, replies=None):
+        calls = []
+        def step(_runtime, text):
+            calls.append(text)
+            return (replies.get(text, text + ' bitti') if replies else text + ' bitti',
+                    SimpleNamespace(result_status='handled'))
+        return calls, patch('modules.brain_entry.run_step', side_effect=step)
+
+    def test_a_step_cannot_consume_an_open_pending_answer(self):
         from modules.session_state import SessionState
         from modules.command_manager import PENDING_INPUT_FIELDS
         session = SessionState()
         for field in PENDING_INPUT_FIELDS:
             with self.subTest(field=field):
                 setattr(session, field, True if field == 'pending_weather_location' else 'waiting')
-                ns = {'_session': lambda: session, 'profile': SimpleNamespace(slug='hamdi'),
+                ns = {'_session': lambda: session, 'profile': SimpleNamespace(slug='hamdi'), 'runtime': object(),
                       'handle': Mock(side_effect=AssertionError('adım yeniden yorumlanamaz')),
                       'privacy': SimpleNamespace(audit=Mock()), 'flags': {}, 'stop_event': threading.Event()}
                 functions('main.py', ['_run_steps'], ns)
-                result = ns['_run_steps'](['ilk adım', 'sonraki adım'])
+                calls, envelope = self.envelope()
+                with envelope:
+                    result = ns['_run_steps'](['ilk adım', 'sonraki adım'])
                 ns['handle'].assert_not_called()
-                self.assertIn('ilk adım', result)
+                self.assertEqual(calls, ['ilk adım'])
+                self.assertIn('yanıt veya onay bekliyor', result)
                 self.assertEqual(getattr(session, field), True if field == 'pending_weather_location' else 'waiting')
                 self.assertFalse(session._in_multi)
                 setattr(session, field, None)
 
-    def test_a_chain_cannot_switch_users_because_it_runs_no_step(self):
+    def test_a_chain_stops_when_the_user_changes_after_a_step(self):
         from modules.session_state import SessionState
         original, target = SessionState(), SessionState()
-        ns = {'profile': SimpleNamespace(slug='hamdi'), 'privacy': SimpleNamespace(audit=Mock()), 'flags': {}, 'stop_event': threading.Event()}
+        ns = {'profile': SimpleNamespace(slug='hamdi'), 'privacy': SimpleNamespace(audit=Mock()), 'flags': {},
+              'stop_event': threading.Event(), 'runtime': object(),
+              'handle': Mock(side_effect=AssertionError('adım yeniden yorumlanamaz'))}
         ns['_session'] = lambda: original if ns['profile'].slug == 'hamdi' else target
-        ns['handle'] = Mock(side_effect=AssertionError('adım yeniden yorumlanamaz'))
         functions('main.py', ['_run_steps'], ns)
-        result = ns['_run_steps'](['kullanıcı değiştir', 'dosyayı sil'])
+        calls = []
+        def step(_runtime, text):
+            calls.append(text)
+            if text == 'kullanıcı değiştir':
+                ns['profile'] = SimpleNamespace(slug='ebru')
+            return (text + ' bitti', SimpleNamespace(result_status='handled'))
+        with patch('modules.brain_entry.run_step', side_effect=step):
+            result = ns['_run_steps'](['kullanıcı değiştir', 'dosyayı sil'])
         ns['handle'].assert_not_called()
-        self.assertNotIn('Kullanıcı değişti', result)
-        self.assertEqual(ns['profile'].slug, 'hamdi')
+        self.assertEqual(calls, ['kullanıcı değiştir'])
+        self.assertIn('Kullanıcı değişti', result)
+        self.assertNotIn('dosyayı sil', result)
         self.assertFalse(original._in_multi)
         self.assertFalse(target._in_multi)
 

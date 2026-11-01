@@ -138,27 +138,44 @@ class EngineLinkTests(unittest.TestCase):
                 self.assertNotIn(name,vars(main))
             finally:setattr(main,name,previous)
 
-    def test_multi_step_reply_never_reinterprets_its_steps(self):
+    def test_multi_step_runs_each_step_through_the_canonical_envelope(self):
         context=self.context();session=context._session()
         context.handle=Mock(side_effect=AssertionError('adım metni ikinci kez yorumlanamaz'))
-        out=context._run_steps(['bir','iki'])
-        self.assertIn('bir',out);self.assertIn('iki',out)
+        seen=[]
+        def step(runtime,text):
+            seen.append((runtime,text))
+            return (f'{text} bitti',SimpleNamespace(result_status='handled'))
+        with patch('modules.brain_entry.run_step',side_effect=step):
+            out=context._run_steps(['bir','iki'])
+        self.assertEqual([row[1] for row in seen],['bir','iki'])
+        self.assertTrue(all(row[0] is context for row in seen))
+        self.assertEqual(out.splitlines(),['1. bir bitti','2. iki bitti'])
         context.handle.assert_not_called()
         self.assertFalse(session._in_multi)
 
-    def test_closing_sequence_does_not_execute_even_its_first_step(self):
+    def test_closing_sequence_stops_before_the_first_step(self):
         context=self.context();context.flags['closing']=True;context.handle=Mock()
-        self.assertIn('tek tek',context._run_steps(['bir','iki']))
+        with patch('modules.brain_entry.run_step',side_effect=AssertionError('kapanırken adım çalışmaz')):
+            out=context._run_steps(['bir','iki'])
+        self.assertIn('Jarvis kapanıyor',out)
+        self.assertNotIn('bir bitti',out)
         context.handle.assert_not_called()
 
-    def test_macro_never_runs_an_action_through_the_interpreter(self):
+    def test_macro_runs_each_action_through_the_canonical_envelope(self):
         context=self.context();session=context._session()
         context.profile.data['macros']={'başla':{'title':'başla','actions':['bir','iki']}}
         context.requests_state=SimpleNamespace(check=Mock())
         context.time=SimpleNamespace(sleep=Mock())
         context.system_control=SimpleNamespace(find_app=Mock(return_value=None),open_application=Mock())
         context.handle=Mock(side_effect=AssertionError('kısayol adımı yeniden yorumlanamaz'))
-        out=context._macro_run('başla')
+        seen=[]
+        def step(runtime,text):
+            seen.append(text)
+            return (f'{text} bitti',SimpleNamespace(result_status='handled'))
+        with patch('modules.brain_entry.run_step',side_effect=step):
+            out=context._macro_run('başla')
+        self.assertEqual(seen,['bir','iki'])
+        self.assertIn('kısayolunu çalıştırdım',out)
         self.assertIn('bir, iki',out)
         context.handle.assert_not_called()
         context.system_control.open_application.assert_not_called()

@@ -15,30 +15,40 @@ from modules.session_state import SessionState
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class Ambiguous(str):
-    """open_app'in seçim bekleyen deterministic açma yanıtı: metin + candidates."""
-    candidates = ('Chrome', 'Edge')
+class _Reply:
+    """run_step'in adım geri bildirimi; _macro_run yalnız result_status'a bakar."""
+
+    def __init__(self, result_status='handled'):
+        self.result_status = result_status
 
 
 class MacroControlTests(unittest.TestCase):
-    """Kaydedilmiş kısayol adımı ikinci kez yorumlanmaz: adlandırılmış açma eylemi kendi deterministic sahibine gider."""
+    """Kısayolun her adımı KENDİ canonical kararıyla çalışır; ham adım ne `runtime.handle` ne eski zincir."""
 
     def runtime(self):
         session = SessionState()
-        runtime = SimpleNamespace(profile=SimpleNamespace(slug='hamdi', data={'macros': {'başla': {'title': 'başla', 'actions': ['ilk', 'ikinci']}}}), _session=lambda: session, re=re, _macro_key=lambda text: text, _VERB_END=re.compile('(?!)'), requests_state=SimpleNamespace(check=Mock()), flags={}, stop_event=threading.Event(), handle=Mock(side_effect=AssertionError('kısayol adımı yeniden yorumlanamaz')), time=SimpleNamespace(sleep=Mock()),
-            system_control=SimpleNamespace(find_app=lambda base: base, open_application=Mock(side_effect=lambda name: name + ' açıldı')))
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug='hamdi', data={'macros': {'başla': {'title': 'başla', 'actions': ['ilk', 'ikinci']}}}), _session=lambda: session, re=re, _macro_key=lambda text: text, _VERB_END=re.compile('(?!)'), requests_state=SimpleNamespace(check=Mock()), flags={}, stop_event=threading.Event(), handle=Mock(side_effect=AssertionError('kısayol adımı ikinci kez yorumlanamaz')), time=SimpleNamespace(sleep=Mock()),
+            system_control=SimpleNamespace(find_app=Mock(side_effect=AssertionError('kısayol adımı kendi kararını kendisi açmaz')), open_application=Mock(side_effect=AssertionError('kısayol adımı doğrudan uygulama açamaz'))))
         return runtime, session
+
+    def drive(self, runtime, command, step):
+        """run_step'i tek noktadan taklit eder; kısayol yalnız envelope üzerinden ilerler."""
+        calls = []
+        def envelope(_runtime, text):
+            calls.append((_runtime, text))
+            return (step(text), _Reply())
+        with patch('modules.brain_entry.run_step', side_effect=envelope):
+            return calls, main_planner._macro_run(runtime, command)
 
     def test_every_pending_input_stops_macro_and_displays_its_question(self):
         for field in PENDING_INPUT_FIELDS:
             with self.subTest(field=field):
                 runtime, session = self.runtime()
-                def launch(name):
+                def step(text):
                     setattr(session, field, True if field == 'pending_weather_location' else 'waiting')
-                    return Ambiguous('Bu işlemi onaylıyor musun?')
-                runtime.system_control.open_application.side_effect = launch
-                result = main_planner._macro_run(runtime, 'başla')
-                self.assertEqual(runtime.system_control.open_application.call_count, 1)
+                    return 'Bu işlemi onaylıyor musun?'
+                calls, result = self.drive(runtime, 'başla', step)
+                self.assertEqual([row[1] for row in calls], ['ilk'])
                 self.assertIn('Bu işlemi onaylıyor musun?', result)
                 self.assertIn('kalan adımlarını çalıştırmadım', result)
                 self.assertFalse(session._in_macro)
@@ -46,33 +56,34 @@ class MacroControlTests(unittest.TestCase):
     def test_user_change_stops_macro_and_cleans_original_flag(self):
         runtime, original = self.runtime()
         target = SessionState()
-        def switch(name):
+        def step(text):
             runtime.profile = SimpleNamespace(slug='ebru')
             runtime._session = lambda: target
             return 'Ebru’ya geçtim.'
-        runtime.system_control.open_application.side_effect = switch
-        self.assertIn('Kullanıcı değişti', main_planner._macro_run(runtime, 'başla'))
+        calls, result = self.drive(runtime, 'başla', step)
+        self.assertIn('Kullanıcı değişti', result)
+        self.assertEqual([row[1] for row in calls], ['ilk'])
         runtime.handle.assert_not_called()
-        self.assertEqual(runtime.system_control.open_application.call_count, 1)
         self.assertFalse(original._in_macro)
         self.assertFalse(target._in_macro)
 
     def test_cancellation_after_first_action_prevents_next_action(self):
         runtime, session = self.runtime()
         runtime.requests_state.check.side_effect = [None, requests_state.Cancelled('iptal')]
-        with self.assertRaises(requests_state.Cancelled):
-            main_planner._macro_run(runtime, 'başla')
-        self.assertEqual(runtime.system_control.open_application.call_count, 1)
+        with patch('modules.brain_entry.run_step', return_value=('Tamam.', _Reply())) as step:
+            with self.assertRaises(requests_state.Cancelled):
+                main_planner._macro_run(runtime, 'başla')
+        step.assert_called_once_with(runtime, 'ilk')
         self.assertFalse(session._in_macro)
 
     def test_closing_during_first_action_prevents_next_action(self):
         runtime, session = self.runtime()
-        def close(name):
+        def step(text):
             runtime.flags['closing'] = True
             return 'Jarvis kapanıyor.'
-        runtime.system_control.open_application.side_effect = close
-        self.assertIn('kalan adımlarını çalıştırmadım', main_planner._macro_run(runtime, 'başla'))
-        self.assertEqual(runtime.system_control.open_application.call_count, 1)
+        calls, result = self.drive(runtime, 'başla', step)
+        self.assertIn('kalan adımlarını çalıştırmadım', result)
+        self.assertEqual([row[1] for row in calls], ['ilk'])
         self.assertFalse(session._in_macro)
 
     def test_exact_macro_name_wins_over_suffix_fallback(self):
@@ -81,26 +92,42 @@ class MacroControlTests(unittest.TestCase):
             'notu': {'title': 'notu', 'actions': ['doğru']},
             'not': {'title': 'not', 'actions': ['yanlış']},
         }
-        main_planner._macro_run(runtime, 'notu')
-        runtime.system_control.open_application.assert_called_once_with('doğru')
+        calls, _result = self.drive(runtime, 'notu', lambda text: text + ' bitti')
+        self.assertEqual([row[1] for row in calls], ['doğru'])
 
     def test_completed_macro_reports_run_actions_and_waits_only_between_them(self):
         runtime, session = self.runtime()
-        result = main_planner._macro_run(runtime, 'başla')
-        self.assertEqual([c.args[0] for c in runtime.system_control.open_application.call_args_list], ['ilk', 'ikinci'])
+        calls, result = self.drive(runtime, 'başla', lambda text: text + ' bitti')
+        self.assertEqual([row[1] for row in calls], ['ilk', 'ikinci'])
+        self.assertTrue(all(row[0] is runtime for row in calls))
         self.assertIn('ilk, ikinci', result)
+        self.assertNotIn('bitti', result)  # Aggregate reply is the summary, not one action's speech.
         runtime.time.sleep.assert_called_once_with(0.4)
         runtime.handle.assert_not_called()
+        runtime.system_control.open_application.assert_not_called()
         self.assertFalse(session._in_macro)
 
-    def test_an_action_that_is_not_an_app_launch_is_refused_not_interpreted(self):
+    def test_an_action_that_is_not_an_app_launch_still_gets_the_canonical_envelope(self):
         runtime, session = self.runtime()
         runtime.profile.data['macros'] = {'başla': {'title': 'başla', 'actions': ['sesi kıs']}}
-        runtime.system_control.find_app = Mock(return_value=None)
-        result = main_planner._macro_run(runtime, 'başla')
+        calls, result = self.drive(runtime, 'başla', lambda text: text + ' bitti')
+        self.assertEqual([row[1] for row in calls], ['sesi kıs'])
         self.assertIn('sesi kıs', result)
-        runtime.system_control.open_application.assert_not_called()
         runtime.handle.assert_not_called()
+        runtime.system_control.find_app.assert_not_called()
+        self.assertFalse(session._in_macro)
+
+    def test_a_step_that_is_not_handled_stops_the_chain(self):
+        runtime, session = self.runtime()
+        calls = []
+        def envelope(_runtime, text):
+            calls.append(text)
+            return ('Hangi uygulamayı?', _Reply('needs_input'))
+        with patch('modules.brain_entry.run_step', side_effect=envelope):
+            result = main_planner._macro_run(runtime, 'başla')
+        self.assertEqual(calls, ['ilk'])
+        self.assertIn('yanıt veya onay bekliyor', result)
+        self.assertNotIn('ikinci', result)
         self.assertFalse(session._in_macro)
 
 
@@ -155,10 +182,21 @@ class CloseChainTests(unittest.TestCase):
     def test_multistep_chain_never_runs_a_delayed_close_step(self):
         session = SessionState();flags = {}
         ns = {'flags': flags, 'stop_event': threading.Event(), '_session': lambda: session, 'profile': SimpleNamespace(slug='hamdi'),
+              'runtime': object(),  # engine_source yalnız nitelikli kullanımları soyutlar; envelope runtime'ı argüman olarak alır.
               'handle': Mock(side_effect=AssertionError('adım ikinci kez yorumlanamaz')), 'privacy': SimpleNamespace(audit=Mock())}
-        result = self.function('_run_steps', ns)(['jarvis kapat', 'ikinci işlem'])
+        run = self.function('_run_steps', ns)
+        calls = []
+        def envelope(text):
+            calls.append(text)
+            if text == 'jarvis kapat':
+                flags['closing'] = True
+                return ('Jarvis kapanıyor.', _Reply())
+            return ('ikinci adım bitti', _Reply())
+        with patch('modules.brain_entry.run_step', side_effect=lambda _runtime, text: envelope(text)):
+            result = run(['jarvis kapat', 'ikinci işlem'])
         ns['handle'].assert_not_called()
-        self.assertIn('ikinci işlem', result)
-        self.assertNotIn('closing', flags)
+        self.assertEqual(calls, ['jarvis kapat'])
+        self.assertIn('kalan adımları', result)
+        self.assertNotIn('ikinci adım bitti', result)
         self.assertFalse(ns['stop_event'].is_set())
         self.assertFalse(session._in_multi)

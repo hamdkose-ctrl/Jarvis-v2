@@ -969,12 +969,12 @@ def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
     return out
 
 def _macro_run(runtime, cmd_lower: str) -> str | None:
-    """Kısayol adımını ikinci kez yorumlamaz: kaydedilmiş adlandırma doğrudan kendi sahibine gider.
+    """Kısayolun her adımı KENDİ canonical kararıyla çalışır; ham adım eski zincire dönmez.
 
-    `_macro_teach` yalnız tanıdığı uygulamaları `"<uygulama> <fiil>"` olarak normalize edip kaydeder;
-    o adım deterministic uygulama açma sahibine (command_execution.open_app) teslim edilir.
-    Yorumlanması gereken bir adım (ikinci bir semantic karar gerektiren metin) kısayolda ASLA
-    yeniden semantic olarak ele alınmaz; kullanıcıya tek tek söylemesi için geri bildirilir."""
+    `brain_entry.run_step` her adımda owner/istek kimliğini turn'den alır, Understanding'i outer
+    cümleden ALMAZ: adım kendi prepare -> handoff kararını bir kez alır ve onu tek başına söyleyen
+    kullanıcının geçtiği canonical kapıdan geçer (outer entry bağlıyken `runtime.handle(step)` yok).
+    Guard'lar (iptal, kapanma, owner değişimi, onay/yanıt bekleme) sırayı korur."""
     macros = runtime.profile.data.get('macros') or {}
     if not macros or runtime._session()._in_macro:
         return None
@@ -984,42 +984,36 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     hit = macros.get(key) or next((macros[c] for c in sorted(cands) if c in macros), None)
     if not hit:
         return None
-    from modules.command_execution import open_app
+    from modules.brain_entry import run_step
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_macro = True
-    failed, executed, skipped = [], [], []
+    failed, executed, answers = [], [], []
     try:
         for index, act in enumerate(hit['actions']):
             runtime.requests_state.check()
             if runtime.stop_event.is_set() or runtime.flags.get('closing'):
                 return 'Jarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
-            app = runtime.system_control.find_app(runtime._VERB_END.sub('', act).strip())
-            if not app:
-                skipped.append(act)
-                continue
-            reply = open_app(runtime, app)
+            reply, feedback = run_step(runtime, act)
+            answers.append(str(reply or ''))
             executed.append(act)
             runtime.requests_state.check()
+            if getattr(feedback, 'result_status', 'handled') != 'handled':
+                return '\n'.join(x for x in answers if x) + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
             if runtime.profile.slug != owner:
-                return str(reply or '') + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'
+                return '\n'.join(x for x in answers if x) + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'
             if awaiting_input(session):
-                return str(reply or '') + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
+                return '\n'.join(x for x in answers if x) + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
             if runtime.flags.get('closing') or runtime.stop_event.is_set():
-                return str(reply or '') + '\nJarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
-            if runtime.re.search('bulamadım|açamadım|anlamadım|başlatılamadı', reply or ''):
+                return '\n'.join(x for x in answers if x) + '\nJarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
+            if runtime.re.search('bulamadım|açamadım|anlamadım|başlatılamadı', str(reply or '')):
                 failed.append(act)
             if index + 1 < len(hit['actions']):
                 runtime.time.sleep(0.4)
     finally:
         session._in_macro = False
         session.speech_override = None  # Do not reuse an individual action's short reply.
-    if not executed:
-        return (f"“{hit['title']}” kısayolundaki adımları ikinci kez kendim yorumlamam: "
-                + ', '.join(skipped) + '. Adımları tek tek söyle.')
     out = f"“{hit['title']}” kısayolunu çalıştırdım: " + ', '.join(executed) + '.'
-    if skipped:
-        out += ' Şu adımları yorumlamam gerektiği için çalıştırmadım (tek tek söyle): ' + ', '.join(skipped) + '.'
     return out + (f" Şunlar olmadı: {', '.join(failed)}." if failed else '')
 
 def _macro_manage(runtime, cmd_lower: str) -> str | None:

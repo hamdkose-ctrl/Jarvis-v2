@@ -52,6 +52,13 @@ def _runtime_handle_calls() -> list[tuple[str, int]]:
     return rows
 
 
+class _Feedback:
+    """BrainFeedback'ın runner'ın baktığı tek alanı; adımın gerçek result_status'unu taşır."""
+
+    def __init__(self, result_status: str):
+        self.result_status = result_status
+
+
 def _gate(owner: str, request_id: str, gate: str, reason: str) -> brain_gates.GateObservation:
     return brain_gates.GateObservation(owner=owner, request_id=request_id, gate=gate,
                                        matched=False, reason_code=reason)
@@ -222,7 +229,7 @@ class CanonicalTranslationAuthorityTests(unittest.TestCase):
 
 
 class NestedExecutionTests(unittest.TestCase):
-    """B + F: nested runner adım metnini yeniden yorumlamaz ve effect üretmez."""
+    """B + F: nested runner adımı canonical envelope ile çalıştırır, ham adımı eski zincire sokmaz."""
 
     def setUp(self):
         self.session = SimpleNamespace(**{name: None for name in PENDING_INPUT_FIELDS},
@@ -237,33 +244,106 @@ class NestedExecutionTests(unittest.TestCase):
             docs=SimpleNamespace(summarize=Mock()), output=SimpleNamespace(convert_document=Mock()),
             system_control=SimpleNamespace(find_app=Mock(return_value=None), open_application=Mock(return_value="açıldı")))
 
+    def run_steps(self, steps, replies):
+        """run_step'i taklit ederek _run_steps'in envelope sözleşmesini ölçer."""
+        calls = []
+
+        def fake_run_step(runtime, text):
+            calls.append(text)
+            return replies[text]
+        with patch.object(brain_entry, "run_step", side_effect=fake_run_step):
+            out = engine_sequence._run_steps(self.runtime, steps)
+        return calls, out
+
     def test_no_production_module_reinterprets_a_step_through_handle(self):
         self.assertEqual([(name, line) for name, line in _runtime_handle_calls() if name not in NON_PRODUCTION_HANDLERS], [])
 
     def test_runtime_handle_binding_stays_the_single_user_turn_entry(self):
         self.assertEqual({name for name, _ in _runtime_handle_calls()}, NON_PRODUCTION_HANDLERS)
 
-    def test_run_steps_executes_no_effect_and_returns_a_closed_answer(self):
-        out = engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "raporu özetle"])
-        self.assertIsInstance(out, str)
-        self.runtime.privacy.audit.assert_called_once()
-        self.runtime.docs.summarize.assert_not_called()
-        self.runtime.output.convert_document.assert_not_called()
-        self.runtime.events.put.assert_not_called()
-        self.runtime.system_control.open_application.assert_not_called()
-        self.assertIs(self.session._in_multi, False)
+    def test_steps_run_in_order_each_with_its_own_canonical_entry(self):
+        calls, out = self.run_steps(["sesi 30 yap", "raporu özetle"],
+                                    {"sesi 30 yap": ("Ses 30.", _Feedback("handled")),
+                                     "raporu özetle": ("ÖZET", _Feedback("handled"))})
+        self.assertEqual(calls, ["sesi 30 yap", "raporu özetle"])
+        self.assertEqual(out.splitlines(), ["1. Ses 30.", "2. ÖZET"])
+        self.runtime.privacy.audit.assert_called_once_with("çok adımlı komut", "2 adım")
 
-    def test_run_steps_neither_prepares_a_second_entry_nor_classifies(self):
-        with patch.object(brain_entry, "prepare", side_effect=AssertionError("ikinci canonical entry yok")), \
+    def test_run_steps_never_touches_the_legacy_semantic_chain(self):
+        with patch.object(brain_entry, "run_step", return_value=("tamam", _Feedback("handled"))) as step, \
              patch("modules.router.classify", side_effect=AssertionError("ikinci classifier yok")), \
              patch("modules.app_actions.reference_context", side_effect=AssertionError("legacy reference resolver yok")):
-            out = engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "notları aç"])
-        self.assertIn("sesi 30 yap", out)
+            engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "notları aç"])
+        self.assertEqual([c.args[1] for c in step.call_args_list], ["sesi 30 yap", "notları aç"])
+        self.runtime.handle.assert_not_called()
 
-    def test_run_steps_refuses_without_inventing_a_step_result(self):
-        out = engine_sequence._run_steps(self.runtime, ["sesi 30 yap", "raporu özetle"])
-        for fragment in ("yapamadım", "açtım", "ÖZET"):
-            self.assertNotIn(fragment, out)
+    def test_unverified_step_result_stops_dependent_steps(self):
+        class Verified(str):
+            ok = False
+        calls, out = self.run_steps(["ilk", "ikinci"],
+                                    {"ilk": (Verified("doğrulanmadı"), _Feedback("handled")),
+                                     "ikinci": ("çalışmamalı", _Feedback("handled"))})
+        self.assertEqual(calls, ["ilk"])
+        self.assertIn("doğrulanamadı", out)
+        self.assertNotIn("çalışmamalı", out)
+
+    def test_step_awaiting_input_or_clarification_stops_dependent_steps(self):
+        for status in ("needs_input", "failed", "cancelled"):
+            with self.subTest(status=status):
+                self.runtime.privacy.audit.reset_mock()
+                calls, out = self.run_steps(["ilk", "ikinci"],
+                                            {"ilk": ("bekliyor", _Feedback(status)),
+                                             "ikinci": ("çalışmamalı", _Feedback("handled"))})
+                self.assertEqual(calls, ["ilk"])
+                self.assertIn("kalan adımları", out)
+                self.assertNotIn("çalışmamalı", out)
+
+    def test_closing_owner_change_and_pending_answer_keep_their_boundaries(self):
+        self.runtime.flags["closing"] = True
+        _calls, out = self.run_steps(["ilk"], {"ilk": ("çalışmamalı", _Feedback("handled"))})
+        self.assertIn("Jarvis kapanıyor", out)
+        self.runtime.privacy.audit.assert_called_once_with("çok adımlı komut", "1 adım")
+
+        self.runtime.flags.clear()
+        def switch_owner(runtime, text):
+            self.runtime.profile.slug = "ebru"
+            return ("ilk", _Feedback("handled"))
+        with patch.object(brain_entry, "run_step", side_effect=switch_owner):
+            out = engine_sequence._run_steps(self.runtime, ["ilk", "ikinci"])
+        self.assertIn("Kullanıcı değişti", out)
+        self.assertNotIn("ikinci", out)
+
+        self.runtime.profile.slug = "hamdi"
+        self.session.pending_confirm = {"soru": "onay?"}
+        _calls, out = self.run_steps(["ilk", "ikinci"], {"ilk": ("onay bekle", _Feedback("handled")),
+                                                        "ikinci": ("çalışmamalı", _Feedback("handled"))})
+        self.assertIn("yanıt veya onay bekliyor", out)
+        self.assertNotIn("çalışmamalı", out)
+        self.assertEqual(self.session.pending_confirm, {"soru": "onay?"})
+
+    def test_run_steps_leaves_the_multi_step_marker_and_single_step_speech_behind(self):
+        def step(runtime, text):
+            self.session.speech_override = "yalnız bu adımın sesi"
+            return ("cevap", _Feedback("handled"))
+        with patch.object(brain_entry, "run_step", side_effect=step):
+            engine_sequence._run_steps(self.runtime, ["bir", "iki"])
+        self.assertIs(self.session._in_multi, False)
+        self.assertIsNone(self.session.speech_override)
+
+    def test_run_steps_empty_list_audits_zero_steps_and_invents_nothing(self):
+        calls, out = self.run_steps([], {})
+        self.assertEqual(calls, [])
+        self.assertEqual(out, "")
+        self.runtime.privacy.audit.assert_called_once_with("çok adımlı komut", "0 adım")
+
+    def test_run_steps_invalid_container_raises_without_running_a_step(self):
+        for steps in (None, 123, True):
+            with self.subTest(steps=steps), patch.object(brain_entry, "run_step",
+                                                         side_effect=AssertionError("adım çalışmamalı")):
+                with self.assertRaises(TypeError):
+                    engine_sequence._run_steps(self.runtime, steps)
+        self.runtime.privacy.audit.assert_not_called()
+        self.assertIs(self.session._in_multi, False)
 
     def _macro_runtime(self, actions):
         runtime = self.runtime
@@ -273,34 +353,44 @@ class NestedExecutionTests(unittest.TestCase):
         runtime.time = SimpleNamespace(sleep=Mock())
         return runtime
 
-    def test_macro_never_reinterprets_its_actions(self):
-        runtime = self._macro_runtime(["chrome aç"])
-        with patch.object(brain_entry, "prepare", side_effect=AssertionError("ikinci canonical entry yok")), \
+    def test_macro_runs_every_action_through_the_canonical_envelope(self):
+        runtime = self._macro_runtime(["chrome aç", "sesi kıs"])
+        seen = []
+
+        def fake_run_step(rt, text):
+            seen.append(text)
+            return (f"{text} tamam", _Feedback("handled"))
+        with patch.object(brain_entry, "run_step", side_effect=fake_run_step), \
              patch("modules.router.classify", side_effect=AssertionError("ikinci classifier yok")):
             out = main_planner._macro_run(runtime, "kısayol")
-        self.assertIsInstance(out, str)
+        self.assertEqual(seen, ["chrome aç", "sesi kıs"])
+        self.assertIn("kısayol", out)
+        runtime.handle.assert_not_called()
+        runtime.system_control.open_application.assert_not_called()
         self.assertIs(self.session._in_macro, False)
 
-    def test_macro_runs_only_the_deterministic_app_owner(self):
-        runtime = self._macro_runtime(["chrome aç"])
-        runtime.system_control.find_app = Mock(return_value="Chrome")
-        out = main_planner._macro_run(runtime, "kısayol")
-        runtime.system_control.open_application.assert_called_once_with("Chrome")
-        self.assertIn("kısayol", out)
-
-    def test_macro_refuses_actions_that_would_need_interpretation(self):
-        runtime = self._macro_runtime(["sesi kıs"])
-        out = main_planner._macro_run(runtime, "kısayol")
-        runtime.system_control.open_application.assert_not_called()
-        self.assertIn("sesi kıs", out)
+    def test_macro_waits_only_between_its_actions(self):
+        runtime = self._macro_runtime(["bir", "iki"])
+        with patch.object(brain_entry, "run_step", return_value=("tamam", _Feedback("handled"))):
+            main_planner._macro_run(runtime, "kısayol")
+        runtime.time.sleep.assert_called_once_with(0.4)
 
     def test_macro_keeps_every_effect_guard(self):
         runtime = self._macro_runtime(["chrome aç", "spotify aç"])
-        runtime.system_control.find_app = Mock(side_effect=lambda base: "Chrome" if "chrome" in base else "Spotify")
         self.session.pending_confirm = {"soru": "onay?"}
-        out = main_planner._macro_run(runtime, "kısayol")
-        self.assertEqual(runtime.system_control.open_application.call_count, 1)
-        self.assertIn("yanıt", out)
+        with patch.object(brain_entry, "run_step", return_value=("açıldı", _Feedback("handled"))) as step:
+            out = main_planner._macro_run(runtime, "kısayol")
+        step.assert_called_once_with(runtime, "chrome aç")
+        self.assertIn("yanıt veya onay bekliyor", out)
+        self.assertIs(self.session._in_macro, False)
+
+    def test_macro_stops_when_a_step_is_not_completed(self):
+        runtime = self._macro_runtime(["chrome aç", "spotify aç"])
+        with patch.object(brain_entry, "run_step", side_effect=[("soru", _Feedback("needs_input")),
+                                                                ("çalışmamalı", _Feedback("handled"))]) as step:
+            out = main_planner._macro_run(runtime, "kısayol")
+        step.assert_called_once()
+        self.assertNotIn("spotify aç tamam", out)
         self.assertIs(self.session._in_macro, False)
 
     def test_target_stability_during_nested_execution(self):
@@ -314,6 +404,139 @@ class NestedExecutionTests(unittest.TestCase):
         self.assertIs(step, entry)
         self.assertEqual(entry.references, before)
         self.assertEqual(entry.text, "rapor.txt dosyasını özetle ardından sesi kıs")
+
+
+class PerStepEnvelopeIdentityTests(EngineFixture):
+    """B: run_step adımını KENDİ canonical kararıyla çalıştırır; outer cümlenin kararı ödünç verilmez.
+
+    Gerçek EngineContext, gerçek `prepare`/`handoff`/route guard; yalnız effect taşıyan son adımlar
+    (dispatch ve handler) gözlemlenir. Böylece adım, kullanıcıyı tek başına söylediği turn'le
+    birebir aynı zincire girer ve hiçbir gerçek effect çalışmaz."""
+
+    SEQUENCE = "ankara'da hava nasıl ardından sesi 30 yap"
+    STEP = "sesi 30 yap"
+
+    def setUp(self):
+        super().setUp()
+        # Bu sınıf gerçek motoru çalıştırır: hiçbir effect makineye dokunamaz.
+        effects = patch("modules.system_control.set_volume",
+                        side_effect=AssertionError("test effect çalıştıramaz"))
+        effects.start()
+        self.addCleanup(effects.stop)
+        self.rid = "pr10b-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, self.rid)
+        activation = requests_state.activate(self.owner, self.rid)
+        activation.__enter__()
+        self.addCleanup(activation.__exit__, None, None, None)
+        self.outer = brain_entry.prepare(self.ctx, owner=self.owner, request_id=self.rid,
+                                         text=self.SEQUENCE, source="yazı")
+        self.parent = brain_entry._legacy_route_projection(self.outer)
+
+    def observe(self, text, *, bind_outer=True, handle=None):
+        """run_step'in adım için kurduğu canonical kararı kaydeder; effect'ler stub'lıdır."""
+        seen = []
+
+        def note(kind, command, intent=None):
+            seen.append({"kind": kind, "command": command, "intent": intent,
+                         "entry": brain_entry.current(), "route": self.ctx.route(command)})
+
+        def dispatch_spy(runtime, intent, args, command, lower):
+            note("dispatch", command, intent)
+            return "DISPATCH"
+
+        def handler(command):
+            note("handler", command)
+            return "HANDLER"
+
+        with patch("modules.engine_intents.dispatch", side_effect=dispatch_spy), \
+             patch("modules.brain_precedence.claim", return_value=None), \
+             patch.object(self.ctx, "handle", side_effect=handle or handler):
+            if bind_outer:
+                with brain_entry.bind(self.outer):
+                    out, feedback = brain_entry.run_step(self.ctx, text)
+            else:
+                out, feedback = brain_entry.run_step(self.ctx, text)
+        return seen, out, feedback
+
+    def test_the_step_is_decided_for_itself(self):
+        seen, out, feedback = self.observe(self.STEP)
+        self.assertTrue(seen, "adım hiçbir canonical yola ulaşmadı")
+        for row in seen:
+            self.assertEqual(row["command"], self.STEP)
+            self.assertIsNot(row["entry"], self.outer)
+            self.assertEqual(row["entry"].text, self.STEP)
+            self.assertEqual((row["entry"].owner, row["entry"].request_id), (self.owner, self.rid))
+            self.assertNotEqual(row["entry"].text, self.SEQUENCE)
+        self.assertIn(out, ("DISPATCH", "HANDLER"))
+        self.assertEqual((feedback.owner, feedback.request_id), (self.owner, self.rid))
+
+    def test_the_parents_decision_is_never_borrowed_by_the_step(self):
+        seen, _out, _feedback = self.observe(self.STEP)
+        for row in seen:
+            self.assertEqual(row["route"], brain_entry._legacy_route_projection(row["entry"]))
+            self.assertNotEqual(row["route"], self.parent)
+
+    def test_the_step_never_falls_back_to_the_legacy_classifier(self):
+        with patch("modules.router.classify", side_effect=AssertionError("ham adım classifier'a düşemez")):
+            self.observe(self.STEP)
+
+    def test_a_step_without_a_bound_canonical_entry_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "bağlı"):
+            brain_entry.run_step(self.ctx, self.STEP)
+
+    def test_the_outer_sentence_cannot_be_re_run_as_its_own_step(self):
+        with self.assertRaisesRegex(ValueError, "Outer cümlenin"):
+            self.observe(self.SEQUENCE)
+
+    def test_a_blank_step_is_refused(self):
+        for blank in ("", "   ", "\n"):
+            with self.subTest(blank=blank), self.assertRaisesRegex(ValueError, "boş"):
+                self.observe(blank)
+
+    def test_a_step_owned_by_another_profile_is_refused(self):
+        other = _entry(self.SEQUENCE, owner="diğer-profil", request_id=self.rid)
+        handler = Mock(side_effect=AssertionError("foreign owner adımı çalışamaz"))
+        with patch.object(self.ctx, "handle", handler), \
+             patch("modules.engine_intents.dispatch", side_effect=AssertionError("foreign owner adımı çalışamaz")), \
+             patch("modules.brain_precedence.claim", side_effect=AssertionError("foreign owner adımı çalışamaz")):
+            with brain_entry.bind(other):
+                with self.assertRaisesRegex(ValueError, "owner"):
+                    brain_entry.run_step(self.ctx, self.STEP)
+        handler.assert_not_called()
+
+    def test_a_step_without_an_active_request_identity_is_refused(self):
+        previous = getattr(self.ctx, "_cur_rid", None)
+        self.ctx._cur_rid = ""
+        self.addCleanup(setattr, self.ctx, "_cur_rid", previous)
+        token = requests_state._current.set(None)
+        self.addCleanup(requests_state._current.reset, token)
+        with brain_entry.bind(self.outer):
+            with self.assertRaisesRegex(ValueError, "etkin istek kimliği"):
+                brain_entry.run_step(self.ctx, self.STEP)
+
+    def test_real_multi_step_runner_gives_every_step_its_own_entry(self):
+        seen = []
+
+        def handler(command):
+            seen.append((command, brain_entry.current()))
+            return f"{command} bitti"
+
+        def dispatch_spy(runtime, intent, args, command, lower):
+            return handler(command)
+
+        steps = ["sesi 30 yap", "notları aç"]
+        with patch("modules.engine_intents.dispatch", side_effect=dispatch_spy), \
+             patch("modules.brain_precedence.claim", return_value=None), \
+             patch.object(self.ctx, "handle", side_effect=handler):
+            with brain_entry.bind(self.outer):
+                out = engine_sequence._run_steps(self.ctx, steps)
+        self.assertEqual([text for text, _entry_row in seen], steps)
+        for text, step_entry in seen:
+            self.assertEqual(step_entry.text, text)
+            self.assertEqual(step_entry.request_id, self.rid)
+            self.assertIsNot(step_entry, self.outer)
+        self.assertEqual(out.splitlines(), ["1. sesi 30 yap bitti", "2. notları aç bitti"])
+        self.assertIs(self.ctx._session()._in_multi, False)
 
 
 class AuthorityInvariantsTests(EngineFixture):
