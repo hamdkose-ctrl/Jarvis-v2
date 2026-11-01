@@ -87,6 +87,7 @@ jobs:
       - name: Focused tests
         shell: powershell
         run: |
+          $env:PYTHONPATH = "$PWD;$PWD\tests"
           py -3.13 -X utf8 -m unittest tests.test_brain_files_final_authority tests.test_brain_b3c1 tests.test_brain_b3b
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Commit product changes and remove helper
