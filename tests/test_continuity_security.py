@@ -66,30 +66,38 @@ class IdentityTests(unittest.TestCase):
 
 class ContextTests(unittest.TestCase):
     def setUp(self):
-        from modules import history,chat_translation as ct
-        self.h=history;self.ct=ct;self.td=tempfile.TemporaryDirectory();self.addCleanup(self.td.cleanup)
+        from modules import history, conversation_reset
+        self.h=history;self.cr=conversation_reset;self.td=tempfile.TemporaryDirectory();self.addCleanup(self.td.cleanup)
         self.stack=contextlib.ExitStack();self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(history,'DIR',Path(self.td.name)/'history'))
-        self.stack.enter_context(patch.object(ct,'_sources',{}));self.stack.enter_context(patch.object(ct,'_resets',{}));self.stack.enter_context(patch.object(ct,'_reset_file',Path(self.td.name)/'sessions.json'))
+        self.stack.enter_context(patch.object(conversation_reset,'_resets',{}));self.stack.enter_context(patch.object(conversation_reset,'_reset_file',Path(self.td.name)/'sessions.json'))
+
+    def source(self, command, rows):
+        """Kaynak seçimi tek sözdizim kuralındadır: translation_request (ikinci oturum cache'i yok)."""
+        from modules import translation_request as tr
+        request = tr.parse(command)
+        self.assertIsNotNone(request, command)
+        return tr.pick_source(request, command, rows)[0]
+
     def test_short_source_translation_and_explicit_summary(self):
         text='This is a short sample text.'
         self.h.append('a','user',text);self.h.append('a','assistant','Kısa özet')
         rows=self.h.read('a')
-        self.assertEqual(self.ct.resolve('a','çevir',rows)[0],text)
-        self.assertEqual(self.ct.resolve('a','özeti İngilizceye çevir',rows)[0],'Kısa özet')
+        self.assertEqual(self.source('çevir',rows),text)
+        self.assertEqual(self.source('özeti İngilizceye çevir',rows),'Kısa özet')
     def test_long_text_survives_storage(self):
         text='Çevirilecek metin '+('Şğİ🙂'*3000)
         self.h.append('a','user',text)
         self.assertEqual(self.h.read('a')[0]['text'],text)
     def test_reset_excludes_old_source_but_same_second_new_source_works(self):
         self.h.append('a','user','Eski kaynak metin uzun.')
-        self.ct.reset('a')
-        self.assertEqual(self.ct.resolve('a','çevir',self.h.read('a'))[0],'')
+        self.cr.mark('a')
+        self.assertEqual(self.source('çevir',self.cr.recent('a',self.h.read('a'))),'')
         self.h.append('a','user','Yeni kaynak metin uzun.')
-        self.assertEqual(self.ct.resolve('a','çevir',self.h.read('a'))[0],'Yeni kaynak metin uzun.')
+        self.assertEqual(self.source('çevir',self.cr.recent('a',self.h.read('a'))),'Yeni kaynak metin uzun.')
     def test_users_cannot_share_source(self):
-        self.ct.remember('a','Original source text for A')
-        self.assertEqual(self.ct.resolve('b','çevir',[])[0],'')
+        self.h.append('a','user','Original source text for A')
+        self.assertEqual(self.source('çevir',self.h.read('b')),'')
     def test_tool_results_refresh_model_context(self):
         from modules import llm
         self.h.append('a','user','Original input')
@@ -321,35 +329,35 @@ class DeletedQueuedUserTests(unittest.TestCase):
 
 
 class MultiStepOwnershipTests(unittest.TestCase):
-    def test_each_pending_input_stops_the_next_step(self):
+    def test_no_step_can_consume_a_pending_answer(self):
         from modules.session_state import SessionState
         from modules.command_manager import PENDING_INPUT_FIELDS
+        session = SessionState()
         for field in PENDING_INPUT_FIELDS:
             with self.subTest(field=field):
-                session = SessionState()
-                def reply(command):
-                    setattr(session, field, True if field == 'pending_weather_location' else 'waiting')
-                    return 'Yanıt bekliyorum.'
-                handle = Mock(side_effect=reply)
-                ns = {'_session': lambda: session, 'profile': SimpleNamespace(slug='hamdi'), 'handle': handle, 'privacy': SimpleNamespace(audit=Mock()), 'flags': {}, 'stop_event': threading.Event()}
+                setattr(session, field, True if field == 'pending_weather_location' else 'waiting')
+                ns = {'_session': lambda: session, 'profile': SimpleNamespace(slug='hamdi'),
+                      'handle': Mock(side_effect=AssertionError('adım yeniden yorumlanamaz')),
+                      'privacy': SimpleNamespace(audit=Mock()), 'flags': {}, 'stop_event': threading.Event()}
                 functions('main.py', ['_run_steps'], ns)
                 result = ns['_run_steps'](['ilk adım', 'sonraki adım'])
-                handle.assert_called_once_with('ilk adım')
-                self.assertIn('yanıt veya onay bekliyor', result)
+                ns['handle'].assert_not_called()
+                self.assertIn('ilk adım', result)
+                self.assertEqual(getattr(session, field), True if field == 'pending_weather_location' else 'waiting')
                 self.assertFalse(session._in_multi)
+                setattr(session, field, None)
 
-    def test_user_change_stops_chain_and_clears_original_session_flag(self):
+    def test_a_chain_cannot_switch_users_because_it_runs_no_step(self):
         from modules.session_state import SessionState
         original, target = SessionState(), SessionState()
         ns = {'profile': SimpleNamespace(slug='hamdi'), 'privacy': SimpleNamespace(audit=Mock()), 'flags': {}, 'stop_event': threading.Event()}
         ns['_session'] = lambda: original if ns['profile'].slug == 'hamdi' else target
-        def switch(command):
-            ns['profile'] = SimpleNamespace(slug='ebru')
-            return 'Kullanıcı değişti.'
-        ns['handle'] = Mock(side_effect=switch)
+        ns['handle'] = Mock(side_effect=AssertionError('adım yeniden yorumlanamaz'))
         functions('main.py', ['_run_steps'], ns)
-        self.assertIn('Kullanıcı değişti', ns['_run_steps'](['kullanıcı değiştir', 'dosyayı sil']))
-        ns['handle'].assert_called_once()
+        result = ns['_run_steps'](['kullanıcı değiştir', 'dosyayı sil'])
+        ns['handle'].assert_not_called()
+        self.assertNotIn('Kullanıcı değişti', result)
+        self.assertEqual(ns['profile'].slug, 'hamdi')
         self.assertFalse(original._in_multi)
         self.assertFalse(target._in_multi)
 

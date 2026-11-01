@@ -138,30 +138,29 @@ class EngineLinkTests(unittest.TestCase):
                 self.assertNotIn(name,vars(main))
             finally:setattr(main,name,previous)
 
-    def test_multi_step_reply_discards_individual_speech_override(self):
+    def test_multi_step_reply_never_reinterprets_its_steps(self):
         context=self.context();session=context._session()
-        def handle(command):
-            session.speech_override='Yalnız bir adımın kısa cevabı'
-            return 'Sonuç '+command
-        context.handle=handle
-        self.assertEqual(context._run_steps(['bir','iki']),'1. Sonuç bir\n2. Sonuç iki')
-        self.assertIsNone(session.speech_override)
+        context.handle=Mock(side_effect=AssertionError('adım metni ikinci kez yorumlanamaz'))
+        out=context._run_steps(['bir','iki'])
+        self.assertIn('bir',out);self.assertIn('iki',out)
+        context.handle.assert_not_called()
         self.assertFalse(session._in_multi)
 
     def test_closing_sequence_does_not_execute_even_its_first_step(self):
         context=self.context();context.flags['closing']=True;context.handle=Mock()
-        self.assertIn('kapanıyor',context._run_steps(['bir','iki']))
+        self.assertIn('tek tek',context._run_steps(['bir','iki']))
         context.handle.assert_not_called()
 
-    def test_macro_result_does_not_reuse_an_individual_short_reply(self):
+    def test_macro_never_runs_an_action_through_the_interpreter(self):
         context=self.context();session=context._session()
         context.profile.data['macros']={'başla':{'title':'başla','actions':['bir','iki']}}
         context.requests_state=SimpleNamespace(check=Mock())
         context.time=SimpleNamespace(sleep=Mock())
-        def handle(command):
-            session.speech_override='Kısa adım sonucu'
-            return 'Tamam.'
-        context.handle=handle
-        self.assertIn('bir, iki',context._macro_run('başla'))
+        context.system_control=SimpleNamespace(find_app=Mock(return_value=None),open_application=Mock())
+        context.handle=Mock(side_effect=AssertionError('kısayol adımı yeniden yorumlanamaz'))
+        out=context._macro_run('başla')
+        self.assertIn('bir, iki',out)
+        context.handle.assert_not_called()
+        context.system_control.open_application.assert_not_called()
         self.assertIsNone(session.speech_override)
         self.assertFalse(session._in_macro)

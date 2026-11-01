@@ -21,6 +21,8 @@ from modules.command_manager import PENDING_INPUT_FIELDS
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULES = ROOT / "modules"
+# Production kaynakları: motor modülleri ve kök uygulama dosyaları (web_chat gibi gerçek çağıranlar burada durur).
+PRODUCTION_SOURCES = (*sorted(MODULES.glob("*.py")), *sorted(ROOT.glob("*.py")))
 # Geliştirme kabul aracı; gerçek bir kullanıcı turn'ü değildir ve semantic authority taşımaz.
 NON_PRODUCTION_HANDLERS = {"acceptance_checks.py"}
 # PR10b ile emekli edilen ikinci semantic authority adları.
@@ -40,7 +42,7 @@ def _referencing(pattern: str) -> set[str]:
 def _runtime_handle_calls() -> list[tuple[str, int]]:
     """`runtime.handle(...)` ÇAĞRILARI. handoff'a argüman olarak geçen `runtime.handle` çağrı değildir."""
     rows = []
-    for path in sorted(MODULES.glob("*.py")):
+    for path in PRODUCTION_SOURCES:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "handle"):
                 continue
@@ -119,6 +121,14 @@ class NestedStepBoundaryTests(EngineFixture):
             self.assertNotIn("path", row["args"])
             self.assertIn("adım", str(row["args"]["question"]).lower())
 
+    def test_typo_corrected_rerun_of_the_same_request_is_not_a_step(self):
+        # handle_request'ın TEK açık yeniden geçişi aynı istektir; adım reddi değil, canonical izdüşümünü alır.
+        self.ctx._typo_pass, self.ctx._typo_orig = True, self.entry.text
+        self.addCleanup(setattr, self.ctx, "_typo_pass", False)
+        self.addCleanup(setattr, self.ctx, "_typo_orig", "")
+        with brain_entry.bind(self.entry):
+            self.assertEqual(self.ctx.route("ankara'da hava nasıl ardından sesi 30"), self.parent)
+
     def test_legacy_door_is_the_only_classifier_caller(self):
         legacy = getattr(self.ctx, "_brain_legacy_route", None)
         self.assertTrue(callable(legacy))
@@ -191,7 +201,7 @@ class CanonicalTranslationAuthorityTests(unittest.TestCase):
         session = SimpleNamespace(**{name: None for name in PENDING_INPUT_FIELDS}, last_doc=None, speech_override=None)
         context = command_manager.CommandContext(
             profile=SimpleNamespace(slug="hamdi"), session=session, emit=Mock(), table_chat=Mock(),
-            history_read=lambda *a, **k: calls.append(a) or [], translate=Mock(), study_intent=Mock(return_value=None),
+            history_read=lambda *a, **k: calls.append(a) or [], study_intent=Mock(return_value=None),
             pc_owner=lambda: "hamdi", source="yazı")
         with patch("modules.visual_chat.handle", return_value=None), \
              patch("modules.usage_meter.handle", return_value=None), \
@@ -241,7 +251,7 @@ class NestedExecutionTests(unittest.TestCase):
         self.runtime.output.convert_document.assert_not_called()
         self.runtime.events.put.assert_not_called()
         self.runtime.system_control.open_application.assert_not_called()
-        self.assertIsNone(self.session.speech_override)
+        self.assertIs(self.session._in_multi, False)
 
     def test_run_steps_neither_prepares_a_second_entry_nor_classifies(self):
         with patch.object(brain_entry, "prepare", side_effect=AssertionError("ikinci canonical entry yok")), \

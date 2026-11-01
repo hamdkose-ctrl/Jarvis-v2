@@ -969,6 +969,12 @@ def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
     return out
 
 def _macro_run(runtime, cmd_lower: str) -> str | None:
+    """Kısayol adımını ikinci kez yorumlamaz: kaydedilmiş adlandırma doğrudan kendi sahibine gider.
+
+    `_macro_teach` yalnız tanıdığı uygulamaları `"<uygulama> <fiil>"` olarak normalize edip kaydeder;
+    o adım deterministic uygulama açma sahibine (command_execution.open_app) teslim edilir.
+    Yorumlanması gereken bir adım (ikinci bir semantic karar gerektiren metin) kısayolda ASLA
+    yeniden semantic olarak ele alınmaz; kullanıcıya tek tek söylemesi için geri bildirilir."""
     macros = runtime.profile.data.get('macros') or {}
     if not macros or runtime._session()._in_macro:
         return None
@@ -978,16 +984,21 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     hit = macros.get(key) or next((macros[c] for c in sorted(cands) if c in macros), None)
     if not hit:
         return None
+    from modules.command_execution import open_app
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_macro = True
-    failed, executed = [], []
+    failed, executed, skipped = [], [], []
     try:
         for index, act in enumerate(hit['actions']):
             runtime.requests_state.check()
             if runtime.stop_event.is_set() or runtime.flags.get('closing'):
                 return 'Jarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
-            reply = runtime.handle(act)
+            app = runtime.system_control.find_app(runtime._VERB_END.sub('', act).strip())
+            if not app:
+                skipped.append(act)
+                continue
+            reply = open_app(runtime, app)
             executed.append(act)
             runtime.requests_state.check()
             if runtime.profile.slug != owner:
@@ -1003,7 +1014,12 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     finally:
         session._in_macro = False
         session.speech_override = None  # Do not reuse an individual action's short reply.
+    if not executed:
+        return (f"“{hit['title']}” kısayolundaki adımları ikinci kez kendim yorumlamam: "
+                + ', '.join(skipped) + '. Adımları tek tek söyle.')
     out = f"“{hit['title']}” kısayolunu çalıştırdım: " + ', '.join(executed) + '.'
+    if skipped:
+        out += ' Şu adımları yorumlamam gerektiği için çalıştırmadım (tek tek söyle): ' + ', '.join(skipped) + '.'
     return out + (f" Şunlar olmadı: {', '.join(failed)}." if failed else '')
 
 def _macro_manage(runtime, cmd_lower: str) -> str | None:

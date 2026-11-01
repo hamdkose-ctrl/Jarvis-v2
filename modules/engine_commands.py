@@ -60,7 +60,7 @@ def handle(runtime, command: str):
         goal_result=goal_executor.handle(runtime,command)
         if goal_result is not None:return goal_result
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
-        table_chat=runtime._table_chat, history_read=runtime.history.read, translate=lambda text, target: runtime.tr.translate(text, target),
+        table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
         pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source)
     early_result = dispatch(context, command, cmd_lower)

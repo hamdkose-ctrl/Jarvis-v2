@@ -1,4 +1,4 @@
-"""PR7 Closeout-B4b: metin çevirisi Brain'de (Candidate Builder turları -> Core translate); chat_translation.resolve çağrılmaz."""
+"""PR7 Closeout-B4b: metin çevirisi Brain'de (Candidate Builder turları -> Core translate); ikinci çeviri kaynak seçici yok."""
 import dataclasses
 import tempfile
 import unittest
@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 import test_brain_production_entry as fx
-from modules import (brain_core_map, brain_entry, brain_precedence, brain_understanding, chat_translation,
+from modules import (brain_core_map, brain_entry, brain_precedence, brain_understanding,
                      engine_runtime, requests_state)
 from modules.brain_contracts import ContextReference
 
@@ -93,8 +93,7 @@ class EndToEndTests(unittest.TestCase):
         rid = "b4b-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid), \
-             patch("modules.engine_intents.dispatch", return_value="CORE") as dispatch, \
-             patch.object(chat_translation, "resolve", side_effect=AssertionError("ikinci çözücü çağrılmamalı")):
+             patch("modules.engine_intents.dispatch", return_value="CORE") as dispatch:
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             handle = Mock(wraps=self.ctx.handle)
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)

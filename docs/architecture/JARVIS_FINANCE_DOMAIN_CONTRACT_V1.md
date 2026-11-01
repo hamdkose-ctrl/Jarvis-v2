@@ -73,7 +73,7 @@ Finance kodu tek yerde değil. Taşınması gereken parçalar:
 - **Bildirim teslimi:** `watcher.loop` içindeki `emit` alarm metnini ekrana ve ntfy telefon bildirimine "Jarvis klasör izleme" başlığıyla gönderiyor. Teslim Communication'da kalmalı ama finans alarmı olarak ayrışmalı.
 - **`domain_tools.py`:** Tarihli kur (`exchange`) ve CSV gelir/gider özeti (`csv_analysis` içindeki `kind='finance'` kolu) mağaza/haber/sosyal araçlarıyla aynı dosyada.
 
-Komut yönlendirme noktaları (`engine_commands.handle` → `finance.answer`, `engine_tools._extra_commands` → `finance_alert_commands`, `chat_translation` → `finance.is_conversion`, `goal_executor` → `finance.parse`) taşınmaz; motor yalnız Finance girişini çağırır.
+Komut yönlendirme noktaları (`engine_commands.handle` → `finance.answer`, `engine_tools._extra_commands` → `finance_alert_commands`, `translation_request.parse` → `finance.is_conversion`, `goal_executor` → `finance.parse`) taşınmaz; motor yalnız Finance girişini çağırır.
 
 ## 5. Tamamlanan kod göçü kaydı
 

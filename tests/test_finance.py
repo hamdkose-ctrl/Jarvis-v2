@@ -129,15 +129,15 @@ class FinanceTest(unittest.TestCase):
         self.assertIn('50 euro 58,06 dolar eder', self.ask('50 euroyu dolara çevir'))
 
     def test_money_conversion_is_not_text_translation(self):
-        from modules import chat_translation
+        from modules import translation_request
         for text in ('50 euroyu dolara çevir', 'euroyu dolara çevir', '100 doları liraya çevir', '200 lirayı euroya çevir'):
             with self.subTest(text=text):
                 self.assertTrue(finance.is_conversion(text))
-                self.assertIsNone(chat_translation.resolve('alice', text, []))
+                self.assertIsNone(translation_request.parse(text))
         for text in ('bu metni euroya çevir', 'bunu ingilizceye çevir', 'merhaba dünya cümlesini almancaya çevir'):
             with self.subTest(text=text):
                 self.assertFalse(finance.is_conversion(text))
-        self.assertIsNotNone(chat_translation.resolve('alice', 'merhaba dünya cümlesini almancaya çevir', []))
+        self.assertIsNotNone(translation_request.parse('merhaba dünya cümlesini almancaya çevir'))
 
     def test_single_request_and_cache(self):
         self.ask('dolar kaç lira');self.ask('euro kaç lira');self.ask('100 dolar kaç tl')

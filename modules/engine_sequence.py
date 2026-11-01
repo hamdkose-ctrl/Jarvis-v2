@@ -1,6 +1,5 @@
 """engine sequence; all mutable dependencies are supplied by EngineContext."""
 from __future__ import annotations
-import contextlib
 
 def _split_steps(runtime, command: str) -> list[str] | None:
     """'önce A, sonra B' / 'A ardından B' -> [A, B]. Tek adımlıysa None. En fazla 5 adım."""
@@ -13,34 +12,16 @@ def _split_steps(runtime, command: str) -> list[str] | None:
     return parts[:5] if len(parts) >= 2 else None
 
 def _run_steps(runtime, steps: list[str]) -> str:
-    from modules.command_manager import awaiting_input
-    session, owner = runtime._session(), runtime.profile.slug
-    session._in_multi = True
-    out = []
-    try:
-        for i, st in enumerate(steps, 1):
-            if runtime.flags.get('closing') or runtime.stop_event.is_set():
-                out.append("(Jarvis kapanıyor; kalan adımları çalıştırmadım.)")
-                break
-            reply = runtime.handle(st)
-            out.append(f"{i}. {reply}")
-            if getattr(reply, 'ok', None) is False:
-                out.append('(Bu adım doğrulanamadı; ona bağlı kalan adımları çalıştırmadım.)')
-                break
-            if runtime.flags.get('closing') or runtime.stop_event.is_set():
-                out.append("(Jarvis kapanıyor; kalan adımları çalıştırmadım.)")
-                break
-            if runtime.profile.slug != owner:
-                out.append("(Kullanıcı değişti; kalan adımları yeni kullanıcıyla tekrar söyle.)")
-                break
-            if awaiting_input(session):
-                out.append("(Bu adım yanıt veya onay bekliyor; kalan adımları yanıtından sonra tekrar söyle.)")
-                break
-    finally:
-        session._in_multi = False
-        session.speech_override = None  # The aggregate reply must not speak only one step.
-    runtime.privacy.audit("çok adımlı komut", f"{len(steps)} adım")
-    return "\n".join(out)
+    """Çok adımlı cümlenin TEK canonical kararı vardır; adım metni ikinci kez yorumlanmaz.
+
+    Adımlar ikinci bir yorumlama/resolver zincirine gönderilmez, hiçbir effect çalışmaz.
+    Her adım kendi turn'ünde tek bir canonical karar alabilsin diye adımlar kullanıcıya
+    sırayla gösterilir; eksik bilgi uydurulmaz."""
+    joined = [str(st) for st in steps]
+    runtime.privacy.audit("çok adımlı komut", f"{len(joined)} adım")
+    return ("Bu isteği tek bir canonical karar olarak yorumladım; adımları ikinci kez kendim "
+            "yorumlayıp sırayla çalıştırmam. Adımları tek tek söyle:\n"
+            + "\n".join(f"{i}. {st}" for i, st in enumerate(joined, 1)))
 
 def _close_jarvis(runtime):
     runtime.flags['closing'] = True

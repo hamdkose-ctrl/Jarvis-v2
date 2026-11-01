@@ -487,6 +487,25 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     return {"intent": "chat", "args": {}}
 
 
+def nested_step(command: str, runtime: Any = None) -> bool:
+    """True when a canonical entry is bound but this text is a different request: a sequence or macro step.
+
+    The bound entry's decision belongs to the whole utterance, never to one of its steps.
+    `handle_request`'s single typo-corrected re-run is the SAME request (same request id), so it is
+    not a step; every other text that arrives while an entry is bound is."""
+    entry = current()
+    if entry is None or str(command).strip() == entry.text.strip():
+        return False
+    text = entry.text.strip()
+    if text and runtime is not None and getattr(runtime, "_typo_pass", ""):
+        return str(getattr(runtime, "_typo_orig", "")).strip() != text
+    return True
+
+
+_NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin canonical kararı ona devredilmez. "
+                         "Adımı ikinci kez kendim yorumlamam: adımı tek başına bir istek olarak söyle.")
+
+
 def _install_route_guard(runtime: Any) -> None:
     if getattr(runtime, "_brain_route_guard_installed", False):
         return
@@ -495,6 +514,8 @@ def _install_route_guard(runtime: Any) -> None:
         return
 
     def guarded(command: str):
+        if nested_step(command, runtime):
+            return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
         entry = current()
         return original(command) if entry is None else _legacy_route_projection(entry)
 

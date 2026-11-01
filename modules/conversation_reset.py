@@ -1,7 +1,8 @@
 """Sohbet sıfırlama sınırı: "yeni sohbet" öncesi geçmiş satırları kısa süreli bağlamdan çıkar.
 
-Yalnız bir zaman kesiti tutar (kalıcı geçmiş silinmez). Brain bağlamı (ActiveContext) ve diğer okuyucular
-çeviriye bağımlı olmadan bu modülü kullanır; çeviri kaynak çözümü ayrı bir konudur (chat_translation)."""
+Yalnız bir zaman kesiti tutar (kalıcı geçmiş silinmez). Brain bağlamı (ActiveContext) ve diğer
+okuyucular bu modülü doğrudan kullanır; çeviri kaynak seçimi yalnız canonical Reference
+Resolver'a aittir."""
 import json
 import os
 import threading
@@ -17,18 +18,16 @@ except (OSError, ValueError):
     _resets = {}
 
 
-def mark(slug, resets=None, path=None):
-    """Bu kullanıcının sohbet sınırını şimdiye koyar (resets/path yalnız eski adların uyumluluğu için)."""
-    resets = _resets if resets is None else resets
-    path = _reset_file if path is None else path
+def mark(slug):
+    """Bu kullanıcının sohbet sınırını şimdiye koyar."""
     with _lock:
-        resets[slug] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(resets), encoding="utf-8")
-        os.replace(tmp, path)
+        _resets[slug] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        tmp = _reset_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_resets), encoding="utf-8")
+        os.replace(tmp, _reset_file)
 
 
-def recent(slug, rows, resets=None):
+def recent(slug, rows):
     """Sıfırlama kesitinden sonraki satırlar; kesit yoksa hepsi."""
-    cutoff = (_resets if resets is None else resets).get(slug, "")
+    cutoff = _resets.get(slug, "")
     return [r for r in rows if str(r.get("ts", "")) > cutoff] if cutoff else rows
