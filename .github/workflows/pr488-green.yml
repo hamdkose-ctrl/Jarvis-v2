@@ -1,0 +1,35 @@
+name: PR488 bounded green patch
+on:
+  push:
+    branches:
+      - gpt/brain-files-final-authority
+    paths:
+      - .github/workflows/pr488-green.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply bounded patch
+        shell: powershell
+        run: |
+          py -3.13 -X utf8 scripts/pr488_apply.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Focused tests
+        shell: powershell
+        run: |
+          py -3.13 -X utf8 -m unittest tests.test_brain_files_final_authority tests.test_brain_b3c1 tests.test_brain_b3b
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Commit product changes and remove helper
+        shell: powershell
+        run: |
+          git config user.name "jarvis-ci"
+          git config user.email "jarvis-ci@users.noreply.github.com"
+          git rm scripts/pr488_apply.py .github/workflows/pr488-green.yml
+          git add modules/brain_understanding.py modules/brain_core_map.py modules/brain_entry.py modules/brain_precedence.py modules/engine_intents.py tests/test_brain_b3b.py tests/test_brain_b3c1.py docs/Jarvis_Yol_Haritasi.md tests/test_brain_files_final_authority.py
+          git commit -m "feat: make Brain file targets canonical through Core"
+          git push origin HEAD:gpt/brain-files-final-authority
