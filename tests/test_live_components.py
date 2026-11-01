@@ -45,12 +45,12 @@ class LiveComponentTests(unittest.TestCase):
         sent=[]
         async def respond(**kwargs):sent.extend(kwargs['function_responses'])
         session=SimpleNamespace(send_tool_response=respond)
-        fc=SimpleNamespace(name='muzik_cal',args={'sorgu':'song'},id='original-call')
-        with patch.object(live,'_play_music') as music:
+        fc=SimpleNamespace(name='yanlis_duyma',args={'dogru':'takvimi aç'},id='original-call')
+        with patch('modules.learning.learn_mishearing') as fix:
             asyncio.run(instance._run_tool(session,fc))
-        music.assert_not_called();self.assertEqual(instance._tools_running,0)
+        fix.assert_not_called();self.assertEqual(instance._tools_running,0)
         self.assertEqual(sent[0].id,'original-call')
-        self.assertEqual(sent[0].name,'muzik_cal')
+        self.assertEqual(sent[0].name,'yanlis_duyma')
         self.assertIn('Yapamadım',sent[0].response['sonuc'])
 
     def test_uuid_phone_suffix_preserved_but_real_phones_redacted(self):

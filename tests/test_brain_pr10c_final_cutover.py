@@ -119,8 +119,9 @@ class CanonicalRouteAuthorityTests(unittest.TestCase):
 
     def test_route_command_without_a_bound_entry_fails_closed(self):
         from modules import brain_entry
-        with patch.object(brain_entry, "current", return_value=None),              patch.object(brain_entry, "_legacy_route_projection",
-                          side_effect=AssertionError("bağlantısız cümle yorumlandı")):
+        with patch.object(brain_entry, "current", return_value=None), patch.object(
+                brain_entry, "_legacy_route_projection",
+                side_effect=AssertionError("bağlantısız cümle yorumlandı")):
             decision = brain_entry.route_command(SimpleNamespace(), "raporu özetle")
         self.assertEqual(decision["intent"], "clarify")
         self.assertIn("işlem başlatılmadı", decision["args"]["question"])
@@ -204,9 +205,18 @@ class LiveContextParityTests(unittest.TestCase):
     def test_live_prompt_selects_no_facts_without_the_canonical_relevance_gate(self):
         body = self.live_prompt_body()
         self.assertNotIn('"facts"', body)
-        self.assertEqual(re.findall(r"learning\.(knowledge_prompt|rules_prompt)\(runtime\.profile\)", body), [])
-        self.assertTrue(re.search(r"learning\.knowledge_prompt\(runtime\.profile,\s*query\)", body))
-        self.assertTrue(re.search(r"learning\.rules_prompt\(runtime\.profile,\s*query\)", body))
+        self.assertNotIn('"goals"', body)
+        # Bağlantı anında çözülecek bir soru yoktur; Live kendi bellek/geçmiş seçicisini kuramaz.
+        self.assertEqual(re.findall(r"learning\.(knowledge_prompt|rules_prompt)", body), [])
+        self.assertNotIn("_recent_turns", body)
+        # Assembly salt-okunur: burada profil yazan hiçbir çağrı yok.
+        self.assertNotIn("save", body)
+
+    def test_memory_relevance_has_one_canonical_owner(self):
+        # Soru-bağımlı ilgi seçiminin tek sahibi profile.system_prompt(query); her yüzey oradan geçer.
+        text = source("personalization")
+        self.assertTrue(re.search(r"learning\.knowledge_prompt\(self,\s*query\)", text))
+        self.assertTrue(re.search(r"learning\.rules_prompt\(self,\s*query\)", text))
 
     def test_pending_prompt_is_read_only_and_the_mark_has_an_owner(self):
         text = source("learning")
@@ -225,16 +235,29 @@ class LiveToolAuthorityTests(unittest.TestCase):
     """Effect üreten Live araçları canonical request üretir; raw service executor kalmaz."""
 
     def test_runner_has_no_raw_music_or_task_service_bypass(self):
+        # Servis fonksiyonuna giden tek çit kalmadı: _direct_tool yalnız domain protokol araçlarında.
         text = source("live_tool_runner")
-        self.assertNotIn("_direct_tool(services._play_music", text)
-        self.assertNotIn("_direct_tool(services._add_handoff", text)
+        self.assertNotIn("_direct_tool(services.", text.replace(" ", ""))
+        self.assertEqual(text.count("_direct_tool"), 2)
 
     def test_music_and_handoff_requests_are_canonical_sentences(self):
+        # Cümleler, yazılı yüzeyin deterministik domain gramerlerinin birebir kendisidir.
         from modules.live_tools import _build_request
         self.assertEqual(_build_request("muzik_cal", {"sorgu": "ars viwandi", "platform": "youtube"}),
                          "youtube'da ars viwandi çal")
         self.assertEqual(_build_request("gorev_ekle", {"metin": "sunucuyu kontrol et", "yer": "iş"}),
-                         "iş listesine sunucuyu kontrol et ekle")
+                         "iş için not: sunucuyu kontrol et")
+        self.assertEqual(_build_request("gorev_ekle", {"metin": "sunucuyu kontrol et", "yer": "genel"}),
+                         "görev ekle: sunucuyu kontrol et")
+        self.assertIsNone(_build_request("muzik_cal", {"sorgu": ""}))
+
+    def test_canonical_sentences_reach_the_domain_owners(self):
+        from modules import handoff, media
+        with patch.object(media, "youtube", return_value="Açtım.") as yt:
+            self.assertEqual(media.handle("youtube'da ars viwandi çal"), "Açtım.")
+            yt.assert_called_once_with("ars viwandi")
+        self.assertEqual(handoff.parse("iş için not: sunucuyu kontrol et", "iş için not: sunucuyu kontrol et"),
+                         ("Sunucuyu kontrol et", "is", handoff.date.today()))
 
     def test_live_music_and_task_executors_are_retired(self):
         text = source("live")

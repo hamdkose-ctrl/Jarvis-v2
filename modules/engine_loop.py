@@ -120,6 +120,7 @@ def main(runtime, ui=None):
         runtime.live.start(runtime._live_command, runtime.emit, runtime._live_prompt, mic_on=lambda: runtime.flags["mic"],
                    wants_sleep=lambda: runtime.flags["sleep"], stop_event=runtime.stop_event, vocab=runtime._live_vocab,
                    on_session_end=runtime._live_session_end,
+                   on_session_start=runtime.live_session_opened,
                    prepare_tool=lambda fn, *args: prepare_live_tool(runtime, fn, *args))
     if voice_session.listening_enabled and not voice_session.manual_local_stt:
         runtime.threading.Thread(target=voice_session.listen_for_wake_word, daemon=True).start()

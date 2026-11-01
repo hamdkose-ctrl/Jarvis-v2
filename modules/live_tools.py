@@ -120,8 +120,22 @@ def _build_request(name: str, args: dict) -> str | None:
         return _MEDIA.get(txt("eylem").lower())
     if name == "not_ekle":
         return f"not ekle {txt('metin')}" if txt("metin") else None
+    if name == "muzik_cal":
+        q = txt("sorgu")
+        if not q:
+            return None
+        # Cümle, yazılı yüzeyde de geçen deterministik medya gramerinin ta kendisi (modules/media.handle).
+        return f"{'spotify' if 'spotify' in txt('platform').casefold() else 'youtube'}'da {q} çal"
     if name == "gorev_ekle":
-        return f"görev ekle: {txt('metin')}" if txt("metin") else None   # yer 'genel' ise normal görev listesi
+        if not txt("metin"):
+            return None
+        y = txt("yer").casefold().replace("i̇", "i")
+        place = "iş" if y.startswith(("iş", "is", "ış", "ıs")) else "ev" if y.startswith("ev") else ""
+        if place:
+            # modules/handoff.handle'ın ev-iş devir grameri: "yarın iş için not: <metin>".
+            when = f"{txt('zaman')} " if txt("zaman") else ""
+            return f"{when}{place} için not: {txt('metin')}"
+        return f"görev ekle: {txt('metin')}"       # yer 'genel' ise normal görev listesi
     if name == "hatirlatma_ekle":
         return f"{txt('zaman')} {txt('metin')} diye hatırlat" if txt("metin") and txt("zaman") else None
     return None

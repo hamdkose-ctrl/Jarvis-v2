@@ -5,7 +5,6 @@ Compatibility delegates remain on Live; calls keep the existing request guards.
 """
 from __future__ import annotations
 import asyncio
-import re
 import time
 from modules.diagnostics import record_failure as _record_failure
 
@@ -37,19 +36,6 @@ async def run(self, session, fc, services) -> None:
             services.log.info('İşlem kaydı: %s', 'modules/live.py:_run_tool')
             from modules import learning
             result = await self._direct_tool(learning.learn_mishearing, wrong, str(args.get('dogru') or ''))
-        elif fc.name == 'muzik_cal':
-            services.log.info('İşlem kaydı: %s', 'modules/live.py:_run_tool')
-            self._flush_user()
-            last_user = ' '.join((self._recent_user[-1] if self._recent_user else '').strip().split())
-            last_norm = last_user.casefold().replace("'", '').replace('’', '').strip(' .!?…')
-            if re.fullmatch('(?:youtube|youtubeu)\\s+(?:aç|ac|başlat|baslat|çalıştır|calistir)', last_norm):
-                result = await asyncio.get_running_loop().run_in_executor(None, self.handler, 'YouTube aç')
-                services.log.info('İşlem kaydı: %s', 'modules/live.py:_run_tool')
-            else:
-                result = await self._direct_tool(services._play_music, args)
-        elif fc.name == 'gorev_ekle' and services._task_place(args) is not None:
-            services.log.info('İşlem kaydı: %s', 'modules/live.py:_run_tool')
-            result = await self._direct_tool(services._add_handoff, args)
         else:
             req = services._build_request(fc.name, args)
             if req is None:
