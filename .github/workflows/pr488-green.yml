@@ -57,22 +57,74 @@ jobs:
         run: |
           py -3.13 -X utf8 scripts/pr488_apply.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Align old B3c1 test with final caller-zero invariant
+      - name: Apply focused file fixes and test migration
         shell: powershell
         run: |
           @'
           import re
           from pathlib import Path
+
+          # Product: do not collapse a compound "summarize and save/share/..." into one file_action.
+          path = Path('modules/brain_understanding.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    # Same operation may be expressed twice; different operations mean a compound request.
+              unique = tuple(dict.fromkeys(operations))
+              return unique[0] if len(unique) == 1 else None
+          '''
+          new = '''    # Same operation may be expressed twice; different operations mean a compound request.
+              unique = tuple(dict.fromkeys(operations))
+              if len(unique) != 1:
+                  return None
+              if unique[0] != FILE_COMPARE and re.search(
+                  r"(?<!\\w)ve\\s+(?:kaydet\\w*|gönder\\w*|gonder\\w*|paylaş\\w*|paylas\\w*|yazdır\\w*|yazdir\\w*|çıktı\\s+al\\w*|cikti\\s+al\\w*)(?!\\w)",
+                  text,
+              ):
+                  return None
+              return unique[0]
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'compound guard source count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          # Test isolation: engine logging can keep jarvis.log open on Windows after the assertion body.
+          path = Path('tests/test_brain_files_final_authority.py')
+          text = path.read_text(encoding='utf-8')
+          old = '        self.temp = tempfile.TemporaryDirectory()\n'
+          new = '        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'tempdir source count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          # Old B3c-1 expectations: "dosyayı göster" is intentionally locate in final file cutover.
           path = Path('tests/test_brain_b3c1.py')
           text = path.read_text(encoding='utf-8')
-          text = text.replace('"""PR7 Closeout-B3c-1: files.read -> Core doc_summary from a Brain-resolved file, end to end."""',
-                              '"""PR7 Closeout-B3c-1/final: files.read -> Core file_action from Brain-resolved targets."""', 1)
+          old = '''    def test_no_reference_or_other_verb_proposes_no_target(self):
+                  for text, refs in (("dosyayı özetle", []), ("dosyayı göster", [file_ref("/data/a.pdf")])):
+                      result = self.understand(text, refs)
+                      self.assertNotIn("operation", result.arguments, text)
+                      self.assertNotIn("path", result.arguments, text)
+          '''
+          new = '''    def test_no_reference_proposes_no_target(self):
+                  result = self.understand("dosyayı özetle", [])
+                  self.assertNotIn("operation", result.arguments)
+                  self.assertNotIn("path", result.arguments)
+          
+              def test_show_single_resolved_file_is_locate(self):
+                  result = self.understand("dosyayı göster", [file_ref("/data/a.pdf")])
+                  self.assertEqual(result.arguments.get("operation"), "locate")
+                  self.assertEqual(result.arguments.get("path"), "/data/a.pdf")
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'old show expectation count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          # Caller-zero regression uses ASCII escapes in source so PowerShell cannot corrupt Turkish text.
           replacement = '''    def test_summary_uses_brain_path_without_legacy_resolve_doc(self):
-                  self.ctx.docs = Mock(summarize=Mock(return_value="ÖZET"))
-                  with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target yeniden seçilemez"), create=True), \\
+                  self.ctx.docs = Mock(summarize=Mock(return_value="\\u00d6ZET"))
+                  with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target cannot be reselected"), create=True), \\
                        patch.object(brain_precedence, "claim", return_value=None):
-                      entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
-                  self.assertEqual(out, "ÖZET\\n\\nDosya olarak almak istersen çıktı al de.")
+                      entry, out, handle = self.through_brain("rapor.txt dosyas\\u0131n\\u0131 \\u00f6zetle")
+                  self.assertEqual(out, "\\u00d6ZET\\n\\nDosya olarak almak istersen \\u00e7\\u0131kt\\u0131 al de.")
                   self.ctx.docs.summarize.assert_called_once_with(str(self.file))
                   self.assertFalse(handle.called)
           
