@@ -29,6 +29,43 @@ jobs:
         run: |
           py -3.13 -X utf8 scripts/pr488_apply.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Align old B3c1 test with final caller-zero invariant
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          path = Path('tests/test_brain_b3c1.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('"""PR7 Closeout-B3c-1: files.read -> Core doc_summary from a Brain-resolved file, end to end."""',
+                              '"""PR7 Closeout-B3c-1/final: files.read -> Core file_action from Brain-resolved targets."""', 1)
+          old = '''    def test_resolve_doc_receives_the_brain_path_and_does_not_reselect(self):
+                  seen = []
+          
+                  def spy(runtime, raw, command=""):
+                      seen.append(raw)
+                      return str(self.file), None
+          
+                  self.ctx.docs = Mock(summarize=Mock(return_value="ÖZET"))
+                  with patch.object(self.ctx, "_resolve_doc", side_effect=lambda raw, command="": spy(self.ctx, raw, command), create=True), \\
+                       patch.object(brain_precedence, "claim", return_value=None):
+                      entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
+                  self.assertEqual(seen, [str(self.file)])
+                  self.ctx.docs.summarize.assert_called_once_with(str(self.file))
+          '''
+          new = '''    def test_summary_uses_brain_path_without_legacy_resolve_doc(self):
+                  self.ctx.docs = Mock(summarize=Mock(return_value="ÖZET"))
+                  with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target yeniden seçilemez"), create=True), \\
+                       patch.object(brain_precedence, "claim", return_value=None):
+                      entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
+                  self.assertEqual(out, "ÖZET\\n\\nDosya olarak almak istersen çıktı al de.")
+                  self.ctx.docs.summarize.assert_called_once_with(str(self.file))
+                  self.assertFalse(handle.called)
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'old resolve_doc test match count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          '@ | py -3.13 -X utf8 -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Focused tests
         shell: powershell
         run: |
