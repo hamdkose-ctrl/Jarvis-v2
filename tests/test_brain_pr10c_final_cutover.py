@@ -786,6 +786,7 @@ class ExplicitOutputFormatParityTests(unittest.TestCase):
             self.assertIsNone(brain_core_map.core_plan("files.read", {**base, "format": bad}), bad)
 
     def test_the_executor_saves_in_the_requested_format(self):
+        import os
         from modules import engine_intents
         saved = []
         session = SimpleNamespace(last_doc=None)
@@ -798,9 +799,16 @@ class ExplicitOutputFormatParityTests(unittest.TestCase):
         out = engine_intents.dispatch(runtime, "file_action",
                                       {"operation": "summarize", "path": str(self.file), "format": "xlsx"},
                                       command, command)
-        self.assertEqual(saved, [("ÖZET", str(self.file), "ozet", "xlsx")])
+        self.assertEqual(len(saved), 1, saved)
+        text, target, label, preferred = saved[0]
+        self.assertEqual((text, label, preferred), ("ÖZET", "ozet", "xlsx"), saved)
+        # Yolün YAZIMI sözleşme değildir: Windows kısa adı (SERVIC~1) ile uzun adı aynı
+        # dosyayı gösterir; ölçülen şey yürütücünün aynı dosyayı hedeflediğidir.
+        self.assertTrue(os.path.samefile(target, str(self.file)), (target, str(self.file)))
         self.assertIn("kaydettim", out)
-        self.assertEqual(session.last_doc, ("ÖZET", str(self.file), "ozet"))
+        self.assertEqual(session.last_doc[0], "ÖZET", session.last_doc)
+        self.assertEqual(session.last_doc[2], "ozet", session.last_doc)
+        self.assertTrue(os.path.samefile(session.last_doc[1], str(self.file)), session.last_doc)
 
     def test_without_an_explicit_format_the_hint_line_is_unchanged(self):
         from modules import engine_intents
