@@ -133,67 +133,6 @@ def _live_vocab(runtime) -> list[str]:
         runtime._record_failure('main.py:_live_vocab')
     return [w.strip() for w in dict.fromkeys(words) if isinstance(w, str) and 2 <= len(w.strip()) <= 30]
 
-def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
-                  _pre_registered_owner: str | None = None) -> str:
-    """Canlı konuşmada model `komut` aracını çağırınca burası çalışır: istek Jarvis'in normal komut sistemine gider."""
-    pass  # Shared fields are held by the explicit engine context.
-    previous = (runtime._cur_source, runtime._cur_rid, runtime._typo_pass, runtime._typo_orig)
-    owner = _pre_registered_owner or runtime.slugify(runtime.pc_profile().name)
-    rid = _pre_registered_rid or runtime.secrets.token_hex(16)
-    runtime._cur_source = "ses"
-    runtime._cur_rid = rid
-    try:
-        if _pre_registered_rid is None and not runtime.requests_state.register(owner, rid):
-            return "İstek kabul edilmedi; yeniden söyle."
-        with runtime.requests_state.activate(owner, rid):
-            runtime.log.info("İşlem kaydı: %s", 'main.py:_live_command')
-            runtime.emit("activity", "Komut motoru isteği işliyor", f"working|Komut motoru|{text[:220]}")
-            runtime._session().speech_override = None
-            runtime._typo_pass = True  # The live model already produces normalized commands.
-            runtime._typo_orig = ""
-            try:
-                runtime.requests_state.check()
-                out = runtime.handle(text)
-                runtime.requests_state.check()
-            except runtime.requests_state.Cancelled:
-                raise
-            except (FileNotFoundError, ValueError) as exc:
-                out = str(exc)
-            except Exception as exc:
-                runtime._record_failure('main.py:_live_command')
-                try:
-                    from modules import diagnose
-                    out = diagnose.explain(exc)
-                except Exception:
-                    runtime._record_failure('main.py:_live_command')
-                    out = "Şu anda yapamadım, biraz sonra tekrar dener misin?"
-            runtime.requests_state.check()
-            from modules import developer
-            if runtime._session().speech_override:
-                spoken = runtime._session().speech_override
-                runtime._session().speech_override = None
-                runtime.emit("assistant", str(out), "ses")
-                return spoken
-            runtime._session().speech_override = None          # canlı modda cevabı model söyler; ayrı okuma cümlesi kullanılmaz
-            try:
-                runtime.profile.log_agent(runtime.agents.classify(runtime._tr_lower(text)))
-            except Exception:
-                runtime._record_failure('main.py:_live_command')
-            out = runtime._finalize(str(out).strip() if out else "Bir yanıt alamadım.")
-            runtime.requests_state.check()
-            runtime.emit("activity", "Komut motoru işlemi tamamladı", f"done|Komut motoru|{out[:420]}")
-            if len(out) > 300:
-                runtime.emit("assistant", out, "ses")   # uzun sonuç (özet, liste…) ekranda tam görünsün; model kısaca söyler
-                if runtime._session().last_doc is not None and out.startswith(runtime._session().last_doc[0][:50]):
-                    return (f"[Sonucun tamamı ekranda gösterildi. Bunu sesli okuma; kullanıcıya yalnızca şunu "
-                            f"'{runtime._doc_ready_line(runtime._session().last_doc[2], out)}' de.]\n\n" + out[:1500])
-            return out
-    except runtime.requests_state.Cancelled as exc:
-        runtime._session().speech_override = None
-        return str(exc)
-    finally:
-        runtime._cur_source, runtime._cur_rid, runtime._typo_pass, runtime._typo_orig = previous
-
 def _sounds_like_wake(runtime, text: str) -> bool:
     """Duyulan cümlede uyandırma adına çok benzeyen bir kelime var mı (ad yanlış duyulmuş olabilir)."""
     import difflib

@@ -140,10 +140,10 @@ class CallerZeroGuards(unittest.TestCase):
     def test_reference_context_only_feeds_legacy_router(self):
         self.assertEqual(_referencing(r"reference_context\("), {"app_actions.py", "router.py"})
 
-    def test_work_modes_only_router_and_live_fallback(self):
-        self.assertEqual(_referencing(r"work_modes"), {"router.py", "goal_executor.py", "freshness.py", "brain_actions.py"})
+    def test_work_modes_is_router_owned_only(self):
+        self.assertEqual(_referencing(r"work_modes"), {"router.py", "freshness.py", "brain_actions.py"})
         source = (MODULES / "goal_executor.py").read_text(encoding="utf-8")
-        self.assertEqual(source.count("work_modes"), 1)  # the Live-only fallback, behind brain_entry.goal_question_superseded()
+        self.assertNotIn("work_modes", source)  # PR10a: yedek kural tek tanımdan (brain_actions) geliyor
 
     def test_router_classify_has_no_brain_flow_caller(self):
         self.assertEqual(_referencing(r"intent_router\.classify\("), {"engine_tools.py"})

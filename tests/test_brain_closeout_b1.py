@@ -233,8 +233,7 @@ class RouterAuthorityTests(unittest.TestCase):
 
     def test_legacy_modules_have_only_the_known_production_importers(self):
         self.assertEqual(self.legacy_imports(), {
-            ("engine_runtime.py", "router", "intent_router"),    # unbound Live path (PR9)
-            ("goal_executor.py", "work_modes", "ends_with_action"),   # moves behind Brain in B2
+            ("engine_runtime.py", "router", "intent_router"),    # unbound route tail (PR10b nested steps)
         })
 
     def test_freshness_is_imported_by_nobody_but_the_router(self):
