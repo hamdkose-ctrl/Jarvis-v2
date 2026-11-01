@@ -14,16 +14,44 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Repair literal replacement helper
+      - name: Repair bounded helper source
         shell: powershell
         run: |
-          $path = 'scripts/pr488_apply.py'
-          $text = Get-Content $path -Raw -Encoding utf8
-          $old = 'new, count = re.subn(pattern, repl, text, count=1, flags=re.S | re.M)'
-          $new = 'new, count = re.subn(pattern, lambda _m: repl, text, count=1, flags=re.S | re.M)'
-          $first = $text.IndexOf($old)
-          if ($first -lt 0 -or $first -ne $text.LastIndexOf($old)) { throw 'sub_once satırı beklenen tek eşleşme değil' }
-          [System.IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [System.Text.UTF8Encoding]::new($false))
+          @'
+          from pathlib import Path
+          path = Path('scripts/pr488_apply.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'new, count = re.subn(pattern, repl, text, count=1, flags=re.S | re.M)'
+          new = 'new, count = re.subn(pattern, lambda _m: repl, text, count=1, flags=re.S | re.M)'
+          if text.count(old) != 1:
+              raise SystemExit(f'sub_once line count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old_core = '''replace_once(
+              path,
+              '            self.assertEqual(brain_core_map.core_plan("files.read", {"operation": "summarize", "path": good}),\\n                             ("doc_summary", {"path": good}))\\n',
+              '            self.assertEqual(brain_core_map.core_plan("files.read", {"operation": "summarize", "path": good}),\\n                             ("file_action", {"operation": "summarize", "path": good}))\\n',
+          )'''
+          new_core = '''replace_once(
+              path,
+              '                self.assertEqual(plan, ("doc_summary", {"path": str(good)}))\\n',
+              '                self.assertEqual(plan, ("file_action", {"operation": "summarize", "path": str(good)}))\\n',
+          )'''
+          if text.count(old_core) != 1:
+              raise SystemExit(f'old core assertion patch count={text.count(old_core)}')
+          text = text.replace(old_core, new_core, 1)
+
+          old_compound = '''replace_once(path, '            self.assertNotEqual(call.args[1], "doc_summary")\\n', '            self.assertNotEqual(call.args[1], "file_action")\\n')'''
+          new_compound = '''replace_once(
+              path,
+              '            self.assertFalse(any(call[0][1] == "doc_summary" for call in dispatch.call_args_list), text)\\n',
+              '            self.assertFalse(any(call[0][1] == "file_action" for call in dispatch.call_args_list), text)\\n',
+          )'''
+          if text.count(old_compound) != 1:
+              raise SystemExit(f'compound assertion patch count={text.count(old_compound)}')
+          path.write_text(text.replace(old_compound, new_compound, 1), encoding='utf-8', newline='\n')
+          '@ | py -3.13 -X utf8 -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Apply bounded patch
         shell: powershell
         run: |
