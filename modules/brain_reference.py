@@ -16,6 +16,15 @@ _FILE_DEICTICS = ("bu dosya", "son dosya", "yüklediğim dosya", "yukledigim dos
 _NOTE_DEICTICS = ("son not", "son notu", "son notum")
 _ANSWER_DEICTICS = ("son cevap", "son cevabı", "son cevabi", "son yanıt", "son yanit")
 _GENERIC_DEICTICS = ("onu", "bunu", "az önceki", "az onceki")
+_NOTE_MUTATION = re.compile(
+    r"^(?P<target>.+?)\s+not\w*\s+(?:sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
+    r"(?:\s*[:,].*)?$"
+)
+_NOTE_TARGET_STOP = frozenset({
+    "bu", "şu", "su", "o", "son", "tüm", "tum", "bütün", "butun", "hepsi", "hepsini",
+    "not", "notu", "notunu", "notum", "notumu", "notlar", "notları", "notlari", "notlarım",
+    "notlarim", "notlarımı", "notlarimi", "numaralı", "numarali",
+})
 
 
 def _required(name: str, value: str) -> str:
@@ -102,6 +111,39 @@ def _file_signals(candidate: ContextReference) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def _note_target_words(text: str) -> tuple[str, ...]:
+    """Named note mutation target only; bounded numeric/all/last protocols stay with their domain owner."""
+    match = _NOTE_MUTATION.fullmatch(text.strip(" .!?"))
+    if match is None:
+        return ()
+    words = tuple(re.findall(r"[\wçğıöşü]+", match.group("target")))
+    if not 1 <= len(words) <= 4:
+        return ()
+    if any(word.isdecimal() or word in _NOTE_TARGET_STOP for word in words):
+        return ()
+    return words
+
+
+def _note_candidate_matches(candidate: ContextReference, target_words: tuple[str, ...]) -> bool:
+    if candidate.kind != "note" or not target_words:
+        return False
+    haystack = " ".join(
+        value for value in (_norm(candidate.provenance.get("title")), _norm(candidate.provenance.get("text"))) if value
+    )
+    words = re.findall(r"[\wçğıöşü]+", haystack)
+    if not words:
+        return False
+
+    def hit(target: str) -> bool:
+        for word in words:
+            size = min(5, len(target), len(word))
+            if size >= 3 and target[:size] == word[:size]:
+                return True
+        return False
+
+    return all(hit(target) for target in target_words)
+
+
 def _eligible(candidates: tuple[ContextReference, ...]) -> tuple[ContextReference, ...]:
     return tuple(candidate for candidate in candidates if candidate.kind not in {"source_status", "pending_state"})
 
@@ -154,6 +196,12 @@ def resolve_references(
                 break
     if exact_fields:
         return tuple(exact_fields)
+
+    note_target = _note_target_words(normalized)
+    if note_target:
+        note_matches = tuple(candidate for candidate in usable if _note_candidate_matches(candidate, note_target))
+        if note_matches:
+            return note_matches
 
     file_matches = tuple(
         candidate

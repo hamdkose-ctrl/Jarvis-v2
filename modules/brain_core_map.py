@@ -18,6 +18,9 @@ from modules.brain_understanding import (
     FILE_TARGET_UNRESOLVED,
     LEVEL_CAPABILITY,
     LEVEL_UNSPECIFIED,
+    NOTE_TARGET_UNRESOLVED,
+    NOTE_UPDATE_TEXT_MISSING,
+    NOTES_WRITE_CAPABILITY,
     RESEARCH_MAX_QUERY,
     TRANSLATE_SOURCE_MISSING,
 )
@@ -90,6 +93,27 @@ def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _notes_write_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates a named note effect; target identity still needs the Brain-reference fence at handoff."""
+    row = arguments.get("notes")
+    if not isinstance(row, Mapping) or set(row) - {"operation", "id", "text"}:
+        return None
+    operation, ident = row.get("operation"), row.get("id")
+    if operation not in {"delete", "update"} or not isinstance(ident, str) or not 0 < len(ident.strip()) <= 64:
+        return None
+    result: dict[str, Any] = {"operation": operation, "id": ident.strip()}
+    text = row.get("text")
+    if operation == "delete":
+        return result if text is None else None
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if not 0 < len(text) <= 16000 or "\x00" in text:
+        return None
+    result["text"] = text
+    return result
+
+
 def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core validates the proposal; execution still consumes the original user command."""
     row = arguments.get("research")
@@ -140,8 +164,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "files.read": ("doc_summary", _file_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
-    # Read-only: all notes or one resolved note; other notes.read operations stay legacy-owned.
     "notes.read": ("notes_read", _notes_args),
+    NOTES_WRITE_CAPABILITY: ("notes_write", _notes_write_args),
     # Explicit public-web research request. Existing Core task/GoalExecutor remains the execution owner;
     # it consumes the raw command, so a Brain-proposed rewritten query can never become executable text.
     "research.search": ("task", _research_args),
@@ -159,7 +183,7 @@ LEGACY_OWNED_HINTS: dict[str, str] = {}
 # Hints that are Core-mapped for some operations; the rest of the hint is still owned by this legacy path.
 PARTIAL_CORE_HINTS: dict[str, str] = {
     "research.search": "ara/bul cümleleri açık web araştırma ipucu taşımıyorsa (mail/dosya/sayfa/not/deiktik): eski handler + goal_executor",
-    "notes.read": "main_planner notlar dalları + engine_tools._extra_commands (kb/tasks.handle) (oku/say/sil/düzelt/özetle)",
+    "notes.read": "main_planner not arama/özetleme + bounded numara/tüm-not domain protokolleri",
     "files.read": "engine_commands._file_command + legacy handler (göster/aç/bul/listele/karşılaştır)",
 }
 
@@ -183,6 +207,10 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
     if FILE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi dosyayı özetleyeyim? Dosya adını yaz ya da dosyayı sohbete ekle."
+    if NOTE_TARGET_UNRESOLVED in ambiguities:
+        return "Hangi notu kastettiğini netleştir; notun adından bir kelime söyle."
+    if NOTE_UPDATE_TEXT_MISSING in ambiguities:
+        return "Notun yeni metnini de söyle; örneğin 'market notunu düzelt: yeni metin'."
     if TRANSLATE_SOURCE_MISSING in ambiguities:
         return "Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin."
     if LEVEL_UNSPECIFIED in ambiguities:

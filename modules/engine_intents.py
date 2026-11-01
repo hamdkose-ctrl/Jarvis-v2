@@ -277,6 +277,19 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
                 return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
             return runtime._notes_text()
+        case "notes_write":
+            note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
+            if note is None:
+                return "Bu notu bulamadım."
+            if a.get("operation") == "delete":
+                old = str(note.get("text") or "")
+                runtime.profile.delete_note_item(note["id"])
+                return f"Notu sildim: {old}"
+            if a.get("operation") == "update":
+                note["text"] = str(a.get("text") or "")
+                runtime.profile.save()
+                return f"Düzelttim: {note['text']}"
+            return "Bu not işlemi Core tarafından doğrulanmadı."
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)

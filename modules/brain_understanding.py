@@ -75,7 +75,9 @@ _READ_LIKE_TOKENS = (
 _NOTE_DOMAIN_TOKENS = (
     "not",
     "notu",
+    "notunu",
     "notum",
+    "notumu",
     "notlar",
     "notları",
     "notlari",
@@ -402,10 +404,94 @@ def _research_arguments(original: str, normalized: str) -> dict[str, object]:
     return {"research": {"query": query, "route": "PRIVATE"}}
 
 
+_NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
+_NOTES_SINGULAR = ("not", "notu", "notunu", "notum", "notumu")
+_NOTES_READ_VERBS = ("göster", "goster", "oku", "say", "listele")
+_NOTES_WRITE_RE = re.compile(
+    r"^(?P<target>.+?)\s+not\w*\s+(?P<verb>sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
+    r"(?:\s*[:,]\s*(?P<new>.*))?$"
+)
+_NOTES_WRITE_STOP = frozenset({
+    "bu", "şu", "su", "o", "son", "tüm", "tum", "bütün", "butun", "hepsi", "hepsini",
+    "numaralı", "numarali",
+})
+_NOTES_FILLERS = frozenset({"lütfen", "lutfen", "bana", "bir", "bu", "şu", "su", "o", "tüm", "tum", "bütün", "butun",
+                            "hepsini", "son", "şunu", "bunu", "mi", "mı", "mu", "mü", "misin", "mısın", "musun", "müsün", "jarvis"})
+NOTES_WRITE_CAPABILITY = "notes.write"
+NOTE_TARGET_UNRESOLVED = "note target unresolved"
+NOTE_UPDATE_TEXT_MISSING = "note update text missing"
+
+
+def _note_write_request(text: str) -> tuple[str, str] | None:
+    """Return (operation, named target) only for a bounded named note mutation."""
+    match = _NOTES_WRITE_RE.fullmatch(text.strip(" .!?"))
+    if match is None:
+        return None
+    target = match.group("target").strip()
+    words = re.findall(r"[\wçğıöşü]+", target)
+    if not 1 <= len(words) <= 4:
+        return None
+    if any(word.isdecimal() or word in _NOTES_WRITE_STOP for word in words):
+        return None
+    verb = match.group("verb")
+    operation = "delete" if verb.startswith(("sil", "kaldır", "kaldir", "iptal")) else "update"
+    return operation, target
+
+
+def _note_update_text(original: str) -> str | None:
+    if ":" not in original:
+        return None
+    value = original.split(":", 1)[1].strip()
+    if not value or len(value) > 16000 or "\x00" in value:
+        return None
+    return value
+
+
+def _is_bare_notes_command(text: str) -> bool:
+    """True only when the WHOLE sentence is a note noun + read verb (+ filler words)."""
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text.lower())
+    known = set(_NOTES_PLURAL) | set(_NOTES_SINGULAR) | set(_NOTES_READ_VERBS) | _NOTES_FILLERS
+    return bool(words) and all(word in known for word in words)
+
+
+def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
+    """Read-only notes proposal: all notes or ONE resolved note reference by stable id."""
+    if not _contains_command_token(text, _NOTES_READ_VERBS) or not _is_bare_notes_command(text):
+        return {}
+    if _contains_domain_token(text, _NOTES_PLURAL):
+        return {"notes": {"which": "all"}}
+    notes = [ref for ref in references if ref.kind == "note"]
+    if len(notes) == 1 and _contains_domain_token(text, _NOTES_SINGULAR):
+        return {"notes": {"which": "one", "id": notes[0].id}}
+    return {}
+
+
+def _notes_write_arguments(original: str, normalized: str,
+                           references: tuple[ContextReference, ...]) -> dict[str, object]:
+    request = _note_write_request(normalized)
+    notes = [ref for ref in references if ref.kind == "note"]
+    if request is None or len(notes) != 1:
+        return {}
+    operation, _target = request
+    row: dict[str, object] = {"operation": operation, "id": notes[0].id}
+    if operation == "update":
+        value = _note_update_text(original)
+        if value is None:
+            return {}
+        row["text"] = value
+    return {"notes": row}
+
+
+def _is_notes_read_request(text: str) -> bool:
+    return _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _contains_command_token(text, _NOTES_READ_VERBS)
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
-    if _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _has_read_like_command(text):
+    if _note_write_request(text) is not None:
+        return "notes.write"
+    if _is_notes_read_request(text):
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
@@ -447,39 +533,6 @@ def _translate_proposal(text: str, candidates: tuple[ContextReference, ...]):
     if turn_id is not None:
         row["turn_id"] = str(turn_id)
     return request, {"translate": row}
-
-
-_NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
-_NOTES_SINGULAR = ("not", "notu", "notum", "notumu")
-_NOTES_SHOW_VERBS = ("göster", "goster")
-
-
-_NOTES_FILLERS = frozenset({"lütfen", "lutfen", "bana", "bir", "bu", "şu", "su", "o", "tüm", "tum", "bütün", "butun",
-                            "hepsini", "son", "şunu", "bunu", "mi", "mı", "mu", "mü", "misin", "mısın", "musun", "müsün", "jarvis"})
-
-
-def _is_bare_notes_command(text: str) -> bool:
-    """True only when the WHOLE sentence is a note noun + show verb (+ filler words).
-
-    Anything else ('... ve hava nasıl', 'göster, not al: süt', 'sonra ...') is multi-intent or another
-    request, and a notes proposal would swallow the remaining part: no proposal then."""
-    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text.lower())
-    known = set(_NOTES_PLURAL) | set(_NOTES_SINGULAR) | set(_NOTES_SHOW_VERBS) | _NOTES_FILLERS
-    return bool(words) and all(word in known for word in words)
-
-
-def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
-    """Read-only notes proposal: all notes (plural noun) or ONE resolved note reference by stable id.
-
-    Only a bare single 'notes + göster' command is proposed (see _is_bare_notes_command)."""
-    if not _contains_command_token(text, _NOTES_SHOW_VERBS) or not _is_bare_notes_command(text):
-        return {}
-    if _contains_domain_token(text, _NOTES_PLURAL):
-        return {"notes": {"which": "all"}}
-    notes = [ref for ref in references if ref.kind == "note"]
-    if len(notes) == 1 and _contains_domain_token(text, _NOTES_SINGULAR):
-        return {"notes": {"which": "one", "id": notes[0].id}}
-    return {}
 
 
 def _reminder_arguments(text: str) -> dict[str, object]:
@@ -674,7 +727,17 @@ def understand(
     correction = _is_correction(normalized)
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
+    note_write = None if (context_control or topic_change or correction) else _note_write_request(normalized)
+    notes_read_request = False if (context_control or topic_change or correction) else _is_notes_read_request(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
+    if note_write is not None:
+        note_refs = [ref for ref in references if ref.kind == "note"]
+        if not note_refs:
+            ambiguities = (NOTE_TARGET_UNRESOLVED,)
+        elif len(note_refs) > 1:
+            ambiguities = ("multiple target references",)
+        elif note_write[0] == "update" and _note_update_text(text) is None:
+            ambiguities = (NOTE_UPDATE_TEXT_MISSING,)
     weather_request = _is_weather_request(normalized)
     research_request = _is_explicit_research_request(normalized)
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
@@ -706,7 +769,8 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif level is not None or weather_request or research_request or translation is not None or _looks_like_capability(normalized):
+    elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
+          or translation is not None or _looks_like_capability(normalized)):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -736,6 +800,10 @@ def understand(
         reason_codes.append("LEVEL_TARGET_UNSPECIFIED")
     elif FILE_TARGET_UNRESOLVED in ambiguities:
         reason_codes.append("FILE_TARGET_UNRESOLVED")
+    elif NOTE_TARGET_UNRESOLVED in ambiguities:
+        reason_codes.append("NOTE_TARGET_UNRESOLVED")
+    elif NOTE_UPDATE_TEXT_MISSING in ambiguities:
+        reason_codes.append("NOTE_UPDATE_TEXT_MISSING")
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
@@ -775,6 +843,8 @@ def understand(
         arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":
         arguments = {**arguments, **_notes_arguments(normalized, references)}
+    if capability_hint == NOTES_WRITE_CAPABILITY:
+        arguments = {**arguments, **_notes_write_arguments(text, normalized, references)}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

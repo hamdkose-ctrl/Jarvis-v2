@@ -36,7 +36,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # A canonical notes_read plan means the user asked for note DATA, not the Notlar UI page.
         # Keep the legacy selfctl grammar unchanged for Live/old callers until PR9; only the
         # canonical Brain/Core handoff gets this semantic distinction.
-        if plan is not None and plan[0] == "notes_read":
+        if plan is not None and plan[0] in {"notes_read", "notes_write"}:
             return None
         from modules import selfctl as module
         return module.handle(lowered, runtime.emit)
@@ -45,7 +45,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
         # branches are unchanged and remain domain-owned until their own migration decision.
-        if plan is not None and plan[0] == "notes_read":
+        if plan is not None and plan[0] in {"notes_read", "notes_write"}:
             return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,

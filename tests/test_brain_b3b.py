@@ -23,7 +23,7 @@ OLD_NEW_SENTENCES = [
     "evet devam et", "hayır iptal", "python ile yaz",
 ]
 # Intentional improvements: Understanding sees a new capability the old verb rule could not.
-IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl"}
+IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl", "notlarımı oku"}
 
 
 def real_entry(text):

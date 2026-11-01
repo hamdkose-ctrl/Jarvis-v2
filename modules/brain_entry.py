@@ -636,9 +636,10 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     if _has_open_pending(entry, ignore=ignore):
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
-    if plan is not None and plan[0] == "notes_read" and plan[1].get("which") == "one":
-        # The id must be one of the note references Brain resolved for THIS request, not any string.
-        if plan[1]["id"] not in {ref.id for ref in semantic.references if ref.kind == "note"}:
+    if plan is not None and plan[0] in {"notes_read", "notes_write"}:
+        ident = plan[1].get("id")
+        # A note effect/read may target only an id Brain resolved for THIS request, never an arbitrary string.
+        if ident is not None and ident not in {ref.id for ref in semantic.references if ref.kind == "note"}:
             return None
     if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
         return None
