@@ -888,7 +888,7 @@ def handle(runtime,command):
         from modules import brain_entry
         superseded=brain_entry.goal_question_superseded(runtime)
         if superseded is None:
-            from modules.work_modes import ends_with_action  # Brain'e girmeyen tek çağıran (Live): PR9 caller-zero
+            from modules.brain_actions import ends_with_action  # tek tanım Brain'de; eski router zinciri Production'a giremez
             superseded=ends_with_action(command)
         if not superseded and not _is_fast_command(command):return run(runtime,command,resume=True)
     return None
