@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from modules.command_manager import CommandContext, dispatch, engine_control
 from modules.session_state import SessionState
-from modules import app_actions, smart_router, system_doctor, task_agents, pc_guide, developer, chat_translation
+from modules import app_actions, smart_router, system_doctor, task_agents, pc_guide, developer
 
 
 class CommandManagerTests(unittest.TestCase):
@@ -27,18 +27,18 @@ class CommandManagerTests(unittest.TestCase):
         from modules.command_manager import awaiting_input
         self.assertTrue(awaiting_input(context.session))
     def context(self, owner='alice'):
-        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(),Mock(return_value=None))
+        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(return_value=None))
 
     def test_pending_user_approval_precedes_model_and_developer(self):
         context=self.context();context.session.pending_action=object()
         with patch.object(app_actions,'continue_voice',return_value='onay'),patch.object(smart_router,'handle') as router:
             self.assertEqual(dispatch(context,'evet','evet'),'onay');router.assert_not_called()
 
-    def test_development_followups_precede_translation_and_keep_session_owner(self):
+    def test_development_followups_precede_other_legs_and_keep_session_owner(self):
         context=self.context('bob')
-        with patch.object(smart_router,'handle',return_value=None),patch.object(system_doctor,'handle',return_value=None),patch.object(task_agents,'handle',return_value=None),patch.object(pc_guide,'handle',return_value=None),patch.object(developer,'handle',return_value='taslak') as edit,patch.object(chat_translation,'resolve') as translate:
+        with patch.object(smart_router,'handle',return_value=None),patch.object(system_doctor,'handle',return_value=None),patch.object(task_agents,'handle',return_value=None),patch.object(pc_guide,'handle',return_value=None),patch.object(developer,'handle',return_value='taslak') as edit:
             self.assertEqual(dispatch(context,'bunu değiştir','bunu değiştir'),'taslak')
-            self.assertEqual(edit.call_args.args[0],'bob');translate.assert_not_called()
+            self.assertEqual(edit.call_args.args[0],'bob')
             self.assertEqual(context.session.speech_override,'Geliştirme sonucu sohbet ekranında hazır.')
 
     def test_pc_guidance_keeps_priority_and_full_profile(self):

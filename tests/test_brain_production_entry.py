@@ -236,8 +236,8 @@ class BrainProductionEntryTests(unittest.TestCase):
         module._install_route_guard(runtime)
         result = entry(module, semantic=understanding())
         with module.bind(result):
-            routed = runtime.route("merhaba")
-        self.assertEqual(routed["intent"], "chat")
+            self.assertEqual(runtime.route("istek")["intent"], "chat")
+            self.assertEqual(runtime.route("adım metni")["intent"], "clarify")
         legacy.assert_not_called()
         self.assertEqual(runtime.route("legacy request")["intent"], "legacy")
         legacy.assert_called_once_with("legacy request")

@@ -969,6 +969,12 @@ def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
     return out
 
 def _macro_run(runtime, cmd_lower: str) -> str | None:
+    """Kısayolun her adımı KENDİ canonical kararıyla çalışır; ham adım eski zincire dönmez.
+
+    `brain_entry.run_step` her adımda owner/istek kimliğini turn'den alır, Understanding'i outer
+    cümleden ALMAZ: adım kendi prepare -> handoff kararını bir kez alır ve onu tek başına söyleyen
+    kullanıcının geçtiği canonical kapıdan geçer (outer entry bağlıyken `runtime.handle(step)` yok).
+    Guard'lar (iptal, kapanma, owner değişimi, onay/yanıt bekleme) sırayı korur."""
     macros = runtime.profile.data.get('macros') or {}
     if not macros or runtime._session()._in_macro:
         return None
@@ -978,25 +984,29 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     hit = macros.get(key) or next((macros[c] for c in sorted(cands) if c in macros), None)
     if not hit:
         return None
+    from modules.brain_entry import run_step
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_macro = True
-    failed, executed = [], []
+    failed, executed, answers = [], [], []
     try:
         for index, act in enumerate(hit['actions']):
             runtime.requests_state.check()
             if runtime.stop_event.is_set() or runtime.flags.get('closing'):
                 return 'Jarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
-            reply = runtime.handle(act)
+            reply, feedback = run_step(runtime, act)
+            answers.append(str(reply or ''))
             executed.append(act)
             runtime.requests_state.check()
+            if getattr(feedback, 'result_status', 'handled') != 'handled':
+                return '\n'.join(x for x in answers if x) + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
             if runtime.profile.slug != owner:
-                return str(reply or '') + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'
+                return '\n'.join(x for x in answers if x) + '\nKullanıcı değişti; kısayolun kalan adımlarını çalıştırmadım.'
             if awaiting_input(session):
-                return str(reply or '') + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
+                return '\n'.join(x for x in answers if x) + '\nBu adım yanıt veya onay bekliyor; kısayolun kalan adımlarını çalıştırmadım.'
             if runtime.flags.get('closing') or runtime.stop_event.is_set():
-                return str(reply or '') + '\nJarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
-            if runtime.re.search('bulamadım|açamadım|anlamadım|başlatılamadı', reply or ''):
+                return '\n'.join(x for x in answers if x) + '\nJarvis kapanıyor; kısayolun kalan adımlarını çalıştırmadım.'
+            if runtime.re.search('bulamadım|açamadım|anlamadım|başlatılamadı', str(reply or '')):
                 failed.append(act)
             if index + 1 < len(hit['actions']):
                 runtime.time.sleep(0.4)

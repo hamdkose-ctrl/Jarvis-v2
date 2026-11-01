@@ -1,6 +1,5 @@
 """engine sequence; all mutable dependencies are supplied by EngineContext."""
 from __future__ import annotations
-import contextlib
 
 def _split_steps(runtime, command: str) -> list[str] | None:
     """'önce A, sonra B' / 'A ardından B' -> [A, B]. Tek adımlıysa None. En fazla 5 adım."""
@@ -13,6 +12,13 @@ def _split_steps(runtime, command: str) -> list[str] | None:
     return parts[:5] if len(parts) >= 2 else None
 
 def _run_steps(runtime, steps: list[str]) -> str:
+    """Her adım KENDİ canonical kararıyla sırayla çalışır; ham adım eski zincire dönmez.
+
+    `brain_entry.run_step` adım için prepare -> handoff kurar: owner/istek kimliği turn'ün,
+    semantic karar adımın (outer cümlenin Understanding'i ödünç verilmez; outer entry bağlıyken
+    `runtime.handle(step)` ile ikinci bir yorumlama yoktur). Adım doğrulanamazsa, needs-input/onay
+    beklerse, kullanıcı değişirse veya Jarvis kapanırsa sonraki adım çalışmaz."""
+    from modules.brain_entry import run_step
     from modules.command_manager import awaiting_input
     session, owner = runtime._session(), runtime.profile.slug
     session._in_multi = True
@@ -22,10 +28,13 @@ def _run_steps(runtime, steps: list[str]) -> str:
             if runtime.flags.get('closing') or runtime.stop_event.is_set():
                 out.append("(Jarvis kapanıyor; kalan adımları çalıştırmadım.)")
                 break
-            reply = runtime.handle(st)
+            reply, feedback = run_step(runtime, st)
             out.append(f"{i}. {reply}")
             if getattr(reply, 'ok', None) is False:
                 out.append('(Bu adım doğrulanamadı; ona bağlı kalan adımları çalıştırmadım.)')
+                break
+            if getattr(feedback, 'result_status', 'handled') != 'handled':
+                out.append('(Bu adım yanıt veya onay bekliyor; kalan adımları yanıtından sonra tekrar söyle.)')
                 break
             if runtime.flags.get('closing') or runtime.stop_event.is_set():
                 out.append("(Jarvis kapanıyor; kalan adımları çalıştırmadım.)")

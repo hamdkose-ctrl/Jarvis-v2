@@ -43,12 +43,13 @@ class TurkishTextTests(unittest.TestCase):
                 self.assertTrue(profile.data['tasks'][0]['done'], result)
                 profile.save.assert_called_once()
 
-    def test_chat_translation_uppercase_reference_selects_igdir_source(self):
-        from modules import chat_translation as translation
-        rows = [{'role': 'user', 'text': 'IĞDIR', 'ts': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}]
-        with patch.object(translation, '_sources', {}), patch.object(translation, '_resets', {}):
-            self.assertEqual(translation.resolve('fixture', 'çevir: YAZDIĞIMI', rows)[0], 'IĞDIR')
-            self.assertFalse(translation._is_source('TEŞEKKÜRLER'))
+    def test_translation_grammar_uppercase_reference_selects_igdir_source(self):
+        from modules import translation_request as translation
+        rows = [{'id': 1, 'role': 'user', 'text': 'IĞDIR', 'ts': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}]
+        command = 'çevir: YAZDIĞIMI'
+        request = translation.parse(command)
+        self.assertEqual(translation.pick_source(request, command, rows)[0], 'IĞDIR')
+        self.assertFalse(translation.is_source('TEŞEKKÜRLER'))
 
     def test_pc_guide_normalizes_followup_without_changing_goal(self):
         from modules import pc_guide as guide

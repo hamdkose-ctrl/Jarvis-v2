@@ -128,8 +128,6 @@ class WebChat:
             removed = runtime.history.delete_day(owner.slug, str(day), deleted_ids)
             runtime.engine.event_log[:] = [row for row in runtime.engine.event_log
                 if not (row.get('user') == owner.name and row.get('hid') in deleted_ids)]
-        from modules import chat_translation
-        chat_translation._sources.pop(owner.slug, None)
         runtime.llm.reset_history(owner.slug)
         runtime.engine._sessions.for_owner(owner.slug).last_doc = None
         return {'ok': True, 'removed': removed}
@@ -137,11 +135,11 @@ class WebChat:
     def chat_reset(self) -> bool:
         """Yeni sohbet: yazılı sohbetin kısa süreli hafızası sıfırlanır (kalıcı geçmiş silinmez)."""
         runtime = self._runtime
-        from modules import chat_translation
+        from modules import conversation_reset
         owner = runtime._p().slug
         with runtime.engine._event_lock:
             runtime.engine.requests_state.cancel(owner)
-            chat_translation.reset(owner)
+            conversation_reset.mark(owner)
             runtime.llm.reset_history(owner)
             runtime.engine._sessions.reset(owner)
             runtime.engine._pending_photo.pop(owner, None)

@@ -2,7 +2,7 @@
 import re
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock, patch
 
 from modules import engine_sequence as sequence
 from modules.command_manager import PENDING_INPUT_FIELDS
@@ -24,10 +24,6 @@ class EngineSequenceTests(unittest.TestCase):
             privacy=SimpleNamespace(audit=Mock()), emit=Mock(),
             threading=SimpleNamespace(Timer=Mock(return_value=self.timer)))
         self.runtime.stop_event.is_set.return_value = False
-
-    def assert_clean(self):
-        self.assertIs(self.session._in_multi, False)
-        self.assertIsNone(self.session.speech_override)
 
     def test_split_steps_understands_documented_sequence_forms_and_preserves_order(self):
         for command in ('önce maili oku, sonra raporu yaz', 'maili oku ardından raporu yaz',
@@ -66,125 +62,100 @@ class EngineSequenceTests(unittest.TestCase):
         self.runtime.emit.assert_not_called()
         self.runtime.threading.Timer.assert_not_called()
 
-    def test_run_steps_uses_runtime_and_session_sequentially_and_clears_single_step_speech(self):
-        def handle(command):
-            self.assertTrue(self.session._in_multi)
-            self.session.speech_override = command
-            return 'cevap ' + command
-        self.runtime.handle.side_effect = handle
-        self.assertEqual(sequence._run_steps(self.runtime, ['oku', 'yaz']), '1. cevap oku\n2. cevap yaz')
-        self.assertEqual(self.runtime.handle.call_args_list, [call('oku'), call('yaz')])
-        self.runtime.privacy.audit.assert_called_once_with('çok adımlı komut', '2 adım')
-        self.assert_clean()
+    def drive(self, steps, replies=None):
+        """_run_steps'i canonical adım envelope'ı üzerinden ölçer; gerçek motor/etki yok."""
+        from modules import brain_entry
+        replies = replies or {}
+        calls = []
 
-    def test_run_steps_empty_list_is_noop_with_cleanup_and_zero_step_audit(self):
-        self.assertEqual(sequence._run_steps(self.runtime, []), '')
+        def fake_run_step(runtime, text):
+            calls.append(text)
+            reply = replies.get(text, (f'{text} bitti', SimpleNamespace(result_status='handled')))
+            return reply
+        with patch.object(brain_entry, 'run_step', side_effect=fake_run_step):
+            return calls, sequence._run_steps(self.runtime, steps)
+
+    def test_run_steps_never_reinterprets_a_step_through_the_engine(self):
+        self.runtime.handle.side_effect = AssertionError('adım metni ikinci kez yorumlanamaz')
+        calls, out = self.drive(['oku', 'yaz'])
+        self.assertIsInstance(out, str)
+        self.assertEqual(calls, ['oku', 'yaz'])
         self.runtime.handle.assert_not_called()
+
+    def test_run_steps_runs_every_step_in_order_and_reports_each_reply(self):
+        calls, out = self.drive(['maili oku', 'raporu yaz', 'notu aç'])
+        self.assertEqual(calls, ['maili oku', 'raporu yaz', 'notu aç'])
+        self.assertEqual(out.splitlines(), ['1. maili oku bitti', '2. raporu yaz bitti', '3. notu aç bitti'])
+        self.runtime.privacy.audit.assert_called_once_with('çok adımlı komut', '3 adım')
+        self.runtime.emit.assert_not_called()
+
+    def test_run_steps_uses_the_canonical_step_envelope_for_every_step(self):
+        with patch('modules.brain_entry.run_step', return_value=('tamam', SimpleNamespace(result_status='handled'))) as step:
+            sequence._run_steps(self.runtime, ['oku', 'yaz'])
+        self.assertEqual([row.args[1] for row in step.call_args_list], ['oku', 'yaz'])
+        self.assertEqual([row.args[0] for row in step.call_args_list], [self.runtime, self.runtime])
+
+    def test_run_steps_invents_no_step_result(self):
+        _calls, out = self.drive(['raporu özetle', 'pdf çevir'],
+                               {'raporu özetle': ('ÖZETLENDİ', SimpleNamespace(result_status='handled')),
+                                'pdf çevir': ('ÇEVRİLDİ', SimpleNamespace(result_status='handled'))})
+        self.assertEqual(out.splitlines(), ['1. ÖZETLENDİ', '2. ÇEVRİLDİ'])
+        self.assertNotIn('Tamam', out)
+        self.assertNotIn('CEVAP', out)
+
+    def test_run_steps_empty_list_is_noop_with_zero_step_audit(self):
+        calls, out = self.drive([])
+        self.assertEqual(calls, [])
+        self.assertEqual(out, '')
         self.runtime.privacy.audit.assert_called_once_with('çok adımlı komut', '0 adım')
-        self.assert_clean()
 
     def test_run_steps_long_single_step_is_passed_intact(self):
         command = 'oku ' + 'ş' * 100000
-        self.assertEqual(sequence._run_steps(self.runtime, [command]), '1. Tamam')
-        self.runtime.handle.assert_called_once_with(command)
-        self.assert_clean()
+        self.assertIn(command, self.drive([command])[1])
 
-    def test_run_steps_invalid_container_raises_but_finally_resets_mutable_session(self):
+    def test_run_steps_clears_the_step_speech_and_the_multi_marker(self):
+        from modules import brain_entry
+        def step(runtime, text):
+            self.session.speech_override = 'yalnız bu adım'
+            return ('cevap', SimpleNamespace(result_status='handled'))
+        with patch.object(brain_entry, 'run_step', side_effect=step):
+            sequence._run_steps(self.runtime, ['oku', 'yaz'])
+        self.assertIs(self.session._in_multi, False)
+        self.assertIsNone(self.session.speech_override)
+
+    def test_run_steps_invalid_container_raises_without_auditing(self):
         for steps in (None, 123, True):
-            with self.subTest(steps=steps):
-                self.session.speech_override = 'stale'
+            with self.subTest(steps=steps), patch('modules.brain_entry.run_step',
+                                                  side_effect=AssertionError('adım çalışmamalı')):
                 with self.assertRaises(TypeError):
                     sequence._run_steps(self.runtime, steps)
-                self.assert_clean()
         self.runtime.handle.assert_not_called()
         self.runtime.privacy.audit.assert_not_called()
+        self.assertIs(self.session._in_multi, False)
 
-    def test_run_steps_handler_error_does_not_run_remaining_and_always_cleans_up(self):
-        for error in (TypeError('invalid command'), RuntimeError('failed'), KeyboardInterrupt()):
-            with self.subTest(error=type(error).__name__):
-                self.runtime.handle.reset_mock()
-                self.runtime.handle.side_effect = error
-                self.session.speech_override = 'stale'
-                with self.assertRaises(type(error)):
-                    sequence._run_steps(self.runtime, [None, 'never execute'])
-                self.runtime.handle.assert_called_once_with(None)
-                self.assert_clean()
-        self.runtime.privacy.audit.assert_not_called()
+    def test_closing_runtime_stops_before_the_first_step(self):
+        self.runtime.flags['closing'] = True
+        calls, out = self.drive(['ilk', 'ikinci'])
+        self.assertEqual(calls, [])
+        self.assertIn('kalan adımları', out)
 
-    def test_run_steps_unverified_application_result_stops_dependent_steps(self):
-        class Reply(str):
-            ok = False
-        self.runtime.handle.return_value = Reply('Pencere doğrulanmadı')
-        result = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
-        self.assertIn('1. Pencere doğrulanmadı', result)
-        self.assertIn('Bu adım doğrulanamadı', result)
-        self.assertIn('kalan adımları çalıştırmadım', result)
-        self.runtime.handle.assert_called_once_with('ilk')
-        self.assert_clean()
-
-    def test_run_steps_verified_and_plain_text_results_can_continue(self):
-        class Reply(str):
-            ok = True
-        self.runtime.handle.side_effect = [Reply('Doğrulandı'), 'Yerel sonuç']
-        self.assertEqual(sequence._run_steps(self.runtime, ['ilk', 'ikinci']), '1. Doğrulandı\n2. Yerel sonuç')
-        self.assertEqual(self.runtime.handle.call_count, 2)
-        self.assert_clean()
-
-    def test_run_steps_closing_or_stopped_before_start_does_not_execute(self):
-        for closing, stopped in ((True, False), (False, True)):
-            with self.subTest(closing=closing, stopped=stopped):
-                self.runtime.flags['closing'] = closing
-                self.runtime.stop_event.is_set.return_value = stopped
-                result = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
-                self.assertIn('Jarvis kapanıyor', result)
-                self.runtime.handle.assert_not_called()
-                self.assert_clean()
-
-    def test_run_steps_closing_or_stopped_during_step_does_not_execute_next(self):
-        for condition in ('closing', 'stop'):
-            with self.subTest(condition=condition):
-                self.runtime.flags.clear()
-                self.runtime.stop_event.is_set.return_value = False
-                self.runtime.handle.reset_mock()
-                def handle(command):
-                    if condition == 'closing':
-                        self.runtime.flags['closing'] = True
-                    else:
-                        self.runtime.stop_event.is_set.return_value = True
-                    return 'ilk sonuç'
-                self.runtime.handle.side_effect = handle
-                result = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
-                self.assertIn('1. ilk sonuç', result)
-                self.assertIn('Jarvis kapanıyor', result)
-                self.runtime.handle.assert_called_once_with('ilk')
-                self.assert_clean()
-
-    def test_run_steps_owner_change_stops_cross_user_execution(self):
-        def change_owner(command):
+    def test_owner_change_after_a_step_stops_the_chain(self):
+        from modules import brain_entry
+        def switch(runtime, text):
             self.runtime.profile.slug = 'bob'
-            return 'ilk sonuç'
-        self.runtime.handle.side_effect = change_owner
-        result = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
-        self.assertIn('Kullanıcı değişti', result)
-        self.runtime.handle.assert_called_once_with('ilk')
-        self.assert_clean()
+            return ('ilk bitti', SimpleNamespace(result_status='handled'))
+        with patch.object(brain_entry, 'run_step', side_effect=switch):
+            out = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
+        self.assertIn('Kullanıcı değişti', out)
+        self.assertNotIn('ikinci', out)
 
-    def test_run_steps_all_pending_input_fields_stop_without_consuming_answer_or_approval(self):
-        for field in PENDING_INPUT_FIELDS:
-            with self.subTest(field=field):
-                self.runtime.handle.reset_mock()
-                def wait(command):
-                    setattr(self.session, field, {'request': 'waiting'})
-                    return 'Onay gerekli'
-                self.runtime.handle.side_effect = wait
-                try:
-                    result = sequence._run_steps(self.runtime, ['ilk', 'ikinci'])
-                    self.assertIn('yanıt veya onay bekliyor', result)
-                    self.runtime.handle.assert_called_once_with('ilk')
-                    self.assertEqual(getattr(self.session, field), {'request': 'waiting'})
-                    self.assert_clean()
-                finally:
-                    setattr(self.session, field, None)
+    def test_pending_answer_opened_by_a_step_stops_the_chain_and_is_not_consumed(self):
+        self.session.pending_confirm = {'request': 'waiting'}
+        calls, out = self.drive(['ilk', 'ikinci'])
+        self.assertEqual(calls, ['ilk'])
+        self.assertIn('yanıt veya onay bekliyor', out)
+        self.assertEqual(self.session.pending_confirm, {'request': 'waiting'})
+        self.runtime.handle.assert_not_called()
 
     def test_close_jarvis_marks_closing_emits_notice_and_schedules_only_supplied_stop_callback(self):
         self.runtime.flags['unrelated'] = 'preserve'

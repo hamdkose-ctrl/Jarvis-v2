@@ -11,7 +11,6 @@ class CommandContext:
     emit: Callable
     table_chat: Callable
     history_read: Callable
-    translate: Callable
     study_intent: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
@@ -92,16 +91,6 @@ def dispatch(context, command, normalized):
         return context.table_chat()
     if normalized.strip(' .!') in ('tamam', 'ok', 'teşekkürler', 'tesekkurler') and not awaiting_input(session):
         return 'Tamam.'
-    from modules import chat_translation
-    translation = chat_translation.resolve(owner, command, context.history_read(owner, '', 80))
-    chat_translation.remember(owner, command)
-    if translation is not None:
-        text, target = translation
-        if not text: return 'Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin.'
-        result = context.translate(text, target)
-        session.last_doc = (result, '', 'ceviri')
-        session.speech_override = 'Çeviri hazır, sohbet ekranına yazdım.'
-        return result
     result = context.study_intent(normalized)
     return result if result else None
 

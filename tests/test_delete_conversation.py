@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch,Mock
 from types import SimpleNamespace
 import threading
-from modules import history,chat_translation
+from modules import history
 from web_chat import WebChat
 
 
@@ -47,9 +47,7 @@ class DeleteConversationTests(unittest.TestCase):
             llm=SimpleNamespace(_histories={'alice':['cached'],'bob':['keep']}))
         runtime.llm.reset_history = lambda user: runtime.llm._histories.__setitem__(user, [])
         bridge=WebChat();bridge._runtime=runtime
-        with patch.object(chat_translation,'_sources',{'alice':'cached','bob':'keep'}):
-            result=bridge.history_delete_conversation('2026-10-07')
-            self.assertEqual(result['removed'],1)
-            self.assertNotIn('alice',chat_translation._sources);self.assertEqual(chat_translation._sources['bob'],'keep')
+        result=bridge.history_delete_conversation('2026-10-07')
+        self.assertEqual(result['removed'],1)
         self.assertEqual(events,[{'user':'Alice','hid':'old'},{'user':'Bob','hid':'selected'}])
         self.assertEqual(runtime.llm._histories['bob'],['keep']);self.assertIsNone(state.last_doc)

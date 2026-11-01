@@ -487,6 +487,25 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     return {"intent": "chat", "args": {}}
 
 
+def nested_step(command: str, runtime: Any = None) -> bool:
+    """True when a canonical entry is bound but this text is a different request: a sequence or macro step.
+
+    The bound entry's decision belongs to the whole utterance, never to one of its steps.
+    `handle_request`'s single typo-corrected re-run is the SAME request (same request id), so it is
+    not a step; every other text that arrives while an entry is bound is."""
+    entry = current()
+    if entry is None or str(command).strip() == entry.text.strip():
+        return False
+    text = entry.text.strip()
+    if text and runtime is not None and getattr(runtime, "_typo_pass", ""):
+        return str(getattr(runtime, "_typo_orig", "")).strip() != text
+    return True
+
+
+_NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin canonical kararı ona devredilmez. "
+                         "Adımı ikinci kez kendim yorumlamam: adımı tek başına bir istek olarak söyle.")
+
+
 def _install_route_guard(runtime: Any) -> None:
     if getattr(runtime, "_brain_route_guard_installed", False):
         return
@@ -495,6 +514,8 @@ def _install_route_guard(runtime: Any) -> None:
         return
 
     def guarded(command: str):
+        if nested_step(command, runtime):
+            return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
         entry = current()
         return original(command) if entry is None else _legacy_route_projection(entry)
 
@@ -776,13 +797,51 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     return output, result, job_id
 
 
+def _active_request_id(runtime: Any, owner: str) -> str:
+    rid = str(getattr(runtime, "_cur_rid", "") or "")
+    if rid:
+        return rid
+    state = getattr(runtime, "requests_state", None)
+    token = getattr(state, "_current", None)
+    active = token.get() if hasattr(token, "get") else None
+    return str(active[1]) if active and str(active[0]) == owner else ""
+
+
+def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
+    """Run ONE step of an already-canonical turn with its OWN semantic decision.
+
+    Only a nested step (multi-step sentence, macro action) uses this: the caller must already be
+    inside a bound canonical entry. The step shares the turn's owner/request identity but never
+    borrows the outer utterance's UnderstandingResult — `prepare` + `handoff` decide it once, and
+    the raw step text never re-enters the legacy interpretation chain.
+
+    Returns (raw Core/legacy output, BrainFeedback)."""
+    outer = current()
+    if outer is None:
+        raise ValueError("Adım yalnız bağlı bir canonical isteğin içinde çalıştırılabilir.")
+    owner = _runtime_owner(runtime)
+    if owner != outer.owner:
+        raise ValueError("Adım owner'ı bağlı istekle eşleşmiyor.")
+    request_id = _active_request_id(runtime, owner)
+    if not request_id:
+        raise ValueError("Adım için etkin istek kimliği yok.")
+    step = str(text).strip()
+    if not step:
+        raise ValueError("Adım metni boş olamaz.")
+    if step == outer.text.strip():
+        raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
+    source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
+    entry = prepare(runtime, owner=owner, request_id=request_id, text=step, source=source)
+    return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
+
+
 def goal_question_superseded(runtime: Any = None) -> bool | None:
     """Brain's decision whether this request replaces a goal's open question instead of answering it.
 
     None when the request did not come through the canonical entry (Live) or when this call is a
-    nested step (``önce X sonra Y`` / macro action): the bound entry describes the whole utterance,
-    not the step, so the caller keeps its legacy rule until PR9. Otherwise a new capability, a
-    context-control request, a topic change or an utterance ending with an action verb
+    nested step (``önce X sonra Y`` / macro action): a step is not a standalone user turn, so the
+    caller keeps its legacy rule until PR9. Otherwise a new capability, a context-control request,
+    a topic change or an utterance ending with an action verb
     (``ENDS_WITH_ACTION``, rule owned by brain_actions) supersedes the question."""
     entry = current()
     if entry is None:
