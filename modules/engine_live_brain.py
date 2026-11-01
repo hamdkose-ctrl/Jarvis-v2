@@ -43,8 +43,8 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
                 runtime._record_failure("main.py:_live_command")
                 try:
                     from modules import brain_failure_synthesis
-                    feedback = brain_entry.feedback_for(entry)
-                    if feedback is not None:
+                    feedback = brain_entry.last_feedback()
+                    if feedback is not None and feedback.request_id == rid:
                         out = brain_failure_synthesis.synthesize(feedback, exc)
                     else:
                         from modules import diagnose
