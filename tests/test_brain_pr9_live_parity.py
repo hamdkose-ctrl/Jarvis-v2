@@ -18,7 +18,7 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         runtime.emit = Mock()
         runtime.handle = Mock(side_effect=AssertionError("Live ham metni Brain'i atlayarak handle edemez"))
         sentinel_entry = object()
-        sentinel_feedback = object()
+        sentinel_feedback = Mock(result_status="handled")
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry) as prepare, \
              patch.object(brain_entry, "handoff", return_value=("Tamam.", sentinel_feedback, None)) as handoff:
