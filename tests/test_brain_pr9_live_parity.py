@@ -34,6 +34,22 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         handoff.assert_called_once_with(runtime, sentinel_entry, runtime.handle, "hava nasıl")
         runtime.handle.assert_not_called()
 
+    def test_live_command_handoff_exception_uses_existing_diagnose_fallback(self):
+        from modules import brain_entry, diagnose
+
+        runtime = self.context()
+        runtime.emit = Mock()
+        runtime.handle = Mock()
+        sentinel_entry = object()
+
+        with patch.object(brain_entry, "prepare", return_value=sentinel_entry), \
+             patch.object(brain_entry, "handoff", side_effect=RuntimeError("boom")), \
+             patch.object(diagnose, "explain", return_value="Tanı mesajı") as explain:
+            result = runtime._live_command("hava nasıl")
+
+        self.assertEqual(result, "Tanı mesajı")
+        explain.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
