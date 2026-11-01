@@ -27,11 +27,15 @@ class UnderstandingTests(unittest.TestCase):
         self.assertEqual(result.arguments["operation"], "summarize")
         self.assertEqual(result.arguments["path"], "/data/rapor.txt")
 
-    def test_no_reference_or_other_verb_proposes_no_target(self):
-        for text, refs in (("dosyayı özetle", []), ("dosyayı göster", [file_ref("/data/a.pdf")])):
-            result = self.understand(text, refs)
-            self.assertNotIn("operation", result.arguments, text)
-            self.assertNotIn("path", result.arguments, text)
+    def test_no_reference_proposes_no_target(self):
+        result = self.understand("dosyay\u0131 \u00f6zetle", [])
+        self.assertNotIn("operation", result.arguments)
+        self.assertNotIn("path", result.arguments)
+
+    def test_show_single_resolved_file_is_locate(self):
+        result = self.understand("dosyay\u0131 g\u00f6ster", [file_ref("/data/a.pdf")])
+        self.assertEqual(result.arguments.get("operation"), "locate")
+        self.assertEqual(result.arguments.get("path"), "/data/a.pdf")
 
     def test_path_never_comes_from_raw_text(self):
         result = self.understand("C:/Windows/system.ini dosyasını özetle", [])
@@ -45,7 +49,7 @@ class CoreValidationTests(unittest.TestCase):
             good.write_text("x")
             with patch.object(nxapi, "_roots", return_value=[Path(root)]):
                 plan = brain_core_map.core_plan("files.read", {"operation": "summarize", "path": str(good)})
-                self.assertEqual(plan, ("doc_summary", {"path": str(good)}))
+                self.assertEqual(plan, ("file_action", {"operation": "summarize", "path": str(good)}))
                 for bad in ({"operation": "summarize", "path": str(Path(root) / "yok.txt")},
                             {"operation": "summarize", "path": "/etc/passwd"},
                             {"operation": "summarize", "path": "a.txt"},
@@ -93,23 +97,20 @@ class EndToEndTests(unittest.TestCase):
             entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
         self.assertEqual(out, "ÖZET")
         self.assertEqual(entry.understanding.arguments.get("path"), str(self.file))
-        self.assertEqual(dispatch.call_args[0][1], "doc_summary")
-        self.assertEqual(dispatch.call_args[0][2], {"path": str(self.file)})
+        self.assertEqual(dispatch.call_args[0][1], "file_action")
+        self.assertEqual(dispatch.call_args[0][2], {"operation": "summarize", "path": str(self.file)})
         self.assertFalse(handle.called)
 
-    def test_resolve_doc_receives_the_brain_path_and_does_not_reselect(self):
-        seen = []
-
-        def spy(runtime, raw, command=""):
-            seen.append(raw)
-            return str(self.file), None
-
-        self.ctx.docs = Mock(summarize=Mock(return_value="ÖZET"))
-        with patch.object(self.ctx, "_resolve_doc", side_effect=lambda raw, command="": spy(self.ctx, raw, command), create=True), \
+    def test_summary_uses_brain_path_without_legacy_resolve_doc(self):
+        self.ctx.docs = Mock(summarize=Mock(return_value="\u00d6ZET"))
+        with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target cannot be reselected"), create=True), \
              patch.object(brain_precedence, "claim", return_value=None):
-            entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
-        self.assertEqual(seen, [str(self.file)])
-        self.ctx.docs.summarize.assert_called_once_with(str(self.file))
+            entry, out, handle = self.through_brain("rapor.txt dosyas\u0131n\u0131 \u00f6zetle")
+        self.assertEqual(out, "\u00d6ZET\n\nDosya olarak almak istersen \u00e7\u0131kt\u0131 al de.")
+        self.ctx.docs.summarize.assert_called_once()
+        actual = Path(self.ctx.docs.summarize.call_args.args[0]).resolve()
+        self.assertEqual(actual, self.file.resolve())
+        self.assertFalse(handle.called)
 
     def test_front_gate_file_command_beats_core_plan(self):
         with patch("modules.engine_intents.dispatch", return_value="ÖZET") as dispatch, \
@@ -180,7 +181,7 @@ class EndToEndTests(unittest.TestCase):
                 entry, out, handle = self.through_brain(text, handler=Mock(return_value="LEGACY"))
             self.assertNotIn("operation", entry.understanding.arguments)
             self.assertEqual(out, "LEGACY")   # whole sentence goes to the legacy owner; no half is dropped by Core
-            self.assertFalse(any(call[0][1] == "doc_summary" for call in dispatch.call_args_list), text)
+            self.assertFalse(any(call[0][1] == "file_action" for call in dispatch.call_args_list), text)
 
 
 if __name__ == "__main__":

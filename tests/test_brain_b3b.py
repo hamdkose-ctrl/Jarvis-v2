@@ -129,9 +129,10 @@ class CallerZeroGuards(unittest.TestCase):
         body = source[source.index("def _legacy_route_projection"):source.index("def _install_route_guard")]
         intents = set(re.findall(r'"intent": "([a-z_]+)"', body))
         self.assertLessEqual(intents, {"clarify", "task", "chat"})
-        # B3c-1: the only document intent Core may plan is doc_summary, from a validated resolved path.
-        self.assertEqual({i for i, _ in brain_core_map.CORE_INTENTS.values()} & {"doc_summary", "doc_insight", "doc_convert", "doc_translate"},
-                         {"doc_summary"})
+        # Final file cutover: normal Brain file operations use one Core file_action; old doc_* stay legacy/Live only.
+        intents = {i for i, _ in brain_core_map.CORE_INTENTS.values()}
+        self.assertIn("file_action", intents)
+        self.assertFalse(intents & {"doc_summary", "doc_insight", "doc_convert", "doc_translate"})
 
     def test_resolve_doc_is_only_reachable_from_intent_dispatch(self):
         self.assertEqual(_referencing(r"\._resolve_doc\("), {"engine_intents.py", "engine_tools.py"})  # engine_tools = thin wrapper

@@ -641,6 +641,15 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         # A note effect/read may target only an id Brain resolved for THIS request, never an arbitrary string.
         if ident is not None and ident not in {ref.id for ref in semantic.references if ref.kind == "note"}:
             return None
+    if plan is not None and plan[0] == "file_action":
+        allowed = {str(ref.provenance.get("path")) for ref in semantic.references
+                   if ref.kind == "file" and isinstance(ref.provenance.get("path"), str)}
+        path = plan[1].get("path")
+        paths = plan[1].get("paths")
+        if path is not None and path not in allowed:
+            return None
+        if paths is not None and (not isinstance(paths, (list, tuple)) or any(value not in allowed for value in paths)):
+            return None
     if plan is not None and plan[0] == "translate" and not _translate_source_is_brains(entry, plan[1]):
         return None
     return plan
@@ -686,18 +695,20 @@ def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
 
 
 def _file_access_refusal(entry: EntryResult) -> str | None:
-    """Brain resolved a file but Core refuses it (outside allowed roots, symlink escape, missing).
-
-    Honest answer instead of falling to the legacy handler, which would guess another target."""
+    """A resolved file proposal rejected by Core/fence fails closed instead of legacy target guessing."""
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
         return None
     semantic = entry.understanding
-    if (semantic is None or semantic.request_kind is not RequestKind.CAPABILITY
-            or semantic.capability_hint != "files.read" or "path" not in semantic.arguments):
+    if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY or semantic.capability_hint != "files.read":
         return None
-    if brain_core_map.core_plan(semantic.capability_hint, semantic.arguments) is not None:
+    operation = semantic.arguments.get("operation")
+    if operation in (None, "list"):
         return None
-    return "Bu dosyaya erişemiyorum (izinli klasörlerin dışında ya da bulunamıyor); işlem başlatılmadı."
+    if "path" not in semantic.arguments and "paths" not in semantic.arguments:
+        return None
+    if core_plan(entry) is not None:
+        return None
+    return "Bu dosyaya erişemiyorum (izinli klasörlerin dışında, bulunamıyor veya hedef doğrulanamadı); işlem başlatılmadı."
 
 
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):

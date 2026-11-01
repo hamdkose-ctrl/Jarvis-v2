@@ -27,6 +27,62 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 from modules import goal_executor
                 return goal_executor.run(runtime,command)
             return runtime.codegen.generate(a.get("task") or command, a.get("language", "python"))
+        case "file_action":
+            from pathlib import Path
+            from modules import nxapi
+            operation = str(a.get("operation") or "")
+            if operation == "list":
+                rows = nxapi.list_files(limit=25).get("files", [])
+                if not rows:
+                    return "İzinli klasörlerinde dosya bulamadım."
+                return "Dosyalar:\n" + "\n".join(
+                    f"- {row.get('name') or Path(str(row.get('path') or '')).name} — {row.get('where') or row.get('folder') or ''}".rstrip(" —")
+                    for row in rows
+                )
+
+            def exact(value):
+                if not isinstance(value, str):
+                    return None
+                checked = nxapi.allowed(value)
+                return checked if checked is not None and checked.is_file() else None
+
+            if operation == "compare":
+                raw_paths = a.get("paths")
+                if not isinstance(raw_paths, (list, tuple)):
+                    return "Karşılaştırılacak dosyalar doğrulanamadı."
+                paths = [exact(value) for value in raw_paths]
+                if any(value is None for value in paths):
+                    return "Karşılaştırılacak dosyalardan biri artık erişilebilir değil."
+                from modules import workbench
+                return workbench.handle(runtime.profile.slug, [str(value) for value in paths], "karşılaştır")
+
+            path = exact(a.get("path"))
+            if path is None:
+                return "Bu dosyaya artık erişemiyorum; işlem başlatılmadı."
+            path_s = str(path)
+            if operation == "summarize":
+                result = runtime.docs.summarize(path_s)
+                runtime._session().last_doc = (result, path_s, "ozet")
+                return result + "\n\nDosya olarak almak istersen çıktı al de."
+            if operation == "analyze":
+                result = runtime.docs.insights(path_s, "")
+                runtime._session().last_doc = (result, path_s, "analiz")
+                return result + "\n\nDosya olarak almak istersen çıktı al de."
+            if operation == "open":
+                nxapi.open_path(path_s)
+                return f"{path.name} dosyasını açtım."
+            if operation == "locate":
+                row = nxapi.describe_file(path_s) or {}
+                where = row.get("where") or row.get("folder") or str(path.parent)
+                return f"{path.name} — {where}"
+            if operation == "translate":
+                return runtime._translate_file(path_s, str(a.get("target") or ""))
+            if operation == "convert":
+                fmt = str(a.get("format") or "")
+                saved = runtime.output.convert_document(path_s, fmt)
+                return (f"Dosyayı {fmt.upper()} formatında kaydettim: {saved['path']}" + ('\n' + saved['note'] if saved['note'] else '')) if saved else "Dönüştürme iptal edildi."
+            return "Bu dosya işlemi Core tarafından doğrulanmadı."
+
         case "doc_summary":
             path, folder_reply = runtime._resolve_doc(a.get("path"), command)
             if folder_reply:

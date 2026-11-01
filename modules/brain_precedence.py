@@ -45,7 +45,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
         # branches are unchanged and remain domain-owned until their own migration decision.
-        if plan is not None and plan[0] in {"notes_read", "notes_write"}:
+        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action"}:
             return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
@@ -56,6 +56,13 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         with main_planner.core_reminder(plan[1]):
             return runtime._planner_command(command, lowered)
 
+    def extra_commands():
+        # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
+        # file_action, do not let the later legacy files.handle/_resolve_doc chain reinterpret the target.
+        if plan is not None and plan[0] == "file_action":
+            return None
+        return runtime._extra_commands(command, lowered)
+
     return {
         "file_command": lambda: runtime._file_command(command),
         "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
@@ -65,7 +72,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         "macro_teach": lambda: runtime._macro_teach(command, lowered),
         "macro_manage": lambda: runtime._macro_manage(lowered),
         "macro_run": lambda: runtime._macro_run(lowered),
-        "extra_commands": lambda: runtime._extra_commands(command, lowered),
+        "extra_commands": extra_commands,
     }
 
 

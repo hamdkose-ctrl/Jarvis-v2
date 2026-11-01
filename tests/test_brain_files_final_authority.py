@@ -116,7 +116,7 @@ class CoreValidationTests(unittest.TestCase):
 
 class EndToEndTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.temp.cleanup)
         with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
             self.ctx = engine_runtime.EngineContext()

@@ -96,6 +96,10 @@ _FILE_DOMAIN_TOKENS = (
     "dosyalar",
     "dosyaları",
     "dosyalari",
+    "dosyalarım",
+    "dosyalarim",
+    "dosyalarımı",
+    "dosyalarimi",
     "word",
 )
 _PLURAL_REFERENCE_MARKERS = (
@@ -495,7 +499,7 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
-    if _has_file_domain(text) and _has_read_like_command(text):
+    if _file_operation(text) is not None:
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
@@ -545,34 +549,113 @@ def _reminder_arguments(text: str) -> dict[str, object]:
 
 
 FILE_SUMMARIZE = "summarize"
+FILE_ANALYZE = "analyze"
+FILE_OPEN = "open"
+FILE_LOCATE = "locate"
+FILE_LIST = "list"
+FILE_COMPARE = "compare"
+FILE_TRANSLATE = "translate"
+FILE_CONVERT = "convert"
 FILE_TARGET_UNRESOLVED = "file target unresolved"
+FILE_TRANSLATION_TARGET_MISSING = "file translation target missing"
+FILE_CONVERSION_FORMAT_MISSING = "file conversion format missing"
+_FILE_TARGET_REQUIRED = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_OPEN, FILE_LOCATE, FILE_TRANSLATE, FILE_CONVERT})
+_FILE_LANGUAGE_PATTERNS = (
+    (re.compile(r"(?<!\w)türkçe(?:ye|ya|e|a)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Türkçe"),
+    (re.compile(r"(?<!\w)ingilizce(?:ye|ya|e|a)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "İngilizce"),
+    (re.compile(r"(?<!\w)almanca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Almanca"),
+    (re.compile(r"(?<!\w)fransızca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Fransızca"),
+    (re.compile(r"(?<!\w)arapça(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Arapça"),
+    (re.compile(r"(?<!\w)rusça(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Rusça"),
+    (re.compile(r"(?<!\w)ispanyolca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "İspanyolca"),
+)
+_FILE_FORMAT_RE = re.compile(
+    r"(?<!\w)(pdf|excel|xlsx|word|docx)(?:['’]?(?:e|a|ye|ya))?(?:\s+formatına)?\s+dönüştür\w*(?!\w)"
+)
 
 
-def _asks_file_summary(text: str) -> bool:
-    return (_has_file_domain(text) and _contains_command_token(text, ("özetle", "ozetle"))
-            and not _is_meta_language(text) and not _is_literal_command_usage(text))
+def _file_language(text: str) -> str | None:
+    for pattern, label in _FILE_LANGUAGE_PATTERNS:
+        if pattern.search(text):
+            return label
+    return None
 
 
-def _other_actions(text: str) -> bool:
-    """A second action verb ('özetle ve çevir') makes the request multi-step: no single-operation proposal."""
-    from modules.brain_actions import _ACTION, _fold
-    return _ACTION.search(_fold(text)) is not None
+def _file_format(text: str) -> str | None:
+    match = _FILE_FORMAT_RE.search(text)
+    if match is None:
+        return None
+    return {"excel": "xlsx", "word": "docx"}.get(match.group(1), match.group(1))
+
+
+def _file_operation(text: str) -> str | None:
+    """One bounded natural-language file operation; multi-action requests stay with the step/legacy path."""
+    if not _has_file_domain(text) or _is_meta_language(text) or _is_literal_command_usage(text):
+        return None
+    operations: list[str] = []
+    if _contains_command_token(text, ("karşılaştır", "karsilastir")):
+        operations.append(FILE_COMPARE)
+    if re.search(r"(?<!\w)(?:dönüştür|donustur)\w*(?!\w)", text):
+        operations.append(FILE_CONVERT)
+    if re.search(r"(?<!\w)(?:çevir|cevir)\w*(?!\w)", text):
+        operations.append(FILE_TRANSLATE)
+    if re.search(r"(?<!\w)(?:analiz\s+et\w*|incele\w*)(?!\w)", text):
+        operations.append(FILE_ANALYZE)
+    if _contains_command_token(text, ("özetle", "ozetle")):
+        operations.append(FILE_SUMMARIZE)
+    if _contains_command_token(text, ("aç", "ac")):
+        operations.append(FILE_OPEN)
+    if _contains_command_token(text, ("bul",)):
+        operations.append(FILE_LOCATE)
+    if _contains_command_token(text, ("listele",)):
+        operations.append(FILE_LIST)
+    if _contains_command_token(text, ("göster", "goster")):
+        plural = _contains_domain_token(text, ("dosyalar", "dosyaları", "dosyalari", "dosyalarım", "dosyalarim", "dosyalarımı", "dosyalarimi"))
+        operations.append(FILE_LIST if plural else FILE_LOCATE)
+    # Same operation may be expressed twice; different operations mean a compound request.
+    unique = tuple(dict.fromkeys(operations))
+    if len(unique) != 1:
+        return None
+    if unique[0] != FILE_COMPARE and re.search(
+        r"(?<!\w)ve\s+(?:kaydet\w*|g\u00f6nder\w*|gonder\w*|payla\u015f\w*|paylas\w*|yazd\u0131r\w*|yazdir\w*|\u00e7\u0131kt\u0131\s+al\w*|cikti\s+al\w*)(?!\w)",
+        text,
+    ):
+        return None
+    return unique[0]
 
 
 def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict[str, object]:
-    """Semantic target + operation for files.read: only a single RESOLVED file reference is a target.
-
-    The path comes from the Candidate Builder inventory via the Reference Resolver, never from the
-    raw text. Only the summarize operation is proposed; other read-like verbs stay unmapped."""
-    if not _contains_command_token(text, ("özetle", "ozetle")) or _other_actions(text):
+    """Operation + target proposal. Paths come ONLY from resolved file references, never raw text."""
+    operation = _file_operation(text)
+    if operation is None:
         return {}
+    if operation == FILE_LIST:
+        return {"operation": FILE_LIST}
     files = [ref for ref in references if ref.kind == "file"]
+    if operation == FILE_COMPARE:
+        paths = []
+        for ref in files:
+            value = ref.provenance.get("path")
+            if isinstance(value, str) and value.strip() and value not in paths:
+                paths.append(value)
+        return {"operation": FILE_COMPARE, "paths": tuple(paths)} if 2 <= len(paths) <= 10 else {}
     if len(files) != 1:
         return {}
     path = files[0].provenance.get("path")
     if not isinstance(path, str) or not path.strip():
         return {}
-    return {"operation": FILE_SUMMARIZE, "path": path}
+    row: dict[str, object] = {"operation": operation, "path": path}
+    if operation == FILE_TRANSLATE:
+        target = _file_language(text)
+        if target is None:
+            return {}
+        row["target"] = target
+    elif operation == FILE_CONVERT:
+        fmt = _file_format(text)
+        if fmt is None:
+            return {}
+        row["format"] = fmt
+    return row
 
 
 _LEVEL_WORDS = {
@@ -729,6 +812,7 @@ def understand(
     context_control = _is_context_control(normalized)
     note_write = None if (context_control or topic_change or correction) else _note_write_request(normalized)
     notes_read_request = False if (context_control or topic_change or correction) else _is_notes_read_request(normalized)
+    file_operation = None if (context_control or topic_change or correction) else _file_operation(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     if note_write is not None:
         note_refs = [ref for ref in references if ref.kind == "note"]
@@ -749,10 +833,16 @@ def understand(
             ambiguities = () if translate_args else (TRANSLATE_SOURCE_MISSING,)
     if level is not None and level[0] is None:
         ambiguities = (LEVEL_UNSPECIFIED,)
-    elif (not ambiguities and not context_control and _asks_file_summary(normalized)
-          and not any(ref.kind == "file" for ref in references)):
-        # A file summary with no resolved file must ask; Core never guesses a target from raw text.
-        ambiguities = (FILE_TARGET_UNRESOLVED,)
+    elif not ambiguities and not context_control and file_operation is not None:
+        file_refs = [ref for ref in references if ref.kind == "file"]
+        if file_operation in _FILE_TARGET_REQUIRED and len(file_refs) != 1:
+            ambiguities = (FILE_TARGET_UNRESOLVED,)
+        elif file_operation == FILE_COMPARE and not 2 <= len(file_refs) <= 10:
+            ambiguities = (FILE_TARGET_UNRESOLVED,)
+        elif file_operation == FILE_TRANSLATE and _file_language(normalized) is None:
+            ambiguities = (FILE_TRANSLATION_TARGET_MISSING,)
+        elif file_operation == FILE_CONVERT and _file_format(normalized) is None:
+            ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
@@ -770,7 +860,7 @@ def understand(
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
     elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
-          or translation is not None or _looks_like_capability(normalized)):
+          or translation is not None or file_operation is not None or _looks_like_capability(normalized)):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -800,6 +890,10 @@ def understand(
         reason_codes.append("LEVEL_TARGET_UNSPECIFIED")
     elif FILE_TARGET_UNRESOLVED in ambiguities:
         reason_codes.append("FILE_TARGET_UNRESOLVED")
+    elif FILE_TRANSLATION_TARGET_MISSING in ambiguities:
+        reason_codes.append("FILE_TRANSLATION_TARGET_MISSING")
+    elif FILE_CONVERSION_FORMAT_MISSING in ambiguities:
+        reason_codes.append("FILE_CONVERSION_FORMAT_MISSING")
     elif NOTE_TARGET_UNRESOLVED in ambiguities:
         reason_codes.append("NOTE_TARGET_UNRESOLVED")
     elif NOTE_UPDATE_TEXT_MISSING in ambiguities:
