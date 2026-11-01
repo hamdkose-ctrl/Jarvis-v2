@@ -27,6 +27,8 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
             entry = brain_entry.prepare(
                 runtime, owner=owner, request_id=rid, text=text, source="ses",
             )
+            from modules import brain_echo
+            brain_echo.present(runtime, entry)
             try:
                 runtime.requests_state.check()
                 out, brain_feedback, brain_job_id = brain_entry.handoff(runtime, entry, runtime.handle, text)

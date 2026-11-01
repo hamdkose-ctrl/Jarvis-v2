@@ -1,21 +1,9 @@
-"""Structured practical guidance; independent from Hoca mode."""
+"""Structured practical guidance output contract; independent from Hoca mode.
+
+Whether a sentence asks for guidance is canonical Brain understanding; this module
+only validates the model JSON and renders it.
+"""
 from __future__ import annotations
-
-import re
-
-
-_REQUEST = re.compile(
-    r"\b(?:adım\s+adım|adim\s+adim|rehber\w*|yol\s+göster\w*|yol\s+goster\w*|"
-    r"nasıl\s+(?:yap|başla|basla|ilerle|hazırla|hazirla|kur|öğren|ogren)\w*|"
-    r"nasil\s+(?:yap|basla|ilerle|hazirla|kur|ogren)\w*|"
-    r"ne\s+yapmal[ıi]y[ıi]m|ne\s+yapmam\s+(?:lazım|lazim|gerek)\w*|"
-    r"tavsiye\w*|önerin\s+ne|onerin\s+ne|ne\s+önerirsin|ne\s+onerirsin)",
-    re.I,
-)
-
-
-def requested(text: str) -> bool:
-    return isinstance(text, str) and bool(_REQUEST.search(text))
 
 
 def _text(value, field: str) -> str:
@@ -30,9 +18,7 @@ def _list(value, field: str) -> list[str]:
     return [item.strip() for item in value]
 
 
-def guide(request: str, *, objective: str, steps: list[dict]) -> dict | None:
-    if not requested(request):
-        return None
+def guide(*, objective: str, steps: list[dict]) -> dict:
     objective = _text(objective, "Hedef")
     if not isinstance(steps, list) or not steps:
         raise ValueError("Rehber en az bir adım içermeli.")
