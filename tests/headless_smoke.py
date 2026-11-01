@@ -8,7 +8,18 @@ import test_privacy_voice_and_pending
 if 'pyautogui' not in sys.modules:
     stub=types.ModuleType('pyautogui');stub.__getattr__=lambda attr:MagicMock();sys.modules['pyautogui']=stub
 import main,web
-from modules import pc_guide
+from modules import brain_entry,pc_guide
+
+
+def canonical(command,rid):
+    runtime=main._runtime
+    owner=runtime.profile.slug
+    runtime.requests_state.register(owner,rid)
+    with runtime.requests_state.activate(owner,rid):
+        entry=brain_entry.prepare(runtime,owner=owner,request_id=rid,text=command,source='yazı')
+        return brain_entry.handoff(runtime,entry,runtime.handle,command)[0]
+
+
 with patch.object(pc_guide,'handle',return_value='Önce şu klasörü aç.') as coach:
     assert main.handle('PC yardımı: fotoğraf gönderme')=='Önce şu klasörü aç.'
     coach.assert_called_once()
@@ -19,7 +30,7 @@ text='The pump must be inspected tomorrow.'
 main.emit('user',text)
 main.emit('assistant','Kısa özet')
 with patch.object(main.tr,'translate',return_value='Pompa yarın kontrol edilmeli.') as translate:
-    result=main.handle('metni çevir');assert translate.call_args.args[0]==text
+    result=canonical('metni çevir','headless-translate-1');assert translate.call_args.args[0]==text
 main.emit('assistant',result)
 with patch.object(main,'ask',return_value='| İş | Zaman |\n|---|---|\n| Pompa kontrolü | Yarın |'):
     table=main.handle('bunu tabloya çevir')
@@ -27,5 +38,5 @@ assert main.last_doc[0]==table
 main.emit('assistant',table)
 assert main.handle('tamam')=='Tamam.'
 web.bridge.chat_reset();assert main.last_doc is None
-assert main.handle('çevir').startswith('Bu sohbette')
-print('Headless: gerçek PC/WebUI içe aktarımı ve çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).')
+assert canonical('çevir','headless-translate-2').startswith('Bu sohbette')
+print('Headless: gerçek PC/WebUI içe aktarımı ve canonical çevir→tablo→tamam→yeni sohbet akışı geçti (donanım/model taklitleri).')
