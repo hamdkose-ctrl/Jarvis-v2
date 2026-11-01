@@ -30,9 +30,11 @@ Kapı geçer: ``regression``, ``changed``, ``error`` ve ``missing`` yoksa. Bilin
 ``changed`` sonucu ``--accept`` dosyasında gerekçesiyle kabul edilebilir; kabul dosyası
 verilmediyse repo'daki ``tests/data/brain_acceptance_accepted_changes.json`` okunur.
 Kabul izinleri ölü bırakılamaz: dosyada yazılı bir id bu koşuda ``changed`` üretmiyorsa
-kapı ``dead_permit`` ile kalır. Canlı izinlerin gerekçeleri append-only denetim kaydına
-``tests/data/brain_acceptance_kabul_gecmisi.json`` da birebir yazılır; kayıt tüketilmiş
-izinleri de taşıyabilir, canlı liste taşıyamaz.
+kapı ``dead_permit`` ile kalır. Varsayılan repo kabul dosyasındaki canlı izinlerin diff
+kümesi ayrıca ``brain_acceptance_accepted_fingerprint.txt`` ile pinlenir; aynı senaryo
+başka bir ``changed`` karara kayarsa eski gerekçe onu yeşile çeviremez. Canlı izinlerin
+gerekçeleri append-only denetim kaydına ``tests/data/brain_acceptance_kabul_gecmisi.json``
+da birebir yazılır; kayıt tüketilmiş izinleri de taşıyabilir, canlı liste taşıyamaz.
 
 Kullanım::
 
@@ -70,6 +72,7 @@ ROUTING_CORPUS = DATA / "yonlendirme_cumleleri.json"
 INJECTION_CORPUS = DATA / "enjeksiyon_senaryolari.json"
 DEFAULT_BASELINE = DATA / "brain_acceptance_baseline.json"
 DEFAULT_ACCEPTED = DATA / "brain_acceptance_accepted_changes.json"
+DEFAULT_ACCEPTED_FINGERPRINT = DATA / "brain_acceptance_accepted_fingerprint.txt"
 MATRIX_POOL = DATA / "brain_acceptance_matris_160.json"
 PR10_MATRIX_POOL = DATA / "brain_acceptance_matris_pr10_160.json"
 # Matris dosyası → senaryo id öneki. Satırı "girdi" taşıyanlar Brain harness'inde koşar.
@@ -465,6 +468,37 @@ def verdict(scenario: Mapping[str, Any], base: Mapping[str, Any] | None, current
     return {"verdict": result, "lost": lost, "gained": gained, "diff": diff}
 
 
+def _accepted_diff_fingerprint(rows: Mapping[str, Mapping[str, Any]], accepted_ids: Iterable[str]) -> str:
+    """Canlı accepted kararlarının exact diff kümesini kararlı biçimde mühürler."""
+    payload = {
+        ident: rows[ident].get("diff", {})
+        for ident in sorted(accepted_ids)
+        if rows.get(ident, {}).get("verdict") == "accepted"
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _default_acceptance_fingerprint(accepted: Mapping[str, str]) -> str | None:
+    """Yalnız repo'daki varsayılan canlı izin kümesi fingerprint zorunluluğu taşır.
+
+    ``--accept`` geçici reviewer dosyasıdır; kalıcı kapı DEFAULT_ACCEPTED ile çalışır. Doğrudan
+    unit testlerde kullanılan sentetik kabul haritaları bu disk sözleşmesine bağlanmaz.
+    """
+    if not accepted or not DEFAULT_ACCEPTED.is_file():
+        return None
+    try:
+        committed = json.loads(DEFAULT_ACCEPTED.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return ""
+    if dict(accepted) != dict(committed):
+        return None
+    try:
+        return DEFAULT_ACCEPTED_FINGERPRINT.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def compare(pool: list[dict], baseline: Mapping[str, Any], current: Mapping[str, Any],
             accepted: Mapping[str, str] | None = None) -> dict:
     accepted = dict(accepted or {})
@@ -497,12 +531,20 @@ def compare(pool: list[dict], baseline: Mapping[str, Any], current: Mapping[str,
     # Ölü izin: kabul yazılı olduğu hâlde bu koşuda ``changed`` üretmeyen id. Havuzdan çıkmış
     # ya da artık aynı/better olan karar için izin bırakılamaz; izin ile değişiklik eş olmalı.
     dead = sorted(i for i in accepted if rows.get(i, {}).get("verdict") != "accepted")
+    actual_fingerprint = _accepted_diff_fingerprint(rows, accepted)
+    expected_fingerprint = _default_acceptance_fingerprint(accepted)
+    fingerprint_match = expected_fingerprint is None or (
+        bool(expected_fingerprint) and actual_fingerprint == expected_fingerprint
+    )
     return {
-        "passed": not failing and not dead,
+        "passed": not failing and not dead and fingerprint_match,
         "counts": dict(sorted(counts.items())),
         "expectations_met": expectation,
         "failing": failing,
         "dead_permits": dead,
+        "accepted_diff_fingerprint": actual_fingerprint,
+        "accepted_diff_fingerprint_expected": expected_fingerprint,
+        "accepted_diff_fingerprint_match": fingerprint_match,
         "rows": rows,
         "baseline_head": baseline.get("git_head"),
         "current_head": current.get("git_head"),
@@ -756,12 +798,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         _write_json(args.report, report)
     keys = ("passed", "counts", "expectations_met", "scenario_count", "baseline_scenario_count",
-            "dead_permits")
+            "dead_permits", "accepted_diff_fingerprint_match")
     print(json.dumps({k: report[k] for k in keys}, ensure_ascii=False, indent=1))
     if report["scenario_count"] < report["baseline_scenario_count"]:
         print(f"Havuz daraldı: baseline {report['baseline_scenario_count']} → {report['scenario_count']} "
               "senaryo. Kabul için senaryo sayısı hiç azalmamalı.")
         return 1
+    if report["accepted_diff_fingerprint_match"] is False:
+        expected = report["accepted_diff_fingerprint_expected"] or "<missing>"
+        actual = report["accepted_diff_fingerprint"]
+        print(f"Accepted diff fingerprint drift: expected {expected}, current {actual}")
     for ident in report["dead_permits"][:20]:
         print(f"  dead_permit {ident} gerekçesi kabul dosyasında duruyor ama bu koşuda changed üretmedi.")
     for ident in report["failing"][:50]:
