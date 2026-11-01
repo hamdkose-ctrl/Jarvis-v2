@@ -35,6 +35,13 @@ _PLAN_TO_CORPUS = {'screen_analyze': 'screen_analyze', 'task': 'task', 'weather'
 # Eski doc_* intent'leri hedef dosya seçicisini boş path ile yürütürdü; canonical sınır aynı
 # durumda hedefi sorar. Bu satırlarda clarify, doc_* karşılığıdır.
 _FILE_TARGET_QUESTION_STANDS_FOR = frozenset({'doc_summary', 'doc_insight', 'doc_convert', 'doc_translate'})
+# Legacy corpus bu iki hedefsiz dosya işlemini ortak task diye etiketliyordu. PR10c'de Core hedef
+# tahmin etmediği için yalnız bu gözden geçirilmiş cümleler canonical clarify ile eşdeğerdir.
+# Liste exact tutulur: yeni bir task→clarify sürüklenmesi sessizce geçemez.
+_TASK_FILE_TARGET_CLARIFY = frozenset({
+    "bu pdf'yi word belgesine dönüştür",
+    'bu iki dosyayı karşılaştır, farkları maddeler halinde çıkar.',
+})
 _FAST_TO_CORPUS = {'fast.system.status': 'status', 'fast.time.read': 'status', 'fast.date.read': 'status',
                    'fast.conversation.summary': 'chat'}
 
@@ -234,16 +241,26 @@ class RoutingSentenceTests(unittest.TestCase):
             with self.subTest(claim=claim):
                 self.assertTrue(_task_equivalent_claim(claim))
 
+    def test_task_to_clarify_exceptions_are_exact_and_file_target_only(self):
+        self.assertEqual(_TASK_FILE_TARGET_CLARIFY, {
+            "bu pdf'yi word belgesine dönüştür",
+            'bu iki dosyayı karşılaştır, farkları maddeler halinde çıkar.',
+        })
+        for text in _TASK_FILE_TARGET_CLARIFY:
+            with self.subTest(text=text):
+                self.assertEqual(_canonical_claim(text), 'clarify')
+
     def test_sentences_reach_expected_route(self):
         for row in DATA['cumleler']:
             if row.get('bolum') == 'bekletilmis':
                 continue
             with self.subTest(metin=row['metin']):
                 got = _route(row)
+                folded = row['metin'].strip().casefold()
                 if row.get('bilinen_hata'):
                     self.assertNotEqual(got, row['beklenen'],
                                         'Bu bilinen hata düzelmiş; veri dosyasından bilinen_hata işaretini kaldır.')
-                elif row['metin'].strip().casefold() in {t.casefold() for t in PRODUCTION_HANDLER_OWNED}:
+                elif folded in {t.casefold() for t in PRODUCTION_HANDLER_OWNED}:
                     # Canonical Brain bu cümleyi claim'lemez ya da dosya hedefini sorar; yanıt hattın
                     # ilerisindeki adlı yürütücüden gelir. Tek koşul: çelişen bir deterministik claim yok.
                     claim = _canonical_claim(row['metin'])
@@ -252,6 +269,10 @@ class RoutingSentenceTests(unittest.TestCase):
                     # 'task' bu tabloda ortak hedef yürütücüsüdür; canonical sınır aynı cümleyi daha
                     # özel bir action Core planla (dosya/hatırlatma/araştırma) karşılıyorsa eşdeğerdir.
                     pass
+                elif (row['beklenen'] == 'task' and got == 'clarify'
+                      and folded in _TASK_FILE_TARGET_CLARIFY):
+                    # Yalnız iki gözden geçirilmiş hedefsiz file-task: Core hedef uydurmak yerine sorar.
+                    self.assertEqual(_canonical_claim(row['metin']), 'clarify')
                 elif got == 'clarify' and row['beklenen'] in _FILE_TARGET_QUESTION_STANDS_FOR:
                     pass  # hedef dosya soruluyor: eski boş-path seçicisinin canonical karşılığı
                 else:
