@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping
 
-from modules.brain_actions import ends_with_action
+from modules.brain_actions import action_request, ends_with_action, instructional_question
 from modules.brain_contracts import (
     ActiveContext,
     Confidence,
@@ -429,12 +429,76 @@ _RESEARCH_PRIVATE_TARGET = re.compile(
 )
 
 
+_RESEARCH_MARKET_NOW = re.compile(r"(?<!\w)(?:dolar|euro|altın|altin|borsa|skor\w*)(?!\w)")
+_RESEARCH_NEWS_TOPIC = re.compile(r"(?<!\w)(?:haber\w*|gelişme\w*|gelisme\w*)(?!\w)")
+# Taze dış veri isteğinin tek canonical tanımını taşırlar (eski modules/freshness kuralı).
+_RESEARCH_FRESH_TOPIC = re.compile(
+    r"(?<!\w)(?:haber\w*|gelişme\w*|gelisme\w*|fiyat\w*|kuru?(?!\w)|dolar|euro|altın|altin|borsa|piyasa|skor\w*|"
+    r"maç sonucu\w*|mac sonucu\w*)(?!\w)"
+)
+_RESEARCH_FRESH_MARK = re.compile(
+    r"(?<!\w)(?:güncel|guncel|bugünkü|bugunku|mevcut|son|bugün|bugun|şu an|su an|şu anda|su anda|şimdi|simdi|"
+    r"latest|recent|yeni|ne kadar|kaç|kac)(?!\w)"
+)
+_RESEARCH_FRESH_ASK = re.compile(
+    r"(?<!\w)(?:neler|nelerdir|ne var|özet\w*|ozet\w*|anlat\w*|göster\w*|goster\w*|araştır\w*|arastir\w*|"
+    r"durum\w*|sonuç\w*|sonuc\w*|kaç|kac)(?!\w)"
+)
+_RESEARCH_DEFINITION = re.compile(r"(?<!\w)(?:nedir|ne demek|tarihçe|tarihce)(?!\w)")
+# "kur" tek başına hem döviz konusudur hem de fiil ("alarm kur", "masaüstü kur"). Taze dış veri
+# konusu sayılabilmesi için yanındaki para/işaret bağlamı ya da doğrudan bir değer sorusu gerekir.
+_RESEARCH_MONEY_CONTEXT = re.compile(
+    r"(?<!\w)(?:dolar|euro|altın|altin|döviz|doviz|faiz|enflasyon|borsa|piyasa|fiyat\w*|lira)(?!\w)"
+)
+_RESEARCH_VALUE_ASK = re.compile(r"(?<!\w)(?:ne kadar|kaç\w*\s+(?:lira|tl|dolar|euro|ediyor|eder))(?!\w)")
+# "kur" tek başına hem döviz konusudur hem de fiil ("alarm kur", "masaüstü kur"). Döviz isteği sayılması
+# için para bağlamı, doğrudan bir değer sorusu ya da bugüne/şimdiye ait bir tazelik işareti gerekir.
+# 'güncel kur' dövizdir; "saat kaç oldu ... alarm kur" fiildir — bu yüzden _RESEARCH_FRESH_MARK'ın
+# sayı sorusu 'kaç'ı da kapsaması burada delil sayılmaz. 'yarın' geleceğe ait bir hatırlatmadır, taze
+# dış veri değil; o yüzden bu işarette yoktur.
+_RESEARCH_NOW_MARK = re.compile(
+    r"(?<!\w)(?:bugün|bugun|bugünkü|bugunku|bu gün|şu an|su an|şuanda|şu anda|şimdi|simdi|"
+    r"güncel|guncel|mevcut|dünkü|dunku|son)(?!\w)"
+)
+
+
+def _needs_fresh_external_data(text: str) -> bool:
+    """Haber/kur/borsa/skor/fiyat gibi taze dış veri isteyen cümle; hava burada konu değildir.
+
+    Tanım kalıbı ("haber nedir") yalnız açık bir tazelik işareti yoksa statik kalır;
+    "bugünkü dolar kuru nedir" gibi bir isteği bastırmaz."""
+    topic = _RESEARCH_FRESH_TOPIC.search(text)
+    if topic is None:
+        return False
+    if topic.group(0) in {"kur", "kuru"} and not (
+            _RESEARCH_MONEY_CONTEXT.search(text) or _RESEARCH_VALUE_ASK.search(text)
+            or _RESEARCH_NOW_MARK.search(text)):
+        # "yarın için alarm kur" bir hatırlatma kurma fiilidir; taze döviz verisi istemi değildir.
+        # "güncel kur" / "dolar şu an kaç" / "kur ne kadar" bu daldan geçmez: hepsi döviz isteğidir.
+        return False
+    fresh = _RESEARCH_FRESH_MARK.search(text) is not None
+    if not fresh and instructional_question(text):
+        # "Haberlerde kaynak güvenilirliği nasıl anlaşılır?" açıklama sorusudur; taze veri istemez.
+        # Açık tazelik işareti olan bir "nasıl" sorusu ("bugünkü kura göre ...") bu daldan geçmez.
+        return False
+    if not fresh:
+        news = _RESEARCH_NEWS_TOPIC.search(text) is not None and _RESEARCH_FRESH_ASK.search(text) is not None
+        market = _RESEARCH_MARKET_NOW.search(text) is not None and _RESEARCH_FRESH_ASK.search(text) is not None
+        if not (news or market):
+            return False
+        if _RESEARCH_DEFINITION.search(text) is not None:
+            return False
+    return True
+
+
 def _is_explicit_research_request(text: str) -> bool:
-    """True only for an explicit public-web research ask; private/deictic targets stay with their owner."""
+    """True for an explicit public-web research ask or a fresh external-data request; private/deictic targets stay with their owner."""
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return False
     if _RESEARCH_PRIVATE_TARGET.search(text) is not None:
         return False
+    if _needs_fresh_external_data(text):
+        return True
     if _RESEARCH_WEB_CUE.search(text) is None:
         return False
     return _contains_command_token(text, ("ara", "bul", "araştır", "arastir"))
@@ -532,6 +596,52 @@ def _is_notes_read_request(text: str) -> bool:
     return _contains_domain_token(text, _NOTE_DOMAIN_TOKENS) and _contains_command_token(text, _NOTES_READ_VERBS)
 
 
+# Eski router'ın deterministik ekran/pencere kuralları: aynı cümleler artık burada tanınır,
+# Core kararı brain_core_map doğrular. Türkçeli ve ASCII yazımın ikisi de kapılır.
+SCREEN_CAPABILITY = "screen.analyze"
+WINDOW_LIST_CAPABILITY = "desktop.windows.list"
+WINDOW_OP_CAPABILITY = "desktop.window.op"
+_SCREEN_ANALYZE_CUE = re.compile(
+    r"(?<!\w)(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)"
+    r"|"
+    r"(?<!\w)(?:analiz|incele)(?!\w).{0,25}\bekran",
+    re.I,
+)
+_SCREEN_GENERIC_REQUEST = re.compile(
+    r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:ekran(?:ı|i|imi|ımı)?\s*)?(?:analiz\s*et|incele|bak)[ .!?]*$", re.I)
+_WINDOW_LIST_REQUEST = re.compile(
+    r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:açık|acik)(?: olan)? pencereler(?:i|im|imi)?"
+    r"\s+(?:listele|göster|goster|say)[ .!?]*$", re.I)
+_WINDOW_OP_REQUEST = re.compile(
+    r"^(.+?)\s+penceresini\s+(öne getir|one getir|küçült|kucult|büyüt|buyut|eski boyutuna getir)[ .!?]*$", re.I)
+_WINDOW_OP_ACTIONS = {"öne getir": "focus", "one getir": "focus", "küçült": "minimize", "kucult": "minimize",
+                      "büyüt": "maximize", "buyut": "maximize", "eski boyutuna getir": "restore"}
+WINDOW_TARGET_MAX = 120
+
+
+def _screen_arguments(original: str, normalized: str) -> dict[str, object]:
+    if _SCREEN_ANALYZE_CUE.search(normalized) is None:
+        return {}
+    if _SCREEN_GENERIC_REQUEST.fullmatch(normalized):
+        return {"question": ""}
+    question = re.sub(r"^(?:(?:hey\s+)?jarvis[ ,]*)+", "", original.strip(), flags=re.I).strip(" .!?")
+    return {"question": question[:1000]}
+
+
+def _desktop_window_arguments(normalized: str) -> dict[str, object]:
+    """Tek satırlık pencere istekleri: liste ya da bilinen bir hedefe yönelik tek pencere eylemi."""
+    if _WINDOW_LIST_REQUEST.fullmatch(normalized):
+        return {"window": {"action": "list"}}
+    match = _WINDOW_OP_REQUEST.fullmatch(normalized)
+    if match is None:
+        return {}
+    target, phrase = match.group(1).strip(" '\"“”"), match.group(2)
+    action = _WINDOW_OP_ACTIONS.get(phrase)
+    if action is None or not target or len(target) > WINDOW_TARGET_MAX or "\x00" in target:
+        return {}
+    return {"window": {"action": action, "target": target}}
+
+
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
@@ -541,6 +651,11 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
+    # Ekranı okuma ve pencere kontrolü: sözcük düzeyinde kesinse model'e sorulmadan canonical öneri olur.
+    if _SCREEN_ANALYZE_CUE.search(text) is not None:
+        return SCREEN_CAPABILITY
+    if _WINDOW_LIST_REQUEST.fullmatch(text) or _WINDOW_OP_REQUEST.fullmatch(text):
+        return WINDOW_LIST_CAPABILITY if _WINDOW_LIST_REQUEST.fullmatch(text) else WINDOW_OP_CAPABILITY
     if _file_operation(text) is not None:
         return "files.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
@@ -606,25 +721,20 @@ FILE_CONVERSION_FORMAT_MISSING = "file conversion format missing"
 # resolved reference (pre-existing behavior); Brain only proposes them when a reference did resolve.
 _FILE_TARGET_REQUIRED = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_TRANSLATE, FILE_CONVERT})
 _FILE_ASK_EXEMPT = frozenset({FILE_OPEN, FILE_LOCATE})
-_FILE_LANGUAGE_PATTERNS = (
-    (re.compile(r"(?<!\w)türkçe(?:ye|ya|e|a)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Türkçe"),
-    (re.compile(r"(?<!\w)ingilizce(?:ye|ya|e|a)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "İngilizce"),
-    (re.compile(r"(?<!\w)almanca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Almanca"),
-    (re.compile(r"(?<!\w)fransızca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Fransızca"),
-    (re.compile(r"(?<!\w)arapça(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Arapça"),
-    (re.compile(r"(?<!\w)rusça(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "Rusça"),
-    (re.compile(r"(?<!\w)ispanyolca(?:ya|ye|a|e)?\s+(?:diline\s+)?çevir\w*(?!\w)"), "İspanyolca"),
-)
 _FILE_FORMAT_RE = re.compile(
-    r"(?<!\w)(pdf|excel|xlsx|word|docx)(?:['’]?(?:e|a|ye|ya))?(?:\s+formatına)?\s+dönüştür\w*(?!\w)"
+    r"(?<!\w)(pdf|excel|xlsx|word|docx)(?:['’]?(?:e|a|ye|ya))?(?:\s+format(?:ına|ina))?\s+(?:dönüştür|donustur)\w*(?!\w)"
 )
+
+
+_TRANSLATE_VERB_RE = re.compile(r"(?<!\w)(?:çevir|cevir)\w*(?!\w)")
 
 
 def _file_language(text: str) -> str | None:
-    for pattern, label in _FILE_LANGUAGE_PATTERNS:
-        if pattern.search(text):
-            return label
-    return None
+    """Hedef dil: tek tanım translation_targets'ta yaşıyor (ASCII yazım ve -den/-dan kaynak biçimi dahil)."""
+    if _TRANSLATE_VERB_RE.search(text) is None:
+        return None
+    from modules import translation_targets
+    return translation_targets.target_from_command(text) or None
 
 
 def _file_format(text: str) -> str | None:
@@ -632,6 +742,22 @@ def _file_format(text: str) -> str | None:
     if match is None:
         return None
     return {"excel": "xlsx", "word": "docx"}.get(match.group(1), match.group(1))
+
+
+# "sonucu/raporu excel olarak hazırla": aynı isteğin dosya çıktısı. Dönüştürme fiiliyle
+# (_FILE_FORMAT_RE) karışmaz; tek tanım burada, Core yalnız izinli biçimi kabul eder.
+_FILE_SAVE_FORMAT_PATTERNS = (
+    ("xlsx", r"(?:sonuc|sonuç|rapor|çıktı|cikti).{0,35}(?:excel|xlsx)|(?:excel|xlsx).{0,25}(?:olarak|format|rapor|çıktı|cikti|hazırla|olustur|oluştur)"),
+    ("docx", r"(?:sonuc|sonuç|rapor|çıktı|cikti).{0,35}(?:word|docx)|(?:word|docx).{0,25}(?:olarak|format|rapor|çıktı|cikti|hazırla|olustur|oluştur)"),
+    ("pdf", r"(?:sonuc|sonuç|rapor|çıktı|cikti).{0,35}(?:pdf)|(?:pdf).{0,25}(?:olarak|formatında|rapor|çıktı|cikti|hazırla|olustur|oluştur)"),
+)
+
+
+def _file_save_format(text: str) -> str | None:
+    for fmt, pattern in _FILE_SAVE_FORMAT_PATTERNS:
+        if re.search(pattern, text):
+            return fmt
+    return None
 
 
 def _file_operation(text: str) -> str | None:
@@ -701,6 +827,10 @@ def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict
         if fmt is None:
             return {}
         row["format"] = fmt
+    elif operation in (FILE_SUMMARIZE, FILE_ANALYZE):
+        fmt = _file_save_format(text)
+        if fmt is not None:
+            row["format"] = fmt
     return row
 
 
@@ -796,6 +926,9 @@ _LEVEL_EXPLICIT = re.compile(
 _LEVEL_BARE = re.compile(r"(?:yüzde\s*(\d{1,3})(?:\s+" + _LEVEL_VERBS + r")?|(\d{1,3})\s+" + _LEVEL_VERBS + r")")
 LEVEL_CAPABILITY = "pc.level.set"
 ACTION_REQUEST_CODE = "ENDS_WITH_ACTION"
+# Understanding "bu cümle bir icra isteğidir" hükmünü yalnız burada verir; kapı bu kaydı okur,
+# kendi başına ham metinden niyet türetmez.
+EXECUTION_REQUEST_CODE = "EXECUTION_REQUEST"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -946,6 +1079,17 @@ def understand(
             ambiguities = (NOTE_UPDATE_TEXT_MISSING,)
     weather_request = _is_weather_request(normalized)
     research_request = _is_explicit_research_request(normalized)
+    # Eylem fiili taşıyan icra isteği sohbet olarak bırakılamaz: hedef yürütücüsüne devredilir.
+    # Çıplak deiktik ("onu sil") de icra isteğidir; kapıda hedef sorusuyla netleşir.
+    # Netleştirme cevabı / konu değişimi / düzeltme yeni bir icra isteği sayılmaz.
+    execution_request = (not (context_control or topic_change or correction)
+                         and not _is_meta_language(normalized) and not _is_literal_command_usage(normalized)
+                         and (action_request(text) or ends_with_action(text)))
+    # Ekran/pencere istekleri de birer yetenektir; sohbet olarak bırakılırsa Core planı hiç çalışmaz.
+    screen_request = ({} if (context_control or topic_change or correction)
+                      else _screen_arguments(text, normalized))
+    window_request = ({} if (context_control or topic_change or correction)
+                      else _desktop_window_arguments(normalized))
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
     translation, translate_args = (None, {})
     if level is None and not (context_control or topic_change or correction):
@@ -984,6 +1128,7 @@ def understand(
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
     elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
+          or screen_request or window_request or execution_request
           or translation is not None or file_operation is not None or _looks_like_capability(normalized)):
         request_kind = RequestKind.CAPABILITY
     else:
@@ -1010,6 +1155,8 @@ def understand(
         reason_codes.append("USER_TOPIC_CHANGE")
     else:
         reason_codes.append("NEW_REQUEST_DEFAULT")
+    if execution_request:
+        reason_codes.append(EXECUTION_REQUEST_CODE)
     if LEVEL_UNSPECIFIED in ambiguities:
         reason_codes.append("LEVEL_TARGET_UNSPECIFIED")
     elif FILE_TARGET_UNRESOLVED in ambiguities:
@@ -1063,6 +1210,10 @@ def understand(
         arguments = {**arguments, **_notes_arguments(normalized, references)}
     if capability_hint == NOTES_WRITE_CAPABILITY:
         arguments = {**arguments, **_notes_write_arguments(text, normalized, references)}
+    if capability_hint == SCREEN_CAPABILITY:
+        arguments = {**arguments, **_screen_arguments(text, normalized)}
+    if capability_hint in {WINDOW_LIST_CAPABILITY, WINDOW_OP_CAPABILITY}:
+        arguments = {**arguments, **_desktop_window_arguments(normalized)}
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

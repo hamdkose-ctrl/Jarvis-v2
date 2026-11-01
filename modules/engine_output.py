@@ -123,6 +123,19 @@ def _doc_ready_line(runtime, kind: str, text: str = "") -> str:
             break
     return head + (" Kısaca: " + " ".join(gist)[:420] if gist else "")
 
+def _conversation_summary(runtime) -> str:
+    """'Bu konuşmayı özetle': bu owner'ın bugünkü sohbet kayıtlarını kısaca özetler (dosya istemez)."""
+    from modules import conversation_reset
+    rows = conversation_reset.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
+    today = runtime.datetime.now().strftime("%Y-%m-%d")
+    rows = [r for r in rows if str(r.get("ts", "")).startswith(today)][:-1] or rows[-30:]
+    if not rows:
+        return "Özetlenecek bir konuşma bulamadım."
+    talk = "\n".join(f"{'Kullanıcı' if r.get('role') == 'user' else 'Jarvis'}: {str(r.get('text', ''))[:1200]}"
+                      for r in rows[-40:])
+    return runtime.ask("Aşağıdaki konuşmayı Türkçe, en fazla 6 madde halinde kısaca özetle. Konuşulan konuları, "
+               "verilen sonuçları ve yapılacakları belirt.\n\n" + talk).strip()
+
 def _table_chat(runtime) -> str:
     """Önceki Jarvis yanıtını dosya üretmeden sohbet içinde tabloya çevirir."""
     from modules import conversation_reset

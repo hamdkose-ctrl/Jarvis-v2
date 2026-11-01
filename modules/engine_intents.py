@@ -11,6 +11,14 @@ def _remember(runtime, name: str) -> None:
     from modules import session_state
     session_state.remember_property(runtime._session(), name)
 
+
+def _result_or_file(runtime, result: str, path: str, label: str, noun: str, fmt: object) -> str:
+    """Core'un doğruladığı açık biçet istendiyse aynı turda kaydet; değilse çıktı önerisini bırak."""
+    if fmt:
+        saved = runtime.output.save_text_result(result, path, label, preferred=str(fmt))
+        return f"{noun} hazırladım ve kaydettim: {saved}" if saved else result
+    return result + "\n\nDosya olarak almak istersen çıktı al de."
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -63,11 +71,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if operation == "summarize":
                 result = runtime.docs.summarize(path_s)
                 runtime._session().last_doc = (result, path_s, "ozet")
-                return result + "\n\nDosya olarak almak istersen çıktı al de."
+                return _result_or_file(runtime, result, path_s, "ozet", "Özeti", a.get("format"))
             if operation == "analyze":
                 result = runtime.docs.insights(path_s, "")
                 runtime._session().last_doc = (result, path_s, "analiz")
-                return result + "\n\nDosya olarak almak istersen çıktı al de."
+                return _result_or_file(runtime, result, path_s, "analiz", "Analizi", a.get("format"))
             if operation == "open":
                 nxapi.open_path(path_s)
                 return f"{path.name} dosyasını açtım."

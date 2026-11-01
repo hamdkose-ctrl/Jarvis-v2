@@ -12,6 +12,7 @@ class CommandContext:
     table_chat: Callable
     history_read: Callable
     study_intent: Callable
+    conversation_summary: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
 
@@ -42,6 +43,8 @@ def dispatch(context, command, normalized):
         devamı; kapanış ve kaçış kalıpları listede, oturum yoksa None.
       - desktop_agent: 'pc görevi/pc onayla' veya izin kalıbı; değilse None.
       - tablo: brain_gates.table_request — tek exact tanıyıcı, cümlenin tamamı istek olmalı.
+      - konuşma özeti: brain_gates.conversation_summary_request — aynı şekilde tek exact
+        tanıyıcı; hedef dosya değil bu oturumun sohbet tarihidir, yürütücü engine_output'tır.
       - 'tamam/ok/teşekkürler': bekleyen onay yokken geçen kısa karşılık.
       - study_intent: Hoca domain'inin kendi kapısı (hoca.handle).
     """
@@ -103,6 +106,8 @@ def dispatch(context, command, normalized):
         session.pending_desktop = True if desktop_agent.awaiting(owner) else None
         session.speech_override = desktop_agent.spoken(owner)
         return result
+    if brain_gates.conversation_summary_request(normalized):
+        return context.conversation_summary()
     if brain_gates.table_request(normalized):
         return context.table_chat()
     if normalized.strip(' .!') in ('tamam', 'ok', 'teşekkürler', 'tesekkurler') and not awaiting_input(session):

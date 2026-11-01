@@ -12,8 +12,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from modules import brain_context, brain_core_map, brain_precedence, capability_manifest
-from modules.brain_understanding import ACTION_REQUEST_CODE, LEVEL_CAPABILITY
+from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
+from modules.brain_understanding import ACTION_REQUEST_CODE, EXECUTION_REQUEST_CODE, LEVEL_CAPABILITY
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -482,6 +482,15 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
             return {"intent": plan[0], "args": dict(plan[1])}
         proposal = core_proposal(entry)
         if proposal["manifest_capability_id"] is None:
+            if proposal["capability_hint"] is None and EXECUTION_REQUEST_CODE in semantic.reason_codes:
+                # Tek canonical yakalama kuralı: Understanding bu cümleyi icra isteği saydı ama hiçbiri
+                # doğrulanmış bir yetenekte karşılık bulmadı. Kaldırılan legacy catch-all'un successor'ı
+                # olarak hedef yürütücüsü cümlenin tamamını devralır; niyet burada yeniden üretilmez.
+                # Çıplak deiktik ("onu sil") yalnız Resolver bu tur için hedef bağlamadıysa hedefsizdir:
+                # bağlanmış referans varsa kapı kendi başına hedef sorusu üretmez, ikinci yetki olmaz.
+                if brain_actions.ambiguous_reference(entry.text) and not semantic.references:
+                    return {"intent": "clarify", "args": {"question": "Hangi hedef üzerinde ne yapmamı istiyorsun?"}}
+                return {"intent": "task", "args": {"request": entry.text}}
             return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
         return {"intent": "task", "args": {}}
     return {"intent": "chat", "args": {}}

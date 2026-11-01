@@ -363,7 +363,8 @@ def goal_status_selection(text: object) -> str | None:
     return None
 
 
-_TABLE_SUBJECT = r"(?:(?:bunu|şunu|onu|bu|şu|mevcut|son)\s+(?:yanıt\w*|cevap\w*|listeyi|sonucu)?\s*)?"
+_TABLE_SUBJECT = (r"(?:(?:bunu|şunu|onu|bu|şu|mevcut|son)\s+(?:yanıt\w*|cevap\w*|listeyi|sonucu)?\s*|"
+                  r"(?:yazıları|yazilari|metni|metin)\s+)?")
 _TABLE_NOUN = r"(?:tablo|table|toplo)(?:'?(?:ya|ye|suna|laştır|a|e))?(?:\s+ha?line)?"
 _TABLE_VERB = (r"(?:yap(?:ar\s+mısın)?|ver(?:ir\s+mısın)?|göster|çıkar|dök|oluştur|getir|çevir|cevir|"
                r"dönüştür|donustur)")
@@ -382,6 +383,25 @@ def table_request(text: object) -> bool:
     """
     normalized = _norm(text)
     return bool(normalized) and _TABLE_REQUEST.fullmatch(normalized) is not None
+
+
+# "bu konuşmayı özetle": hedef dosya değil, oturumun kendi sohbet tarihidir. Cümlenin tamamı
+# bu istek olmalı; bir dosyadan ya da başka bir isteğin parçasından söz eden cümle kapılmaz.
+_CONVERSATION_NOUN = r"(?:konuşma|sohbet|yazışma|söylediklerimiz)'?\w*"
+_CONVERSATION_LEAD = (r"(?:(?:bu|şu|bizim|aramızdaki|bugün|bugünkü|dün|dünkü|şimdiki|mevcut|son|tüm|bütün|"
+                      r"az\s+önceki)\s+)*")
+_CONVERSATION_VERB = (r"(?:özetle\w*|özetler\w*|özetini\s+(?:çıkar|söyle|ver)|özete\s+(?:çevir|dönüştür)|"
+                      r"analizini\s+çıkar|analiz\s+et\w*|incele\w*)")
+_CONVERSATION_TAIL = r"(?:\s+(?:mısın|misin|musun|musun|mu|lütfen|benim\s+için|kısaca))*\s*"
+_CONVERSATION_SUMMARY_REQUEST = re.compile(
+    rf"^{_CONVERSATION_LEAD}{_CONVERSATION_NOUN}\s+(?:(?:kısaca|madde\s+madde|bana|lütfen)\s+)*"
+    rf"{_CONVERSATION_VERB}{_CONVERSATION_TAIL}$", re.I)
+
+
+def conversation_summary_request(text: object) -> bool:
+    """Tek exact konuşma-özeti tanıyıcısı; fast gate ve command kapısı aynı kaynağı paylaşır."""
+    normalized = _norm(text)
+    return bool(normalized) and _CONVERSATION_SUMMARY_REQUEST.fullmatch(normalized) is not None
 
 
 def deterministic_fast_gate(
@@ -423,6 +443,9 @@ def deterministic_fast_gate(
 
     if re.fullmatch(r"(?:konuşmayı|konuşmanı|cevabı|seslendirmeyi)\s+(?:durdur|kes|sustur)", normalized):
         return _hit(owner, request_id, "fast", "fast.speech.stop", "stop_speaking", "EXACT_SPEECH_CONTROL")
+
+    if conversation_summary_request(normalized):
+        return _hit(owner, request_id, "fast", "fast.conversation.summary", "summarize", "EXACT_CONVERSATION_READ")
 
     status = goal_status_selection(text)
     if status is not None:
