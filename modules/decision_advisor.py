@@ -1,21 +1,9 @@
-"""Structured, opt-in decision analysis for conversational responses."""
+"""Structured decision analysis output contract.
+
+Choosing whether a sentence asks for a decision is canonical Brain understanding;
+this module validates and renders the advisory JSON only.
+"""
 from __future__ import annotations
-
-import re
-
-
-_DECISION_WORDS = re.compile(
-    r"\b(?:hangisi\w*|hangisini|seçenek\w*|secenek\w*|tercih\s+et\w*|tercihim\w*|"
-    r"karar\s+ver(?!di|dik|din)\w*|karar\w*\s+veremiyorum|karşılaştır\w*|karsilastir\w*|"
-    r"artı\s*(?:ve\s*)?eksi\w*|arti\s*(?:ve\s*)?eksi\w*|avantaj\w*|dezavantaj\w*|pro.?con\w*)",
-    re.IGNORECASE,
-)
-# "A mı B mi", "gideyim mi kalayım mı": two yes/no particles = a choice.
-_CHOICE_PATTERN = re.compile(r"\bm[ıiuü]\b.+\bm[ıiuü]\b", re.IGNORECASE)
-
-
-def requested(text: str) -> bool:
-    return isinstance(text, str) and bool(_DECISION_WORDS.search(text) or _CHOICE_PATTERN.search(text))
 
 
 def _list(value, field: str) -> list[str]:
@@ -31,9 +19,7 @@ def analyze(
     recommendation: str | None = None,
     rationale: str = "",
     uncertainties: list[str] | None = None,
-) -> dict | None:
-    if not requested(question):
-        return None
+) -> dict:
     if not isinstance(options, list) or len(options) < 2:
         raise ValueError("Karar analizi için en az iki seçenek gerekir.")
     rows = []

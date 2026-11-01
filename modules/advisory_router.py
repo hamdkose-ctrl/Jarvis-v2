@@ -2,30 +2,34 @@
 
 This module only formats model text. It never dispatches work, writes GoalState,
 checks permission, or executes a worker. Invalid/non-JSON model output falls
-back to the existing direct answer.
+back to the existing direct answer. Which advisory mode applies is decided by the
+canonical Brain Understanding of this exact utterance, never by re-reading text here.
 """
 from __future__ import annotations
 
 import json
 import re
 
-from modules import critique_advisor, decision_advisor, guidance_advisor, proactive_advisor
+from modules import brain_entry, critique_advisor, decision_advisor, guidance_advisor, proactive_advisor
+from modules.brain_understanding import ADVISORY_ARGUMENT_KEY, ADVISORY_MODES
 from modules.diagnostics import record_failure as _record_failure
 
 
-def _mode(command: str) -> str | None:
-    if decision_advisor.requested(command):
-        return "decision"
-    if critique_advisor.requested(command):
-        return "critique"
-    if guidance_advisor.requested(command):
-        return "guidance"
-    return None
+def _canonical_mode(command: str) -> str | None:
+    """Advisory mode of the bound canonical entry, and only for that same utterance."""
+    entry = brain_entry.current()
+    if entry is None or entry.text != command:
+        return None
+    semantic = entry.understanding
+    if semantic is None:
+        return None
+    mode = semantic.arguments.get(ADVISORY_ARGUMENT_KEY)
+    return mode if isinstance(mode, str) and mode in ADVISORY_MODES else None
 
 
 def prompt_for(command: str, settings: dict | None) -> str:
     blocks = []
-    mode = _mode(command)
+    mode = _canonical_mode(command)
     if mode == "decision":
         blocks.append(
             'Açık karar isteği var. Yalnız şu JSON alanlarını üret: '
@@ -138,7 +142,7 @@ def _prose_suggestion(raw: str, settings: dict | None) -> str:
 def finalize(command: str, raw: str, *, settings: dict | None = None) -> str:
     """Render a valid advisory response; preserve ordinary/raw answers."""
     value = _json_object(raw)
-    mode = _mode(command)
+    mode = _canonical_mode(command)
     if value is None:
         return _prose_suggestion(raw, settings)
     try:
@@ -153,7 +157,6 @@ def finalize(command: str, raw: str, *, settings: dict | None = None) -> str:
             return _with_suggestion(decision_advisor.render(result), value, settings)
         if mode == "critique" and value is not None:
             result = critique_advisor.critique(
-                command,
                 weak_point=value.get("weak_point"),
                 because=value.get("because"),
                 impact=value.get("impact", ""),
@@ -162,7 +165,6 @@ def finalize(command: str, raw: str, *, settings: dict | None = None) -> str:
             return _with_suggestion(critique_advisor.render(result), value, settings)
         if mode == "guidance" and value is not None:
             result = guidance_advisor.guide(
-                command,
                 objective=value.get("objective"),
                 steps=value.get("steps"),
             )

@@ -118,11 +118,11 @@ class AdvisorKeepsCanonicalContextTests(unittest.TestCase):
 class EchoPreviewCanonicalSourceTests(unittest.TestCase):
     def test_preview_comes_from_bounded_semantic_arguments_and_resolved_reference(self):
         references = (file_reference("2024-finans-raporu.pdf"),)
-        result = semantic("2024-finans-raporu.pdf dosyasını Excel'e çevir", references)
+        result = semantic("2024-finans-raporu.pdf dosyasını Excel'e dönüştür", references)
         self.assertIsNotNone(result.preview)
         self.assertIn("2024-finans-raporu.pdf", result.preview.text)
         self.assertIn("Excel", result.preview.text)
-        self.assertNotEqual(result.preview.text, "2024-finans-raporu.pdf dosyasını Excel'e çevir")
+        self.assertNotEqual(result.preview.text, "2024-finans-raporu.pdf dosyasını Excel'e dönüştür")
 
     def test_preview_never_reenters_legacy_resolvers_or_routers(self):
         source = (ROOT / 'modules' / 'brain_echo.py').read_text(encoding='utf-8')
@@ -130,7 +130,7 @@ class EchoPreviewCanonicalSourceTests(unittest.TestCase):
             self.assertNotIn(legacy, source, f"Echo kendi başına metin yorumlayamaz: {legacy}.")
 
     def test_preview_is_not_permission_approval_effect_execution_or_completion(self):
-        result = semantic("2024-finans-raporu.pdf dosyasını Excel'e çevir", (file_reference("2024-finans-raporu.pdf"),))
+        result = semantic("2024-finans-raporu.pdf dosyasını Excel'e dönüştür", (file_reference("2024-finans-raporu.pdf"),))
         payload = result.preview.to_dict()
         self.assertEqual(set(payload) - {"reason_code"}, {"text"})
         for authority in ("permission", "approved", "authorized", "execute", "completed", "done", "effect_allowed"):
@@ -142,7 +142,7 @@ class EchoPreviewCanonicalSourceTests(unittest.TestCase):
             handle=Mock(side_effect=AssertionError("Echo Core'u çalıştıramaz")),
             _session=Mock(side_effect=AssertionError("Echo state yazamaz")),
         )
-        result = entry("2024-finans-raporu.pdf dosyasını Excel'e çevir", (file_reference("2024-finans-raporu.pdf"),))
+        result = entry("2024-finans-raporu.pdf dosyasını Excel'e dönüştür", (file_reference("2024-finans-raporu.pdf"),))
         with patch("modules.engine_intents.dispatch", side_effect=AssertionError("Echo dispatch edemez")):
             brain_echo.present(runtime, result)
         runtime.emit.assert_called_once()

@@ -1,12 +1,13 @@
 import unittest
 
-from modules.critique_advisor import critique, requested
+from modules.critique_advisor import critique
+from modules.brain_understanding import ADVISORY_ARGUMENT_KEY
+from test_brain_pr8b_advisor_echo import semantic
 
 
 class HonestCritiqueTests(unittest.TestCase):
     def test_critique_has_reasoned_weak_point(self):
         result = critique(
-            "Bu planı dürüstçe eleştir.",
             weak_point="Buradaki zayıf nokta şu: kapsam çok geniş.",
             because="Çünkü ölçülebilir ilk teslim sınırı tanımlanmamış.",
             impact="Bu durum ilerlemeyi takip etmeyi zorlaştırabilir.",
@@ -16,13 +17,13 @@ class HonestCritiqueTests(unittest.TestCase):
         self.assertIn("Buradaki zayıf nokta şu", result["weak_point"])
         self.assertTrue(result["because"])
 
-    def test_unrelated_request_is_not_turned_into_critique(self):
-        self.assertFalse(requested("Bugün hava nasıl?"))
-        self.assertIsNone(critique("Bugün hava nasıl?", weak_point="x", because="y"))
+    def test_unrelated_request_has_no_canonical_critique_semantics(self):
+        # canonical Understanding owns the choice; the advisor module no longer guesses.
+        self.assertIsNone(semantic("Bugün hava nasıl?").arguments.get(ADVISORY_ARGUMENT_KEY))
 
     def test_unsafe_style_is_rejected(self):
         with self.assertRaises(ValueError):
-            critique("Bunu eleştir.", weak_point="Sen aptalsın.", because="Çünkü öyle.", impact="Kesinlikle başarısız olacaksın.")
+            critique(weak_point="Sen aptalsın.", because="Çünkü öyle.", impact="Kesinlikle başarısız olacaksın.")
 
 
 if __name__ == "__main__":

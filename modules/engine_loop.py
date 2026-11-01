@@ -313,6 +313,8 @@ def main(runtime, ui=None):
                         runtime, owner=owner, request_id=runtime._cur_rid,
                         text=cmd, source=source,
                     )
+                    from modules import brain_echo
+                    brain_echo.present(runtime, entry)
 
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")

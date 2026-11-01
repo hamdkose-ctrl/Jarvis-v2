@@ -13,9 +13,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from modules import (
-    advisory_router, event_channels, event_webhooks, goal_state_store, hooks, llm, publish_services,
-    runtime_subscription, service_store, task_agents, task_queue, webhook_server,
+    advisory_router, brain_entry, event_channels, event_webhooks, goal_state_store, hooks, llm,
+    publish_services, runtime_subscription, service_store, task_agents, task_queue, webhook_server,
 )
+from modules.brain_understanding import ADVISORY_ARGUMENT_KEY
+from test_brain_pr8b_advisor_echo import entry, semantic
 
 
 class OwnerFixture(unittest.TestCase):
@@ -237,24 +239,26 @@ class EventWebhookTests(OwnerFixture):
 class AdvisoryTests(unittest.TestCase):
     def test_schema_mismatch_never_shows_raw_json(self):
         raw = '{"options":[{"name":"A","pros":[],"cons":[]}],"recommendation":{"option":"A","rationale":"Hız önemli"}}'
-        text = advisory_router.finalize('Hangisi daha iyi?', raw, settings={})
+        with brain_entry.bind(entry('Hangisi daha iyi?')):
+            text = advisory_router.finalize('Hangisi daha iyi?', raw, settings={})
         self.assertNotIn('{', text); self.assertIn('Hız önemli', text)
 
     def test_prose_suggestion_line_is_rendered_or_dropped_by_setting(self):
         raw = 'Plan uygun görünüyor.\nÖneri (risk): Önce yedek al.'
-        self.assertEqual(advisory_router.finalize('planım hazır', raw, settings={}),
-                         'Plan uygun görünüyor.\n\nBurada dikkat et: Önce yedek al.')
-        self.assertEqual(advisory_router.finalize('planım hazır', raw, settings={'proactive_suggestions': False}),
-                         'Plan uygun görünüyor.')
+        with brain_entry.bind(entry('planım hazır')):
+            self.assertEqual(advisory_router.finalize('planım hazır', raw, settings={}),
+                             'Plan uygun görünüyor.\n\nBurada dikkat et: Önce yedek al.')
+            self.assertEqual(advisory_router.finalize('planım hazır', raw, settings={'proactive_suggestions': False}),
+                             'Plan uygun görünüyor.')
 
     def test_triggers_catch_natural_phrasing_and_skip_unrelated_words(self):
-        mode = advisory_router._mode
-        self.assertEqual(mode('Bunu nasıl yaparım?'), 'guidance')
-        self.assertEqual(mode('Excel tablosu nasıl yapılır'), 'guidance')
-        self.assertEqual(mode('Eksiklerimi dürüstçe söyle'), 'critique')
-        self.assertIsNone(mode('Malzeme eksik geldi'))
-        self.assertIsNone(mode('Karar verdim, yarın gidiyorum'))
-        self.assertEqual(mode('Gideyim mi kalayım mı?'), 'decision')
+        advisory = lambda text: semantic(text).arguments.get(ADVISORY_ARGUMENT_KEY)
+        self.assertEqual(advisory('Bunu nasıl yaparım?'), 'guidance')
+        self.assertEqual(advisory('Excel tablosu nasıl yapılır'), 'guidance')
+        self.assertEqual(advisory('Eksiklerimi dürüstçe söyle'), 'critique')
+        self.assertIsNone(advisory('Malzeme eksik geldi'))
+        self.assertIsNone(advisory('Karar verdim, yarın gidiyorum'))
+        self.assertEqual(advisory('Gideyim mi kalayım mı?'), 'decision')
 
 
 if __name__ == '__main__':

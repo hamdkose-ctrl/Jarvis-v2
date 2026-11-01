@@ -7,7 +7,7 @@ state, run workers, grant authority, or wire itself into production routing.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 from modules.brain_actions import ends_with_action
 from modules.brain_contracts import (
@@ -16,6 +16,7 @@ from modules.brain_contracts import (
     ContextAction,
     ContextReference,
     ConversationRelation,
+    EchoPreview,
     RequestKind,
     TemporalNeed,
     UnderstandingResult,
@@ -167,6 +168,47 @@ _STATIC_MARKERS = (
 )
 _PENDING_PROTOCOL_TOKENS = frozenset({"evet", "hayır", "hayir", "yes", "no"})
 _GENERIC_CHAT = ("merhaba", "selam", "nasılsın", "nasilsin", "teşekkür", "tesekkur")
+
+# Advisory mode is a natural-language choice, so its lexicon belongs to understanding.
+# The advisor modules keep only schema validation and rendering.
+ADVISORY_DECISION = "decision"
+ADVISORY_CRITIQUE = "critique"
+ADVISORY_GUIDANCE = "guidance"
+ADVISORY_ARGUMENT_KEY = "advisory"
+ADVISORY_MODES = frozenset({ADVISORY_DECISION, ADVISORY_CRITIQUE, ADVISORY_GUIDANCE})
+_ADVISORY_DECISION = re.compile(
+    r"\b(?:hangisi\w*|hangisini|seçenek\w*|secenek\w*|tercih\s+et\w*|tercihim\w*|"
+    r"karar\s+ver(?!di|dik|din)\w*|karar\w*\s+veremiyorum|karşılaştır\w*|karsilastir\w*|"
+    r"artı\s*(?:ve\s*)?eksi\w*|arti\s*(?:ve\s*)?eksi\w*|avantaj\w*|dezavantaj\w*|pro.?con\w*)",
+    re.I,
+)
+# "A mı B mi", "gideyim mi kalayım mı": two yes/no particles = a choice.
+_ADVISORY_CHOICE = re.compile(r"\bm[ıiuü]\b.+\bm[ıiuü]\b", re.I)
+_ADVISORY_CRITIQUE = re.compile(
+    r"\b(?:eleştir\w*|elestir\w*|zayıf\s+(?:nokta|yan|yön)\w*|zayif\s+(?:nokta|yan|yon)\w*|"
+    r"dürüstçe|durustce|dürüst\s+ol\w*|durust\s+ol\w*|açık\s+sözlü|acik\s+sozlu|"
+    r"eksikler\w*|eksik\s+(?:yan|yön|yon|nokta)\w*|neresi\s+(?:kötü|kotu|eksik|zayıf|zayif)|"
+    r"nerede\s+hata\s+yap\w*)",
+    re.I,
+)
+_ADVISORY_GUIDANCE = re.compile(
+    r"\b(?:adım\s+adım|adim\s+adim|rehber\w*|yol\s+göster\w*|yol\s+goster\w*|"
+    r"nasıl\s+(?:yap|başla|basla|ilerle|hazırla|hazirla|kur|öğren|ogren)\w*|"
+    r"nasil\s+(?:yap|basla|ilerle|hazirla|kur|ogren)\w*|"
+    r"ne\s+yapmal[ıi]y[ıi]m|ne\s+yapmam\s+(?:lazım|lazim|gerek)\w*|"
+    r"tavsiye\w*|önerin\s+ne|onerin\s+ne|ne\s+önerirsin|ne\s+onerirsin)",
+    re.I,
+)
+
+
+def _advisory_request(text: str) -> str | None:
+    if _ADVISORY_DECISION.search(text) or _ADVISORY_CHOICE.search(text):
+        return ADVISORY_DECISION
+    if _ADVISORY_CRITIQUE.search(text):
+        return ADVISORY_CRITIQUE
+    if _ADVISORY_GUIDANCE.search(text):
+        return ADVISORY_GUIDANCE
+    return None
 
 
 def _required(name: str, value: str) -> str:
@@ -662,6 +704,82 @@ def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict
     return row
 
 
+# Echo / semantic preview labels. Each one is derived from an already resolved
+# capability + bounded argument; none of them re-reads the user sentence.
+_FILE_PREVIEW_LABELS = {
+    FILE_SUMMARIZE: "Dosyayı özetleme",
+    FILE_ANALYZE: "Dosyayı inceleme",
+    FILE_OPEN: "Dosyayı açma",
+    FILE_LOCATE: "Dosyayı bulma",
+    FILE_LIST: "Dosyaları listeleme",
+    FILE_COMPARE: "Dosyaları karşılaştırma",
+    FILE_TRANSLATE: "Dosyayı çevirme",
+    FILE_CONVERT: "Dosyayı dönüştürme",
+}
+_PREVIEW_FORMAT_LABELS = {"xlsx": "Excel", "docx": "Word", "pdf": "PDF", "csv": "CSV"}
+_PREVIEW_CAPABILITY_LABELS = {
+    "notes.read": "Notları okuma",
+    NOTES_WRITE_CAPABILITY: "Notu güncelleme",
+    TRANSLATE_CAPABILITY: "Sohbetteki metni çevirme",
+    "reminder.propose": "Hatırlatma önerisi",
+}
+
+
+def _base_name(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    return value.replace("\\", "/").rpartition("/")[2].strip()
+
+
+def _preview_subject(arguments: Mapping[str, Any], references: tuple[ContextReference, ...]) -> str:
+    paths = arguments.get("paths")
+    if isinstance(paths, (tuple, list)):
+        names = tuple(dict.fromkeys(_base_name(item) for item in paths))
+        return ", ".join(name for name in names if name)
+    name = _base_name(arguments.get("path"))
+    if name:
+        return name
+    for ref in references:
+        if ref.kind in {"file", "note"}:
+            return _base_name(ref.provenance.get("path")) or ref.id.rpartition(":")[2]
+    return ""
+
+
+def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
+                  references: tuple[ContextReference, ...]) -> EchoPreview | None:
+    if capability_hint == "files.read":
+        operation = arguments.get("operation")
+        label = _FILE_PREVIEW_LABELS.get(operation if isinstance(operation, str) else "")
+        if label is None:
+            return None
+        if operation == FILE_TRANSLATE:
+            label = f"Dosyayı {arguments.get('target', '')} diline çevirme"
+        elif operation == FILE_CONVERT:
+            fmt = str(arguments.get("format") or "")
+            label = f"Dosyayı {_PREVIEW_FORMAT_LABELS.get(fmt, fmt)} biçimine çevirme"
+        subject = _preview_subject(arguments, references)
+        return EchoPreview(text=f"{label}: {subject}" if subject else label)
+    if capability_hint == "research.search":
+        research = arguments.get("research")
+        query = research.get("query") if isinstance(research, Mapping) else None
+        if not isinstance(query, str) or not query.strip():
+            return None
+        return EchoPreview(text=f"Web'de arama: {query.strip()[:80]}")
+    if capability_hint in {"weather.read", "weather.read.current"}:
+        label = "Güncel hava durumu" if capability_hint.endswith("current") else "Hava durumu"
+        location = arguments.get("location")
+        return EchoPreview(text=f"{label}: {location}" if isinstance(location, str) and location else label)
+    if capability_hint == LEVEL_CAPABILITY:
+        prop = arguments.get("property")
+        name = {"volume": "Ses", "brightness": "Parlaklık"}.get(prop if isinstance(prop, str) else "", "Seviye")
+        level = arguments.get("level")
+        return EchoPreview(text=f"{name} ayarı: %{level}" if isinstance(level, int) and not isinstance(level, bool)
+                           else f"{name} ayarı")
+    if capability_hint in _PREVIEW_CAPABILITY_LABELS:
+        return EchoPreview(text=_PREVIEW_CAPABILITY_LABELS[capability_hint])
+    return None
+
+
 _LEVEL_WORDS = {
     "ses": "volume", "sesi": "volume", "sesin": "volume", "sesini": "volume",
     "ses seviyesi": "volume", "ses seviyesini": "volume",
@@ -953,6 +1071,15 @@ def understand(
         else:
             capability_hint = None
 
+    # Advisory chat shaping is a semantic choice, so it is resolved once here and the
+    # advisor layer only formats. A Core-mapped request keeps its own owner.
+    advisory = None if (context_control or topic_change or correction or capability_hint) else _advisory_request(normalized)
+    if advisory is not None:
+        arguments = {**arguments, ADVISORY_ARGUMENT_KEY: advisory}
+    preview = None
+    if request_kind is RequestKind.CAPABILITY and not ambiguities:
+        preview = _preview_text(capability_hint, arguments, references)
+
     return UnderstandingResult(
         owner=owner,
         request_id=request_id,
@@ -968,4 +1095,5 @@ def understand(
         assumptions=(),
         reason_codes=tuple(reason_codes),
         needs_input=bool(ambiguities),
+        preview=preview,
     )
