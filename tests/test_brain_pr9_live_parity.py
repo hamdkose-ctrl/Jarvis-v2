@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_engine_modular as fixtures
+from modules.brain_contracts import BrainFeedback
 
 
 class BrainPR9LiveParityTests(unittest.TestCase):
@@ -17,8 +19,9 @@ class BrainPR9LiveParityTests(unittest.TestCase):
         runtime = self.context()
         runtime.emit = Mock()
         runtime.handle = Mock(side_effect=AssertionError("Live ham metni Brain'i atlayarak handle edemez"))
-        sentinel_entry = object()
-        sentinel_feedback = Mock(result_status="handled")
+        sentinel_entry = SimpleNamespace(stage="understanding")
+        sentinel_feedback = BrainFeedback(owner="parity-owner", request_id="rid-parity",
+                                          result_status="handled")
 
         with patch.object(brain_entry, "prepare", return_value=sentinel_entry) as prepare, \
              patch.object(brain_entry, "handoff", return_value=("Tamam.", sentinel_feedback, None)) as handoff:
