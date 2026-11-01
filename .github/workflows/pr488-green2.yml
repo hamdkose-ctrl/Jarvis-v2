@@ -1,0 +1,147 @@
+name: PR488 bounded green patch v2
+on:
+  push:
+    branches:
+      - gpt/brain-files-final-authority
+    paths:
+      - .github/workflows/pr488-green2.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Repair bounded helper source
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          path = Path('scripts/pr488_apply.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'new, count = re.subn(pattern, repl, text, count=1, flags=re.S | re.M)'
+          new = 'new, count = re.subn(pattern, lambda _m: repl, text, count=1, flags=re.S | re.M)'
+          if text.count(old) != 1:
+              raise SystemExit(f'sub_once line count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old_core = '''replace_once(
+              path,
+              '            self.assertEqual(brain_core_map.core_plan("files.read", {"operation": "summarize", "path": good}),\\n                             ("doc_summary", {"path": good}))\\n',
+              '            self.assertEqual(brain_core_map.core_plan("files.read", {"operation": "summarize", "path": good}),\\n                             ("file_action", {"operation": "summarize", "path": good}))\\n',
+          )'''
+          new_core = '''replace_once(
+              path,
+              '                self.assertEqual(plan, ("doc_summary", {"path": str(good)}))\\n',
+              '                self.assertEqual(plan, ("file_action", {"operation": "summarize", "path": str(good)}))\\n',
+          )'''
+          if text.count(old_core) != 1:
+              raise SystemExit(f'old core assertion patch count={text.count(old_core)}')
+          text = text.replace(old_core, new_core, 1)
+
+          old_compound = '''replace_once(path, '            self.assertNotEqual(call.args[1], "doc_summary")\\n', '            self.assertNotEqual(call.args[1], "file_action")\\n')'''
+          new_compound = '''replace_once(
+              path,
+              '            self.assertFalse(any(call[0][1] == "doc_summary" for call in dispatch.call_args_list), text)\\n',
+              '            self.assertFalse(any(call[0][1] == "file_action" for call in dispatch.call_args_list), text)\\n',
+          )'''
+          if text.count(old_compound) != 1:
+              raise SystemExit(f'compound assertion patch count={text.count(old_compound)}')
+          path.write_text(text.replace(old_compound, new_compound, 1), encoding='utf-8', newline='\n')
+          '@ | py -3.13 -X utf8 -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Apply bounded product patch
+        shell: powershell
+        run: |
+          py -3.13 -X utf8 scripts/pr488_apply.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Apply focused fixes and migrate old expectations
+        shell: powershell
+        run: |
+          @'
+          import re
+          from pathlib import Path
+
+          path = Path('modules/brain_understanding.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    # Same operation may be expressed twice; different operations mean a compound request.
+              unique = tuple(dict.fromkeys(operations))
+              return unique[0] if len(unique) == 1 else None
+          '''
+          new = '''    # Same operation may be expressed twice; different operations mean a compound request.
+              unique = tuple(dict.fromkeys(operations))
+              if len(unique) != 1:
+                  return None
+              if unique[0] != FILE_COMPARE and re.search(
+                  r"(?<!\\w)ve\\s+(?:kaydet\\w*|g\\u00f6nder\\w*|gonder\\w*|payla\\u015f\\w*|paylas\\w*|yazd\\u0131r\\w*|yazdir\\w*|\\u00e7\\u0131kt\\u0131\\s+al\\w*|cikti\\s+al\\w*)(?!\\w)",
+                  text,
+              ):
+                  return None
+              return unique[0]
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'compound guard source count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          path = Path('tests/test_brain_files_final_authority.py')
+          text = path.read_text(encoding='utf-8')
+          old = '        self.temp = tempfile.TemporaryDirectory()\n'
+          new = '        self.temp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'tempdir source count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          path = Path('tests/test_brain_b3c1.py')
+          text = path.read_text(encoding='utf-8')
+          replacement = '''    def test_no_reference_proposes_no_target(self):
+                  result = self.understand("dosyay\\u0131 \\u00f6zetle", [])
+                  self.assertNotIn("operation", result.arguments)
+                  self.assertNotIn("path", result.arguments)
+          
+              def test_show_single_resolved_file_is_locate(self):
+                  result = self.understand("dosyay\\u0131 g\\u00f6ster", [file_ref("/data/a.pdf")])
+                  self.assertEqual(result.arguments.get("operation"), "locate")
+                  self.assertEqual(result.arguments.get("path"), "/data/a.pdf")
+          
+          '''
+          pattern = r'^    def test_no_reference_or_other_verb_proposes_no_target\(self\):\n.*?(?=^    def test_path_never_comes_from_raw_text\(self\):)'
+          text, count = re.subn(pattern, lambda _m: replacement, text, count=1, flags=re.S | re.M)
+          if count != 1:
+              raise SystemExit(f'old show expectation structural count={count}')
+
+          replacement = '''    def test_summary_uses_brain_path_without_legacy_resolve_doc(self):
+                  self.ctx.docs = Mock(summarize=Mock(return_value="\\u00d6ZET"))
+                  with patch.object(self.ctx, "_resolve_doc", side_effect=AssertionError("canonical file target cannot be reselected"), create=True), \\
+                       patch.object(brain_precedence, "claim", return_value=None):
+                      entry, out, handle = self.through_brain("rapor.txt dosyas\\u0131n\\u0131 \\u00f6zetle")
+                  self.assertEqual(out, "\\u00d6ZET\\n\\nDosya olarak almak istersen \\u00e7\\u0131kt\\u0131 al de.")
+                  self.ctx.docs.summarize.assert_called_once()
+                  actual = Path(self.ctx.docs.summarize.call_args.args[0]).resolve()
+                  self.assertEqual(actual, self.file.resolve())
+                  self.assertFalse(handle.called)
+          
+          '''
+          pattern = r'^    def test_resolve_doc_receives_the_brain_path_and_does_not_reselect\(self\):\n.*?(?=^    def test_front_gate_file_command_beats_core_plan\(self\):)'
+          text, count = re.subn(pattern, lambda _m: replacement, text, count=1, flags=re.S | re.M)
+          if count != 1:
+              raise SystemExit(f'resolve_doc test structural count={count}')
+          path.write_text(text, encoding='utf-8', newline='\n')
+          '@ | py -3.13 -X utf8 -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Focused tests
+        shell: powershell
+        run: |
+          $env:PYTHONPATH = "$PWD;$PWD\tests"
+          py -3.13 -X utf8 -m unittest tests.test_brain_files_final_authority tests.test_brain_b3c1 tests.test_brain_b3b
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Commit product changes and remove helpers
+        shell: powershell
+        run: |
+          git config user.name "jarvis-ci"
+          git config user.email "jarvis-ci@users.noreply.github.com"
+          git rm scripts/pr488_apply.py .github/workflows/pr488-green.yml .github/workflows/pr488-green2.yml
+          git add modules/brain_understanding.py modules/brain_core_map.py modules/brain_entry.py modules/brain_precedence.py modules/engine_intents.py tests/test_brain_b3b.py tests/test_brain_b3c1.py docs/Jarvis_Yol_Haritasi.md tests/test_brain_files_final_authority.py
+          git commit -m "feat: make Brain file targets canonical through Core"
+          git push origin HEAD:gpt/brain-files-final-authority
