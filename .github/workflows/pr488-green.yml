@@ -14,6 +14,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Repair literal replacement helper
+        shell: powershell
+        run: |
+          $path = 'scripts/pr488_apply.py'
+          $text = Get-Content $path -Raw -Encoding utf8
+          $old = 'new, count = re.subn(pattern, repl, text, count=1, flags=re.S | re.M)'
+          $new = 'new, count = re.subn(pattern, lambda _m: repl, text, count=1, flags=re.S | re.M)'
+          if (($text.Split($old).Count - 1) -ne 1) { throw 'sub_once satırı beklenen tek eşleşme değil' }
+          [System.IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [System.Text.UTF8Encoding]::new($false))
       - name: Apply bounded patch
         shell: powershell
         run: |
