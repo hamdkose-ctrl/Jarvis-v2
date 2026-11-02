@@ -103,6 +103,7 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
     def test_handler_follows_canonical_photo_relation_even_if_legacy_regex_says_no(self):
         runtime, entry, path = self._entry_and_runtime("analiz et")
         self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertTrue(any(ref.id == "pending_photo" for ref in entry.active_context.pending_references))
         runtime._PHOTO_INTENT = SimpleNamespace(search=Mock(return_value=False))
 
         result = self._handle(runtime, entry, "analiz et")
@@ -134,9 +135,11 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
 
-    def test_expired_pending_photo_cannot_execute_even_if_relation_matches(self):
+    def test_expired_pending_photo_is_not_exposed_as_live_brain_state(self):
         runtime, entry, _path = self._entry_and_runtime("analiz et", age_seconds=601)
-        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertFalse(any(ref.id == "pending_photo" for ref in entry.active_context.pending_references))
+        self.assertFalse(any(ref.kind == "photo" for ref in entry.active_context.active_artifacts))
 
         result = self._handle(runtime, entry, "analiz et")
 
