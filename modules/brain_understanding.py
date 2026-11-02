@@ -248,6 +248,7 @@ def _require_reference_candidates(
 def _contains_any(text: str, signals: Iterable[str]) -> bool:
     return any(signal in text for signal in signals)
 
+
 def _bounded_token(text: str, token: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(token)}(?!\w)", text) is not None
 
@@ -1003,8 +1004,10 @@ _PHOTO_FOLLOWUP = re.compile(
     r"ne var|ne yazıyor|\bbu\b|bunu|bunda|şunu|resim|fotoğraf|foto|görsel|neresi|hesapla|özetle|kontrol|bak"
 )
 
+PHOTO_FOLLOWUP_CODE = "SEMANTIC_PHOTO_FOLLOWUP"
 
-def _photo_followup_answer(normalized: str, active_context: ActiveContext) -> bool:
+
+def _photo_followup_continuation(normalized: str, active_context: ActiveContext) -> bool:
     """Open-ended photo relation belongs to Understanding, never the exact state gate."""
     if not normalized or _is_context_control(normalized) or _is_correction(normalized):
         return False
@@ -1018,8 +1021,6 @@ def _photo_followup_answer(normalized: str, active_context: ActiveContext) -> bo
 def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
     if not active_context.pending_references:
         return False
-    if _photo_followup_answer(normalized, active_context):
-        return True
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
     if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
@@ -1130,10 +1131,14 @@ def understand(
         elif file_operation == FILE_CONVERT and _file_format(normalized) is None:
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
+    photo_followup = _photo_followup_continuation(normalized, active_context)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
         relation = ConversationRelation.CORRECTION
+    elif photo_followup:
+        # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
+        relation = ConversationRelation.CONTINUE_ACTIVE
     elif _answer_to_pending(text, normalized, active_context):
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
@@ -1167,6 +1172,8 @@ def understand(
         reason_codes.append("SEMANTIC_PENDING_ANSWER")
     elif relation is ConversationRelation.CONTINUE_ACTIVE:
         reason_codes.append("ACTIVE_REFERENCE_CONTINUATION")
+        if photo_followup:
+            reason_codes.append(PHOTO_FOLLOWUP_CODE)
     elif relation is ConversationRelation.CORRECTION:
         reason_codes.append("USER_CORRECTION")
     elif relation is ConversationRelation.TOPIC_CHANGE:

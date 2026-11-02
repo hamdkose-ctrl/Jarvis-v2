@@ -16,7 +16,7 @@ class _TypoRetry:
 
 
 def handle_request(runtime, command: str) -> str:
-    """Public entry: run the pipeline; at most one explicit retry on the typo-corrected text, same request id."""
+    """Public entry: run the pipeline; at most one explicit retry on typo-corrected text, same request id."""
     reply = handle(runtime, command)
     if not isinstance(reply, _TypoRetry):
         return reply
@@ -80,7 +80,6 @@ def handle(runtime, command: str):
     ph = runtime._pending_photo.get(runtime.profile.slug)
     if ph and not runtime._session()._in_multi:
         from modules import brain_entry
-        from modules.brain_contracts import ConversationRelation
         if runtime.time.time() - ph["t"] > 600:
             runtime._pending_photo.pop(runtime.profile.slug, None)
         elif brain_entry.matched_protocol("phone_photo.cancel"):
@@ -88,21 +87,14 @@ def handle(runtime, command: str):
             return "Tamam, fotoğrafla bir şey yapmıyorum."
         else:
             entry = brain_entry.current()
-            belongs_to_photo = bool(
-                entry is not None
-                and entry.understanding is not None
-                and entry.understanding.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
-                and any(
-                    ref.kind == "pending_state"
-                    and ref.source == "engine_commands"
-                    and ref.id == "pending_photo"
-                    for ref in entry.active_context.pending_references
-                )
-            )
-            runtime._pending_photo.pop(runtime.profile.slug, None)
-            if belongs_to_photo:
+            if brain_entry.open_pending_answer(entry, "pending_photo"):
+                runtime._pending_photo.pop(runtime.profile.slug, None)
                 return runtime._photo_action(ph["path"], command)
-            # başka bir konuya geçildi: pending düşer, normal canonical akış devam eder
+            if brain_entry.relation_decided(entry):
+                # Brain cevabı fotoğrafa bağlamadı: pending düşer, normal akış devam eder.
+                runtime._pending_photo.pop(runtime.profile.slug, None)
+            # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının
+            # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
 
     # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
     if not runtime._session()._in_multi and runtime._session().pending_msg is None and runtime._session().pending_confirm is None and runtime._session().pending_organize is None:

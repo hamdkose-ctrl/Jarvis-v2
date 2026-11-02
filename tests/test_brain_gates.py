@@ -243,6 +243,29 @@ class GateTests(unittest.TestCase):
         self.assertFalse(self.state("buna bak", refs=(photo,)).matched)
         self.assertFalse(self.state("bu fotoğrafta ne var", refs=(photo,)).matched)
 
+    def test_one_bounded_state_carried_by_both_lists_is_a_single_protocol_hit(self):
+        """Production shape: ActiveContext and the observed refs can describe the same state."""
+        photo = ref("pending_photo", source="engine_commands", path="C:/photo.jpg", t=1.0)
+        cases = (
+            ("iptal", (photo,), ctx(pending=(photo,)), "phone_photo.cancel", "BOUNDED_PHOTO_CANCEL"),
+            ("devam", (ref("job-1", kind="task_job", source="task_agents", state="incomplete"),),
+             ctx(tasks=(ref("job-1", kind="task_job", source="task_agents", state="incomplete"),)),
+             "job.resume", "BOUNDED_JOB_RESUME"),
+        )
+        for text, refs, active, protocol, reason in cases:
+            with self.subTest(text=text):
+                result = self.state(text, active_context=active, refs=refs)
+                self.assertTrue(result.matched)
+                self.assertEqual(result.protocol, protocol)
+                self.assertEqual(result.reason_code, reason)
+
+    def test_deduping_keeps_genuinely_ambiguous_states_ambiguous(self):
+        photo = ref("pending_photo", source="engine_commands", path="C:/photo.jpg", t=1.0)
+        job = ref("job-1", kind="task_job", source="task_agents", state="incomplete")
+        result = self.state("iptal", active_context=ctx(pending=(photo,)), refs=(photo, job))
+        self.assertFalse(result.matched)
+        self.assertEqual(result.reason_code, "MULTIPLE_BOUNDED_STATE_MATCHES")
+
     def test_owner_and_request_fences_fail_closed(self):
         module = self.module()
         with self.assertRaises(ValueError):
