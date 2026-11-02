@@ -5,6 +5,7 @@ ve "hedef …" önekleri, onay kelimeleri) aynen korunur.
 """
 import time
 import unittest
+import uuid
 from datetime import datetime
 from unittest.mock import Mock, patch
 
@@ -45,16 +46,19 @@ class JobFrontTests(ProfileCase):
         def execute():
             if not canonical:
                 return rt.handle(text)
-            from modules import brain_entry
-            entry = brain_entry.prepare(
-                rt,
-                owner=rt.profile.slug,
-                request_id='rid-job-front-photo',
-                text=text,
-                source='telefon',
-            )
-            with brain_entry.bind(entry):
-                return rt.handle(text)
+            from modules import brain_entry, requests_state
+            rid = 'rid-job-front-' + uuid.uuid4().hex[:12]
+            self.assertTrue(requests_state.register(rt.profile.slug, rid))
+            with requests_state.activate(rt.profile.slug, rid):
+                entry = brain_entry.prepare(
+                    rt,
+                    owner=rt.profile.slug,
+                    request_id=rid,
+                    text=text,
+                    source='telefon',
+                )
+                with brain_entry.bind(entry):
+                    return rt.handle(text)
 
         # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi model kapılarının
         # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmez.
