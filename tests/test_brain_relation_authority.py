@@ -14,8 +14,10 @@ from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 from modules import app_actions, brain_core_map, brain_context, brain_entry, brain_precedence, desktop_agent
-from modules import brain_understanding, engine_runtime, job_front, requests_state
-from modules.brain_contracts import ConversationRelation, RequestKind
+from modules import brain_understanding, engine_commands, engine_runtime, goal_executor, job_front, requests_state
+from modules import history as history_mod
+from modules.brain_contracts import ActiveContext, ConversationRelation, RequestKind
+from modules.brain_gates import GateObservation
 from modules.command_manager import awaiting_input
 from modules.system_control import APPS as STATIC_APPS
 from modules.system_control import ApplicationResult
@@ -132,13 +134,18 @@ class RelationAuthorityTests(unittest.TestCase):
         self.assertIsNone(session.pending_action)
 
     def test_capitalized_confirmation_is_not_a_typed_app_target(self):
-        for answer in ("Tamam", "Olur", "İptal"):
+        for answer in ("Tamam", "Olur"):
             with self.subTest(answer=answer):
                 session = self.ask("aç")
                 entry, out, _ = self.turn_typed_answer(session, answer)
                 self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
                 self.ctx.system_control.open_application.assert_not_called()
                 self.assertIsNone(session.pending_action)
+        session = self.ask("aç")
+        entry, out, _ = self.turn_typed_answer(session, "İptal")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_action.clarify_cancel")
+        self.ctx.system_control.open_application.assert_not_called()
+        self.assertIsNone(session.pending_action)
 
     def test_new_request_chat_clears_the_open_clarification(self):
         session = self.ask("aç")
@@ -436,6 +443,309 @@ class NoPendingRequestSlotTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1] / "modules"
         offenders = [path.name for path in root.rglob("*.py") if "pending_request" in path.read_text(encoding="utf-8")]
         self.assertEqual(offenders, [])
+
+
+class StatePrecedenceTests(unittest.TestCase):
+    """Açık foreground etkileşim çıplak cevabı sahiplenir; uzun ömürlü Goal çalamaz.
+
+    Goal kayıtları gerçek üretim yoluyla (`goal_executor._save`) geçici bir STORE'a yazılır;
+    canlı kullanıcı klasörü okunmaz ve mevcut kişisel kayıtlar silinmez.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root_logger = engine_runtime.logging.getLogger()
+        previous_handlers = set(root_logger.handlers)
+        with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
+            self.ctx = engine_runtime.EngineContext()
+
+        def close_test_handlers():
+            for handler in list(root_logger.handlers):
+                if handler not in previous_handlers:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+
+        self.addCleanup(close_test_handlers)
+        self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
+        self.owner = self.ctx.profile.slug
+        self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
+        self.ctx.chat = Mock(return_value="CHAT")
+
+        goals = Path(self.temp.name) / "goals"
+        # Boş geçici kök: varsayılan okuyucu canlı geçmişi/kişisel hedefleri görmez.
+        history_root = Path(self.temp.name) / "history"
+        for target, attr, value in ((goal_executor, "STORE", goals), (history_mod, "DIR", history_root)):
+            state_patch = patch.object(target, attr, value)
+            state_patch.start()
+            self.addCleanup(state_patch.stop)
+        for target, attr in ((job_front, "observe"), (desktop_agent, "_load")):
+            state_patch = patch.object(target, attr, return_value=None)
+            state_patch.start()
+            self.addCleanup(state_patch.stop)
+        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
+        guard.start()
+        self.addCleanup(guard.stop)
+        self.run_goal = Mock(return_value="GOAL_RUN")
+        run_patch = patch.object(goal_executor, "run", self.run_goal)
+        run_patch.start()
+        self.addCleanup(run_patch.stop)
+
+    def goal(self, *, state: str, **extra):
+        job = {
+            "id": uuid.uuid4().hex[:16], "owner": self.owner, "request": "test hedefi",
+            "state": state, "goals": [], "steps": [], "outputs": {},
+            "created": time.time(), "updated": time.time(),
+        }
+        job.update(extra)
+        goal_executor._save(job)
+        return job
+
+    def turn(self, text):
+        rid = "rel-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
+            with patch.object(brain_precedence, "claim", return_value=None):
+                out, feedback, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
+        return entry, out, feedback
+
+    def ask(self, text="aç"):
+        entry, out, feedback = self.turn(text)
+        self.assertIn("Neyi", out)
+        return self.ctx._session()
+
+    def test_foreground_clarify_cancel_is_not_goal_cancel(self):
+        for token in ("iptal", "vazgeç", "boşver"):
+            with self.subTest(token=token):
+                self.goal(state="running")
+                session = self.ask("aç")
+                self.assertIsNotNone(session.pending_action)
+                entry, out, feedback = self.turn(token)
+                self.assertTrue(entry.state_gate.matched)
+                self.assertEqual(entry.state_gate.protocol, "session.pending_action.clarify_cancel")
+                self.assertEqual(goal_executor.latest(self.owner)["state"], "running")
+                self.assertIsNone(session.pending_action)
+                self.ctx.system_control.open_application.assert_not_called()
+                self.assertIn("iptal", out)
+                self.assertFalse(awaiting_input(session))
+        self.run_goal.assert_not_called()
+
+    def test_foreground_close_confirmation_is_not_goal_approval(self):
+        self.goal(state="approval", steps=[{"id": "s1", "tool": "manual"}], waiting="s1")
+        session = self.ask("kapat")
+        self.ctx.system_control.close_application = Mock(
+            return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
+        entry, out, _ = self.turn("Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(session.pending_confirm, {"action": "close_app", "name": "Chrome"})
+
+        entry, out, feedback = self.turn("evet")
+        self.assertTrue(entry.state_gate.matched)
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        self.ctx.system_control.close_application.assert_called_once_with("Chrome")
+        self.run_goal.assert_not_called()
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "approval")
+        self.assertIsNone(session.pending_confirm)
+        self.assertFalse(awaiting_input(session))
+        self.assertEqual(out, "Chrome pencerelerinin kapandığını doğruladım.")
+        self.ctx.chat.assert_not_called()
+
+    def test_explicit_goal_controls_keep_their_state(self):
+        self.goal(state="running")
+        session = self.ask("aç")
+        entry, out, _ = self.turn("hedef iptal")
+        self.assertEqual(entry.state_gate.protocol, "goal.cancel")
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "cancelled")
+        self.assertIsNone(session.pending_action)
+        self.ctx.system_control.open_application.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.run_goal.assert_not_called()
+
+        self.goal(state="running")
+        self.ask("aç")
+        entry, out, _ = self.turn("hedef devam")
+        self.assertEqual(entry.state_gate.protocol, "goal.resume")
+        self.run_goal.assert_called_once()
+
+        self.goal(state="approval", steps=[{"id": "s1", "tool": "manual"}], waiting="s1")
+        self.ask("aç")
+        entry, out, _ = self.turn("hedef onayla")
+        self.assertEqual(entry.state_gate.protocol, "goal.approval")
+        self.assertEqual(self.run_goal.call_count, 2)
+
+    def test_two_equal_priority_foreground_states_fail_closed(self):
+        session = self.ctx._session()
+        session.pending_confirm = {"action": "close_app", "name": "Chrome"}
+        session.pending_msg = {"to": "Ali", "text": "Selam", "stage": "confirm"}
+        self.ctx.system_control.close_application = Mock()
+        entry, out, feedback = self.turn("evet")
+        self.assertFalse(entry.state_gate.matched)
+        self.assertEqual(entry.state_gate.reason_code, "MULTIPLE_BOUNDED_STATE_MATCHES")
+        self.assertIn("Birden fazla", out)
+        self.assertEqual(feedback.result_status, "needs_input")
+        self.ctx.system_control.close_application.assert_not_called()
+        self.assertEqual(session.pending_confirm, {"action": "close_app", "name": "Chrome"})
+        self.assertEqual(session.pending_msg["stage"], "confirm")
+
+    def test_foreground_photo_cancel_is_not_goal_cancel(self):
+        session = self.ctx._session()
+        self.ctx._pending_photo[self.owner] = {"path": "C:/photo.jpg", "t": time.time()}
+        self.goal(state="running")
+        entry, out, _ = self.turn("iptal")
+        self.assertEqual(entry.state_gate.protocol, "phone_photo.cancel")
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "running")
+        self.assertNotIn(self.owner, self.ctx._pending_photo)
+        self.assertIn("fotoğraf", out)
+        self.run_goal.assert_not_called()
+
+    def test_open_message_cancel_is_not_goal_cancel(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        self.goal(state="running")
+        entry, out, _ = self.turn("iptal")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.cancel")
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "running")
+        self.assertIsNone(session.pending_msg)
+        self.assertEqual(out, "Tamam, mesajı göndermedim.")
+        self.run_goal.assert_not_called()
+
+    def test_open_weather_question_is_not_reclaimed_as_goal_cancel(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        self.goal(state="running")
+        entry, out, _ = self.turn("boşver")
+        self.assertFalse(entry.state_gate.matched)
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "running")
+        self.run_goal.assert_not_called()
+        self.ctx.chat.assert_not_called()
+
+    def test_open_visual_question_does_not_steal_another_owner(self):
+        session = self.ctx._session()
+        session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        self.goal(state="running")
+        entry, out, _ = self.turn("iptal")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.cancel")
+        self.assertIsNone(session.pending_msg)
+        self.assertEqual(out, "Tamam, mesajı göndermedim.")
+        self.assertIsNotNone(session.pending_visual)
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "running")
+        self.run_goal.assert_not_called()
+
+    def test_open_message_field_does_not_swallow_a_final_confirmation(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_confirm = {"action": "close_app", "name": "Chrome"}
+        self.ctx.system_control.close_application = Mock(
+            return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
+        entry, out, _ = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        self.ctx.system_control.close_application.assert_called_once_with("Chrome")
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+        self.assertIsNone(session.pending_confirm)
+        self.assertEqual(out, "Chrome pencerelerinin kapandığını doğruladım.")
+
+    def test_canonical_final_confirmation_is_not_remapped_to_desktop_consent(self):
+        session = self.ctx._session()
+        session.pending_desktop = True
+        session.pending_confirm = {"action": "close_app", "name": "Chrome"}
+        self.ctx.system_control.close_application = Mock(
+            return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
+        with patch.object(desktop_agent, "consent_reply", return_value="PC izin ver") as consent:
+            entry, out, _ = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        consent.assert_not_called()
+        self.ctx.system_control.close_application.assert_called_once_with("Chrome")
+        self.assertEqual(out, "Chrome pencerelerinin kapandığını doğruladım.")
+
+
+class BoundedJobLegacyGuardTests(unittest.TestCase):
+    def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
+        active = ActiveContext(owner="alice", request_id="rel-guard")
+        def entry(protocol: str, reason: str):
+            return brain_entry.EntryResult(
+                "alice", "rel-guard", "yazı", "iptal", active,
+                GateObservation("alice", "rel-guard", "state", True, reason, protocol, "cancel"),
+            )
+
+        probe = Mock(return_value="JOB")
+        saved_route = job_front.route
+        saved_flag = getattr(job_front, "_brain_gate_guard_installed", False)
+        saved_legacy = getattr(job_front, "_brain_legacy_route", None)
+        job_front.route = probe
+        job_front._brain_gate_guard_installed = False
+        try:
+            brain_entry._install_job_guard()
+            guarded = job_front.route
+            with brain_entry.bind(entry("session.pending_confirm.confirm", "BOUNDED_FINAL_CONFIRM")):
+                self.assertIsNone(guarded("alice", lambda *a: None, "iptal", SimpleNamespace()))
+            with brain_entry.bind(entry("job.cancel", "BOUNDED_JOB_CANCEL")):
+                self.assertEqual(guarded("alice", lambda *a: None, "iptal", SimpleNamespace()), "JOB")
+            self.assertEqual(probe.call_count, 1)
+        finally:
+            job_front.route = saved_route
+            job_front._brain_gate_guard_installed = saved_flag
+            job_front._brain_legacy_route = saved_legacy
+
+
+class StateAuthorityArchitectureGuardTests(unittest.TestCase):
+    def test_goal_legacy_bare_rebinding_is_fenced_before_it_can_mutate_state(self):
+        tree = ast.parse(Path(goal_executor.__file__).read_text(encoding="utf-8-sig"))
+        handle = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef) and node.name == "handle")
+
+        def is_fence_call(node):
+            return (isinstance(node, ast.Call)
+                    and ((isinstance(node.func, ast.Attribute) and node.func.attr == "allow_legacy_goal_control")
+                         or (isinstance(node.func, ast.Name) and node.func.id == "allow_legacy_goal_control")))
+
+        fences = [
+            node.lineno for node in ast.walk(handle)
+            if isinstance(node, ast.If) and any(is_fence_call(child) for child in ast.walk(node.test))
+            and any(isinstance(child, ast.Return) for child in node.body)
+        ]
+        rebinding = [
+            node.lineno for node in ast.walk(handle)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "low" for target in node.targets)
+            and isinstance(node.value, ast.Constant)
+            and node.value.value in {"hedef onayla", "hedef iptal"}
+        ]
+        self.assertTrue(fences, "Goal çıplak token çevirimi canonical kapıyla çitlenmeli.")
+        self.assertTrue(rebinding)
+        self.assertLess(min(fences), min(rebinding))
+
+    def test_open_message_field_is_fenced_by_canonical_ownership(self):
+        tree = ast.parse(Path(engine_commands.__file__).read_text(encoding="utf-8-sig"))
+        handle = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef) and node.name == "handle")
+
+        def is_pending_msg_test(node):
+            return (isinstance(node, ast.Compare)
+                    and isinstance(node.left, ast.Attribute) and node.left.attr == "pending_msg")
+
+        branches = [node for node in ast.walk(handle)
+                    if isinstance(node, ast.If) and is_pending_msg_test(node.test)]
+        self.assertTrue(branches, "Açık pending_msg dalı bulunmalı.")
+        branch = branches[0]
+        calls = [node for node in ast.walk(branch) if isinstance(node, ast.Call)]
+        providers = [node for node in calls
+                     if isinstance(node.func, ast.Attribute) and node.func.attr == "state_protocol"]
+        steps = [node for node in calls
+                 if isinstance(node.func, ast.Attribute) and node.func.attr == "_message_step"]
+        self.assertTrue(providers, "Mesaj alanı canonical sahiplik kaynağıyla çitlenmeli.")
+        self.assertTrue(steps)
+        self.assertLess(min(node.lineno for node in providers),
+                        min(node.lineno for node in steps))
+        fenced = [
+            node for node in ast.walk(branch)
+            if isinstance(node, ast.If)
+            and any(isinstance(child, ast.Name) and child.id == "owned" for child in ast.walk(node.test))
+            and any(isinstance(child, ast.Attribute) and child.attr == "_message_step"
+                    for child in ast.walk(node))
+        ]
+        self.assertTrue(fenced, "_message_step canonical sahiplik seçimine bağlı çitte çalışmalı.")
 
 
 if __name__ == "__main__":

@@ -196,14 +196,19 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
         if data is None:
             return None
         if data.get("stage") == "clarify":
+            expires = data.get("expires")
+            expired = isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires < time.time()
+            # An active clarification owns its own cancel: the user is closing the question the
+            # system just asked, not issuing a long-lived Goal/Job control.
+            if text in _CANCEL and not expired:
+                return _hit(owner, request_id, "state", "session.pending_action.clarify_cancel", "cancel", "BOUNDED_ACTION_CLARIFY_CANCEL")
             # Only an answer that selects exactly one OFFERED choice belongs to the clarification.
             # Open-ended clarify (no resume choices) is never consumed: the reply is a new request.
             resume = _mapping(data.get("resume"))
             choices = resume.get("choices") if resume is not None else None
             if not isinstance(choices, (tuple, list)) or not choices or not all(isinstance(c, str) and c.strip() for c in choices):
                 return None
-            expires = data.get("expires")
-            if isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires < time.time():
+            if expired:
                 return None
             index = choice_index(text, choices)
             if index is None:
@@ -221,12 +226,16 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
         return _hit(owner, request_id, "state", "session.pending_confirm.confirm", answer, "BOUNDED_FINAL_CONFIRM") if answer else None
 
     if reference.id == "pending_msg":
+        if data is not None and data.get("stage") in ("to", "text") and text in _CANCEL:
+            return _hit(owner, request_id, "state", "session.pending_msg.cancel", "cancel", "BOUNDED_MESSAGE_CANCEL")
         if data is None or data.get("stage") != "confirm":
             return None
         answer = _confirmation(text, extra=("gönder", "gonder", "evet gönder", "evet gonder", "gönder gitsin", "gonder gitsin"))
         return _hit(owner, request_id, "state", "session.pending_msg.confirm", answer, "BOUNDED_MESSAGE_CONFIRM") if answer else None
 
     if reference.id == "pending_event_title":
+        if isinstance(value, str) and value.strip() and text in _CANCEL:
+            return _hit(owner, request_id, "state", "session.pending_event_title.cancel", "cancel", "BOUNDED_EVENT_CANCEL")
         if data is None or "confirm" not in data:
             return None
         answer = _confirmation(text, extra=("ekle", "yine de ekle", "ekle gitsin"))
@@ -314,6 +323,53 @@ def _photo_match(reference: ContextReference, text: str, owner: str, request_id:
     return None
 
 
+# Explicit state precedence. A bare reply belongs to the interaction the system just asked
+# about; a long-lived Goal/background Job may use it only when no foreground interaction claims
+# it. Ranks are a fixed product contract, not list order:
+#   0 explicit-qualified Goal control ("hedef iptal/onayla/devam")
+#   1 foreground session interaction (pending_confirm/action/msg/organize/...)
+#   2 domain-specific foreground prompt (learning/hoca/desktop consent/photo)
+#   3 long-lived Goal state
+#   4 background Job
+# Equal rank means the utterance is genuinely ambiguous for this turn: fail closed.
+_QUALIFIED_GOAL_PREFIX = "hedef "
+_RANK_EXPLICIT_GOAL = 0
+_RANK_SESSION = 1
+_RANK_DOMAIN_PROMPT = 2
+_RANK_GOAL = 3
+_RANK_JOB = 4
+
+
+def _state_rank(protocol: str, normalized: str) -> int:
+    if protocol.startswith("session."):
+        return _RANK_SESSION
+    if protocol.startswith("goal."):
+        return _RANK_EXPLICIT_GOAL if normalized.startswith(_QUALIFIED_GOAL_PREFIX) else _RANK_GOAL
+    if protocol.startswith("job."):
+        return _RANK_JOB
+    return _RANK_DOMAIN_PROMPT
+
+
+def _foreground_open(reference: ContextReference) -> bool:
+    """Is this reference an interaction the system just asked the user about?
+
+    Open-ended foreground states (weather city, free message text, photo follow-up) do not
+    own every exact token. A bare cancel belongs to that interaction's semantic layer
+    (Understanding), not to a long-lived Goal/Job; an unrelated continue may still resume
+    background work.
+    """
+    if reference.source == "session_state" and reference.id in _PENDING_SESSION_IDS:
+        if reference.id == "pending_action":
+            return reference.provenance.get("active") is not False
+        return True
+    return (
+        (reference.source == "learning" and reference.id == "pending_facts")
+        or (reference.source == "profile.hoca" and reference.id == "lesson.pending")
+        or (reference.source == "desktop_agent" and reference.id == "consent")
+        or (reference.source == "engine_commands" and reference.id == "pending_photo")
+    )
+
+
 def exact_state_gate(
     *,
     owner: str,
@@ -322,7 +378,10 @@ def exact_state_gate(
     active_context: ActiveContext,
     state_references: tuple[ContextReference, ...] = (),
 ) -> GateObservation:
-    """Observe whether *this utterance* exactly fits an observed bounded protocol."""
+    """Observe whether *this utterance* exactly fits an observed bounded protocol.
+
+    When several observed states match the same token, the fixed foreground-first precedence
+    above selects exactly one owner. A tie at the winning rank stays ambiguous and fails closed."""
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
     if not isinstance(text, str):
@@ -346,9 +405,18 @@ def exact_state_gate(
             matches.append(match)
     if not matches:
         return _miss(owner, request_id, "state", "NO_BOUNDED_STATE_MATCH")
-    if len(matches) != 1:
+    best_rank = min(_state_rank(match.protocol or "", normalized) for match in matches)
+    winners = [match for match in matches if _state_rank(match.protocol or "", normalized) == best_rank]
+    if len(winners) != 1:
         return _miss(owner, request_id, "state", "MULTIPLE_BOUNDED_STATE_MATCHES")
-    return matches[0]
+    if (best_rank in {_RANK_GOAL, _RANK_JOB} and winners[0].selection == "cancel"
+            and any(_foreground_open(reference) for reference in rows)):
+        # A cancel token is not an exact protocol of the open-ended foreground interaction, but
+        # it still belongs to that interaction's semantic layer: Understanding decides whether it
+        # closes the question. Background work must not steal it. Unrelated continue ("devam")
+        # keeps its Job/Goal owner.
+        return _miss(owner, request_id, "state", "FOREGROUND_STATE_REQUIRES_UNDERSTANDING")
+    return winners[0]
 
 
 def goal_status_selection(text: object) -> str | None:

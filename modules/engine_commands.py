@@ -51,6 +51,12 @@ def handle(runtime, command: str):
                                     close=runtime._close_jarvis, set_sleep=runtime.set_sleep)
     if control_result is not None:
         return control_result
+    from modules import brain_entry
+    # Açık clarification'ın iptali canonical kapıda seçildiyse sahibi bu turdur; Goal/Job
+    # çıplak "iptal"i ikinci kez yorumlayamaz.
+    if brain_entry.matched_protocol("session.pending_action.clarify_cancel"):
+        runtime._session().pending_action = None
+        return "Tamam, işlemi iptal ettim."
     from modules import goal_executor, job_front
     if job_front.wants(cmd_lower):
         front_result = job_front.route(runtime.profile.slug, lambda *a, **k: runtime.emit(*a, **k), cmd_lower, session, photo_pending=bool(getattr(runtime, '_pending_photo', {}).get(runtime.profile.slug)))
@@ -115,9 +121,14 @@ def handle(runtime, command: str):
 
     # WhatsApp mesajı: eksik bilgi sorulur, göndermeden önce onay alınır
     if runtime._session().pending_msg is not None:
-        reply = runtime._message_step(command, cmd_lower)
-        if reply is not None:
-            return reply
+        from modules import brain_entry
+        owned = brain_entry.state_protocol()
+        # Canonical kapı cevabı başka bir bounded state'e verdiyse açık mesaj alanı
+        # çıplak cevabı ikinci kez yorumlayamaz; bağlı entry yoksa eski davranış korunur.
+        if owned is None or owned.startswith("session.pending_msg."):
+            reply = runtime._message_step(command, cmd_lower)
+            if reply is not None:
+                return reply
     elif runtime.messaging.is_whatsapp_message(cmd_lower):
         fast = runtime.messaging.quick_parse(cmd_lower, runtime.profile.data.get("contacts", {}))   # kayıtlı kişi: LLM beklemeden
         to, text = fast if fast else runtime.messaging.extract(command, runtime.ask)

@@ -98,9 +98,15 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Geliştirme sonucu sohbet ekranında hazır.'
         return result
     from modules import desktop_agent
-    desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
-    if desktop_command == command and session.pending_desktop:
-        desktop_command = desktop_agent.consent_reply(owner, normalized) or command
+    # Başka bir bounded state canonical kapıda seçildiyse "evet/devam" masaüstü iznine
+    # yeniden yorumlanmaz; canonical protokol tek sahiptir.
+    from modules import brain_entry
+    owned = brain_entry.state_protocol()
+    desktop_command = command
+    if owned is None or owned == "desktop.consent":
+        desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
+        if desktop_command == command and session.pending_desktop:
+            desktop_command = desktop_agent.consent_reply(owner, normalized) or command
     result = desktop_agent.handle(owner, desktop_command, context.emit, current=context.pc_owner, source=context.source)
     if result is not None:
         session.pending_desktop = True if desktop_agent.awaiting(owner) else None

@@ -629,6 +629,12 @@ def _install_job_guard() -> None:
     original = job_front.route
 
     def guarded(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False):
+        entry = current()
+        if entry is not None:
+            if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+                return None
+            if entry.state_gate.matched and not matched_protocol("job.resume", "job.cancel"):
+                return None
         canonical = matched_protocol("job.resume", "job.cancel")
         return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
 
@@ -978,6 +984,39 @@ def goal_question_superseded(runtime: Any = None) -> bool | None:
 def matched_protocol(*protocols: str) -> bool:
     entry = current()
     return bool(entry is not None and entry.state_gate.matched and entry.state_gate.protocol in protocols)
+
+
+def state_protocol() -> str | None:
+    """The single bounded protocol the canonical gate selected for the bound turn, if any."""
+    entry = current()
+    if entry is None or not entry.state_gate.matched:
+        return None
+    return entry.state_gate.protocol
+
+
+_BARE_GOAL_CONTROLS = frozenset({
+    "evet", "onaylıyorum", "onayliyorum", "onayla",
+    "iptal", "vazgeç", "vazgec", "boşver", "bosver",
+})
+
+
+def allow_legacy_goal_control(text: str) -> bool:
+    """Can the legacy goal handler interpret *text* inside this canonical turn?
+
+    Explicit goal commands keep their domain state. A bare yes/cancel may reach the legacy
+    handler only when the canonical gate selected a goal protocol; when the gate selected a
+    foreground/Job owner, a long-lived Goal must not re-decide it. Unbound callers (Live,
+    nested steps outside a turn) keep their old behavior.
+    """
+    entry = current()
+    if entry is None:
+        return True
+    low = " ".join(str(text or "").casefold().split()).strip(" .!?")
+    if low.startswith(("hedef ", "hedef:", "görev:", "görev yap:")):
+        return True
+    if low in _BARE_GOAL_CONTROLS and entry.state_gate.matched:
+        return str(entry.state_gate.protocol or "").startswith("goal.")
+    return True
 
 
 def open_pending_answer(entry: EntryResult, field: str) -> bool:
