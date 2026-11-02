@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
-from modules.brain_understanding import ACTION_REQUEST_CODE, EXECUTION_REQUEST_CODE, LEVEL_CAPABILITY
+from modules.brain_understanding import (
+    ACTION_REQUEST_CODE,
+    EXECUTION_REQUEST_CODE,
+    LEVEL_CAPABILITY,
+    PHOTO_FOLLOWUP_CODE,
+)
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -132,6 +137,54 @@ def _append_artifact(active: ActiveContext, artifact: ContextReference | None) -
     )
 
 
+def _append_pending(active: ActiveContext, pending: ContextReference | None) -> ActiveContext:
+    if pending is None:
+        return active
+    if not isinstance(pending, ContextReference) or pending.owner != active.owner:
+        raise ValueError("Pending state owner eşleşmiyor.")
+    refs = active.pending_references
+    if not any(row is pending or (row.source, row.kind, row.id) == (pending.source, pending.kind, pending.id)
+               for row in refs):
+        refs = refs + (pending,)
+    return ActiveContext(
+        owner=active.owner,
+        request_id=active.request_id,
+        topic=active.topic,
+        active_goal_references=active.active_goal_references,
+        active_task_references=active.active_task_references,
+        recent_references=active.recent_references,
+        active_artifacts=active.active_artifacts,
+        pending_references=refs,
+        memory_references=active.memory_references,
+    )
+
+
+_PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
+
+
+def _pending_photo_state(active: ActiveContext) -> ContextReference | None:
+    """The one canonical pending-photo representation, shared by ActiveContext and the gate."""
+    return next(
+        (row for row in active.pending_references
+         if (row.id, row.kind, row.source) == _PENDING_PHOTO_STATE),
+        None,
+    )
+
+
+def _pending_photo_reference(runtime: Any, owner: str) -> ContextReference | None:
+    row = getattr(runtime, "_pending_photo", {}).get(owner)
+    if not isinstance(row, dict) or not row.get("path"):
+        return None
+    return ContextReference(
+        id="pending_photo", kind="pending_state", source="engine_commands", owner=owner,
+        provenance={
+            "path": str(row.get("path")),
+            "t": row.get("t"),
+            "origin_request_id": row.get("origin_request_id"),
+        },
+    )
+
+
 def _pending_photo_artifact(runtime: Any, owner: str) -> ContextReference | None:
     row = getattr(runtime, "_pending_photo", {}).get(owner)
     if not isinstance(row, dict) or not row.get("path"):
@@ -151,10 +204,11 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
+    active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)
 
 
-def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextReference, ...]:
+def _state_refs(runtime: Any, owner: str, request_id: str, active: ActiveContext) -> tuple[ContextReference, ...]:
     rows: list[ContextReference] = []
     try:
         from modules import job_front
@@ -193,16 +247,11 @@ def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextRefer
             provenance={"status": "consent"},
         ))
 
-    photo = getattr(runtime, "_pending_photo", {}).get(owner)
-    if isinstance(photo, dict) and photo.get("path"):
-        rows.append(ContextReference(
-            id="pending_photo", kind="pending_state", source="engine_commands", owner=owner,
-            provenance={
-                "path": str(photo.get("path")),
-                "t": photo.get("t"),
-                "origin_request_id": photo.get("origin_request_id"),
-            },
-        ))
+    photo = _pending_photo_state(active)
+    if photo is not None:
+        # Aynı nesne ActiveContext'te de taşınıyor: gate ile Understanding tek canonical
+        # pending-photo temsilini paylaşır.
+        rows.append(photo)
     return tuple(rows)
 
 
@@ -273,7 +322,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
     active = _build_context(runtime, owner, request_id, artifact)
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
-    state_refs = _state_refs(runtime, owner, request_id)
+    state_refs = _state_refs(runtime, owner, request_id, active)
     state = exact_state_gate(
         owner=owner, request_id=request_id, text=text,
         active_context=active, state_references=state_refs,
@@ -889,5 +938,22 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if field == "pending_weather_location":
         return semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
     if field == "pending_photo":
-        return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references)
+        # Tek authority: Understanding relation'ı seçer; pending photo canonical state'i
+        # ActiveContext'teki tek temsil ile doğrulanır.
+        return (semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
+                and PHOTO_FOLLOWUP_CODE in semantic.reason_codes
+                and _pending_photo_state(entry.active_context) is not None)
     return False
+
+
+def relation_decided(entry: Any) -> bool:
+    """True when Brain reached a single relation/protocol decision the surface may act on."""
+    if not isinstance(entry, EntryResult):
+        return False
+    if entry.state_gate.matched:
+        return True
+    if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+        return False
+    if entry.understanding is not None:
+        return True
+    return entry.fast_gate is not None and entry.fast_gate.matched

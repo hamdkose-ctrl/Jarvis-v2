@@ -108,10 +108,12 @@ def _refs(active_context: ActiveContext, state_references: tuple[ContextReferenc
         + state_references
     )
     unique: list[ContextReference] = []
-    seen: set[int] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for reference in rows:
         _validate_reference(reference, owner, request_id)
-        marker = id(reference)
+        # Bir bounded state iki taşıyıcıdan da gelebilir (ActiveContext + gözlem referansları);
+        # nesne kimliği bunları ayırır ve aynı durum iki protokol hit'i sayar.
+        marker = (reference.owner, reference.source, reference.kind, reference.id)
         if marker not in seen:
             seen.add(marker)
             unique.append(reference)

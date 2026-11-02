@@ -999,6 +999,25 @@ def _looks_like_location_answer(text: str) -> bool:
     return True
 
 
+_PHOTO_FOLLOWUP = re.compile(
+    r"analiz|incele|çevir|tercüme|translate|oku|yazı|\bnot|kaydet|sakla|çöz|soru|açıkla|anlat|nedir|"
+    r"ne var|ne yazıyor|\bbu\b|bunu|bunda|şunu|resim|fotoğraf|foto|görsel|neresi|hesapla|özetle|kontrol|bak"
+)
+
+PHOTO_FOLLOWUP_CODE = "SEMANTIC_PHOTO_FOLLOWUP"
+
+
+def _photo_followup_continuation(normalized: str, active_context: ActiveContext) -> bool:
+    """Open-ended photo relation belongs to Understanding, never the exact state gate."""
+    if not normalized or _is_context_control(normalized) or _is_correction(normalized):
+        return False
+    pending = any(
+        ref.kind == "pending_state" and ref.source == "engine_commands" and ref.id == "pending_photo"
+        for ref in active_context.pending_references
+    )
+    return pending and _PHOTO_FOLLOWUP.search(normalized) is not None
+
+
 def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
     if not active_context.pending_references:
         return False
@@ -1112,10 +1131,14 @@ def understand(
         elif file_operation == FILE_CONVERT and _file_format(normalized) is None:
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
+    photo_followup = _photo_followup_continuation(normalized, active_context)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
         relation = ConversationRelation.CORRECTION
+    elif photo_followup:
+        # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
+        relation = ConversationRelation.CONTINUE_ACTIVE
     elif _answer_to_pending(text, normalized, active_context):
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
@@ -1149,6 +1172,8 @@ def understand(
         reason_codes.append("SEMANTIC_PENDING_ANSWER")
     elif relation is ConversationRelation.CONTINUE_ACTIVE:
         reason_codes.append("ACTIVE_REFERENCE_CONTINUATION")
+        if photo_followup:
+            reason_codes.append(PHOTO_FOLLOWUP_CODE)
     elif relation is ConversationRelation.CORRECTION:
         reason_codes.append("USER_CORRECTION")
     elif relation is ConversationRelation.TOPIC_CHANGE:

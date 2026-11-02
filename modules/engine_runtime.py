@@ -272,8 +272,6 @@ def _initialize(runtime):
     runtime._last_note: dict[str, float] = {}
     runtime._PHOTO_DIR = runtime.DATA_DIR / "fotograflar"
     runtime._pending_photo: dict[str, dict] = {}
-    runtime._PHOTO_INTENT = runtime.re.compile(r"analiz|incele|çevir|tercüme|translate|oku|yazı|\bnot|kaydet|sakla|çöz|soru|açıkla|anlat|nedir|"
-                               r"ne var|ne yazıyor|\bbu\b|bunu|bunda|şunu|resim|fotoğraf|foto|görsel|neresi|hesapla|özetle|kontrol|bak")
     runtime._MACRO_SPLIT = runtime.re.compile(r"\s*(?:,|\bve\b|\bsonra\b|\bardından\b)\s*")
     runtime._VERB_END = runtime.re.compile(r"\s+(aç|başlat|çalıştır)$")
     runtime._NONAPP = runtime.re.compile(r"\b(sesi|ses seviyesi|parlaklık|youtube|spotify|müzi[kğ]|şarkı|hava durumu|saat kaç|notlarım|dosya)\b")

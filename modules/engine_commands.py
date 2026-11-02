@@ -76,19 +76,25 @@ def handle(runtime, command: str):
         if selected is not None:
             return selected
 
-    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: bu cevap o fotoğraf için
+    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: relation kararı canonical Brain'den gelir.
     ph = runtime._pending_photo.get(runtime.profile.slug)
     if ph and not runtime._session()._in_multi:
+        from modules import brain_entry
         if runtime.time.time() - ph["t"] > 600:
             runtime._pending_photo.pop(runtime.profile.slug, None)
-        elif runtime.re.fullmatch(r"(?:vazgeç|iptal|boşver|gerek yok|hiçbir şey|bir şey yapma)\w*", cmd_lower.strip(" .!?")):
+        elif brain_entry.matched_protocol("phone_photo.cancel"):
             runtime._pending_photo.pop(runtime.profile.slug, None)
             return "Tamam, fotoğrafla bir şey yapmıyorum."
-        elif runtime._PHOTO_INTENT.search(cmd_lower):
-            runtime._pending_photo.pop(runtime.profile.slug, None)
-            return runtime._photo_action(ph["path"], command)
         else:
-            runtime._pending_photo.pop(runtime.profile.slug, None)     # başka bir konuya geçildi
+            entry = brain_entry.current()
+            if brain_entry.open_pending_answer(entry, "pending_photo"):
+                runtime._pending_photo.pop(runtime.profile.slug, None)
+                return runtime._photo_action(ph["path"], command)
+            if brain_entry.relation_decided(entry):
+                # Brain cevabı fotoğrafa bağlamadı: pending düşer, normal akış devam eder.
+                runtime._pending_photo.pop(runtime.profile.slug, None)
+            # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının
+            # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
 
     # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
     if not runtime._session()._in_multi and runtime._session().pending_msg is None and runtime._session().pending_confirm is None and runtime._session().pending_organize is None:
