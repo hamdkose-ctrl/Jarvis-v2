@@ -72,8 +72,8 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
         return result
     if session.pending_action is not None:
-        # Açık onay/netleştirme yalnız canonical sahibi o turn'de değilse ham metni tüketir.
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_action."):
+        # Açık onay/netleştirme yalnız canonical olarak kendi cevabı olan turu tüketir.
+        if brain_entry.pending_answer_owned("pending_action"):
             result = app_actions.continue_voice(command, session, context.profile, context.emit)
             if result is not None: return result
     from modules import usage_meter
@@ -102,9 +102,8 @@ def dispatch(context, command, normalized):
     from modules import desktop_agent
     # Başka bir bounded State/Fast protokolü canonical kapıda seçildiyse "evet/devam"
     # masaüstü iznine yeniden yorumlanmaz; canonical protokol tek sahiptir.
-    owned = brain_entry.turn_protocol()
     desktop_command = command
-    if owned is None or brain_entry.protocol_owned_by("desktop."):
+    if brain_entry.pending_answer_owned("pending_desktop"):
         desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
         if desktop_command == command and session.pending_desktop:
             desktop_command = desktop_agent.consent_reply(owner, normalized) or command

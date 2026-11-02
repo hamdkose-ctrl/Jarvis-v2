@@ -906,9 +906,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     now = runtime.datetime.now()
     if runtime._session().pending_event_title is not None:
         from modules import brain_entry
-        # Canonical State/Fast sahibi başka protokole verdiyse açık başlık sorusu ham
-        # metni (ör. "saat kaç") cevap saymaz; bağlı entry yoksa eski davranış korunur.
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_event_title."):
+        # Açık başlık sorusu yalnız canonical olarak kendi cevabı olan turu tüketir (State zaman
+        # protokolü veya semantik ANSWER_TO_PENDING); bağımsız yeni istek soruyu ham metne çevirmez.
+        if brain_entry.pending_answer_owned("pending_event_title"):
             title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
             if isinstance(title, dict):       # çakışma sorusunun cevabı
                 from modules.confirmation import decision
@@ -918,7 +918,8 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
                 if approval is False:
                     return 'Tamam, eklemedim.'
                 title = None                  # başka bir komut geldi: soru düşer, normal akışa devam
-            elif cmd_lower in ('iptal', 'vazgeç', 'boşver'):
+            elif brain_entry.matched_protocol("session.pending_event_title.cancel") \
+                    or cmd_lower in ('iptal', 'vazgeç', 'boşver'):
                 return 'Tamam, eklemedim.'
             when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
             if when:

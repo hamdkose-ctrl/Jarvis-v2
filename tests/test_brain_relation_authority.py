@@ -13,10 +13,11 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
+import test_brain_production_entry as fixtures
 from modules import app_actions, brain_core_map, brain_context, brain_entry, brain_precedence, desktop_agent
 from modules import brain_understanding, engine_commands, engine_runtime, goal_executor, job_front, requests_state
 from modules import history as history_mod
-from modules import command_manager, main_planner, messaging, visual_chat, visual_commands
+from modules import command_manager, main_planner, messaging, personalization, visual_chat, visual_commands
 from modules.brain_contracts import ActiveContext, ConversationRelation, RequestKind
 from modules.brain_gates import GateObservation
 from modules.command_manager import awaiting_input
@@ -24,10 +25,26 @@ from modules.system_control import APPS as STATIC_APPS
 from modules.system_control import ApplicationResult
 
 
+def _isolate_profiles(case, root: Path) -> None:
+    """Profile dosyaları gerçek kullanıcı klasöründe değil, testin geçici kökünde tutulur.
+
+    `EngineContext` canlı `~/.jarvis/users` altındaki profili okumamalı; başka bir testin
+    bıraktığı gerçek takvim/not kaydı test sonucunu değiştiremez."""
+    users = root / "users"
+    users.mkdir(exist_ok=True)
+    for target, attr, value in ((personalization, "USERS_DIR", users),
+                                (personalization, "ACTIVE_FILE", root / "active_user.txt")):
+        state_patch = patch.object(target, attr, value)
+        state_patch.start()
+        case.addCleanup(state_patch.stop)
+
+
+
 class RelationAuthorityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        _isolate_profiles(self, Path(self.temp.name))
         root_logger = engine_runtime.logging.getLogger()
         previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
@@ -456,6 +473,7 @@ class StatePrecedenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        _isolate_profiles(self, Path(self.temp.name))
         root_logger = engine_runtime.logging.getLogger()
         previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
@@ -611,6 +629,65 @@ class StatePrecedenceTests(unittest.TestCase):
         self.assertEqual(out, "Tamam, mesajı göndermedim.")
         self.run_goal.assert_not_called()
 
+    def test_ascii_cancel_reaches_the_weather_question_owner(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        self.ctx._weather = Mock(return_value="HAVA")
+        entry, out, _ = self.turn("vazgec")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_weather_location.cancel")
+        self.ctx._weather.assert_not_called()
+        self.assertIs(session.pending_weather_location, False)
+        self.assertEqual(out, "Hava durumu aramasını iptal ettim.")
+
+    def test_ascii_cancel_does_not_become_a_message_body(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out, _ = self.turn("vazgec")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.cancel")
+        sender.assert_not_called()
+        self.assertIsNone(session.pending_msg)
+        self.assertEqual(out, "Tamam, mesajı göndermedim.")
+
+    def test_ascii_cancel_reaches_the_app_choice_owner(self):
+        session = self.ctx._session()
+        session.pending_app = {"choices": ["Chrome", "Paint"], "at": time.monotonic()}
+        self.ctx.system_control.open_application = Mock()
+        entry, out, _ = self.turn("vazgec")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_app.cancel")
+        self.ctx.system_control.open_application.assert_not_called()
+        self.assertIsNone(session.pending_app)
+        self.assertEqual(out, "Uygulama seçimini iptal ettim.")
+
+    def test_ascii_cancel_reaches_the_event_title_owner(self):
+        from modules import main_planner
+        session = self.ctx._session()
+        session.pending_event_title = "Toplantı"
+        with patch.object(main_planner, "_save_reminder", Mock()) as save:
+            entry, out, _ = self.turn("vazgec")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_event_title.cancel")
+        save.assert_not_called()
+        self.assertIsNone(session.pending_event_title)
+        self.assertEqual(out, "Tamam, eklemedim.")
+
+    def test_visual_source_inflections_use_the_gate_selection(self):
+        fake_result = SimpleNamespace(label="zihin haritası", path="C:/tmp/x.png")
+        for answer, expected in (("belgeyi", "Dosyalar sayfasında"), ("konuşmayı", "Zihin haritası")):
+            with self.subTest(answer=answer):
+                session = self.ctx._session()
+                session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+                with patch.object(visual_chat, "_history_text", Mock(return_value="konuşma")), \
+                        patch.object(visual_commands, "create_visual", Mock(return_value=fake_result)) as create:
+                    entry, out, _ = self.turn(answer)
+                self.assertEqual(entry.state_gate.protocol, "session.pending_visual.select")
+                self.assertIn(expected, out)
+                self.assertNotIn("Sohbetten mi, dosyadan mı", out)
+                self.assertIsNone(session.pending_visual)
+                if answer == "belgeyi":
+                    create.assert_not_called()
+                else:
+                    create.assert_called_once()
+
     def test_open_weather_question_is_not_reclaimed_as_goal_cancel(self):
         session = self.ctx._session()
         session.pending_weather_location = True
@@ -685,16 +762,17 @@ class CanonicalTurnOwnerTests(unittest.TestCase):
         self.assertIsNone(brain_entry.turn_protocol())
 
 
-class FastTurnOwnershipTests(unittest.TestCase):
-    """Canonical Fast Gate bir turn'ün sahibiyse legacy pending tüketicisi ham metni yeniden yorumlamaz.
+class _CanonicalTurnHarness(unittest.TestCase):
+    """Üretim hattı: `prepare → handoff → ctx.handle`.
 
-    Üretim hattı kullanılır: `prepare → handoff → ctx.handle`. Bekleyen state'ler geçici EngineContext
-    oturumunda kurulur; canlı kullanıcı klasörü okunmaz, kişisel Goal kaydı kullanılmaz/silinmez.
+    Bekleyen state'ler geçici EngineContext oturumunda kurulur; canlı kullanıcı klasörü okunmaz,
+    kişisel Goal kaydı kullanılmaz/silinmez.
     """
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        _isolate_profiles(self, Path(self.temp.name))
         root_logger = engine_runtime.logging.getLogger()
         previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
@@ -753,6 +831,10 @@ class FastTurnOwnershipTests(unittest.TestCase):
             entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
             out, _, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
         return entry, out
+
+
+class FastTurnOwnershipTests(_CanonicalTurnHarness):
+    """Canonical Fast Gate bir turn'ün sahibiyse legacy pending tüketicisi ham metni yeniden yorumlamaz."""
 
     def assert_fast_clock_turn(self, entry, out):
         self.assertEqual(entry.stage, "fast")
@@ -928,6 +1010,264 @@ class FastTurnOwnershipTests(unittest.TestCase):
         self.assertIs(session.pending_weather_location, False)
 
 
+class PlanEligibilityTests(_CanonicalTurnHarness):
+    """Pending slot varlığı relation authority değildir.
+
+    Canonical Understanding NEW_REQUEST + CAPABILITY dediğinde, başka bir açık pending state'in
+    yalnızca varlığı Core planını veto edemez ve istek sessizce chat'e dönüşemez. Üretim hattı
+    (`prepare → handoff → ctx.handle`) kullanılır; state'ler geçici oturumda kurulur.
+    """
+
+    def assert_notes_capability(self, entry, out):
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual(entry.understanding.capability_hint, "notes.read")
+        self.assertEqual(out, self.ctx._notes_text())
+        self.ctx.chat.assert_not_called()
+
+    def test_message_draft_cannot_veto_an_independent_notes_request(self):
+        session = self.ctx._session()
+        pending = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(pending)
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("notlarımı göster")
+            sender.assert_not_called()
+        self.assert_notes_capability(entry, out)
+        self.message_step.assert_not_called()
+        self.assertEqual(session.pending_msg, pending)
+
+    def test_pending_confirmation_cannot_veto_notes_and_is_not_consumed(self):
+        session = self.ctx._session()
+        pending = {"action": "close_app", "name": "Chrome"}
+        session.pending_confirm = dict(pending)
+        close = Mock(return_value=ApplicationResult("kapandı", ok=True))
+        self.ctx.system_control.close_application = close
+        entry, out = self.turn("notlarımı göster")
+        self.assert_notes_capability(entry, out)
+        close.assert_not_called()
+        self.assertEqual(session.pending_confirm, pending)
+
+    def test_open_weather_question_cannot_veto_notes(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("notlarımı göster")
+        self.assert_notes_capability(entry, out)
+        self.ctx._weather.assert_not_called()
+        self.assertIs(session.pending_weather_location, True)
+
+    def test_open_visual_question_cannot_veto_notes(self):
+        session = self.ctx._session()
+        pending = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+        session.pending_visual = dict(pending)
+        with patch.object(visual_commands, "create_visual", Mock()) as create:
+            entry, out = self.turn("notlarımı göster")
+            create.assert_not_called()
+        self.assert_notes_capability(entry, out)
+        self.assertNotIn("Sohbetten mi, dosyadan mı", out)
+        self.assertEqual(session.pending_visual, pending)
+
+    def test_open_organize_confirmation_cannot_veto_notes(self):
+        session = self.ctx._session()
+        pending = {"label": "İndirilenler", "plan": []}
+        session.pending_organize = dict(pending)
+        with patch.object(self.ctx.files, "apply_organize") as organize:
+            entry, out = self.turn("notlarımı göster")
+            organize.assert_not_called()
+        self.assert_notes_capability(entry, out)
+        self.assertEqual(session.pending_organize, pending)
+
+    def test_open_pending_does_not_veto_other_canonical_capability_classes(self):
+        self.ctx.system_control.set_volume = Mock(return_value=True)
+        cases = (
+            ("hava nasıl", lambda: self.ctx._weather.assert_called_once_with(None)),
+            ("sesi 50 yap", lambda: self.ctx.system_control.set_volume.assert_called_once_with(50)),
+        )
+        for text, verify in cases:
+            with self.subTest(text=text):
+                session = self.ctx._session()
+                session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+                self.ctx.chat.reset_mock()
+                entry, out = self.turn(text)
+                self.assertEqual(entry.understanding.request_kind, RequestKind.CAPABILITY)
+                self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+                self.ctx.chat.assert_not_called()
+                self.message_step.assert_not_called()
+                self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+                verify()
+
+    def test_weather_status_phrase_stays_independent_while_a_message_draft_is_open(self):
+        session = self.ctx._session()
+        pending = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(pending)
+        entry, out = self.turn("hava durumuna bak")
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.ctx._weather.assert_called_once_with(None)
+        self.assertEqual(out, "HAVA")
+        self.message_step.assert_not_called()
+        self.assertEqual(session.pending_msg, pending)
+
+    def test_screenshot_phrase_stays_independent_while_a_message_draft_is_open(self):
+        session = self.ctx._session()
+        pending = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(pending)
+        self.ctx.desktop.screenshot = Mock(return_value="EKRAN")
+        entry, out = self.turn("ekran görüntüsü al")
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.ctx.desktop.screenshot.assert_called_once()
+        self.assertEqual(out, "EKRAN")
+        self.message_step.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.assertEqual(session.pending_msg, pending)
+
+    def test_new_request_chat_is_not_turned_into_a_pending_answer(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        entry, out = self.turn("merhaba")
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual(out, "CHAT")
+        self.message_step.assert_not_called()
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+
+    def test_context_control_is_not_executed_as_a_pending_answer_or_capability(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("boşver")
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CONTEXT_CONTROL)
+        self.message_step.assert_not_called()
+        self.ctx._weather.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.assertIs(session.pending_weather_location, True)
+        self.assertIn("Tamam", out)
+
+    def test_multi_step_request_with_a_draft_open_is_refused_without_partial_effect(self):
+        session = self.ctx._session()
+        pending = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(pending)
+        self.ctx._notes_text = Mock(return_value="NOTLARIM")
+        self.ctx.system_control.set_volume = Mock(return_value=True)
+        entry, out = self.turn("önce notlarımı göster sonra sesi 50 yap")
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        # Adım sahibi çiti korunur: cümle sohbete çevrilmez, ama açık alan varken adım zinciri
+        # başlamaz ve ham cümle tek bir adımı kısmen çalıştırmaz.
+        self.ctx._notes_text.assert_not_called()
+        self.ctx.system_control.set_volume.assert_not_called()
+        self.message_step.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.assertIn("çok adımlı komutu başlatmadım", out)
+        self.assertEqual(session.pending_msg, pending)
+
+    def test_level_answer_variants_still_reach_the_level_owner(self):
+        session = self.ctx._session()
+        session.pending_level = 70
+        self.ctx.system_control.set_volume = Mock(return_value=True)
+        entry, out = self.turn("sesi")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_level.select")
+        self.ctx.system_control.set_volume.assert_called_once_with(70)
+        self.assertIsNone(session.pending_level)
+
+    def test_visual_source_answer_variants_still_reach_the_visual_owner(self):
+        session = self.ctx._session()
+        session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+        result = SimpleNamespace(label="Görsel", path="C:/jarvis/gorsel.png")
+        with patch.object(history_mod, "read", Mock(return_value=[{"text": "eski konuşma"}])), \
+                patch.object(visual_commands, "create_visual", Mock(return_value=result)) as create:
+            entry, out = self.turn("sohbetten")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_visual.select")
+        create.assert_called_once()
+        self.assertIn("hazır", out)
+        self.assertIsNone(session.pending_visual)
+
+    def test_weather_question_cancel_still_closes_the_question(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("iptal")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_weather_location.cancel")
+        self.assertIn("iptal ettim", out)
+        self.assertIs(session.pending_weather_location, False)
+
+    def test_reminder_when_answer_still_completes_the_open_event_title(self):
+        session = self.ctx._session()
+        session.pending_event_title = "ilaç"
+        entry, out = self.turn("yarın 10'da")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_event_title.answer")
+        self.assertTrue(str(out).startswith("Takvime ekledim: ilaç"), out)
+        self.assertIsNone(session.pending_event_title)
+        self.assertEqual([event["title"] for event in self.ctx.profile.data["events"]], ["ilaç"])
+
+    def test_open_event_title_cannot_capture_an_independent_weather_request(self):
+        session = self.ctx._session()
+        session.pending_event_title = "ilaç"
+        entry, out = self.turn("hava nasıl")
+        self.assertTrue(str(entry.understanding.capability_hint).startswith("weather.read"))
+        self.ctx._weather.assert_called_once_with(None)
+        self.assertEqual(out, "HAVA")
+        self.assertEqual(session.pending_event_title, "ilaç")
+
+
+class PendingAnswerOwnershipTests(unittest.TestCase):
+    """Consumer fence contract: a slot owns a turn only when the canonical chain says so."""
+
+    def owned(self, entry, field):
+        with brain_entry.bind(entry):
+            return brain_entry.pending_answer_owned(field)
+
+    FIELDS = ("pending_msg", "pending_confirm", "pending_level", "pending_weather_location",
+              "pending_visual", "pending_organize", "pending_event_title", "pending_action")
+
+    def test_unbound_consumer_keeps_its_legacy_behavior(self):
+        self.assertTrue(brain_entry.pending_answer_owned("pending_msg"))
+
+    def test_new_request_capability_is_not_any_pending_answer(self):
+        entry = fixtures.entry(
+            brain_entry,
+            semantic=fixtures.understanding(kind=RequestKind.CAPABILITY, hint="notes.read"),
+        )
+        for field in self.FIELDS:
+            self.assertFalse(self.owned(entry, field), field)
+
+    def test_answer_to_pending_owns_every_field(self):
+        entry = fixtures.entry(
+            brain_entry,
+            semantic=fixtures.understanding(kind=RequestKind.CHAT,
+                                            relation=ConversationRelation.ANSWER_TO_PENDING),
+        )
+        for field in self.FIELDS:
+            self.assertTrue(self.owned(entry, field), field)
+
+    def test_fast_turn_owns_no_pending_field(self):
+        entry = fixtures.entry(
+            brain_entry,
+            semantic=fixtures.understanding(kind=RequestKind.CAPABILITY, hint="notes.read"),
+            fast=GateObservation(fixtures.OWNER, fixtures.RID, "fast", True, "EXACT",
+                                 protocol="fast.time.read", selection="time"),
+        )
+        for field in self.FIELDS:
+            self.assertFalse(self.owned(entry, field), field)
+
+    def test_state_protocol_owns_only_its_own_field(self):
+        entry = fixtures.entry(
+            brain_entry,
+            semantic=fixtures.understanding(kind=RequestKind.CHAT),
+            state=GateObservation(fixtures.OWNER, fixtures.RID, "state", True,
+                                  "BOUNDED_MESSAGE_CONFIRM", protocol="session.pending_msg.confirm",
+                                  selection="yes"),
+        )
+        self.assertTrue(self.owned(entry, "pending_msg"))
+        self.assertFalse(self.owned(entry, "pending_confirm"))
+        desktop = fixtures.entry(
+            brain_entry,
+            semantic=fixtures.understanding(kind=RequestKind.CHAT),
+            state=GateObservation(fixtures.OWNER, fixtures.RID, "state", True,
+                                  "BOUNDED_DESKTOP_CONSENT", protocol="desktop.consent",
+                                  selection="yes"),
+        )
+        self.assertTrue(self.owned(desktop, "pending_desktop"))
+        self.assertFalse(self.owned(desktop, "pending_msg"))
+
+
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
@@ -1001,23 +1341,48 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
 
     def _fence(self, parents, func, call):
         """Nearest enclosing If that asks the canonical State/Fast owner about this turn."""
+        providers = {"turn_protocol", "protocol_owned_by", "pending_answer_owned"}
         has_owned = any(
             isinstance(node, ast.Assign)
             and any(isinstance(target, ast.Name) and target.id == "owned" for target in node.targets)
             and isinstance(node.value, ast.Call)
-            and self._name(node.value.func) in {"turn_protocol", "protocol_owned_by"}
+            and self._name(node.value.func) in providers
             for node in ast.walk(func)
         )
         node = parents.get(call)
         while node is not None:
             if isinstance(node, ast.If):
                 names = {self._name(child) for child in ast.walk(node.test)}
-                if names & {"turn_protocol", "protocol_owned_by"}:
+                if names & providers:
                     return node
                 if has_owned and "owned" in names:
                     return node
             node = parents.get(node)
         return None
+
+    def test_core_plan_eligibility_is_relation_driven_not_slot_inventory(self):
+        _tree, func = self._func(brain_entry, "core_plan")
+        names = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertNotIn("_has_open_pending", names,
+                         "core_plan plan eligibility'yi genel pending envanterine bağlayamaz.")
+        self.assertIn("_pending_owns_turn", names,
+                      "core_plan yalnız canonical relation/state sahipliğini okuyan kapıyı kullanmalı.")
+
+    def test_existing_handler_eligibility_uses_the_relation_owner(self):
+        _tree, func = self._func(brain_entry, "_use_existing_handler")
+        names = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertIn("_pending_owns_turn", names,
+                      "NEW_REQUEST + CAPABILITY açık bir slot yüzünden handler'dan düşmemeli.")
+
+    def test_plan_blocker_reads_canonical_relation_not_raw_text(self):
+        _tree, func = self._func(brain_entry, "_pending_owns_turn")
+        calls = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertIn("_has_open_pending", calls)
+        attrs = {node.attr for node in ast.walk(func) if isinstance(node, ast.Attribute)}
+        self.assertTrue({"state_gate", "fast_gate", "understanding", "conversation_relation"}.issubset(attrs))
+        self.assertFalse([node for node in ast.walk(func)
+                          if isinstance(node, ast.Attribute) and node.attr == "text"],
+                         "Plan kapısı ham metni yeniden yorumlamamalı.")
 
     def test_goal_legacy_text_is_fenced_before_any_state_rebinding(self):
         _tree, handle = self._func(goal_executor, "handle")
@@ -1069,14 +1434,14 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
                             for child in ast.walk(node.test))]
         self.assertTrue(branches, "Görsel kaynak sorusu dalı bulunmalı.")
         branch = branches[0]
-        providers = self._calls(branch, "turn_protocol")
+        providers = self._calls(branch, "pending_answer_owned") or self._calls(branch, "turn_protocol")
         generated = self._calls(branch, "_generate")
         self.assertTrue(providers, "Görsel sorusu canonical sahiplik kaynağıyla çitlenmeli.")
         self.assertTrue(generated)
         self.assertLess(min(node.lineno for node in providers), min(node.lineno for node in generated))
         fence_returns = [
             node for node in ast.walk(branch)
-            if isinstance(node, ast.If) and self._mentions(node.test, "owned")
+            if isinstance(node, ast.If) and self._mentions(node.test, "pending_answer_owned")
             and any(isinstance(child, ast.Return) for child in ast.walk(node))
         ]
         self.assertTrue(fence_returns, "Sahibi başkasıysa görsel sorusu erken dönüşle çekilmeli.")

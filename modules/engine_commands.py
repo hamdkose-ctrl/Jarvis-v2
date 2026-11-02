@@ -78,8 +78,8 @@ def handle(runtime, command: str):
         if goal_result is not None:return goal_result
     from modules.command_execution import continue_app
     if not session.pending_action and not session.pending_confirm:
-        # Açık uygulama seçimi yalnız canonical sahibi o turn'de değilse ham metni tüketir.
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_app."):
+        # Açık uygulama seçimi yalnız canonical sahibi o turn'de ham metni tüketir.
+        if brain_entry.pending_answer_owned("pending_app"):
             selected = continue_app(runtime, command)
             if selected is not None:
                 return selected
@@ -105,14 +105,22 @@ def handle(runtime, command: str):
             # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
 
     # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
-    if not runtime._session()._in_multi and runtime._session().pending_msg is None and runtime._session().pending_confirm is None and runtime._session().pending_organize is None:
+    # Açık bir soru varken adım bölünmez: ilk adım o soruyu cevaplamış sayılamaz, kalan adımlar çalışmaz.
+    # Bu tur açık alanın cevabı değilse ham cümle kısmi yürütülmez; kullanıcıya açıkça söylenir.
+    if not runtime._session()._in_multi:
         steps = runtime._split_steps(command)
         if steps:
-            return runtime._run_steps(steps)
+            blocked = [field for field in ("pending_msg", "pending_confirm", "pending_organize")
+                       if getattr(runtime._session(), field) is not None]
+            if not blocked:
+                return runtime._run_steps(steps)
+            if not any(brain_entry.pending_answer_owned(field) for field in blocked):
+                return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım; "
+                        "önce onu tamamla ya da iptal et, sonra adımları yeniden söyle.")
 
     # Klasör düzenleme onayı
     if runtime._session().pending_organize is not None:
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_organize."):
+        if brain_entry.pending_answer_owned("pending_organize"):
             job, runtime._session().pending_organize = runtime._session().pending_organize, None
             approval = decision(cmd_lower, extra=('düzenle', 'duzenle', 'evet düzenle', 'evet duzenle'))
             if approval is True:
@@ -124,10 +132,9 @@ def handle(runtime, command: str):
 
     # WhatsApp mesajı: eksik bilgi sorulur, göndermeden önce onay alınır
     if runtime._session().pending_msg is not None:
-        owned = brain_entry.turn_protocol()
-        # Canonical kapı cevabı başka bir bounded state'e veya Fast okumasına verdiyse açık
-        # mesaj alanı çıplak cevabı ikinci kez yorumlayamaz; bağlı entry yoksa eski davranış korunur.
-        if owned is None or brain_entry.protocol_owned_by("session.pending_msg."):
+        # Açık mesaj alanı yalnız canonical olarak kendi cevabı olan turu tüketir; bağımsız yeni
+        # istek (NEW_REQUEST/CHAT/kontrol) ham metni mesaj gövdesine yazmaz, alan korunur.
+        if brain_entry.pending_answer_owned("pending_msg"):
             reply = runtime._message_step(command, cmd_lower)
             if reply is not None:
                 return reply
@@ -174,7 +181,7 @@ def handle(runtime, command: str):
 
     # Onay bekleyen işlem (örn. bilgisayarı kapatma)
     if runtime._session().pending_confirm:
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_confirm."):
+        if brain_entry.pending_answer_owned("pending_confirm"):
             action, runtime._session().pending_confirm = runtime._session().pending_confirm, None
             approval = decision(cmd_lower)
             if approval is True:
@@ -194,7 +201,7 @@ def handle(runtime, command: str):
 
     # "70 yap" gibi hedefi söylenmemiş sayı sorulduysa cevap: ses ya da parlaklık
     if runtime._session().pending_level is not None:
-        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_level."):
+        if brain_entry.pending_answer_owned("pending_level"):
             level, runtime._session().pending_level = runtime._session().pending_level, None
             if runtime.re.search(r"\bses\w*", cmd_lower):
                 if runtime.system_control.set_volume(level):
@@ -210,8 +217,10 @@ def handle(runtime, command: str):
 
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
     if runtime._session().pending_weather_location:
-        if brain_entry.turn_protocol() is None:
-            if cmd_lower in ("iptal", "vazgeç", "boşver"):
+        # Şehir sorusu yalnız semantik olarak cevap verilen turu tüketir; yeni istek şehir sanılmaz.
+        if brain_entry.pending_answer_owned("pending_weather_location"):
+            if brain_entry.matched_protocol("session.pending_weather_location.cancel") \
+                    or cmd_lower in ("iptal", "vazgeç", "boşver"):
                 runtime._session().pending_weather_location = False
                 return "Hava durumu aramasını iptal ettim."
             if not command:

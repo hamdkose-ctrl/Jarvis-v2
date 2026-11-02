@@ -766,6 +766,12 @@ _SCREEN_ANALYZE_CUE = re.compile(
 )
 _SCREEN_GENERIC_REQUEST = re.compile(
     r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:ekran(?:ı|i|imi|ımı)?\s*)?(?:analiz\s*et|incele|bak)[ .!?]*$", re.I)
+# Core plan'ı olmayan ama legacy sahibi kesin olan okuma komutları; açık bir slot bunları
+# kendi cevabı sanmamalı ("hava durumuna bak" bir mesaj gövdesi değildir).
+_WEATHER_STATUS_CUE = re.compile(
+    r"(?<!\w)hava\s+durumu(?:na|nu|n[üu])?(?:\s+(?:bak|göster|goster|söyle|soyle))?(?!\w)", re.I)
+_SCREENSHOT_CUE = re.compile(
+    r"(?<!\w)(?:ekran\s+görüntüsü\w*|screenshot|resmini\s+çek)(?!\w)", re.I)
 _WINDOW_LIST_REQUEST = re.compile(
     r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:açık|acik)(?: olan)? pencereler(?:i|im|imi)?"
     r"\s+(?:listele|göster|goster|say)[ .!?]*$", re.I)
@@ -1203,10 +1209,25 @@ def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, A
     return proposal
 
 
+def _explicit_capability_shape(normalized: str) -> bool:
+    """A deterministic capability phrase without a command verb is still a new request.
+
+    ``_looks_like_capability`` only knows command tokens; an explicit level, weather or
+    screen-analysis request carries none, so an open slot must not claim it as its answer.
+    """
+    text = normalized.strip(" .!?")
+    return (_LEVEL_EXPLICIT.fullmatch(text) is not None
+            or _is_weather_request(text)
+            or _WEATHER_STATUS_CUE.search(text) is not None
+            or _SCREENSHOT_CUE.search(text) is not None
+            or _SCREEN_ANALYZE_CUE.search(text) is not None)
+
+
 def _pending_answer_candidate(normalized: str) -> bool:
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
-    if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
+    if (_is_context_control(normalized) or _is_correction(normalized)
+            or _looks_like_capability(normalized) or _explicit_capability_shape(normalized)):
         return False
     if _contains_any(normalized, _GENERIC_CHAT) or "?" in normalized:
         return False

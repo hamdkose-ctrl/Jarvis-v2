@@ -197,7 +197,9 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
     p = runtime._session().pending_msg
     assert p is not None
     if command is not None:
-        if cmd_lower.strip(" .!?") in ("iptal", "iptal et", "vazgeç", "vazgeçtim", "boşver"):
+        from modules import brain_entry
+        if brain_entry.matched_protocol("session.pending_msg.cancel") \
+                or cmd_lower.strip(" .!?") in ("iptal", "iptal et", "vazgeç", "vazgeçtim", "boşver"):
             runtime._session().pending_msg = None
             return "Tamam, mesajı göndermedim."
         stage = p["stage"]

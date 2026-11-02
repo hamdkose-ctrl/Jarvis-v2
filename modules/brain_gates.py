@@ -30,6 +30,38 @@ _VOICE_NAMES = frozenset({
     "kerem", "defne", "liam", "olivia", "noah", "mia",
     "mert", "zeynep", "emir", "asya", "ahmet", "emel", "andrew", "ava", "brian", "emma",
 })
+# The answer vocabulary of the "ses mi parlaklık mı?" question. Only the property noun may
+# appear: a number or another domain word makes the sentence a new request, not this answer.
+_LEVEL_SELECT = {
+    "ses": "volume", "sesi": "volume", "sesin": "volume", "sesini": "volume",
+    "ses seviyesi": "volume", "ses seviyesini": "volume",
+    "parlaklık": "brightness", "parlaklığı": "brightness", "parlaklığını": "brightness",
+    "parlaklik": "brightness", "parlakligi": "brightness", "parlakligini": "brightness",
+    "ekran parlaklığı": "brightness", "ekran parlaklığını": "brightness",
+    "ekran parlaklıgı": "brightness", "ekran parlakligi": "brightness",
+}
+_LEVEL_VERB_TAIL = re.compile(r"\s+(?:yap|olsun|ayarla|yapar mısın|yapsana)$")
+# The answer vocabulary of "sohbetten mi, dosyadan mı?": the source noun plus an optional
+# "olsun/yap/kullan". A longer sentence is a new request and keeps the question open.
+_VISUAL_CHAT_SELECT = re.compile(
+    r"(?:sohbet(?:ten|i)?|konuşma(?:dan|yı)?|geçmiş(?:ten)?)(?:\s+(?:olsun|yap|kullan))?")
+_VISUAL_FILE_SELECT = re.compile(
+    r"(?:dosya(?:dan|yı)?|belge(?:den|yi)?)(?:\s+(?:olsun|yap|kullan))?")
+# The answer to "ne zaman?" is a whole time expression; the planner still parses the value.
+_WHEN_DAY = (
+    r"(?:bugün|yarın|öbür gün|ertesi gün|haftaya|"
+    r"(?:haftaya\s+)?(?:pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar)|"
+    r"\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?|"
+    r"\d{1,2}\s+(?:ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)(?:\s+\d{4})?)"
+)
+_WHEN_TIME = (
+    r"(?:(?:saat\s+)?\d{1,2}(?:[:.]\d{2}|['’]?(?:da|de|ta|te))|"
+    r"saat\s+\d{1,2}(?:\s*(?:buçuk|çeyrek))?|"
+    r"(?:sabah|öğlen|öğleden sonra|akşam|gece)\s+\d{1,2}(?:(?:[:.]\d{2})|['’]?(?:da|de|ta|te))?|"
+    r"öğlen)"
+)
+_WHEN_RELATIVE = r"(?:(?:\d+|bir|iki|üç|beş|on)\s*(?:dakika|dk|saat)\s*(?:sonra|içinde)|\d+\s*gün\s*sonra)"
+_EVENT_WHEN_ANSWER = re.compile(rf"(?:{_WHEN_RELATIVE}|{_WHEN_DAY}(?:\s+{_WHEN_TIME})?|{_WHEN_TIME})")
 
 
 @dataclass(frozen=True)
@@ -137,6 +169,11 @@ def _confirmation(text: str, *, extra: Iterable[str] = ()) -> str | None:
     return None
 
 
+def _level_selection(text: str) -> str | None:
+    base = _LEVEL_VERB_TAIL.sub("", text).strip()
+    return _LEVEL_SELECT.get(base)
+
+
 def _goal_open(reference: ContextReference) -> bool:
     return reference.kind == "goal" and reference.source == "goal_state" and str(reference.provenance.get("state") or "") not in _GOAL_CLOSED
 
@@ -236,22 +273,25 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
     if reference.id == "pending_event_title":
         if isinstance(value, str) and value.strip() and text in _CANCEL:
             return _hit(owner, request_id, "state", "session.pending_event_title.cancel", "cancel", "BOUNDED_EVENT_CANCEL")
+        if isinstance(value, str) and value.strip() and _EVENT_WHEN_ANSWER.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_event_title.answer", "when", "BOUNDED_EVENT_WHEN")
         if data is None or "confirm" not in data:
             return None
         answer = _confirmation(text, extra=("ekle", "yine de ekle", "ekle gitsin"))
         return _hit(owner, request_id, "state", "session.pending_event_title.confirm", answer, "BOUNDED_EVENT_CONFIRM") if answer else None
 
     if reference.id == "pending_level":
-        options = {"ses": "volume", "parlaklık": "brightness", "parlaklik": "brightness"}
-        selection = options.get(text)
+        selection = _level_selection(text)
         return _hit(owner, request_id, "state", "session.pending_level.select", selection, "BOUNDED_LEVEL_SELECTION") if selection else None
 
     if reference.id == "pending_visual":
         if data is None or data.get("stage") != "source":
             return None
-        options = {"sohbet": "chat", "dosya": "file"}
-        selection = options.get(text)
-        return _hit(owner, request_id, "state", "session.pending_visual.select", selection, "BOUNDED_VISUAL_SELECTION") if selection else None
+        if _VISUAL_CHAT_SELECT.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_visual.select", "chat", "BOUNDED_VISUAL_SELECTION")
+        if _VISUAL_FILE_SELECT.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_visual.select", "file", "BOUNDED_VISUAL_SELECTION")
+        return None
 
     if reference.id == "pending_voice":
         if text in _CANCEL:
@@ -264,8 +304,15 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
             return _hit(owner, request_id, "state", "session.pending_voice.select", f"{pending}:{gender}", "BOUNDED_VOICE_SELECTION")
         return None
 
-    # weather location and generic pending_desktop are deliberately observations only;
-    # they require semantic/domain handling.
+    if reference.id == "pending_weather_location":
+        # "Hangi şehir?" question: only the cancel tokens are exact protocols. City names and
+        # every other sentence stay with Understanding (ANSWER_TO_PENDING vs new request).
+        if text in {"iptal", "vazgeç", "vazgec"}:
+            return _hit(owner, request_id, "state", "session.pending_weather_location.cancel", "cancel", "BOUNDED_WEATHER_CANCEL")
+        return None
+
+    # Generic pending_desktop is deliberately observation-only; desktop consent has its own
+    # domain protocol and free text requires semantic/domain handling.
     return None
 
 

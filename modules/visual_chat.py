@@ -60,15 +60,15 @@ def handle(context, command: str, normalized: str) -> str | None:
     if pending is not None:
         if pending.get("stage") == "source":
             from modules import brain_entry
-            owned = brain_entry.turn_protocol()
-            # Canonical kapı cevabı başka bir State/Fast protokolüne verdiyse bu legacy soru
-            # ikinci kez sahiplenmez; bağlı entry yoksa eski davranış korunur.
-            if owned is not None and not brain_entry.protocol_owned_by("session.pending_visual."):
+            # Açık kaynak sorusu yalnız canonical olarak kendi cevabı olan turu tüketir; bağlı
+            # entry yoksa (Live/eski çağrı) eski davranış korunur.
+            if not brain_entry.pending_answer_owned("pending_visual"):
                 return None
-            if _SOURCE_SOHBET.search(normalized):
+            selected = brain_entry.protocol_selection("session.pending_visual.select")
+            if selected == "chat" or (selected is None and _SOURCE_SOHBET.search(normalized)):
                 session.pending_visual = None
                 return _generate(context, owner, pending["text"], _history_text(context, owner), pending["kind"])
-            if _SOURCE_DOSYA.search(normalized):
+            if selected == "file" or (selected is None and _SOURCE_DOSYA.search(normalized)):
                 session.pending_visual = None
                 return ('Dosyalar sayfasında ilgili dosyayı seç, sonra o dosyanın yanındaki '
                         '"Görselleştir" düğmesine bas — içerik oradan otomatik alınır.')

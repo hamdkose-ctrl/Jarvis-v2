@@ -31,7 +31,8 @@ def continue_app(runtime, command):
         session.pending_app = None
         return None
     text = command.casefold().strip(' .!?')
-    if text in {'iptal', 'vazgeç', 'boşver'}:
+    from modules import brain_entry
+    if brain_entry.matched_protocol("session.pending_app.cancel") or text in {'iptal', 'vazgeç', 'boşver'}:
         session.pending_app = None
         return 'Uygulama seçimini iptal ettim.'
     match = re.fullmatch(r'(\d+)(?:\s*(?:numara|numarayı|olanı|aç))?', text)

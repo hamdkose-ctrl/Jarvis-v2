@@ -71,7 +71,7 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
         self.assertEqual(feedback.request_id, RID)
         self.assertIsNone(job_id)
 
-    def test_open_pending_unrelated_chat_does_not_fall_back_to_existing_pending_handler(self):
+    def test_open_pending_slot_does_not_veto_the_handler_and_its_consumer_stays_fenced(self):
         pending = ContextReference(
             id="pending_weather_location",
             kind="pending_state",
@@ -79,7 +79,13 @@ class BrainProductionEntryReviewTests(unittest.TestCase):
             owner=OWNER,
             provenance={"field": "pending_weather_location", "value": True},
         )
-        self.assertFalse(brain_entry._use_existing_handler(_entry(pending=(pending,))))
+        row = _entry(pending=(pending,))
+        # Slot presence is inventory, not relation authority: an independent chat keeps the
+        # existing handler path (Brain-unmapped legacy owners such as weather/screenshot live there).
+        self.assertTrue(brain_entry._use_existing_handler(row))
+        # Safety comes from the canonical consumer fence, not from blocking the whole handler.
+        with brain_entry.bind(row):
+            self.assertFalse(brain_entry.pending_answer_owned("pending_weather_location"))
 
     def test_bound_fast_miss_does_not_reenable_legacy_engine_control(self):
         row = _entry(text="Jarvis'i kapatma")
