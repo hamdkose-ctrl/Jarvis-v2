@@ -165,6 +165,17 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
 
+    def test_fast_gate_message_with_pending_photo_drops_photo_and_continues_without_understanding(self):
+        runtime, entry, _path = self._entry_and_runtime("saat kaç")
+        self.assertTrue(entry.fast_gate is not None and entry.fast_gate.matched)
+        self.assertIsNone(entry.understanding)
+
+        result = self._handle(runtime, entry, "saat kaç")
+
+        self.assertTrue(str(result).startswith("Saat "))
+        runtime._photo_action.assert_not_called()
+        self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
+
     def test_runtime_no_longer_exports_the_photo_semantic_regex(self):
         runtime = self.context()
         self.assertFalse(hasattr(runtime, "_PHOTO_INTENT"))
