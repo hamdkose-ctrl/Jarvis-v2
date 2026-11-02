@@ -872,6 +872,21 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         self.ctx._weather.assert_not_called()
         self.assertIs(session.pending_weather_location, True)
 
+    def test_fast_turn_owns_neither_of_two_open_slots(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_weather_location = True
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.assertIsNone(entry.understanding)
+        with brain_entry.bind(entry):
+            self.assertFalse(brain_entry.pending_answer_owned("pending_msg"))
+            self.assertFalse(brain_entry.pending_answer_owned("pending_weather_location"))
+        self.message_step.assert_not_called()
+        self.ctx._weather.assert_not_called()
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+        self.assertIs(session.pending_weather_location, True)
+
     def test_fast_ownership_is_generic_across_date_and_status(self):
         cases = (("tarih", "fast.date.read", "Bugün "),
                  ("sistem durumu", "fast.system.status", "SISTEM"))
@@ -1035,6 +1050,7 @@ class PlanEligibilityTests(_CanonicalTurnHarness):
         self.assert_notes_capability(entry, out)
         self.message_step.assert_not_called()
         self.assertEqual(session.pending_msg, pending)
+        self.assertIsNone(entry.understanding.pending_owner)
 
     def test_pending_confirmation_cannot_veto_notes_and_is_not_consumed(self):
         session = self.ctx._session()
@@ -1228,14 +1244,35 @@ class PendingAnswerOwnershipTests(unittest.TestCase):
         for field in self.FIELDS:
             self.assertFalse(self.owned(entry, field), field)
 
-    def test_answer_to_pending_owns_every_field(self):
+    def test_answer_to_pending_owns_only_the_selected_canonical_owner(self):
+        cases = (
+            ("session.pending_weather_location", "pending_weather_location"),
+            ("session.pending_msg.to", "pending_msg"),
+            ("session.pending_msg.text", "pending_msg"),
+            ("session.pending_action.clarify", "pending_action"),
+        )
+        for owner, owner_field in cases:
+            with self.subTest(owner=owner):
+                entry = fixtures.entry(
+                    brain_entry,
+                    semantic=fixtures.understanding(kind=RequestKind.CHAT,
+                                                    relation=ConversationRelation.ANSWER_TO_PENDING,
+                                                    pending_owner=owner),
+                )
+                for field in self.FIELDS:
+                    self.assertEqual(self.owned(entry, field), field == owner_field,
+                                     (owner, field))
+
+    def test_answer_to_pending_without_a_single_owner_owns_no_field(self):
         entry = fixtures.entry(
             brain_entry,
             semantic=fixtures.understanding(kind=RequestKind.CHAT,
-                                            relation=ConversationRelation.ANSWER_TO_PENDING),
+                                            relation=ConversationRelation.ANSWER_TO_PENDING,
+                                            needs_input=True,
+                                            ambiguities=("MULTIPLE_PENDING_ANSWER_OWNERS",)),
         )
         for field in self.FIELDS:
-            self.assertTrue(self.owned(entry, field), field)
+            self.assertFalse(self.owned(entry, field), field)
 
     def test_fast_turn_owns_no_pending_field(self):
         entry = fixtures.entry(
@@ -1266,6 +1303,106 @@ class PendingAnswerOwnershipTests(unittest.TestCase):
         )
         self.assertTrue(self.owned(desktop, "pending_desktop"))
         self.assertFalse(self.owned(desktop, "pending_msg"))
+
+
+class PendingOwnerSelectionTests(_CanonicalTurnHarness):
+    """ANSWER_TO_PENDING tek canonical pending owner taşır; iki slot aynı ham metni sahiplenemez.
+
+    Üretim hattı: `prepare → handoff → ctx.handle`. Owner seçimi consumer sırasına değil,
+    Understanding'in kanıt/özgüllük kararına bağlıdır.
+    """
+
+    WEATHER_OWNER = "session.pending_weather_location"
+    MESSAGE_TO_OWNER = "session.pending_msg.to"
+    MESSAGE_TEXT_OWNER = "session.pending_msg.text"
+    APP_CLARIFY_OWNER = "session.pending_action.clarify"
+    AMBIGUOUS = "MULTIPLE_PENDING_ANSWER_OWNERS"
+
+    def open_slots(self, stage: str):
+        session = self.ctx._session()
+        pending = {"to": "" if stage == "to" else "Ebru", "text": "", "stage": stage}
+        session.pending_msg = dict(pending)
+        session.pending_weather_location = True
+        return session, pending
+
+    def clarify_pending(self):
+        return {
+            "stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
+            "owner": self.owner, "expires": time.time() + 60,
+            "proposal": {"kind": "app.open"},
+        }
+
+    def test_weather_owner_takes_the_city_and_leaves_the_message_draft_untouched(self):
+        session, pending = self.open_slots("text")
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("İstanbul")
+            sender.assert_not_called()
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, self.WEATHER_OWNER)
+        self.ctx._weather.assert_called_once_with("İstanbul")
+        self.message_step.assert_not_called()
+        self.assertIs(session.pending_weather_location, False)
+        self.assertEqual(session.pending_msg, pending)
+        self.assertEqual(out, "HAVA")
+
+    def test_city_that_could_be_a_recipient_fails_closed_without_any_effect(self):
+        session, pending = self.open_slots("to")
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("İstanbul")
+            sender.assert_not_called()
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIsNone(entry.understanding.pending_owner)
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CLARIFY)
+        self.assertIn(self.AMBIGUOUS, entry.understanding.ambiguities)
+        self.assertIn("netleştir", out)
+        self.ctx._weather.assert_not_called()
+        self.message_step.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.assertIs(session.pending_weather_location, True)
+        self.assertEqual(session.pending_msg, pending)
+
+    def test_typed_app_clarify_owner_outranks_an_open_weather_question(self):
+        session = self.ctx._session()
+        session.pending_action = self.clarify_pending()
+        session.pending_weather_location = True
+        self.ctx.system_control.open_application = Mock(
+            return_value=ApplicationResult("Chrome penceresi açık; açılışını doğruladım.", ok=True))
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out = self.turn("Chrome")
+        self.assertEqual(entry.understanding.pending_owner, self.APP_CLARIFY_OWNER)
+        self.assertEqual(entry.understanding.capability_hint, "app.open")
+        self.ctx.system_control.open_application.assert_called_once_with("Chrome")
+        self.ctx._weather.assert_not_called()
+        self.message_step.assert_not_called()
+        self.assertIsNone(session.pending_action)
+        self.assertIs(session.pending_weather_location, True)
+
+    def test_non_alias_answer_belongs_to_the_weather_question_not_the_clarify(self):
+        session = self.ctx._session()
+        session.pending_action = self.clarify_pending()
+        session.pending_weather_location = True
+        self.ctx.system_control.open_application = Mock()
+        entry, out = self.turn("İstanbul")
+        self.assertEqual(entry.understanding.pending_owner, self.WEATHER_OWNER)
+        self.ctx._weather.assert_called_once_with("İstanbul")
+        self.ctx.system_control.open_application.assert_not_called()
+        self.message_step.assert_not_called()
+        self.assertIs(session.pending_weather_location, False)
+
+    def test_exact_confirmation_owner_runs_and_preserves_the_message_draft(self):
+        session = self.ctx._session()
+        session.pending_confirm = {"action": "close_app", "name": "Chrome"}
+        pending = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(pending)
+        close = Mock(return_value=ApplicationResult("kapandı", ok=True))
+        self.ctx.system_control.close_application = close
+        entry, out = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        self.assertIsNone(entry.understanding)
+        close.assert_called_once_with("Chrome")
+        self.assertIsNone(session.pending_confirm)
+        self.assertEqual(session.pending_msg, pending)
+        self.message_step.assert_not_called()
 
 
 class BoundedJobLegacyGuardTests(unittest.TestCase):
@@ -1383,6 +1520,30 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         self.assertFalse([node for node in ast.walk(func)
                           if isinstance(node, ast.Attribute) and node.attr == "text"],
                          "Plan kapısı ham metni yeniden yorumlamamalı.")
+
+    def test_semantic_pending_answer_ownership_requires_the_typed_owner(self):
+        _tree, func = self._func(brain_entry, "pending_answer_owned")
+        attrs = {node.attr for node in ast.walk(func) if isinstance(node, ast.Attribute)}
+        self.assertIn("pending_owner", attrs,
+                      "Semantik dal field bağımsız relation bool'una bağlanamaz; owner kimliği okunmalı.")
+        self.assertNotIn("conversation_relation", attrs,
+                         "ANSWER_TO_PENDING tek başına her field'a tüketici sahipliği veremez.")
+        calls = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertIn("pending_owner_matches", calls,
+                      "Field→owner eşleşmesi tek canonical mapping üzerinden yapılmalı.")
+
+    def test_semantic_pending_owner_mapping_is_field_and_stage_scoped(self):
+        self.assertTrue(brain_entry.pending_owner_matches("pending_msg", "session.pending_msg.to"))
+        self.assertTrue(brain_entry.pending_owner_matches("pending_msg", "session.pending_msg.text"))
+        self.assertTrue(brain_entry.pending_owner_matches(
+            "pending_weather_location", "session.pending_weather_location"))
+        self.assertTrue(brain_entry.pending_owner_matches(
+            "pending_action", "session.pending_action.clarify"))
+        self.assertFalse(brain_entry.pending_owner_matches(
+            "pending_msg", "session.pending_weather_location"))
+        self.assertFalse(brain_entry.pending_owner_matches(
+            "pending_confirm", "session.pending_msg.text"))
+        self.assertFalse(brain_entry.pending_owner_matches("pending_weather_location", None))
 
     def test_goal_legacy_text_is_fenced_before_any_state_rebinding(self):
         _tree, handle = self._func(goal_executor, "handle")

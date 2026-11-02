@@ -17,6 +17,7 @@ from modules.brain_contracts import (
     ContextReference,
     ConversationRelation,
     EchoPreview,
+    PendingOwner,
     RequestKind,
     TemporalNeed,
     UnderstandingResult,
@@ -1262,21 +1263,48 @@ def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveCont
     return None
 
 
-def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
-    if not active_context.pending_references or not _pending_answer_candidate(normalized):
-        return False
+MULTIPLE_PENDING_ANSWER_OWNERS = "MULTIPLE_PENDING_ANSWER_OWNERS"
 
+# Specificity, never slot/consumer order, decides the one owner: a typed bounded clarify target
+# first, then a specific domain answer, then a generic free-text draft. The recipient slot has no
+# caller-supplied identity evidence here, so it ties with a location answer instead of guessing.
+_PENDING_OWNER_RANK = {
+    PendingOwner.APP_CLARIFY: 1,
+    PendingOwner.WEATHER_LOCATION: 2,
+    PendingOwner.MESSAGE_TO: 2,
+    PendingOwner.MESSAGE_TEXT: 3,
+}
+
+
+def _pending_answer_owners(text: str, normalized: str, active_context: ActiveContext,
+                           clarify_answer: tuple[str, dict[str, object]] | None,
+                           ) -> tuple[PendingOwner | None, bool]:
+    """Pick the single pending owner this utterance can answer, or report true ambiguity.
+
+    Only slots whose observed shape plausibly accepts the text are candidates; a slot that is
+    open but has no accepting evidence never owns the turn."""
+    if not _pending_answer_candidate(normalized):
+        return None, False
+    owners: set[PendingOwner] = {PendingOwner.APP_CLARIFY} if clarify_answer is not None else set()
     for pending in active_context.pending_references:
         if pending.kind != "pending_state":
             continue
         field = _pending_field(pending)
         if field == "pending_weather_location" and _looks_like_location_answer(text):
-            return True
-        if field == "pending_msg":
+            owners.add(PendingOwner.WEATHER_LOCATION)
+        elif field == "pending_msg":
             value = pending.provenance.get("value")
-            if isinstance(value, Mapping) and value.get("stage") in {"to", "text"}:
-                return True
-    return False
+            if isinstance(value, Mapping) and value.get("stage") == "to":
+                owners.add(PendingOwner.MESSAGE_TO)
+            elif isinstance(value, Mapping) and value.get("stage") == "text":
+                owners.add(PendingOwner.MESSAGE_TEXT)
+    if not owners:
+        return None, False
+    best_rank = min(_PENDING_OWNER_RANK[owner] for owner in owners)
+    best = {owner for owner in owners if _PENDING_OWNER_RANK[owner] == best_rank}
+    if len(best) > 1:
+        return None, True
+    return next(iter(best)), False
 
 
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
@@ -1391,6 +1419,11 @@ def understand(
                        or research_request or screen_request or window_request or execution_request
                        or translation is not None or file_operation is not None)
     clarify_answer = None if capability_turn else _typed_clarify_answer(text, normalized, active_context, owner)
+    pending_owner, pending_ambiguous = _pending_answer_owners(
+        text, normalized, active_context, clarify_answer
+    )
+    if pending_ambiguous:
+        ambiguities = (*ambiguities, MULTIPLE_PENDING_ANSWER_OWNERS)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
@@ -1398,7 +1431,7 @@ def understand(
     elif photo_followup:
         # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
         relation = ConversationRelation.CONTINUE_ACTIVE
-    elif clarify_answer is not None or _answer_to_pending(text, normalized, active_context):
+    elif clarify_answer is not None or pending_owner is not None or pending_ambiguous:
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
         relation = ConversationRelation.CONTINUE_ACTIVE
@@ -1454,6 +1487,8 @@ def understand(
         reason_codes.append("NOTE_UPDATE_TEXT_MISSING")
     elif NOTE_SEARCH_QUERY_MISSING in ambiguities:
         reason_codes.append("NOTE_SEARCH_QUERY_MISSING")
+    elif MULTIPLE_PENDING_ANSWER_OWNERS in ambiguities:
+        reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
@@ -1531,6 +1566,7 @@ def understand(
         arguments=arguments,
         references=references,
         conversation_relation=relation,
+        pending_owner=pending_owner,
         temporal_need=temporal_need,
         context_actions=context_actions,
         confidence=confidence,

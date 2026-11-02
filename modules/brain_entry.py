@@ -26,6 +26,7 @@ from modules.brain_contracts import (
     BrainFeedback,
     ContextReference,
     ConversationRelation,
+    PendingOwner,
     RequestKind,
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
@@ -758,10 +759,11 @@ def _pending_owns_turn(entry: EntryResult) -> bool:
     semantic = entry.understanding
     if semantic is None:
         return True
-    return semantic.conversation_relation in {
-        ConversationRelation.ANSWER_TO_PENDING,
-        ConversationRelation.CONTINUE_ACTIVE,
-    }
+    if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+        # The typed clarify answer is itself the Core plan's turn: another still-open slot
+        # must not veto the plan that consumes this bound target.
+        return semantic.pending_owner is not PendingOwner.APP_CLARIFY
+    return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
 
 
 # Protocols that may be answered before the (possibly busy) command loop: read-only,
@@ -1051,6 +1053,29 @@ def protocol_owned_by(*prefixes: str) -> bool:
 # is answered by ``session.<field>.``; desktop consent is the one domain-owned exception.
 _PENDING_PROTOCOL_PREFIX = {"pending_desktop": "desktop."}
 
+# The single session field each semantic pending owner represents. ``pending_msg`` has two
+# stage-scoped owners; a field appears for both, never as a wildcard.
+_PENDING_OWNER_FIELDS = {
+    PendingOwner.WEATHER_LOCATION: "pending_weather_location",
+    PendingOwner.MESSAGE_TO: "pending_msg",
+    PendingOwner.MESSAGE_TEXT: "pending_msg",
+    PendingOwner.APP_CLARIFY: "pending_action",
+}
+
+
+def pending_owner_matches(field: str, owner: object) -> bool:
+    """Is *owner* the single canonical pending slot that *field* represents?
+
+    The owner is Understanding's typed selection in state-protocol vocabulary. Missing,
+    ambiguous or foreign owners match nothing, so two open slots cannot both consume the text."""
+    if owner is None:
+        return False
+    try:
+        owner = PendingOwner(owner)
+    except (TypeError, ValueError):
+        return False
+    return _PENDING_OWNER_FIELDS.get(owner) == field
+
 
 def protocol_selection(protocol: str) -> object | None:
     """The State Gate selection for *protocol* on the bound canonical turn.
@@ -1068,9 +1093,9 @@ def pending_answer_owned(field: str) -> bool:
     """May the legacy consumer of *field* interpret the raw text on this canonical turn?
 
     Unbound callers keep their old behavior. A State turn belongs to the matching field
-    protocol only; a Fast turn belongs to no pending field. An Understanding turn belongs to
-    the slot only when the relation is ANSWER_TO_PENDING: NEW_REQUEST, TOPIC_CHANGE,
-    CORRECTION and CONTEXT_CONTROL text stays independent while the slot remains open.
+    protocol only; a Fast turn belongs to no pending field. An Understanding answer belongs
+    only to the one slot its typed owner names; a turn with no single owner (independent
+    request or true ambiguity) consumes nothing while every slot stays open.
     """
     entry = current()
     if entry is None:
@@ -1082,7 +1107,7 @@ def pending_answer_owned(field: str) -> bool:
     semantic = entry.understanding
     if semantic is None:
         return True
-    return semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
+    return pending_owner_matches(field, semantic.pending_owner)
 
 
 def allow_legacy_goal_control(text: str) -> bool:
@@ -1125,7 +1150,7 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL, RequestKind.CLARIFY}:
         return False
     if field == "pending_weather_location":
-        return semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
+        return semantic.pending_owner is PendingOwner.WEATHER_LOCATION
     if field == "pending_photo":
         # Tek authority: Understanding relation'ı seçer; pending photo canonical state'i
         # ActiveContext'teki tek temsil ile doğrulanır.

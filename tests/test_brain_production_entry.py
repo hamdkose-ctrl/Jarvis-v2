@@ -43,7 +43,7 @@ def understanding(*, owner: str = OWNER, request_id: str = RID,
                   kind: RequestKind = RequestKind.CHAT,
                   relation: ConversationRelation = ConversationRelation.NEW_REQUEST,
                   hint: str | None = None, needs_input: bool = False,
-                  ambiguities=()) -> UnderstandingResult:
+                  ambiguities=(), pending_owner: str | None = None) -> UnderstandingResult:
     return UnderstandingResult(
         owner=owner,
         request_id=request_id,
@@ -55,6 +55,7 @@ def understanding(*, owner: str = OWNER, request_id: str = RID,
         confidence=Confidence.LOW if needs_input else Confidence.MEDIUM,
         ambiguities=tuple(ambiguities),
         needs_input=needs_input,
+        pending_owner=pending_owner,
     )
 
 

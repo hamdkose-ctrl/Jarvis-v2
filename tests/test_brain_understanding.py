@@ -127,6 +127,7 @@ class BrainUnderstandingTests(unittest.TestCase):
         active = ctx(pending_references=(pending,))
         result = self.call("İstanbul", active_context=active, candidates=(pending,))
         self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_weather_location")
         self.assertNotEqual(result.request_kind, RequestKind.CLARIFY)
 
     def test_weather_pending_rejects_unrelated_short_sentence(self):
@@ -137,15 +138,60 @@ class BrainUnderstandingTests(unittest.TestCase):
 
     def test_message_pending_accepts_bounded_recipient_and_text_answers(self):
         rows = (
-            ({"to": "", "text": "", "stage": "to"}, "Ebru"),
-            ({"to": "Ebru", "text": "", "stage": "text"}, "Yarın geliyorum."),
+            ({"to": "", "text": "", "stage": "to"}, "Ebru", "session.pending_msg.to"),
+            ({"to": "Ebru", "text": "", "stage": "text"}, "Yarın geliyorum.",
+             "session.pending_msg.text"),
         )
-        for value, text in rows:
+        for value, text, owner in rows:
             with self.subTest(stage=value["stage"]):
                 pending = ref("pending_msg", "pending_state", field="pending_msg", value=value)
                 active = ctx(pending_references=(pending,))
                 result = self.call(text, active_context=active, candidates=(pending,))
                 self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, owner)
+
+    def test_specific_location_owner_outranks_a_generic_message_text_slot(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "Ebru", "text": "", "stage": "text"})
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_weather_location")
+
+    def test_recipient_and_location_tie_is_a_fail_closed_ambiguity(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIsNone(result.pending_owner)
+        self.assertEqual(result.request_kind, RequestKind.CLARIFY)
+        self.assertTrue(result.needs_input)
+        self.assertIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
+    def test_typed_clarify_owner_outranks_an_open_location_question(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        clarify = ref(
+            "pending_action", "pending_state", source="session_state",
+            field="pending_action", active=True, targets=("Chrome", "Edge"),
+            value={"stage": "clarify", "command": "aç", "owner": OWNER, "expires": 9999999999,
+                   "proposal": {"kind": "app.open"}},
+        )
+        active = ctx(pending_references=(clarify, weather))
+        result = self.call("Chrome", active_context=active, candidates=(clarify, weather))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_action.clarify")
+        self.assertEqual(result.capability_hint, "app.open")
+        self.assertEqual(result.arguments["app"], "Chrome")
+
+    def test_independent_capability_carries_no_pending_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        active = ctx(pending_references=(weather,))
+        result = self.call("notlarımı göster", active_context=active, candidates=(weather,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(result.pending_owner)
 
     def test_message_pending_does_not_consume_new_requests_or_confirmations(self):
         text_pending = ref("pending_msg", "pending_state", field="pending_msg",

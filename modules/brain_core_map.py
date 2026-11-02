@@ -363,6 +363,8 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 
 
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
+    if "MULTIPLE_PENDING_ANSWER_OWNERS" in ambiguities:
+        return "Birden fazla açık soru bu cevaba uyuyor; hangisini kastettiğini netleştir."
     if FILE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi dosyayı veya dosyaları kastettiğini netleştir; dosya adını yaz ya da dosyayı sohbete ekle."
     if FILE_TRANSLATION_TARGET_MISSING in ambiguities:

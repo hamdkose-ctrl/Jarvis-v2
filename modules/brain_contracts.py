@@ -27,6 +27,19 @@ class ConversationRelation(str, Enum):
     TOPIC_CHANGE = "TOPIC_CHANGE"
 
 
+class PendingOwner(str, Enum):
+    """The single canonical pending slot an answer belongs to.
+
+    Values are the existing state-protocol vocabulary so the owner the semantic layer
+    selects is directly comparable with the legacy consumer fence. An answer can only
+    belong to one owner; ambiguity is expressed as ``None`` plus a reason code."""
+
+    WEATHER_LOCATION = "session.pending_weather_location"
+    MESSAGE_TO = "session.pending_msg.to"
+    MESSAGE_TEXT = "session.pending_msg.text"
+    APP_CLARIFY = "session.pending_action.clarify"
+
+
 class TemporalNeed(str, Enum):
     STATIC = "STATIC"
     CURRENT = "CURRENT"
@@ -218,6 +231,7 @@ class UnderstandingResult(_JsonContract):
     arguments: Mapping[str, Any] = field(default_factory=dict)
     references: tuple[ContextReference, ...] = ()
     conversation_relation: ConversationRelation = ConversationRelation.NEW_REQUEST
+    pending_owner: PendingOwner | None = None
     temporal_need: TemporalNeed = TemporalNeed.UNSURE
     context_actions: tuple[ContextAction, ...] = ()
     confidence: Confidence = Confidence.MEDIUM
@@ -232,6 +246,10 @@ class UnderstandingResult(_JsonContract):
         _require_text("UnderstandingResult.request_id", self.request_id)
         object.__setattr__(self, "request_kind", _as_enum(RequestKind, self.request_kind, "request_kind"))
         object.__setattr__(self, "conversation_relation", _as_enum(ConversationRelation, self.conversation_relation, "conversation_relation"))
+        if self.pending_owner is not None:
+            object.__setattr__(self, "pending_owner", _as_enum(PendingOwner, self.pending_owner, "pending_owner"))
+            if self.conversation_relation is not ConversationRelation.ANSWER_TO_PENDING:
+                raise ValueError("pending_owner yalnız ANSWER_TO_PENDING ilişkisinde taşınabilir.")
         object.__setattr__(self, "temporal_need", _as_enum(TemporalNeed, self.temporal_need, "temporal_need"))
         object.__setattr__(self, "confidence", _as_enum(Confidence, self.confidence, "confidence"))
         _optional_text("UnderstandingResult.capability_hint", self.capability_hint)
