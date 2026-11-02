@@ -752,6 +752,9 @@ def _is_notes_read_request(text: str) -> bool:
 SCREEN_CAPABILITY = "screen.analyze"
 WINDOW_LIST_CAPABILITY = "desktop.windows.list"
 WINDOW_OP_CAPABILITY = "desktop.window.op"
+# Bounded clarify follow-up: the target of the question ("Neyi açmamı istiyorsun?") completes
+# the existing app-open owner. Core re-validates the name and keeps the launch guards.
+APP_OPEN_CAPABILITY = "app.open"
 _SCREEN_ANALYZE_CUE = re.compile(
     r"(?<!\w)(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)"
     r"|"
@@ -1169,16 +1172,53 @@ def _photo_followup_continuation(normalized: str, active_context: ActiveContext)
     return pending and _PHOTO_FOLLOWUP.search(normalized) is not None
 
 
-def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
-    if not active_context.pending_references:
-        return False
+_CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY})
+_CLARIFY_TARGET_MAX = 40
+_ANSWER_CONTROL = frozenset({
+    "evet", "hayır", "hayir", "tamam", "olur", "onayla", "onaylıyorum", "onayliyorum",
+    "iptal", "vazgeç", "vazgec", "boşver", "bosver",
+})
+
+
+def _clarify_proposal(reference: ContextReference) -> str | None:
+    """The typed follow-up carried by an open-ended clarify, if any (never invented here)."""
+    if reference.kind != "pending_state" or reference.source != "session_state" or reference.id != "pending_action":
+        return None
+    value = reference.provenance.get("value")
+    if not isinstance(value, Mapping) or value.get("stage") != "clarify":
+        return None
+    proposal = value.get("proposal")
+    if not isinstance(proposal, Mapping):
+        return None
+    kind = proposal.get("kind")
+    return kind if kind in _CLARIFY_PROPOSALS else None
+
+
+def _pending_answer_candidate(normalized: str) -> bool:
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
     if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
         return False
-    if _contains_any(normalized, _GENERIC_CHAT):
+    if _contains_any(normalized, _GENERIC_CHAT) or "?" in normalized:
         return False
-    if "?" in normalized:
+    return True
+
+
+def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveContext) -> tuple[str, dict[str, object]] | None:
+    """A typed clarify accepts a bounded target; Understanding—not Core slot presence—decides it."""
+    if not _pending_answer_candidate(normalized):
+        return None
+    target = text.strip(" .!?")
+    if not target or target in _ANSWER_CONTROL or "?" in target or "\x00" in target \
+            or len(target) > _CLARIFY_TARGET_MAX:
+        return None
+    if any(_clarify_proposal(pending) == APP_OPEN_CAPABILITY for pending in active_context.pending_references):
+        return APP_OPEN_CAPABILITY, {"app": target}
+    return None
+
+
+def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
+    if not active_context.pending_references or not _pending_answer_candidate(normalized):
         return False
 
     for pending in active_context.pending_references:
@@ -1297,6 +1337,11 @@ def understand(
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
     photo_followup = _photo_followup_continuation(normalized, active_context)
+    # An explicit capability request is never the target of an open-ended clarify: it supersedes it.
+    capability_turn = (level is not None or notes_read_request or note_write is not None or weather_request
+                       or research_request or screen_request or window_request or execution_request
+                       or translation is not None or file_operation is not None)
+    clarify_answer = None if capability_turn else _typed_clarify_answer(text, normalized, active_context)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
@@ -1304,7 +1349,7 @@ def understand(
     elif photo_followup:
         # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
         relation = ConversationRelation.CONTINUE_ACTIVE
-    elif _answer_to_pending(text, normalized, active_context):
+    elif clarify_answer is not None or _answer_to_pending(text, normalized, active_context):
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
         relation = ConversationRelation.CONTINUE_ACTIVE
@@ -1315,9 +1360,8 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
-          or screen_request or window_request or execution_request
-          or translation is not None or file_operation is not None or _looks_like_capability(normalized)):
+    elif (clarify_answer is not None or capability_turn
+          or _looks_like_capability(normalized)):
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -1385,6 +1429,9 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = _capability_hint(normalized, temporal_need)
+    if clarify_answer is not None:
+        capability_hint, clarify_arguments = clarify_answer
+        arguments = {**arguments, **clarify_arguments}
     if translation is not None:
         capability_hint = TRANSLATE_CAPABILITY
         arguments = {**arguments, **translate_args}

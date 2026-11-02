@@ -12,8 +12,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
-from modules import app_actions, brain_entry, brain_precedence, engine_runtime, requests_state
+from modules import app_actions, brain_core_map, brain_entry, brain_precedence, engine_runtime, requests_state
+from modules.brain_contracts import ConversationRelation, RequestKind
 from modules.command_manager import awaiting_input
+from modules.system_control import ApplicationResult
 
 
 class RelationAuthorityTests(unittest.TestCase):
@@ -57,12 +59,30 @@ class RelationAuthorityTests(unittest.TestCase):
         self.assertNotEqual(getattr(session, "pending_action", None), None)
         self.ctx.system_control.set_volume = Mock(return_value=True)
         with patch.object(brain_precedence, "claim", return_value=None):
-            _, out, handle, feedback = self.turn("sesi 50 yap")
+            entry, out, handle, feedback = self.turn("sesi 50 yap")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
         self.assertEqual(out, "Ses seviyesini yüzde 50 yaptım.")
         self.ctx.system_control.set_volume.assert_called_once_with(50)
         self.ctx.chat.assert_not_called()
         self.assertEqual(feedback.result_status, "handled")
         self.assertIsNone(session.pending_action)  # canonical supersede: açık soru yeni istekle düştü
+
+    def test_typed_clarify_answer_opens_the_app_through_core(self):
+        session = self.ask("aç")
+        self.assertEqual(session.pending_action.get("proposal"), {"kind": "app.open"})
+        self.ctx.system_control.open_application = Mock(
+            return_value=ApplicationResult("Chrome penceresi açık; açılışını doğruladım.", ok=True))
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out, handle, feedback = self.turn("Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.capability_hint, "app.open")
+        self.ctx.system_control.open_application.assert_called_once_with("Chrome")
+        self.assertEqual(out, "Chrome penceresi açık; açılışını doğruladım.")
+        self.ctx.chat.assert_not_called()
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIsNone(session.pending_action)
+        self.assertFalse(awaiting_input(session))
 
     def test_open_clarification_does_not_block_an_independent_notes_request(self):
         self.ask()
@@ -127,6 +147,34 @@ class FreeFormClarifyLifecycleTests(unittest.TestCase):
         out = app_actions.continue_voice("Chrome", session, profile, Mock())
         self.assertIsNone(out)
         self.assertIsNone(session.pending_action)
+
+    def test_typed_proposal_is_left_for_canonical_understanding(self):
+        session = SimpleNamespace(pending_action=self.pending(proposal={"kind": "app.open"}))
+        profile = SimpleNamespace(slug="alice")
+        out = app_actions.continue_voice("Chrome", session, profile, Mock())
+        self.assertIsNone(out)
+        self.assertEqual(session.pending_action["proposal"], {"kind": "app.open"})
+
+    def test_expired_typed_proposal_is_not_executed(self):
+        session = SimpleNamespace(pending_action=self.pending(
+            proposal={"kind": "app.open"}, expires=time.time() - 1))
+        profile = SimpleNamespace(slug="alice")
+        out = app_actions.continue_voice("Chrome", session, profile, Mock())
+        self.assertIsNone(out)
+        self.assertIsNone(session.pending_action)
+
+
+class AppOpenProposalValidationTests(unittest.TestCase):
+    def test_core_rejects_unbounded_or_empty_targets(self):
+        self.assertIsNone(brain_core_map.core_plan("app.open", {"app": ""}))
+        self.assertIsNone(brain_core_map.core_plan("app.open", {"app": "   "}))
+        self.assertIsNone(brain_core_map.core_plan("app.open", {"app": "x" * 41}))
+        self.assertIsNone(brain_core_map.core_plan("app.open", {"app": "chrome\x00"}))
+        self.assertIsNone(brain_core_map.core_plan("app.open", {"app": "Chrome", "args": []}))
+
+    def test_core_maps_a_bounded_target_to_the_existing_owner(self):
+        self.assertEqual(brain_core_map.core_plan("app.open", {"app": "Chrome"}),
+                         ("app_open", {"name": "Chrome"}))
 
 
 class NoPendingRequestSlotTests(unittest.TestCase):

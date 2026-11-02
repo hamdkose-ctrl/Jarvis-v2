@@ -707,11 +707,14 @@ class ConversationSummaryParityTests(unittest.TestCase):
             profile=SimpleNamespace(slug="hamdi"), history=SimpleNamespace(read=lambda *_a, **_k: rows),
             datetime=SimpleNamespace(now=lambda: SimpleNamespace(strftime=lambda _f: "2026-11-01")),
             ask=lambda prompt: (asked.append(prompt), "Özet: kredi kartı borcu soruldu.")[1])
-        self.assertEqual(engine_output._conversation_summary(runtime), "Özet: kredi kartı borcu soruldu.")
-        self.assertIn("kredi kartı borcu", asked[0])
-        self.assertIn("en fazla 6 madde", asked[0])
-        empty = SimpleNamespace(**{**runtime.__dict__, "history": SimpleNamespace(read=lambda *_a, **_k: [])})
-        self.assertEqual(engine_output._conversation_summary(empty), "Özetlenecek bir konuşma bulamadım.")
+        # Sıfırlama kesiti kullanıcıya özel dosyadan gelir; test gerçek ev dizinine bağlı kalmaz.
+        from modules import conversation_reset
+        with patch.object(conversation_reset, "_resets", {}):
+            self.assertEqual(engine_output._conversation_summary(runtime), "Özet: kredi kartı borcu soruldu.")
+            self.assertIn("kredi kartı borcu", asked[0])
+            self.assertIn("en fazla 6 madde", asked[0])
+            empty = SimpleNamespace(**{**runtime.__dict__, "history": SimpleNamespace(read=lambda *_a, **_k: [])})
+            self.assertEqual(engine_output._conversation_summary(empty), "Özetlenecek bir konuşma bulamadım.")
 
     def test_the_legacy_chat_summary_helper_is_not_revived(self):
         # Yetenek geri kurulurken eski adı ve eski çağrı zinciri (doc_* fallback'i) diriltilmez.

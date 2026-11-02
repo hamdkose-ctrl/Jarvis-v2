@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.brain_understanding import (
+    APP_OPEN_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
     FILE_CONVERSION_FORMAT_MISSING,
@@ -226,6 +227,20 @@ def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 _SCREEN_QUESTION_MAX = 1000
 _WINDOW_ACTIONS = frozenset({"focus", "minimize", "maximize", "restore"})
+_APP_NAME_MAX = 40
+
+
+def _app_open_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core re-validates the answer to the bare-verb clarification; the launcher keeps its guards."""
+    if set(arguments) - {"original_text", "app"}:
+        return None
+    name = arguments.get("app")
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    if not 0 < len(name) <= _APP_NAME_MAX or "\x00" in name:
+        return None
+    return {"name": name}
 
 
 def _screen_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -305,6 +320,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     SCREEN_CAPABILITY: ("screen_analyze", _screen_args),
     WINDOW_LIST_CAPABILITY: ("app_action", _window_list_args),
     WINDOW_OP_CAPABILITY: ("app_action", _window_op_args),
+    # "Neyi açmamı istiyorsun?" yanıtı: typed clarify proposal'ının hedefi, mevcut app-open sahibine
+    # doğrulanmış bir ad olarak gider; serbest metin yeniden yorumlanmaz.
+    APP_OPEN_CAPABILITY: ("app_open", _app_open_args),
 }
 
 
