@@ -7,7 +7,6 @@ state, run workers, grant authority, or wire itself into production routing.
 from __future__ import annotations
 
 import re
-import time
 from typing import Any, Iterable, Mapping
 
 from modules.brain_actions import action_request, ends_with_action, instructional_question
@@ -22,7 +21,6 @@ from modules.brain_contracts import (
     TemporalNeed,
     UnderstandingResult,
 )
-from modules.diagnostics import record_failure as _record_failure
 
 
 _CONTEXT_CONTROL = (
@@ -1176,35 +1174,30 @@ def _photo_followup_continuation(normalized: str, active_context: ActiveContext)
 
 _CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY})
 _CLARIFY_TARGET_MAX = 40
-_APP_TARGET_SINGLE = re.compile(r"[\w+#.&'’-]+")
 _ANSWER_CONTROL = frozenset({
     "evet", "hayır", "hayir", "tamam", "olur", "onayla", "onaylıyorum", "onayliyorum",
     "iptal", "vazgeç", "vazgec", "boşver", "bosver",
 })
 
 
-def _clarify_proposal(reference: ContextReference, owner: str) -> str | None:
-    """The typed follow-up carried by an open-ended clarify, if any (never invented here).
+def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, Any] | None:
+    """The caller-supplied typed follow-up carried by an active clarify, if any.
 
-    Owner and expiry are re-checked here: ``prepare`` runs before ``continue_voice``, so a slot
-    that only ``continue_voice`` would reject must never become an Understanding continuation."""
+    Context observes validity (owner + expiry) and carries the result as ``active``; this
+    layer only reads supplied evidence, so it never reads a clock or imports an effect domain."""
     if reference.kind != "pending_state" or reference.source != "session_state" or reference.id != "pending_action":
         return None
-    if reference.owner != owner:
+    if reference.owner != owner or reference.provenance.get("active") is not True:
         return None
     value = reference.provenance.get("value")
     if not isinstance(value, Mapping) or value.get("stage") != "clarify":
         return None
     if str(value.get("owner") or "") != owner:
         return None
-    expires = value.get("expires")
-    if not isinstance(expires, (int, float)) or isinstance(expires, bool) or expires < time.time():
-        return None
     proposal = value.get("proposal")
-    if not isinstance(proposal, Mapping):
+    if not isinstance(proposal, Mapping) or proposal.get("kind") not in _CLARIFY_PROPOSALS:
         return None
-    kind = proposal.get("kind")
-    return kind if kind in _CLARIFY_PROPOSALS else None
+    return proposal
 
 
 def _pending_answer_candidate(normalized: str) -> bool:
@@ -1217,20 +1210,16 @@ def _pending_answer_candidate(normalized: str) -> bool:
     return True
 
 
-def _bounded_app_target(target: str) -> bool:
-    """Evidence that the answer names an app: a fixed alias or one lexical token.
+def _app_target_evidence(target: str, reference: ContextReference) -> bool:
+    """The target must match the canonical app alias evidence the caller supplied.
 
-    A short unrelated sentence is not evidence just because a clarify is open."""
-    try:
-        from modules.system_control import is_static_app_alias
-    except Exception:
-        _record_failure("modules/brain_understanding.py:static_app_alias")
+    Missing or empty evidence fails closed; a short unrelated word is never an app."""
+    aliases = reference.provenance.get("targets")
+    if not isinstance(aliases, (tuple, list)) or not aliases:
         return False
-    if is_static_app_alias(target):
-        return True
-    token = target.strip()
-    return (" " not in token and _APP_TARGET_SINGLE.fullmatch(token) is not None
-            and re.search(r"[^\W\d_]", token) is not None)
+    known = {_norm(alias) for alias in aliases if isinstance(alias, str) and alias.strip()}
+    candidate = _norm(target)
+    return bool(candidate) and candidate in known
 
 
 def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveContext,
@@ -1240,11 +1229,12 @@ def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveCont
         return None
     target = text.strip(" .!?")
     if not target or _norm(target) in _ANSWER_CONTROL or "?" in target or "\x00" in target \
-            or len(target) > _CLARIFY_TARGET_MAX or not _bounded_app_target(target):
+            or len(target) > _CLARIFY_TARGET_MAX:
         return None
-    if any(_clarify_proposal(pending, owner) == APP_OPEN_CAPABILITY
-           for pending in active_context.pending_references):
-        return APP_OPEN_CAPABILITY, {"app": target}
+    for pending in active_context.pending_references:
+        proposal = _clarify_proposal(pending, owner)
+        if proposal is not None and _app_target_evidence(target, pending):
+            return APP_OPEN_CAPABILITY, {"app": target}
     return None
 
 

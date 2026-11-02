@@ -3,6 +3,7 @@
 Açık bir clarification (stage=clarify) yeni bir capability isteğini bloke edemez; Core plan
 çalışır, sohbet yedeğine düşmez. Gerçek clarification yanıtı multi-step'i erken sürdürmez.
 """
+import ast
 import tempfile
 import time
 import unittest
@@ -16,6 +17,7 @@ from modules import app_actions, brain_core_map, brain_entry, brain_precedence, 
 from modules import brain_understanding
 from modules.brain_contracts import ConversationRelation, RequestKind
 from modules.command_manager import awaiting_input
+from modules.system_control import APPS as STATIC_APPS
 from modules.system_control import ApplicationResult
 
 
@@ -35,7 +37,7 @@ class RelationAuthorityTests(unittest.TestCase):
         self.addCleanup(close_test_handlers)
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
-        self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
+        self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
         self.ctx.chat = Mock(return_value="CHAT")
         guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
         guard.start()
@@ -78,6 +80,8 @@ class RelationAuthorityTests(unittest.TestCase):
         self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
         self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.capability_hint, "app.open")
+        pending = next(ref for ref in entry.active_context.pending_references if ref.id == "pending_action")
+        self.assertIn("chrome", pending.provenance["targets"])  # caller-supplied canonical evidence
         self.ctx.system_control.open_application.assert_called_once_with("Chrome")
         self.assertEqual(out, "Chrome penceresi açık; açılışını doğruladım.")
         self.ctx.chat.assert_not_called()
@@ -138,6 +142,28 @@ class RelationAuthorityTests(unittest.TestCase):
         self.ctx.system_control.open_application.assert_not_called()
         self.assertIsNone(session.pending_action)
         self.assertFalse(awaiting_input(session))
+
+    def test_single_word_unrelated_is_not_a_typed_app_target(self):
+        for answer in ("yarın", "kuantum"):
+            with self.subTest(answer=answer):
+                session = self.ask("aç")
+                entry, out, _ = self.turn_typed_answer(session, answer)
+                self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+                self.assertNotEqual(entry.understanding.capability_hint, "app.open")
+                self.ctx.system_control.open_application.assert_not_called()
+                self.assertIsNone(session.pending_action)
+                self.assertFalse(awaiting_input(session))
+
+    def test_fast_gate_supersedes_an_open_clarification(self):
+        for text, prefix in (("saat kaç", "Saat "), ("tarih", "Bugün ")):
+            with self.subTest(text=text):
+                session = self.ask("aç")
+                self.assertIsNotNone(session.pending_action)
+                entry, out, handle, feedback = self.turn(text)
+                self.assertTrue(entry.fast_gate.matched)
+                self.assertTrue(out.startswith(prefix), out)
+                self.assertIsNone(session.pending_action)
+                self.assertFalse(awaiting_input(session))
 
     def test_open_clarification_does_not_block_an_independent_notes_request(self):
         self.ask()
@@ -239,32 +265,57 @@ class ClarifyProposalGuardTests(unittest.TestCase):
         base.update(overrides)
         return base
 
-    def answer(self, text, **overrides):
+    def answer(self, text, *, active=True, aliases=tuple(sorted(STATIC_APPS)), **overrides):
         from modules.brain_contracts import ActiveContext, ContextReference
         ref = ContextReference(owner="hamdi", kind="pending_state", source="session_state",
-                               id="pending_action", provenance={"value": self.value(**overrides)})
+                               id="pending_action",
+                               provenance={"value": self.value(**overrides), "active": active,
+                                           "targets": tuple(aliases)})
         return brain_understanding.understand(
             owner="hamdi", request_id="r", text=text,
             active_context=ActiveContext(owner="hamdi", request_id="r", pending_references=(ref,)),
             candidates=(), references=())
 
-    def test_owner_and_expiry_are_checked_before_the_handler_too(self):
-        self.assertIs(self.answer("Chrome", expires=time.time() - 1).conversation_relation,
+    def test_context_observes_owner_and_expiry_before_understanding(self):
+        # Validity is observation evidence: Understanding must not read the clock itself.
+        self.assertIs(self.answer("Chrome", active=False).conversation_relation,
                       ConversationRelation.NEW_REQUEST)
         self.assertIs(self.answer("Chrome", owner="bob").conversation_relation,
                       ConversationRelation.NEW_REQUEST)
         self.assertIs(self.answer("Chrome").conversation_relation,
                       ConversationRelation.ANSWER_TO_PENDING)
 
-    def test_alias_or_single_token_is_the_bounded_app_evidence(self):
+    def test_only_canonical_alias_evidence_is_an_app_target(self):
         for text in ("Chrome", "Google Chrome", "hesap makinesi", "not defteri"):
             with self.subTest(text=text):
                 self.assertIs(self.answer(text).conversation_relation,
                               ConversationRelation.ANSWER_TO_PENDING)
-        for text in ("yarın toplantım var", "bugün hava güzel"):
+        for text in ("yarın", "kuantum", "evdeyim", "toplantı", "yarın toplantım var"):
             with self.subTest(text=text):
                 self.assertIs(self.answer(text).conversation_relation,
                               ConversationRelation.NEW_REQUEST)
+
+    def test_missing_evidence_fails_closed(self):
+        self.assertIs(self.answer("Chrome", aliases=()).conversation_relation,
+                      ConversationRelation.NEW_REQUEST)
+
+
+class UnderstandingArchitectureGuardTests(unittest.TestCase):
+    def test_understanding_reads_no_clock_or_effect_domain(self):
+        tree = ast.parse(Path(brain_understanding.__file__).read_text(encoding="utf-8-sig"))
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+                imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+        self.assertNotIn("time", imported)
+        offenders = sorted(
+            name for name in imported
+            if name == "system_control" or name.startswith("modules.system_control")
+        )
+        self.assertEqual(offenders, [])
 
 
 class NoPendingRequestSlotTests(unittest.TestCase):

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
@@ -162,6 +162,44 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
 
 
+def _app_clarify_reference(reference: ContextReference) -> bool:
+    value = reference.provenance.get("value")
+    proposal = value.get("proposal") if isinstance(value, Mapping) else None
+    return (
+        reference.id == "pending_action"
+        and reference.source == "session_state"
+        and reference.provenance.get("active") is True
+        and isinstance(value, Mapping)
+        and value.get("stage") == "clarify"
+        and isinstance(proposal, Mapping)
+        and proposal.get("kind") == "app.open"
+    )
+
+
+def _with_app_target_evidence(active: ActiveContext, runtime: Any) -> ActiveContext:
+    """Attach the canonical app alias catalog while a typed app-open question is open.
+
+    Understanding never discovers apps; the caller supplies the bounded evidence it may accept."""
+    if not any(_app_clarify_reference(ref) for ref in active.pending_references):
+        return active
+    try:
+        aliases = tuple(sorted(
+            name for name in runtime.system_control.APPS
+            if isinstance(name, str) and name.strip()
+        ))
+    except Exception:
+        _record_failure("modules/brain_entry.py:app_target_evidence")
+        return active
+    if not aliases:
+        return active
+    rows = tuple(
+        replace(ref, provenance={**ref.provenance, "targets": aliases})
+        if _app_clarify_reference(ref) else ref
+        for ref in active.pending_references
+    )
+    return replace(active, pending_references=rows)
+
+
 def _pending_photo_state(active: ActiveContext) -> ContextReference | None:
     """The one canonical pending-photo representation, shared by ActiveContext and the gate."""
     return next(
@@ -203,6 +241,7 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     )
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
+    active = _with_app_target_evidence(active, runtime)
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)
@@ -661,12 +700,17 @@ def _is_clarify_pending(ref: ContextReference) -> bool:
 
 
 def _relation_supersedes_clarify(entry: EntryResult) -> bool:
-    """Understanding's relation—not the plan outcome—decides whether an open clarify stands.
+    """Does this canonical turn answer the open clarify? Only its own protocols keep it.
 
-    Only an answer keeps it. A NEW_REQUEST chat has no plan, yet the slot must not survive and
-    block the next turn."""
-    if entry.state_gate.matched:
-        return False
+    The answer relation is decided by whichever canonical entry produced the turn: the state
+    gate's offered-choice protocol or Understanding's ANSWER_TO_PENDING. A Fast Gate read or a
+    new semantic request is not an answer, so the stale question must not survive the turn."""
+    gate = entry.state_gate
+    if gate.matched:
+        return gate.protocol != "session.pending_action.clarify_select"
+    fast = entry.fast_gate
+    if fast is not None and fast.matched:
+        return True
     semantic = entry.understanding
     return (semantic is not None
             and semantic.conversation_relation is not ConversationRelation.ANSWER_TO_PENDING)

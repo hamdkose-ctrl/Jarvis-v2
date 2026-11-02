@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 import math
+import time
 from typing import Any, Callable, Iterable, Mapping
 
 from modules.brain_contracts import ActiveContext, ContextReference
@@ -132,6 +133,20 @@ def _session_state(owner: str, store: Any) -> tuple[Any | None, ContextReference
     return state, None
 
 
+def _clarify_active(owner: str, value: Any) -> bool | None:
+    """Observation-layer validity of an open clarify: owner match and clock expiry.
+
+    ``None`` means the value is not a clarify, so Understanding ignores it."""
+    if not isinstance(value, Mapping) or value.get("stage") != "clarify":
+        return None
+    if str(value.get("owner") or "") != owner:
+        return False
+    expires = value.get("expires")
+    if not isinstance(expires, (int, float)) or isinstance(expires, bool):
+        return False
+    return expires >= time.time()
+
+
 def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[ContextReference], list[ContextReference]]:
     pending: list[ContextReference] = []
     artifacts: list[ContextReference] = []
@@ -147,6 +162,10 @@ def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[
         provenance: dict[str, Any] = {"field": field}
         if safe is not _DROP:
             provenance["value"] = safe
+            if field == "pending_action":
+                active = _clarify_active(owner, safe)
+                if active is not None:
+                    provenance["active"] = active
         else:
             provenance["reason_code"] = "VALUE_NOT_JSON"
         pending.append(_ref(owner=owner, ident=field, kind="pending_state", source="session_state", provenance=provenance))
