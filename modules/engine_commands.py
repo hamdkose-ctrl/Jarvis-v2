@@ -16,7 +16,7 @@ class _TypoRetry:
 
 
 def handle_request(runtime, command: str) -> str:
-    """Public entry: run the pipeline; at most one explicit retry on typo-corrected text, same request id."""
+    """Public entry: run the pipeline; at most one explicit retry on the typo-corrected text, same request id."""
     reply = handle(runtime, command)
     if not isinstance(reply, _TypoRetry):
         return reply
@@ -90,6 +90,7 @@ def handle(runtime, command: str):
             entry = brain_entry.current()
             belongs_to_photo = bool(
                 entry is not None
+                and entry.understanding is not None
                 and entry.understanding.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
                 and any(
                     ref.kind == "pending_state"
