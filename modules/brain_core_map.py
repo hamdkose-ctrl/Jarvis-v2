@@ -27,6 +27,8 @@ from modules.brain_understanding import (
     FILE_TRANSLATION_TARGET_MISSING,
     LEVEL_CAPABILITY,
     LEVEL_UNSPECIFIED,
+    NOTE_SEARCH_QUERY_MISSING,
+    NOTE_TARGET_AMBIGUOUS,
     NOTE_TARGET_UNRESOLVED,
     NOTE_UPDATE_TEXT_MISSING,
     NOTES_WRITE_CAPABILITY,
@@ -131,16 +133,59 @@ def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"title": title, "when": when, "repeat": repeat}
 
 
+_NOTE_WINDOWS = frozenset({"today", "yesterday", "this_week", "last_week", "this_month", "last_month"})
+_NOTE_QUERY_MAX = 120
+_NOTE_QUERY_TERMS_MAX = 3
+
+
+def _note_query(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    query = value.strip()
+    if not 0 < len(query) <= _NOTE_QUERY_MAX or "\x00" in query:
+        return None
+    if any(ord(char) < 32 for char in query) or len(query.split()) > _NOTE_QUERY_TERMS_MAX:
+        return None
+    return query
+
+
 def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core re-validates the read-only notes proposal; the id is checked against the profile at execution."""
     row = arguments.get("notes")
-    if not isinstance(row, Mapping) or set(row) - {"which", "id"}:
+    if not isinstance(row, Mapping):
         return None
     which, ident = row.get("which"), row.get("id")
-    if which == "all" and ident is None:
-        return {"which": "all"}
-    if which == "one" and isinstance(ident, str) and 0 < len(ident.strip()) <= 64:
-        return {"which": "one", "id": ident.strip()}
+    if which == "all":
+        return {"which": "all"} if set(row) == {"which"} else None
+    if which == "one":
+        if set(row) != {"which", "id"}:
+            return None
+        if isinstance(ident, str) and 0 < len(ident.strip()) <= 64:
+            return {"which": "one", "id": ident.strip()}
+        return None
+    if which == "search":
+        if set(row) - {"which", "query", "window"}:
+            return None
+        window = row.get("window")
+        if window is not None and window not in _NOTE_WINDOWS:
+            return None
+        query = row.get("query")
+        if query is None:
+            return {"which": "search", "window": window} if window is not None else None
+        query = _note_query(query)
+        if query is None:
+            return None
+        result: dict[str, Any] = {"which": "search", "query": query}
+        if window is not None:
+            result["window"] = window
+        return result
+    if which == "summary":
+        if set(row) - {"which", "id"}:
+            return None
+        if ident is None:
+            return {"which": "summary"}
+        if isinstance(ident, str) and 0 < len(ident.strip()) <= 64:
+            return {"which": "summary", "id": ident.strip()}
     return None
 
 
@@ -272,7 +317,6 @@ LEGACY_OWNED_HINTS: dict[str, str] = {}
 # Hints that are Core-mapped for some operations; the rest of the hint is still owned by this legacy path.
 PARTIAL_CORE_HINTS: dict[str, str] = {
     "research.search": "ara/bul cümleleri açık web araştırma ipucu taşımıyorsa (mail/dosya/sayfa/not/deiktik): eski handler + goal_executor",
-    "notes.read": "main_planner not arama/özetleme + bounded numara/tüm-not domain protokolleri",
 }
 
 
@@ -301,8 +345,12 @@ def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str,
         return "Dosyayı hangi formata dönüştüreyim? Excel, Word veya PDF de."
     if NOTE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi notu kastettiğini netleştir; notun adından bir kelime söyle."
+    if NOTE_TARGET_AMBIGUOUS in ambiguities:
+        return "Hangisini kastettiğini netleştir: birden fazla not eşleşti; notun adından bir kelime ya da numara söyle."
     if NOTE_UPDATE_TEXT_MISSING in ambiguities:
         return "Notun yeni metnini de söyle; örneğin 'market notunu düzelt: yeni metin'."
+    if NOTE_SEARCH_QUERY_MISSING in ambiguities:
+        return "Hangi kelimeyi notlarında aramamı istersin?"
     if TRANSLATE_SOURCE_MISSING in ambiguities:
         return "Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin."
     if LEVEL_UNSPECIFIED in ambiguities:

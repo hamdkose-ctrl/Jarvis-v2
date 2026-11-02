@@ -527,9 +527,53 @@ _NOTES_WRITE_STOP = frozenset({
 })
 _NOTES_FILLERS = frozenset({"lütfen", "lutfen", "bana", "bir", "bu", "şu", "su", "o", "tüm", "tum", "bütün", "butun",
                             "hepsini", "son", "şunu", "bunu", "mi", "mı", "mu", "mü", "misin", "mısın", "musun", "müsün", "jarvis"})
+# "notlarımda/notlarda/notumda" are the inflected forms the old raw-text search accepted.
+_NOTE_SEARCH_DOMAIN_TOKENS = _NOTE_DOMAIN_TOKENS + (
+    "notlarımda", "notlarimda", "notlarda", "notumda", "notumdaki",
+    "notlarımdaki", "notlarimdaki", "notlarındaki", "notlarindaki",
+)
+_NOTE_SEARCH_CUES = ("ara", "arar", "bul", "bulur", "gecen", "geçen", "gecenleri", "geçenleri",
+                     "yaziyor", "yazıyor")
+_NOTE_SEARCH_STOP = _NOTES_FILLERS | frozenset({
+    "ara", "arar", "bul", "bulur", "goster", "göster", "oku", "say", "listele",
+    "gecen", "geçen", "gecenleri", "geçenleri", "yaziyor", "yazıyor", "hangi",
+    "var", "mi", "mı", "mu", "mü", "neydi", "nelerdi", "neler", "nerede", "ne",
+    "ile", "ilgili", "hakkinda", "hakkında", "icinde", "içinde", "icindeki", "içindeki",
+    "olan", "benim", "bana", "aldigim", "aldığım", "yazdigim", "yazdığım",
+    "kaydettigim", "kaydettiğim", "tuttugum", "tuttuğum",
+    "bugun", "bugün", "bugunku", "bugünkü", "dun", "dün", "dunku", "dünkü",
+    "bu", "hafta", "haftaki", "ay", "ayki",
+})
+_NOTE_SEARCH_END = re.compile(
+    r"\bnot\w*\s*(?:var mi|var mı|neydi|nelerdi|neler|ne|nerede|goster|göster|oku|bul|ara|var)?$"
+    r"|\b(?:ara|arar|bul|bulur|goster|göster|oku)\w*$|\bvar mi$|\bvar mı$|\bneydi$"
+)
+_NOTE_SUMMARY_VERBS = ("özetle", "ozetle", "özet", "ozet")
+# Bounded ordinal/last-note mutations stay with the notes owner's existing protocol; they are not a
+# multi-target question even though "son not" references the whole inventory.
+_NOTE_BOUNDED_MUTATION = re.compile(
+    r"(?<!\w)(?:son|ilk|birinci|ikinci|üçüncü|ucuncu|dördüncü|dorduncu|beşinci|besinci|altıncı|altinci|"
+    r"yedinci|sekizinci|dokuzuncu|onuncu|\d{1,3})\.?\s*(?:numaralı|numarali)?\s*not\w*\s+"
+    r"(?:sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
+)
+_NOTE_SUMMARY_OTHER = frozenset({
+    "mail", "maili", "mailler", "mailleri", "dosya", "dosyayi", "dosyayı", "sayfa", "sayfayi", "sayfayı",
+    "web", "internet", "internette", "haber", "haberleri", "takvim", "takvimi",
+    "hatirlat", "hatırlat", "gorsel", "görsel", "resim", "resmi",
+})
+_NOTE_WINDOWS = (
+    (re.compile(r"\b(?:gecen|geçen) hafta"), "last_week"),
+    (re.compile(r"\bbu hafta"), "this_week"),
+    (re.compile(r"\b(?:gecen|geçen) ay"), "last_month"),
+    (re.compile(r"\bbu ay"), "this_month"),
+    (re.compile(r"\b(?:bugun|bugün)"), "today"),
+    (re.compile(r"\b(?:dun|dün)"), "yesterday"),
+)
 NOTES_WRITE_CAPABILITY = "notes.write"
 NOTE_TARGET_UNRESOLVED = "note target unresolved"
+NOTE_TARGET_AMBIGUOUS = "note target ambiguous"
 NOTE_UPDATE_TEXT_MISSING = "note update text missing"
+NOTE_SEARCH_QUERY_MISSING = "note search query missing"
 
 
 def _note_write_request(text: str) -> tuple[str, str] | None:
@@ -574,6 +618,113 @@ def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dic
     if len(notes) == 1 and _contains_domain_token(text, _NOTES_SINGULAR):
         return {"notes": {"which": "one", "id": notes[0].id}}
     return {}
+
+
+def _note_window_label(text: str) -> str | None:
+    for pattern, label in _NOTE_WINDOWS:
+        if pattern.search(text) is not None:
+            return label
+    return None
+
+
+def _note_search_query(text: str) -> str:
+    """The user's own search words only; note/date/cue/filler words never become the query."""
+    stripped = re.sub(r"\bnot\w*", " ", text)
+    words = re.findall(r"[\wçğıöşü]+", stripped)
+    return " ".join(word for word in words if word not in _NOTE_SEARCH_STOP)
+
+
+def _is_single_note_search(text: str) -> bool:
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text.lower())
+    known = (set(_NOTE_SEARCH_DOMAIN_TOKENS) | set(_NOTES_PLURAL) | set(_NOTES_SINGULAR)
+             | set(_NOTE_SEARCH_CUES) | set(_NOTE_SEARCH_STOP)
+             | {"göster", "goster", "oku", "say", "listele", "notlarım", "notlarim"})
+    return bool(words) and all(word in known for word in words)
+
+
+def _notes_search_request(text: str) -> bool:
+    """True only for a bounded note lookup request; mutations/definitions and other domains stay out."""
+    if not _has_note_domain(text) or _notes_summary_request(text) is not None:
+        return False
+    if any(_bounded_token(text, word) for word in (
+            "sil", "kaldir", "kaldır", "duzelt", "düzelt", "degistir", "değiştir", "guncelle", "güncelle",
+            "temizle", "ekle", "al", "yaz", "et",
+    )):
+        return False
+    if any(_bounded_token(text, word) for word in ("nasil", "nasıl", "neden", "nedir", "niye", "demek")):
+        return False
+    cue = _contains_command_token(text, _NOTE_SEARCH_CUES)
+    # A second action joined by "ve"/"," belongs to the step runner, not to a single notes lookup.
+    if not cue and ("," in text or " ve " in f" {text} "):
+        return False
+    if _note_window_label(text) is not None:
+        return True
+    if _note_search_query(text):
+        return cue or _NOTE_SEARCH_END.search(text) is not None
+    # Bare list/read forms ("notlarım") stay with the existing read owner; only an explicit
+    # search cue turns an empty query into the fail-closed clarification.
+    return cue and _is_single_note_search(text)
+
+
+def _notes_search_arguments(text: str) -> dict[str, object]:
+    if not _notes_search_request(text):
+        return {}
+    window = _note_window_label(text)
+    query = _note_search_query(text)
+    if query:
+        if len(query.split()) > 3:
+            return {}
+        row: dict[str, object] = {"which": "search", "query": query}
+        if window is not None:
+            row["window"] = window
+        return {"notes": row}
+    if window is not None:
+        return {"notes": {"which": "search", "window": window}}
+    return {}
+
+
+def _has_note_domain(text: str) -> bool:
+    return _contains_domain_token(text, _NOTE_SEARCH_DOMAIN_TOKENS)
+
+
+def _notes_summary_request(text: str) -> str | None:
+    """Return 'all' or 'one' for a single notes-summary request, else None."""
+    if not _has_note_domain(text) or not _contains_command_token(text, _NOTE_SUMMARY_VERBS):
+        return None
+    words = re.findall(r"[\wçğıöşüÇĞİÖŞÜ]+", text)
+    if any(word in _NOTE_SUMMARY_OTHER for word in words):
+        return None
+    if " ve " in f" {text} " or "," in text or any(marker in text for marker in (" sonra ", " ardından ", " akabinde ")):
+        return None
+    if _contains_domain_token(text, _NOTES_PLURAL):
+        return "all"
+    if _contains_domain_token(text, _NOTES_SINGULAR):
+        return "one"
+    return None
+
+
+def _notes_summary_arguments(text: str, references: tuple[ContextReference, ...], kind: str) -> dict[str, object]:
+    if kind == "all":
+        return {"notes": {"which": "summary"}}
+    if kind != "one":
+        return {}
+    notes = [ref for ref in references if ref.kind == "note"]
+    if len(notes) != 1:
+        return {}
+    return {"notes": {"which": "summary", "id": notes[0].id}}
+
+
+def _notes_request_kind(text: str) -> str | None:
+    """The single notes operation Understanding proposes: search, summary, all or one."""
+    if _notes_summary_request(text) is not None:
+        return "summary"
+    if _notes_search_request(text):
+        return "search"
+    if _contains_domain_token(text, _NOTES_PLURAL) and _contains_command_token(text, _NOTES_READ_VERBS):
+        return "all"
+    if _contains_domain_token(text, _NOTES_SINGULAR) and _contains_command_token(text, _NOTES_READ_VERBS):
+        return "one"
+    return None
 
 
 def _notes_write_arguments(original: str, normalized: str,
@@ -647,7 +798,7 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return None
     if _note_write_request(text) is not None:
         return "notes.write"
-    if _is_notes_read_request(text):
+    if _notes_request_kind(text) is not None:
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
@@ -1042,6 +1193,8 @@ def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
     if len(references) <= 1 or _plural_reference_intent(text) or _is_correction(text):
         return ()
+    if _NOTE_BOUNDED_MUTATION.search(text) is not None:
+        return ()
     return ("multiple target references",)
 
 
@@ -1085,7 +1238,10 @@ def understand(
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
     note_write = None if (context_control or topic_change or correction) else _note_write_request(normalized)
-    notes_read_request = False if (context_control or topic_change or correction) else _is_notes_read_request(normalized)
+    note_search = False if (context_control or topic_change or correction) else _notes_search_request(normalized)
+    note_summary = None if (context_control or topic_change or correction) else _notes_summary_request(normalized)
+    notes_read_request = ((not (context_control or topic_change or correction))
+                          and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
     file_operation = None if (context_control or topic_change or correction) else _file_operation(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     if note_write is not None:
@@ -1093,9 +1249,18 @@ def understand(
         if not note_refs:
             ambiguities = (NOTE_TARGET_UNRESOLVED,)
         elif len(note_refs) > 1:
-            ambiguities = ("multiple target references",)
+            ambiguities = (NOTE_TARGET_AMBIGUOUS,)
         elif note_write[0] == "update" and _note_update_text(text) is None:
             ambiguities = (NOTE_UPDATE_TEXT_MISSING,)
+    elif note_summary == "one":
+        note_refs = [ref for ref in references if ref.kind == "note"]
+        if not note_refs:
+            ambiguities = (NOTE_TARGET_UNRESOLVED,)
+        elif len(note_refs) > 1:
+            ambiguities = (NOTE_TARGET_AMBIGUOUS,)
+    if (not ambiguities and note_search and not _notes_arguments(normalized, references)
+            and _note_window_label(normalized) is None and _is_single_note_search(normalized)):
+        ambiguities = (NOTE_SEARCH_QUERY_MISSING,)
     weather_request = _is_weather_request(normalized)
     research_request = _is_explicit_research_request(normalized)
     # Eylem fiili taşıyan icra isteği sohbet olarak bırakılamaz: hedef yürütücüsüne devredilir.
@@ -1194,6 +1359,8 @@ def understand(
         reason_codes.append("NOTE_TARGET_UNRESOLVED")
     elif NOTE_UPDATE_TEXT_MISSING in ambiguities:
         reason_codes.append("NOTE_UPDATE_TEXT_MISSING")
+    elif NOTE_SEARCH_QUERY_MISSING in ambiguities:
+        reason_codes.append("NOTE_SEARCH_QUERY_MISSING")
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
@@ -1233,6 +1400,10 @@ def understand(
         arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":
         arguments = {**arguments, **_notes_arguments(normalized, references)}
+        if not arguments.get("notes") and note_search:
+            arguments = {**arguments, **_notes_search_arguments(normalized)}
+        if not arguments.get("notes") and note_summary is not None:
+            arguments = {**arguments, **_notes_summary_arguments(normalized, references, note_summary)}
     if capability_hint == NOTES_WRITE_CAPABILITY:
         arguments = {**arguments, **_notes_write_arguments(text, normalized, references)}
     if capability_hint == SCREEN_CAPABILITY:

@@ -20,11 +20,22 @@ _NOTE_MUTATION = re.compile(
     r"^(?P<target>.+?)\s+not\w*\s+(?:sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
     r"(?:\s*[:,].*)?$"
 )
+_NOTE_SUMMARY = re.compile(
+    r"^(?P<target>.+?)\s+(?:(?:başlıklı|baslikli)\s+)?not\w*\s+(?:özetle|ozetle|özet|ozet)\w*$"
+)
+_NOTE_ORDINALS = {
+    "ilk": 1, "birinci": 1, "ikinci": 2, "üçüncü": 3, "ucuncu": 3, "dördüncü": 4, "dorduncu": 4,
+    "beşinci": 5, "besinci": 5, "altıncı": 6, "altinci": 6, "yedinci": 7,
+    "sekizinci": 8, "dokuzuncu": 9, "onuncu": 10,
+}
+_NOTE_ORDINAL_RE = re.compile(r"(?<!\w)(" + "|".join(sorted(_NOTE_ORDINALS, key=len, reverse=True)) + r")(?!\w)")
+_NOTE_SUMMARY_CUE = re.compile(r"(?<!\w)(?:özetle|ozetle|özet|ozet)(?!\w)")
+_NOTE_ACTIVE_DEICTICS = ("bu notu", "şu notu", "su notu", "o notu", "bu notum", "şu notum", "su notum")
 _NOTE_TARGET_STOP = frozenset({
     "bu", "şu", "su", "o", "son", "tüm", "tum", "bütün", "butun", "hepsi", "hepsini",
     "not", "notu", "notunu", "notum", "notumu", "notlar", "notları", "notlari", "notlarım",
     "notlarim", "notlarımı", "notlarimi", "numaralı", "numarali",
-})
+}) | frozenset(_NOTE_ORDINALS)
 
 
 def _required(name: str, value: str) -> str:
@@ -112,8 +123,9 @@ def _file_signals(candidate: ContextReference) -> tuple[str, ...]:
 
 
 def _note_target_words(text: str) -> tuple[str, ...]:
-    """Named note mutation target only; bounded numeric/all/last protocols stay with their domain owner."""
-    match = _NOTE_MUTATION.fullmatch(text.strip(" .!?"))
+    """Named note mutation/summary target; bounded numeric/all/last protocols stay with their domain owner."""
+    stripped = text.strip(" .!?")
+    match = _NOTE_MUTATION.fullmatch(stripped) or _NOTE_SUMMARY.fullmatch(stripped)
     if match is None:
         return ()
     words = tuple(re.findall(r"[\wçğıöşü]+", match.group("target")))
@@ -142,6 +154,23 @@ def _note_candidate_matches(candidate: ContextReference, target_words: tuple[str
         return False
 
     return all(hit(target) for target in target_words)
+
+
+def _note_ordinal(text: str) -> int:
+    """Bounded 1-based note ordinal for a summary request; 0 when absent or multiple."""
+    if _NOTE_SUMMARY_CUE.search(text) is None:
+        return 0
+    hits = _NOTE_ORDINAL_RE.findall(text)
+    return _NOTE_ORDINALS[hits[0]] if len(hits) == 1 else 0
+
+
+def _active_note_keys(context: ActiveContext) -> set[tuple[str, str]]:
+    return {
+        (ref.kind, ref.id)
+        for group in (context.recent_references, context.active_artifacts,
+                      context.pending_references, context.memory_references)
+        for ref in group if ref.kind == "note"
+    }
 
 
 def _eligible(candidates: tuple[ContextReference, ...]) -> tuple[ContextReference, ...]:
@@ -203,6 +232,13 @@ def resolve_references(
         if note_matches:
             return note_matches
 
+    ordinal = _note_ordinal(normalized)
+    if ordinal:
+        notes = tuple(candidate for candidate in usable if candidate.kind == "note")
+        if 0 < ordinal <= len(notes):
+            return (notes[ordinal - 1],)
+        return ()
+
     file_matches = tuple(
         candidate
         for candidate in usable
@@ -224,6 +260,11 @@ def resolve_references(
             for candidate in usable
             if candidate.kind == "conversation_turn" and _norm(candidate.provenance.get("role")) == "assistant"
         )
+
+    if any(_phrase(normalized, phrase) for phrase in _NOTE_ACTIVE_DEICTICS):
+        # "bu/o notu" only points at a note that is already in ActiveContext; never guess from profile inventory.
+        keys = _active_note_keys(active_context)
+        return tuple(candidate for candidate in usable if candidate.kind == "note" and (candidate.kind, candidate.id) in keys)
 
     if any(_phrase(normalized, phrase) for phrase in _GENERIC_DEICTICS):
         return _eligible(usable)

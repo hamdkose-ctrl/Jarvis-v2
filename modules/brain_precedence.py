@@ -59,7 +59,9 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
     def extra_commands():
         # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
         # file_action, the later files.handle chain must not get a second chance at the same target.
-        if plan is not None and plan[0] == "file_action":
+        # A validated notes plan likewise owns its request: unrelated later chains (e.g. the mail/agenda
+        # handler reacting to a word like "toplantı") must not answer it instead.
+        if plan is not None and plan[0] in {"file_action", "notes_read", "notes_write"}:
             return None
         return runtime._extra_commands(command, lowered)
 

@@ -143,6 +143,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
         case "notes_read":
+            if a.get("which") == "search":
+                from modules import main_planner
+                return main_planner.notes_search(runtime, str(a.get("query") or ""), a.get("window"))
+            if a.get("which") == "summary":
+                from modules import main_planner
+                return main_planner.notes_summary(runtime, a.get("id"))
             if a.get("which") == "one":
                 note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
                 return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
