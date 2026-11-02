@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+import uuid
 from unittest.mock import Mock, patch
 
 import test_engine_modular as fixtures
-from modules import brain_entry, engine_commands
+from modules import brain_entry, engine_commands, requests_state
 from modules.brain_contracts import ActiveContext, ContextReference, ConversationRelation
 from modules.brain_understanding import understand
 
@@ -74,23 +75,28 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         runtime._photo_action = Mock(return_value="PHOTO_ACTION")
         runtime._split_steps = Mock(return_value=("fallback-step",))
         runtime._run_steps = Mock(return_value="CONTINUED")
-        entry = brain_entry.prepare(
-            runtime,
-            owner=owner,
-            request_id=f"rid-{text}",
-            text=text,
-            source="telefon",
-        )
+        rid = "rid-photo-" + uuid.uuid4().hex[:12]
+        self.assertTrue(requests_state.register(owner, rid))
+        # prepare and handle are two stages of the same request. Keep the request queued
+        # after preparation, then activate it again while the real handler runs.
+        with requests_state.activate(owner, rid, complete=False):
+            entry = brain_entry.prepare(
+                runtime,
+                owner=owner,
+                request_id=rid,
+                text=text,
+                source="telefon",
+            )
         return runtime, entry, path
 
     def _handle(self, runtime, entry, text: str):
-        with patch("modules.requests_state.check"), \
-             patch("modules.command_manager.engine_control", return_value=None), \
+        with patch("modules.command_manager.engine_control", return_value=None), \
              patch("modules.job_front.wants", return_value=False), \
              patch("modules.goal_executor.active", return_value=False), \
              patch("modules.goal_executor.handle", return_value=None), \
              patch("modules.command_manager.dispatch", return_value=None), \
              patch("modules.command_execution.continue_app", return_value=None), \
+             requests_state.activate(entry.owner, entry.request_id), \
              brain_entry.bind(entry):
             return engine_commands.handle(runtime, text)
 
