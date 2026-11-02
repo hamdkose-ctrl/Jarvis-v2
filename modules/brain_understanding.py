@@ -1251,6 +1251,10 @@ def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext
         field = _pending_field(pending)
         if field == "pending_weather_location" and _looks_like_location_answer(text):
             return True
+        if field == "pending_msg":
+            value = pending.provenance.get("value")
+            if isinstance(value, Mapping) and value.get("stage") in {"to", "text"}:
+                return True
     return False
 
 

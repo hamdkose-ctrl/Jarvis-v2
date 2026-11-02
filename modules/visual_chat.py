@@ -60,10 +60,10 @@ def handle(context, command: str, normalized: str) -> str | None:
     if pending is not None:
         if pending.get("stage") == "source":
             from modules import brain_entry
-            owned = brain_entry.state_protocol()
-            # Canonical kapı cevabı başka bir bounded state'e verdiyse bu legacy soru
+            owned = brain_entry.turn_protocol()
+            # Canonical kapı cevabı başka bir State/Fast protokolüne verdiyse bu legacy soru
             # ikinci kez sahiplenmez; bağlı entry yoksa eski davranış korunur.
-            if owned is not None and not owned.startswith("session.pending_visual."):
+            if owned is not None and not brain_entry.protocol_owned_by("session.pending_visual."):
                 return None
             if _SOURCE_SOHBET.search(normalized):
                 session.pending_visual = None

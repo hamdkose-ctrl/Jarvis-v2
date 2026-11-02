@@ -986,18 +986,33 @@ def matched_protocol(*protocols: str) -> bool:
     return bool(entry is not None and entry.state_gate.matched and entry.state_gate.protocol in protocols)
 
 
-def state_protocol() -> str | None:
-    """The single bounded protocol the canonical gate selected for the bound turn, if any."""
+def turn_protocol() -> str | None:
+    """The single State/Fast protocol the canonical gate selected for the bound turn, if any.
+
+    Legacy pending consumers read this one observation before touching the raw text: a turn the
+    canonical Fast Gate owns is not theirs, even though it has no bounded state protocol.
+    Understanding is not a bounded protocol and stays out of this ownership view.
+    """
     entry = current()
-    if entry is None or not entry.state_gate.matched:
+    if entry is None:
         return None
-    return entry.state_gate.protocol
+    if entry.state_gate.matched:
+        return entry.state_gate.protocol
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return entry.fast_gate.protocol
+    return None
 
 
-_BARE_GOAL_CONTROLS = frozenset({
-    "evet", "onaylıyorum", "onayliyorum", "onayla",
-    "iptal", "vazgeç", "vazgec", "boşver", "bosver",
-})
+def protocol_owned_by(*prefixes: str) -> bool:
+    """Is the bound turn canonically owned by one of *prefixes*?
+
+    Visibility only: the Fast protocol seen here grants no effect, permission or execution
+    authority; the existing Fast handler still runs on the canonical path.
+    """
+    owned = turn_protocol()
+    if owned is None:
+        return False
+    return any(owned == prefix.rstrip(".") or owned.startswith(prefix) for prefix in prefixes if prefix)
 
 
 def allow_legacy_goal_control(text: str) -> bool:
@@ -1005,8 +1020,10 @@ def allow_legacy_goal_control(text: str) -> bool:
 
     Explicit goal commands keep their domain state. A bare yes/cancel may reach the legacy
     handler only when the canonical gate selected a goal protocol; when the gate selected a
-    foreground/Job owner, a long-lived Goal must not re-decide it. Unbound callers (Live,
-    nested steps outside a turn) keep their old behavior.
+    foreground/Job owner, a long-lived Goal must not re-decide it. A canonical Fast turn other
+    than the goal-status read is likewise not a goal answer (``saat kaç`` must not resume a
+    paused goal's question). Unbound callers (Live, nested steps outside a turn) keep their old
+    behavior.
     """
     entry = current()
     if entry is None:
@@ -1014,8 +1031,10 @@ def allow_legacy_goal_control(text: str) -> bool:
     low = " ".join(str(text or "").casefold().split()).strip(" .!?")
     if low.startswith(("hedef ", "hedef:", "görev:", "görev yap:")):
         return True
-    if low in _BARE_GOAL_CONTROLS and entry.state_gate.matched:
+    if entry.state_gate.matched:
         return str(entry.state_gate.protocol or "").startswith("goal.")
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return entry.fast_gate.protocol == "fast.goal.status"
     return True
 
 

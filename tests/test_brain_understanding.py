@@ -135,6 +135,32 @@ class BrainUnderstandingTests(unittest.TestCase):
         result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
         self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
 
+    def test_message_pending_accepts_bounded_recipient_and_text_answers(self):
+        rows = (
+            ({"to": "", "text": "", "stage": "to"}, "Ebru"),
+            ({"to": "Ebru", "text": "", "stage": "text"}, "Yarın geliyorum."),
+        )
+        for value, text in rows:
+            with self.subTest(stage=value["stage"]):
+                pending = ref("pending_msg", "pending_state", field="pending_msg", value=value)
+                active = ctx(pending_references=(pending,))
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_message_pending_does_not_consume_new_requests_or_confirmations(self):
+        text_pending = ref("pending_msg", "pending_state", field="pending_msg",
+                           value={"to": "Ebru", "text": "", "stage": "text"})
+        active = ctx(pending_references=(text_pending,))
+        result = self.call("notlarımı göster", active_context=active, candidates=(text_pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+
+        confirm_pending = ref("pending_msg", "pending_state", field="pending_msg",
+                              value={"to": "Ebru", "text": "Merhaba", "stage": "confirm"})
+        active = ctx(pending_references=(confirm_pending,))
+        result = self.call("başka bir şey", active_context=active, candidates=(confirm_pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
     def test_generic_pending_question_does_not_consume_unrelated_short_sentence(self):
         pending = ref(
             "pending_action",

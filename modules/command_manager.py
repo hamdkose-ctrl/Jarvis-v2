@@ -48,7 +48,7 @@ def dispatch(context, command, normalized):
       - 'tamam/ok/teşekkürler': bekleyen onay yokken geçen kısa karşılık.
       - study_intent: Hoca domain'inin kendi kapısı (hoca.handle).
     """
-    from modules import app_actions, brain_gates
+    from modules import app_actions, brain_entry, brain_gates
     owner, session = context.profile.slug, context.session
     from modules import visual_chat
     visual_result = visual_chat.handle(context, command, normalized)
@@ -72,8 +72,10 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
         return result
     if session.pending_action is not None:
-        result = app_actions.continue_voice(command, session, context.profile, context.emit)
-        if result is not None: return result
+        # Açık onay/netleştirme yalnız canonical sahibi o turn'de değilse ham metni tüketir.
+        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_action."):
+            result = app_actions.continue_voice(command, session, context.profile, context.emit)
+            if result is not None: return result
     from modules import usage_meter
     result = usage_meter.handle(owner, command)
     if result is not None: return result
@@ -98,12 +100,11 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Geliştirme sonucu sohbet ekranında hazır.'
         return result
     from modules import desktop_agent
-    # Başka bir bounded state canonical kapıda seçildiyse "evet/devam" masaüstü iznine
-    # yeniden yorumlanmaz; canonical protokol tek sahiptir.
-    from modules import brain_entry
-    owned = brain_entry.state_protocol()
+    # Başka bir bounded State/Fast protokolü canonical kapıda seçildiyse "evet/devam"
+    # masaüstü iznine yeniden yorumlanmaz; canonical protokol tek sahiptir.
+    owned = brain_entry.turn_protocol()
     desktop_command = command
-    if owned is None or owned == "desktop.consent":
+    if owned is None or brain_entry.protocol_owned_by("desktop."):
         desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
         if desktop_command == command and session.pending_desktop:
             desktop_command = desktop_agent.consent_reply(owner, normalized) or command

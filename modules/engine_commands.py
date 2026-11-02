@@ -78,9 +78,11 @@ def handle(runtime, command: str):
         if goal_result is not None:return goal_result
     from modules.command_execution import continue_app
     if not session.pending_action and not session.pending_confirm:
-        selected = continue_app(runtime, command)
-        if selected is not None:
-            return selected
+        # Açık uygulama seçimi yalnız canonical sahibi o turn'de değilse ham metni tüketir.
+        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_app."):
+            selected = continue_app(runtime, command)
+            if selected is not None:
+                return selected
 
     # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: relation kararı canonical Brain'den gelir.
     ph = runtime._pending_photo.get(runtime.profile.slug)
@@ -110,22 +112,22 @@ def handle(runtime, command: str):
 
     # Klasör düzenleme onayı
     if runtime._session().pending_organize is not None:
-        job, runtime._session().pending_organize = runtime._session().pending_organize, None
-        approval = decision(cmd_lower, extra=('düzenle', 'duzenle', 'evet düzenle', 'evet duzenle'))
-        if approval is True:
-            moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
-            runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")
-            return f"{job['label']} klasöründe {moved} dosyayı düzenledim. Beğenmezsen “düzenlemeyi geri al” de."
-        if approval is False:
-            return "Tamam, dosyalara dokunmadım."
+        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_organize."):
+            job, runtime._session().pending_organize = runtime._session().pending_organize, None
+            approval = decision(cmd_lower, extra=('düzenle', 'duzenle', 'evet düzenle', 'evet duzenle'))
+            if approval is True:
+                moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
+                runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")
+                return f"{job['label']} klasöründe {moved} dosyayı düzenledim. Beğenmezsen “düzenlemeyi geri al” de."
+            if approval is False:
+                return "Tamam, dosyalara dokunmadım."
 
     # WhatsApp mesajı: eksik bilgi sorulur, göndermeden önce onay alınır
     if runtime._session().pending_msg is not None:
-        from modules import brain_entry
-        owned = brain_entry.state_protocol()
-        # Canonical kapı cevabı başka bir bounded state'e verdiyse açık mesaj alanı
-        # çıplak cevabı ikinci kez yorumlayamaz; bağlı entry yoksa eski davranış korunur.
-        if owned is None or owned.startswith("session.pending_msg."):
+        owned = brain_entry.turn_protocol()
+        # Canonical kapı cevabı başka bir bounded state'e veya Fast okumasına verdiyse açık
+        # mesaj alanı çıplak cevabı ikinci kez yorumlayamaz; bağlı entry yoksa eski davranış korunur.
+        if owned is None or brain_entry.protocol_owned_by("session.pending_msg."):
             reply = runtime._message_step(command, cmd_lower)
             if reply is not None:
                 return reply
@@ -172,47 +174,50 @@ def handle(runtime, command: str):
 
     # Onay bekleyen işlem (örn. bilgisayarı kapatma)
     if runtime._session().pending_confirm:
-        action, runtime._session().pending_confirm = runtime._session().pending_confirm, None
-        approval = decision(cmd_lower)
-        if approval is True:
-            if action == "shutdown":
-                if runtime.system_control.shutdown_pc() is False:
-                    return 'Bilgisayarı kapatma komutu kabul edilmedi; kapatma zamanlandı demiyorum.'
-                runtime.privacy.audit("bilgisayarı kapatma", "60 sn zamanlandı")
-                return "Bilgisayarı 60 saniye içinde kapatmak üzere zamanladım. İptal için kapatmayı iptal et de."
-            if isinstance(action, dict) and action.get('action') == 'close_app':
-                name = str(action.get('name') or '').strip()
-                if name:
-                    return (runtime.system_control.close_application(name)
-                            or f"'{name}' adında açık bir uygulama bulamadım.")
-        if approval is False:
-            return "Tamam, vazgeçtim."
-        # Başka bir komut geldi: onay iptal edildi, normal akışa devam et.
+        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_confirm."):
+            action, runtime._session().pending_confirm = runtime._session().pending_confirm, None
+            approval = decision(cmd_lower)
+            if approval is True:
+                if action == "shutdown":
+                    if runtime.system_control.shutdown_pc() is False:
+                        return 'Bilgisayarı kapatma komutu kabul edilmedi; kapatma zamanlandı demiyorum.'
+                    runtime.privacy.audit("bilgisayarı kapatma", "60 sn zamanlandı")
+                    return "Bilgisayarı 60 saniye içinde kapatmak üzere zamanladım. İptal için kapatmayı iptal et de."
+                if isinstance(action, dict) and action.get('action') == 'close_app':
+                    name = str(action.get('name') or '').strip()
+                    if name:
+                        return (runtime.system_control.close_application(name)
+                                or f"'{name}' adında açık bir uygulama bulamadım.")
+            if approval is False:
+                return "Tamam, vazgeçtim."
+            # Başka bir komut geldi: onay iptal edildi, normal akışa devam et.
 
     # "70 yap" gibi hedefi söylenmemiş sayı sorulduysa cevap: ses ya da parlaklık
     if runtime._session().pending_level is not None:
-        level, runtime._session().pending_level = runtime._session().pending_level, None
-        if runtime.re.search(r"\bses\w*", cmd_lower):
-            if runtime.system_control.set_volume(level):
-                _remember(runtime, "volume")
-                return f"Ses seviyesini yüzde {level} yaptım."
-            return "Ses seviyesini ayarlayamadım."
-        if runtime.re.search(r"parlak\w*|ekran", cmd_lower):
-            if runtime.system_control.set_brightness_verified(level):
-                _remember(runtime, "brightness")
-                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını doğrulayamadım."
-        # başka bir komut geldi: soru iptal, normal akışa devam
+        if brain_entry.turn_protocol() is None or brain_entry.protocol_owned_by("session.pending_level."):
+            level, runtime._session().pending_level = runtime._session().pending_level, None
+            if runtime.re.search(r"\bses\w*", cmd_lower):
+                if runtime.system_control.set_volume(level):
+                    _remember(runtime, "volume")
+                    return f"Ses seviyesini yüzde {level} yaptım."
+                return "Ses seviyesini ayarlayamadım."
+            if runtime.re.search(r"parlak\w*|ekran", cmd_lower):
+                if runtime.system_control.set_brightness_verified(level):
+                    _remember(runtime, "brightness")
+                    return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
+                return "Ekran parlaklığını doğrulayamadım."
+            # başka bir komut geldi: soru iptal, normal akışa devam
 
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
     if runtime._session().pending_weather_location:
-        if cmd_lower in ("iptal", "vazgeç", "boşver"):
+        if brain_entry.turn_protocol() is None:
+            if cmd_lower in ("iptal", "vazgeç", "boşver"):
+                runtime._session().pending_weather_location = False
+                return "Hava durumu aramasını iptal ettim."
+            if not command:
+                return "Hangi şehir için hava durumuna bakayım?"
             runtime._session().pending_weather_location = False
-            return "Hava durumu aramasını iptal ettim."
-        if not command:
-            return "Hangi şehir için hava durumuna bakayım?"
-        runtime._session().pending_weather_location = False
-        return runtime._weather(command)
+            return runtime._weather(command)
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
 

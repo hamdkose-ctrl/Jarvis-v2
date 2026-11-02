@@ -16,6 +16,7 @@ import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 from modules import app_actions, brain_core_map, brain_context, brain_entry, brain_precedence, desktop_agent
 from modules import brain_understanding, engine_commands, engine_runtime, goal_executor, job_front, requests_state
 from modules import history as history_mod
+from modules import command_manager, main_planner, messaging, visual_chat, visual_commands
 from modules.brain_contracts import ActiveContext, ConversationRelation, RequestKind
 from modules.brain_gates import GateObservation
 from modules.command_manager import awaiting_input
@@ -660,6 +661,273 @@ class StatePrecedenceTests(unittest.TestCase):
         self.assertEqual(out, "Chrome pencerelerinin kapandığını doğruladım.")
 
 
+class CanonicalTurnOwnerTests(unittest.TestCase):
+    def test_state_then_fast_then_none_is_the_single_ownership_view(self):
+        active = ActiveContext(owner="alice", request_id="rel-owner")
+        state = GateObservation("alice", "rel-owner", "state", True, "BOUNDED_FINAL_CONFIRM",
+                                "session.pending_confirm.confirm", "yes")
+        fast = GateObservation("alice", "rel-owner", "fast", True, "EXACT_LOCAL_READ", "fast.time.read", "time")
+        miss = GateObservation("alice", "rel-owner", "state", False, "NO_BOUNDED_STATE", None, None)
+
+        for state_gate, fast_gate, expected in (
+            (state, fast, "session.pending_confirm.confirm"),
+            (miss, fast, "fast.time.read"),
+            (miss, None, None),
+        ):
+            with self.subTest(expected=expected):
+                entry = brain_entry.EntryResult("alice", "rel-owner", "yazı", "saat kaç", active,
+                                                state_gate, fast_gate)
+                with brain_entry.bind(entry):
+                    self.assertEqual(brain_entry.turn_protocol(), expected)
+                    self.assertEqual(brain_entry.protocol_owned_by("fast.time."), expected == "fast.time.read")
+                    self.assertEqual(brain_entry.protocol_owned_by("session.pending_confirm."),
+                                     expected == "session.pending_confirm.confirm")
+        self.assertIsNone(brain_entry.turn_protocol())
+
+
+class FastTurnOwnershipTests(unittest.TestCase):
+    """Canonical Fast Gate bir turn'ün sahibiyse legacy pending tüketicisi ham metni yeniden yorumlamaz.
+
+    Üretim hattı kullanılır: `prepare → handoff → ctx.handle`. Bekleyen state'ler geçici EngineContext
+    oturumunda kurulur; canlı kullanıcı klasörü okunmaz, kişisel Goal kaydı kullanılmaz/silinmez.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root_logger = engine_runtime.logging.getLogger()
+        previous_handlers = set(root_logger.handlers)
+        with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
+            self.ctx = engine_runtime.EngineContext()
+
+        def close_test_handlers():
+            for handler in list(root_logger.handlers):
+                if handler not in previous_handlers:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+
+        self.addCleanup(close_test_handlers)
+        self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
+        self.owner = self.ctx.profile.slug
+        self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
+        self.ctx.chat = Mock(return_value="CHAT")
+        self.ctx.desktop = Mock(system_status=Mock(return_value="SISTEM"))
+        self.ctx._weather = Mock(return_value="HAVA")
+        self.message_step = Mock(wraps=self.ctx._message_step)
+        self.ctx._message_step = self.message_step
+        # Mesaj gönderimi arka plan iş parçacığında çalışır; test effect'i başlatmaz.
+        self.ctx.threading = Mock()
+
+        goals = Path(self.temp.name) / "goals"
+        history_root = Path(self.temp.name) / "history"
+        for target, attr, value in ((goal_executor, "STORE", goals), (history_mod, "DIR", history_root)):
+            state_patch = patch.object(target, attr, value)
+            state_patch.start()
+            self.addCleanup(state_patch.stop)
+        for target, attr in ((job_front, "observe"), (desktop_agent, "_load")):
+            state_patch = patch.object(target, attr, return_value=None)
+            state_patch.start()
+            self.addCleanup(state_patch.stop)
+        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
+        guard.start()
+        self.addCleanup(guard.stop)
+        self.run_goal = Mock(return_value="GOAL_RUN")
+        run_patch = patch.object(goal_executor, "run", self.run_goal)
+        run_patch.start()
+        self.addCleanup(run_patch.stop)
+
+    def goal(self, *, state: str, **extra):
+        job = {
+            "id": uuid.uuid4().hex[:16], "owner": self.owner, "request": "test hedefi",
+            "state": state, "goals": [], "steps": [], "outputs": {},
+            "created": time.time(), "updated": time.time(),
+        }
+        job.update(extra)
+        goal_executor._save(job)
+        return job
+
+    def turn(self, text):
+        rid = "rel-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
+            out, _, _ = brain_entry.handoff(self.ctx, entry, self.ctx.handle, text)
+        return entry, out
+
+    def assert_fast_clock_turn(self, entry, out):
+        self.assertEqual(entry.stage, "fast")
+        self.assertTrue(entry.fast_gate.matched)
+        self.assertEqual(entry.fast_gate.protocol, "fast.time.read")
+        self.assertTrue(str(out).startswith("Saat "), out)
+
+    def test_open_message_field_cannot_consume_a_fast_clock_turn(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("saat kaç")
+            self.assert_fast_clock_turn(entry, out)
+            sender.assert_not_called()
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+        self.assertNotIn("göndereyim mi", out)
+        self.message_step.assert_not_called()
+
+    def test_open_visual_source_question_cannot_consume_a_fast_clock_turn(self):
+        session = self.ctx._session()
+        session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+        with patch.object(visual_commands, "create_visual", Mock()) as create:
+            entry, out = self.turn("saat kaç")
+            self.assert_fast_clock_turn(entry, out)
+            create.assert_not_called()
+        self.assertNotIn("Sohbetten mi, dosyadan mı", out)
+        self.assertEqual(session.pending_visual,
+                         {"text": "zihin haritası", "kind": "mindmap", "stage": "source"})
+
+    def test_open_weather_question_cannot_consume_a_fast_clock_turn(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.ctx._weather.assert_not_called()
+        self.assertIs(session.pending_weather_location, True)
+
+    def test_fast_ownership_is_generic_across_date_and_status(self):
+        cases = (("tarih", "fast.date.read", "Bugün "),
+                 ("sistem durumu", "fast.system.status", "SISTEM"))
+        for text, protocol, expected in cases:
+            with self.subTest(text=text):
+                session = self.ctx._session()
+                session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+                entry, out = self.turn(text)
+                self.assertEqual(entry.stage, "fast")
+                self.assertEqual(entry.fast_gate.protocol, protocol)
+                self.assertTrue(str(out).startswith(expected), out)
+                self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+
+    def test_open_confirmation_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        pending = {"action": "close_app", "name": "Chrome"}
+        session.pending_confirm = dict(pending)
+        self.ctx.system_control.close_application = Mock()
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.ctx.system_control.close_application.assert_not_called()
+        self.assertEqual(session.pending_confirm, pending)
+
+    def test_open_level_question_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        session.pending_level = 70
+        self.ctx.system_control.set_volume = Mock()
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.ctx.system_control.set_volume.assert_not_called()
+        self.assertEqual(session.pending_level, 70)
+
+    def test_open_organize_confirmation_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        pending = {"label": "İndirilenler", "plan": []}
+        session.pending_organize = dict(pending)
+        with patch.object(self.ctx.files, "apply_organize") as organize:
+            entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        organize.assert_not_called()
+        self.assertEqual(session.pending_organize, pending)
+
+    def test_open_event_title_question_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        session.pending_event_title = "Toplantı"
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.assertEqual(session.pending_event_title, "Toplantı")
+
+    def test_open_app_choice_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        pending = {"choices": ["Chrome", "Edge"], "at": time.monotonic()}
+        session.pending_app = dict(pending)
+        self.ctx.system_control.open_application = Mock()
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.ctx.system_control.open_application.assert_not_called()
+        self.assertEqual(session.pending_app, pending)
+
+    def test_open_action_offer_is_preserved_not_consumed_by_a_fast_turn(self):
+        session = self.ctx._session()
+        pending = {"action": "app_open", "params": {"name": "Chrome"}, "owner": self.owner,
+                   "expires": time.time() + 60}
+        session.pending_action = dict(pending)
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.assertEqual(session.pending_action, pending)
+
+    def test_desktop_consent_is_not_remapped_from_fast_text(self):
+        session = self.ctx._session()
+        session.pending_desktop = True
+        consent = Mock(return_value="PC izin ver")
+        with patch.object(desktop_agent, "consent_reply", consent), \
+                patch.object(desktop_agent, "handle", Mock(return_value=None)):
+            entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        consent.assert_not_called()
+
+    def test_goal_open_question_is_not_resumed_by_fast_text(self):
+        self.goal(state="question", question="Hangi şehir için?")
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        self.run_goal.assert_not_called()
+        self.assertEqual(goal_executor.latest(self.owner)["state"], "question")
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+
+    def test_job_route_is_not_invoked_for_fast_text(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        route = Mock(return_value="JOB")
+        with patch.object(job_front, "route", route):
+            entry, out = self.turn("saat kaç")
+        self.assert_fast_clock_turn(entry, out)
+        route.assert_not_called()
+
+    def test_open_message_flow_still_reaches_the_message_owner(self):
+        session = self.ctx._session()
+        session.pending_msg = {"to": "", "text": "", "stage": "to"}
+        self.message_step = Mock(wraps=self.ctx._message_step)
+        self.ctx._message_step = self.message_step
+
+        entry, out = self.turn("Ebru")
+        self.assertFalse(entry.fast_gate.matched)
+        self.assertEqual(out, "Ebru kişisine ne yazayım?")
+        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+
+        entry, out = self.turn("Yarın geliyorum")
+        self.assertEqual(out, "Ebru kişisine şunu göndereyim mi: “Yarın geliyorum”? Evet ya da hayır de.")
+
+        entry, out = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.confirm")
+        self.assertIn("gönderiyorum", out)
+        self.assertIsNone(session.pending_msg)
+
+    def test_visual_source_answer_still_reaches_the_visual_owner(self):
+        session = self.ctx._session()
+        session.pending_visual = {"text": "zihin haritası", "kind": "mindmap", "stage": "source"}
+        result = SimpleNamespace(label="Görsel", path="C:/jarvis/gorsel.png")
+        with patch.object(history_mod, "read", Mock(return_value=[{"text": "eski konuşma"}])), \
+                patch.object(visual_commands, "create_visual", Mock(return_value=result)) as create:
+            entry, out = self.turn("sohbet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_visual.select")
+        create.assert_called_once()
+        self.assertIn("hazır", out)
+        self.assertIsNone(session.pending_visual)
+
+    def test_weather_location_answer_still_reaches_the_weather_owner(self):
+        session = self.ctx._session()
+        session.pending_weather_location = True
+        entry, out = self.turn("İstanbul")
+        self.assertFalse(entry.fast_gate.matched)
+        self.ctx._weather.assert_called_once_with("İstanbul")
+        self.assertEqual(out, "HAVA")
+        self.assertIs(session.pending_weather_location, False)
+
+
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
@@ -690,21 +958,78 @@ class BoundedJobLegacyGuardTests(unittest.TestCase):
 
 
 class StateAuthorityArchitectureGuardTests(unittest.TestCase):
-    def test_goal_legacy_bare_rebinding_is_fenced_before_it_can_mutate_state(self):
-        tree = ast.parse(Path(goal_executor.__file__).read_text(encoding="utf-8-sig"))
-        handle = next(node for node in ast.walk(tree)
-                      if isinstance(node, ast.FunctionDef) and node.name == "handle")
+    # (modül, fonksiyon, bekleyen alan, o alanın ham metni tüketen çağrısı)
+    CONSUMERS = (
+        (engine_commands, "handle", "pending_msg", "_message_step"),
+        (engine_commands, "handle", "pending_confirm", "decision"),
+        (engine_commands, "handle", "pending_level", "set_volume"),
+        (engine_commands, "handle", "pending_organize", "apply_organize"),
+        (engine_commands, "handle", "pending_weather_location", "_weather"),
+        (engine_commands, "handle", None, "continue_app"),
+        (main_planner, "_planner_command", "pending_event_title", "_reminder_or_confirm"),
+        (command_manager, "dispatch", "pending_action", "continue_voice"),
+        (command_manager, "dispatch", "pending_desktop", "consent_reply"),
+    )
 
-        def is_fence_call(node):
-            return (isinstance(node, ast.Call)
-                    and ((isinstance(node.func, ast.Attribute) and node.func.attr == "allow_legacy_goal_control")
-                         or (isinstance(node.func, ast.Name) and node.func.id == "allow_legacy_goal_control")))
+    @staticmethod
+    def _func(module, name):
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8-sig"))
+        return tree, next(node for node in ast.walk(tree)
+                          if isinstance(node, ast.FunctionDef) and node.name == name)
 
-        fences = [
-            node.lineno for node in ast.walk(handle)
-            if isinstance(node, ast.If) and any(is_fence_call(child) for child in ast.walk(node.test))
-            and any(isinstance(child, ast.Return) for child in node.body)
-        ]
+    @staticmethod
+    def _name(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return None
+
+    def _calls(self, node, name):
+        return [n for n in ast.walk(node) if isinstance(n, ast.Call) and self._name(n.func) == name]
+
+    def _mentions(self, node, name):
+        return any(self._name(child) == name for child in ast.walk(node))
+
+    @staticmethod
+    def _parents(tree):
+        parents = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+        return parents
+
+    def _fence(self, parents, func, call):
+        """Nearest enclosing If that asks the canonical State/Fast owner about this turn."""
+        has_owned = any(
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "owned" for target in node.targets)
+            and isinstance(node.value, ast.Call)
+            and self._name(node.value.func) in {"turn_protocol", "protocol_owned_by"}
+            for node in ast.walk(func)
+        )
+        node = parents.get(call)
+        while node is not None:
+            if isinstance(node, ast.If):
+                names = {self._name(child) for child in ast.walk(node.test)}
+                if names & {"turn_protocol", "protocol_owned_by"}:
+                    return node
+                if has_owned and "owned" in names:
+                    return node
+            node = parents.get(node)
+        return None
+
+    def test_goal_legacy_text_is_fenced_before_any_state_rebinding(self):
+        _tree, handle = self._func(goal_executor, "handle")
+        fences = [node for node in ast.walk(handle)
+                  if isinstance(node, ast.If) and self._mentions(node.test, "allow_legacy_goal_control")
+                  and any(isinstance(child, ast.Return) for child in ast.walk(node))]
+        self.assertTrue(fences, "Goal ham metni canonical sahiplik çitiyle çitlenmeli.")
+        self.assertTrue(any(statement is fences[0] for statement in handle.body[:3]),
+                        "Goal çiti durum okumasından önce, fonksiyonun başında olmalı.")
+        state_reads = self._calls(handle, "latest")
+        self.assertTrue(state_reads)
+        self.assertLess(min(node.lineno for node in fences), min(node.lineno for node in state_reads))
         rebinding = [
             node.lineno for node in ast.walk(handle)
             if isinstance(node, ast.Assign)
@@ -712,40 +1037,57 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
             and isinstance(node.value, ast.Constant)
             and node.value.value in {"hedef onayla", "hedef iptal"}
         ]
-        self.assertTrue(fences, "Goal çıplak token çevirimi canonical kapıyla çitlenmeli.")
         self.assertTrue(rebinding)
-        self.assertLess(min(fences), min(rebinding))
+        self.assertLess(min(node.lineno for node in fences), min(rebinding))
 
-    def test_open_message_field_is_fenced_by_canonical_ownership(self):
-        tree = ast.parse(Path(engine_commands.__file__).read_text(encoding="utf-8-sig"))
-        handle = next(node for node in ast.walk(tree)
-                      if isinstance(node, ast.FunctionDef) and node.name == "handle")
+    def test_every_legacy_pending_consumer_is_fenced_by_the_canonical_turn_owner(self):
+        for module, func_name, field, consumer in self.CONSUMERS:
+            with self.subTest(module=module.__name__, consumer=consumer):
+                tree, func = self._func(module, func_name)
+                parents = self._parents(tree)
+                if field is None:
+                    calls = self._calls(func, consumer)
+                else:
+                    branches = [node for node in ast.walk(func)
+                                if isinstance(node, ast.If) and self._mentions(node.test, field)]
+                    # Yalnız dalın kendi gövdesi: eşleşmeyen başka bir isteğin `else` zinciri sayılmaz.
+                    calls = [call for branch in branches for statement in branch.body
+                             for call in self._calls(statement, consumer)]
+                self.assertTrue(calls, f"{module.__name__}.{func_name}: {consumer} tüketicisi bulunmalı.")
+                for call in calls:
+                    fence = self._fence(parents, func, call)
+                    self.assertIsNotNone(
+                        fence,
+                        f"{module.__name__}.{func_name}:{call.lineno} {consumer} canonical sahiplik çiti dışında.")
+                    self.assertLessEqual(fence.lineno, call.lineno)
 
-        def is_pending_msg_test(node):
-            return (isinstance(node, ast.Compare)
-                    and isinstance(node.left, ast.Attribute) and node.left.attr == "pending_msg")
-
+    def test_visual_source_question_is_fenced_before_it_can_claim_a_turn(self):
+        _tree, handle = self._func(visual_chat, "handle")
         branches = [node for node in ast.walk(handle)
-                    if isinstance(node, ast.If) and is_pending_msg_test(node.test)]
-        self.assertTrue(branches, "Açık pending_msg dalı bulunmalı.")
+                    if isinstance(node, ast.If)
+                    and any(isinstance(child, ast.Constant) and child.value == "source"
+                            for child in ast.walk(node.test))]
+        self.assertTrue(branches, "Görsel kaynak sorusu dalı bulunmalı.")
         branch = branches[0]
-        calls = [node for node in ast.walk(branch) if isinstance(node, ast.Call)]
-        providers = [node for node in calls
-                     if isinstance(node.func, ast.Attribute) and node.func.attr == "state_protocol"]
-        steps = [node for node in calls
-                 if isinstance(node.func, ast.Attribute) and node.func.attr == "_message_step"]
-        self.assertTrue(providers, "Mesaj alanı canonical sahiplik kaynağıyla çitlenmeli.")
-        self.assertTrue(steps)
-        self.assertLess(min(node.lineno for node in providers),
-                        min(node.lineno for node in steps))
-        fenced = [
+        providers = self._calls(branch, "turn_protocol")
+        generated = self._calls(branch, "_generate")
+        self.assertTrue(providers, "Görsel sorusu canonical sahiplik kaynağıyla çitlenmeli.")
+        self.assertTrue(generated)
+        self.assertLess(min(node.lineno for node in providers), min(node.lineno for node in generated))
+        fence_returns = [
             node for node in ast.walk(branch)
-            if isinstance(node, ast.If)
-            and any(isinstance(child, ast.Name) and child.id == "owned" for child in ast.walk(node.test))
-            and any(isinstance(child, ast.Attribute) and child.attr == "_message_step"
-                    for child in ast.walk(node))
+            if isinstance(node, ast.If) and self._mentions(node.test, "owned")
+            and any(isinstance(child, ast.Return) for child in ast.walk(node))
         ]
-        self.assertTrue(fenced, "_message_step canonical sahiplik seçimine bağlı çitte çalışmalı.")
+        self.assertTrue(fence_returns, "Sahibi başkasıysa görsel sorusu erken dönüşle çekilmeli.")
+        question_returns = [node.lineno for node in ast.walk(branch) if isinstance(node, ast.Return)]
+        self.assertLess(min(node.lineno for node in fence_returns), max(question_returns))
+
+    def test_production_modules_never_use_the_retired_state_protocol_helper(self):
+        root = Path(__file__).resolve().parents[1] / "modules"
+        offenders = [path.name for path in root.rglob("*.py")
+                     if "state_protocol" in path.read_text(encoding="utf-8")]
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":
