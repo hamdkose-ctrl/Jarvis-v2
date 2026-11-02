@@ -15,6 +15,20 @@ OWNER = "hamdi"
 RID = "req-photo-followup"
 
 
+def pending_photo_reference() -> ContextReference:
+    return ContextReference(
+        id="pending_photo",
+        kind="pending_state",
+        source="engine_commands",
+        owner=OWNER,
+        provenance={
+            "path": "C:/Users/Hamdi/Pictures/photo.jpg",
+            "t": 1.0,
+            "origin_request_id": "photo-origin",
+        },
+    )
+
+
 def pending_photo_artifact() -> ContextReference:
     return ContextReference(
         id="photo:C:/Users/Hamdi/Pictures/photo.jpg",
@@ -29,14 +43,21 @@ def pending_photo_artifact() -> ContextReference:
 
 
 def decide(text: str, *, with_pending_photo: bool = True):
+    pending = (pending_photo_reference(),) if with_pending_photo else ()
     artifacts = (pending_photo_artifact(),) if with_pending_photo else ()
-    active = ActiveContext(owner=OWNER, request_id=RID, active_artifacts=artifacts)
+    active = ActiveContext(
+        owner=OWNER,
+        request_id=RID,
+        active_artifacts=artifacts,
+        pending_references=pending,
+    )
+    candidates = pending + artifacts
     return understand(
         owner=OWNER,
         request_id=RID,
         text=text,
         active_context=active,
-        candidates=artifacts,
+        candidates=candidates,
         references=(),
     )
 
@@ -102,6 +123,7 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
     def test_handler_follows_canonical_photo_relation_even_if_legacy_regex_says_no(self):
         runtime, entry, path = self._entry_and_runtime("analiz et")
         self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertTrue(any(ref.id == "pending_photo" for ref in entry.active_context.pending_references))
         self.assertTrue(any(ref.kind == "photo" for ref in entry.active_context.active_artifacts))
         runtime._PHOTO_INTENT = SimpleNamespace(search=Mock(return_value=False))
 
