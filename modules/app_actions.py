@@ -225,10 +225,16 @@ def _owned(profile):
     try:yield web.bridge
     finally:web._bridge_profile.reset(token)
 
+def ask_clarification(session,command,question,profile):
+    """Open-ended clarification: only the canonical bounded slot, owned and expiring."""
+    question=str(question)[:400]
+    session.pending_action={'stage':'clarify','command':command,'question':question,
+                            'owner':profile.slug,'expires':time.time()+90}
+    return question
+
 def voice(args,session,profile,emit,command=''):
     if args.get('question'):
-        session.pending_action={'stage':'clarify','command':command,'question':str(args['question'])[:400],'owner':profile.slug,'expires':time.time()+90}
-        return str(args['question'])[:400]
+        return ask_clarification(session,command,args['question'],profile)
     action=args.get('action','');params=args.get('params',{})
     try:
         spec,values=validate(action,params)
@@ -272,6 +278,11 @@ def continue_voice(command,session,profile,emit):
     pending=session.pending_action
     if not pending:return None
     session.pending_action=None
+    # An open-ended question has no offered choices: its reply is a new request, never an
+    # approval and never an expiry failure. Offered-choice clarifications keep the expiry below.
+    if pending.get('stage')=='clarify' and not isinstance(pending.get('resume'),dict) \
+            and pending['owner']==profile.slug:
+        return None
     if pending['owner']!=profile.slug or pending['expires']<time.time():
         return 'İşlem onayının süresi doldu; isteğini yeniden söyle.'
     t=command.casefold().strip(' .!?')

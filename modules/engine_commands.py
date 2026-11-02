@@ -250,8 +250,7 @@ def handle(runtime, command: str):
         what = next(v for k, v in (("kap", "kapatmamı"), ("aç", "açmamı"), ("sil", "silmemi"), ("gön", "göndermemi"),
                                    ("baş", "başlatmamı")) if verb.group(1).startswith(k))
         question = f"Neyi {what} istiyorsun?"
-        runtime._session().pending_request = {'command': command, 'question': question}
-        return question
+        return app_actions.ask_clarification(runtime._session(), command, question, runtime.profile)
 
     # Hedefi söylenmemiş sayı ("70 yap"): modele sormadan hemen netleştir
     bare = runtime.re.fullmatch(r"(yüzde\s*)?(\d{1,3})\s*(yap|olsun|ayarla|yapar mısın|yapsana)?", cmd_lower.strip(" .!"))

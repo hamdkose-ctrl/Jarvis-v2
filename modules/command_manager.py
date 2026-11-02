@@ -19,7 +19,7 @@ class CommandContext:
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
-                        'pending_app', 'pending_request', 'pending_desktop', 'pending_visual')
+                        'pending_app', 'pending_desktop', 'pending_visual')
 
 
 def awaiting_input(session):

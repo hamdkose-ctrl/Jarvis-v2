@@ -17,7 +17,6 @@ class SessionState:
     pending_event_title: object = None
     last_doc: object = None
     pending_app: object = None
-    pending_request: object = None
     pending_desktop: object = None
     pending_visual: object = None
     last_visual: object = None

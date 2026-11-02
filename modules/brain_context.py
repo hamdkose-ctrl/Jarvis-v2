@@ -24,7 +24,6 @@ _PENDING_FIELDS = (
     "pending_voice",
     "pending_event_title",
     "pending_app",
-    "pending_request",
     "pending_desktop",
     "pending_visual",
 )

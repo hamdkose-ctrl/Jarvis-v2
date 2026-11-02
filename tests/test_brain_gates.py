@@ -175,7 +175,8 @@ class GateTests(unittest.TestCase):
     def test_open_ended_pending_states_are_left_to_understanding(self):
         rows = (
             ref("pending_weather_location", value=True),
-            ref("pending_request", value={"question": "Hangi dosya?", "command": "aç"}),
+            ref("pending_action", value={"stage": "clarify", "command": "aç", "question": "Hangi dosya?",
+                                         "owner": OWNER, "expires": 9999999999}),
             ref("pending_msg", value={"to": "", "text": "", "stage": "to"}),
             ref("pending_msg", value={"to": "Ebru", "text": "", "stage": "text"}),
         )

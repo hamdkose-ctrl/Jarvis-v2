@@ -138,7 +138,9 @@ class ConversationExecutionTests(unittest.TestCase):
         # tüketmez, çünkü kararı model değil exact state gate verir.
         from modules import brain_context
         session = SessionState(last_command='raporu düzelt',
-                               pending_request={'command': 'bunu iyi yap', 'question': 'Hangi rapor?'})
+                               pending_action={'stage': 'clarify', 'command': 'bunu iyi yap',
+                                               'question': 'Hangi rapor?', 'owner': 'alice',
+                                               'expires': time.time() + 90})
         store = types.SimpleNamespace(_states={'alice': session}, _lock=None)
         context = brain_context.build_active_context(
             owner='alice', request_id='r', session_store=store,
@@ -147,14 +149,15 @@ class ConversationExecutionTests(unittest.TestCase):
             history_filter=lambda owner, rows: list(rows),
             goal_reader=lambda owner: None, goal_is_open=lambda goal: False)
         pending = {ref.id: ref.provenance for ref in context.pending_references}
-        self.assertEqual(pending['pending_request']['value'],
-                         {'command': 'bunu iyi yap', 'question': 'Hangi rapor?'})
+        self.assertEqual(pending['pending_action']['value'],
+                         {'stage': 'clarify', 'command': 'bunu iyi yap', 'question': 'Hangi rapor?',
+                          'owner': 'alice', 'expires': session.pending_action['expires']})
         recent = {ref.id: ref.provenance for ref in context.recent_references
                   if ref.source == 'session_state'}
         self.assertEqual(recent['last_command']['text'], 'raporu düzelt')
         self.assertIn('Pompa raporu hazır', [ref.provenance['text'] for ref in context.recent_references
                                              if ref.source == 'history'])
-        self.assertIsNotNone(session.pending_request)
+        self.assertIsNotNone(session.pending_action)
 
 
 if __name__ == '__main__':

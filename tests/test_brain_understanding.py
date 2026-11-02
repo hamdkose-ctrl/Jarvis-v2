@@ -137,10 +137,11 @@ class BrainUnderstandingTests(unittest.TestCase):
 
     def test_generic_pending_question_does_not_consume_unrelated_short_sentence(self):
         pending = ref(
-            "pending_request",
+            "pending_action",
             "pending_state",
-            field="pending_request",
-            question="Hangi dosyayı kastettin?",
+            field="pending_action",
+            value={"stage": "clarify", "command": "aç", "question": "Hangi dosyayı kastettin?",
+                   "owner": OWNER, "expires": 9999999999},
         )
         active = ctx(pending_references=(pending,))
         result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
@@ -154,10 +155,11 @@ class BrainUnderstandingTests(unittest.TestCase):
 
     def test_pending_presence_is_not_relation_authority(self):
         pending = ref(
-            "pending_request",
+            "pending_action",
             "pending_state",
-            field="pending_request",
-            question="Ne yapmak istersin?",
+            field="pending_action",
+            value={"stage": "clarify", "command": "aç", "question": "Ne yapmak istersin?",
+                   "owner": OWNER, "expires": 9999999999},
         )
         active = ctx(pending_references=(pending,))
         result = self.call("kuantum fiziği konuşalım", active_context=active, candidates=(pending,))

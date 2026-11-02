@@ -24,7 +24,7 @@ _YES = frozenset({"evet", "tamam", "olur", "onayla", "onaylıyorum", "onayliyoru
 _PENDING_SESSION_IDS = frozenset({
     "pending_confirm", "pending_action", "pending_organize", "pending_msg",
     "pending_level", "pending_voice", "pending_event_title", "pending_app",
-    "pending_weather_location", "pending_request", "pending_desktop", "pending_visual",
+    "pending_weather_location", "pending_desktop", "pending_visual",
 })
 _VOICE_NAMES = frozenset({
     "kerem", "defne", "liam", "olivia", "noah", "mia",
@@ -255,8 +255,8 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
             return _hit(owner, request_id, "state", "session.pending_voice.select", f"{pending}:{gender}", "BOUNDED_VOICE_SELECTION")
         return None
 
-    # weather location, generic pending_request and generic pending_desktop are
-    # deliberately observations only; they require semantic/domain handling.
+    # weather location and generic pending_desktop are deliberately observations only;
+    # they require semantic/domain handling.
     return None
 
 

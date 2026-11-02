@@ -225,7 +225,7 @@ class EngineClarifyTests(unittest.TestCase):
             with context.as_user(context.profile.name):
                 answer = context.handle(text)
             self.assertEqual(answer, f'Neyi {word} istiyorsun?', text)
-            self.assertEqual(context._session().pending_request['question'], answer)
+            self.assertEqual(context._session().pending_action['question'], answer)
 
     def test_voice_and_typed_bare_close_reach_handler_without_direct_stop(self):
         import contextlib

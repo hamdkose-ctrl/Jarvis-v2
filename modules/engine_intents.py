@@ -96,9 +96,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return result
 
         case "clarify":
+            from modules import app_actions
             question = str(a.get('question') or 'Hangi uygulama, dosya veya iş üzerinde ne yapmamı istiyorsun?')
-            runtime._session().pending_request = {'command': command, 'question': question}
-            return question
+            return app_actions.ask_clarification(runtime._session(), command, question, runtime.profile)
         case "task":
             from modules import goal_executor
             return goal_executor.run(runtime,command)
