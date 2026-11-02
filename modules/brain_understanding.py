@@ -248,7 +248,6 @@ def _require_reference_candidates(
 def _contains_any(text: str, signals: Iterable[str]) -> bool:
     return any(signal in text for signal in signals)
 
-
 def _bounded_token(text: str, token: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(token)}(?!\w)", text) is not None
 
@@ -999,9 +998,28 @@ def _looks_like_location_answer(text: str) -> bool:
     return True
 
 
+_PHOTO_FOLLOWUP = re.compile(
+    r"analiz|incele|çevir|tercüme|translate|oku|yazı|\bnot|kaydet|sakla|çöz|soru|açıkla|anlat|nedir|"
+    r"ne var|ne yazıyor|\bbu\b|bunu|bunda|şunu|resim|fotoğraf|foto|görsel|neresi|hesapla|özetle|kontrol|bak"
+)
+
+
+def _photo_followup_answer(normalized: str, active_context: ActiveContext) -> bool:
+    """Open-ended photo relation belongs to Understanding, never the exact state gate."""
+    if not normalized or _is_context_control(normalized) or _is_correction(normalized):
+        return False
+    pending = any(
+        ref.kind == "pending_state" and ref.source == "engine_commands" and ref.id == "pending_photo"
+        for ref in active_context.pending_references
+    )
+    return pending and _PHOTO_FOLLOWUP.search(normalized) is not None
+
+
 def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
     if not active_context.pending_references:
         return False
+    if _photo_followup_answer(normalized, active_context):
+        return True
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
     if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
