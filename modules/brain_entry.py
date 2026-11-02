@@ -132,6 +132,42 @@ def _append_artifact(active: ActiveContext, artifact: ContextReference | None) -
     )
 
 
+def _append_pending(active: ActiveContext, pending: ContextReference | None) -> ActiveContext:
+    if pending is None:
+        return active
+    if not isinstance(pending, ContextReference) or pending.owner != active.owner:
+        raise ValueError("Pending state owner eşleşmiyor.")
+    refs = active.pending_references
+    if not any(row is pending or (row.source, row.kind, row.id) == (pending.source, pending.kind, pending.id)
+               for row in refs):
+        refs = refs + (pending,)
+    return ActiveContext(
+        owner=active.owner,
+        request_id=active.request_id,
+        topic=active.topic,
+        active_goal_references=active.active_goal_references,
+        active_task_references=active.active_task_references,
+        recent_references=active.recent_references,
+        active_artifacts=active.active_artifacts,
+        pending_references=refs,
+        memory_references=active.memory_references,
+    )
+
+
+def _pending_photo_reference(runtime: Any, owner: str) -> ContextReference | None:
+    row = getattr(runtime, "_pending_photo", {}).get(owner)
+    if not isinstance(row, dict) or not row.get("path"):
+        return None
+    return ContextReference(
+        id="pending_photo", kind="pending_state", source="engine_commands", owner=owner,
+        provenance={
+            "path": str(row.get("path")),
+            "t": row.get("t"),
+            "origin_request_id": row.get("origin_request_id"),
+        },
+    )
+
+
 def _pending_photo_artifact(runtime: Any, owner: str) -> ContextReference | None:
     row = getattr(runtime, "_pending_photo", {}).get(owner)
     if not isinstance(row, dict) or not row.get("path"):
@@ -151,6 +187,7 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
+    active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)
 
 
@@ -193,16 +230,9 @@ def _state_refs(runtime: Any, owner: str, request_id: str) -> tuple[ContextRefer
             provenance={"status": "consent"},
         ))
 
-    photo = getattr(runtime, "_pending_photo", {}).get(owner)
-    if isinstance(photo, dict) and photo.get("path"):
-        rows.append(ContextReference(
-            id="pending_photo", kind="pending_state", source="engine_commands", owner=owner,
-            provenance={
-                "path": str(photo.get("path")),
-                "t": photo.get("t"),
-                "origin_request_id": photo.get("origin_request_id"),
-            },
-        ))
+    photo = _pending_photo_reference(runtime, owner)
+    if photo is not None:
+        rows.append(photo)
     return tuple(rows)
 
 
