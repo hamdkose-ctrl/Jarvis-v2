@@ -17,7 +17,7 @@ import test_brain_production_entry as fixtures
 from modules import app_actions, brain_core_map, brain_context, brain_entry, brain_precedence, desktop_agent
 from modules import brain_understanding, engine_commands, engine_runtime, goal_executor, job_front, requests_state
 from modules import history as history_mod
-from modules import command_manager, main_planner, messaging, personalization, visual_chat, visual_commands
+from modules import command_manager, main_planner, messaging, nxapi, personalization, visual_chat, visual_commands
 from modules.brain_contracts import ActiveContext, ConversationRelation, RequestKind
 from modules.brain_gates import GateObservation
 from modules.command_manager import awaiting_input
@@ -1111,26 +1111,30 @@ class PlanEligibilityTests(_CanonicalTurnHarness):
                 self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
                 verify()
 
-    def test_weather_status_phrase_stays_independent_while_a_message_draft_is_open(self):
+    def test_weather_status_phrase_is_canonical_capability_not_a_pending_answer(self):
+        # Ayrım özel bir pending-owner regex'inden değil, Understanding'in canonical capability
+        # kararından gelir; "hava durumuna bak" açık taslağın cevabı değildir.
         session = self.ctx._session()
         pending = {"to": "Ebru", "text": "", "stage": "text"}
         session.pending_msg = dict(pending)
         entry, out = self.turn("hava durumuna bak")
-        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(entry.understanding.pending_owner)
         self.ctx._weather.assert_called_once_with(None)
         self.assertEqual(out, "HAVA")
         self.message_step.assert_not_called()
         self.assertEqual(session.pending_msg, pending)
 
-    def test_screenshot_phrase_stays_independent_while_a_message_draft_is_open(self):
+    def test_screenshot_phrase_is_canonical_capability_not_a_pending_answer(self):
         session = self.ctx._session()
         pending = {"to": "Ebru", "text": "", "stage": "text"}
         session.pending_msg = dict(pending)
         self.ctx.desktop.screenshot = Mock(return_value="EKRAN")
         entry, out = self.turn("ekran görüntüsü al")
-        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(entry.understanding.pending_owner)
         self.ctx.desktop.screenshot.assert_called_once()
         self.assertEqual(out, "EKRAN")
         self.message_step.assert_not_called()
@@ -1405,6 +1409,131 @@ class PendingOwnerSelectionTests(_CanonicalTurnHarness):
         self.message_step.assert_not_called()
 
 
+class PendingCapabilityAuthorityTests(_CanonicalTurnHarness):
+    """Açık mesaj taslağı canonical capability turn'ünü mesaj gövdesine çeviremez.
+
+    Capability kararı Understanding'de bir kez üretilir; pending-owner seçimi bu kararı
+    yalnız tüketir, kendi grammar'ıyla yeniden sınıflandırmaz.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.file = Path(self.temp.name) / "rapor.docx"
+        self.file.write_text("içerik", encoding="utf-8")
+        original = brain_entry.build_candidates
+        rows = [{"path": str(self.file), "name": "rapor.docx", "ext": ".docx"}]
+        candidate_patch = patch.object(
+            brain_entry,
+            "build_candidates",
+            lambda **kw: original(**{**kw, "file_reader": lambda *, limit: rows[:limit]}),
+        )
+        candidate_patch.start()
+        self.addCleanup(candidate_patch.stop)
+        roots = patch.object(nxapi, "_roots", return_value=[Path(self.temp.name)])
+        roots.start()
+        self.addCleanup(roots.stop)
+
+    def open_draft(self):
+        session = self.ctx._session()
+        draft = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(draft)
+        return session, draft
+
+    def run_capability(self, text):
+        session, draft = self.open_draft()
+        self.ctx.chat.reset_mock()
+        with patch.object(brain_precedence, "claim", return_value=None), \
+             patch("modules.engine_intents.dispatch", return_value="CORE") as dispatch, \
+             patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn(text)
+            sender.assert_not_called()
+        self.assertEqual(session.pending_msg, draft)
+        self.message_step.assert_not_called()
+        self.ctx.chat.assert_not_called()
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(entry.understanding.pending_owner)
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        return entry, out, dispatch
+
+    def test_translation_capability_is_never_the_open_draft_body(self):
+        entry, out, dispatch = self.run_capability("iyi günler İngilizceye çevir")
+        self.assertEqual(entry.understanding.capability_hint, brain_understanding.TRANSLATE_CAPABILITY)
+        self.assertEqual(dispatch.call_args[0][1], "translate")
+        self.assertEqual(dispatch.call_args[0][2]["origin"], "inline")
+        self.assertIn("iyi günler", dispatch.call_args[0][2]["text"])
+        self.assertEqual(out, "CORE")
+
+    def test_file_translation_capability_is_never_the_open_draft_body(self):
+        entry, out, dispatch = self.run_capability("rapor.docx dosyasını İngilizceye çevir")
+        self.assertEqual(entry.understanding.capability_hint, "files.read")
+        self.assertEqual(dispatch.call_args[0][1], "file_action")
+        self.assertEqual(dispatch.call_args[0][2],
+                         {"operation": "translate", "path": str(self.file), "target": "İngilizce"})
+        self.assertEqual(out, "CORE")
+
+    def test_file_analysis_capability_is_never_the_open_draft_body(self):
+        _entry, _out, dispatch = self.run_capability("rapor.docx dosyasını incele")
+        self.assertEqual(dispatch.call_args[0][1], "file_action")
+        self.assertEqual(dispatch.call_args[0][2],
+                         {"operation": "analyze", "path": str(self.file), "format": "docx"})
+
+    def test_file_conversion_capability_is_never_the_open_draft_body(self):
+        _entry, _out, dispatch = self.run_capability("rapor.docx dosyasını PDF'e dönüştür")
+        self.assertEqual(dispatch.call_args[0][1], "file_action")
+        self.assertEqual(dispatch.call_args[0][2],
+                         {"operation": "convert", "path": str(self.file), "format": "pdf"})
+
+    def test_every_capability_family_stays_independent_of_the_open_draft(self):
+        self.ctx._notes_text = Mock(return_value="NOTLARIM")
+        self.ctx.system_control.set_volume = Mock(return_value=True)
+        self.ctx.desktop.screenshot = Mock(return_value="EKRAN")
+        texts = (
+            "notlarımı göster",                    # notes
+            "hava nasıl",                          # weather
+            "sesi 50 yap",                         # level
+            "ekran görüntüsü al",                  # screen/desktop (legacy owner)
+            "iyi günler İngilizceye çevir",        # translation
+            "rapor.docx dosyasını incele",         # file operation
+            "rapor.docx dosyasını PDF'e dönüştür", # file conversion
+        )
+        for text in texts:
+            with self.subTest(text=text):
+                entry, _out, _dispatch = self.run_capability(text)
+                self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+                self.assertIsNone(entry.understanding.pending_owner)
+
+    def test_typed_app_continuation_is_not_wrongly_excluded_as_independent(self):
+        session, draft = self.open_draft()
+        session.pending_action = {
+            "stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
+            "owner": self.owner, "expires": time.time() + 60,
+            "proposal": {"kind": "app.open"},
+        }
+        self.ctx.system_control.open_application = Mock(
+            return_value=ApplicationResult("Chrome penceresi açık; açılışını doğruladım.", ok=True))
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out = self.turn("Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, "session.pending_action.clarify")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.ctx.system_control.open_application.assert_called_once_with("Chrome")
+        self.message_step.assert_not_called()
+        self.assertIsNone(session.pending_action)
+        self.assertEqual(session.pending_msg, draft)
+        self.assertEqual(out, "Chrome penceresi açık; açılışını doğruladım.")
+
+    def test_free_text_still_answers_the_open_draft(self):
+        session, _draft = self.open_draft()
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("Yarın geliyorum")
+            sender.assert_not_called()
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, "session.pending_msg.text")
+        self.message_step.assert_called_once()
+        self.assertEqual(session.pending_msg["text"], "Yarın geliyorum")
+        self.assertIn("göndereyim mi", out)
+
+
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
@@ -1544,6 +1673,55 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         self.assertFalse(brain_entry.pending_owner_matches(
             "pending_confirm", "session.pending_msg.text"))
         self.assertFalse(brain_entry.pending_owner_matches("pending_weather_location", None))
+
+    CAPABILITY_CLASSIFIERS = {
+        "_looks_like_capability",
+        "_explicit_capability_shape",
+        "_is_weather_request",
+        "_weather_status_request",
+        "_screenshot_request",
+        "_file_operation",
+        "_translate_proposal",
+        "_screen_arguments",
+        "_desktop_window_arguments",
+        "_level_request",
+    }
+
+    def test_pending_owner_selection_consumes_the_canonical_capability_decision(self):
+        _tree, func = self._func(brain_understanding, "_pending_answer_owners")
+        keywords = [arg.arg for arg in func.args.kwonlyargs]
+        self.assertIn("independent_capability", keywords,
+                      "Pending owner seçimi canonical capability kararını caller'dan almalı.")
+        calls = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertFalse(calls & self.CAPABILITY_CLASSIFIERS,
+                         "Pending owner seçici capability intent'ini yeniden sınıflandıramaz.")
+
+    def test_pending_answer_candidate_is_structural_not_a_capability_classifier(self):
+        _tree, func = self._func(brain_understanding, "_pending_answer_candidate")
+        calls = {self._name(node.func) for node in ast.walk(func) if isinstance(node, ast.Call)}
+        self.assertFalse(calls & self.CAPABILITY_CLASSIFIERS,
+                         "Pending-answer adayı yalnız yapısal sınırları değerlendirir.")
+
+    def test_pending_owner_layer_has_no_inline_capability_regex(self):
+        # Yeni bir domain capability'si buraya satır içi regex olarak sızamaz: yalnız canonical
+        # karar ve pending evidence okunur.
+        for name in ("_pending_answer_owners", "_pending_answer_candidate"):
+            with self.subTest(function=name):
+                _tree, func = self._func(brain_understanding, name)
+                inline = [node for node in ast.walk(func)
+                          if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                          and node.func.attr in {"search", "match", "fullmatch", "compile"}]
+                self.assertFalse(inline,
+                                 f"{name} satır içi regex ile capability sınıflandıramaz.")
+
+    def test_canonical_capability_decision_is_passed_into_owner_selection(self):
+        _tree, func = self._func(brain_understanding, "understand")
+        calls = [node for node in ast.walk(func)
+                 if isinstance(node, ast.Call) and self._name(node.func) == "_pending_answer_owners"]
+        self.assertTrue(calls, "understand canonical owner seçimini çağırmalı.")
+        passed = {keyword.arg for keyword in calls[0].keywords}
+        self.assertIn("independent_capability", passed,
+                      "Capability kararı pending owner seçimine parametre olarak geçmeli.")
 
     def test_goal_legacy_text_is_fenced_before_any_state_rebinding(self):
         _tree, handle = self._func(goal_executor, "handle")

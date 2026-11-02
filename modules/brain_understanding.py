@@ -1210,25 +1210,33 @@ def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, A
     return proposal
 
 
-def _explicit_capability_shape(normalized: str) -> bool:
-    """A deterministic capability phrase without a command verb is still a new request.
+def _definition_question(normalized: str) -> bool:
+    """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner."""
+    return _contains_any(f" {normalized}", _STATIC_MARKERS)
 
-    ``_looks_like_capability`` only knows command tokens; an explicit level, weather or
-    screen-analysis request carries none, so an open slot must not claim it as its answer.
-    """
-    text = normalized.strip(" .!?")
-    return (_LEVEL_EXPLICIT.fullmatch(text) is not None
-            or _is_weather_request(text)
-            or _WEATHER_STATUS_CUE.search(text) is not None
-            or _SCREENSHOT_CUE.search(text) is not None
-            or _SCREEN_ANALYZE_CUE.search(text) is not None)
+
+def _weather_status_request(normalized: str) -> bool:
+    """Legacy-owned weather status command ("hava durumuna bak"); an independent request, not an answer."""
+    if _definition_question(normalized):
+        return False
+    return _WEATHER_STATUS_CUE.search(normalized) is not None
+
+
+def _screenshot_request(normalized: str) -> bool:
+    """The screenshot command is owned by the legacy desktop handler; it never answers an open slot."""
+    if _definition_question(normalized):
+        return False
+    return _SCREENSHOT_CUE.search(normalized) is not None
 
 
 def _pending_answer_candidate(normalized: str) -> bool:
+    """Structural eligibility only; ``understand`` already decided whether this is a capability.
+
+    The pending-owner layer must not own a second capability grammar: when a new capability class
+    is added, only the canonical capability decision changes, never this structural filter."""
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
-    if (_is_context_control(normalized) or _is_correction(normalized)
-            or _looks_like_capability(normalized) or _explicit_capability_shape(normalized)):
+    if _is_context_control(normalized) or _is_correction(normalized):
         return False
     if _contains_any(normalized, _GENERIC_CHAT) or "?" in normalized:
         return False
@@ -1278,12 +1286,14 @@ _PENDING_OWNER_RANK = {
 
 def _pending_answer_owners(text: str, normalized: str, active_context: ActiveContext,
                            clarify_answer: tuple[str, dict[str, object]] | None,
+                           *, independent_capability: bool,
                            ) -> tuple[PendingOwner | None, bool]:
     """Pick the single pending owner this utterance can answer, or report true ambiguity.
 
-    Only slots whose observed shape plausibly accepts the text are candidates; a slot that is
-    open but has no accepting evidence never owns the turn."""
-    if not _pending_answer_candidate(normalized):
+    The caller supplies the already-made canonical capability decision: a new capability request
+    is never an answer, so this selector never re-classifies the utterance. Only slots whose
+    observed evidence plausibly accepts the text are candidates."""
+    if independent_capability or not _pending_answer_candidate(normalized):
         return None, False
     owners: set[PendingOwner] = {PendingOwner.APP_CLARIFY} if clarify_answer is not None else set()
     for pending in active_context.pending_references:
@@ -1414,13 +1424,25 @@ def understand(
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
     photo_followup = _photo_followup_continuation(normalized, active_context)
-    # An explicit capability request is never the target of an open-ended clarify: it supersedes it.
-    capability_turn = (level is not None or notes_read_request or note_write is not None or weather_request
-                       or research_request or screen_request or window_request or execution_request
-                       or translation is not None or file_operation is not None)
-    clarify_answer = None if capability_turn else _typed_clarify_answer(text, normalized, active_context, owner)
+    # Canonical capability decision, produced exactly once. An explicit capability request is never
+    # the target of an open-ended clarify: it supersedes it. A typed pending continuation is the
+    # opposite case: its target answers an open clarify, so it is not an independent request.
+    explicit_capability_request = (
+        level is not None or notes_read_request or note_write is not None or weather_request
+        or research_request or screen_request or window_request or execution_request
+        or translation is not None or file_operation is not None
+        or _looks_like_capability(normalized)
+        or (not (context_control or topic_change or correction)
+            and (_weather_status_request(normalized) or _screenshot_request(normalized)))
+    )
+    typed_pending_capability = (
+        None if explicit_capability_request
+        else _typed_clarify_answer(text, normalized, active_context, owner)
+    )
+    independent_capability = explicit_capability_request and typed_pending_capability is None
     pending_owner, pending_ambiguous = _pending_answer_owners(
-        text, normalized, active_context, clarify_answer
+        text, normalized, active_context, typed_pending_capability,
+        independent_capability=independent_capability,
     )
     if pending_ambiguous:
         ambiguities = (*ambiguities, MULTIPLE_PENDING_ANSWER_OWNERS)
@@ -1431,7 +1453,7 @@ def understand(
     elif photo_followup:
         # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
         relation = ConversationRelation.CONTINUE_ACTIVE
-    elif clarify_answer is not None or pending_owner is not None or pending_ambiguous:
+    elif typed_pending_capability is not None or pending_owner is not None or pending_ambiguous:
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
         relation = ConversationRelation.CONTINUE_ACTIVE
@@ -1442,8 +1464,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif (clarify_answer is not None or capability_turn
-          or _looks_like_capability(normalized)):
+    elif typed_pending_capability is not None or explicit_capability_request:
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -1513,8 +1534,8 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = _capability_hint(normalized, temporal_need)
-    if clarify_answer is not None:
-        capability_hint, clarify_arguments = clarify_answer
+    if typed_pending_capability is not None:
+        capability_hint, clarify_arguments = typed_pending_capability
         arguments = {**arguments, **clarify_arguments}
     if translation is not None:
         capability_hint = TRANSLATE_CAPABILITY
