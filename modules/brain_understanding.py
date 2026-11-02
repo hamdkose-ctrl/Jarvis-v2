@@ -755,6 +755,9 @@ WINDOW_OP_CAPABILITY = "desktop.window.op"
 # Bounded clarify follow-up: the target of the question ("Neyi açmamı istiyorsun?") completes
 # the existing app-open owner. Core re-validates the name and keeps the launch guards.
 APP_OPEN_CAPABILITY = "app.open"
+# Same bounded shape for close: the answer only resolves the target; the existing close
+# confirmation/permission/effect owner still runs after approval.
+APP_CLOSE_CAPABILITY = "app.close"
 _SCREEN_ANALYZE_CUE = re.compile(
     r"(?<!\w)(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)"
     r"|"
@@ -1172,7 +1175,7 @@ def _photo_followup_continuation(normalized: str, active_context: ActiveContext)
     return pending and _PHOTO_FOLLOWUP.search(normalized) is not None
 
 
-_CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY})
+_CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY, APP_CLOSE_CAPABILITY})
 _CLARIFY_TARGET_MAX = 40
 _ANSWER_CONTROL = frozenset({
     "evet", "hayır", "hayir", "tamam", "olur", "onayla", "onaylıyorum", "onayliyorum",
@@ -1234,7 +1237,7 @@ def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveCont
     for pending in active_context.pending_references:
         proposal = _clarify_proposal(pending, owner)
         if proposal is not None and _app_target_evidence(target, pending):
-            return APP_OPEN_CAPABILITY, {"app": target}
+            return str(proposal["kind"]), {"app": target}
     return None
 
 

@@ -33,6 +33,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Target came from a typed clarify proposal and was re-validated by brain_core_map.
             from modules.command_execution import open_app
             return open_app(runtime, str(a.get("name") or ""))
+        case "app_close":
+            # Only opens the existing confirmation; close_application runs after approval.
+            from modules.command_execution import request_close_app
+            return request_close_app(runtime, str(a.get("name") or "")) or "Uygulama adı doğrulanamadı; kapatma işlemi başlatılmadı."
         case "file_action":
             from pathlib import Path
             from modules import nxapi

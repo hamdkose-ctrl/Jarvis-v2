@@ -243,16 +243,15 @@ def handle(runtime, command: str):
         saved = runtime.output.save_text_result(text, source, label)
         return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
 
-    # Nesnesi söylenmemiş işlem ("kapat", "aç", "sil"): tahmin edip yanlış şeyi kapatma, sor
-    verb = runtime.re.fullmatch(r"(?:lütfen\s+)?(kapat|kapa|kapatır mısın|kapatsana|aç|açar mısın|açsana|sil|siler misin|"
-                                r"gönder|gönderir misin|başlat)", cmd_lower.strip(" .!?"))
+    # Nesnesi söylenmemiş işlem: yalnız gerçek bounded continuation sahibi olan fiiller sorulur
+    # (aç → app.open, kapat → app.close + mevcut onay hattı). sil/gönder/başlat için tek bir bounded
+    # owner yok; soru açıp cevabı yeni isteğe düşürmek yerine normal istek akışına bırakılır.
+    verb = runtime.re.fullmatch(r"(?:lütfen\s+)?(kapat|kapa|kapatır mısın|kapatsana|aç|açar mısın|açsana)",
+                                cmd_lower.strip(" .!?"))
     if verb:
-        what = next(v for k, v in (("kap", "kapatmamı"), ("aç", "açmamı"), ("sil", "silmemi"), ("gön", "göndermemi"),
-                                   ("baş", "başlatmamı")) if verb.group(1).startswith(k))
-        question = f"Neyi {what} istiyorsun?"
-        # Only "aç" has a bounded Core owner (existing app-open path) that can execute a validated
-        # target. Other verbs keep the free-form question: their answer stays a new request.
-        proposal = {'kind': 'app.open'} if verb.group(1).startswith('aç') else None
+        opening = verb.group(1).startswith("aç")
+        question = "Neyi açmamı istiyorsun?" if opening else "Neyi kapatmamı istiyorsun?"
+        proposal = {'kind': 'app.open' if opening else 'app.close'}
         return app_actions.ask_clarification(runtime._session(), command, question, runtime.profile, proposal)
 
     # Hedefi söylenmemiş sayı ("70 yap"): modele sormadan hemen netleştir
@@ -407,10 +406,8 @@ def handle(runtime, command: str):
     if cm and len(cm.group(1)) <= 40 and not runtime.re.match(
             r"^(?:ses|sesi|müzi|bilgisayar|pc|mikrofon|kamera|ekran|paylaşım|ışı|wifi|internet|bluetooth|"
             r"jarvis|telefon|uyku|alarm|hatırlat|bildirim|parlaklı)", cm.group(1)):
-        name = cm.group(1)
-        runtime._session().pending_confirm = {'action': 'close_app', 'name': name}
-        return (f"{name} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
-                "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
+        from modules.command_execution import request_close_app
+        return request_close_app(runtime, cm.group(1)) or "Uygulama adı doğrulanamadı; kapatma işlemi başlatılmadı."
 
     # Uygulama açma: yalnızca izinli listedeki uygulamalar
     om = runtime.re.match(r"^(?:lütfen\s+)?(.+?)\s+(?:aç|açar mısın|açsana|başlat|çalıştır)$", cmd_lower)

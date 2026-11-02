@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.brain_understanding import (
+    APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
@@ -243,6 +244,11 @@ def _app_open_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"name": name}
 
 
+def _app_close_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Same bounded name re-validation; close still goes through the existing confirmation gate."""
+    return _app_open_args(arguments)
+
+
 def _screen_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Ekran okuma önerisi: soru boş olabilir (genel analiz) ama en fazla tek satır uzunluğunda."""
     if set(arguments) - {"original_text", "question"}:
@@ -323,6 +329,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # "Neyi açmamı istiyorsun?" yanıtı: typed clarify proposal'ının hedefi, mevcut app-open sahibine
     # doğrulanmış bir ad olarak gider; serbest metin yeniden yorumlanmaz.
     APP_OPEN_CAPABILITY: ("app_open", _app_open_args),
+    # "Neyi kapatmamı istiyorsun?" yanıtı yalnız hedefi çözer; onay/izin/etki mevcut close hattında kalır.
+    APP_CLOSE_CAPABILITY: ("app_close", _app_close_args),
 }
 
 

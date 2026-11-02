@@ -2,6 +2,18 @@
 import re
 import time
 
+_CLOSE_NAME_MAX = 40
+
+
+def request_close_app(runtime, name):
+    """Open the existing close confirmation; the effect stays behind approval and system_control guards."""
+    clean = str(name).strip()
+    if not clean or len(clean) > _CLOSE_NAME_MAX or "\x00" in clean:
+        return None
+    runtime._session().pending_confirm = {'action': 'close_app', 'name': clean}
+    return (f"{clean} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
+            "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
+
 
 def open_app(runtime, name):
     result = runtime.system_control.open_application(name)

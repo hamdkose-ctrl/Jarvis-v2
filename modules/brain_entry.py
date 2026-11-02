@@ -15,6 +15,8 @@ from typing import Any, Mapping
 from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
 from modules.brain_understanding import (
     ACTION_REQUEST_CODE,
+    APP_CLOSE_CAPABILITY,
+    APP_OPEN_CAPABILITY,
     EXECUTION_REQUEST_CODE,
     LEVEL_CAPABILITY,
     PHOTO_FOLLOWUP_CODE,
@@ -162,6 +164,9 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
 
 
+_APP_CLARIFY_KINDS = frozenset({APP_OPEN_CAPABILITY, APP_CLOSE_CAPABILITY})
+
+
 def _app_clarify_reference(reference: ContextReference) -> bool:
     value = reference.provenance.get("value")
     proposal = value.get("proposal") if isinstance(value, Mapping) else None
@@ -172,12 +177,12 @@ def _app_clarify_reference(reference: ContextReference) -> bool:
         and isinstance(value, Mapping)
         and value.get("stage") == "clarify"
         and isinstance(proposal, Mapping)
-        and proposal.get("kind") == "app.open"
+        and proposal.get("kind") in _APP_CLARIFY_KINDS
     )
 
 
 def _with_app_target_evidence(active: ActiveContext, runtime: Any) -> ActiveContext:
-    """Attach the canonical app alias catalog while a typed app-open question is open.
+    """Attach the canonical app alias catalog while a typed app open/close question is open.
 
     Understanding never discovers apps; the caller supplies the bounded evidence it may accept."""
     if not any(_app_clarify_reference(ref) for ref in active.pending_references):

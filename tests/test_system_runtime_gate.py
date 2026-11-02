@@ -187,17 +187,19 @@ class SystemRuntimeGateTests(unittest.TestCase):
                 self.assertIsNone(session.pending_confirm)
 
     def test_close_app_proposal_keeps_the_effect_in_the_approval_branch(self):
-        """Closing belongs only to the approval branch tested in test_confirmation_safety."""
+        """The grammar branch delegates to the shared confirmation owner; closing stays in approval."""
         _, fn = self.proposal_branch()
-        self.assertNotIn('close_application', ast.unparse(fn))
+        source = ast.unparse(fn)
+        self.assertIn('request_close_app', source)
+        self.assertNotIn('close_application', source)
 
     def proposal_branch(self):
         handle = next(node for node in engine_source.tree().body
                       if isinstance(node, ast.FunctionDef) and node.name == 'handle')
         start = next(i for i, item in enumerate(handle.body) if isinstance(item, ast.Assign)
                      and any(getattr(target, 'id', '') == 'cm' for target in item.targets))
-        end = next(i for i, item in enumerate(handle.body[start:], start)
-                   if isinstance(item, ast.If) and "'close_app'" in ast.unparse(item))
+        end = next(i for i, item in enumerate(handle.body[start + 1:], start + 1)
+                   if isinstance(item, ast.If))
         body = handle.body[start:end + 1] + [ast.Return(value=ast.Constant(value=None))]
         fn = ast.FunctionDef(name='close_app_proposal', args=ast.arguments(
             posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
@@ -206,7 +208,8 @@ class SystemRuntimeGateTests(unittest.TestCase):
 
     def branch(self, text, session):
         module = self.proposal_branch()[1]
-        namespace = {'re': re, 'cmd_lower': text.lower(), '_session': lambda: session}
+        namespace = {'re': re, 'cmd_lower': text.lower(),
+                     'runtime': SimpleNamespace(_session=lambda: session)}
         exec(compile(module, 'real-close-app-grammar', 'exec'), namespace)
         return namespace['close_app_proposal']()
 

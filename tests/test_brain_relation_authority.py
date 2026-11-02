@@ -13,8 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
-from modules import app_actions, brain_core_map, brain_entry, brain_precedence, engine_runtime, requests_state
-from modules import brain_understanding
+from modules import app_actions, brain_core_map, brain_context, brain_entry, brain_precedence, desktop_agent
+from modules import brain_understanding, engine_runtime, job_front, requests_state
 from modules.brain_contracts import ConversationRelation, RequestKind
 from modules.command_manager import awaiting_input
 from modules.system_control import APPS as STATIC_APPS
@@ -39,6 +39,14 @@ class RelationAuthorityTests(unittest.TestCase):
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None), APPS=dict(STATIC_APPS))
         self.ctx.chat = Mock(return_value="CHAT")
+        # Bu testler kullanıcının canlı hedef/iş/izin durumunu okumaz ve iptal/tamam
+        # cevabını gerçek bounded protokole düşürmez.
+        for target, attr in ((brain_context, "_default_goal_reader"),
+                             (job_front, "observe"),
+                             (desktop_agent, "_load")):
+            state_patch = patch.object(target, attr, return_value=None)
+            state_patch.start()
+            self.addCleanup(state_patch.stop)
         guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
         guard.start()
         self.addCleanup(guard.stop)
@@ -182,23 +190,109 @@ class RelationAuthorityTests(unittest.TestCase):
         self.assertEqual(pending["owner"], self.owner)
         self.assertEqual(pending["command"], "kapat")
         self.assertEqual(pending["question"], "Neyi kapatmamı istiyorsun?")
+        self.assertEqual(pending["proposal"], {"kind": "app.close"})
         self.assertGreater(pending["expires"], time.time())
         self.assertFalse(hasattr(session, "pending_request"))
         self.assertTrue(awaiting_input(session))
 
+    def test_bare_verbs_without_a_bounded_owner_open_no_resumable_state(self):
+        from modules import goal_executor
+        for text in ("sil", "gönder", "başlat"):
+            with self.subTest(text=text):
+                with patch.object(goal_executor, "run", return_value="TASK") as run:
+                    entry, out, handle, feedback = self.turn(text)
+                run.assert_called_once()  # normal task flow, not a dead-end question
+                session = self.ctx._session()
+                self.assertEqual(out, "TASK")
+                self.assertNotIn("Neyi", out or "")
+                self.assertIsNone(session.pending_action)
+                self.assertFalse(awaiting_input(session))
+                self.assertNotEqual(feedback.result_status, "needs_input")
+
+    def test_typed_close_answer_opens_the_existing_confirmation(self):
+        session = self.ask("kapat")
+        self.ctx.system_control.close_application = Mock(
+            return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out, handle, feedback = self.turn("Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.capability_hint, "app.close")
+        # The answer resolves the target only; the effect stays behind the existing approval gate.
+        self.ctx.system_control.close_application.assert_not_called()
+        self.assertEqual(session.pending_confirm, {"action": "close_app", "name": "Chrome"})
+        self.assertIsNone(session.pending_action)
+        self.assertIn("onaylıyor musun", out)
+        self.ctx.chat.assert_not_called()
+        self.assertEqual(feedback.result_status, "needs_input")
+
+    def test_close_confirmation_runs_the_existing_owner_after_approval(self):
+        session = self.ask("kapat")
+        result = ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True)
+        self.ctx.system_control.close_application = Mock(return_value=result)
+        with patch.object(brain_precedence, "claim", return_value=None):
+            self.turn("Chrome")
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out, handle, feedback = self.turn("evet")
+        self.assertTrue(entry.state_gate.matched)
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        self.ctx.system_control.close_application.assert_called_once_with("Chrome")
+        self.assertEqual(out, result)
+        self.assertIsNone(session.pending_confirm)
+        self.ctx.chat.assert_not_called()
+
+    def test_close_clarification_is_not_answered_by_independent_requests(self):
+        cases = (
+            ("sesi 50 yap", lambda: setattr(self.ctx.system_control, "set_volume", Mock(return_value=True))),
+            ("notlarımı göster", lambda: setattr(self.ctx, "_notes_text", Mock(return_value="NOTLARIM"))),
+            ("saat kaç", None),
+            ("merhaba", None),
+        )
+        for text, prepare in cases:
+            with self.subTest(text=text):
+                session = self.ask("kapat")
+                self.ctx.system_control.close_application = Mock()
+                if prepare is not None:
+                    prepare()
+                with patch.object(brain_precedence, "claim", return_value=None):
+                    entry, out, handle, feedback = self.turn(text)
+                if entry.understanding is None:
+                    self.assertTrue(entry.fast_gate.matched)
+                else:
+                    self.assertIsNot(entry.understanding.conversation_relation,
+                                     ConversationRelation.ANSWER_TO_PENDING)
+                self.ctx.system_control.close_application.assert_not_called()
+                self.assertIsNone(session.pending_confirm)
+                self.assertIsNone(session.pending_action)
+
     def test_real_clarification_answer_does_not_continue_multi_step_early(self):
         self.ctx.system_control.set_volume = Mock(return_value=True)
+        self.ctx.system_control.close_application = Mock(
+            return_value=ApplicationResult("Chrome pencerelerinin kapandığını doğruladım.", ok=True))
         _, out, _, _ = self.turn("önce kapat sonra sesi 50 yap")
         self.assertIn("yanıt veya onay bekliyor", out)
         self.ctx.system_control.set_volume.assert_not_called()
         session = self.ctx._session()
         self.assertEqual(session.pending_action["stage"], "clarify")
+        self.assertEqual(session.pending_action["proposal"], {"kind": "app.close"})
         self.assertTrue(awaiting_input(session))
 
-        # A real answer is consumed as an answer, never as permission to run the remaining step.
-        _, answered, _, _ = self.turn("Chrome")
+        # The answer resolves step 1's target and opens its confirmation; the volume step does not run.
+        entry, answered, _, _ = self.turn("Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
         self.assertNotEqual(answered, "Ses seviyesini yüzde 50 yaptım.")
         self.ctx.system_control.set_volume.assert_not_called()
+        self.ctx.system_control.close_application.assert_not_called()
+        self.assertEqual(session.pending_confirm, {"action": "close_app", "name": "Chrome"})
+        self.assertIsNone(session.pending_action)
+
+        # Approval runs only the close owner; the old sequence's volume step stays unfinished.
+        entry, approved, _, _ = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_confirm.confirm")
+        self.ctx.system_control.close_application.assert_called_once_with("Chrome")
+        self.assertEqual(approved, "Chrome pencerelerinin kapandığını doğruladım.")
+        self.ctx.system_control.set_volume.assert_not_called()
+        self.assertIsNone(session.pending_confirm)
         self.assertFalse(awaiting_input(session))
 
 
@@ -258,6 +352,19 @@ class AppOpenProposalValidationTests(unittest.TestCase):
                          ("app_open", {"name": "Chrome"}))
 
 
+class AppCloseProposalValidationTests(unittest.TestCase):
+    def test_core_rejects_unbounded_or_empty_targets(self):
+        self.assertIsNone(brain_core_map.core_plan("app.close", {"app": ""}))
+        self.assertIsNone(brain_core_map.core_plan("app.close", {"app": "   "}))
+        self.assertIsNone(brain_core_map.core_plan("app.close", {"app": "x" * 41}))
+        self.assertIsNone(brain_core_map.core_plan("app.close", {"app": "chrome\x00"}))
+        self.assertIsNone(brain_core_map.core_plan("app.close", {"app": "Chrome", "args": []}))
+
+    def test_core_maps_a_bounded_target_to_the_close_confirmation_intent(self):
+        self.assertEqual(brain_core_map.core_plan("app.close", {"app": "Chrome"}),
+                         ("app_close", {"name": "Chrome"}))
+
+
 class ClarifyProposalGuardTests(unittest.TestCase):
     def value(self, **overrides):
         base = {"stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
@@ -298,6 +405,12 @@ class ClarifyProposalGuardTests(unittest.TestCase):
     def test_missing_evidence_fails_closed(self):
         self.assertIs(self.answer("Chrome", aliases=()).conversation_relation,
                       ConversationRelation.NEW_REQUEST)
+
+    def test_close_proposal_is_a_typed_capability(self):
+        result = self.answer("Chrome", proposal={"kind": "app.close"})
+        self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.capability_hint, "app.close")
+        self.assertEqual(result.arguments.get("app"), "Chrome")
 
 
 class UnderstandingArchitectureGuardTests(unittest.TestCase):
