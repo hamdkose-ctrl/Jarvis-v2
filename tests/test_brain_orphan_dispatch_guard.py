@@ -26,20 +26,12 @@ INTENTS_FILE = MODULES / "engine_intents.py"
 AUDITED_CALL_SITES = frozenset({"modules/brain_entry.py", "modules/engine_commands.py"})
 DISPATCH_ARITY = 5  # dispatch(runtime, intent, a, command, cmd_lower)
 
-# A dispatch case whose executor still has no living canonical owner. Every entry needs a named
-# reason; shrinking this map is the migration, keeping a name that is no longer a case fails.
-KNOWN_UNMIGRATED: dict[str, str] = {
-    "feedback": ("profile.feedback +/- sayaclarinin yazari sadece bu eski case; kalici davranis "
-                 "geri bildirimi canonical chat default dalindaki learning_feedback.capture ile "
-                 "yasamaya devam ediyor. Sayaç sahibi netlestiginde bu satir duser."),
-}
-
 # Physical-removal evidence for the cleanup PR: none of these may exist as a dispatch case or
-# as a Core intent again. The orphan test above is what stops a NEW producer-less case.
+# as a Core intent again. The orphan test below is what stops a NEW producer-less case.
 REMOVED_LEGACY_INTENTS = frozenset({
     "open_app", "close_app", "open_url", "mail", "media", "note", "handoff", "work",
     "pc_control", "screenshot", "status", "volume", "brightness", "send_phone",
-    "desktop_task", "code",
+    "desktop_task", "code", "feedback",
 })
 
 
@@ -207,19 +199,23 @@ class OrphanDispatchCaseTests(unittest.TestCase):
     def setUp(self):
         self.sources = _production_sources()
 
-    def test_every_dispatch_case_has_a_living_canonical_producer(self):
-        still_orphaned = orphan_case_names(self.sources) - set(KNOWN_UNMIGRATED)
+    def test_orphan_set_is_empty(self):
+        orphans = orphan_case_names(self.sources)
         self.assertEqual(
-            still_orphaned, set(),
-            "Bu dispatch case'lerinin canonical producer'ı yok: " + ", ".join(sorted(still_orphaned)),
+            orphans, set(),
+            "Bu dispatch case'lerinin canonical producer'ı yok: " + ", ".join(sorted(orphans)),
         )
 
-    def test_exception_map_names_only_real_unreachable_cases(self):
-        orphans = orphan_case_names(self.sources)
-        self.assertEqual(set(KNOWN_UNMIGRATED), orphans,
-                         "KNOWN_UNMIGRATED ile ölçülen yetim kümesi sapıyor")
-        for name, reason in KNOWN_UNMIGRATED.items():
-            self.assertGreaterEqual(len(reason), 60, name + " için gerekçe yetersiz")
+    def test_guard_has_no_exception_allowlist(self):
+        # The empty orphan set is the unconditional contract: no tolerated-exception constant,
+        # in this file or in any other test, may be subtracted from the measured orphan set.
+        for path in sorted(ROOT.glob("tests/test_brain_*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8", errors="replace"))):
+                targets = node.targets if isinstance(node, ast.Assign) else (
+                    [node.target] if isinstance(node, ast.AnnAssign) else [])
+                self.assertFalse(any(isinstance(t, ast.Name) and t.id == "KNOWN_UNMIGRATED" for t in targets),
+                                 f"{path.name}: istisna allowlist'i geri geldi")
+        self.assertNotIn("KNOWN_UNMIGRATED", globals())
 
     def test_guard_breaks_for_a_future_producer_less_case(self):
         # Mutation proof: a case no canonical producer can emit must be reported as orphan.
@@ -233,7 +229,8 @@ class OrphanDispatchCaseTests(unittest.TestCase):
         )
         mutated_cases = dispatch_case_names(mutated)
         self.assertIn("brand_new_zombie_capability", mutated_cases)
-        self.assertIn("brand_new_zombie_capability", mutated_cases - producer_intents(self.sources))
+        self.assertEqual(mutated_cases - producer_intents(self.sources),
+                         {"brand_new_zombie_capability"})
 
     def test_guard_breaks_for_a_new_dispatch_caller(self):
         sources = dict(self.sources)

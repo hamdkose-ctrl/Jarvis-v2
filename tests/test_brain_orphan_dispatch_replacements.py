@@ -43,6 +43,7 @@ CAPABILITY_OWNERS = {
     'send_phone': ('modules.filesend', 'handle'),
     'desktop_task': ('modules.desktop_agent', 'handle'),
     'code': ('modules.goal_executor', 'run'),
+    'feedback': ('modules.learning_feedback', 'capture'),
 }
 
 
@@ -250,6 +251,112 @@ class VolumeAndSystemOwnerTests(unittest.TestCase):
         self.assertEqual([where for _text, where in added], ['is'])
         self.assertIn('sunum', added[0][0].lower())
         self.assertIn('listesine ekledim', out)
+
+
+BEHAVIOUR_FEEDBACK = ('Hem bana sürekli haklısın deme, hep haklı olamam ben; '
+                      'varsa yanlış onu da söyle yani.')
+
+
+class ChatBackedRuntime:
+    """The smallest runtime the real default arm of dispatch accepts: no vision, canned chat."""
+
+    def __init__(self, profile):
+        self.profile = profile
+        self.vision = SimpleNamespace(mode=lambda: False)
+        self.answers = []
+        self.failures = []
+        self.os = SimpleNamespace(remove=lambda path: None)
+
+    def _sys_prompt(self, command):
+        return 'sys'
+
+    def _session(self):
+        return SimpleNamespace()
+
+    def _record_failure(self, where):
+        self.failures.append(where)
+
+    def chat(self, command, prompt, user=None):
+        self.answers.append(command)
+        return 'Anladım, öyle yaparım.'
+
+
+class FakeFeedbackProfile:
+    def __init__(self):
+        self.slug = 'alice'
+        self.name = 'Alice'
+        self.data = {'rules': [], 'facts': [], 'items': [], 'prefs': {}}
+        self.saved = 0
+
+    def save(self):
+        self.saved += 1
+
+
+class FeedbackLearningOwnerTests(unittest.TestCase):
+    """The removed ``feedback`` case added nothing the canonical chat path does not already do.
+
+    Its live behaviour - promoting a direct instruction about Jarvis' own response style into a
+    durable rule - is owned by ``learning_feedback.capture``, which the default arm of dispatch
+    already calls on every non-command sentence. The unreachable ``profile.feedback`` +/- counter
+    is deliberately not resurrected: no new intent, classifier or compatibility mapper is created
+    for it, and the profile schema, stored records and web presentation field stay as they are.
+    """
+
+    def test_a_feedback_sentence_is_routed_as_plain_chat(self):
+        # No special intent is needed: the canonical single gate hands the sentence to chat.
+        import test_brain_production_entry as fixtures
+        _semantic, decision = fixtures.door(BEHAVIOUR_FEEDBACK)
+        self.assertEqual(decision['intent'], 'chat')
+        self.assertNotIn('feedback', str(decision))
+
+    def test_the_chat_default_arm_captures_the_feedback_of_its_own_turn(self):
+        from modules.engine_intents import dispatch
+        captured = []
+        runtime = ChatBackedRuntime(FakeFeedbackProfile())
+        with patch('modules.learning_feedback.capture',
+                   side_effect=lambda profile, text: captured.append((profile, text)) or []):
+            out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
+        self.assertEqual([text for _profile, text in captured], [BEHAVIOUR_FEEDBACK])
+        self.assertEqual(captured[0][0], runtime.profile)
+        self.assertEqual(out, 'Anladım, öyle yaparım.')
+
+    def test_the_feedback_becomes_a_durable_rule_with_no_dispatch_intent(self):
+        from modules import learning
+        from modules.engine_intents import dispatch
+        runtime = ChatBackedRuntime(FakeFeedbackProfile())
+        with patch('modules.advisory_router.finalize',
+                   side_effect=lambda command, raw, settings=None: raw):
+            # The real capture, not a mock: this is the user-visible behaviour being kept alive.
+            out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
+        stored = learning.rules(runtime.profile)
+        self.assertTrue(stored, 'davranış geri bildirimi kural olarak saklanmadı')
+        self.assertIn('otomatik onaylama', ' '.join(stored))
+        self.assertIn('yanlışsa açıkça söyle', ' '.join(stored))
+        self.assertEqual(out, 'Anladım, öyle yaparım.')
+        self.assertEqual(runtime.answers, [BEHAVIOUR_FEEDBACK])
+
+    def test_the_removed_case_was_the_only_writer_of_the_legacy_counter(self):
+        from test_brain_orphan_dispatch_guard import INTENTS_FILE, dispatch_case_names
+        source = INTENTS_FILE.read_text(encoding='utf-8')
+        self.assertNotIn('feedback', dispatch_case_names(source))
+        dispatcher = next(node for node in ast.parse(source).body
+                          if isinstance(node, ast.FunctionDef) and node.name == 'dispatch')
+        self.assertEqual([node.attr for node in ast.walk(dispatcher)
+                          if isinstance(node, ast.Attribute) and node.attr == 'feedback'], [],
+                         'unreachable profile.feedback +/- sayacı geri geldi')
+        # The counter itself stays untouched product surface: schema and reader remain, only the
+        # unreachable executor is gone.
+        import inspect
+        from modules import personalization
+        self.assertIn('def feedback(', inspect.getsource(personalization.Profile))
+
+    def test_capture_failure_is_recorded_instead_of_silently_swallowed(self):
+        from modules.engine_intents import dispatch
+        runtime = ChatBackedRuntime(FakeFeedbackProfile())
+        with patch('modules.learning_feedback.capture', side_effect=RuntimeError('boom')):
+            out = dispatch(runtime, 'chat', {}, BEHAVIOUR_FEEDBACK, BEHAVIOUR_FEEDBACK.casefold())
+        self.assertIn('modules/engine_intents.py:learning_feedback', runtime.failures)
+        self.assertEqual(out, 'Anladım, öyle yaparım.')
 
 
 if __name__ == '__main__':

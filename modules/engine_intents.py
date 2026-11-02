@@ -139,14 +139,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                     runtime.os.remove(image_path)
                 except OSError:
                     pass
-        case "feedback":
-            try:
-                from modules import learning_feedback
-                learning_feedback.capture(runtime.profile,command)
-            except Exception:
-                runtime._record_failure('modules/engine_intents.py:learning_feedback')
-            runtime.profile.feedback(a.get("positive", True), command)
-            return "Teşekkürler, not aldım."
         case "reminder":
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
