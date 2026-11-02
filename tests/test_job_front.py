@@ -20,7 +20,8 @@ def _task(state, age=60):
 
 
 class JobFrontTests(ProfileCase):
-    def _run(self, text, goal=None, task=None, pending=None, photo_pending=False, forbid_model=False):
+    def _run(self, text, goal=None, task=None, pending=None, photo_pending=False, forbid_model=False,
+             canonical=False):
         rt = _runtime(self, self.profile, datetime(2026, 10, 18, 9, 0))
         if photo_pending:
             rt._pending_photo[rt.profile.slug] = {'t': time.time(), 'path': 'fake-photo.jpg'}
@@ -41,6 +42,20 @@ class JobFrontTests(ProfileCase):
             calls.append('task.cancel')
             return {**_task('cancelled'), 'id': 'tt1'}
 
+        def execute():
+            if not canonical:
+                return rt.handle(text)
+            from modules import brain_entry
+            entry = brain_entry.prepare(
+                rt,
+                owner=rt.profile.slug,
+                request_id='rid-job-front-photo',
+                text=text,
+                source='telefon',
+            )
+            with brain_entry.bind(entry):
+                return rt.handle(text)
+
         # PR10c: `modules.router` sınıfleyicisi kaldırıldı. Aynı bekçi model kapılarının
         # kendisinde: bu komutlar deterministik yoldan geçer, hiçbir model çağrısına düşmez.
         model = Mock(side_effect=RuntimeError('sohbete düştü'))
@@ -53,7 +68,7 @@ class JobFrontTests(ProfileCase):
                 patch.object(task_agents, 'cancel_job', side_effect=task_cancel), \
                 patch.object(rt, 'ask', model), patch.object(rt, 'chat', model):
             try:
-                reply = rt.handle(text)
+                reply = execute()
             except Exception:                       # sahte bekleyen durum sonraki yolları bozabilir; önemli olan çağrılar
                 _record_failure('tests/test_job_front.py:_run')
                 reply = 'SOHBET'
@@ -110,7 +125,9 @@ class JobFrontTests(ProfileCase):
         self.assertEqual(calls, [])
 
     def test_card58_pending_photo_keeps_photo_cancel_response(self):
-        calls, reply = self._run('iptal', photo_pending=True, forbid_model=True)
+        # Photo cancel is now an exact canonical state protocol; keep the same user-visible behavior
+        # while exercising the real bound Brain entry instead of the retired surface regex authority.
+        calls, reply = self._run('iptal', photo_pending=True, forbid_model=True, canonical=True)
         self.assertEqual(reply, 'Tamam, fotoğrafla bir şey yapmıyorum.')
         self.assertEqual(calls, [])
 
