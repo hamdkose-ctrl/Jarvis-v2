@@ -656,13 +656,19 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
 _NOTE_DATE = re.compile(r"\b(?:bugunku|bugun|dunku|dun|gecen haftaki|gecen hafta|bu haftaki|bu hafta|gecen ayki|gecen ay|bu ayki|bu ay)\b")
 _NOTE_FILLER = re.compile(r"\b(?:benim|bana|aldigim|yazdigim|kaydettigim|tuttugum|ile ilgili|hakkindaki|hakkinda|icinde|icindeki|"
                           r"olan|var mi|var|mi|mu|neydi|nelerdi|neler|nerede|ne|bir|su|bu|o|ara|bul|goster|oku|ya)\b")
-_NOTE_ASK_END = re.compile(r"\bnot\w*\s*(?:var mi|neydi|nelerdi|neler|ne|nerede|goster|oku|bul|ara|var)?$|"
-                           r"\b(?:ara|bul|goster|oku)\w*$|\bvar mi$|\bneydi$")
-_NOTE_NOT_ASK = re.compile(r"\b(?:nasil|neden|nedir|niye|ne demek|yaz[ıi]l[ıi]r)\b")
 _NOTE_EDIT = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:(?:su|bu)\s+)?(?:duzelt|degistir|guncelle)\w*\s*[:,]?\s*(?P<new>.*)$")
 _NOTE_DEL = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:sil|kaldir|iptal et)\w*$")
 _MONTHS = ('Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara')
 _FOUND: dict = {}                     # kullanıcı -> (son bulunan notun kimliği, zaman): "o notu düzelt" için
+# Core hands a typed window label to the notes domain; this maps it to the legacy date phrase.
+_NOTE_WINDOW_WORDS = {
+    'today': 'bugun',
+    'yesterday': 'dun',
+    'this_week': 'bu hafta',
+    'last_week': 'gecen hafta',
+    'this_month': 'bu ay',
+    'last_month': 'gecen ay',
+}
 
 
 def _note_window(f: str, now):
@@ -761,9 +767,11 @@ def _note_ref(runtime, ref: str, f_rest: str):
 
 
 def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
-    """Eski notu bulur ("geçen hafta aldığım market notu", "notlarımda kitap ara", "bugünkü notlarım"), numarayla ya da
-    sözcükle düzeltir ("2. notu düzelt: …", "market notunu değiştir: …", "o notu düzelt: …") ve silir ("kitap notunu sil").
-    Model çağrısı yok; birden çok not uyuyorsa hiçbir şeye dokunmaz, numaralı liste verip sorar."""
+    """Notu numarayla ya da sözcükle düzeltir ("2. notu düzelt: …", "market notunu değiştir: …") ve siler.
+
+    Arama/özetleme burada kalmadı: canonical Understanding işlemi, Core tip/alan doğrulaması ve
+    ``notes_search``/``notes_summary`` domain yürütücüsü sahibidir. Model çağrısı yok; birden çok
+    not uyuyorsa hiçbir şeye dokunmaz, numaralı liste verip sorar."""
     f0 = _fold(cmd_lower.strip())
     f = f0.strip(' .!?')
     if not re.search(r"\bnot\w*", f) or f.startswith(('not ', 'son not', 'not:')) or re.search(r"\bnot\s*(?:al|et|ekle|yaz)\w*|diye not", f):
@@ -797,27 +805,58 @@ def _note_lookup(runtime, command: str, cmd_lower: str) -> str | None:
         runtime.profile.delete_note_item(note['id'])
         _FOUND.pop(slug, None)
         return f"Notu sildim: {note['text']}"
-    if re.search(r"\b(?:sil|kaldir|duzelt|degistir|guncelle|temizle)\w*", f) or _NOTE_NOT_ASK.search(f) \
-            or not _NOTE_ASK_END.search(f):
-        return None
-    window = _note_window(f, runtime.datetime.now())
-    kws = _note_words(re.sub(r"\bnot\w*", ' ', _NOTE_FILLER.sub(' ', _NOTE_DATE.sub(' ', f))))
-    if len(kws) > 3 or (not kws and not window):
-        return None
+    return None
+
+
+def _note_window_by_label(label: str | None, now):
+    phrase = _NOTE_WINDOW_WORDS.get(label or '')
+    return _note_window(phrase, now) if phrase else None
+
+
+def notes_search(runtime, query: str, window: str | None = None) -> str:
+    """Core-validated notes search; the notes domain owner performs the scan and the answer."""
+    items = runtime.profile.data['items']
+    bounds = _note_window_by_label(window, runtime.datetime.now())
+    kws = _note_words(query)
+    label = bounds[2] if bounds else ''
+    what = ' '.join(filter(None, [label, ' '.join(kws) or query]))
     if not items:
         return 'Not defterin boş.'
-    hits = _note_hits(items, kws, window)
+    hits = _note_hits(items, kws, bounds)
     fuzzy = False
     if not hits and kws:
-        hits, fuzzy = _note_hits(items, kws, window, fuzzy=True), True
-    label = window[2] if window else ''
-    what = ' '.join(filter(None, [label, ' '.join(kws)]))
+        hits, fuzzy = _note_hits(items, kws, bounds, fuzzy=True), True
     if not hits:
         return f'“{what}” için bir not bulamadım ({len(items)} notun var).'
     if len(hits) == 1:
-        _FOUND[slug] = (hits[0][1]['id'], runtime.time.time())
+        _FOUND[runtime.profile.slug] = (hits[0][1]['id'], runtime.time.time())
     head = 'Bulduğum not' if len(hits) == 1 else f'Bulduğum {len(hits)} not'
     return f"{head}{' (yazımı benzeyen)' if fuzzy else ''}: {_note_listing(hits)}"
+
+
+_SUMMARY_MAX_NOTES = 40
+_SUMMARY_MAX_NOTE_CHARS = 1200
+
+
+def notes_summary(runtime, note_id: str | None = None) -> str:
+    """Core-validated notes summary; the notes domain owner picks the bounded notes and synthesizes."""
+    items = runtime.profile.data['items']
+    if note_id is not None:
+        target = next((n for n in items if str(n.get('id')) == str(note_id)), None)
+        if target is None:
+            return 'Bu notu bulamadım.'
+        rows = [target]
+    else:
+        rows = list(items)
+    if not rows:
+        return 'Not defterin boş; özetlenecek not yok.'
+    lines = [f"{i}) {str(n.get('text') or '')[: _SUMMARY_MAX_NOTE_CHARS]}"
+             for i, n in enumerate(rows[:_SUMMARY_MAX_NOTES], 1)]
+    text = str(runtime.ask(
+        "Aşağıdaki notları Türkçe, en fazla 6 madde halinde kısaca özetle. Notlarda olmayan bilgi ekleme, "
+        "işlem yapma, dosya oluşturma.\n\n" + "\n".join(lines)
+    ) or '').strip()
+    return text or 'Notları özetleyemedim.'
 
 
 

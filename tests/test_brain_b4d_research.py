@@ -54,7 +54,9 @@ class ResearchUnderstandingRegressionTests(unittest.TestCase):
         ):
             result = self.understand(text)
             self.assertNotIn("research", result.arguments, text)
-            self.assertIsNone(brain_core_map.core_plan(result.capability_hint, result.arguments), text)
+            # The phrase may have its own canonical owner (notes search); it must never become a research task.
+            plan = brain_core_map.core_plan(result.capability_hint, result.arguments)
+            self.assertNotEqual((plan or ("",))[0], "task", text)
 
     def test_overlong_or_nul_query_is_not_proposed(self):
         for text in ("haberleri araştır " + "x" * 1100, "haberleri araştır\x00x"):

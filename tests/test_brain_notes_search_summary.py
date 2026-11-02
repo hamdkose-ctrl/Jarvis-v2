@@ -228,7 +228,7 @@ class _BrainCase(unittest.TestCase):
                     side_effect=AssertionError("canonical notes search/summary legacy lookup'a dönmemeli"),
                 ))
             if ask is not None:
-                stack.enter_context(patch.object(self.ctx, "ask", return_value=ask))
+                stack.enter_context(patch.object(self.ctx, "ask", ask))
             stack.enter_context(patch.object(
                 self.ctx, "chat", side_effect=AssertionError("notes search/summary sohbet koluna düşmemeli"),
             ))
@@ -286,11 +286,11 @@ class EndToEndSearchTests(_BrainCase):
         with tempfile.TemporaryDirectory() as other_dir:
             with patch.object(personalization, "USERS_DIR", Path(other_dir)):
                 other = personalization.Profile("Baska")
-        other.add_note_item("baska kullaniciya ait gizli")
-        other.add_note_item("baska ikinci not")
-        other.save()
-        self.ctx.profile = other
-        entry, out, feedback, handler = self.through_brain("notlarımda gizli ara", owner=other.slug)
+                other.add_note_item("baska kullaniciya ait gizli")
+                other.add_note_item("baska ikinci not")
+                other.save()
+                self.ctx.profile = other
+                entry, out, feedback, handler = self.through_brain("notlarımda gizli ara", owner=other.slug)
         self.assertIn("baska kullaniciya ait gizli", out)
         self.assertNotIn("proje alfa", out)
         self.assertFalse(handler.called)
@@ -332,7 +332,7 @@ class EndToEndSummaryTests(_BrainCase):
 
     def test_ambiguous_named_summary_asks_and_never_calls_the_model(self):
         ask = Mock(return_value="olmamalı")
-        entry, out, feedback, handler = self.through_brain("market notunu özetle", ask=ask)
+        entry, out, feedback, handler = self.through_brain("toplantı notunu özetle", ask=ask)
         self.assertTrue(entry.understanding.needs_input)
         self.assertEqual(feedback.result_status, "needs_input")
         ask.assert_not_called()

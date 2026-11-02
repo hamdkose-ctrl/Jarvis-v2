@@ -36,7 +36,7 @@ class UnderstandingTests(unittest.TestCase):
         self.assertNotIn("notes", self.understand("notu göster", [note_ref("a"), note_ref("b")]).arguments)
 
     def test_other_verbs_or_second_action_stay_legacy(self):
-        for text in ("notlarımı özetle", "notlarımı göster ve sil"):
+        for text in ("notlarımı göster ve sil", "notlarımı göster ve hava durumu nasıl"):
             self.assertNotIn("notes", self.understand(text).arguments, text)
 
 
