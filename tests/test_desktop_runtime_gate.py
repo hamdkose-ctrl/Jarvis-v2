@@ -93,16 +93,20 @@ class DesktopRuntimeGateTests(unittest.TestCase):
         self.assertEqual(identity['attempt'], 0)
 
     def test_direct_desktop_intent_uses_durable_goal_path_not_native_adapter(self):
-        """The natural-language shortcut must not create a second executor."""
+        """The natural-language shortcut must not create a second executor.
+
+        The producer-less 'desktop_task' dispatch case is gone; an execution request now reaches
+        this consumer only through the canonical 'task' projection, and it still hands the durable
+        goal path instead of driving the native desktop adapter itself."""
         from modules import engine_intents
         runtime = SimpleNamespace(profile=SimpleNamespace(slug='alice'))
         with patch('modules.goal_executor.run', return_value='Onay bekliyor.') as run, \
              patch('modules.desktop_agent.handle') as native:
             output = engine_intents.dispatch(
-                runtime, 'desktop_task', {'target': 'Paint', 'goal': 'bir çizgi çiz'},
+                runtime, 'task', {'request': 'Paint içinde bir çizgi çiz'},
                 'Paint içinde bir çizgi çiz', 'paint içinde bir çizgi çiz')
         self.assertEqual(output, 'Onay bekliyor.')
-        run.assert_called_once_with(runtime, 'PC görevi: Paint | bir çizgi çiz')
+        run.assert_called_once_with(runtime, 'Paint içinde bir çizgi çiz')
         native.assert_not_called()
 
     def test_reconcile_accepts_only_verified_matching_completed_native_task(self):

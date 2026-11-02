@@ -445,10 +445,5 @@ def handle(runtime, command: str):
     if not isinstance(a, dict):
         a = {}
     runtime.profile.log_command(intent)
-    # "Bekle, önce analiz bitsin" gibi cümleler yanlışlıkla müziği duraklatmasın: medya kelimesi yoksa sohbet say
-    if intent == "media" and not runtime.re.search(r"müzi|şarkı|video|oynat|\bçal\b|çalsın|duraklat|parça|youtube|spotify|"
-                                           r"sonraki|önceki|devam ettir", cmd_lower):
-        intent = "chat"
-
     from modules.engine_intents import dispatch
     return dispatch(runtime, intent, a, command, cmd_lower)

@@ -1,5 +1,8 @@
-import unittest
+import ast
+import engine_source
+import re
 import sys
+import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -158,23 +161,54 @@ class SystemRuntimeGateTests(unittest.TestCase):
 
     def test_direct_brightness_intent_does_not_claim_success_without_readback(self):
         from modules import engine_intents
-        control = SimpleNamespace(set_brightness_verified=lambda _level: False)
-        runtime = SimpleNamespace(system_control=control)
+        control = SimpleNamespace(set_brightness_verified=lambda _level: False,
+                                  session_state_memory=lambda: None)
+        runtime = SimpleNamespace(system_control=control, _session=lambda: SimpleNamespace(pending_level=None))
         output = engine_intents.dispatch(
-            runtime, 'brightness', {'level': 70}, 'Parlaklığı 70 yap', 'parlaklığı 70 yap')
+            runtime, 'level_set', {'property': 'brightness', 'level': 70},
+            'Parlaklığı 70 yap', 'parlaklığı 70 yap')
         self.assertEqual(output, 'Ekran parlaklığını doğrulayamadım.')
 
-    def test_close_app_intent_waits_for_explicit_confirmation(self):
-        from modules import engine_intents
-        close = unittest.mock.Mock()
-        session = SimpleNamespace(pending_confirm=None)
-        runtime = SimpleNamespace(system_control=SimpleNamespace(close_application=close),
-                                  _session=lambda: session)
-        output = engine_intents.dispatch(
-            runtime, 'close_app', {'name': 'Not Defteri'}, 'Not Defteri kapat', 'not defteri kapat')
-        self.assertIn('kaydedilmemiş', output)
-        self.assertEqual(session.pending_confirm, {'action': 'close_app', 'name': 'Not Defteri'})
-        close.assert_not_called()
+    def test_close_app_grammar_proposes_confirmation_without_closing(self):
+        """The surviving owner asks for approval and never touches a window."""
+        for text, proposed in (
+                ('Not Defteri kapat', {'action': 'close_app', 'name': 'not defteri'}),
+                ('Paint kapatsana', {'action': 'close_app', 'name': 'paint'})):
+            with self.subTest(text=text):
+                session = SimpleNamespace(pending_confirm=None)
+                result = self.branch(text, session)
+                self.assertIn('kaydedilmemiş', result)
+                self.assertEqual(session.pending_confirm, proposed)
+
+        for text in ('Sesi kapat', 'Müziği kapat', 'Bilgisayarı kapat', 'Ekranı kapat'):
+            with self.subTest(text=text):
+                session = SimpleNamespace(pending_confirm=None)
+                self.assertIsNone(self.branch(text, session))
+                self.assertIsNone(session.pending_confirm)
+
+    def test_close_app_proposal_keeps_the_effect_in_the_approval_branch(self):
+        """Closing belongs only to the approval branch tested in test_confirmation_safety."""
+        _, fn = self.proposal_branch()
+        self.assertNotIn('close_application', ast.unparse(fn))
+
+    def proposal_branch(self):
+        handle = next(node for node in engine_source.tree().body
+                      if isinstance(node, ast.FunctionDef) and node.name == 'handle')
+        start = next(i for i, item in enumerate(handle.body) if isinstance(item, ast.Assign)
+                     and any(getattr(target, 'id', '') == 'cm' for target in item.targets))
+        end = next(i for i, item in enumerate(handle.body[start:], start)
+                   if isinstance(item, ast.If) and "'close_app'" in ast.unparse(item))
+        body = handle.body[start:end + 1] + [ast.Return(value=ast.Constant(value=None))]
+        fn = ast.FunctionDef(name='close_app_proposal', args=ast.arguments(
+            posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
+            body=body, decorator_list=[])
+        return body, ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[]))
+
+    def branch(self, text, session):
+        module = self.proposal_branch()[1]
+        namespace = {'re': re, 'cmd_lower': text.lower(), '_session': lambda: session}
+        exec(compile(module, 'real-close-app-grammar', 'exec'), namespace)
+        return namespace['close_app_proposal']()
 
     def test_brightness_verified_requires_set_then_exact_readback(self):
         from modules import system_control
