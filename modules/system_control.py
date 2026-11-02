@@ -168,6 +168,14 @@ def find_app(name: str) -> str | None:
     return None
 
 
+def is_static_app_alias(name: str) -> bool:
+    """Ad yalnız sabit takma ad listesiyle mi eşleşiyor? Başlat menüsü taranmaz (ucuz ön kanıt)."""
+    n = name.casefold().strip(" '’.")
+    n = re.sub(r"\s+uygulaması$", "", n)
+    stripped = re.sub(r"['’]?(?:y?[ıiuü]|n[ıiuü])$", "", n).strip(" '’")
+    return _norm(n) in APPS or (stripped != n and _norm(stripped) in APPS)
+
+
 class ApplicationResult(str):
     """Keep the spoken string API, with independently verified action evidence."""
     def __new__(cls, message, *, ok=False, candidates=()):

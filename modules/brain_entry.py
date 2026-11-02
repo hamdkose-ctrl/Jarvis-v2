@@ -660,6 +660,18 @@ def _is_clarify_pending(ref: ContextReference) -> bool:
     return ref.source == "session_state" and ref.id == "pending_action" and isinstance(value, Mapping) and value.get("stage") == "clarify"
 
 
+def _relation_supersedes_clarify(entry: EntryResult) -> bool:
+    """Understanding's relation—not the plan outcome—decides whether an open clarify stands.
+
+    Only an answer keeps it. A NEW_REQUEST chat has no plan, yet the slot must not survive and
+    block the next turn."""
+    if entry.state_gate.matched:
+        return False
+    semantic = entry.understanding
+    return (semantic is not None
+            and semantic.conversation_relation is not ConversationRelation.ANSWER_TO_PENDING)
+
+
 def _has_open_pending(entry: EntryResult, *, ignore: frozenset[str] = frozenset()) -> bool:
     # A clarify question never blocks a new request: only an exact offered-choice answer is
     # consumed (state gate protocol session.pending_action.clarify_select); anything else is a new request.
@@ -812,7 +824,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     try:
         with bind(entry):
             plan = core_plan(entry)
-            if plan is not None or not _use_existing_handler(entry):
+            if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
             if claimed is not None:

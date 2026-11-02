@@ -7,6 +7,7 @@ state, run workers, grant authority, or wire itself into production routing.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Iterable, Mapping
 
 from modules.brain_actions import action_request, ends_with_action, instructional_question
@@ -21,6 +22,7 @@ from modules.brain_contracts import (
     TemporalNeed,
     UnderstandingResult,
 )
+from modules.diagnostics import record_failure as _record_failure
 
 
 _CONTEXT_CONTROL = (
@@ -1174,18 +1176,29 @@ def _photo_followup_continuation(normalized: str, active_context: ActiveContext)
 
 _CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY})
 _CLARIFY_TARGET_MAX = 40
+_APP_TARGET_SINGLE = re.compile(r"[\w+#.&'’-]+")
 _ANSWER_CONTROL = frozenset({
     "evet", "hayır", "hayir", "tamam", "olur", "onayla", "onaylıyorum", "onayliyorum",
     "iptal", "vazgeç", "vazgec", "boşver", "bosver",
 })
 
 
-def _clarify_proposal(reference: ContextReference) -> str | None:
-    """The typed follow-up carried by an open-ended clarify, if any (never invented here)."""
+def _clarify_proposal(reference: ContextReference, owner: str) -> str | None:
+    """The typed follow-up carried by an open-ended clarify, if any (never invented here).
+
+    Owner and expiry are re-checked here: ``prepare`` runs before ``continue_voice``, so a slot
+    that only ``continue_voice`` would reject must never become an Understanding continuation."""
     if reference.kind != "pending_state" or reference.source != "session_state" or reference.id != "pending_action":
+        return None
+    if reference.owner != owner:
         return None
     value = reference.provenance.get("value")
     if not isinstance(value, Mapping) or value.get("stage") != "clarify":
+        return None
+    if str(value.get("owner") or "") != owner:
+        return None
+    expires = value.get("expires")
+    if not isinstance(expires, (int, float)) or isinstance(expires, bool) or expires < time.time():
         return None
     proposal = value.get("proposal")
     if not isinstance(proposal, Mapping):
@@ -1204,15 +1217,33 @@ def _pending_answer_candidate(normalized: str) -> bool:
     return True
 
 
-def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveContext) -> tuple[str, dict[str, object]] | None:
+def _bounded_app_target(target: str) -> bool:
+    """Evidence that the answer names an app: a fixed alias or one lexical token.
+
+    A short unrelated sentence is not evidence just because a clarify is open."""
+    try:
+        from modules.system_control import is_static_app_alias
+    except Exception:
+        _record_failure("modules/brain_understanding.py:static_app_alias")
+        return False
+    if is_static_app_alias(target):
+        return True
+    token = target.strip()
+    return (" " not in token and _APP_TARGET_SINGLE.fullmatch(token) is not None
+            and re.search(r"[^\W\d_]", token) is not None)
+
+
+def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveContext,
+                          owner: str) -> tuple[str, dict[str, object]] | None:
     """A typed clarify accepts a bounded target; Understanding—not Core slot presence—decides it."""
     if not _pending_answer_candidate(normalized):
         return None
     target = text.strip(" .!?")
-    if not target or target in _ANSWER_CONTROL or "?" in target or "\x00" in target \
-            or len(target) > _CLARIFY_TARGET_MAX:
+    if not target or _norm(target) in _ANSWER_CONTROL or "?" in target or "\x00" in target \
+            or len(target) > _CLARIFY_TARGET_MAX or not _bounded_app_target(target):
         return None
-    if any(_clarify_proposal(pending) == APP_OPEN_CAPABILITY for pending in active_context.pending_references):
+    if any(_clarify_proposal(pending, owner) == APP_OPEN_CAPABILITY
+           for pending in active_context.pending_references):
         return APP_OPEN_CAPABILITY, {"app": target}
     return None
 
@@ -1341,7 +1372,7 @@ def understand(
     capability_turn = (level is not None or notes_read_request or note_write is not None or weather_request
                        or research_request or screen_request or window_request or execution_request
                        or translation is not None or file_operation is not None)
-    clarify_answer = None if capability_turn else _typed_clarify_answer(text, normalized, active_context)
+    clarify_answer = None if capability_turn else _typed_clarify_answer(text, normalized, active_context, owner)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:

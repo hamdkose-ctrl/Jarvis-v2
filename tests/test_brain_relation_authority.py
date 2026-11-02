@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 from modules import app_actions, brain_core_map, brain_entry, brain_precedence, engine_runtime, requests_state
+from modules import brain_understanding
 from modules.brain_contracts import ConversationRelation, RequestKind
 from modules.command_manager import awaiting_input
 from modules.system_control import ApplicationResult
@@ -81,6 +82,60 @@ class RelationAuthorityTests(unittest.TestCase):
         self.assertEqual(out, "Chrome penceresi açık; açılışını doğruladım.")
         self.ctx.chat.assert_not_called()
         self.assertEqual(feedback.result_status, "handled")
+        self.assertIsNone(session.pending_action)
+        self.assertFalse(awaiting_input(session))
+
+    def turn_typed_answer(self, session, answer):
+        self.ctx.system_control.open_application = Mock(
+            return_value=ApplicationResult("açıldı", ok=True))
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out, handle, feedback = self.turn(answer)
+        return entry, out, session
+
+    def test_expired_typed_proposal_never_reaches_the_open_owner(self):
+        session = self.ask("aç")
+        session.pending_action["expires"] = time.time() - 1
+        entry, out, _ = self.turn_typed_answer(session, "Chrome")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.ctx.system_control.open_application.assert_not_called()
+        self.ctx.chat.assert_called_once()
+        self.assertIsNone(session.pending_action)
+        self.assertFalse(awaiting_input(session))
+
+    def test_foreign_owner_typed_proposal_never_reaches_the_open_owner(self):
+        session = self.ask("aç")
+        session.pending_action["owner"] = "bob"
+        self.ctx.system_control.open_application = Mock()
+        with self.assertRaises(ValueError):
+            self.turn("Chrome")
+        self.ctx.system_control.open_application.assert_not_called()
+
+    def test_unrelated_sentence_is_not_a_typed_app_target(self):
+        session = self.ask("aç")
+        entry, out, _ = self.turn_typed_answer(session, "yarın toplantım var")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertNotEqual(entry.understanding.capability_hint, "app.open")
+        self.ctx.system_control.open_application.assert_not_called()
+        self.assertNotEqual(out, "açıldı")  # takvim gibi kendi deterministic sahibi cevaplar
+        self.assertIsNone(session.pending_action)
+
+    def test_capitalized_confirmation_is_not_a_typed_app_target(self):
+        for answer in ("Tamam", "Olur", "İptal"):
+            with self.subTest(answer=answer):
+                session = self.ask("aç")
+                entry, out, _ = self.turn_typed_answer(session, answer)
+                self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+                self.ctx.system_control.open_application.assert_not_called()
+                self.assertIsNone(session.pending_action)
+
+    def test_new_request_chat_clears_the_open_clarification(self):
+        session = self.ask("aç")
+        self.ctx.system_control.open_application = Mock()
+        with patch.object(brain_precedence, "claim", return_value=None):
+            entry, out, handle, feedback = self.turn("merhaba")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.ctx.chat.assert_called_once()
+        self.ctx.system_control.open_application.assert_not_called()
         self.assertIsNone(session.pending_action)
         self.assertFalse(awaiting_input(session))
 
@@ -175,6 +230,41 @@ class AppOpenProposalValidationTests(unittest.TestCase):
     def test_core_maps_a_bounded_target_to_the_existing_owner(self):
         self.assertEqual(brain_core_map.core_plan("app.open", {"app": "Chrome"}),
                          ("app_open", {"name": "Chrome"}))
+
+
+class ClarifyProposalGuardTests(unittest.TestCase):
+    def value(self, **overrides):
+        base = {"stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
+                "owner": "hamdi", "expires": time.time() + 60, "proposal": {"kind": "app.open"}}
+        base.update(overrides)
+        return base
+
+    def answer(self, text, **overrides):
+        from modules.brain_contracts import ActiveContext, ContextReference
+        ref = ContextReference(owner="hamdi", kind="pending_state", source="session_state",
+                               id="pending_action", provenance={"value": self.value(**overrides)})
+        return brain_understanding.understand(
+            owner="hamdi", request_id="r", text=text,
+            active_context=ActiveContext(owner="hamdi", request_id="r", pending_references=(ref,)),
+            candidates=(), references=())
+
+    def test_owner_and_expiry_are_checked_before_the_handler_too(self):
+        self.assertIs(self.answer("Chrome", expires=time.time() - 1).conversation_relation,
+                      ConversationRelation.NEW_REQUEST)
+        self.assertIs(self.answer("Chrome", owner="bob").conversation_relation,
+                      ConversationRelation.NEW_REQUEST)
+        self.assertIs(self.answer("Chrome").conversation_relation,
+                      ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_alias_or_single_token_is_the_bounded_app_evidence(self):
+        for text in ("Chrome", "Google Chrome", "hesap makinesi", "not defteri"):
+            with self.subTest(text=text):
+                self.assertIs(self.answer(text).conversation_relation,
+                              ConversationRelation.ANSWER_TO_PENDING)
+        for text in ("yarın toplantım var", "bugün hava güzel"):
+            with self.subTest(text=text):
+                self.assertIs(self.answer(text).conversation_relation,
+                              ConversationRelation.NEW_REQUEST)
 
 
 class NoPendingRequestSlotTests(unittest.TestCase):
