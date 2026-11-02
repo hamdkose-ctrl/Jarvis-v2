@@ -61,13 +61,13 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
     def context(self):
         return fixtures.ModularEngineTests.context(self)
 
-    def _entry_and_runtime(self, text: str):
+    def _entry_and_runtime(self, text: str, *, age_seconds: float = 0.0):
         runtime = self.context()
         owner = runtime.profile.slug
         path = "C:/Users/Hamdi/Pictures/photo.jpg"
         runtime._pending_photo[owner] = {
             "path": path,
-            "t": runtime.time.time(),
+            "t": runtime.time.time() - age_seconds,
             "origin_request_id": "photo-origin",
         }
         runtime._llm.set_user_context = Mock()
@@ -116,6 +116,31 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         self.assertEqual(result, "CONTINUED")
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
+
+    def test_exact_cancel_stays_a_bounded_state_protocol(self):
+        runtime, entry, _path = self._entry_and_runtime("iptal")
+        self.assertTrue(entry.state_gate.matched)
+        self.assertEqual(entry.state_gate.protocol, "phone_photo.cancel")
+
+        result = self._handle(runtime, entry, "iptal")
+
+        self.assertEqual(result, "Tamam, fotoğrafla bir şey yapmıyorum.")
+        runtime._photo_action.assert_not_called()
+        self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
+
+    def test_expired_pending_photo_cannot_execute_even_if_relation_matches(self):
+        runtime, entry, _path = self._entry_and_runtime("analiz et", age_seconds=601)
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+        result = self._handle(runtime, entry, "analiz et")
+
+        self.assertEqual(result, "CONTINUED")
+        runtime._photo_action.assert_not_called()
+        self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
+
+    def test_runtime_no_longer_exports_the_photo_semantic_regex(self):
+        runtime = self.context()
+        self.assertFalse(hasattr(runtime, "_PHOTO_INTENT"))
 
 
 if __name__ == "__main__":
