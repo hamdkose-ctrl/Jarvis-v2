@@ -76,19 +76,32 @@ def handle(runtime, command: str):
         if selected is not None:
             return selected
 
-    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: bu cevap o fotoğraf için
+    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: relation kararı canonical Brain'den gelir.
     ph = runtime._pending_photo.get(runtime.profile.slug)
     if ph and not runtime._session()._in_multi:
+        from modules import brain_entry
+        from modules.brain_contracts import ConversationRelation
         if runtime.time.time() - ph["t"] > 600:
             runtime._pending_photo.pop(runtime.profile.slug, None)
-        elif runtime.re.fullmatch(r"(?:vazgeç|iptal|boşver|gerek yok|hiçbir şey|bir şey yapma)\w*", cmd_lower.strip(" .!?")):
+        elif brain_entry.matched_protocol("phone_photo.cancel"):
             runtime._pending_photo.pop(runtime.profile.slug, None)
             return "Tamam, fotoğrafla bir şey yapmıyorum."
-        elif runtime._PHOTO_INTENT.search(cmd_lower):
-            runtime._pending_photo.pop(runtime.profile.slug, None)
-            return runtime._photo_action(ph["path"], command)
         else:
-            runtime._pending_photo.pop(runtime.profile.slug, None)     # başka bir konuya geçildi
+            entry = brain_entry.current()
+            belongs_to_photo = bool(
+                entry is not None
+                and entry.understanding.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
+                and any(
+                    ref.kind == "pending_state"
+                    and ref.source == "engine_commands"
+                    and ref.id == "pending_photo"
+                    for ref in entry.active_context.pending_references
+                )
+            )
+            runtime._pending_photo.pop(runtime.profile.slug, None)
+            if belongs_to_photo:
+                return runtime._photo_action(ph["path"], command)
+            # başka bir konuya geçildi: pending düşer, normal canonical akış devam eder
 
     # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
     if not runtime._session()._in_multi and runtime._session().pending_msg is None and runtime._session().pending_confirm is None and runtime._session().pending_organize is None:
