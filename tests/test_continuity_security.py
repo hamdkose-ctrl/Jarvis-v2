@@ -121,7 +121,7 @@ class ContextTests(unittest.TestCase):
         fn.body=prefix;exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'main-prefix','exec'),ns)
         self.h.append('a','assistant','A=1 B=2')
         ns.update(history=self.h,ask=Mock(return_value='| A | B |\n|1|2|'))
-        functions('main.py',['_table_chat'],ns)
+        functions('main.py',['_table_chat','_conversation_summary'],ns)
         for command in ['bunu tabloya çevir','bunu tabloya dönüştür','yazıları toplo yap']:
             result=ns['handle'](command);self.assertIn('| A |',result);self.assertEqual(state.last_doc[0],result)
         self.assertEqual(ns['handle']('tamam'),'Tamam.')

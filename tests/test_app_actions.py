@@ -25,11 +25,21 @@ class ActionTests(unittest.TestCase):
         with self.assertRaises(ValueError):actions.run(self.b,self.p,'task_delete',{'tid':3},confirmed='false')
         self.b.task_delete.assert_not_called()
     def test_pc_fast_paths_do_not_require_an_llm(self):
-        from modules.router import classify
-        model=Mock(side_effect=AssertionError('Model çağrısı gereksiz'))
-        self.assertEqual(classify('Açık pencereleri listele',model)['args']['action'],'pc_windows')
-        result=classify('Plan – Chrome penceresini öne getir',model)
-        self.assertEqual(result['args']['params'],{'target':'Plan – Chrome','action':'focus'})
+        # Canonical kapı: Understanding niyeti üretir, Core argümanı doğrular; model çağrısı yok.
+        from modules import brain_core_map, brain_understanding, llm
+        from modules.brain_contracts import ActiveContext
+
+        def decide(text):
+            semantic=brain_understanding.understand(owner='alice',request_id='r',text=text,
+                active_context=ActiveContext(owner='alice',request_id='r'),candidates=(),references=())
+            return brain_core_map.core_plan(semantic.capability_hint,semantic.arguments)
+
+        with patch.object(llm,'ask',Mock(side_effect=AssertionError('Model çağrısı gereksiz'))):
+            self.assertEqual(decide('Açık pencereleri listele'),('app_action',{'action':'pc_windows','params':{}}))
+            # Hedef küçük harfe indirgenir; yürütücü (system_control._select_window) zaten kendi
+            # normalleştiricisiyle eşleştirdiği için pencere başlığındaki büyük harf yeteneği düşürmez.
+            self.assertEqual(decide('Plan – Chrome penceresini öne getir'),('app_action',{'action':'pc_window',
+                'params':{'target':'plan – chrome','action':'focus'}}))
     def test_confirmation_does_not_execute_until_exact_reply(self):
         with patch.object(actions,'_owned',self.owned):
             reply=actions.voice({'action':'task_delete','params':{'tid':3}},self.state,self.p,self.emit,'Pompa görevini sil')

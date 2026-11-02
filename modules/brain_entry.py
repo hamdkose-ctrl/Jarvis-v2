@@ -12,8 +12,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from modules import brain_context, brain_core_map, brain_precedence, capability_manifest
-from modules.brain_understanding import ACTION_REQUEST_CODE, LEVEL_CAPABILITY
+from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
+from modules.brain_understanding import ACTION_REQUEST_CODE, EXECUTION_REQUEST_CODE, LEVEL_CAPABILITY
 from modules.brain_candidates import build_candidates
 from modules.brain_contracts import (
     ActiveContext,
@@ -482,6 +482,15 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
             return {"intent": plan[0], "args": dict(plan[1])}
         proposal = core_proposal(entry)
         if proposal["manifest_capability_id"] is None:
+            if proposal["capability_hint"] is None and EXECUTION_REQUEST_CODE in semantic.reason_codes:
+                # Tek canonical yakalama kuralı: Understanding bu cümleyi icra isteği saydı ama hiçbiri
+                # doğrulanmış bir yetenekte karşılık bulmadı. Kaldırılan legacy catch-all'un successor'ı
+                # olarak hedef yürütücüsü cümlenin tamamını devralır; niyet burada yeniden üretilmez.
+                # Çıplak deiktik ("onu sil") yalnız Resolver bu tur için hedef bağlamadıysa hedefsizdir:
+                # bağlanmış referans varsa kapı kendi başına hedef sorusu üretmez, ikinci yetki olmaz.
+                if brain_actions.ambiguous_reference(entry.text) and not semantic.references:
+                    return {"intent": "clarify", "args": {"question": "Hangi hedef üzerinde ne yapmamı istiyorsun?"}}
+                return {"intent": "task", "args": {"request": entry.text}}
             return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
         return {"intent": "task", "args": {}}
     return {"intent": "chat", "args": {}}
@@ -506,22 +515,18 @@ _NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin ca
                          "Adımı ikinci kez kendim yorumlamam: adımı tek başına bir istek olarak söyle.")
 
 
-def _install_route_guard(runtime: Any) -> None:
-    if getattr(runtime, "_brain_route_guard_installed", False):
-        return
-    original = getattr(runtime, "route", None)
-    if not callable(original):
-        return
+def route_command(runtime: Any, command: str) -> dict[str, object]:
+    """Core handler'ın tek sınıflandırılmış-istek kapısı; kendisi sınıflandırmaz.
 
-    def guarded(command: str):
-        if nested_step(command, runtime):
-            return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
-        entry = current()
-        return original(command) if entry is None else _legacy_route_projection(entry)
-
-    runtime._brain_legacy_route = original
-    runtime.route = guarded
-    runtime._brain_route_guard_installed = True
+    Bu turn'de Brain'in zaten vermiş olduğu kararın izdüşümünü verir. Bağlı bir Brain girişi
+    yoksa cümle burada hiç yorumlanmaz ve istek fail-closed netleştirmeyle durur."""
+    if nested_step(command, runtime):
+        return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
+    entry = current()
+    if entry is None:
+        return {"intent": "clarify",
+                "args": {"question": "Bu cümle Brain turunda yorumlanmadı; işlem başlatılmadı."}}
+    return _legacy_route_projection(entry)
 
 
 def _install_job_guard() -> None:
@@ -592,7 +597,6 @@ def _install_engine_control_guard() -> None:
 
 
 def _install_core_guards(runtime: Any) -> None:
-    _install_route_guard(runtime)
     _install_job_guard()
     _install_goal_save_guard()
     _install_engine_control_guard()

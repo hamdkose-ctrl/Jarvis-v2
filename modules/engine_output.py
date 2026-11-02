@@ -123,8 +123,8 @@ def _doc_ready_line(runtime, kind: str, text: str = "") -> str:
             break
     return head + (" Kısaca: " + " ".join(gist)[:420] if gist else "")
 
-def _summarize_chat(runtime) -> str:
-    """'Bu konuşmayı özetle': bugünkü sohbet kayıtlarını kısaca özetler (dosya istemez)."""
+def _conversation_summary(runtime) -> str:
+    """'Bu konuşmayı özetle': bu owner'ın bugünkü sohbet kayıtlarını kısaca özetler (dosya istemez)."""
     from modules import conversation_reset
     rows = conversation_reset.recent(runtime.profile.slug, runtime.history.read(runtime.profile.slug, "", 80))
     today = runtime.datetime.now().strftime("%Y-%m-%d")

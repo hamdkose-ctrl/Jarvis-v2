@@ -146,9 +146,9 @@ class PlanAsciiTests(ProfileCase):
     def test_other_plans_not_caught(self):
         rt = _runtime(self, self.profile, self.now)
         for text in ('proje planim', 'calisma planim', 'yarin plan yapalim', 'bugun ne var'):
-            with self.subTest(text=text), patch('modules.router.classify', return_value=None):
+            with self.subTest(text=text):
                 try:
-                    reply = rt.handle(text)
+                    reply = say(rt, text)
                 except Exception:
                     reply = ''
                 self.assertNotIn('Bugünün planı', reply or '')

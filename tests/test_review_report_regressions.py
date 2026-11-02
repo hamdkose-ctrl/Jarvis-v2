@@ -141,20 +141,45 @@ class DirectToolTests(unittest.TestCase):
             with self.assertRaises(requests.Cancelled): run()
         effect.assert_not_called()
 
-    def test_music_and_handoff_live_paths_use_prepared_callback(self):
-        for name, args, target in [('muzik_cal', {'sorgu':'test'}, '_play_music'), ('gorev_ekle', {'yer':'ev','metin':'test'}, '_add_handoff')]:
+    def tool_target(self, name, args, recent=()):
+        """Canlı araç yürütmesini sahte oturumla çağırır; (prepared, handler) gözlemleriyle döner."""
+        from modules import live_tool_runner
+        obj = live.Live.__new__(live.Live)
+        obj._tools_running = 1
+        obj._recent_user = list(recent)
+        obj._flush_user = lambda: None
+        obj.emit = Mock()
+        obj.wants_sleep = lambda: False
+        obj.handler = Mock(return_value='Tamam')
+        prepared = []
+        obj.prepare_tool = lambda fn, *a: (prepared.append((fn, a)), (lambda: fn(*a)))[1]
+        session = SimpleNamespace(send_tool_response=lambda **k: None)
+        return obj, prepared, session, live_tool_runner, SimpleNamespace(name=name, args=args, id='call')
+
+    def test_domain_owned_live_tools_use_prepared_callback(self):
+        # Ses ve yanlış-duyma araçlarının yazılı yüzey grameri yok: domain owner'ında kalır, çitten geçer.
+        obj, prepared, session, runner, fc = self.tool_target('ses_degistir', {'ses': 'Kore'}, ['sesini değiştir'])
+        with patch.object(runner, 'change_voice', return_value='Tamam'):
+            asyncio.run(obj._run_tool(session, fc))
+        self.assertEqual(prepared, [(obj._change_voice, ('Kore',))])
+
+        obj, prepared, session, runner, fc = self.tool_target(
+            'yanlis_duyma', {'dogru': 'takvimi aç'}, ['resmi aç', 'hayır takvimi aç dedim'])
+        with patch('modules.learning.learn_mishearing', return_value='Tamam') as fix:
+            asyncio.run(obj._run_tool(session, fc))
+        self.assertEqual(prepared, [(fix, ('resmi aç', 'takvimi aç'))])
+
+    def test_music_and_handoff_live_paths_run_as_canonical_sentences(self):
+        # PR10c: bu iki efekt artık kanonik cümle; doğrudan servis çağrısı ve prepare çiti yok.
+        for name, args, sentence in [
+                ('muzik_cal', {'sorgu': 'ars viwandi', 'platform': 'youtube'}, "youtube'da ars viwandi çal"),
+                ('gorev_ekle', {'yer': 'ev', 'metin': 'kombi faturasını öde'}, 'ev için not: kombi faturasını öde')]:
             with self.subTest(name=name):
-                obj = live.Live.__new__(live.Live)
-                obj._tools_running=1; obj._recent_user=['test']; obj._flush_user=lambda:None
-                obj.emit=Mock(); obj.wants_sleep=lambda:False
-                obj.prepare_tool=Mock(side_effect=lambda fn,*args: lambda:fn(*args))
-                session=SimpleNamespace(send_tool_response=Mock())
-                async def respond(**kwargs): return None
-                session.send_tool_response=respond
-                fc=SimpleNamespace(name=name,args=args,id='call')
-                with patch.object(live, target, return_value='Tamam') as fn:
-                    asyncio.run(obj._run_tool(session, fc))
-                obj.prepare_tool.assert_called_once_with(fn, args); fn.assert_called_once_with(args)
+                obj, prepared, session, _runner, fc = self.tool_target(name, args)
+                asyncio.run(obj._run_tool(session, fc))
+                obj.handler.assert_called_once_with(sentence)
+                self.assertEqual(prepared, [])
+                self.assertEqual(obj._tools_running, 0)
 
     def test_music_cancelled_during_search_never_opens_browser(self):
         from modules import media

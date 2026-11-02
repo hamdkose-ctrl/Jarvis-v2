@@ -46,6 +46,7 @@ async def converse(self, services) -> None:
                         self._generating = self._discard = False
                         self._pending_text.append(f'[Sistem bildirimi — ses değişimi tamamlandı; yeni bir ses değiştirme isteği DEĞİLDİR. Araç çağırma. Yalnız şu cümleyi Türkçe söyle]: Sesimi {selected} olarak güncelledim, bundan sonra bu sesle konuşacağım.')
                     services.log.info('Canlı oturum açıldı (pid %d, %s, %s, Türkçe ipucu %s%s)', os.getpid(), services.model_name(), services.voice_name(), 'açık' if self._stt_hint else 'yok', ', sade ayar' if self._safe else '')
+                    self._session_opened()
                     await self._run_session(session)
                 retries = 0
                 if self._closing:
@@ -110,6 +111,15 @@ async def converse(self, services) -> None:
         convo, self._convo = (self._convo, [])
         if self.on_session_end is not None and convo:
             threading.Thread(target=self._session_end, args=(convo,), daemon=True, name='canli-ogrenme').start()
+
+def opened(self, services) -> None:
+    if not self.on_session_start:
+        return
+    try:
+        self.on_session_start()
+    except Exception:
+        _record_failure('modules/live.py:_session_opened')
+
 
 def end(self, convo: list[tuple[str, str]], services) -> None:
     try:

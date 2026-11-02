@@ -27,7 +27,7 @@ class CommandManagerTests(unittest.TestCase):
         from modules.command_manager import awaiting_input
         self.assertTrue(awaiting_input(context.session))
     def context(self, owner='alice'):
-        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(return_value=None))
+        return CommandContext(SimpleNamespace(slug=owner),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(return_value=None),Mock(return_value=None))
 
     def test_pending_user_approval_precedes_model_and_developer(self):
         context=self.context();context.session.pending_action=object()

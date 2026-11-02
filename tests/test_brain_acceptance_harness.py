@@ -257,12 +257,52 @@ class BaselineFileTests(unittest.TestCase):
             self.assertTrue("decision" in row or "error" in row)
 
     def test_default_compare_passes_without_arguments(self):
-        """The canonical gate: argümansız `compare` current main'de GEÇTİ demeli (accept dosyası yok)."""
+        """The canonical gate: argümansız `compare` GEÇTİ demeli; izinler repo'daki gerekçe dosyasından okunur.
+
+        Yeşilin anlamı 'hiçbir şey değişmedi' değil, değişen her şeyin bilinçli olmasıdır:
+        regression/error/missing sıfır, havuz daralmamış, ölü izin yok ve kriter karşılanma
+        sayısı baseline'ın altına düşmemiş olmalı.
+        """
         pool = harness.load_pool()
         baseline = json.loads(harness.DEFAULT_BASELINE.read_text(encoding="utf-8"))
-        report = harness.compare(pool, baseline, harness.capture(pool))
+        accepted = json.loads(harness.DEFAULT_ACCEPTED.read_text(encoding="utf-8"))
+        report = harness.compare(pool, baseline, harness.capture(pool), accepted)
         self.assertTrue(report["passed"], report["counts"])
-        self.assertEqual(report["counts"], {"same": len(pool)})
+        self.assertEqual({k: report["counts"].get(k, 0) for k in ("regression", "error", "missing")},
+                         {"regression": 0, "error": 0, "missing": 0})
+        self.assertGreaterEqual(report["scenario_count"], report["baseline_scenario_count"])
+        self.assertEqual(report["dead_permits"], [])
+        self.assertGreaterEqual(report["expectations_met"]["current"], report["expectations_met"]["baseline"])
+
+    def test_accepted_file_only_covers_real_changes_and_every_one_has_a_reason(self):
+        """İzin listesi ile gerçek ``changed`` kümesi eş olmalı; boş gerekçe izin sayılmaz."""
+        pool = harness.load_pool()
+        baseline = json.loads(harness.DEFAULT_BASELINE.read_text(encoding="utf-8"))
+        accepted = json.loads(harness.DEFAULT_ACCEPTED.read_text(encoding="utf-8"))
+        report = harness.compare(pool, baseline, harness.capture(pool), accepted)
+        self.assertEqual({i for i, r in report["rows"].items() if r["verdict"] == "accepted"}, set(accepted))
+        self.assertTrue(all(str(reason).strip() for reason in accepted.values()),
+                        [i for i, reason in accepted.items() if not str(reason).strip()])
+
+    def test_dead_permit_fails_the_gate(self):
+        """Kabul yazılı id bu koşuda ``changed`` üretmiyorsa izin ölüdür ve kapı kalır."""
+        pool = [{"id": "a", "text": "x"}]
+        result = {"results": {"a": _result(outcome="chat")}}
+        report = harness.compare(pool, result, result, {"a": "bilinçli değişiklik"})
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["dead_permits"], ["a"])
+        self.assertEqual(report["rows"]["a"]["verdict"], "same")
+
+    def test_live_permits_are_written_in_the_durable_audit_record(self):
+        """İzin dosyası geçici değil: her canlı izin gerekçesiyle birlikte denetim kaydında durur.
+
+        Kayıt append-only'dir (baseline yeniden alındığında tüketilen izinler tarihte kalır), bu yüzden
+        denetim kaydı ölü izin üretebilir; canlı izin listesi ise üretemez.
+        """
+        record = json.loads((harness.DATA / "brain_acceptance_kabul_gecmisi.json").read_text(encoding="utf-8"))
+        accepted = json.loads(harness.DEFAULT_ACCEPTED.read_text(encoding="utf-8"))
+        self.assertTrue(record and all(str(reason).strip() for reason in record.values()))
+        self.assertEqual({i: record[i] for i in accepted}, accepted)
 
     def test_baseline_writer_roundtrips(self):
         data = harness.capture([{"id": "a", "text": "saat kaç"}])

@@ -3,6 +3,7 @@ import inspect
 import re
 import tempfile
 import time
+from contextlib import nullcontext
 import unittest
 import uuid
 from pathlib import Path
@@ -55,7 +56,7 @@ class ClarifyEndToEndTests(_Pipeline):
 
         self.pending(RESUME)
         with patch.object(app_actions, "run", side_effect=runner), \
-             patch("modules.router.classify", side_effect=AssertionError("router.classify çağrılmamalı")):
+             nullcontext("ikinci classifier fiziksel olarak kaldırıldı"):
             entry, out, feedback, handle = self.through_brain(answer)
         return entry, out, calls, handle
 
@@ -90,7 +91,7 @@ class ClarifyEndToEndTests(_Pipeline):
 
     def test_open_ended_clarify_answer_is_a_new_request_and_never_reclassified(self):
         self.pending(None)
-        with patch("modules.router.classify", side_effect=AssertionError("router.classify çağrılmamalı")), \
+        with nullcontext("ikinci classifier fiziksel olarak kaldırıldı"), \
              patch.object(self.ctx, "_weather", return_value="Hava 20 derece", create=True):
             entry, out, feedback, handle = self.through_brain("hava nasıl")
         self.assertFalse(entry.state_gate.matched)

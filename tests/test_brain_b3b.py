@@ -1,4 +1,5 @@
 """PR7 Closeout-B3b: goal question via Brain relation, hint ownership, caller-zero guards."""
+import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 import test_brain_production_entry as fx
-from modules import brain_actions, brain_core_map, brain_entry, brain_understanding, goal_executor, work_modes
+from modules import brain_actions, brain_core_map, brain_entry, brain_understanding, goal_executor
 from modules.brain_contracts import ConversationRelation, RequestKind
 
 MODULES = Path(__file__).resolve().parent.parent / "modules"
@@ -44,7 +45,7 @@ class GoalQuestionTests(unittest.TestCase):
         self.assertEqual(len(OLD_NEW_SENTENCES), 40)
         regressions, improvements = [], set()
         for text in OLD_NEW_SENTENCES:
-            old, new = work_modes.ends_with_action(text), superseded(text)
+            old, new = brain_actions.ends_with_action(text), superseded(text)
             if old and not new:
                 regressions.append(text)
             if new and not old:
@@ -53,7 +54,9 @@ class GoalQuestionTests(unittest.TestCase):
         self.assertEqual(improvements, IMPROVED)
 
     def test_action_rule_is_one_definition_owned_by_brain(self):
-        self.assertIs(work_modes.ends_with_action, brain_actions.ends_with_action)
+        # Eski fiil kuralı tek tanımda yaşıyor: brain_actions. İkinci bir tanım veya re-export yok.
+        self.assertEqual(_referencing(r"def ends_with_action"), {"brain_actions.py"})
+        self.assertEqual(_referencing(r"\bwork_modes\b"), set())
         for text in ("raporu dosyaya yaz", "masaüstünü düzenle", "kaydet", "bunu araştır", "bunu yap", "bir uygulama yaz"):
             self.assertIn(brain_understanding.ACTION_REQUEST_CODE, real_entry(text).understanding.reason_codes, text)
 
@@ -65,7 +68,9 @@ class GoalQuestionTests(unittest.TestCase):
              patch.object(goal_executor, "run", return_value="RESUMED") as run, \
              patch.object(goal_executor, "_is_fast_command", return_value=False):
             with brain_entry.bind(real_entry(text)):
-                with patch("modules.work_modes.ends_with_action", side_effect=AssertionError("work_modes çağrılmamalı")):
+                # Bağlı canonical entry varken goal_executor yedek fiil kuralına düşmez; düşünce bu kapı patlar.
+                with patch.object(brain_actions, "ends_with_action",
+                                  side_effect=AssertionError("bağlı Brain girişi varken yedek fiil kuralı çağrılamaz")):
                     return goal_executor.handle(runtime, text), run
 
     def test_goal_question_scenarios_through_goal_executor(self):
@@ -122,31 +127,38 @@ def _referencing(pattern):
 
 
 class CallerZeroGuards(unittest.TestCase):
-    """Pins who may still reference each legacy authority. New callers fail; PR9 deletes the rest."""
+    """PR10c: emeklilik fizikseldir. Silinen ikinci yetki yolları geri gelemez; yeni bir çağıran
+    bu kilitleri anında kırar."""
+
+    RETIRED_AUTHORITY_SOURCES = ("router.py", "work_modes.py", "freshness.py", "chat_translation.py")
+    RETIRED_AUTHORITY_NAMES = ("router", "work_modes", "freshness", "chat_translation")
 
     def test_brain_flow_never_projects_document_intents(self):
         source = (MODULES / "brain_entry.py").read_text(encoding="utf-8")
-        body = source[source.index("def _legacy_route_projection"):source.index("def _install_route_guard")]
+        body = source[source.index("def _legacy_route_projection"):source.index("def nested_step")]
         intents = set(re.findall(r'"intent": "([a-z_]+)"', body))
         self.assertLessEqual(intents, {"clarify", "task", "chat"})
-        # Final file cutover: normal Brain file operations use one Core file_action; old doc_* stay legacy/Live only.
+        # Final file cutover: normal Brain file operations use one Core file_action; old doc_* are gone.
         intents = {i for i, _ in brain_core_map.CORE_INTENTS.values()}
         self.assertIn("file_action", intents)
         self.assertFalse(intents & {"doc_summary", "doc_insight", "doc_convert", "doc_translate"})
 
-    def test_resolve_doc_is_only_reachable_from_intent_dispatch(self):
-        self.assertEqual(_referencing(r"\._resolve_doc\("), {"engine_intents.py", "engine_tools.py"})  # engine_tools = thin wrapper
+    def test_retired_authority_files_are_physically_removed(self):
+        for name in self.RETIRED_AUTHORITY_SOURCES:
+            self.assertFalse((MODULES / name).exists(), name)
+        for module in self.RETIRED_AUTHORITY_NAMES:
+            self.assertIsNone(importlib.util.find_spec("modules." + module), module)
 
-    def test_reference_context_only_feeds_legacy_router(self):
-        self.assertEqual(_referencing(r"reference_context\("), {"app_actions.py", "router.py"})
+    def test_no_production_source_references_a_retired_authority(self):
+        pattern = (r"import (?:modules\.)?(?:router|work_modes|freshness|chat_translation)\b|"
+                   r"\bintent_router\.classify\(|\brouter\.classify\(|reference_context\(|_resolve_doc\(")
+        self.assertEqual(_referencing(pattern), set())
 
-    def test_work_modes_is_router_owned_only(self):
-        self.assertEqual(_referencing(r"work_modes"), {"router.py", "freshness.py", "brain_actions.py"})
-        source = (MODULES / "goal_executor.py").read_text(encoding="utf-8")
-        self.assertNotIn("work_modes", source)  # PR10a: yedek kural tek tanımdan (brain_actions) geliyor
+    def test_doc_intents_have_no_producer_anywhere(self):
+        self.assertEqual(_referencing(r'"doc_(?:summary|insight|convert|translate)"'), set())
 
-    def test_router_classify_has_no_brain_flow_caller(self):
-        self.assertEqual(_referencing(r"intent_router\.classify\("), {"engine_tools.py"})
+    def test_legacy_classifier_call_sites_are_gone(self):
+        self.assertEqual(_referencing(r"intent_router\.classify\(|router\.classify\("), set())
 
 
 if __name__ == "__main__":

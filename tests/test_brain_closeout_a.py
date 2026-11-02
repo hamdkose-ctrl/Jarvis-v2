@@ -1,5 +1,6 @@
 """PR7 Closeout-A: history cap, last_property continuity, structured clarification, typo retry, real feedback."""
 import tempfile
+from contextlib import nullcontext
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -157,7 +158,7 @@ class StructuredClarificationTests(unittest.TestCase):
 
     def run_resume(self, answer, runner):
         with patch.object(app_actions, "_owned") as owned, patch.object(app_actions, "run", side_effect=runner), \
-             patch("modules.router.classify", side_effect=AssertionError("router.classify çağrılmamalı")):
+             nullcontext("ikinci classifier fiziksel olarak kaldırıldı"):
             owned.return_value.__enter__ = lambda s: Mock()
             owned.return_value.__exit__ = lambda s, *a: False
             return app_actions.continue_voice(answer, self.state, self.profile, lambda *a: self.emitted.append(a))
@@ -338,7 +339,7 @@ class CloseoutAEdgeCaseTests(unittest.TestCase):
         profile, state = SimpleNamespace(slug="alice", data={}), SessionState()
         base = {"stage": "clarify", "command": "x", "question": "?", "owner": "alice", "expires": 10**12,
                 "resume": {"action": "pc_window", "params": {"target": "c"}, "choices": ["A – X", "B – X"]}}
-        with patch("modules.router.classify", side_effect=AssertionError("router")), \
+        with nullcontext("ikinci classifier fiziksel olarak kaldırıldı"), \
              patch.object(app_actions, "run", side_effect=AssertionError("must not run")):
             state.pending_action = dict(base, owner="bob")
             self.assertIn("süresi doldu", app_actions.continue_voice("1", state, profile, lambda *a: None))

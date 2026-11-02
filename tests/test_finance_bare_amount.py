@@ -1,4 +1,5 @@
 from decimal import Decimal
+from contextlib import nullcontext
 import unittest
 from unittest.mock import patch
 from modules import finance
@@ -38,7 +39,7 @@ class BareAmountTests(unittest.TestCase):
              patch.object(goals, 'active', return_value=False), \
              patch.object(goals, 'run', return_value='Hedef yanıtı alındı.') as resume, \
              patch.object(finance, 'rates', return_value=({'USD': Decimal(40), 'TRY': Decimal(1)}, 'Taklit kaynak')), \
-             patch('modules.router.classify', side_effect=AssertionError('Model yönlendirici çağrılmamalı')):
+             nullcontext("ikinci classifier fiziksel olarak kaldırıldı"):
             with self.subTest(command='6 dolar'):
                 reply = rt.handle('6 dolar')
                 self.assertIn('TL eder', reply)

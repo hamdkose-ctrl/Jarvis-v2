@@ -52,8 +52,8 @@ CONTRACT_MANIFEST = {
         'tests': ('tests.test_execution_policy_stability.ExecutionPolicyTests.test_failure_policy_classifies_core_failures',),
     },
     'ROUTE-001': {
-        'description': 'Eylem varsayılan Do modudur; formal spec yalnız açıkça istenir.',
-        'tests': ('tests.test_execution_policy_stability.ExecutionPolicyTests.test_work_modes_are_do_first_without_forcing_spec',),
+        'description': 'Eylem isteği Capabilitydir: kapı onu hedef yürütücüsüne devreder, açıklama sohbet kalır.',
+        'tests': ('tests.test_execution_policy_stability.ExecutionPolicyTests.test_execution_mode_is_action_first_without_forcing_spec',),
     },
     'MEM-001': {
         'description': 'Davranış kuralları yalnız ilgili bağlamda prompta yüklenir.',

@@ -165,10 +165,12 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(len(goals.latest('alice')['steps']),3)
 
     def test_plain_action_classification_reaches_goal_instead_of_catalog_rejection(self):
-        from modules import router
-        for raw in ('{"intent":"chat","args":{}}','{"intent":"unknown","args":{}}'):
-            result=router.classify('Araştırıp rapor hazırla',lambda *a:raw)
-            self.assertEqual(result,{'intent':'task','args':{'request':'Araştırıp rapor hazırla'}})
+        import test_brain_production_entry as fixtures
+        # Kaldırılan legacy sınıflandırıcı model "chat"/"unknown" dese de eylem cümlesini goal
+        # yürütücüsüne devrediyordu. Canonical kapı aynı devri model hiç çağrılmadan yapar.
+        self.ask.side_effect=AssertionError('Canonical kapı model çağrısı yapmaz')
+        semantic,route=fixtures.door('Araştırıp rapor hazırla')
+        self.assertEqual(route,{'intent':'task','args':{'request':'Araştırıp rapor hazırla'}})
 
     def test_native_task_intent_uses_common_executor_without_magic_command_prefix(self):
         from modules import engine_intents

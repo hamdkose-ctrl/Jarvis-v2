@@ -1,25 +1,25 @@
-"""Tek eylem kuralı (work_modes) ve öğretilmiş kuralların kapsamı."""
+"""Tek eylem kuralı (brain_actions) ve öğretilmiş kuralların kapsamı."""
 import unittest
 
-from modules import learning, work_modes
+from modules import brain_actions, learning
 
 
 class ActionRuleTests(unittest.TestCase):
     def test_answer_or_new_request_while_goal_waits(self):
         for text in ('devam et', 'raporu dosyaya yaz', 'masaüstünü düzenle', 'kaydet'):
             with self.subTest(text=text):
-                self.assertTrue(work_modes.ends_with_action(text))
+                self.assertTrue(brain_actions.ends_with_action(text))
         for text in ('evet', 'tübitak kaynaklarını kullan', 'yapay zeka nedir',
                      'yazın tatile nereye gidelim', 'bunu nasıl yaparım'):
             with self.subTest(text=text):
-                self.assertFalse(work_modes.ends_with_action(text))
+                self.assertFalse(brain_actions.ends_with_action(text))
 
-    def test_brain_path_gives_the_same_answer_as_the_legacy_rule(self):
-        # Gerçek yol: Understanding -> reason code -> brain_entry.goal_question_superseded (work_modes çağrılmaz).
+    def test_brain_path_gives_the_same_answer_as_the_single_rule(self):
+        # Gerçek yol: Understanding -> reason code -> brain_entry.goal_question_superseded.
         from test_brain_b3b import superseded
         for text in ('devam et', 'raporu dosyaya yaz', 'masaüstünü düzenle', 'kaydet', 'evet', 'yapay zeka nedir'):
             with self.subTest(text=text):
-                self.assertEqual(superseded(text), work_modes.ends_with_action(text))
+                self.assertEqual(superseded(text), brain_actions.ends_with_action(text))
 
     def test_rule_scope_needs_explicit_scope_phrase(self):
         cases = {

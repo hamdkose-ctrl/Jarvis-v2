@@ -31,7 +31,10 @@ from modules.brain_understanding import (
     NOTE_UPDATE_TEXT_MISSING,
     NOTES_WRITE_CAPABILITY,
     RESEARCH_MAX_QUERY,
+    SCREEN_CAPABILITY,
     TRANSLATE_SOURCE_MISSING,
+    WINDOW_LIST_CAPABILITY,
+    WINDOW_OP_CAPABILITY,
 )
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
@@ -107,6 +110,12 @@ def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if fmt not in _FILE_FORMATS:
             return None
         result["format"] = fmt
+    elif operation in {FILE_SUMMARIZE, FILE_ANALYZE} and "format" in arguments:
+        # Tek cümlelik açık dosya çıktısı: Brain biçimi önerir, Core izinli biçimi doğrular.
+        fmt = arguments.get("format")
+        if fmt not in _FILE_FORMATS:
+            return None
+        result["format"] = fmt
     return result
 
 
@@ -170,6 +179,40 @@ def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"query": query, "route": "PRIVATE"}
 
 
+_SCREEN_QUESTION_MAX = 1000
+_WINDOW_ACTIONS = frozenset({"focus", "minimize", "maximize", "restore"})
+
+
+def _screen_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Ekran okuma önerisi: soru boş olabilir (genel analiz) ama en fazla tek satır uzunluğunda."""
+    if set(arguments) - {"original_text", "question"}:
+        return None
+    question = arguments.get("question")
+    if not isinstance(question, str) or "\x00" in question or len(question) > _SCREEN_QUESTION_MAX:
+        return None
+    return {"question": question.strip()}
+
+
+def _window_list_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = arguments.get("window")
+    if not isinstance(row, Mapping) or set(row) != {"action"} or row.get("action") != "list":
+        return None
+    return {"action": "pc_windows", "params": {}}
+
+
+def _window_op_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = arguments.get("window")
+    if not isinstance(row, Mapping) or set(row) != {"action", "target"}:
+        return None
+    action, target = row.get("action"), row.get("target")
+    if action not in _WINDOW_ACTIONS or not isinstance(target, str):
+        return None
+    target = target.strip()
+    if not 0 < len(target) <= 120 or "\x00" in target:
+        return None
+    return {"action": "pc_window", "params": {"target": target, "action": action}}
+
+
 _TRANSLATE_ORIGINS = frozenset({"inline", "assistant", "user"})
 MAX_TRANSLATE_CHARS = 20000
 
@@ -212,6 +255,11 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "research.search": ("task", _research_args),
     # Text translation; the source text is a Brain-selected turn / inline text (see brain_entry.core_plan).
     "text.translate": ("translate", _translate_args),
+    # Ekranı okuma ve pencere kontrolü: eski router'ın deterministik kuralları artık Brain önerisi,
+    # Core burada niyeti ve argümanı doğrular; yürütücü (screen/app_action) değişmedi.
+    SCREEN_CAPABILITY: ("screen_analyze", _screen_args),
+    WINDOW_LIST_CAPABILITY: ("app_action", _window_list_args),
+    WINDOW_OP_CAPABILITY: ("app_action", _window_op_args),
 }
 
 

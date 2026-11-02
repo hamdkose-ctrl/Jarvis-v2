@@ -11,6 +11,14 @@ def _remember(runtime, name: str) -> None:
     from modules import session_state
     session_state.remember_property(runtime._session(), name)
 
+
+def _result_or_file(runtime, result: str, path: str, label: str, noun: str, fmt: object) -> str:
+    """Core'un doğruladığı açık biçet istendiyse aynı turda kaydet; değilse çıktı önerisini bırak."""
+    if fmt:
+        saved = runtime.output.save_text_result(result, path, label, preferred=str(fmt))
+        return f"{noun} hazırladım ve kaydettim: {saved}" if saved else result
+    return result + "\n\nDosya olarak almak istersen çıktı al de."
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -63,11 +71,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if operation == "summarize":
                 result = runtime.docs.summarize(path_s)
                 runtime._session().last_doc = (result, path_s, "ozet")
-                return result + "\n\nDosya olarak almak istersen çıktı al de."
+                return _result_or_file(runtime, result, path_s, "ozet", "Özeti", a.get("format"))
             if operation == "analyze":
                 result = runtime.docs.insights(path_s, "")
                 runtime._session().last_doc = (result, path_s, "analiz")
-                return result + "\n\nDosya olarak almak istersen çıktı al de."
+                return _result_or_file(runtime, result, path_s, "analiz", "Analizi", a.get("format"))
             if operation == "open":
                 nxapi.open_path(path_s)
                 return f"{path.name} dosyasını açtım."
@@ -82,82 +90,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 saved = runtime.output.convert_document(path_s, fmt)
                 return (f"Dosyayı {fmt.upper()} formatında kaydettim: {saved['path']}" + ('\n' + saved['note'] if saved['note'] else '')) if saved else "Dönüştürme iptal edildi."
             return "Bu dosya işlemi Core tarafından doğrulanmadı."
-
-        case "doc_summary":
-            path, folder_reply = runtime._resolve_doc(a.get("path"), command)
-            if folder_reply:
-                return folder_reply
-            if not path:
-                if runtime.re.search(r"konuşma|sohbet|yazışma|söylediklerimiz", cmd_lower):
-                    return runtime._summarize_chat()
-                study_reply = runtime._study_answer(command, cmd_lower)
-                if study_reply:
-                    return study_reply
-                return ("Hangi dosyayı kastettiğini bulamadım. Sohbet çubuğundaki ataçla dosyayı ekle ya da "
-                        "Dosyalar sayfasında dosyayı seçip işlem düğmesine bas.")
-            result = runtime.docs.summarize(path)
-            runtime._session().last_doc = (result, path, "ozet")
-            fmt = runtime._explicit_output_format(cmd_lower)
-            if fmt:
-                saved = runtime.output.save_text_result(result, path, "ozet", preferred=fmt)
-                return f"Özeti hazırladım ve kaydettim: {saved}" if saved else result
-            return result + "\n\nDosya olarak almak istersen çıktı al de."
-
-        case "doc_insight":
-            path, folder_reply = runtime._resolve_doc(a.get("path"), command)
-            if folder_reply:
-                return folder_reply
-            if not path:
-                if runtime.re.search(r"konuşma|sohbet|yazışma|söylediklerimiz", cmd_lower):
-                    return runtime._summarize_chat()
-                study_reply = runtime._study_answer(command, cmd_lower)
-                if study_reply:
-                    return study_reply
-                return ("Hangi dosyayı kastettiğini bulamadım. Sohbet çubuğundaki ataçla dosyayı ekle ya da "
-                        "Dosyalar sayfasında dosyayı seçip işlem düğmesine bas.")
-            result = runtime.docs.insights(path, a.get("question", ""))
-            runtime._session().last_doc = (result, path, "analiz")
-            fmt = runtime._explicit_output_format(cmd_lower)
-            if fmt:
-                saved = runtime.output.save_text_result(result, path, "analiz", preferred=fmt)
-                return f"Analizi hazırladım ve kaydettim: {saved}" if saved else result
-            return result + "\n\nDosya olarak almak istersen çıktı al de."
-
-        case "doc_convert":
-            path, folder_reply = runtime._resolve_doc(a.get("path"), command)
-            if folder_reply:
-                return folder_reply
-            if not path:
-                if runtime.re.search(r"konuşma|sohbet|yazışma|söylediklerimiz", cmd_lower):
-                    return runtime._summarize_chat()
-                study_reply = runtime._study_answer(command, cmd_lower)
-                if study_reply:
-                    return study_reply
-                return ("Hangi dosyayı kastettiğini bulamadım. Sohbet çubuğundaki ataçla dosyayı ekle ya da "
-                        "Dosyalar sayfasında dosyayı seçip işlem düğmesine bas.")
-            fmt = str(a.get("format") or "").lower().lstrip(".")
-            fmt = {"excel": "xlsx", "word": "docx"}.get(fmt, fmt)
-            if fmt not in {"xlsx", "docx", "pdf"}:
-                return "Çıktı formatını Excel, Word veya PDF olarak belirt."
-            saved = runtime.output.convert_document(path, fmt)
-            return (f"Dosyayı {fmt.upper()} formatında kaydettim: {saved['path']}" + ('\n' + saved['note'] if saved['note'] else '')) if saved else "Dönüştürme iptal edildi."
-
-        case "doc_translate":
-            path, folder_reply = runtime._resolve_doc(a.get("path"), command)
-            if folder_reply:
-                return folder_reply
-            if not path:
-                if runtime.re.search(r"konuşma|sohbet|yazışma|söylediklerimiz", cmd_lower):
-                    return runtime._summarize_chat()
-                study_reply = runtime._study_answer(command, cmd_lower)
-                if study_reply:
-                    return study_reply
-                return ("Hangi dosyayı kastettiğini bulamadım. Sohbet çubuğundaki ataçla dosyayı ekle ya da "
-                        "Dosyalar sayfasında dosyayı seçip işlem düğmesine bas.")
-            target = runtime.tr.target_from_command(command) or str(a.get("target") or "").strip()
-            if not target:
-                return "Komutta hedef dili belirt. Örneğin: 'Dosyayı İngilizceye çevir.'"
-            return runtime._translate_file(path, target)
 
         case "translate":
             text = str(a.get("text") or "").strip()

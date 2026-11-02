@@ -117,9 +117,9 @@ Denetim sonucu: **91 migration bulgusu**. KEEP=34, MOVE=42, RETIRE=13, NEEDS_DEC
 | BRAIN-MIG-073 | advisory_router.py:_mode | decision/critique/guidance isteğini doğal dilden seçer | engine_tools._sys_prompt; finalize | Genel NL interpretation; Brain ile aynı resolved context'i kullanmalı | MOVE_TO_UNDERSTANDING | UNDERSTANDING → ADVISOR handoff | Canonical Understanding doğal dilde advisory ihtiyacını çözer; migration map yeni zorunlu `UnderstandingResult` field'ı dayatmaz | Legacy requested() regex entry kalkınca | explicit advisory request; no execution/permission authority |
 | BRAIN-MIG-074 | advisory_router.py:finalize + advisor renderers | Resolved advisory output schema/render | chat fallback | Execution/permission authority yok; response shaping | KEEP_EXECUTION | Advisor layer after Understanding | Brain resolved context + chat result ile beslenir | Silinmez | no dispatch/no permission |
 | BRAIN-MIG-075 | proactive_advisor.SuggestionPolicy | Suggestion enable/filter/render | advisory_router | İkinci Core değil; yalnız advisory output | KEEP_EXECUTION | ADVISOR | Resolved context ile suggestion üretir | Silinmez | no execution authority |
-| BRAIN-MIG-076 | engine_voice.py:_live_prompt | Live için goals/facts/rules/pending/history/STT context kurar | engine_loop → live.start | Text Brain'den ayrı context snapshot; drift riski | MOVE_TO_ACTIVE_CONTEXT | ACTIVE CONTEXT | Live aynı ActiveContext serializer'ı kullanır | Private live prompt context assembly kaldırılır | owner/redaction/reset |
-| BRAIN-MIG-077 | engine_voice.py:_context_prompt | Live modele son 2 saati verip 'onu/az önceki' çözmesini söyler | _live_prompt | Ayrı reference resolver fiilen Live modelin içinde; 2h pencere legacy consumer davranışıdır, canonical global history TTL değildir | MOVE_TO_REFERENCE_RESOLVER | REFERENCE RESOLVER | Live utterance canonical resolver/UnderstandingResult kullanır; source timestamp/reset boundary korunur | Live model kendi pronoun resolution authority'sini bırakınca | text/live parity; legacy 2h parity where required |
-| BRAIN-MIG-078 | live_tool_runner.py special direct tools | muzik_cal/_play_music, handoff, mishearing, voice change direct yolları | Live function-call model | Normal Brain/router/Core'u kısmen bypass ediyor | RETIRE_AFTER_CUTOVER | Canonical Brain entry | Live function call önce Brain semantic proposal'ından geçer; Core capability/action mapping'ini doğrular, execution aynı worker'a gider | Live parity acceptance sonrası direct semantic dispatch kaldırılır | permission/source parity |
+| BRAIN-MIG-076 | engine_voice.py:_live_prompt | **Bugün (PR10c sonrası):** yalnız kalıcı oturum talimatı (uzunluk tercihi, aktif modlar, onay bekleyenler) — bellek/geçmiş/referans seçimi yapmıyor | engine_loop → live.start | Ayrıştırılmış: bağlam kurma yetkisi kalmadı, drift riski kapanmıştır | PRESENTATION_ONLY | CANONICAL ENTRY (ActiveContext yalnız `brain_entry.prepare`'da kurulur) | Live'ın soru-bağımlı bağlamı her turda `runtime.handle → profile.system_prompt(soru)` canonical yolundan gelir | **KAPADI (PR10c):** private live prompt context assembly (goals/facts/rules/history seçimi) kaldırıldı; `_context_prompt` ile birlikte ikinci snapshot üreten yol yok | owner/redaction/reset |
+| BRAIN-MIG-077 | engine_voice.py:_context_prompt | **Bugün (PR10c sonrası): dosyada yok — fiziksel olarak silindi** | (yok) | Live modelin içindeki ayrı pronoun/reference çözümü kaldırıldı | CALLER_ZERO → SİLİNDİ | REFERENCE RESOLVER | Live utterance'ın hedefi Candidate Builder + Reference Resolver referansından gelir (`brain_entry.prepare`), 2h pencere consumer'ı kalmadı | **KAPADI (PR10c):** replacement kanıtı + production caller-zero + regresyon kilidi (`tests/test_brain_pr10c_final_cutover.py`) birlikte sağlandı | text/live parity; legacy 2h parity gerekiyorsa yalnız test davranışı olarak |
+| BRAIN-MIG-078 | live_tool_runner.py special direct tools | İki sınıfa ayrıldı: `ses_degistir`/`yanlis_duyma` bounded cihaz/protokol eylemleri (DETERMINISTIC_FAST_GATE/BOUNDED_STATE_GATE); kalan her tool intent'i `self.handler` = canonical `_live_command` üzerinden girer | Live function-call model | Artık hiçbir özel araç normal Brain/handle'ı bypass etmiyor | BOUNDED_STATE_GATE (yalnız ikisi) + CANONICAL (geri kalanı) | Brain entry adapter | Live function call Brain semantic proposal'ından ve Core doğrulamasından geçer; execution aynı worker'a gider | **KAPADI (PR10c):** direct semantic dispatch kaldırıldı; bypass üreten özel araç kalmadı (envanter `tests/test_brain_pr10c_final_cutover.py::LiveToolAuthorityTests`) | permission/source parity |
 | BRAIN-MIG-079 | engine_voice.py:_live_command | Live `komut` toolunu normal runtime.handle'a köprüler | live_tool_runner/live session | İyi compatibility entry; request identity/source korunuyor | KEEP_EXECUTION | Brain entry adapter | runtime.handle içinde Brain + Core canonical olur | Live tool surface sadeleşince adapter kalabilir | same request owner/source |
 | BRAIN-MIG-080 | engine_queue.py:submit command queue | Text/Web/Phone komutlarını aynı engine eventine taşır | UI/phone server | Transport execution; intent çözmüyor | KEEP_EXECUTION | Brain entry transport | Event consumer Brain entry çağırır | Silinmez | request id/owner/cancel |
 | BRAIN-MIG-081 | engine_queue.py:direct goal status branch | 'hedef durumu/işin durumu/hedef ayrıntıları' queue içinde render | UI/phone submit | Canonical Brain/engine handle'ı bypass eden transport-level intent | RETIRE_AFTER_CUTOVER | EXACT STATE GATE | Exact state query Brain State Gate'e taşınır | All transports same Brain entry olunca | same status text/owner |
@@ -227,14 +227,14 @@ Eski regex sırası, belirli helper çağrısı, `router.classify` intent enum'u
 
 | Giriş | Bugün gördüğü history/context | Router bypass? | Kendi tool/intent çözümü? | Canonical Brain bağlantısı |
 |---|---|---|---|---|
-| Text/Web | history + SessionStore + profile; **legacy router consumer** son 2 saatten 6 turn kullanıyor | genelde hayır; fakat queue direct goal-status bypass var | router + çok sayıda pre-router handler | engine_queue/event → tek Brain entry; canonical ActiveContext bounded history + reset boundary kullanır, global 2h TTL tanımlamaz; state query State Gate |
-| Voice (non-Live STT) | aynı SessionStore/history; source=ses | hayır; normal handle'a girer | normal engine router | STT text doğrudan aynı Brain entry |
-| Live | _live_prompt profile/facts/rules/pending + **legacy consumer** son 2 saat 12 turn; Live-local recent_user | evet, bazı özel tools normal handle'ı bypass ediyor | Live model kendi tool selection + context/reference çözümü | her utterance/tool intent canonical Brain UnderstandingResult; Live yalnız transport/voice surface; legacy 2h parity gerekiyorsa migration testi olarak korunur, canonical TTL olmaz |
+| Text/Web | history + SessionStore + profile; bağlam **yalnız** canonical `brain_entry.prepare` içindeki `ActiveContext`'ten gelir (legacy router consumer PR10c'de silindi) | hayır; queue direct goal-status bypass'ı Deterministic Fast Gate'in bounded protokolü | yok — tek kapı `brain_entry.route_command` (`engine_commands.py:433`) + `engine_intents.dispatch` | engine_queue/event → tek Brain entry; canonical ActiveContext bounded history + reset boundary kullanır, global 2h TTL tanımlamaz; state query State Gate |
+| Voice (non-Live STT) | aynı SessionStore/history; source=ses | hayır; normal handle'a girer | yok; aynı canonical kapı | STT text doğrudan aynı Brain entry |
+| Live | her tur canonical `ActiveContext`; `_live_prompt` yalnız kalıcı oturum talimatı (bağlam/referans seçimi yok) | hayır — `ses_degistir`/`yanlis_duyma` dışındaki her tool `self.handler` = canonical `_live_command` üzerinden girer | yok; Live model hedef/pronoun çözümü yapmıyor | her utterance/tool intent canonical Brain UnderstandingResult; Live yalnız transport/voice surface; legacy 2h parity gerekiyorsa migration testi olarak korunur, canonical TTL olmaz |
 | Phone text | owner/request id + normal session/history | queue'daki goal-status exact branch bypass ediyor | sonrasında normal handle | queue yalnız transport; exact status State Gate dahil Brain entry |
-| Phone audio | STT sonrası phone owner/rid + normal session | STT sonrası normal command path | normal engine router | STT result aynı Brain entry |
-| Phone photo | pending photo + question; session/owner | foto event/pending branch özel | photo follow-up parser engine_commands | artifact state ActiveContext'te görünür; exact cancel bounded gate olabilir; açık uçlu follow-up relation'ı Understanding çözer ve artifact Resolver'a bounded candidate olarak sunulur; unrelated message photo follow-up diye consume edilmez; vision execution worker |
+| Phone audio | STT sonrası phone owner/rid + normal session | STT sonrası normal command path | yok; aynı canonical kapı | STT result aynı Brain entry |
+| Phone photo | pending photo + question; session/owner | foto event/pending branch özel | photo follow-up parser engine_commands | artifact state ActiveContext'te görünür; exact cancel bounded gate olabilir; **kalan borç (PR10c disclosure):** "bu söz fotoğraf için mi" hükmü bugün `runtime._PHOTO_INTENT` bounded kelime listesiyle veriliyor (`engine_commands.py:80-91`), Understanding'in `conversation_relation`'ı ile değil — unrelated mesaj pending'i düşürüp kanonik kapıya gittiği için consume edilmez, fakat relation hükmünün canonical Understanding'e taşınması ayrı bir iş; vision execution worker |
 
-Önemli parity sonucu: non-Live ses ve normal text aynı `runtime.handle()` hattına yakınken, **Live tam eşit değildir**. `_live_prompt` ayrı context/reference talimatı kurar ve `live_tool_runner` bazı özel araçları normal handler'dan bağımsız çalıştırır. Phone text de queue katmanındaki direct goal-status branch nedeniyle küçük bir bypass taşır.
+Önemli parity sonucu (PR10c sonrası): **beş surface de tek semantic kapıyı paylaşır** — Text/Web/Audio/Phone `runtime.handle → brain_entry.prepare → handoff → Core`, Live `_live_command → engine_live_brain → aynı prepare/handoff → Core`. `_live_prompt` ayrı context/reference talimatı kurmuyor, `live_tool_runner` artık normal handler'ı bypass eden semantik araç taşımıyor. Phone text'deki goal-status exact branch ikinci bir beyin değil, Deterministic Fast Gate'in bounded protokolüdür. Kanıt: `tests/test_brain_pr10c_final_cutover.py::SurfaceParityTests` + `LiveToolAuthorityTests`.
 
 ## 7. Advisor katmanı
 
@@ -250,28 +250,30 @@ Migration kararı:
 
 ## 8. En tehlikeli 10 legacy yol
 
-1. engine_tools._extra_commands — çok sayıda domaini ilk eşleşen kazanır mantığıyla Brain'den önce seçiyor.
-2. router.classify — regex + model + app reference context + freshness ile ikinci genel beyin.
-3. command_manager.dispatch — visual/task/developer/desktop/translation/Hoca gibi birçok pre-Brain front door.
-4. engine_commands.handle içindeki app/weather/note/file/sequence legacy yolları — canonical understanding öncesi davranış seçiyor.
-5. app_actions.continue_voice clarify — string birleştirip router.classify recursive çağrısı yapıyor.
-6. engine_commands typo recursive runtime.handle — aynı request içinde tam pipeline'ı yeniden değerlendiriyor.
-7. main_documents._file_command/_resolve_doc — execution, candidate retrieval ve 'bu/son dosya' reference inference aynı yerde.
-8. chat_translation.resolve + _sources — ayrı legacy 2 saatlik reference resolver ve RAM fallback truth pocket.
-9. Live special tools/live prompt — ayrı context/reference/tool-selection ile text parity'yi bozuyor.
-10. developer.handle / desktop_agent.handle pre-Brain interception — uzman agentların genel komut girişini sahiplenebildiği yollar.
+Liste bulgu anının (2026-10-31) snapshot'ıdır; PR10c sonrası durum her satırın sonunda işaretlendi.
 
-## 9. İlk silinebilecek 5 parça
+1. engine_tools._extra_commands — çok sayıda domaini ilk eşleşen kazanır mantığıyla Brain'den önce seçiyor. → **Durum:** `command_manager.dispatch` erken yakalayıcıları `brain_precedence` sözleşmesi altına alındı; kalanlar bounded domain protokolü (`SecondAuthorityGuardTests` kaynağı taramasıyla kilitli).
+2. router.classify — regex + model + app reference context + freshness ile ikinci genel beyin. → **SİLİNDİ (PR10c).**
+3. command_manager.dispatch — visual/task/developer/desktop/translation/Hoca gibi birçok pre-Brain front door. → **Durum:** çeviri bacağı silindi; kalan erken kapıların her biri sınıflandırıldı ve hiçbiri anlam üretmiyor (kesit F envanteri `modules/command_manager.py:dispatch` docstring'inde), test kilidi `CommandManagerFrontDoorTests`.
+4. engine_commands.handle içindeki app/weather/note/file/sequence legacy yolları — canonical understanding öncesi davranış seçiyor. → **Durum:** weather/note/file/app sequence hükümleri `brain_core_map` allowlist'ine taşındı; `_resolve_doc` ve `doc_*` silindi.
+5. app_actions.continue_voice clarify — string birleştirip router.classify recursive çağrısı yapıyor. → **SİLİNDİ** (yapılandırılmış resume, Closeout-A).
+6. engine_commands typo recursive runtime.handle — aynı request içinde tam pipeline'ı yeniden değerlendiriyor. → **SİLİNDİ** (tek geçiş, `runtime._typo_orig`).
+7. main_documents._file_command/_resolve_doc — execution, candidate retrieval ve 'bu/son dosya' reference inference aynı yerde. → `_resolve_doc` **SİLİNDİ**; `_file_command` exact tırnaklı deterministic UI front gate olarak korunuyor (`_FILE_ASK_EXEMPT` testte kilitli).
+8. chat_translation.resolve + _sources — ayrı legacy 2 saatlik reference resolver ve RAM fallback truth pocket. → **SİLİNDİ (PR10b, dosya olarak).**
+9. Live special tools/live prompt — ayrı context/reference/tool-selection ile text parity'yi bozuyor. → **KAPADI (PR10c):** `_context_prompt` silindi, `_live_prompt` presentation-only, direct semantic dispatch yok.
+10. developer.handle / desktop_agent.handle pre-Brain interception — uzman agentların genel komut girişini sahiplenebildiği yollar. → **Durum:** domain-owned protocol olarak sınıflandırıldı; generic intent seçmiyorlar (envanter §A yedi sınıfı).
+
+## 9. İlk silinebilecek 5 parça — **beşi de kapandı (2026-11-02)**
 
 Canonical replacement ve parity testleri geldikten sonra risk sırasına göre:
 
-1. chat_translation._sources RAM cache — canonical resolver history/provenance parity sonrası.
-2. engine_queue direct goal-status render bypass — State Gate canonical entry geldiğinde.
-3. app_actions clarification re-route (combined string → router.classify) — structured clarification resume geldiğinde.
-4. engine_commands typo recursive handle — original/normalized representation request/input envelope üzerinden tek request identity ile taşındığında.
-5. router içindeki app_actions.reference_context prompt helper — Candidate Builder providerları devreye girince.
+1. chat_translation._sources RAM cache — canonical resolver history/provenance parity sonrası. **KAPADI:** `modules/chat_translation.py` PR10b'de dosya olarak silindi; `command_manager` çeviri bacağı ve `CommandContext.translate` kaldırıldı; üretim kaynaklarında referans yok (AST/regex kilidi `CallerZeroGuardTests`).
+2. engine_queue direct goal-status render bypass — State Gate canonical entry geldiğinde. **KAPADI:** kısayol kendi ifade listesini tutmuyor; `brain_entry.fast_lane` üzerinden Deterministic Fast Gate'in bounded protokolü (`fast.goal.status`) olarak tanınıyor.
+3. app_actions clarification re-route (combined string → router.classify) — structured clarification resume geldiğinde. **KAPADI:** `continue_voice` yapılandırılmış resume (Closeout-A); `router.classify` ve `app_actions` içindeki `reference_context` PR10c'de fiziksel olarak silindi.
+4. engine_commands typo recursive handle — original/normalized representation request/input envelope üzerinden tek request identity ile taşındığında. **KAPADI:** tek açık yeniden-geçiş `handle_request` içinde `runtime._typo_orig` ile aynı request identity üzerinde; özyineleme yok.
+5. router içindeki app_actions.reference_context prompt helper — Candidate Builder providerları devreye girince. **KAPADI:** `modules/router.py`, `modules/work_modes.py`, `modules/freshness.py`, `engine_tools.route`/`intent_router`, `app_actions.reference_context`, `main_documents._resolve_doc` ve `doc_*` yolları PR10c'de silindi; kabul harness'inin `_legacy_router()` ölçümü de kaldırıldı.
 
-Bu parçalar PR9/PR10'u beklemek zorunda değildir. Replacement + parity + product invariant acceptance hangi migration PR'ında tamamlanırsa ilgili legacy yol **aynı PR'da** kaldırılabilir. PR10 yalnız kalan zombie/duplicate yolların final sweep'idir.
+Bu parçalar PR9/PR10'u beklemek zorunda değildir. Replacement + parity + product invariant acceptance hangi migration PR'ında tamamlanırsa ilgili legacy yol **aynı PR'da** kaldırılabilir. PR10 yalnız kalan zombie/duplicate yolların final sweep'idir — **PR10c final sweep bu beşini ve caller-zero listesini kapattı; kalan tek üretim borcu (17 yetim `engine_intents.dispatch` case etiketi ve notes arama/özetleme) `docs/Jarvis_Yol_Haritasi.md` "KALAN BORÇLAR" satırında açıkça yazılıdır.**
 
 ## 10. Önerilen Migration Sırası
 
@@ -317,6 +319,14 @@ PR1-PR7 merge edildi ancak eski yolların silinmesi (her PR'ın "legacy retireme
 
 **Closeout-B3c-1 sonucu:** `files.read` + tek çözülmüş dosya + `özetle` → Core `doc_summary` (yol Reference Resolver'dan, Core `nxapi.allowed` ile doğrular). `_file_command` front gate olarak Core'dan önce. Diğer files.read operasyonları `brain_core_map.PARTIAL_CORE_HINTS` ile legacy sahibinde; `doc_*` Live-only caller-zero maddesi (4) artık yalnız `doc_insight/convert/translate` için geçerlidir.
 
+### PR8-PR10 kapanış durumu (2026-11-02, `gpt/brain-pr10c-final-cutover`)
+
+- **PR8:** Failure Synthesis dilimi #490 (`de4c0b8`) ile merge edildi; Advisor + Echo PR8b'de canonical Understanding'e taşındı (paralel sözleşme/ikinci selector yok; `advisory_router` presentation-only).
+- **PR9:** Live parity #491 (`267297e`) ile merge edildi — `engine_live_brain` üzerinden canonical `prepare → handoff → Core` üretimde. O merge'te bitmeyen legacy temizliği PR10c'ye borçtu.
+- **PR10a:** dormant `engine_voice._live_command` kopyası silindi; `goal_executor` eylem-fiil hükmünü tek tanımdan (`brain_actions.ends_with_action`) alıyor.
+- **PR10b:** nested adım `runtime.handle(step)` yerine `brain_entry.run_step` canonical envelope'ı; `modules/chat_translation.py` dosya olarak silindi.
+- **PR10c (final cutover, kod tarafında kapalı):** yukarıdaki caller-zero listesinin tamamı fiziksel olarak silindi (`router.py`, `work_modes.py`, `freshness.py`, `engine_tools.route`/`intent_router`, `app_actions.reference_context`, `main_documents._resolve_doc` + `doc_*` + `engine_intents` wrapper case'leri, `brain_entry._install_route_guard`, `engine_voice._context_prompt`, acceptance `_legacy_router()`). Sınıflandırıcı biçimindeki tek kapı `brain_entry.route_command`; tek üretim çağıranı `engine_commands.py:433`. Yetim `engine_intents.dispatch` case etiketleri ve notes arama/özetleme `PARTIAL_CORE_HINTS`'ı **kalan üretim borcu olarak gizlenmiyor** (bkz. roadmap KALAN BORÇLAR). Bu fazın ✅ sayılması için exact-head Windows CI + aynı head SHA gerçek PC watcher kanıtı ve merge gerekiyor; planlı bir PR10d yoktur.
+
 ## 11. Cutover kuralları
 
 - Shadow/dual-run varsa **tek effect owner Core** olmalı; legacy ve Brain aynı anda effect üretemez.
@@ -339,5 +349,7 @@ PR1-PR7 merge edildi ancak eski yolların silinmesi (her PR'ın "legacy retireme
 ## 12. Doğrulama beklentisi
 
 Repo `modules.validation` içinde **Architecture Guard'ı zorunlu ilk grup olarak zaten çalıştırıyor**; Windows PR workflow'u da her PR'da `py -3.13 -X utf8 -m modules.validation` çalıştırıyor. Bu branch doküman-only olsa da repo workflow'u full validation'ı atlamıyor. Dolayısıyla draft PR CI kanıtı full validation + Architecture Guard sonucunu birlikte vermelidir.
+
+**PR10c head'inde ölçülen (2026-11-02):** `python -X utf8 -m modules.validation` → 4256 test, `errors=3`, failure yok (üç hata `pptx` modülü yok ve symlink `WinError 1314`; taban head `e1d6de3` worktree'sinde aynı adlarla yeniden üretildi — yalnız Windows ortamı). 30 JS davranış grubu ve 7 smoke grubu (`headless_smoke`, `maintenance_smoke`, `voice_actions_smoke`, `paid_provider_smoke`, `developer_smoke`, `router_agents_smoke`, `stability_contracts`) hatasız. Kabul kapısı `python -X utf8 scripts/brain_acceptance.py compare` → `passed: true`, `same 340 / better 38 / accepted 87`, `scenario_count 465 == baseline 465`, `dead_permits []`. **Bu sayılar test/doğrulama kanıtıdır; CI ve gerçek PC watcher kanıtı değildir** — exact-head Windows CI ile aynı head SHA watcher PASS'ı gelmeden ve PR merge edilmeden bu faz kapanmış sayılmaz.
 
 Yerel/ajan ortamında repo checkout'u olmayan bir connector oturumunda komut sonucu uydurulmamalıdır. Bu rapor branch'i için doğrulama kaydı PR CI'dan alınmalı; ayrıca diff yalnız `docs/architecture/JARVIS_BRAIN_MIGRATION_MAP_V1.md` göstermelidir.

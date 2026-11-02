@@ -1,19 +1,24 @@
 """Basit sorular ağır görev yoluna gitmez; 429 alan model her çağrıda yeniden denenmez.
 
 Model ve ağ taklittir: canlı Gemini/Groq kotası burada ölçülmez.
+PR10c: karar artık canonical sınırdadır (Understanding + tek sınıflandırılmış-istek kapısı) ve
+hiçbir cümle için model sınıfleyicisi çalışmaz; bu yüzden "kotada model yakma" iddiası burada
+doğal olarak sağlanır.
 """
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from modules import llm, router, work_modes
+from modules import brain_core_map, brain_understanding, llm
+from modules.brain_contracts import RequestKind
+import test_brain_production_entry as fixtures
+
+RID = 'rid-quota'
 
 
-def _no_model(*_):
-    raise AssertionError('router model called')
-
-
-CHAT = '{"intent":"chat","args":{}}'
+def _door(text):
+    """Cümlenin canonical kapı kararı: plan doğrulanırsa o, yoksa kapının devir biçimi."""
+    return fixtures.door(text, request_id=RID)
 
 
 class SimpleQuestionRoutingTests(unittest.TestCase):
@@ -23,38 +28,33 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
                      'kurban bayramı ne zaman', 'açıklar mısın fotosentez nedir', 'HTTP nedir?', 'merhaba nasılsın',
                      'yapay zekanın geleceği hakkında ne düşünüyorsun', 'uygulama geliştirme zor mu', 'ayarlar nerede']:
             with self.subTest(text=text):
-                self.assertEqual(work_modes.classify(text), 'chat')
-                self.assertEqual(router.classify(text, lambda *_: CHAT)['intent'], 'chat')
+                semantic, decision = _door(text)
+                self.assertIs(semantic.request_kind, RequestKind.CHAT, text)
+                self.assertEqual(decision, {'intent': 'chat', 'args': {}}, text)
 
-    def test_definition_questions_skip_router_model_call(self):
+    def test_definition_questions_need_no_model_call(self):
         for text in ['yapay zeka nedir', 'Yazılım nedir?', 'açıklar mısın fotosentez nedir', 'Atatürk kimdir',
-                     'empati ne demek']:
-            with self.subTest(text=text):
-                self.assertEqual(router.classify(text, _no_model), {'intent': 'chat', 'args': {}})
-
-    def test_fresh_or_tool_topics_keep_model_routing(self):
-        for text in ['dolar kuru nedir', 'hava durumu nedir', 'bu dosya nedir']:
-            with self.subTest(text=text):
-                ask = Mock(return_value=CHAT)
-                router.classify(text, ask)
-                ask.assert_called_once()
+                     'empati ne demek', 'dolar kuru nedir', 'hava durumu nedir', 'bu dosya nedir']:
+            with self.subTest(text=text), patch.object(llm, 'ask', side_effect=AssertionError('model yakılmamalı')):
+                self.assertEqual(_door(text)[1], {'intent': 'chat', 'args': {}}, text)
 
     def test_explicit_freshness_beats_definition_phrasing(self):
-        # Faz 4: "son/güncel/bugünkü" gibi açık tazelik işareti, "nedir" tanım kalıbını bastırır;
-        # soru güncel-görev yoluna gider, sade model sınıflandırmasına düşmez.
+        # "son/güncel/bugünkü" gibi açık tazelik işareti, "nedir" tanım kalıbını bastırır:
+        # soru güncel-görev yoluna gider, sade sohbete düşmez.
         for text in ['son haber nedir', 'bugünkü dolar kuru nedir', 'güncel altın fiyatı nedir']:
             with self.subTest(text=text):
-                self.assertEqual(work_modes.classify(text), 'do')
-                ask = Mock(return_value=CHAT)
-                self.assertEqual(router.classify(text, ask)['intent'], 'task')
-                ask.assert_not_called()
+                semantic, decision = _door(text)
+                self.assertEqual(semantic.capability_hint, 'research.search', text)
+                self.assertEqual(decision['intent'], 'task', text)
+                self.assertEqual(brain_core_map.core_plan(semantic.capability_hint, semantic.arguments),
+                                 ('task', {'query': text, 'route': 'PRIVATE'}), text)
 
-    def test_pure_definition_without_freshness_stays_model_or_chat(self):
+    def test_pure_definition_without_freshness_stays_chat(self):
         # Tazelik işareti olmayan sade tanım soruları güncel-görev yoluna zorlanmaz.
         for text in ['dolar nedir', 'kur nedir', 'nvidia nedir']:
             with self.subTest(text=text):
-                self.assertFalse(work_modes.fresh_external(text))
-                self.assertFalse(router._fresh_research_request(text))
+                self.assertFalse(brain_understanding._needs_fresh_external_data(brain_understanding._norm(text)), text)
+                self.assertNotEqual(_door(text)[0].capability_hint, 'research.search', text)
 
     def test_real_action_requests_still_become_tasks(self):
         for text in ['Ayarları aç ve Bluetooth’u kapat', 'Araştırıp rapor hazırla', 'Araştır ve belge üret',
@@ -63,8 +63,7 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
                      'Excel’i açıp A1 hücresine Merhaba yaz', 'rapor hazırlamanı istiyorum', 'kodu düzelt',
                      'İstanbul güncel haberler nelerdir']:
             with self.subTest(text=text):
-                self.assertEqual(work_modes.classify(text), 'do')
-                self.assertEqual(router.classify(text, lambda *_: CHAT)['intent'], 'task')
+                self.assertEqual(_door(text)[1]['intent'], 'task', text)
 
 
 class _Chat:

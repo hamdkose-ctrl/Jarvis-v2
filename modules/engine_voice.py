@@ -49,7 +49,13 @@ def _pc_context(runtime, fn):
     return wrapped
 
 def _live_prompt(runtime) -> str:
-    """Canlı konuşma modelinin talimatına eklenen kişisel bilgiler (hedefler, bilinenler, uzunluk tercihi)."""
+    """Canlı oturum talimatının kalıcı bağlamı (uzunluk tercihi, aktif modlar, onay bekleyenler).
+
+    Bellek/geçmiş seçimi burada yapılmaz. Bu fonksiyon bağlantı anında bir kez çağrılır,
+    o yüzden elinde çözülecek bir soru yoktur; soru-bağımlı ilgi seçimi her turda canonical
+    yoldan gelir (runtime.handle → profile.system_prompt(soru) → ilgili bilgi ve kural).
+    Assembly salt-okunurdur: profil yazan hiçbir şey çağrılmaz.
+    """
     d = runtime.profile.data
     parts = []
     parts.append("Kullanıcı bilgisayarda bir işi nasıl yapacağını adım adım öğrenmek istediğinde komut aracına 'PC yardımı: <kullanıcının amacı>' ilet. PC rehberliği açıkken 'yaptım', 'anlamadım', 'hangi düğme', 'devam et' ve 'dur' sözlerini komut aracına 'PC rehberliği: <kullanıcının sözü>' olarak ilet; ekrana bakmadan kendin adım veya hedef uydurma. Panel sonucu tek adımdır; kısaca seslendir.")
@@ -59,16 +65,12 @@ def _live_prompt(runtime) -> str:
     from modules import developer
     if developer.status(runtime.profile.slug)['enabled']:
         parts.append("Geliştirme modu açık. Proje, kod, tasarım, görsel ve bunları değiştiren takip isteklerini kullanıcının sözüyle komut aracına ilet. Sonucun tamamı sohbette gösterilir; yalnız kısa sonucu seslendir.")
-    if d.get("goals"):
-        parts.append("Kullanıcının hedefleri: " + "; ".join(d["goals"]) + ". Bunlarla ilgili konularda sade ve adım adım yardım et.")
-    if d.get("facts"):
-        parts.append("Kullanıcı hakkında bilgiler: " + "; ".join(d["facts"]) + ".")
     if d["prefs"].get("verbosity", "orta") == "uzun":
         parts.append("Kullanıcı ayrıntılı cevap sevdiğini söyledi; gerektiğinde daha uzun anlat.")
     from modules import learning
-    for extra in (learning.knowledge_prompt(runtime.profile), learning.rules_prompt(runtime.profile), learning.pending_prompt(runtime.profile), runtime._context_prompt()):
-        if extra:
-            parts.append(extra)
+    pending = learning.pending_prompt(runtime.profile)
+    if pending:
+        parts.append(pending)
     from config import load_settings
     words = [w.strip() for w in (load_settings().get("stt_words") or "").split(",") if w.strip()]
     words += runtime._live_vocab()[:25]
@@ -91,16 +93,15 @@ def _recent_turns(runtime, slug: str, hours: float = 2.0, limit: int = 12) -> li
            for r in rows if r.get("role") in ("user", "assistant") and str(r.get("ts", "")) >= cut]
     return out[-limit:]
 
-def _context_prompt(runtime) -> str:
-    """Canlı konuşmanın başında: önceki oturumlardan son satırlar. Her "Hey Jarvis" yeni oturum açtığı için Jarvis
-    1 dakikadan eski konuşmayı unutuyordu; yazılı sohbeti de hiç bilmiyordu."""
-    turns = runtime._recent_turns(runtime.profile.slug, hours=2, limit=12)
-    if not turns:
-        return ""
-    lines = "; ".join(f"{'Kullanıcı' if r == 'user' else 'Sen'}: {t[:160]}" for r, t in turns)
-    return ("Son 2 saatteki konuşmalarınızdan son satırlar (sesli ve yazılı; yalnızca bağlam için): " + lines
-            + ". Kullanıcı 'onu', 'az önceki', 'demin dediğim' gibi bunlara atıfta bulunursa buradan anla. Bunları "
-              "kendiliğinden tekrar okuma ya da özetleme; yeni oturumda kullanıcıyı yeniden selamlama.")
+def live_session_opened(runtime) -> None:
+    """Oturum açma olayı: onay sorusu bu oturumda sorulacaksa zamanını işaretler.
+
+    Yazma burada, talimat kurulurken değil: assembly salt-okunur kalır, olayın sahibi yazar.
+    """
+    from modules import learning
+    owner = runtime.pc_profile()
+    if learning.pending_ask_due(owner):
+        learning.mark_pending_ask(owner)
 
 def _live_session_end(runtime, convo: list[tuple[str, str]]) -> None:
     """Canlı konuşma bitince: kalıcı bilgi adaylarını çıkar, onaya koy (onaysız hafızaya yazılmaz)."""

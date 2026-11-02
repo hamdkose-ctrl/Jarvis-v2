@@ -61,10 +61,16 @@ class PrivacyVoiceTests(unittest.TestCase):
 
 
 class StudyFallbackTests(unittest.TestCase):
-    def test_book_questions_go_to_study_materials(self):
+    def test_book_questions_have_one_study_owner(self):
+        # PR10c: "o kitaptan örnek ver" gibi adı verilmemiş cümlede kaynağı keyword kümesiyle
+        # seçen düşürme kaldırıldı. Kitap/çıkmış soru kaynağını artık yalnız Çalışma domain'i seçer:
+        # sesli/yazılı yol _study_intent -> hoca.handle, panel yolu web_study_sources -> study.ask.
         src = engine_source.source()
-        self.assertIn("def _study_answer", src)
-        self.assertEqual(src.count("study_reply = _study_answer(command, cmd_lower)"), 4)
+        self.assertNotIn("_study_answer", src)
+        self.assertIn("_study_intent", src)
+        self.assertIn("hoca", src)
+        panel = (Path(__file__).resolve().parents[1] / "web_study_sources.py").read_text(encoding="utf-8")
+        self.assertIn("study.ask", panel)
 
 
 if __name__ == "__main__":

@@ -2,23 +2,6 @@
 from __future__ import annotations
 import contextlib
 
-def route(runtime, command: str) -> dict:
-    session = runtime._session()
-    from modules import privacy
-    recent = runtime._recent_turns(runtime.profile.slug, hours=2, limit=6)
-    context = {'recent_turns': [(role, privacy.redact(text[:1600], force=True)) for role, text in recent],
-               'last_command': session.last_command,
-               'pending_request': session.pending_request}
-    context = privacy.redact(runtime.json.dumps(context, ensure_ascii=False), force=True)
-    from modules import model_wait
-    def bounded_ask(prompt, system):
-        return model_wait.ask(prompt, system, ask_fn=runtime.ask)
-    result = runtime.intent_router.classify(command, bounded_ask, context=context)
-    session.pending_request = None
-    if result.get('intent') != 'clarify':
-        session.last_command = command[:2000]
-    return result
-
 def _tr_lower(runtime, text: str) -> str:
     """Türkçe harflere uygun küçük harf (I -> ı, İ -> i)."""
     return text.replace("I", "ı").replace("İ", "i").lower()
@@ -59,42 +42,9 @@ def _volume_step(runtime, delta: int, verb: str) -> str:
         return "Ses seviyesini değiştiremedim."
     return f"Ses seviyesini {verb}. Yeni seviye yüzde {new_vol}."
 
-def _explicit_output_format(runtime, command_lower: str) -> str | None:
-    """Kullanıcı analiz sonucunu açıkça belirli dosya formatında istediyse onu döndürür."""
-    c = command_lower
-    if runtime.re.search(r"(?:sonuc|rapor|çıktı|cikti).{0,35}(?:excel|xlsx)|(?:excel|xlsx).{0,25}(?:olarak|format|rapor|çıktı|cikti|hazırla|olustur|oluştur)", c):
-        return "xlsx"
-    if runtime.re.search(r"(?:sonuc|rapor|çıktı|cikti).{0,35}(?:word|docx)|(?:word|docx).{0,25}(?:olarak|format|rapor|çıktı|cikti|hazırla|olustur|oluştur)", c):
-        return "docx"
-    if runtime.re.search(r"(?:sonuc|rapor|çıktı|cikti).{0,35}(?:pdf)|(?:pdf).{0,25}(?:olarak|formatında|rapor|çıktı|cikti|hazırla|olustur|oluştur)", c):
-        return "pdf"
-    return None
-
 def _file_command(runtime, command: str) -> str | None:
     from modules import main_documents
     return main_documents._file_command(runtime, command)
-
-def _resolve_doc(runtime, raw, command: str='') -> tuple[str | None, str | None]:
-    from modules import main_documents
-    return main_documents._resolve_doc(runtime, raw, command)
-
-def _folder_overview(runtime, folder) -> str:
-    from modules import main_documents
-    return main_documents._folder_overview(runtime, folder)
-
-def _study_answer(runtime, command: str, cmd_lower: str) -> str | None:
-    """Dosya adı verilmeden "o kitaptan örnek ver", "çıkmış sorulardan sor" denirse: Çalışma'ya yüklenen
-    kitap / çıkmış sorulardan cevap ver (bu kaynaklar dosya listesinde değil, Çalışma modülünde durur)."""
-    if not runtime.re.search(r"kitap|kaynak|çıkmış|sınav|ünite|konu|çalış|test|soru|örnek", cmd_lower):
-        return None
-    try:
-        from modules import study
-        if not study._state(runtime.profile).get("docs"):
-            return None
-        return study.ask(runtime.profile, command)
-    except Exception:
-        runtime._record_failure('main.py:_study_answer')
-        return None
 
 def _study_media_topic(runtime, cmd_lower: str) -> str:
     t = runtime.re.sub(r"\b(bununla|bunlarla|bu konuyla|konuyla|alakalı|ilgili|hakkında|bir|bana|birkaç|sağ\w*|sekme\w*|pencere\w*|"

@@ -3,6 +3,7 @@
 Eski hata: goal_executor.handle, hedef 'question' durumundayken eylemle bitmeyen her cümleyi (ör. "bugünün planı")
 hedefe cevap sayıyordu. Gerçek EngineContext.handle kullanılır; hedef kaydı ve Google taklittir, model çağrılmaz.
 """
+from contextlib import nullcontext
 import unittest
 from unittest.mock import patch
 
@@ -20,7 +21,7 @@ class PendingGoalTests(ProfileCase):
         with patch.object(goal_executor, 'latest', return_value=job), \
                 patch.object(goal_executor, 'run', side_effect=lambda *a, **k: resumed.append(a[1]) or 'HEDEFE GİTTİ'):
             # Google taklit olduğu için mail cümleleri sınıflandırıcıya kadar düşebilir; önemli olan hedefe gitmemesi.
-            with patch('modules.router.classify', side_effect=RuntimeError('sınıflandırıcıya düştü')):
+            with nullcontext("ikinci classifier fiziksel olarak kaldırıldı"):
                 try:
                     reply = rt.handle(text)
                 except RuntimeError:

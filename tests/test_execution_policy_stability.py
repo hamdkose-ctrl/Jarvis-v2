@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import account_tools, diagnose, failure_policy, goal_tools, learning, router, smart_router, work_modes
+from modules import account_tools, diagnose, failure_policy, goal_tools, learning, smart_router
 
 
 class ServerNotFoundError(Exception):
@@ -54,16 +54,27 @@ class ExecutionPolicyTests(unittest.TestCase):
         self.assertEqual(failure_policy.classify(PermissionError('izin gerekli')), failure_policy.PERMISSION)
         self.assertEqual(failure_policy.classify(ValueError('Tekil haber kaynağı doğrulanamadı')), failure_policy.SOURCE_INVALID)
 
-    def test_work_modes_are_do_first_without_forcing_spec(self):
-        self.assertEqual(work_modes.classify('Ayarları aç ve Bluetooth’u kapat'), 'do')
-        self.assertEqual(work_modes.classify('İstanbul güncel haberler nelerdir'), 'do')
-        self.assertEqual(work_modes.classify('HTTP nedir?'), 'chat')
-        self.assertEqual(work_modes.classify('Chrome nasıl açılır?'), 'chat')
-        self.assertEqual(work_modes.classify('Bu özellik için formal spec oluştur'), 'spec')
+    def test_execution_mode_is_action_first_without_forcing_spec(self):
+        # PR10c: çalışma modunu ayıran legacy sınıflandırıcı kaldırıldı. Aynı hüküm artık
+        # Understanding'in Capability/Chat kararı + tek sınıflandırılmış-istek kapısının devridir.
+        import test_brain_production_entry as fixtures
+        from modules.brain_contracts import RequestKind
 
-        answer = '{"intent":"chat","args":{}}'
-        routed = router.classify('Ayarları aç ve Bluetooth’u kapat', lambda *_: answer)
-        self.assertEqual(routed['intent'], 'task')
+        def door(text):
+            return fixtures.door(text, request_id='rid-mode')
+
+        for text in ('Ayarları aç ve Bluetooth’u kapat', 'İstanbul güncel haberler nelerdir'):
+            with self.subTest(action=text):
+                semantic, decision = door(text)
+                self.assertIs(semantic.request_kind, RequestKind.CAPABILITY, text)
+                self.assertEqual(decision['intent'], 'task', text)
+        for text in ('HTTP nedir?', 'Chrome nasıl açılır?'):
+            with self.subTest(explanation=text):
+                self.assertIs(door(text)[0].request_kind, RequestKind.CHAT, text)
+        # Formal spec kelimesi sohbete düşürmez: istek bütün cümlesiyle yürütücüye devredilir.
+        semantic, decision = door('Bu özellik için formal spec oluştur')
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(decision, {'intent': 'task', 'args': {'request': 'Bu özellik için formal spec oluştur'}})
 
     def test_rules_are_scoped_by_query(self):
         self.assertEqual(learning.rule_scope('Haber araştırırken gerçek kaynağı doğrula.'), 'research')

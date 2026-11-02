@@ -82,13 +82,19 @@ class BridgeModuleTests(unittest.TestCase):
         self.assertIs(live.TOOLS,live_tools.TOOLS)
 
     def test_classified_dispatch_preserves_document_session(self):
-        from modules import engine_intents
-        session=SimpleNamespace(last_doc=None)
-        runtime=SimpleNamespace(_resolve_doc=lambda path,command:(path,None), docs=SimpleNamespace(summarize=Mock(return_value='summary')), _session=lambda:session, _explicit_output_format=lambda command:None)
-        result=engine_intents.dispatch(runtime,'doc_summary',{'path':'document.pdf'},'özetle','özetle')
-        self.assertIn('summary',result)
-        self.assertEqual(session.last_doc,('summary','document.pdf','ozet'))
-        runtime.docs.summarize.assert_called_once_with('document.pdf')
+        # doc_* emekliliği: belge özeti artık canonical file_action/summarize. Yürütücü,
+        # Reference Resolver'ın verdiği exact yolu belgeyi özetleyene aynen taşır ve oturumu günceller.
+        from modules import engine_intents, nxapi
+        with tempfile.TemporaryDirectory() as folder:
+            document=Path(folder)/'document.pdf';document.write_bytes(b'%PDF-1.4 fixture')
+            session=SimpleNamespace(last_doc=None)
+            runtime=SimpleNamespace(profile=SimpleNamespace(slug='hamdi'),
+                docs=SimpleNamespace(summarize=Mock(return_value='summary')), _session=lambda:session)
+            with patch.object(nxapi,'allowed',return_value=document):
+                result=engine_intents.dispatch(runtime,'file_action',{'operation':'summarize','path':str(document)},'özetle','özetle')
+            self.assertIn('summary',result)
+            self.assertEqual(session.last_doc,('summary',str(document),'ozet'))
+            runtime.docs.summarize.assert_called_once_with(str(document))
 
     def test_dispatch_unknown_intent_falls_back_to_own_user_chat(self):
         from modules import engine_intents

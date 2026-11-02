@@ -219,7 +219,7 @@
    "kategori": "C — BRAIN / ROUTING",
    "katman": "brain_harness",
    "no": 31,
-   "not": "Brain deterministik; legacy router model çağrısı info.legacy_router.model_called ile izlenir.",
+   "not": "Brain deterministik; canonical kapı (State/Fast/Understanding/Core plan) bu satırda model çağırmaz.",
    "senaryo": "“merhaba”"
   },
   {

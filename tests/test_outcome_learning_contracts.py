@@ -4,7 +4,17 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import modules
-from modules import goal_tools, learning, learning_feedback, research_delivery, router, task_results
+from modules import goal_tools, learning, learning_feedback, outcome_contracts, research_delivery, task_results
+from modules.brain_contracts import RequestKind
+import test_brain_production_entry as fixtures
+
+
+def _door(text):
+    return fixtures.door(text)[1]
+
+
+def _door_full(text):
+    return fixtures.door(text)
 
 
 class FakeProfile:
@@ -16,22 +26,26 @@ class FakeProfile:
 
 class OutcomeLearningContracts(unittest.TestCase):
     def test_open_app_is_only_for_opening_itself(self):
-        self.assertTrue(router._open_only_request('Hesap Makinesini aç'))
-        self.assertTrue(router._open_only_request('Not Defterini aç'))
-        self.assertFalse(router._open_only_request('Ayarları aç ve Bluetooth’u kapat'))
-        self.assertFalse(router._open_only_request('Excel’i açıp A1 hücresine Merhaba yaz'))
-        self.assertFalse(router._open_only_request('Ayarları aç sonra gece ışığını etkinleştir'))
+        # Tek tanım outcome_contracts'ta yaşıyor; production'daki tüketici goal_tools'tur.
+        self.assertTrue(outcome_contracts.open_only_request('Hesap Makinesini aç'))
+        self.assertTrue(outcome_contracts.open_only_request('Not Defterini aç'))
+        self.assertFalse(outcome_contracts.open_only_request('Ayarları aç ve Bluetooth’u kapat'))
+        self.assertFalse(outcome_contracts.open_only_request('Excel’i açıp A1 hücresine Merhaba yaz'))
+        self.assertFalse(outcome_contracts.open_only_request('Ayarları aç sonra gece ışığını etkinleştir'))
 
-    def test_classifier_promotes_complex_open_to_task(self):
-        answer='{"intent":"open_app","args":{"name":"Ayarlar"}}'
-        result=router.classify('Ayarları aç ve Bluetooth’u kapat',lambda *_:answer)
-        self.assertEqual(result['intent'],'task')
-        self.assertIn('Ayarları aç',result['args']['request'])
+    def test_complex_open_is_handed_to_the_goal_runner_whole(self):
+        # PR10c: eski "model open_app derse task'a yükselt" kuralı yok. Anlam tek kapıda:
+        # Capability olan çok adımlı istek, doğrulanmış planı yoksa cümlenin tamamıyla devredilir.
+        decision = _door('Ayarları aç ve Bluetooth’u kapat')
+        self.assertEqual(decision['intent'], 'task')
+        self.assertEqual(decision['args'], {'request': 'Ayarları aç ve Bluetooth’u kapat'})
 
-    def test_classifier_keeps_plain_open_app(self):
-        answer='{"intent":"open_app","args":{"name":"Hesap Makinesi"}}'
-        result=router.classify('Hesap Makinesini aç',lambda *_:answer)
-        self.assertEqual(result['intent'],'open_app')
+    def test_plain_open_is_a_capability_the_app_handler_owns_first(self):
+        semantic, decision = _door_full('Hesap Makinesini aç')
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        # Kapı app'i tek başına açmayı reddetmez; Goal Runner cümlenin kendisini devralır.
+        self.assertEqual(decision['intent'], 'task')
+        self.assertTrue(outcome_contracts.open_only_request('Hesap Makinesini aç'))
 
     def test_goal_application_open_cannot_complete_larger_pc_goal(self):
         profile=SimpleNamespace(slug='alice')

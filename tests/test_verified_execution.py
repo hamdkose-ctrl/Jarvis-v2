@@ -1,5 +1,4 @@
 """Evidence, ambiguity and conversation ownership without a Windows machine."""
-import json
 import sys
 import types
 import time
@@ -13,7 +12,7 @@ if 'pyautogui' not in sys.modules:
     stub.__getattr__ = lambda _: MagicMock()
     sys.modules['pyautogui'] = stub
 
-from modules import system_control as pc, command_execution, engine_tools, requests_state
+from modules import system_control as pc, command_execution, requests_state
 from modules.session_state import SessionState
 
 
@@ -133,18 +132,29 @@ class ConversationExecutionTests(unittest.TestCase):
         self.assertIsNone(command_execution.continue_app(runtime, '1'))
         runtime.system_control.open_application.assert_not_called()
 
-    def test_route_carries_prior_target_and_pending_question(self):
-        session = SessionState(last_command='raporu düzelt', pending_request={'command': 'bunu iyi yap', 'question': 'Hangi rapor?'})
-        classifier = Mock(return_value={'intent': 'doc_insight', 'args': {}})
-        runtime = types.SimpleNamespace(_session=lambda: session, profile=types.SimpleNamespace(slug='alice'),
-            _recent_turns=Mock(return_value=[('assistant', 'Pompa raporu hazır')]), json=json,
-            intent_router=types.SimpleNamespace(classify=classifier), ask=Mock())
-        engine_tools.route(runtime, 'pompa raporu')
-        context = json.loads(classifier.call_args.kwargs['context'])
-        self.assertEqual(context['pending_request']['command'], 'bunu iyi yap')
-        self.assertIn('Pompa raporu', context['recent_turns'][0][1])
-        runtime._recent_turns.assert_called_once_with('alice', hours=2, limit=6)
-        self.assertIsNone(session.pending_request)
+    def test_prior_target_and_pending_question_reach_the_active_context(self):
+        # Eski engine_tools.route bu iki sinyali modele verir ve modeli beklerken oturum
+        # durumunu tüketirdi. Canonical gözlem onları provenance ile taşır; bekleyen isteği
+        # tüketmez, çünkü kararı model değil exact state gate verir.
+        from modules import brain_context
+        session = SessionState(last_command='raporu düzelt',
+                               pending_request={'command': 'bunu iyi yap', 'question': 'Hangi rapor?'})
+        store = types.SimpleNamespace(_states={'alice': session}, _lock=None)
+        context = brain_context.build_active_context(
+            owner='alice', request_id='r', session_store=store,
+            history_reader=lambda owner, limit: [{'id': 't1', 'owner': owner, 'role': 'assistant',
+                                                  'text': 'Pompa raporu hazır'}],
+            history_filter=lambda owner, rows: list(rows),
+            goal_reader=lambda owner: None, goal_is_open=lambda goal: False)
+        pending = {ref.id: ref.provenance for ref in context.pending_references}
+        self.assertEqual(pending['pending_request']['value'],
+                         {'command': 'bunu iyi yap', 'question': 'Hangi rapor?'})
+        recent = {ref.id: ref.provenance for ref in context.recent_references
+                  if ref.source == 'session_state'}
+        self.assertEqual(recent['last_command']['text'], 'raporu düzelt')
+        self.assertIn('Pompa raporu hazır', [ref.provenance['text'] for ref in context.recent_references
+                                             if ref.source == 'history'])
+        self.assertIsNotNone(session.pending_request)
 
 
 if __name__ == '__main__':

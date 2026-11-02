@@ -777,8 +777,7 @@
    "beklenen": "chat",
    "alan": "finans",
    "kaynak": "gpt-2026-10-17",
-   "bolum": "ayarlama",
-   "bilinen_hata": true
+   "bolum": "ayarlama"
   },
   {
    "metin": "Bir haberi doğrularken ilk neye bakarsın?",
@@ -858,8 +857,7 @@
    "beklenen": "chat",
    "alan": "haber",
    "kaynak": "gpt-2026-10-17",
-   "bolum": "ayarlama",
-   "bilinen_hata": true
+   "bolum": "ayarlama"
   },
   {
    "metin": "Mümkünse takvim bloklama yöntemini açıklar mısın?",
@@ -1353,8 +1351,7 @@
    "alan": "dosya",
    "kaynak": "gpt-2026-10-17",
    "bolum": "ayarlama",
-   "tartismali": "bugün belge çeviri yoluna (doc_translate) gidiyor; ekli belge yoksa hangisi belirsiz [Hamdi 2026-10-18: bağlam yoksa Jarvis sorsun -> clarify]",
-   "bilinen_hata": true
+   "tartismali": "doc_translate adayı; bağlamda ekli/niteli belge yoksa Brain hedefi çözemiyor ve Clarify üretiyor (PR10c)"
   },
   {
    "metin": "bu dosyada “bütçe” geçen yerleri bul",

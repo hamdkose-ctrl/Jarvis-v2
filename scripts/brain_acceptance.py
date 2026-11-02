@@ -15,8 +15,7 @@ Kaydedilen çıktı iki parçadır:
   request_kind, capability_hint, manifest id, relation, needs_input, handoff yolu,
   legacy route projeksiyonu).
 - ``info``: karşılaştırılmayan gözlem (temporal_need, confidence, ambiguity,
-  referanslar, BrainFeedback, clarification metni, legacy ``router.classify``
-  kararı, kaydedilen failure noktaları).
+  referanslar, BrainFeedback, clarification metni, kaydedilen failure noktaları).
 
 Karşılaştırma kuralı (senaryo başına):
 
@@ -28,7 +27,14 @@ Karşılaştırma kuralı (senaryo başına):
 - çalıştırma hatası → ``error``; baseline'da olup havuzda olmayan → ``missing``
 
 Kapı geçer: ``regression``, ``changed``, ``error`` ve ``missing`` yoksa. Bilinçli bir
-``changed`` sonucu ``--accept`` dosyasında gerekçesiyle kabul edilebilir.
+``changed`` sonucu ``--accept`` dosyasında gerekçesiyle kabul edilebilir; kabul dosyası
+verilmediyse repo'daki ``tests/data/brain_acceptance_accepted_changes.json`` okunur.
+Kabul izinleri ölü bırakılamaz: dosyada yazılı bir id bu koşuda ``changed`` üretmiyorsa
+kapı ``dead_permit`` ile kalır. Varsayılan repo kabul dosyasındaki canlı izinlerin diff
+kümesi ayrıca ``brain_acceptance_accepted_fingerprint.txt`` ile pinlenir; aynı senaryo
+başka bir ``changed`` karara kayarsa eski gerekçe onu yeşile çeviremez. Canlı izinlerin
+gerekçeleri append-only denetim kaydına ``tests/data/brain_acceptance_kabul_gecmisi.json``
+da birebir yazılır; kayıt tüketilmiş izinleri de taşıyabilir, canlı liste taşıyamaz.
 
 Kullanım::
 
@@ -65,6 +71,8 @@ CURATED_POOL = DATA / "brain_acceptance_senaryolari.json"
 ROUTING_CORPUS = DATA / "yonlendirme_cumleleri.json"
 INJECTION_CORPUS = DATA / "enjeksiyon_senaryolari.json"
 DEFAULT_BASELINE = DATA / "brain_acceptance_baseline.json"
+DEFAULT_ACCEPTED = DATA / "brain_acceptance_accepted_changes.json"
+DEFAULT_ACCEPTED_FINGERPRINT = DATA / "brain_acceptance_accepted_fingerprint.txt"
 MATRIX_POOL = DATA / "brain_acceptance_matris_160.json"
 PR10_MATRIX_POOL = DATA / "brain_acceptance_matris_pr10_160.json"
 # Matris dosyası → senaryo id öneki. Satırı "girdi" taşıyanlar Brain harness'inde koşar.
@@ -116,7 +124,6 @@ def _routing_scenarios(path: Path = ROUTING_CORPUS) -> list[dict]:
             "id": _stable_id("rota-", text),
             "group": "yonlendirme",
             "text": text,
-            "legacy_model": row.get("model"),
             "meta": {key: row[key] for key in ("beklenen", "alan", "bolum", "bilinen_hata", "tartismali", "kaynak") if key in row},
         }
         if not row.get("tartismali"):
@@ -254,29 +261,6 @@ def _job(setup: Mapping[str, Any]) -> dict | None:
             "updated": job.get("updated"), "stale": bool(job.get("stale", False))}
 
 
-def _legacy_router(text: str, legacy_model: str | None) -> dict | None:
-    """Eski ``router.classify`` kararını model taklidiyle ölçer; router silinmişse None."""
-    try:
-        from modules import router
-    except Exception:
-        return None
-    classify = getattr(router, "classify", None)
-    if not callable(classify):
-        return None
-    calls = []
-
-    def ask(*_args, **_kwargs):
-        calls.append(1)
-        return json.dumps({"intent": legacy_model, "args": {}}) if legacy_model else ""
-
-    try:
-        routed = classify(text, ask)
-    except Exception as exc:  # gözlem; kararı etkilemez
-        return {"error": type(exc).__name__}
-    return {"intent": routed.get("intent") if isinstance(routed, Mapping) else None,
-            "model_called": bool(calls)}
-
-
 def _outcome(stage: str | None, request_kind: str | None, needs_input: bool, handoff_path: str | None) -> str:
     if stage == "clarify" or needs_input or request_kind == "CLARIFY" or handoff_path == "clarify":
         return "clarify"
@@ -404,7 +388,6 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         "clarification": output if handoff_path in {"clarify", "context_control"} else None,
         "dispatch_intents": [intent for intent, _ in dispatch_calls],
         "feedback": brain_feedback.to_dict(),
-        "legacy_router": _legacy_router(text, scenario.get("legacy_model")),
         "failures": sorted(set(failures)),
     }
     return {"decision": decision, "info": info}
@@ -485,6 +468,37 @@ def verdict(scenario: Mapping[str, Any], base: Mapping[str, Any] | None, current
     return {"verdict": result, "lost": lost, "gained": gained, "diff": diff}
 
 
+def _accepted_diff_fingerprint(rows: Mapping[str, Mapping[str, Any]], accepted_ids: Iterable[str]) -> str:
+    """Canlı accepted kararlarının exact diff kümesini kararlı biçimde mühürler."""
+    payload = {
+        ident: rows[ident].get("diff", {})
+        for ident in sorted(accepted_ids)
+        if rows.get(ident, {}).get("verdict") == "accepted"
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _default_acceptance_fingerprint(accepted: Mapping[str, str]) -> str | None:
+    """Yalnız repo'daki varsayılan canlı izin kümesi fingerprint zorunluluğu taşır.
+
+    ``--accept`` geçici reviewer dosyasıdır; kalıcı kapı DEFAULT_ACCEPTED ile çalışır. Doğrudan
+    unit testlerde kullanılan sentetik kabul haritaları bu disk sözleşmesine bağlanmaz.
+    """
+    if not accepted or not DEFAULT_ACCEPTED.is_file():
+        return None
+    try:
+        committed = json.loads(DEFAULT_ACCEPTED.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return ""
+    if dict(accepted) != dict(committed):
+        return None
+    try:
+        return DEFAULT_ACCEPTED_FINGERPRINT.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def compare(pool: list[dict], baseline: Mapping[str, Any], current: Mapping[str, Any],
             accepted: Mapping[str, str] | None = None) -> dict:
     accepted = dict(accepted or {})
@@ -514,14 +528,28 @@ def compare(pool: list[dict], baseline: Mapping[str, Any], current: Mapping[str,
         expectation["baseline"] += int(bool(base_status) and all(base_status.values()))
         expectation["current"] += int(bool(cur_status) and all(cur_status.values()))
     failing = sorted(i for i, r in rows.items() if r["verdict"] in FAILING_VERDICTS)
+    # Ölü izin: kabul yazılı olduğu hâlde bu koşuda ``changed`` üretmeyen id. Havuzdan çıkmış
+    # ya da artık aynı/better olan karar için izin bırakılamaz; izin ile değişiklik eş olmalı.
+    dead = sorted(i for i in accepted if rows.get(i, {}).get("verdict") != "accepted")
+    actual_fingerprint = _accepted_diff_fingerprint(rows, accepted)
+    expected_fingerprint = _default_acceptance_fingerprint(accepted)
+    fingerprint_match = expected_fingerprint is None or (
+        bool(expected_fingerprint) and actual_fingerprint == expected_fingerprint
+    )
     return {
-        "passed": not failing,
+        "passed": not failing and not dead and fingerprint_match,
         "counts": dict(sorted(counts.items())),
         "expectations_met": expectation,
         "failing": failing,
+        "dead_permits": dead,
+        "accepted_diff_fingerprint": actual_fingerprint,
+        "accepted_diff_fingerprint_expected": expected_fingerprint,
+        "accepted_diff_fingerprint_match": fingerprint_match,
         "rows": rows,
         "baseline_head": baseline.get("git_head"),
         "current_head": current.get("git_head"),
+        "scenario_count": len(pool),
+        "baseline_scenario_count": len(base_rows),
     }
 
 
@@ -763,11 +791,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
-    accepted = json.loads(args.accept.read_text(encoding="utf-8")) if args.accept else {}
+    # Gerekçeli kabul izinleri repo'daki kabul dosyasındadır; --accept yalnız geçici gözden geçirme içindir.
+    accept_path = args.accept or (DEFAULT_ACCEPTED if DEFAULT_ACCEPTED.is_file() else None)
+    accepted = json.loads(accept_path.read_text(encoding="utf-8")) if accept_path else {}
     report = compare(pool, baseline, current, accepted)
     if args.report:
         _write_json(args.report, report)
-    print(json.dumps({k: report[k] for k in ("passed", "counts", "expectations_met")}, ensure_ascii=False, indent=1))
+    keys = ("passed", "counts", "expectations_met", "scenario_count", "baseline_scenario_count",
+            "dead_permits", "accepted_diff_fingerprint_match")
+    print(json.dumps({k: report[k] for k in keys}, ensure_ascii=False, indent=1))
+    if report["scenario_count"] < report["baseline_scenario_count"]:
+        print(f"Havuz daraldı: baseline {report['baseline_scenario_count']} → {report['scenario_count']} "
+              "senaryo. Kabul için senaryo sayısı hiç azalmamalı.")
+        return 1
+    if report["accepted_diff_fingerprint_match"] is False:
+        expected = report["accepted_diff_fingerprint_expected"] or "<missing>"
+        actual = report["accepted_diff_fingerprint"]
+        print(f"Accepted diff fingerprint drift: expected {expected}, current {actual}")
+    for ident in report["dead_permits"][:20]:
+        print(f"  dead_permit {ident} gerekçesi kabul dosyasında duruyor ama bu koşuda changed üretmedi.")
     for ident in report["failing"][:50]:
         row = report["rows"][ident]
         print(f"  {row['verdict']:10} {ident} {json.dumps(row.get('diff') or row.get('error') or '', ensure_ascii=False)}")

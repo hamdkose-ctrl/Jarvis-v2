@@ -12,6 +12,7 @@ class CommandContext:
     table_chat: Callable
     history_read: Callable
     study_intent: Callable
+    conversation_summary: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
 
@@ -27,8 +28,27 @@ def awaiting_input(session):
 
 
 def dispatch(context, command, normalized):
-    """Return None to let existing legacy handlers continue; preserve priority."""
-    from modules import app_actions
+    """Return None to let existing legacy handlers continue; preserve priority.
+
+    Erken kapıların sınıflandırması (PR10c kesiti F). Hiçbiri anlam üreten ikinci
+    bir Brain değildir; hepsi ya exact bir kalıbın ardındadır ya da açıkça kurulmuş
+    bir oturum durumunun devamıdır:
+      - visual_chat: görsel türünün kendi kalıp listesi (DOMAIN_OWNED_PROTOCOL).
+      - 'pc görevi/onayla/izin..': sabit önek (DETERMINISTIC_FAST_GATE).
+      - 'görev akışı …:': sabit önek; sözdizimi bozuksa sohbet yerine hata döner.
+      - pending_action: oturumda bekleyen onayın devamı, sahiplik + süre çitiyle.
+      - usage_meter / smart_router / system_doctor: tam cümle listesi (exact).
+      - task_agents: 'görev …' / 'kuyruk …' / 'hesap …' tam kalıpları; gerisinde None.
+      - pc_guide / developer: kullanıcının açtığı rehberlik/geliştirme oturumunun
+        devamı; kapanış ve kaçış kalıpları listede, oturum yoksa None.
+      - desktop_agent: 'pc görevi/pc onayla' veya izin kalıbı; değilse None.
+      - tablo: brain_gates.table_request — tek exact tanıyıcı, cümlenin tamamı istek olmalı.
+      - konuşma özeti: brain_gates.conversation_summary_request — aynı şekilde tek exact
+        tanıyıcı; hedef dosya değil bu oturumun sohbet tarihidir, yürütücü engine_output'tır.
+      - 'tamam/ok/teşekkürler': bekleyen onay yokken geçen kısa karşılık.
+      - study_intent: Hoca domain'inin kendi kapısı (hoca.handle).
+    """
+    from modules import app_actions, brain_gates
     owner, session = context.profile.slug, context.session
     from modules import visual_chat
     visual_result = visual_chat.handle(context, command, normalized)
@@ -86,8 +106,9 @@ def dispatch(context, command, normalized):
         session.pending_desktop = True if desktop_agent.awaiting(owner) else None
         session.speech_override = desktop_agent.spoken(owner)
         return result
-    if re.search(r'\b(tablo\w*|table|toplo)\b', normalized) and re.search(
-            r'\b(yap|çevir|cevir|dönüştür|donustur|ver|göster|goster)\b', normalized):
+    if brain_gates.conversation_summary_request(normalized):
+        return context.conversation_summary()
+    if brain_gates.table_request(normalized):
         return context.table_chat()
     if normalized.strip(' .!') in ('tamam', 'ok', 'teşekkürler', 'tesekkurler') and not awaiting_input(session):
         return 'Tamam.'

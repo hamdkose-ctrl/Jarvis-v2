@@ -62,6 +62,7 @@ def handle(runtime, command: str):
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
+        conversation_summary=runtime._conversation_summary,
         pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source)
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
@@ -425,10 +426,11 @@ def handle(runtime, command: str):
         command = runtime._typo_orig
         cmd_lower = runtime._tr_lower(command)
 
-    # ---- Karmaşık istekler: LLM ile niyet tespiti ----
+    # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
+    from modules import brain_entry
     try:
-        r = runtime.route(command)
+        r = brain_entry.route_command(runtime, command)
     except Exception:
         runtime._record_failure('main.py:handle')
         raise

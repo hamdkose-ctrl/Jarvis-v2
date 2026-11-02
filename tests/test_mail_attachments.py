@@ -126,7 +126,7 @@ class MailAttachmentTests(unittest.TestCase):
         from modules.session_state import SessionState
         from modules import task_agents
         self.messages.list.return_value.execute.return_value={'messages':[{'id':'M1'}]}
-        context=CommandContext(SimpleNamespace(slug='alice'),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock())
+        context=CommandContext(SimpleNamespace(slug='alice'),SessionState(),Mock(),Mock(),Mock(return_value=[]),Mock(),Mock())
         with tempfile.TemporaryDirectory() as folder,patch.object(task_agents,'STORE',Path(folder)),patch.object(llm,'ask',side_effect=AssertionError('no model')):
             result=dispatch(context,'İlk mailin eklerini göster','ilk mailin eklerini göster')
             self.assertIsNotNone(result);self.assertIn('note.txt',result)

@@ -155,46 +155,6 @@ def speak_allowed() -> bool:
         return True
 
 
-def _play_music(args: dict) -> str:
-    """muzik_cal: YouTube'da arayıp ilk sonucu açar (Spotify yalnızca açıkça istenir ve kuruluysa)."""
-    from modules import media
-    q = " ".join(str(args.get("sorgu") or "").split()) or "türkçe pop şarkılar"
-    plat = str(args.get("platform") or "").lower()
-    if "spotify" in plat:
-        if media.spotify_installed():
-            return media.spotify(q)
-        return "Spotify bu bilgisayarda kurulu değil; YouTube'dan açtım. " + media.youtube(q)
-    return media.youtube(q)
-
-
-def _task_place(args: dict) -> str | None:
-    """gorev_ekle: 'iş' / 'ev' ise devir listesinin anahtarı ("is"/"ev"), yer belirtilmediyse None (normal görev)."""
-    y = " ".join(str(args.get("yer") or "").split()).replace("İ", "i").replace("I", "ı").lower()
-    if y in {"iş", "is", "ış", "ıs", "işte", "iş yeri", "işyerinde"}:
-        return "is"
-    if y in {"ev", "evde", "ev işi"}:
-        return "ev"
-    return None
-
-
-def _add_handoff(args: dict) -> str:
-    """Ev-iş devir listesine ekler (Google Görevler). Hata olursa açık sebebi döndürür."""
-    from modules import handoff
-    text = " ".join(str(args.get("metin") or "").split())
-    where = _task_place(args)
-    if not text or where is None:
-        return "Geçersiz istek: yapılacak işi söylemedi. Kullanıcıya tekrar sor."
-    when = str(args.get("zaman") or "").lower()
-    due = handoff.due(when) if when.strip() else None
-    try:
-        handoff.add(text, where, due)
-    except Exception as e:                            # noqa: BLE001
-        _record_failure('modules/live.py:_add_handoff')
-        return "Yapamadım: " + str(handoff.explain_error(e))
-    gun = "" if due is None else f" ({due.strftime('%d.%m')})"
-    return f"{'İş' if where == 'is' else 'Ev'} listesine ekledim{gun}: {text}"
-
-
 def _fixes_prompt() -> str:
     fx = parse_fixes(load_settings().get("stt_fixes"))
     if not fx:
@@ -282,10 +242,11 @@ class Live:
     mic_on(): mikrofon açık mı. on_sleep(): model uyku moduna geçildiyse oturumdan sonra kapanmak için sorgulanır."""
 
     def __init__(self, handler, emit, prompt, mic_on=lambda: True, wants_sleep=lambda: False, stop_event=None,
-                 vocab=lambda: [], on_session_end=None, prepare_tool=None):
+                 vocab=lambda: [], on_session_end=None, prepare_tool=None, on_session_start=None):
         self.handler, self.emit, self.prompt, self.vocab = handler, emit, prompt, vocab
         self.prepare_tool = prepare_tool
         self.on_session_end = on_session_end          # konuşma bitince (rol, metin) listesiyle çağrılır: öğrenme
+        self.on_session_start = on_session_start      # bağlantı kurulunca: oturum olayının yazma sahibi
         self.mic_on, self.wants_sleep = mic_on, wants_sleep
         self.stop_event = stop_event or threading.Event()
         self.player = _Player()
@@ -534,6 +495,10 @@ class Live:
         from modules.live_session import end
         return end(self, convo, sys.modules[__name__])
 
+    def _session_opened(self) -> None:
+        from modules.live_session import opened
+        return opened(self, sys.modules[__name__])
+
     def _save_sent(self) -> None:
         """Tanı: bu oturumda modele giden sesin son SAVE_SECONDS saniyesini .jarvis\\son_ses.wav'a yazar (yalnızca bu
         bilgisayarda kalır, her oturumda üzerine yazılır). Dinleyince sesin net mi boğuk/cızırtılı mı olduğu anlaşılır.
@@ -733,9 +698,10 @@ _live: Live | None = None
 
 
 def start(handler, emit, prompt, mic_on=lambda: True, wants_sleep=lambda: False, stop_event=None,
-          vocab=lambda: [], on_session_end=None, prepare_tool=None) -> Live:
+          vocab=lambda: [], on_session_end=None, prepare_tool=None, on_session_start=None) -> Live:
     global _live
-    _live = Live(handler, emit, prompt, mic_on, wants_sleep, stop_event, vocab, on_session_end, prepare_tool)
+    _live = Live(handler, emit, prompt, mic_on, wants_sleep, stop_event, vocab, on_session_end, prepare_tool,
+                 on_session_start)
     _live.start()
     return _live
 
