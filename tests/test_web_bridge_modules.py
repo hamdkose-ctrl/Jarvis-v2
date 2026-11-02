@@ -104,7 +104,7 @@ class BridgeModuleTests(unittest.TestCase):
 
     def test_cancelled_dispatch_has_no_side_effect(self):
         from modules import engine_intents,requests_state
-        close=Mock();runtime=SimpleNamespace(system_control=SimpleNamespace(close_application=close))
+        set_volume=Mock();runtime=SimpleNamespace(system_control=SimpleNamespace(set_volume=set_volume))
         with patch.object(requests_state,'check',side_effect=requests_state.Cancelled('stop')):
-            with self.assertRaises(requests_state.Cancelled):engine_intents.dispatch(runtime,'close_app',{'name':'App'},'close app','close app')
-        close.assert_not_called()
+            with self.assertRaises(requests_state.Cancelled):engine_intents.dispatch(runtime,'level_set',{'property':'volume','level':30},'sesi 30 yap','sesi 30 yap')
+        set_volume.assert_not_called()

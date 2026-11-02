@@ -369,10 +369,12 @@ class GoalTests(unittest.TestCase):
 
 
 
-    def test_code_file_or_test_request_goes_to_execution_not_chat_snippet(self):
+    def test_execution_request_goes_to_execution_not_chat_snippet(self):
+        """The legacy 'code' case is gone; the canonical 'task' projection still never degrades an
+        execution request into a chat snippet."""
         from modules import engine_intents
         with patch.object(goals,'run',return_value='Çalıştırıldı') as execute:
-            result=engine_intents.dispatch(self.runtime,'code',{'task':'model rewrite'},'Toplama dosyasını oluştur ve test et','toplama dosyasını oluştur ve test et')
+            result=engine_intents.dispatch(self.runtime,'task',{'request':'model rewrite'},'Toplama dosyasını oluştur ve test et','toplama dosyasını oluştur ve test et')
         self.assertEqual(result,'Çalıştırıldı');execute.assert_called_once_with(self.runtime,'Toplama dosyasını oluştur ve test et')
 
     def test_rejected_before_effect_can_find_alternative_without_review_stop(self):

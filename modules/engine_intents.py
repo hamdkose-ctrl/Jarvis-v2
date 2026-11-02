@@ -29,12 +29,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 from modules import goal_executor
                 if not goal_executor.active():return goal_executor.run(runtime,command,initial_failure=str(result))
             return result
-        case "code":
-            import re
-            if re.search(r'\b(?:test|dosya|kaydet|çalıştır|calistir|doğrula|dogrula)\w*',command.casefold()):
-                from modules import goal_executor
-                return goal_executor.run(runtime,command)
-            return runtime.codegen.generate(a.get("task") or command, a.get("language", "python"))
         case "file_action":
             from pathlib import Path
             from modules import nxapi
@@ -101,17 +95,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime._session().speech_override = "Çeviri hazır, sohbet ekranına yazdım."
             return result
 
-        case "open_app":
-            name = str(a.get("name") or "").strip()
-            if not name:
-                return "Hangi uygulamayı açayım?"
-            if runtime.re.fullmatch(r"(?:g?mail|e-?posta|eposta)\w*", runtime._tr_lower(name).replace("'", "")):
-                if runtime.re.search(r"\b(?:iş|şirket|ofis)\b", cmd_lower):
-                    from modules import outlook
-                    return outlook.unread_mail()
-                return runtime.google_api.unread_mail()
-            from modules.command_execution import open_app
-            return open_app(runtime, name)
         case "clarify":
             question = str(a.get('question') or 'Hangi uygulama, dosya veya iş üzerinde ne yapmamı istiyorsun?')
             runtime._session().pending_request = {'command': command, 'question': question}
@@ -119,33 +102,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "task":
             from modules import goal_executor
             return goal_executor.run(runtime,command)
-        case "desktop_task":
-            target, goal = str(a.get('target') or '').strip(), str(a.get('goal') or '').strip()
-            if not target or not goal or '|' in target or '|' in goal:
-                return 'Hangi açık uygulamada ne yapmamı istiyorsun?'
-            # The router shortcut only normalizes the user's exact target.  It
-            # must not become a second native desktop executor: goal_executor
-            # owns the durable identity, Core prepare approval, fence and CAS
-            # evidence path before desktop_agent can be called.
-            from modules import goal_executor
-            return goal_executor.run(runtime, 'PC görevi: '+target+' | '+goal)
-        case "open_url":
-            url = str(a.get("url") or "").strip()
-            if not url:
-                return "Hangi adresi açayım?"
-            if (msg := runtime.privacy.blocked("web")):
-                return msg
-            runtime.privacy.audit("site açma", url)
-            if not runtime.re.match(r"https?://", url):
-                url = "https://" + url.lstrip("/")
-            runtime.system_control.open_new_tab(url)
-            return f"{url} adresini yeni sekmede açıyorum."
-        case "status":
-            return runtime.desktop.system_status()
-        case "screenshot":
-            return runtime.desktop.screenshot()
-        case "volume":
-            return runtime.desktop.volume(int(a.get("delta", 2)))
         case "level_set":
             runtime._session().pending_level = None   # yeni açık istek eski "ses mi parlaklık mı?" sorusunu geçersiz kılar
             level = max(0, min(100, int(a["level"])))
@@ -158,28 +114,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 _remember(runtime, "brightness")
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
             return "Ekran parlaklığını doğrulayamadım."
-        case "brightness":
-            try:
-                level = max(0, min(100, int(str(a.get("level")))))
-            except ValueError:
-                return "Parlaklığı yüzde kaç yapayım?"
-            if runtime.system_control.set_brightness_verified(level):
-                _remember(runtime, "brightness")
-                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını doğrulayamadım."
-        case "media":
-            if runtime.system_control.media_control(str(a.get("action") or "play_pause")):
-                return "Medya komutunu uyguladım."
-            return "Bu medya komutunu tanımadım."
-        case "pc_control":
-            action = a.get("action")
-            if action == "shutdown":
-                runtime._session().pending_confirm = "shutdown"
-                return "Bilgisayarı kapatmamı onaylıyor musun? Evet ya da hayır de."
-            if action == "cancel":
-                runtime.system_control.cancel_shutdown()
-                return "Zamanlanmış bilgisayar kapatma işlemini iptal ettim."
-            return "Bu bilgisayar komutunu tanımadım."
         case "screen_analyze":
             if (msg := runtime.privacy.blocked("screen")):
                 return msg
@@ -213,50 +147,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 runtime._record_failure('modules/engine_intents.py:learning_feedback')
             runtime.profile.feedback(a.get("positive", True), command)
             return "Teşekkürler, not aldım."
-        case "work":
-            from modules import worktrack
-            kind = str(a.get("kind") or "status")
-            proj = str(a.get("project") or "").strip().upper() or None
-            return worktrack.report(kind if kind in ("status", "reply", "dated", "priority", "weekly") else "status", proj)
-        case "send_phone":
-            from modules import filesend
-            what = str(a.get("file") or "").strip()
-            if not what:
-                return filesend.ASK
-            return filesend.handle(f"{what} telefonuma gönder") or filesend.ASK
-        case "close_app":
-            name = str(a.get("name") or "").strip()
-            if not name:
-                return "Hangi uygulamayı kapatayım?"
-            runtime._session().pending_confirm = {'action': 'close_app', 'name': name}
-            return (f"{name} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
-                    "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
-        case "handoff":
-            from modules import handoff
-            text = runtime._plain(str(a.get("text") or ""))
-            where = "is" if str(a.get("where") or "").lower().startswith(("is", "iş")) else "ev"
-            if not text:
-                return "Neyi listeye ekleyeyim?"
-            try:
-                handoff.add(text, where, handoff.due(str(a.get("when") or "").lower()))
-            except Exception as e:
-                runtime._record_failure('main.py:handle')
-                return handoff.explain_error(e)
-            return f"{handoff.NAME[where].capitalize()} listesine ekledim: {text}"
-        case "note":
-            text = runtime._plain(str(a.get("text") or ""))
-            if not text:
-                return "Neyi not edeyim?"
-            runtime._add_note(text)
-            return f"Not aldım: {text}"
-        case "mail":
-            which = str(a.get("which") or "hepsi").lower()
-            from modules import outlook
-            if which.startswith("is") or which.startswith("iş") or "outlook" in which:
-                return outlook.unread_mail()
-            if which == "gmail" or not outlook.installed():
-                return runtime.google_api.unread_mail()
-            return "Gmail: " + runtime.google_api.unread_mail() + " İş (Outlook): " + outlook.unread_mail()
         case "reminder":
             from modules import main_planner
             return main_planner.reminder_core(runtime, a, command, cmd_lower)
