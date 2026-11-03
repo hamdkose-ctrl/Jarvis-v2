@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import inspect
 import re
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -309,8 +310,11 @@ class TypoReadRecoveryTests(_RawDoorHarness):
                          "etki kanonical intent sahibi ve kullanıcının own cümlesiyle yürür")
         self.assertEqual(self.turn_texts, ["notlarımı göstr"])
         self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
-        self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops", "modules.selfctl",
+        self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops",
                                      "modules.media", "modules.notify", "modules.worktrack"), [])
+        seen = [arg for call in self.seams["modules.selfctl.handle"].call_args_list for arg in call.args]
+        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
+                         "salt-okuma kurtarması düzeltilmiş metni hiçbir efekt kapısına taşımaz")
         seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
         self.assertNotIn(typo.fix("notlarımı göstr"), seen,
                          "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
@@ -347,12 +351,13 @@ class TypoReadRecoveryTests(_RawDoorHarness):
 
     def test_the_recovery_is_consulted_only_when_the_spelling_actually_changed(self):
         counts = self._instrument()
-        for text in ("notlarımı göster", "saat kaç", "seviyeyi 40 yap", "selam"):
+        for text in ("notlarımı göster", "saat kaç", "takvimimi kontrol et",
+                     "görevlerimi listele", "selam"):
             with self.subTest(text=text):
                 self.door.reset_mock()
                 self.turn(text)
         self.assertEqual(counts["recovery"], 0,
-                         "doğru yazılmış veya kanonical sahibi olan turlar kurtarmaya inmez")
+                         "yazımı zaten doğru olan turlar kurtarmaya inmez: koşul düzeltmenin gerçekten fark üretmesi")
 
     def test_the_corrected_view_still_earns_no_write_open_or_organize_authority(self):
         counts = self._instrument()
@@ -372,14 +377,18 @@ class TypoReadRecoveryTests(_RawDoorHarness):
                 self.assertEqual(self.turn_texts, [text])
                 # Aynı cümle düzeltme hiç uygulanmasa da aynı sonucu verir: kurtarma yalnız okur.
                 self.door.reset_mock()
-                self.ctx.typo = SimpleNamespace(fix=lambda value: value)
+                identity = patch.object(self.ctx, "typo", SimpleNamespace(fix=lambda value: value))
+                identity.start()
+                self.addCleanup(identity.stop)
                 _entry2, out_identity, _handle2, _ = self.turn(text)
+                identity.stop()
                 self.assertEqual(out, out_identity)
                 self.assertLessEqual(counts["recovery"], len(corpus))
 
     def test_a_write_intent_proposed_for_the_corrected_view_is_refused(self):
         from modules import brain_core_map, brain_understanding
         counts = self._instrument()
+        intents = self._spy_dispatch()
         starter = patch.object(brain_understanding, "notes_read_view", Mock(return_value=("notes.write", {})))
         starter.start()
         self.addCleanup(starter.stop)
@@ -389,15 +398,18 @@ class TypoReadRecoveryTests(_RawDoorHarness):
         self.ctx.profile.data["items"] = [{"id": 1, "text": "silinecek not"}]
         _entry, out, _handle, _ = self.turn("notlarımı göstr")
         self.assertEqual(out, "CHAT", "yazma niyeti düzeltilmiş görünüm için asla yürümez")
-        self.assertEqual(self.silent("modules.selfctl", "modules.notify", "modules.worktrack"), [])
+        self.assertEqual([row[0] for row in intents], ["chat"], "kapalı set dışındaki intent dispatch edilmez")
+        self.assertEqual(counts["recovery"], 1)
+        self.assertEqual(self.ctx.profile.data["items"], [{"id": 1, "text": "silinecek not"}],
+                         "reddedilen yazma niyeti not defterine dokunmaz")
 
 
 def _typo_recovery_source() -> str:
     import ast as _ast
     tree = _ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
-    arm = next((node for node in tree.body
-                if isinstance(node, _ast.FunctionDef) and node.name == "typo_read_recovery"), None)
-    return "" if arm is None else _ast.unparse(arm)
+    return "\n\n".join(_ast.unparse(node) for node in tree.body
+                       if isinstance(node, _ast.FunctionDef)
+                       and node.name in {"typo_read_recovery", "typo_read_plan"})
 
 
 class TypoReadRecoveryGuardTests(unittest.TestCase):
@@ -405,21 +417,28 @@ class TypoReadRecoveryGuardTests(unittest.TestCase):
 
     def test_the_surface_is_called_once_from_the_command_seam_only(self):
         self.assertEqual(_source_calls("typo_read_recovery"), ["modules/engine_commands.py"])
+        self.assertEqual(_source_calls("typo_read_plan"), ["modules/engine_commands.py"])
         calls = [ast.unparse(node.func) for node in ast.walk(ast.parse(ENGINE_COMMANDS_SOURCE))
                  if isinstance(node, ast.Call)]
         self.assertEqual(calls.count("typo_read_recovery"), 1)
+        self.assertEqual(calls.count("typo_read_plan"), 1)
         self.assertEqual(calls.count("exact_admin_view"), 1)
         self.assertEqual(calls.count("runtime.typo.fix"), 1)
 
     def test_the_recovery_consults_only_named_read_grammars(self):
         source = _typo_recovery_source()
-        self.assertTrue(source, "typo_read_recovery tanımlı değil")
+        self.assertTrue(source, "typo_read_recovery/typo_read_plan tanımlı değil")
         called = {ast.unparse(node.func) for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)}
         self.assertEqual(called, {"brain_understanding.notes_read_view", "brain_core_map.core_plan",
                                   "main_planner.agenda_read_request", "runtime.datetime.now",
-                                  "runtime._agenda_text", "tasks.list_request", "tasks.list_text",
-                                  "dispatch"},
+                                  "runtime._agenda_text", "tasks.list_request", "tasks.list_text"},
                          f"kurtarma yüzeyi kapalı okuma seti dışına çıktı: {sorted(called)}")
+
+    def test_the_recovery_itself_selects_no_effect(self):
+        # Intent yürütme yetkisi seam'de kalır: kurtarma yüzeyi dispatch çağıran yeni bir üretici değildir.
+        from test_brain_orphan_dispatch_guard import _production_sources, dispatch_call_sites
+        self.assertEqual(set(dispatch_call_sites(_production_sources())),
+                         {"modules/brain_entry.py", "modules/engine_commands.py"})
 
     def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
         from modules import command_manager
@@ -428,6 +447,138 @@ class TypoReadRecoveryGuardTests(unittest.TestCase):
         self.assertTrue(command_manager._TYPO_READ_INTENTS.isdisjoint(
             {"reminder", "notes_write", "file_action", "app_open", "app_close", "task", "audio_action",
              "media_action", "screen_capture", "shutdown_request", "photo_action"}))
+
+
+class ExplanationFenceOwnershipTests(_RawDoorHarness):
+    """Çit, sahipliği olan turu domain kapısından çalamaz (§28 ile §25'in kesiştiği yer).
+
+    `brain_entry.explanation_turn()` kanonical EXPLANATION hükmünü legacy ham cephelerin önüne
+    çit olarak koyar. Çidin kendisi bir kazanç; ama bir domain kapısı bu cümleye *gerçekten*
+    yanıt veriyorsa çit onu yutamaz. Ölçüm (16 satır, taban = çit yok / tepe = çit açık, aynı
+    üretim zinciri): kullanıcıya görünen çıktının değiştiği tek satır yok. Bu sınıf o ölçümü
+    çifte kilitler — (a) Hoca/rehber/geliştirme kapısının aldığım her cümle kapıda kalır ve
+    yanıtı kazanır, (b) çidin ateşlediği her cümlede tabanın çıktısıyla tepe aynıdır."""
+
+    LESSON = {"topic": "Türev", "active": 1, "done": False,
+              "steps": [{"title": "Giriş", "goal": "kavram"},
+                        {"title": "Uygulama", "goal": "soru çözümü"}],
+              "pending": {"step": 1, "question": "Türevin tanımını söylesene."}}
+
+    def seed(self):
+        self.ctx.profile.data["hoca"] = {"lesson": dict(self.LESSON)}
+        self.ctx.profile.data["study"] = {"mode": "teacher",
+                                          "docs": [{"kind": "book", "title": "Fizik"}],
+                                          "progress": []}
+
+    def fence_of(self, text) -> bool:
+        from modules import requests_state
+        rid = "fence-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
+            with brain_entry.bind(entry):
+                return brain_entry.explanation_turn()
+
+    def without_fence(self, text):
+        """Tabanın kendisi: çit yokken aynı tur (db44bd0 öncesi sıra)."""
+        self.seed()
+        starter = patch.object(brain_entry, "explanation_turn", lambda: False)
+        starter.start()
+        try:
+            self.door.reset_mock()
+            return self.turn(text)[1]
+        finally:
+            starter.stop()
+
+    def with_fence(self, text, quiet: bool = False):
+        self.seed()
+        self.door.reset_mock()
+        if quiet:
+            # Taban turunun bıraktığı izler silinir: çit kapalıyken kapılar hiç çağrılmamalı.
+            for mock in self.seams.values():
+                mock.reset_mock()
+            self.ctx._study_intent.reset_mock()
+            for gate in RAW_DOORS:
+                getattr(self.ctx, gate).reset_mock()
+        return self.turn(text)[1]
+
+    def test_hoca_owning_sentences_stay_with_the_hoca_door(self):
+        # Ölçülen: bu cümlelerde çit ateşlenmiyor (state/fast/pend/hint ya da EXPLANATION değil)
+        # ve Hoca kapısının yanıtı kullanıcıya görünen sonuç.
+        self.ctx._study_intent = Mock(return_value="HOCA YANITI")
+        for text in ("hoca modu: hücre", "hücre konusunu öğret", "zayıf konularım", "cevap: eğim",
+                     "bilmiyorum", "bugün ne çalışayım", "hangi konuya çalışmalıyım", "çalışmaya başla"):
+            with self.subTest(text=text):
+                self.assertFalse(self.fence_of(text), "Hoca kapısının cümlesi açıklama turu sayılamaz")
+                self.ctx._study_intent.reset_mock()
+                out = self.with_fence(text)
+                self.assertEqual(out, "HOCA YANITI")
+                self.assertEqual(self.ctx._study_intent.call_args_list, [((text,), {})],
+                                 "kapı kendi ham cümlesiyle çağrılır")
+
+    def test_hoca_control_phrases_are_owned_by_the_canonical_state_gate(self):
+        for text in ("sonraki adıma geç", "dersi bitir"):
+            with self.subTest(text=text):
+                self.assertFalse(self.fence_of(text), "bounded state protokolü turu zaten aldı")
+
+    def test_the_domain_doors_still_receive_their_questions(self):
+        for seam, text in (("modules.pc_guide.handle", "ekrandaki klasör ne işe yarar?"),
+                           ("modules.developer.handle", "bu hata neden oluyor?")):
+            with self.subTest(text=text):
+                self.assertFalse(self.fence_of(text))
+                self.seams[seam].return_value = "KAPIT YANITI"
+                self.addCleanup(setattr, self.seams[seam], "return_value", None)
+                self.assertEqual(self.with_fence(text), "KAPIT YANITI")
+
+    def test_an_active_lesson_question_loses_nothing_to_the_fence(self):
+        # Ölçülen kapının hükmü: aktif derste serbest açıklama sorusuna Hoca yanıt üretmiyor
+        # (`hoca.handle` yalnız kontrol/cevap/zayıf konu sözcüklerinde yanıt verir). O yüzden
+        # çit bir kazanç taşımaz: taban ve tepe aynı kullanıcıya görünen sonuç.
+        for text in ("bu adımı biraz daha açıklar mısın?", "burada ne yapmam gerekiyor?",
+                     "fotosentez nedir"):
+            with self.subTest(text=text):
+                self.assertTrue(self.fence_of(text))
+                base = self.without_fence(text)
+                self.assertEqual(base, self.with_fence(text, quiet=True))
+                self.assertEqual(self.silent("modules.pc_guide", "modules.developer", "modules.diagnose"), [])
+                self.assertEqual(self.ctx._study_intent.call_args_list, [])
+
+    def test_the_fence_never_consumes_an_open_bounded_pending(self):
+        self.seed()
+        pending = {"kind": "app_open", "target": "Paint", "owner": self.ctx.profile.slug,
+                   "expires": time.time() + 60, "resume": {}}
+        self.ctx._session().pending_action = dict(pending)
+        self.addCleanup(setattr, self.ctx._session(), "pending_action", None)
+        _entry, out, _handle, _ = self.turn("notları temizle ne demek?")
+        self.assertEqual(out, self.without_fence("notları temizle ne demek?"))
+        self.assertEqual(self.ctx._session().pending_action, pending,
+                         "ilgisiz soru bekleyen onayı tüketmez")
+
+    def test_the_answer_to_an_open_pending_is_not_an_explanation_turn(self):
+        self.seed()
+        self.ctx._session().pending_action = {"kind": "app_open", "target": "Paint",
+                                              "owner": self.ctx.profile.slug,
+                                              "expires": time.time() + 60, "resume": {}}
+        self.addCleanup(setattr, self.ctx._session(), "pending_action", None)
+        self.assertFalse(self.fence_of("evet"), "onay yanıtı açıklama turu değildir")
+        from modules import requests_state
+        rid = "fence-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="evet", source="yazı")
+            with brain_entry.bind(entry):
+                self.assertTrue(brain_entry.pending_answer_owned("pending_action"))
+
+    def test_a_plain_explanation_reaches_no_raw_door(self):
+        self.seed()
+        for gate in RAW_DOORS:
+            getattr(self.ctx, gate).reset_mock()
+        self.door.reset_mock()
+        self.turn("fotosentez nedir")
+        self.assertEqual([call.args[0] for gate in RAW_DOORS
+                          for call in getattr(self.ctx, gate).call_args_list if call.args], [],
+                         "çit açıkken ham kapılar soruya hiç bakmaz")
+        self.assertEqual(self.ctx._study_intent.call_args_list, [])
 
 
 class MultiStepAuthorityTests(_RawDoorHarness):

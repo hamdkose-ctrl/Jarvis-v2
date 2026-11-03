@@ -58,6 +58,23 @@ def counts(profile) -> tuple[int, int]:
     return sum(1 for t in ts if t["done"]), len(ts)
 
 
+_LIST_REQUEST = re.compile(
+    r"^(?:görevlerim|yapılacaklar(?:ım)?|görev listem)(?:\s+neler|\s+ne)?$|görevlerimi (?:oku|say|listele)")
+
+
+def list_request(cmd_lower: str) -> bool:
+    """Tam-cümle görev listesi okuma grameri; tek sahibi burasıdır (yazma kollari hiç görmez)."""
+    return _LIST_REQUEST.search(cmd_lower) is not None
+
+
+def list_text(profile) -> str:
+    """Salt-okunan görev listesi cevabı: profil verisini değiştirmez."""
+    open_ = [x for x in _tasks(profile) if not x["done"]]
+    if not open_:
+        return "Açık görevin yok."
+    return f"{len(open_)} açık görevin var: " + "; ".join(x["text"] for x in open_[:8]) + "."
+
+
 def handle(cmd_lower: str, profile) -> str | None:
     t = cmd_lower.strip()
     m = re.match(r"^(?:yeni\s+görev\s*[:,]\s*|(?:yeni\s+)?görev\s+(?:ekle|oluştur|yaz)\s*[:,]?\s*)(.+)$", t) \
@@ -66,11 +83,8 @@ def handle(cmd_lower: str, profile) -> str | None:
     if m:
         task = add(profile, m.group(1))
         return f"Görev ekledim: {task['text']}."
-    if re.search(r"^(?:görevlerim|yapılacaklar(?:ım)?|görev listem)(?:\s+neler|\s+ne)?$|görevlerimi (?:oku|say|listele)", t):
-        open_ = [x for x in _tasks(profile) if not x["done"]]
-        if not open_:
-            return "Açık görevin yok."
-        return f"{len(open_)} açık görevin var: " + "; ".join(x["text"] for x in open_[:8]) + "."
+    if list_request(t):
+        return list_text(profile)
     m = re.match(r"^(.+?)\s+görevini\s+(?:bitir|tamamla|bitti|yaptım|işaretle)\w*$", t) \
         or re.match(r"^görev\w*\s+(.+?)\s+(?:bitti|tamamlandı)$", t)
     if m:

@@ -628,6 +628,16 @@ def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dic
     return {}
 
 
+def notes_read_view(text: str) -> tuple[str, dict[str, object]] | None:
+    """Tek tam-cümle salt-okuma önerisi: (capability, Core'a gidecek argümanlar) veya None.
+
+    Referans çözmez (bağlam ikinci kez yürütülmez): yalnız çoklu not listesi önerilebilir.
+    Öneri burada doğar, yetkiyi `brain_core_map.core_plan` doğrular; bu yüzden düzeltilmiş
+    bir yazım tek başına hiçbir yazma akışının sahibi olamaz."""
+    arguments = _notes_arguments(text, ())
+    return None if not arguments else ("notes.read", dict(arguments))
+
+
 def _note_window_label(text: str) -> str | None:
     for pattern, label in _NOTE_WINDOWS:
         if pattern.search(text) is not None:

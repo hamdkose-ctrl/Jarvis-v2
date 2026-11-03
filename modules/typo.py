@@ -2,9 +2,11 @@
 
 Yalnızca Jarvis'in komut kalıplarında geçen anahtar kelimeler düzeltilir (Türkçe ekler korunur: "maylerimi" -> "maillerimi"
 gibi değil, kökün başı eşleşirse "kotrolü" -> "kontrolü"). main.handle cümleyi her zaman kullanıcının yazdığı hâliyle
-yürütür; düzeltilmiş görünüm ikinci bir geçiş değildir ve tek yetkisi `command_manager.exact_admin_view` kapalı
-exact-admin kümesidir (BRAIN-MIG-042). Böylece doğru yazılmış cümleler hiç değişmez, bozulmuş bir görünüm de
-effekte giden bir kapıya ulaşamaz.
+yürütür; düzeltilmiş görünüm ikinci bir geçiş değildir ve yetkisi iki kapalı setle sınırlıdır:
+`command_manager.exact_admin_view` (tam-cümle admin tanıyıcıları) ve salt-okuma kurtarması
+`command_manager.typo_read_recovery` + `command_manager.typo_read_plan` (tam-cümle salt-okuma gramerleri;
+yürütme yetkisi intent'in kendi sahibindedir) (BRAIN-MIG-042). Böylece doğru yazılmış cümleler hiç değişmez, bozulmuş bir görünüm de
+yazma/organize/açma gibi effekte giden bir kapıya ulaşamaz.
 """
 import re
 

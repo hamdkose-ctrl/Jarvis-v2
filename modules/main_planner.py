@@ -901,6 +901,28 @@ def reminder_core(runtime, args: dict, command: str, cmd_lower: str) -> str:
     return reminder_create(runtime, args)
 
 
+_AGENDA_READ = re.compile('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*')
+_AGENDA_WRITE = re.compile('\\b(ekle|yaz|sil|not et)\\b')
+_AGENDA_OPEN = re.compile('\\b(aç|açar mısın|açsana|göster|getir)')
+
+
+def agenda_read_request(cmd_lower: str, now) -> tuple[str, str] | None:
+    """Tam-cümle takvim okuma grameri ("takvimime bak/kontrol et/aç") -> (gün, etiket) | None.
+
+    Yazma sözcüğü geçen cümle okuma değildir. Tek sahibi burasıdır: hem ham cümleyi yürüten
+    planner kolu hem de `command_manager.typo_read_recovery`nin salt-okuma kurtarması bu grameri
+    çağırır; gramer kopyalanmaz. Tarayıcı açtan alt biçim `agenda_open_request`te kalır — düzeltilmiş
+    bir yazım o etkiyi hiç seçemez."""
+    if _AGENDA_READ.search(cmd_lower) is None or _AGENDA_WRITE.search(cmd_lower) is not None:
+        return None
+    return now.strftime('%Y-%m-%d'), 'Bugün'
+
+
+def agenda_open_request(cmd_lower: str) -> bool:
+    """Okuma gramerinin tarayıcı açan alt biçimi; etki yetkisi yalnız ham cümlede kalır."""
+    return _AGENDA_OPEN.search(cmd_lower) is not None
+
+
 def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     """Not defteri ve takvim komutları (kullanıcıya özel)."""
     now = runtime.datetime.now()
@@ -955,9 +977,10 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     if reminder_parse.is_creation_request(cmd_lower):
         core = _CORE_REMINDER.get()
         return reminder_create(runtime, core if core is not None else reminder_parse.parse(command, now))
-    if runtime.re.search('\\btakvim\\w*\\s+(?:aç|açar mısın|açsana|göster|getir)\\w*|\\btakvim\\w*\\s+(?:bak|kontrol)\\w*', cmd_lower) and (not runtime.re.search('\\b(ekle|yaz|sil|not et)\\b', cmd_lower)):
-        day_txt = runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
-        if runtime.re.search('\\b(aç|açar mısın|açsana|göster|getir)', cmd_lower) and runtime.google_api._ready() is None:
+    read = agenda_read_request(cmd_lower, now)
+    if read is not None:
+        day_txt = runtime._agenda_text(*read)
+        if agenda_open_request(cmd_lower) and runtime.google_api._ready() is None:
             import webbrowser
             webbrowser.open('https://calendar.google.com')
             return "Google Takvim'i tarayıcıda açtım. " + day_txt

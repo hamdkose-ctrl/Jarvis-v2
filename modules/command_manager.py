@@ -144,14 +144,15 @@ def dispatch(context, command, normalized):
 
 
 def exact_admin_view(context, corrected):
-    """Yazım düzeltmesinin tek görebileceği kapalı küme (§25 A, BRAIN-MIG-042).
+    """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
     Buradaki beş tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
-    üyeliği veya sabit-olmayan `fullmatch` — ve ham cümleyi bu turn'de zaten reddettiği için
+    üyeliği veya sabit-olmayan `fullmatch` — ve ham cümle bu turn'de zaten reddedildiği için
     efekt en çok bir kez çalışır. Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü,
     görsel, Hoca, ek komutlar) listeye giremez: düzeltilmiş bir görünüm onların akışının sahibi
-    olamaz. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py::TypoSinglePassTests`."""
+    olamaz. Düzeltilmiş görünümün ikinci (ve son) yetkisi salt-okuma kurtarmasıdır:
+    `typo_read_recovery`. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`."""
     from modules import brain_gates, smart_router, system_doctor, usage_meter
     owner = context.profile.slug
     result = usage_meter.handle(owner, corrected)
@@ -167,6 +168,45 @@ def exact_admin_view(context, corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):
         return context.table_chat()
+    return None
+
+
+_TYPO_READ_INTENTS = frozenset({'notes_read'})
+
+
+def typo_read_plan(corrected):
+    """Düzeltilmiş tam cümlenin doğrulanmış salt-okuma planı: Core önerisi veya None.
+
+    Yürütme burada değildir: etki intent'in kendi sahibindedir ve planı seam'in kendisi
+    `engine_intents.dispatch`e verir (`engine_commands`). `core_plan`ın döndürdüğü intent
+    `_TYPO_READ_INTENTS` dışındaysa öneri reddedilir; yazma/organize/açma akışları bu kapalı
+    setten geçemez. Kanonical aday/referans/model geçişi yeniden çalışmaz."""
+    from modules import brain_core_map, brain_understanding
+    view = brain_understanding.notes_read_view(corrected)
+    if view is None:
+        return None
+    plan = brain_core_map.core_plan(*view)
+    return plan if plan is not None and plan[0] in _TYPO_READ_INTENTS else None
+
+
+def typo_read_recovery(context, runtime, corrected):
+    """Yazım düzeltmesinin salt-okuma kurtarması (metin sahipleri): iki tam-cümle grameri, sıfır etki.
+
+    Koşul (§25 A, BRAIN-MIG-042): bu turn'de kanonical State/Fast/Understanding, ham cepheler ve
+    `exact_admin_view` ham cümleyi hiçbir kol almadan geçirdi. Burası ikinci bir pipeline değildir —
+    candidates/references/model/State/Fast/Understanding yeniden çalışmaz, ham kapı düzeltilmiş metinle
+    yeniden yürümez. Yalnız *düzeltilmiş tam cümle* salt-okuma gramerlerine sorulur ve cevap o gramerin
+    kendi sahibinden yürür: `main_planner.agenda_read_request` + `runtime._agenda_text`,
+    `tasks.list_request` + `tasks.list_text`. Not listesinin kanonical Core intent'i plan olarak
+    `typo_read_plan`da durur; sahibi `engine_intents`tir. Tarayıcı açan alt biçim ve yazma/organize
+    akışları bu sette değildir. Kilidi
+    `tests/test_brain_pr3b_legacy_front_door_authority.py::TypoReadRecovery(Tests|GuardTests)`."""
+    from modules import main_planner, tasks
+    read = main_planner.agenda_read_request(corrected, runtime.datetime.now())
+    if read is not None:
+        return runtime._agenda_text(*read)
+    if tasks.list_request(corrected):
+        return tasks.list_text(context.profile)
     return None
 
 

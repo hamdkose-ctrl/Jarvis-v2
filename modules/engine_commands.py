@@ -7,8 +7,10 @@ def handle_request(runtime, command: str) -> str:
     """Public entry: bu turn'ün tek pipeline geçişi; aynı request'te ikinci bir geçiş çalışmaz.
 
     Yazım düzeltme artık yeniden deneme değildir (§25 A, BRAIN-MIG-042): kanonical tur ham cümleyi
-    bir kez yürütür, düzeltilmiş görünümün tek yetkisi
-    `command_manager.exact_admin_view` kapalı kümesidir."""
+    bir kez yürütür, düzeltilmiş görünümün yetkisi iki kapalı setle sınırlıdır —
+    `command_manager.exact_admin_view` (tam-cümle admin) ve `command_manager.typo_read_recovery` +
+    `command_manager.typo_read_plan` (tam-cümle salt-okuma gramerleri; plan yürütme yetkisi seam'de,
+    effect sahibi `engine_intents`tedir). Yazma, organize ve açma akışları düzeltilmiş metni görmez."""
     return handle(runtime, command)
 
 
@@ -33,6 +35,17 @@ def _canonical_tail(runtime, command: str, cmd_lower: str):
     return dispatch(runtime, intent, a, command, cmd_lower)
 
 
+def _read_plan_tail(runtime, plan, command: str, cmd_lower: str):
+    """Yazım kurtarmasının tek salt-okuma planı: yürütme intent'in kendi sahibindedir.
+
+    Seam buradan başka bir intent seçmez; `command_manager.typo_read_plan` kapalı salt-okuma
+    setinden geçmiş doğrulanmış Core önerisini taşır. Kullanıcının yazdığı asıl cümle
+    (`command`) provenance olarak sahibine geçer. `engine_intents.dispatch`in denetlenmiş tek
+    üretim çağıranı bu yüzeydir (BRAIN-MIG-042)."""
+    from modules.engine_intents import dispatch
+    return dispatch(runtime, plan[0], plan[1], command, cmd_lower)
+
+
 def handle(runtime, command: str):
 
     from modules import requests_state
@@ -44,7 +57,8 @@ def handle(runtime, command: str):
     # Web ayarları / telefon / geçici kullanıcı işlemleri istek bağlamını değiştirmiş olabilir.
     runtime._llm.set_user_context(runtime.profile.slug)
 
-    from modules.command_manager import CommandContext, dispatch, engine_control, exact_admin_view
+    from modules.command_manager import (CommandContext, dispatch, engine_control, exact_admin_view,
+                                         typo_read_plan, typo_read_recovery)
     from modules.confirmation import decision
     session = runtime._session()
     session.speech_override = None  # Only this command may choose its short spoken response.
@@ -317,12 +331,23 @@ def handle(runtime, command: str):
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
     # ---- Yazım hatası: ikinci bir pipeline geçişi yok (§25 A, BRAIN-MIG-042) ----
-    # Düzeltilmiş görünüm yalnız kapalı exact-admin kümesine gösterilir; ham cümle bu turn'de tüm
-    # kolları geçtığı için o kolun efekti en çok bir kez çalışır. Yapay zekaya her zaman
-    # kullanıcının yazdığı asıl cümle gider ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
-    view = exact_admin_view(context, runtime.typo.fix(cmd_lower))
+    # Düzeltilmiş görünüm iki kapalı sete gösterilir: exact-admin tanıyıcıları ve salt-okuma
+    # kurtarması. Ham cümle bu turn'de tüm kolları geçtiği için o kolun efekti en çok bir kez
+    # çalışır; yazma/organize/açma akışları düzeltilmiş metni hiçbir zaman görmez. Kurtarma hiçbir
+    # intent'i burada seçmez: not listesinin doğrulanmış salt-okuma planı effect'in kendi sahibine
+    # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
+    # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
+    corrected = runtime.typo.fix(cmd_lower)
+    view = exact_admin_view(context, corrected)
     if view is not None:
         return view
+    if corrected != cmd_lower:
+        recovered = typo_read_recovery(context, runtime, corrected)
+        if recovered is not None:
+            return recovered
+        plan = typo_read_plan(corrected)
+        if plan is not None:
+            return _read_plan_tail(runtime, plan, command, cmd_lower)
 
     # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
