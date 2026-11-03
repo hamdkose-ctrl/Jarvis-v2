@@ -12,6 +12,11 @@ LANGUAGES = (
     ('Arapça', 'arapca', 'Arapça', 'arapçaya', 'arapcaya', 'arapçadan', 'arapcadan'),
     ('Rusça', 'rusca', 'Rusça', 'rusçaya', 'ruscaya', 'rusçadan', 'ruscadan'),
     ('İspanyolca', 'ispanyolca', 'İspanyolca', 'ispanyolcaya', 'ispanyolcaya', 'ispanyolcadan', 'ispanyolcadan'),
+    # PR2 photo cutover must not narrow the pre-cutover photo translation targets.
+    ('Japonca', 'japonca', 'Japonca', 'japoncaya', 'japoncaya', 'japoncadan', 'japoncadan'),
+    ('Çince', 'cince', 'Çince', 'çinceye', 'cinceye', 'çinceden', 'cinceden'),
+    ('Korece', 'korece', 'Korece', 'koreceye', 'koreceye', 'koreceden', 'koreceden'),
+    ('İtalyanca', 'italyanca', 'İtalyanca', 'italyancaya', 'italyancaya', 'italyancadan', 'italyancadan'),
 )
 
 
@@ -76,6 +81,28 @@ class TranslationTargetsTests(unittest.TestCase):
 
     def test_curly_apostrophe_source_only_is_not_a_destination(self):
         self.assertEqual(target_from_command('Almanca’dan çevir'), '')
+
+    def test_every_parsed_target_is_a_registry_member(self):
+        from modules import translation_targets
+        names = set(translation_targets.display_names())
+        for _, _, expected, native_target, ascii_target, *_ in LANGUAGES:
+            for target in (native_target, ascii_target):
+                with self.subTest(target=target):
+                    parsed = target_from_command(f'Metni {target} çevir')
+                    self.assertEqual(parsed, expected)
+                    self.assertIn(parsed, names)
+                    self.assertTrue(translation_targets.is_supported_target(parsed))
+
+    def test_generic_text_translation_uses_the_same_target_registry(self):
+        from modules import translation_request
+        for _, _, expected, native_target, ascii_target, *_ in LANGUAGES:
+            for target in (native_target, ascii_target):
+                with self.subTest(target=target):
+                    request = translation_request.parse(f'Metni {target} çevir')
+                    self.assertIsNotNone(request)
+                    self.assertEqual(request.target, expected)
+                    # Hedef dil komut dilbilgisidir; çevrilecek metin sayılmaz.
+                    self.assertEqual(request.inline, '')
 
 
 if __name__ == '__main__':

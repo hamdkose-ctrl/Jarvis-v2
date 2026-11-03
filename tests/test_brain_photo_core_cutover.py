@@ -21,6 +21,7 @@ import test_brain_production_entry as fixtures  # noqa: F401  (import ordering f
 from modules import brain_context, brain_core_map, brain_entry, brain_precedence, desktop_agent
 from modules import engine_commands, engine_runtime, job_front, main_documents, personalization, requests_state
 from modules import brain_understanding
+from modules.brain_contracts import RequestKind
 from modules.brain_gates import GateObservation
 
 PHOTO = "C:/Users/Hamdi/Pictures/photo.jpg"
@@ -403,6 +404,137 @@ class PhotoFenceAndPrivacyTests(_PhotoHarness):
                 )
 
 
+class PhotoTranslationTargetParityTests(_PhotoHarness):
+    """The photo cutover must keep every target the pre-cutover photo path understood."""
+
+    TARGETS = (
+        ("Japoncaya çevir", "Japonca"),
+        ("Çinceye çevir", "Çince"),
+        ("Koreceye çevir", "Korece"),
+        ("İtalyancaya çevir", "İtalyanca"),
+    )
+
+    def test_initial_photo_translation_keeps_the_pre_cutover_targets(self):
+        for text, target in self.TARGETS:
+            with self.subTest(text=text):
+                self.ctx._pending_photo.clear()
+                self.executor.reset_mock()
+                entry, _rid = self.prepare_initial(text)
+                semantic = entry.understanding
+                self.assertEqual(semantic.capability_hint, brain_understanding.PHOTO_CAPABILITY)
+                self.assertEqual(semantic.arguments.get("operation"), "translate")
+                self.assertEqual(semantic.arguments.get("target"), target)
+                plan = brain_entry.core_plan(entry)
+                self.assertIsNotNone(plan, text)
+                self.assertEqual(plan[0], "photo_action")
+
+                out, feedback, _ = self.run_core(entry)
+
+                self.assertEqual(out, "PHOTO OK")
+                self.assertEqual(self.executor.call_args[0][2], "translate")
+                self.assertEqual(self.executor.call_args[1].get("target"), target)
+                self.ctx.chat.assert_not_called()
+                self.assertEqual(feedback.result_status, "handled")
+
+    def test_pending_photo_followup_keeps_the_pre_cutover_targets(self):
+        for text, target in self.TARGETS:
+            with self.subTest(text=text):
+                self.ctx._pending_photo.clear()
+                self.executor.reset_mock()
+                entry, _rid = self.prepare_pending(text)
+                semantic = entry.understanding
+                self.assertIs(semantic.conversation_relation,
+                              brain_understanding.ConversationRelation.CONTINUE_ACTIVE)
+                self.assertIn(brain_understanding.PHOTO_FOLLOWUP_CODE, semantic.reason_codes)
+                self.assertEqual(semantic.capability_hint, brain_understanding.PHOTO_CAPABILITY)
+                self.assertEqual(semantic.arguments.get("operation"), "translate")
+                self.assertEqual(semantic.arguments.get("target"), target)
+                plan = brain_entry.core_plan(entry)
+                self.assertIsNotNone(plan, text)
+                self.assertEqual(plan[0], "photo_action")
+
+                out, feedback, _ = self.run_core(entry)
+
+                self.assertEqual(out, "PHOTO OK")
+                self.assertEqual(self.executor.call_args[0][1], PHOTO)
+                self.assertEqual(self.executor.call_args[0][2], "translate")
+                self.assertEqual(self.executor.call_args[1].get("target"), target)
+                self.assertEqual(feedback.result_status, "handled")
+
+    def test_targetless_photo_translation_keeps_the_turkish_fallback(self):
+        entry, _rid = self.prepare_initial("çevir")
+        semantic = entry.understanding
+        self.assertEqual(semantic.capability_hint, brain_understanding.PHOTO_CAPABILITY)
+        self.assertEqual(semantic.arguments.get("operation"), "translate")
+        self.assertEqual(semantic.arguments.get("target"), "Türkçe")
+        plan = brain_entry.core_plan(entry)
+        self.assertIsNotNone(plan)
+
+        out, _feedback, _ = self.run_core(entry)
+
+        self.assertEqual(out, "PHOTO OK")
+        self.assertEqual(self.executor.call_args[1].get("target"), "Türkçe")
+
+    def test_unknown_explicit_language_never_silently_becomes_turkish(self):
+        for text in ("Klingoncaya çevir", "Klingoncaya tercüme et"):
+            for prepare in (self.prepare_initial, self.prepare_pending):
+                with self.subTest(text=text, prepare=prepare.__name__):
+                    self.ctx._pending_photo.clear()
+                    self.executor.reset_mock()
+                    entry, _rid = prepare(text)
+                    semantic = entry.understanding
+                    self.assertIs(semantic.request_kind, RequestKind.CLARIFY)
+                    self.assertIn(brain_understanding.PHOTO_TARGET_UNRESOLVED, semantic.ambiguities)
+                    self.assertNotEqual(semantic.arguments.get("target"), "Türkçe")
+                    self.assertIsNone(brain_entry.core_plan(entry))
+
+                    out, feedback, _ = self.run_core(entry)
+
+                    self.assertNotEqual(out, "PHOTO OK")
+                    self.assertIn("dil", out.casefold())
+                    self.executor.assert_not_called()
+                    self.ctx.ask_image.assert_not_called()
+                    self.ctx.chat.assert_not_called()
+                    self.assertEqual(feedback.result_status, "needs_input")
+
+
+class CanonicalTranslationTargetValidationTests(unittest.TestCase):
+    def test_core_photo_validator_accepts_exactly_the_canonical_registry(self):
+        from modules import translation_targets
+        for target in translation_targets.display_names():
+            with self.subTest(target=target):
+                plan = brain_core_map.core_plan(
+                    brain_understanding.PHOTO_CAPABILITY,
+                    {"operation": "translate", "photo": PHOTO, "target": target},
+                )
+                self.assertIsNotNone(plan)
+                self.assertEqual(plan[1]["target"], target)
+        for target in ("Klingonca", "japonca", "", None):
+            with self.subTest(target=target):
+                self.assertIsNone(brain_core_map.core_plan(
+                    brain_understanding.PHOTO_CAPABILITY,
+                    {"operation": "translate", "photo": PHOTO, "target": target},
+                ))
+
+    def test_core_file_validator_accepts_exactly_the_canonical_registry(self):
+        from modules import translation_targets
+        with patch.object(brain_core_map, "_validated_file_path", return_value="C:/Temp/report.docx"):
+            for target in translation_targets.display_names():
+                with self.subTest(target=target):
+                    plan = brain_core_map.core_plan(
+                        "files.read",
+                        {"operation": "translate", "path": "C:/Temp/report.docx", "target": target},
+                    )
+                    self.assertIsNotNone(plan)
+                    self.assertEqual(plan[1]["target"], target)
+            for target in ("Klingonca", "japonca", "", None):
+                with self.subTest(target=target):
+                    self.assertIsNone(brain_core_map.core_plan(
+                        "files.read",
+                        {"operation": "translate", "path": "C:/Temp/report.docx", "target": target},
+                    ))
+
+
 class PhotoStructuralGuardTests(unittest.TestCase):
     def test_engine_loop_never_calls_the_domain_executor_with_raw_text(self):
         tree = ast.parse(_source("engine_loop"))
@@ -469,6 +601,39 @@ class PhotoStructuralGuardTests(unittest.TestCase):
         runtime.system_control = SimpleNamespace(windows_settings=gate)
         runtime.emit = lambda *a, **k: None
         self.assertIsNone(brain_precedence.claim(runtime, "analiz et", ("photo_action", {"photo": PHOTO})))
+
+    def test_no_module_keeps_a_second_language_registry(self):
+        banned = {"_PHOTO_LANGUAGES", "_FILE_LANGUAGES", "_TRANSLATE_LANGS"}
+        for name in ("brain_core_map", "brain_understanding", "translation_request"):
+            tree = ast.parse(_source(name))
+            for node in tree.body:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                assigned = {item.id for item in targets if isinstance(item, ast.Name)}
+                with self.subTest(module=name, assigned=sorted(assigned & banned)):
+                    self.assertFalse(assigned & banned)
+                if "_TARGETS" in assigned:
+                    self.assertIsInstance(node.value, ast.Attribute)
+                    self.assertEqual(getattr(node.value.value, "id", ""), "translation_targets")
+
+    def test_photo_and_file_validators_use_the_canonical_membership_check(self):
+        from modules import translation_targets
+        tree = ast.parse(_source("brain_core_map"))
+        language_names = set(translation_targets.display_names())
+        for fn_name in ("_photo_args", "_file_args"):
+            fn = _function(tree, fn_name)
+            with self.subTest(function=fn_name):
+                self.assertIn("is_supported_target", {_attr_call(call) for call in _calls(fn)})
+                literals = {node.value for node in ast.walk(fn) if isinstance(node, ast.Constant)}
+                self.assertFalse(literals & language_names, "validator must not embed its own language list")
+
+    def test_photo_proposal_uses_the_canonical_target_parser(self):
+        tree = ast.parse(_source("brain_understanding"))
+        photo = _function(tree, "_photo_proposal")
+        attrs = {call.func.attr for call in _calls(photo) if isinstance(call.func, ast.Attribute)}
+        self.assertIn("target_from_command", attrs)
+        self.assertIn("explicit_target_unresolved", attrs)
 
 
 if __name__ == "__main__":

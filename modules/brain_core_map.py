@@ -13,6 +13,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
+from modules import translation_targets
 from modules.brain_understanding import (
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
@@ -36,6 +37,7 @@ from modules.brain_understanding import (
     NOTES_WRITE_CAPABILITY,
     PHOTO_CAPABILITY,
     PHOTO_TARGET_AMBIGUOUS,
+    PHOTO_TARGET_UNRESOLVED,
     RESEARCH_MAX_QUERY,
     SCREEN_CAPABILITY,
     TRANSLATE_SOURCE_MISSING,
@@ -46,7 +48,6 @@ from modules.brain_understanding import (
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
 
 _PHOTO_OPERATIONS = frozenset({"analyze", "translate", "note"})
-_PHOTO_LANGUAGES = frozenset({"Türkçe", "İngilizce", "Almanca", "Fransızca", "Arapça", "Rusça", "İspanyolca"})
 _PHOTO_ARGUMENTS = frozenset({"operation", "photo", "question", "target", "note_text", "original_text"})
 _PHOTO_QUESTION_MAX = 1000
 _PHOTO_NOTE_MAX = 16000
@@ -74,7 +75,7 @@ def _photo_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         return {"operation": operation, "photo": photo, "question": question}
     if operation == "translate":
         target = arguments.get("target")
-        if target not in _PHOTO_LANGUAGES:
+        if not translation_targets.is_supported_target(target):
             return None
         if arguments.get("question") or arguments.get("note_text"):
             return None
@@ -124,7 +125,6 @@ def _validated_file_path(value: Any) -> str | None:
 
 
 _FILE_OPS = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_OPEN, FILE_LOCATE, FILE_LIST, FILE_COMPARE, FILE_TRANSLATE, FILE_CONVERT})
-_FILE_LANGUAGES = frozenset({"Türkçe", "İngilizce", "Almanca", "Fransızca", "Arapça", "Rusça", "İspanyolca"})
 _FILE_FORMATS = frozenset({"xlsx", "docx", "pdf"})
 
 
@@ -149,7 +149,7 @@ def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     result: dict[str, Any] = {"operation": operation, "path": path}
     if operation == FILE_TRANSLATE:
         target = arguments.get("target")
-        if target not in _FILE_LANGUAGES:
+        if not translation_targets.is_supported_target(target):
             return None
         result["target"] = target
     elif operation == FILE_CONVERT:
@@ -412,6 +412,9 @@ def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str,
         return "Birden fazla açık soru bu cevaba uyuyor; hangisini kastettiğini netleştir."
     if PHOTO_TARGET_AMBIGUOUS in ambiguities:
         return "Birden fazla fotoğraf var; hangisiyle işlem yapmamı istediğini netleştir."
+    if PHOTO_TARGET_UNRESOLVED in ambiguities:
+        return ("Fotoğrafı hangi dile çevireyim? Desteklenen diller: "
+                + ", ".join(translation_targets.display_names()) + ".")
     if FILE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi dosyayı veya dosyaları kastettiğini netleştir; dosya adını yaz ya da dosyayı sohbete ekle."
     if FILE_TRANSLATION_TARGET_MISSING in ambiguities:

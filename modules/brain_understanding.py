@@ -1180,6 +1180,7 @@ _PHOTO_FOLLOWUP = re.compile(
 PHOTO_FOLLOWUP_CODE = "SEMANTIC_PHOTO_FOLLOWUP"
 PHOTO_CAPABILITY = "photo.action"
 PHOTO_TARGET_AMBIGUOUS = "photo target ambiguous"
+PHOTO_TARGET_UNRESOLVED = "photo target unresolved"
 _PHOTO_ANALYZE = "analyze"
 _PHOTO_TRANSLATE = "translate"
 _PHOTO_NOTE = "note"
@@ -1255,6 +1256,9 @@ def _photo_proposal(text: str, normalized: str, active_context: ActiveContext,
         return {"operation": _PHOTO_NOTE, "photo": path, "note_text": note_text}, None
     if re.search("çevir|tercüme|translate", normalized):
         from modules import translation_targets
+        # Explicit but unsupported destination is a clarify, never a silent Türkçe fallback.
+        if translation_targets.explicit_target_unresolved(text):
+            return None, PHOTO_TARGET_UNRESOLVED
         target = translation_targets.target_from_command(text) or "Türkçe"
         return {"operation": _PHOTO_TRANSLATE, "photo": path, "target": target}, None
     question = text.strip()

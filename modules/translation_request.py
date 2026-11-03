@@ -9,13 +9,17 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable, Mapping
 
 from modules.turkish_text import lower
+from modules import translation_targets
 
+# The language alternation and the target registry come from translation_targets; this module owns
+# only the command grammar and the source-selection rule.
+_LANGUAGE_ALTERNATION = "|".join(sorted(translation_targets.command_names(), key=len, reverse=True))
 # Yalnız başta/sonda komut; metin içindeki sıradan 'çeviri' sözcüğü komut sayılmaz.
-_ACTION = r"(?:(?:tam|tamamını|tümünü|metni|bu metni|bunu|yazdığımı|yazdigimi|önceki metni|son cevabını|son yanıtını|özeti)\s+)*(?:(?:türkçe|turkce|ingilizce|almanca|fransızca|arapça|rusça|ispanyolca)(?:ye|ya|e|a)?\s+)?(?:çevir(?:i)?|cevir(?:i)?|tercüme(?: et)?|translate)"
+_ACTION = (r"(?:(?:tam|tamamını|tümünü|metni|bu metni|bunu|yazdığımı|yazdigimi|önceki metni|son cevabını|son yanıtını|özeti)\s+)*"
+           r"(?:(?:" + _LANGUAGE_ALTERNATION + r")(?:ye|ya|e|a)?\s+)?"
+           r"(?:çevir(?:i)?|cevir(?:i)?|tercüme(?: et)?|translate)")
 _START = re.compile(r"^" + _ACTION + r"\s*[:：\n]+\s*(.+)$", re.I | re.S)
 _END = re.compile(r"(?:^|\s+)" + _ACTION + r"\s*[.!?]*$", re.I)
-_TARGETS = (('turkce', 'Türkçe'), ('ingilizce', 'İngilizce'), ('almanca', 'Almanca'), ('fransizca', 'Fransızca'),
-            ('arapca', 'Arapça'), ('rusca', 'Rusça'), ('ispanyolca', 'İspanyolca'))
 DEFAULT_TARGET = 'Kaynak Türkçe ise İngilizce; İngilizce ise Türkçe; diğer dillerde Türkçe'
 _GENERIC_INLINE = ('metni', 'bu metni', 'bunu', 'tam', 'tamamını', 'yazdığımı', 'yazdigimi')
 WINDOW = timedelta(hours=2)
@@ -66,7 +70,7 @@ def parse(command):
     low = unicodedata.normalize('NFKD', lower(instruction).replace('ı', 'i')).encode('ascii', 'ignore').decode()
     if re.search(r'\b(?:dosya\w*|belge\w*|pdf|word|excel|docx|xlsx)\b', lower(inline)) and len(inline) < 100:
         return None
-    target = next((label for key, label in _TARGETS if key in low), '') or DEFAULT_TARGET
+    target = translation_targets.target_from_command(command) or DEFAULT_TARGET
     return Request(target=target, inline=inline, wants_assistant=bool(re.search(r'son (?:cevab|yanit)|ozet', low)))
 
 
