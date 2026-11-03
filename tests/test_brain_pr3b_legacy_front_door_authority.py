@@ -18,6 +18,7 @@ import re
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import test_brain_pr3_raw_text_authority as pr3a
@@ -248,6 +249,185 @@ class TypoSinglePassTests(_RawDoorHarness):
                 seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
                 self.assertNotIn(typo.fix(text.casefold()), seen,
                                  "düzeltilmiş görünüm effekte giden bir kapıya ulaşamaz")
+
+
+class TypoReadRecoveryTests(_RawDoorHarness):
+    """Taban kazancı: ilk değerlendirme hiçbir kol almadan düştüğünde düzeltilmiş görünüm aynı
+    request içinde yalnız tam-cümle SALT-OKUMA gramerlerine gösterilir.
+
+    Ölçülen taban (`ea2f0b3`, 496 satır gerçek üretim zinciri, effekte giden her sınır Mock):
+    `_TypoRetry` 47 satırda ikinci geçişi çalıştırdı, 5 satırda kullanıcıya görünen sonuç değişti ve
+    ikinci geçişte mutasyonlu effect çağıran satır YOK (0). Ölçülen üç gerçek salt-okuma kazancı
+    burada kilitlenir — not listesi, günün programı, görev listesi. Yazma/organize/tarayıcı açma
+    kollara kazanç listesinde bulunmadığı için yine yetki yoktur.
+    """
+
+    def _instrument(self) -> dict[str, int]:
+        """State/Fast/Understanding ve kurtarma kapısı sarılır: ikinci bir geçiş sayılırsa görünür."""
+        from modules import command_manager
+        counts = {"understand": 0, "state": 0, "fast": 0, "recovery": 0}
+
+        def wrap(target, attr, key):
+            real = getattr(target, attr)
+
+            def spy(*args, **kwargs):
+                counts[key] += 1
+                return real(*args, **kwargs)
+
+            starter = patch.object(target, attr, spy)
+            starter.start()
+            self.addCleanup(starter.stop)
+
+        wrap(brain_entry, "understand", "understand")
+        wrap(brain_entry, "exact_state_gate", "state")
+        wrap(brain_entry, "deterministic_fast_gate", "fast")
+        wrap(command_manager, "typo_read_recovery", "recovery")
+        return counts
+
+    def _spy_dispatch(self) -> list[tuple]:
+        from modules import engine_intents
+        real = engine_intents.dispatch
+        calls: list[tuple] = []
+
+        def spy(runtime, intent, a, command, cmd_lower):
+            calls.append((intent, dict(a), command, cmd_lower))
+            return real(runtime, intent, a, command, cmd_lower)
+
+        starter = patch.object(engine_intents, "dispatch", spy)
+        starter.start()
+        self.addCleanup(starter.stop)
+        return calls
+
+    def test_a_misspelled_notes_read_still_reads_the_notes_once(self):
+        self.ctx.profile.data["items"] = [{"id": 1, "text": "irsaliye tarihi perşembe"}]
+        counts, intents = self._instrument(), self._spy_dispatch()
+        entry, out, _handle, _ = self.turn("notlarımı göstr")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT,
+                      "ham cümle kanonical olarak reddedildi; kurtarma ikinci pipeline değildir")
+        self.assertEqual(out, "Notların: 1) irsaliye tarihi perşembe", "tabanın kullanıcıya görünen sonucu")
+        self.assertEqual(intents, [("notes_read", {"which": "all"}, "notlarımı göstr", "notlarımı göstr")],
+                         "etki kanonical intent sahibi ve kullanıcının own cümlesiyle yürür")
+        self.assertEqual(self.turn_texts, ["notlarımı göstr"])
+        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
+        self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops", "modules.selfctl",
+                                     "modules.media", "modules.notify", "modules.worktrack"), [])
+        seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
+        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
+                         "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
+
+    def test_a_misspelled_agenda_read_still_answers_the_day_plan(self):
+        counts = self._instrument()
+        self.ctx._agenda_text = Mock(return_value="Bugün: 09:00 ders")
+        opener = Mock()
+        starter = patch("webbrowser.open", opener)
+        starter.start()
+        self.addCleanup(starter.stop)
+        entry, out, _handle, _ = self.turn("takvimimi kotrol et")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(out, "Bugün: 09:00 ders", "tabanın gün programı cevabı")
+        self.assertEqual(self.ctx._agenda_text.call_count, 1)
+        self.assertEqual(self.ctx._agenda_text.call_args.args[1], "Bugün")
+        opener.assert_not_called()  # tarayıcı açmak etkidi: düzeltilmiş görünüme kapalı
+        self.assertEqual(self.turn_texts, ["takvimimi kotrol et"])
+        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
+
+    def test_a_misspelled_task_list_read_still_answers_the_list(self):
+        from modules import tasks as tasks_module
+        counts = self._instrument()
+        self.ctx.tasks = tasks_module  # gerçek salt-okuma grameri, izole profil üzerinde
+        for attr in ("add", "toggle", "delete", "clear_done"):
+            starter = patch.object(tasks_module, attr, Mock(side_effect=AssertionError("görev yazma yetkisi yok")))
+            starter.start()
+            self.addCleanup(starter.stop)
+        entry, out, _handle, _ = self.turn("gorevlerimi listelee")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(out, "Açık görevin yok.", "tabanın görev listesi cevabı")
+        self.assertEqual(self.turn_texts, ["gorevlerimi listelee"])
+        self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
+
+    def test_the_recovery_is_consulted_only_when_the_spelling_actually_changed(self):
+        counts = self._instrument()
+        for text in ("notlarımı göster", "saat kaç", "seviyeyi 40 yap", "selam"):
+            with self.subTest(text=text):
+                self.door.reset_mock()
+                self.turn(text)
+        self.assertEqual(counts["recovery"], 0,
+                         "doğru yazılmış veya kanonical sahibi olan turlar kurtarmaya inmez")
+
+    def test_the_corrected_view_still_earns_no_write_open_or_organize_authority(self):
+        counts = self._instrument()
+        corpus = ("rapor hazırla", "aynı isimli dosyayı bul", "silah nasıl çalışır", "olarak başla",
+                  "masaüstünü duzenle", "indirilenleri duzenle", "notlari temizle",
+                  "yarinki randevularimi soyle", "bana hetırlat")
+        gates = (self.ctx._planner_command, self.ctx._file_command, self.ctx._user_command)
+        for text in corpus:
+            with self.subTest(text=text):
+                self.door.reset_mock()
+                for gate in gates:
+                    gate.reset_mock()
+                _entry, out, _handle, _ = self.turn(text)
+                corrected = typo.fix(text.casefold())
+                seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
+                self.assertNotIn(corrected, seen, "düzeltilmiş görünüm effekte giden ham kapıya ulaşamaz")
+                self.assertEqual(self.turn_texts, [text])
+                # Aynı cümle düzeltme hiç uygulanmasa da aynı sonucu verir: kurtarma yalnız okur.
+                self.door.reset_mock()
+                self.ctx.typo = SimpleNamespace(fix=lambda value: value)
+                _entry2, out_identity, _handle2, _ = self.turn(text)
+                self.assertEqual(out, out_identity)
+                self.assertLessEqual(counts["recovery"], len(corpus))
+
+    def test_a_write_intent_proposed_for_the_corrected_view_is_refused(self):
+        from modules import brain_core_map, brain_understanding
+        counts = self._instrument()
+        starter = patch.object(brain_understanding, "notes_read_view", Mock(return_value=("notes.write", {})))
+        starter.start()
+        self.addCleanup(starter.stop)
+        starter = patch.object(brain_core_map, "core_plan", Mock(return_value=("notes_write", {"operation": "delete"})))
+        starter.start()
+        self.addCleanup(starter.stop)
+        self.ctx.profile.data["items"] = [{"id": 1, "text": "silinecek not"}]
+        _entry, out, _handle, _ = self.turn("notlarımı göstr")
+        self.assertEqual(out, "CHAT", "yazma niyeti düzeltilmiş görünüm için asla yürümez")
+        self.assertEqual(self.silent("modules.selfctl", "modules.notify", "modules.worktrack"), [])
+
+
+def _typo_recovery_source() -> str:
+    import ast as _ast
+    tree = _ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
+    arm = next((node for node in tree.body
+                if isinstance(node, _ast.FunctionDef) and node.name == "typo_read_recovery"), None)
+    return "" if arm is None else _ast.unparse(arm)
+
+
+class TypoReadRecoveryGuardTests(unittest.TestCase):
+    """Kurtarma yüzeyi kapalı ve tek çağrılıdır: yeni bir mini-router doğarsa bu test düşer."""
+
+    def test_the_surface_is_called_once_from_the_command_seam_only(self):
+        self.assertEqual(_source_calls("typo_read_recovery"), ["modules/engine_commands.py"])
+        calls = [ast.unparse(node.func) for node in ast.walk(ast.parse(ENGINE_COMMANDS_SOURCE))
+                 if isinstance(node, ast.Call)]
+        self.assertEqual(calls.count("typo_read_recovery"), 1)
+        self.assertEqual(calls.count("exact_admin_view"), 1)
+        self.assertEqual(calls.count("runtime.typo.fix"), 1)
+
+    def test_the_recovery_consults_only_named_read_grammars(self):
+        source = _typo_recovery_source()
+        self.assertTrue(source, "typo_read_recovery tanımlı değil")
+        called = {ast.unparse(node.func) for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)}
+        self.assertEqual(called, {"brain_understanding.notes_read_view", "brain_core_map.core_plan",
+                                  "main_planner.agenda_read_request", "runtime.datetime.now",
+                                  "runtime._agenda_text", "tasks.list_request", "tasks.list_text",
+                                  "dispatch"},
+                         f"kurtarma yüzeyi kapalı okuma seti dışına çıktı: {sorted(called)}")
+
+    def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
+        from modules import command_manager
+        self.assertEqual(command_manager._TYPO_READ_INTENTS, frozenset({"notes_read"}))
+        self.assertNotIn("notes_write", command_manager._TYPO_READ_INTENTS)
+        self.assertTrue(command_manager._TYPO_READ_INTENTS.isdisjoint(
+            {"reminder", "notes_write", "file_action", "app_open", "app_close", "task", "audio_action",
+             "media_action", "screen_capture", "shutdown_request", "photo_action"}))
 
 
 class MultiStepAuthorityTests(_RawDoorHarness):
