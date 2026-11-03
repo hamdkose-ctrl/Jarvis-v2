@@ -14,7 +14,7 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 
 - "Jarvis'i sustur" (`ACT.mute`, `speak` bayrağı) yalnız Jarvis'in konuşmasını keser.
 - "Bilgisayarın tüm sesi" (`ACT.pcmute` → `pc_mute`, `pc_mute_state`) Windows ana ses çıkışını sessize alır.
-- Sesli komutla ses kapatma/açma `engine_commands` içindedir ("sessize al", "sesi kapat", "sessizi kaldır").
+- Sesli komutla ses kapatma/açma sözcükleri (`sessize al`, `sesi kapat`, `sessizi kaldır`, `sesi aç/yükselt/kıs`) artık `engine_commands` içinde ham metin dalı olarak çalışmıyor: capability'yi Understanding tipli `pc.audio.action` olarak bir kez seçer, `brain_core_map._audio_args` eylemi enum dışında olana karşı yeniden doğrular, etki tek Core `audio_action` yürütücüsündedir (`modules/engine_intents.py`). Yanıt metinleri ve durum tersine çevirmeme davranışı eskisiyle birebir aynı; durum okumaları (`is_muted`, `current_volume`, `set_mute`, `_volume_step`) yalnız o yürütücüde. Test: `tests/test_brain_pr3_raw_text_authority.py`.
 
 ## Video araçları kurulumu ve çalışma testi
 
