@@ -1818,12 +1818,18 @@ class BoundedJobLegacyGuardTests(unittest.TestCase):
 
 class StateAuthorityArchitectureGuardTests(unittest.TestCase):
     # (modül, fonksiyon, bekleyen alan, o alanın ham metni tüketen çağrısı)
+    # PR3A sonrası envanter, gerçek tüketicinin adını taşır:
+    # - `pending_level`: ham metin tükenisi fiziksel olarak kaldırıldı. Cevabın tek yürütücüsü
+    #   State Gate `session.pending_level.select` -> Core `level_set` (engine_intents.dispatch);
+    #   `engine_commands.handle` içinde `set_volume`/`set_brightness_verified` çağrısı artık
+    #   yapısal olarak yasak (test_brain_pr3_raw_text_authority.EngineCommandsStructuralGuardTests).
+    # - `pending_weather_location`: çitli tüketici yerinde, ama etkiyi ham cümle seçmiyor; çağrı
+    #   Core `weather` intent'ine giden `core_dispatch`.
     CONSUMERS = (
         (engine_commands, "handle", "pending_msg", "_message_step"),
         (engine_commands, "handle", "pending_confirm", "decision"),
-        (engine_commands, "handle", "pending_level", "set_volume"),
         (engine_commands, "handle", "pending_organize", "apply_organize"),
-        (engine_commands, "handle", "pending_weather_location", "_weather"),
+        (engine_commands, "handle", "pending_weather_location", "core_dispatch"),
         (engine_commands, "handle", None, "continue_app"),
         (main_planner, "_planner_command", "pending_event_title", "_reminder_or_confirm"),
         (command_manager, "dispatch", "pending_action", "continue_voice"),

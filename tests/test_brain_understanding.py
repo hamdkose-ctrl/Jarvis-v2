@@ -205,8 +205,11 @@ class BrainUnderstandingTests(unittest.TestCase):
             ("notlarımı göster", "notes.read"),
             ("hava nasıl", "weather.read"),
             ("iyi günler İngilizceye çevir", "text.translate"),
-            ("hava durumuna bak", None),
-            ("ekran görüntüsü al", None),
+            # Bu ikisi eskiden `None`'dı: etkiyi ham cümleyi ikinci kez yorumlayan legacy dal
+            # seçiyordu. PR3A'dan sonra capability'nin tek sahibi Understanding, etkinin tek
+            # sahibi Core intent (weather -> runtime._weather, screen_capture -> desktop.screenshot).
+            ("hava durumuna bak", "weather.read"),
+            ("ekran görüntüsü al", "screen.capture"),
         )
         for text, hint in cases:
             with self.subTest(text=text):

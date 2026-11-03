@@ -311,9 +311,15 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         self.assertTrue(entry.fast_gate is not None and entry.fast_gate.matched)
         self.assertIsNone(entry.understanding)
 
-        result = self._handle(runtime, entry, "saat kaç", dispatch=True)
+        # PR3A: fast cevabını legacy handler'ın ham `saat` dalı değil, Fast Gate'in tek Core
+        # planı (`fast_time`) üretir; legacy handler bu turda hiç çağrılmamalı.
+        handler = Mock(side_effect=AssertionError("fast turu legacy handler'a düşmez"))
+        with patch.object(brain_entry, "_install_core_guards", lambda _runtime: None), \
+             requests_state.activate(entry.owner, entry.request_id):
+            result, _feedback, _job = brain_entry.handoff(runtime, entry, handler, "saat kaç")
 
         self.assertTrue(str(result).startswith("Saat "), result)
+        handler.assert_not_called()
         runtime._photo_action.assert_not_called()
         self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
 

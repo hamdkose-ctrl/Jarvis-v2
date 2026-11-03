@@ -125,8 +125,9 @@ class EndToEndTests(unittest.TestCase):
         self.state.pending_level = 70
         entry, output, feedback, handler, dispatch = self.run_turn("ses")
         self.assertEqual((entry.stage, entry.state_gate.protocol), ("state", "session.pending_level.select"))
-        handler.assert_called_once_with("ses")
-        dispatch.assert_not_called()
+        # PR3A: cevabın etkisi legacy handler'ın ham metin dalından değil, tek sahibinden yürür.
+        handler.assert_not_called()
+        self.assertEqual(dispatch.call_args.args[1:3], ("level_set", {"property": "volume", "level": 70}))
 
     def test_unrelated_pending_state_does_not_veto_the_level_plan(self):
         self.state.pending_confirm = "shutdown"

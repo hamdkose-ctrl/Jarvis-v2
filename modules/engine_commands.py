@@ -3,10 +3,6 @@ from __future__ import annotations
 import contextlib
 
 
-def _remember(runtime, name: str) -> None:
-    from modules import session_state
-    session_state.remember_property(runtime._session(), name)
-
 class _TypoRetry:
     """Signal that the whole pipeline should run once more on the typo-corrected text."""
     __slots__ = ("text",)
@@ -42,7 +38,6 @@ def handle(runtime, command: str):
     # Web ayarları / telefon / geçici kullanıcı işlemleri istek bağlamını değiştirmiş olabilir.
     runtime._llm.set_user_context(runtime.profile.slug)
 
-    from modules import app_actions
     from modules.command_manager import CommandContext, dispatch, engine_control
     from modules.confirmation import decision
     session = runtime._session()
@@ -164,11 +159,8 @@ def handle(runtime, command: str):
     if file_reply is not None:
         return file_reply
 
-    mic_match = runtime.re.fullmatch(r"mikrofon(?:u|umu)?\s+(kapat|aç|ac)[ .!?]*", cmd_lower)
-    if mic_match:
-        return app_actions.voice({'action':'set_flag','params':{'name':'mic','value':mic_match.group(1)!='kapat'}}, runtime._session(), runtime.profile, runtime.emit, command)
-    if runtime.re.fullmatch(r"(?:hey jarvis|jarvis) uyandırmasını aç[ .!?]*", cmd_lower):
-        return app_actions.voice({'action':'settings_save','params':{'data':{'wake_word':'Jarvis','wake_aliases':['jarvis','hey jarvis','yarvis'],'wake_engine':'auto'}}}, runtime._session(), runtime.profile, runtime.emit, command)
+    # Mikrofon açma/kapama ve uyandırma kurulumu artık yalnız Fast Gate (`fast.mic.toggle`)
+    # ve Core `voice.wake.enable` intent'i üzerinden yürür; burada ham cümle kalıbı yoktur.
 
     # Jarvis'in kendi işlemleri: sayfa aç, güvenli ayarlar, yeniden başlat ("hafıza sayfasını aç", "cevap hızını sabırlı yap")
     windows_reply = runtime.system_control.windows_settings(cmd_lower)   # "wifi ayarlarını aç": Windows Ayarlar sayfası, Jarvis'in değil
@@ -199,21 +191,8 @@ def handle(runtime, command: str):
                 return "Tamam, vazgeçtim."
             # Başka bir komut geldi: onay iptal edildi, normal akışa devam et.
 
-    # "70 yap" gibi hedefi söylenmemiş sayı sorulduysa cevap: ses ya da parlaklık
-    if runtime._session().pending_level is not None:
-        if brain_entry.pending_answer_owned("pending_level"):
-            level, runtime._session().pending_level = runtime._session().pending_level, None
-            if runtime.re.search(r"\bses\w*", cmd_lower):
-                if runtime.system_control.set_volume(level):
-                    _remember(runtime, "volume")
-                    return f"Ses seviyesini yüzde {level} yaptım."
-                return "Ses seviyesini ayarlayamadım."
-            if runtime.re.search(r"parlak\w*|ekran", cmd_lower):
-                if runtime.system_control.set_brightness_verified(level):
-                    _remember(runtime, "brightness")
-                    return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-                return "Ekran parlaklığını doğrulayamadım."
-            # başka bir komut geldi: soru iptal, normal akışa devam
+    # "70 yap" sorusunun cevabı (ses mi parlaklık mı?) artık yalnız State Gate'in
+    # `session.pending_level.select` protokolünden Core `level_set` intent'ine gider.
 
     # Jarvis az önce şehir sorduysa bu mesaj şehir cevabıdır.
     if runtime._session().pending_weather_location:
@@ -226,7 +205,10 @@ def handle(runtime, command: str):
             if not command:
                 return "Hangi şehir için hava durumuna bakayım?"
             runtime._session().pending_weather_location = False
-            return runtime._weather(command)
+            # Cevabın şehir olduğuna buradaki ham cümle karar vermez: owner seçimi canonical.
+            # Etki tek sahibinden, Core `weather` intent'i üzerinden yürür.
+            from modules.engine_intents import dispatch as core_dispatch
+            return core_dispatch(runtime, "weather", {"location": command}, command, cmd_lower)
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
 
@@ -256,10 +238,8 @@ def handle(runtime, command: str):
         runtime.profile.save()
         return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
 
-    # Hava durumu: modele sormadan, şehir sormadan (konum otomatik)
-    if runtime.re.search(r"\bhava(\s+durumu)?\b|yağmur yağacak mı|yağmur var mı", cmd_lower) \
-            and not runtime.re.search(r"havalimanı|havaalanı|hava yolu|havai|hava kuvvet", cmd_lower):
-        return runtime._weather(runtime._city_in(cmd_lower))
+    # Hava durumu isteğini artık yalnız Understanding yakalar (`weather.read` / `weather.read.current`);
+    # buradaki ham `\bhava\b` kalıbı başka alan cümlelerini de seçiyordu.
 
     # Son analizi dosyaya kaydet ("çıktı al", "kaydet"); yeni analiz/çeviri isteği değilse
     if runtime._session().last_doc is not None and runtime.re.search(r"\bçıktı\w*|\bkaydet\w*", cmd_lower) \
@@ -268,122 +248,14 @@ def handle(runtime, command: str):
         saved = runtime.output.save_text_result(text, source, label)
         return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
 
-    # Nesnesi söylenmemiş işlem: yalnız gerçek bounded continuation sahibi olan fiiller sorulur
-    # (aç → app.open, kapat → app.close + mevcut onay hattı). sil/gönder/başlat için tek bir bounded
-    # owner yok; soru açıp cevabı yeni isteğe düşürmek yerine normal istek akışına bırakılır.
-    verb = runtime.re.fullmatch(r"(?:lütfen\s+)?(kapat|kapa|kapatır mısın|kapatsana|aç|açar mısın|açsana)",
-                                cmd_lower.strip(" .!?"))
-    if verb:
-        opening = verb.group(1).startswith("aç")
-        question = "Neyi açmamı istiyorsun?" if opening else "Neyi kapatmamı istiyorsun?"
-        proposal = {'kind': 'app.open' if opening else 'app.close'}
-        return app_actions.ask_clarification(runtime._session(), command, question, runtime.profile, proposal)
+    # Nesnesi söylenmemiş "aç/kapat" ve hedefi söylenmemiş sayı soruları artık Understanding'in
+    # typed eksikleri (APP_TARGET_MISSING / level target unspecified) üzerinden yazılır; buradan
+    # hiçbir netleştirme sorusu üretilmez.
 
-    # Hedefi söylenmemiş sayı ("70 yap"): modele sormadan hemen netleştir
-    bare = runtime.re.fullmatch(r"(yüzde\s*)?(\d{1,3})\s*(yap|olsun|ayarla|yapar mısın|yapsana)?", cmd_lower.strip(" .!"))
-    if bare:
-        level = min(int(bare.group(2)), 100)
-        session = runtime._session()
-        # Son ayarlanan özellik biliniyorsa onunla devam et; bilinmiyorsa eskisi gibi sor.
-        from modules import session_state
-        known = session_state.fresh_property(session)
-        if known == "volume" and runtime.system_control.set_volume(level):
-            session_state.remember_property(session, "volume")
-            return f"Ses seviyesini yüzde {level} yaptım."
-        if known == "brightness" and runtime.system_control.set_brightness_verified(level):
-            session_state.remember_property(session, "brightness")
-            return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-        session.pending_level = level
-        return f"Yüzde {level}, ses mi parlaklık mı?"
-
-    # Sessize alma / sessizden çıkarma: durum tersine çevrilmez ("sessize al" iki kez denince ses açılmaz)
-    if runtime.re.search(r"sessiz(?:i|den)\s+(?:kaldır|çık|aç)\w*|sesi\s+geri\s+(?:aç|getir)\w*|sessiz\s*modu?nu?\s+kapat\w*", cmd_lower):
-        if runtime.system_control.set_mute(False):
-            lvl = runtime.system_control.current_volume()
-            return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
-        return "Sesi açamadım."
-    if runtime.re.search(r"sessize\s+al\w*|\bsesi\s+(?:tamamen\s+)?(?:kapat|kes|sustur)\w*|bilgisayarı\s+sustur\w*|sesi\s+sıfırla", cmd_lower) \
-            and not runtime._numbers(cmd_lower):
-        if runtime.system_control.is_muted():
-            return "Ses zaten kapalı (sessizde)."
-        return "Sesi kapattım, bilgisayar sessizde." if runtime.system_control.set_mute(True) else "Sesi kapatamadım."
-
-    # Ses
-    if runtime.re.search(r"\bses(i|ini)?\b", cmd_lower):
-        nums = runtime._numbers(cmd_lower)
-        if nums:
-            level = min(nums[0], 100)
-            if runtime.system_control.set_volume(level):
-                _remember(runtime, "volume")
-                return f"Ses seviyesini yüzde {level} yaptım."
-            return "Ses seviyesini ayarlayamadım."
-        if any(w in cmd_lower for w in ("kapat", "sessiz", "sıfır", "sustur")):
-            if runtime.system_control.is_muted():
-                return "Ses zaten kapalı (sessizde)."
-            return "Sesi kapattım, bilgisayar sessizde." if runtime.system_control.set_mute(True) else "Sesi kapatamadım."
-        if any(w in cmd_lower for w in ("aç", "yükselt", "arttır", "artır")):
-            if runtime.system_control.is_muted() and "aç" in cmd_lower and not any(w in cmd_lower for w in ("yükselt", "arttır", "artır")):
-                runtime.system_control.set_mute(False)            # sessizdeyken "sesi aç": önce sessizi kaldır, seviye aynı kalsın
-                lvl = runtime.system_control.current_volume()
-                return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
-            return runtime._volume_step(15, "arttırdım")
-        if any(w in cmd_lower for w in ("kıs", "azalt", "düşür")):
-            return runtime._volume_step(-10, "kıstım")
-
-    # Ekran parlaklığı
-    if "parlakl" in cmd_lower or "ekran ışığı" in cmd_lower:
-        nums = runtime._numbers(cmd_lower)
-        if nums:
-            level = min(nums[0], 100)
-            if runtime.system_control.set_brightness_verified(level):
-                _remember(runtime, "brightness")
-                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını doğrulayamadım."
-
-    # Bilgisayarı kapatma: iptal komutu önce kontrol edilir, kapatma için onay istenir.
-    if "kapatmayı iptal" in cmd_lower or "kapatma iptal" in cmd_lower:
-        if runtime.system_control.cancel_shutdown() is False:
-            return 'Kapatma iptal komutu kabul edilmedi; iptal edildi demiyorum.'
-        return "Zamanlanmış bilgisayar kapatma işlemini iptal ettim."
-    if "bilgisayarı kapat" in cmd_lower or "pc kapat" in cmd_lower:
-        runtime._session().pending_confirm = "shutdown"
-        return "Bilgisayarı kapatmamı onaylıyor musun? Evet ya da hayır de."
-
-    if runtime.re.fullmatch(r"(?:konuşmayı|konuşmanı|cevabı|seslendirmeyi)\s+(?:durdur|kes|sustur)[.!?]*", cmd_lower):
-        runtime.requests_state.cancel(runtime.profile.slug)
-        runtime.voice.stop_speaking()
-        return "Konuşmayı durdurdum."
-
-    # Medya
-    if any(w in cmd_lower for w in ("müzik", "şarkı", "oynat", "durdur")):
-        if "sonraki" in cmd_lower or runtime._has_word(cmd_lower, "geç"):
-            runtime.system_control.media_control("next")
-            return "Sonraki şarkıya geçiliyor."
-        if "önceki" in cmd_lower:
-            runtime.system_control.media_control("prev")
-            return "Önceki şarkıya dönülüyor."
-        if "durdur" in cmd_lower or "oynat" in cmd_lower or runtime._has_word(cmd_lower, "kes"):
-            runtime.system_control.media_control("play_pause")
-            return "Medya oynatıcısı tetiklendi."
-
-    # Ekran görüntüsü (analiz isteği değilse)
-    wants_analysis = any(w in cmd_lower for w in ("analiz", "açıkla", "incele", "ne görüyor", "oku"))
-    if ("ekran görüntüsü" in cmd_lower or "screenshot" in cmd_lower or "resmini çek" in cmd_lower) \
-            and not wants_analysis:
-        return runtime.desktop.screenshot()
-
-    # Sistem durumu
-    if runtime.re.search(r"\bsaat (kaç|ne)\b|\bsaati\b", cmd_lower):
-        return "Saat " + runtime.time.strftime("%H:%M")
-    date_query = cmd_lower.strip(" .!?")
-    if runtime.re.fullmatch(
-            r"(?:bugün\s+)?(?:günlerden(?:\s+ne)?|hangi\s+gün(?:deyiz)?|ayın\s+kaçı|"
-            r"tarih(?:i)?(?:\s+(?:ne|nedir|kaç|söyle|göster))?|bugünün\s+tarihi)(?:\s+(?:ne|nedir|söyle|göster))?",
-            date_query):
-        return runtime.time.strftime("Bugün %d.%m.%Y, ") + runtime._DAYS[runtime.time.localtime().tm_wday]
-
-    if "sistem durumu" in cmd_lower or "bilgisayar durumu" in cmd_lower or "pc durumu" in cmd_lower:
-        return runtime.desktop.system_status()
+    # Ses, parlaklık, kapatma, medya, ekran görüntüsü ve saat/tarih/sistem durumu okumaları artık
+    # kendi sahiplerinde: Fast Gate (konuşma durdur, saat, tarih, sistem durumu), Understanding +
+    # Core intent (pc.audio.action, pc.media.action, screen.capture, pc.shutdown.*) ve pc.level.set.
+    # Bu yüzeyde ham cümleden seçilen tek bir etki kalmadı.
 
     # Döviz kuru ve çevirisi (modelsiz); kur sorusu değilse None döner ve akış devam eder
     from modules import finance
@@ -426,22 +298,8 @@ def handle(runtime, command: str):
         from modules import diagnose
         return diagnose.summary(diagnose.run(speak_flag=runtime.flags.get("speak")))
 
-    # Uygulama kapatma: "chrome'u kapat", "word'ü kapatır mısın" (pencereye nazikçe kapan denir)
-    cm = runtime.re.match(r"^(?:lütfen\s+)?(.+?)\s+(?:kapat|kapatır mısın|kapatsana|kapa)$", cmd_lower)
-    if cm and len(cm.group(1)) <= 40 and not runtime.re.match(
-            r"^(?:ses|sesi|müzi|bilgisayar|pc|mikrofon|kamera|ekran|paylaşım|ışı|wifi|internet|bluetooth|"
-            r"jarvis|telefon|uyku|alarm|hatırlat|bildirim|parlaklı)", cm.group(1)):
-        from modules.command_execution import request_close_app
-        return request_close_app(runtime, cm.group(1)) or "Uygulama adı doğrulanamadı; kapatma işlemi başlatılmadı."
-
-    # Uygulama açma: yalnızca izinli listedeki uygulamalar
-    om = runtime.re.match(r"^(?:lütfen\s+)?(.+?)\s+(?:aç|açar mısın|açsana|başlat|çalıştır)$", cmd_lower)
-    if om and len(om.group(1)) <= 40:
-        spoken = runtime.re.sub(r"\b(uygulamasını|programını|uygulamayı|programı|oyununu|oyunu)\b", "", om.group(1)).strip()
-        # Native app lookup must return real choices/failure, never a chat promise.
-        if not runtime.re.match(r'^(?:ses|sesi|ışık|ışı|kapı|kamera|mikrofon|wifi|bluetooth|internet|onu|bunu|şunu|o|bu|şu|az önceki)\b', spoken):
-            from modules.command_execution import open_app
-            return open_app(runtime, spoken)
+    # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
+    # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
     # ---- Yazım hatası: hiçbir kalıba uymadıysa düzeltilmiş hâliyle bir kez daha dene ("kotrol" -> "kontrol") ----
     pass  # Shared fields are held by the explicit engine context.

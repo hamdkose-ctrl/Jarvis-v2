@@ -28,14 +28,6 @@ def _weather(runtime, location: str | None = None) -> str:
     runtime._web_search(f"{city} hava durumu")
     return f"{city} için hava bilgisini alamadım, tarayıcıda aramasını açtım."
 
-def _city_in(runtime, cmd_lower: str) -> str | None:
-    """'izmir hava durumu', 'ankara'da hava nasıl' gibi cümlelerden şehri çıkarır."""
-    m = runtime.re.search(r"([a-zçğıöşü]{3,}?)(?:['’]?(?:da|de|ta|te|daki|deki|nın|nin))?\s+hava", cmd_lower)
-    if not m or m.group(1) in runtime._WEATHER_STOP:
-        return None
-    word = m.group(1)
-    return (word[:1].replace("i", "İ").replace("ı", "I").upper() + word[1:]) if word else None
-
 def _volume_step(runtime, delta: int, verb: str) -> str:
     new_vol = runtime.system_control.change_volume_by_delta(delta)
     if new_vol is None:

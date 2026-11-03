@@ -1,6 +1,5 @@
 import ast
 import engine_source
-import re
 import sys
 import unittest
 from types import SimpleNamespace
@@ -169,49 +168,39 @@ class SystemRuntimeGateTests(unittest.TestCase):
             'Parlaklığı 70 yap', 'parlaklığı 70 yap')
         self.assertEqual(output, 'Ekran parlaklığını doğrulayamadım.')
 
-    def test_close_app_grammar_proposes_confirmation_without_closing(self):
-        """The surviving owner asks for approval and never touches a window."""
-        for text, proposed in (
-                ('Not Defteri kapat', {'action': 'close_app', 'name': 'not defteri'}),
-                ('Paint kapatsana', {'action': 'close_app', 'name': 'paint'})):
-            with self.subTest(text=text):
-                session = SimpleNamespace(pending_confirm=None)
-                result = self.branch(text, session)
-                self.assertIn('kaydedilmemiş', result)
-                self.assertEqual(session.pending_confirm, proposed)
+    def test_close_app_effect_is_reachable_only_from_the_approval_branch(self):
+        """PR3A: ham close-app grammar dalı emekli; öneri Core intent'ten, etki onay dalından yürür.
 
-        for text in ('Sesi kapat', 'Müziği kapat', 'Bilgisayarı kapat', 'Ekranı kapat'):
-            with self.subTest(text=text):
-                session = SimpleNamespace(pending_confirm=None)
-                self.assertIsNone(self.branch(text, session))
-                self.assertIsNone(session.pending_confirm)
-
-    def test_close_app_proposal_keeps_the_effect_in_the_approval_branch(self):
-        """The grammar branch delegates to the shared confirmation owner; closing stays in approval."""
-        _, fn = self.proposal_branch()
-        source = ast.unparse(fn)
-        self.assertIn('request_close_app', source)
-        self.assertNotIn('close_application', source)
-
-    def proposal_branch(self):
+        Eskiden bu sınıf `engine_commands.handle` içindeki `(.+?) kapat` dalının AST gövdesini
+        çalıştırıp doğruluyordu. Dal kalktı; aynı hüküm artık production zincirinde ölçülüyor
+        (`tests/test_brain_pr3_raw_text_authority.py`). Buradaki ölçüm motor yüzeyinin kendisi:
+        öneri üreticisi yalnız doğrulanmış `app_close` intent dalında durur, pencere etkisi tek
+        ve `pending_confirm` sahibi içindedir."""
         handle = next(node for node in engine_source.tree().body
                       if isinstance(node, ast.FunctionDef) and node.name == 'handle')
-        start = next(i for i, item in enumerate(handle.body) if isinstance(item, ast.Assign)
-                     and any(getattr(target, 'id', '') == 'cm' for target in item.targets))
-        end = next(i for i, item in enumerate(handle.body[start + 1:], start + 1)
-                   if isinstance(item, ast.If))
-        body = handle.body[start:end + 1] + [ast.Return(value=ast.Constant(value=None))]
-        fn = ast.FunctionDef(name='close_app_proposal', args=ast.arguments(
-            posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
-            body=body, decorator_list=[])
-        return body, ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[]))
-
-    def branch(self, text, session):
-        module = self.proposal_branch()[1]
-        namespace = {'re': re, 'cmd_lower': text.lower(),
-                     'runtime': SimpleNamespace(_session=lambda: session)}
-        exec(compile(module, 'real-close-app-grammar', 'exec'), namespace)
-        return namespace['close_app_proposal']()
+        proposal = [node for node in ast.walk(handle)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == 'request_close_app']
+        self.assertEqual(len(proposal), 1)
+        statement = next(node for node in ast.walk(handle) if isinstance(node, ast.Match))
+        app_close = [case for case in statement.cases if ast.unparse(case.pattern) == "'app_close'"]
+        self.assertEqual(len(app_close), 1)
+        self.assertTrue(any(proposal[0] is row for row in ast.walk(app_close[0])))
+        effect = [node for node in ast.walk(handle)
+                  if isinstance(node, ast.Attribute) and node.attr == 'close_application']
+        self.assertEqual(len(effect), 1)
+        parent = {}
+        for node in ast.walk(handle):
+            for child in ast.iter_child_nodes(node):
+                parent[child] = node
+        gates = []
+        cursor = effect[0]
+        while cursor is not None:
+            if isinstance(cursor, ast.If):
+                gates.append(ast.unparse(cursor.test))
+            cursor = parent.get(cursor)
+        self.assertIn("_session().pending_confirm", gates)
+        self.assertIn("brain_entry.pending_answer_owned('pending_confirm')", gates)
 
     def test_brightness_verified_requires_set_then_exact_readback(self):
         from modules import system_control

@@ -100,7 +100,6 @@ _HANDLERS = {'engine_context': ('_get_profile',
                   '_has_word',
                   '_web_search',
                   '_weather',
-                  '_city_in',
                   '_volume_step',
                   '_file_command',
                   '_study_media_topic',
@@ -258,7 +257,6 @@ def _initialize(runtime):
     runtime._cur_source = ""
     runtime._cur_rid: str | None = None
     runtime._DAYS = ("pazartesi", "salı", "çarşamba", "perşembe", "cuma", "cumartesi", "pazar")
-    runtime._WEATHER_STOP = tr_speech_sets.WEATHER_STOP
     runtime._FILE_CMD = runtime.re.compile(r'^((?:"[^"]{4,400}"\s+){1,10})(.+)$')   # bir veya birden çok tırnaklı dosya yolu + istek
     runtime._IMG_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".heic")
     runtime._MEDIA_Q = runtime.re.compile(r"(görsel\w*|resim\w*|fotoğraf\w*|şekil\w*|video\w*|wikipedia\w*|vikipedi\w*|youtube\w*)"

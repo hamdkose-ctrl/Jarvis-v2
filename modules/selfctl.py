@@ -67,6 +67,11 @@ def _page(t: str) -> tuple[str, str, str] | None:
     return None
 
 
+def recognizes_page(text: str) -> bool:
+    """Yalnız tanıyıcı: cümle Jarvis'in kendi sayfasını mı açıyor? Hiçbir şey yayınlamaz."""
+    return _page(text) is not None
+
+
 # ------------------------------------------------------------------ ayarlar (güvenli liste)
 _SPEED = {"hızlı": 600, "dengeli": 1100, "normal": 1100, "sabırlı": 1700, "yavaş": 1700}
 

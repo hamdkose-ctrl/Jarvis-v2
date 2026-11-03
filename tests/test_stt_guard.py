@@ -219,13 +219,24 @@ class EngineClarifyTests(unittest.TestCase):
         return test_engine_modular.ModularEngineTests.context(self)
 
     def test_bare_verbs_ask_without_model_call(self):
+        # PR3A: soru engine_commands ham dalından değil üretim zincirinden çıkar.
+        # prepare → handoff clarify üretir; sorunun cevabı canonical pending_action'a yazılır.
+        import uuid
+        from modules import brain_entry
         context = self.context()
         context.route = Mock(side_effect=AssertionError('model çağrılmamalı'))
+        owner = context.profile.slug
         for text, word in (('kapat', 'kapatmamı'), ('Kapatır mısın?', 'kapatmamı'), ('aç', 'açmamı')):
-            with context.as_user(context.profile.name):
-                answer = context.handle(text)
+            rid = 'clarify-' + uuid.uuid4().hex[:8]
+            context.requests_state.register(owner, rid)
+            with context.as_user(context.profile.name), context.requests_state.activate(owner, rid), \
+                    patch.object(brain_entry, '_install_core_guards', lambda runtime: None):
+                entry = brain_entry.prepare(context, owner=owner, request_id=rid, text=text, source='yazı')
+                answer, _feedback, _job = brain_entry.handoff(context, entry, context.handle, text)
+            self.assertEqual(entry.understanding.ambiguities, ('APP_TARGET_MISSING',), text)
             self.assertEqual(answer, f'Neyi {word} istiyorsun?', text)
             self.assertEqual(context._session().pending_action['question'], answer)
+        context.route.assert_not_called()
 
     def test_bare_verbs_without_bounded_owner_fail_closed_without_model_call(self):
         context = self.context()
@@ -237,7 +248,7 @@ class EngineClarifyTests(unittest.TestCase):
             self.assertEqual(context._session().pending_action['question'], answer)
             self.assertNotIn('Neyi', answer, text)
 
-    def test_voice_and_typed_bare_close_reach_handler_without_direct_stop(self):
+    def test_voice_and_typed_bare_close_are_clarified_without_handler_or_stop(self):
         import contextlib
         import time
         from modules.brain_contracts import ActiveContext
@@ -247,6 +258,7 @@ class EngineClarifyTests(unittest.TestCase):
         owner = context.profile.name
         canonical_owner = context.profile.slug
         context.list_users = lambda: [owner]
+        context.route = Mock(side_effect=AssertionError('model çağrılmamalı'))
         context.requests_state = SimpleNamespace(is_cancelled=lambda *a: False, activate=lambda *a: contextlib.nullcontext())
 
         for text, source, rid in (('Kapat.', 'ses', 'voice-probe'), ('kapat', 'yazı', 'typed-probe')):
@@ -261,18 +273,23 @@ class EngineClarifyTests(unittest.TestCase):
             self.assertFalse(gate.matched, (text, source))
             self.assertNotEqual(gate.protocol, 'fast.engine.close')
 
-        seen = []
+        turns = []
+        answered = []
         test_terminated = {'value': False}
 
-        def clarify_and_stop_after_second(command):
-            seen.append((command, context._cur_source, context.stop_event.is_set()))
-            if len(seen) == 2:
-                test_terminated['value'] = True
-                context.stop_event.set()
-            return 'Neyi kapatmamı istiyorsun?'
+        def record(kind, *args):
+            # Üretim döngüsünün gerçek sinyali: cevabın 'assistant' olarak yayımlanması.
+            # Legacy handler'a kadar gelen bir tur bu sayaca hiç ulaşmaz.
+            if kind == 'user':
+                turns.append((args[0], context._cur_source, context.stop_event.is_set()))
+            elif kind == 'assistant':
+                answered.append(args[0])
+                if len(answered) == 2:
+                    test_terminated['value'] = True
+                    context.stop_event.set()
 
-        context.handle = Mock(side_effect=clarify_and_stop_after_second)
-        context.emit = Mock(); context._finalize = lambda text: text
+        context.handle = Mock(side_effect=AssertionError('legacy ham handler çağrılmamalı'))
+        context.emit = Mock(side_effect=record); context._finalize = lambda text: text
         context._start_hang_watch = Mock(); context.profile.log_agent = Mock()
         context.threading = SimpleNamespace(Thread=Mock(), Timer=Mock())
         context.time = SimpleNamespace(time=time.time, sleep=lambda seconds: None)
@@ -285,11 +302,11 @@ class EngineClarifyTests(unittest.TestCase):
             context.main(ui=Mock())
 
         self.assertEqual(
-            seen,
+            turns,
             [('Kapat.', 'ses', False), ('kapat', 'yazı', False)],
         )
-        self.assertEqual(context.handle.call_count, 2)
-        assistant = [call.args[1] for call in context.emit.call_args_list if call.args and call.args[0] == 'assistant']
-        self.assertEqual(assistant, ['Neyi kapatmamı istiyorsun?', 'Neyi kapatmamı istiyorsun?'])
+        self.assertEqual(answered, ['Neyi kapatmamı istiyorsun?', 'Neyi kapatmamı istiyorsun?'])
+        context.handle.assert_not_called()
+        context.route.assert_not_called()
         self.assertTrue(test_terminated['value'])
         self.assertTrue(context.stop_event.is_set())

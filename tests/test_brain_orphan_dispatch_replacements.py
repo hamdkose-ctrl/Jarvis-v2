@@ -4,6 +4,11 @@ test_brain_orphan_dispatch_guard.py proves the dispatcher no longer holds the ca
 here proves the same user behaviour still runs through its canonical owner. Each owner is called
 at its own seam with the device, browser, mail, transfer and task effects mocked, so nothing in
 this file touches a real PC.
+
+PR3A: the raw-text branches these tests used to execute inside `engine_commands.handle` are
+retired. The same sentences now reach the owner through the canonical plan
+(`brain_core_map.CORE_INTENTS` / `FAST_INTENTS` -> `engine_intents.dispatch`), so the seam under
+test is the validated intent, never the sentence.
 """
 import ast
 from pathlib import Path
@@ -15,7 +20,6 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-import engine_source
 from test_brain_orphan_dispatch_guard import REMOVED_LEGACY_INTENTS
 
 # A focused run can import config before any other test: keep that startup, including the
@@ -47,23 +51,17 @@ CAPABILITY_OWNERS = {
 }
 
 
-def run_branch(marker, namespace, guard_variable='skip'):
-    """Execute one real branch of engine_commands.handle, with its guard assignment when named."""
-    handle = next(node for node in engine_source.tree().body
-                  if isinstance(node, ast.FunctionDef) and node.name == 'handle')
-    start = 0
-    if guard_variable != 'skip':
-        start = next(i for i, item in enumerate(handle.body) if isinstance(item, ast.Assign)
-                     and any(getattr(target, 'id', '') == guard_variable for target in item.targets))
-    end = next(i for i, item in enumerate(handle.body[start:], start)
-               if isinstance(item, ast.If) and marker in ast.unparse(item))
-    branch = [handle.body[end]] if guard_variable == 'skip' else handle.body[start:end + 1]
-    body = branch + [ast.Return(value=ast.Constant(value=None))]
-    fn = ast.FunctionDef(name='run_branch', args=ast.arguments(
-        posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]), body=body, decorator_list=[])
-    exec(compile(ast.fix_missing_locations(
-        ast.Module(body=[fn], type_ignores=[])), 'real-engine-branch', 'exec'), namespace)
-    return namespace['run_branch']()
+def canonical_intent(text: str) -> str:
+    """The one intent this sentence's canonical turn hands to the dispatcher (no device runs)."""
+    import test_brain_production_entry as fixtures
+    _semantic, decision = fixtures.door(text)
+    return str(decision.get("intent") or "")
+
+
+def run_owner_intent(intent: str, args: dict, runtime, text: str) -> str:
+    """Execute the validated Core intent with the real dispatcher, at its owner seam."""
+    from modules.engine_intents import dispatch
+    return dispatch(runtime, intent, dict(args), text, text.casefold())
 
 
 class ReplacementOwnerInventoryTests(unittest.TestCase):
@@ -79,7 +77,7 @@ class ReplacementOwnerInventoryTests(unittest.TestCase):
 
 
 class AppAndWindowOwnerTests(unittest.TestCase):
-    def test_app_open_grammar_delegates_to_the_evidence_backed_launcher(self):
+    def test_validated_app_open_delegates_to_the_evidence_backed_launcher(self):
         opened = []
 
         def launch(_runtime, name):
@@ -87,17 +85,17 @@ class AppAndWindowOwnerTests(unittest.TestCase):
             return f"{name} açıldı."
 
         with patch('modules.command_execution.open_app', side_effect=launch):
-            out = run_branch('open_app(', {'cmd_lower': 'not defterini aç', 're': re,
-                                           'runtime': SimpleNamespace()}, guard_variable='om')
-        self.assertEqual(opened, ['not defterini'])
+            out = run_owner_intent('app_open', {'name': 'chrome'}, SimpleNamespace(),
+                                   'chrome uygulamasını aç')
+        self.assertEqual(canonical_intent('chrome uygulamasını aç'), 'app_open')
+        self.assertEqual(opened, ['chrome'])
         self.assertIn('açıldı', out)
 
-    def test_app_open_grammar_leaves_a_media_word_request_to_its_owner(self):
+    def test_a_sound_sentence_never_reaches_the_app_open_owner(self):
         launch = Mock()
         with patch('modules.command_execution.open_app', launch):
-            out = run_branch('open_app(', {'cmd_lower': 'sesi aç', 're': re,
-                                           'runtime': SimpleNamespace()}, guard_variable='om')
-        self.assertIsNone(out)
+            intent = canonical_intent('sesi aç')
+        self.assertEqual(intent, 'audio_action')
         launch.assert_not_called()
 
     def test_url_owner_opens_the_site_and_audits_it(self):
@@ -192,48 +190,54 @@ class VolumeAndSystemOwnerTests(unittest.TestCase):
                          'Ses seviyesini değiştiremedim.')
 
     def test_mute_owner_reports_the_state_the_device_confirms(self):
-        control = SimpleNamespace(is_muted=Mock(return_value=False), set_mute=Mock(return_value=True))
-        out = run_branch('set_mute(True)', {'cmd_lower': 'sessize al', 're': re, '_numbers': lambda _t: [],
-                                            'system_control': control})
+        control = SimpleNamespace(is_muted=Mock(return_value=False), set_mute=Mock(return_value=True),
+                                  current_volume=Mock(return_value=40))
+        out = run_owner_intent('audio_action', {'action': 'mute'},
+                               SimpleNamespace(system_control=control), 'sessize al')
+        self.assertEqual(canonical_intent('sessize al'), 'audio_action')
         self.assertIn('sessizde', out)
         control.set_mute.assert_called_once_with(True)
 
     def test_mute_owner_does_not_reverse_a_device_refusal(self):
         control = SimpleNamespace(is_muted=Mock(return_value=False), set_mute=Mock(return_value=False))
-        out = run_branch('set_mute(True)', {'cmd_lower': 'sessize al', 're': re, '_numbers': lambda _t: [],
-                                            'system_control': control})
+        out = run_owner_intent('audio_action', {'action': 'mute'},
+                               SimpleNamespace(system_control=control), 'sessize al')
         self.assertEqual(out, 'Sesi kapatamadım.')
 
-    def test_screenshot_fast_path_returns_the_desktop_owner_result(self):
+    def test_screenshot_owner_returns_the_desktop_result(self):
         desktop = SimpleNamespace(screenshot=Mock(return_value='Kaydedildi: C:\\Users\\hamdi\\ekran.png'))
-        out = run_branch('screenshot', {'cmd_lower': 'ekran görüntüsü al', 'desktop': desktop},
-                         guard_variable='wants_analysis')
+        out = run_owner_intent('screen_capture', {}, SimpleNamespace(desktop=desktop), 'ekran görüntüsü al')
+        self.assertEqual(canonical_intent('ekran görüntüsü al'), 'screen_capture')
         self.assertEqual(out, 'Kaydedildi: C:\\Users\\hamdi\\ekran.png')
         desktop.screenshot.assert_called_once_with()
 
-    def test_screen_reading_stays_with_the_analysis_owner(self):
+    def test_screen_reading_is_never_handed_to_the_capture_owner(self):
         desktop = SimpleNamespace(screenshot=Mock())
-        out = run_branch('screenshot', {'cmd_lower': 'ekran görüntüsündeki tabloyu oku', 'desktop': desktop},
-                         guard_variable='wants_analysis')
-        self.assertIsNone(out)
+        intent = canonical_intent('ekran görüntüsündeki tabloyu oku')
+        self.assertNotEqual(intent, 'screen_capture')
         desktop.screenshot.assert_not_called()
 
-    def test_status_fast_path_asks_the_desktop_owner(self):
+    def test_status_owner_asks_the_desktop(self):
         desktop = SimpleNamespace(system_status=Mock(return_value='CPU %13.1, RAM %56.3, pil %100'))
-        out = run_branch('system_status', {'cmd_lower': 'sistem durumu', 'desktop': desktop})
+        out = run_owner_intent('fast_system_status', {}, SimpleNamespace(desktop=desktop), 'sistem durumu')
         self.assertEqual(out, 'CPU %13.1, RAM %56.3, pil %100')
         desktop.system_status.assert_called_once_with()
 
-    def test_shutdown_grammar_proposes_confirmation_without_powering_off(self):
+    def test_shutdown_proposes_confirmation_without_powering_off(self):
         session = SimpleNamespace(pending_confirm=None)
-        out = run_branch("pending_confirm = 'shutdown'",
-                         {'cmd_lower': 'bilgisayarı kapat', '_session': lambda: session})
+        control = SimpleNamespace(shutdown_pc=Mock(side_effect=AssertionError('kapatma çalışmaz')))
+        out = run_owner_intent('shutdown_request', {},
+                               SimpleNamespace(_session=lambda: session, system_control=control),
+                               'bilgisayarı kapat')
+        self.assertEqual(canonical_intent('bilgisayarı kapat'), 'shutdown_request')
         self.assertEqual(session.pending_confirm, 'shutdown')
         self.assertIn('onaylıyor musun', out)
 
-    def test_shutdown_cancel_grammar_reaches_the_device_only(self):
+    def test_shutdown_cancel_reaches_the_device_only(self):
         control = SimpleNamespace(cancel_shutdown=Mock(return_value=True))
-        out = run_branch('cancel_shutdown', {'cmd_lower': 'kapatmayı iptal et', 'system_control': control})
+        out = run_owner_intent('shutdown_cancel', {}, SimpleNamespace(system_control=control),
+                               'kapatmayı iptal et')
+        self.assertEqual(canonical_intent('kapatmayı iptal'), 'shutdown_cancel')
         self.assertIn('iptal ettim', out)
         control.cancel_shutdown.assert_called_once_with()
 

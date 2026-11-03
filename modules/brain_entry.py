@@ -165,6 +165,8 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
 PENDING_PHOTO_TTL = 600
+# Cevabı fotoğrafın kendi bounded tüketicisi yazan state protokolü (PR3B'de Core'a taşınacak).
+PHOTO_CANCEL_PROTOCOL = "phone_photo.cancel"
 
 
 def _pending_photo_row(runtime: Any, owner: str) -> dict[str, Any] | None:
@@ -810,6 +812,38 @@ def photo_followup_owned(entry: EntryResult | None) -> bool:
             and _pending_photo_state(entry.active_context) is not None)
 
 
+def _photo_lifecycle(runtime: Any, entry: EntryResult) -> None:
+    """Düşme kuralının tek sahibi: fotoğrafa bağlı olmayan, kararı verilmiş turn pending'ı kapatır.
+
+    Kural yüzeyde (`engine_commands`) yaşıyordu ve legacy handler'a ulaşan turlerde çalışıyordu;
+    Fast/State lane'ları handler'ı dolaşınca hiç uygulanmaz oldu. Karar yine yalnız canonical
+    relation/protocol gözleminden gelir — burada ham cümle hiçbir fotoğraf işlemi seçmez.
+    İptal turn'ü fotoğrafın kendi sahibidir: mesajını bounded tüketici yazar, düşürülmez."""
+    try:
+        if getattr(runtime._session(), "_in_multi", False):
+            return
+    except Exception:
+        _record_failure("modules/brain_entry.py:photo_lifecycle_session")
+        return
+    photos = getattr(runtime, "_pending_photo", None)
+    if not isinstance(photos, dict):
+        return
+    row = photos.get(entry.owner)
+    if not isinstance(row, dict):
+        return
+    started = row.get("t")
+    # Süre sınırı lifecycle gözlemidir; `_pending_photo_row` ile aynı saati okur.
+    if not isinstance(started, (int, float)) or time.time() - started > PENDING_PHOTO_TTL:
+        photos.pop(entry.owner, None)
+        return
+    if photo_followup_owned(entry):
+        return
+    if entry.state_gate.matched and entry.state_gate.protocol == PHOTO_CANCEL_PROTOCOL:
+        return
+    if relation_decided(entry):
+        photos.pop(entry.owner, None)
+
+
 def _pending_owns_turn(entry: EntryResult) -> bool:
     """Does another open interaction canonically own this turn?
 
@@ -993,6 +1027,28 @@ def _file_access_refusal(entry: EntryResult) -> str | None:
     return "Bu dosyaya erişemiyorum (izinli klasörlerin dışında, bulunamıyor veya hedef doğrulanamadı); işlem başlatılmadı."
 
 
+def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]] | None:
+    """Bounded State/Fast turn'un tek Core planı: cümle yeniden sınıflandırılmaz.
+
+    Yalnız seçili protokol bilinir bir niyete bağlanır; diğer state/fast turları (engine control,
+    goal, job, onay, mesaj) eski sahiplerinde kalır. Bu plan front gate'leri dolaşır: tek bir
+    sınırlı cevabı vardır ve başka bir yüzeyin onu yeniden yorumlaması söz konusu değildir."""
+    gate = entry.state_gate
+    if gate.matched:
+        level: Any = None
+        if gate.protocol == brain_core_map.LEVEL_SELECT_PROTOCOL:
+            try:
+                level = runtime._session().pending_level
+            except Exception:
+                _record_failure("modules/brain_entry.py:pending_level_snapshot")
+                return None
+        return brain_core_map.state_plan(gate.protocol, gate.selection, level)
+    fast = entry.fast_gate
+    if fast is not None and fast.matched:
+        return brain_core_map.fast_plan(fast.protocol, fast.selection)
+    return None
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -1008,6 +1064,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         _LAST_FEEDBACK.set(row)
         return refusal, row, None
     plan = core_plan(entry)
+    lane_plan = None if plan is not None else _lane_plan(runtime, entry)
     if (plan is None and entry.understanding is not None
             and entry.understanding.capability_hint == PHOTO_CAPABILITY):
         # No validated Core photo plan means no photo effect, and no legacy raw-text fallback.
@@ -1024,12 +1081,17 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         with bind(entry):
             if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
+            _photo_lifecycle(runtime, entry)
             claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
             if claimed is not None:
                 output = claimed[1]
             elif plan is not None:
                 from modules.engine_intents import dispatch
                 output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
+            elif lane_plan is not None:
+                # Protokol cevapları tek sahibine gider: cümlenin kendisi hiçbir yerde yeniden sınıflandırılmaz.
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, lane_plan[0], dict(lane_plan[1]), command, command.casefold())
             elif _use_existing_handler(entry):
                 output = handler(command)
             elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
