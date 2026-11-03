@@ -34,6 +34,8 @@ from modules.brain_understanding import (
     NOTE_TARGET_UNRESOLVED,
     NOTE_UPDATE_TEXT_MISSING,
     NOTES_WRITE_CAPABILITY,
+    PHOTO_CAPABILITY,
+    PHOTO_TARGET_AMBIGUOUS,
     RESEARCH_MAX_QUERY,
     SCREEN_CAPABILITY,
     TRANSLATE_SOURCE_MISSING,
@@ -42,6 +44,47 @@ from modules.brain_understanding import (
 )
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
+
+_PHOTO_OPERATIONS = frozenset({"analyze", "translate", "note"})
+_PHOTO_LANGUAGES = frozenset({"Türkçe", "İngilizce", "Almanca", "Fransızca", "Arapça", "Rusça", "İspanyolca"})
+_PHOTO_ARGUMENTS = frozenset({"operation", "photo", "question", "target", "note_text", "original_text"})
+_PHOTO_QUESTION_MAX = 1000
+_PHOTO_NOTE_MAX = 16000
+_PHOTO_PATH_MAX = 4096
+
+
+def _photo_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core allowlist for a photo operation. Surface/user text supplies no executable field here."""
+    if set(arguments) - _PHOTO_ARGUMENTS:
+        return None
+    operation = arguments.get("operation")
+    photo = arguments.get("photo")
+    if operation not in _PHOTO_OPERATIONS:
+        return None
+    if not isinstance(photo, str) or not photo or "\x00" in photo or len(photo) > _PHOTO_PATH_MAX:
+        return None
+    if not (os.path.isabs(photo) or re.match(r"^[A-Za-z]:[\\/]", photo)):
+        return None
+    if operation == "analyze":
+        question = arguments.get("question", "")
+        if not isinstance(question, str) or len(question) > _PHOTO_QUESTION_MAX:
+            return None
+        if arguments.get("target") or arguments.get("note_text"):
+            return None
+        return {"operation": operation, "photo": photo, "question": question}
+    if operation == "translate":
+        target = arguments.get("target")
+        if target not in _PHOTO_LANGUAGES:
+            return None
+        if arguments.get("question") or arguments.get("note_text"):
+            return None
+        return {"operation": operation, "photo": photo, "target": target}
+    note_text = arguments.get("note_text")
+    if not isinstance(note_text, str) or not note_text.strip() or len(note_text) > _PHOTO_NOTE_MAX:
+        return None
+    if arguments.get("question") or arguments.get("target"):
+        return None
+    return {"operation": operation, "photo": photo, "note_text": note_text}
 
 
 def _level_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -331,6 +374,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     APP_OPEN_CAPABILITY: ("app_open", _app_open_args),
     # "Neyi kapatmamı istiyorsun?" yanıtı yalnız hedefi çözer; onay/izin/etki mevcut close hattında kalır.
     APP_CLOSE_CAPABILITY: ("app_close", _app_close_args),
+    # Fotoğraf işlemi yalnız Understanding'in typed önerisinden gelir; domain executor seçim yapmaz.
+    PHOTO_CAPABILITY: ("photo_action", _photo_args),
 }
 
 
@@ -365,6 +410,8 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
     if "MULTIPLE_PENDING_ANSWER_OWNERS" in ambiguities:
         return "Birden fazla açık soru bu cevaba uyuyor; hangisini kastettiğini netleştir."
+    if PHOTO_TARGET_AMBIGUOUS in ambiguities:
+        return "Birden fazla fotoğraf var; hangisiyle işlem yapmamı istediğini netleştir."
     if FILE_TARGET_UNRESOLVED in ambiguities:
         return "Hangi dosyayı veya dosyaları kastettiğini netleştir; dosya adını yaz ya da dosyayı sohbete ekle."
     if FILE_TRANSLATION_TARGET_MISSING in ambiguities:

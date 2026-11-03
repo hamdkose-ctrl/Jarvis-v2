@@ -243,6 +243,7 @@ def main(runtime, ui=None):
                         runtime.emit("user", "📷 Fotoğraf" + (f": {question}" if question else ""), source)
                         entry = None
                         awaiting_question = False
+                        feedback = None
                         try:
                             kept = runtime._keep_photo(img_path)
                             artifact = brain_entry.photo_artifact(owner=owner, request_id=rid, path=kept)
@@ -270,15 +271,19 @@ def main(runtime, ui=None):
                                                "ya da fotoğrafla ilgili sorunu yaz.")
                                     else:
                                         runtime.emit("state", "thinking")
-                                        out = runtime._photo_action(kept, question)
-                            fb = brain_entry.photo_feedback(entry, awaiting_question=awaiting_question)
+                                        out, feedback, _job = brain_entry.handoff(
+                                            runtime, entry, runtime.handle, question,
+                                        )
+                            fb = feedback or brain_entry.photo_feedback(entry, awaiting_question=awaiting_question)
                             runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
                         except Exception as exc:
                             runtime._record_failure('main.py:main')
                             from modules import failure_policy
                             message = failure_policy.user_message(exc)
                             if entry is not None:
-                                fb = brain_entry.photo_feedback(entry, error=exc)
+                                fb = brain_entry.last_feedback()
+                                if fb is None or fb.request_id != entry.request_id:
+                                    fb = brain_entry.photo_feedback(entry, error=exc)
                                 runtime.log.info("Brain handoff: rid=%s stage=%s feedback=%s reason=%s", rid, entry.stage, fb.result_status, fb.reason_code or "-")
                                 from modules import brain_failure_synthesis
                                 message = brain_failure_synthesis.synthesize(fb, exc)

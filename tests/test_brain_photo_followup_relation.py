@@ -126,34 +126,27 @@ class PhotoFollowupRelationTests(unittest.TestCase):
 
 
 class PhotoRelationConsumerTests(unittest.TestCase):
-    """open_pending_answer is the single consumer contract for the photo relation."""
+    """Core consumes the photo continuation; the legacy handler must not execute it."""
 
-    def test_continuation_with_canonical_state_opens_the_pending_photo(self):
+    def test_continuation_with_canonical_state_is_a_photo_followup(self):
         entry = entry_for(semantic=result(
             relation=ConversationRelation.CONTINUE_ACTIVE,
             codes=("ACTIVE_REFERENCE_CONTINUATION", PHOTO_FOLLOWUP_CODE),
         ))
-        self.assertTrue(brain_entry.open_pending_answer(entry, "pending_photo"))
-
-    def test_exact_cancel_is_the_state_gate_answer(self):
-        entry = entry_for(
-            semantic=None,
-            state=GateObservation(OWNER, RID, "state", True, "BOUNDED_PHOTO_CANCEL", "phone_photo.cancel", "cancel"),
-        )
-        self.assertTrue(brain_entry.open_pending_answer(entry, "pending_photo"))
+        self.assertTrue(brain_entry.photo_followup_owned(entry))
 
     def test_topic_change_and_correction_never_consume_the_photo(self):
         for relation in (ConversationRelation.TOPIC_CHANGE, ConversationRelation.CORRECTION):
             with self.subTest(relation=relation):
                 entry = entry_for(semantic=result(relation=relation, codes=(PHOTO_FOLLOWUP_CODE,)))
-                self.assertFalse(brain_entry.open_pending_answer(entry, "pending_photo"))
+                self.assertFalse(brain_entry.photo_followup_owned(entry))
 
     def test_continuation_without_a_pending_photo_does_not_consume_it(self):
         entry = entry_for(
             active=context(),
             semantic=result(relation=ConversationRelation.CONTINUE_ACTIVE, codes=(PHOTO_FOLLOWUP_CODE,)),
         )
-        self.assertFalse(brain_entry.open_pending_answer(entry, "pending_photo"))
+        self.assertFalse(brain_entry.photo_followup_owned(entry))
 
     def test_relation_decided_is_false_for_missing_multiple_and_understanding_less_entries(self):
         self.assertFalse(brain_entry.relation_decided(None))
@@ -246,16 +239,17 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
             stack.enter_context(brain_entry.bind(entry))
         return engine_commands.handle(runtime, text)
 
-    def test_handler_follows_the_canonical_photo_relation(self):
-        runtime, entry, _rid = self._entry_and_runtime("analiz et")
+    def test_handler_never_executes_photo_from_raw_text(self):
+        runtime, entry, _rid = self._entry_and_runtime("analiz et", steps=("fallback-step",))
         self.assertIs(entry.understanding.conversation_relation, ConversationRelation.CONTINUE_ACTIVE)
         self.assertTrue(any(ref.id == "pending_photo" for ref in entry.active_context.pending_references))
 
         result = self._handle(runtime, entry, "analiz et")
 
-        self.assertEqual(result, "PHOTO_ACTION")
-        runtime._photo_action.assert_called_once_with(PHOTO_PATH, "analiz et")
-        self.assertNotIn(runtime.profile.slug, runtime._pending_photo)
+        self.assertEqual(result, "CONTINUED")
+        runtime._photo_action.assert_not_called()
+        # Core plan yürütülmeden ham metin pending fotoğrafı tüketmez.
+        self.assertIn(runtime.profile.slug, runtime._pending_photo)
 
     def test_handler_drops_photo_only_when_canonical_relation_says_unrelated(self):
         text = "önce kahve sonra çay"

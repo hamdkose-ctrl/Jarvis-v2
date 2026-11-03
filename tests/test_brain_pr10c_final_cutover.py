@@ -641,7 +641,7 @@ class LearnedRuleAuthorityTests(unittest.TestCase):
     def test_pending_photo_and_memory_lookups_are_owner_scoped(self):
         from modules import brain_entry, learning
         runtime = fake_runtime()
-        runtime._pending_photo = {"hamdi": {"path": "/tmp/foto.jpg", "t": 0, "origin_request_id": "rid-1"}}
+        runtime._pending_photo = {"hamdi": {"path": "/tmp/foto.jpg", "t": __import__("time").time(), "origin_request_id": "rid-1"}}
         self.assertIsNone(brain_entry._pending_photo_artifact(runtime, "ayse kaya"))
         own = brain_entry._pending_photo_artifact(runtime, "hamdi")
         self.assertEqual(own.owner, "hamdi")

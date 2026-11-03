@@ -229,12 +229,15 @@ def _runtime(setup: Mapping[str, Any], owner: str):
         state = _session_state(_session_fields(dict(fields)))
         states[str(foreign_owner)] = state
     photo = setup.get("pending_photo")
+    pending_photo = dict(photo) if isinstance(photo, Mapping) else None
+    if pending_photo is not None and "age_seconds" in pending_photo:
+        pending_photo["t"] = time.time() - float(pending_photo.pop("age_seconds"))
     return SimpleNamespace(
         profile=SimpleNamespace(slug=owner, name=owner.title(), data=dict(setup.get("profile") or {})),
         _sessions=SimpleNamespace(_states=states, _lock=None),
         _session=lambda: states[owner],
         flags={"sleep": bool(setup.get("sleeping"))},
-        _pending_photo={owner: dict(photo)} if isinstance(photo, Mapping) else {},
+        _pending_photo={owner: pending_photo} if pending_photo is not None else {},
         event_log=[],
     )
 

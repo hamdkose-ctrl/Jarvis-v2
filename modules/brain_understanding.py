@@ -1053,6 +1053,15 @@ def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
             label = f"Dosyayı {_PREVIEW_FORMAT_LABELS.get(fmt, fmt)} biçimine çevirme"
         subject = _preview_subject(arguments, references)
         return EchoPreview(text=f"{label}: {subject}" if subject else label)
+    if capability_hint == PHOTO_CAPABILITY:
+        operation = arguments.get("operation")
+        if operation == _PHOTO_TRANSLATE:
+            return EchoPreview(text=f"Fotoğraf metnini {arguments.get('target', '')} diline çevirme")
+        if operation == _PHOTO_NOTE:
+            return EchoPreview(text="Fotoğrafı nota ekleme")
+        if operation == _PHOTO_ANALYZE:
+            return EchoPreview(text="Fotoğrafı analiz etme")
+        return None
     if capability_hint == "research.search":
         research = arguments.get("research")
         query = research.get("query") if isinstance(research, Mapping) else None
@@ -1169,6 +1178,89 @@ _PHOTO_FOLLOWUP = re.compile(
 )
 
 PHOTO_FOLLOWUP_CODE = "SEMANTIC_PHOTO_FOLLOWUP"
+PHOTO_CAPABILITY = "photo.action"
+PHOTO_TARGET_AMBIGUOUS = "photo target ambiguous"
+_PHOTO_ANALYZE = "analyze"
+_PHOTO_TRANSLATE = "translate"
+_PHOTO_NOTE = "note"
+_PHOTO_NOTE_REQUEST = re.compile(
+    r"\bnot\b|not\s*(?:al|ekle|et|olarak)|nota\b|notlara|kaydet|sakla", re.IGNORECASE,
+)
+_PHOTO_NOTE_STRIP = re.compile(
+    r"(?:(?:bu|şu)\s+)?(?:resmi|fotoğrafı|fotoyu|görseli)?\s*(?:not\s+olarak\s+)?"
+    r"(?:not\s+(?:al|ekle|et)\w*|nota\s+(?:ekle|al)\w*|notlara\s+ekle\w*|kaydet\w*|sakla\w*|ekle\w*)",
+    re.IGNORECASE,
+)
+_PHOTO_NOTE_HEAD = re.compile(
+    r"^\s*(?:(?:bu|şu)\s+(?:resmi|fotoğrafı|fotoyu|görseli)|bunu|şunu)\b[: ]*", re.IGNORECASE,
+)
+_PHOTO_GENERIC_ANALYZE = re.compile(
+    r"(?:bunu |şunu )?(?:analiz et|incele|ne var|bu ne|açıkla|anlat)\w*", re.IGNORECASE,
+)
+
+
+def _canonical_photo_path(active_context: ActiveContext, request_id: str) -> tuple[str | None, bool]:
+    """One photo path this request may act on, or an explicit ambiguity.
+
+    The current request's artifact wins; otherwise the pending photo is the continuation target.
+    No raw text ever supplies a path."""
+    rows = [
+        ref for ref in active_context.active_artifacts
+        if ref.kind == "photo" and ref.source == "engine_queue.photo"
+        and isinstance(ref.provenance.get("path"), str) and ref.provenance.get("path")
+    ]
+    if not rows:
+        return None, False
+    current = {
+        str(ref.provenance["path"]) for ref in rows
+        if str(ref.provenance.get("origin_request_id") or "") == request_id
+    }
+    if current:
+        return (next(iter(current)), False) if len(current) == 1 else (None, True)
+    pending = next(
+        (ref for ref in active_context.pending_references
+         if (ref.id, ref.kind, ref.source) == ("pending_photo", "pending_state", "engine_commands")),
+        None,
+    )
+    if pending is None:
+        return None, False
+    pending_path = pending.provenance.get("path")
+    if not isinstance(pending_path, str) or not pending_path:
+        return None, True
+    matching = {str(ref.provenance["path"]) for ref in rows
+                if str(ref.provenance["path"]) == pending_path}
+    return (pending_path, False) if len(matching) == 1 else (None, True)
+
+
+def _photo_proposal(text: str, normalized: str, active_context: ActiveContext,
+                    request_id: str) -> tuple[dict[str, Any] | None, str | None]:
+    path, ambiguous = _canonical_photo_path(active_context, request_id)
+    if ambiguous:
+        return None, PHOTO_TARGET_AMBIGUOUS
+    if path is None:
+        return None, None
+    current = any(
+        ref.kind == "photo" and ref.source == "engine_queue.photo"
+        and str(ref.provenance.get("origin_request_id") or "") == request_id
+        for ref in active_context.active_artifacts
+    )
+    if not current and not _photo_followup_continuation(normalized, active_context):
+        return None, None
+    # engine_loop's placeholder turn is the open "ne yapayım?" question, not a hidden analyze.
+    if current and text.strip().casefold() in {"", "fotoğraf"}:
+        return None, None
+    if _PHOTO_NOTE_REQUEST.search(text) and not re.search("analiz|çevir|çöz", normalized):
+        stripped = _PHOTO_NOTE_HEAD.sub("", _PHOTO_NOTE_STRIP.sub(" ", text), count=1)
+        note_text = re.sub(r"\s+", " ", stripped).strip(" .,:;!-") or "Fotoğraf"
+        return {"operation": _PHOTO_NOTE, "photo": path, "note_text": note_text}, None
+    if re.search("çevir|tercüme|translate", normalized):
+        from modules import translation_targets
+        target = translation_targets.target_from_command(text) or "Türkçe"
+        return {"operation": _PHOTO_TRANSLATE, "photo": path, "target": target}, None
+    question = text.strip()
+    if _PHOTO_GENERIC_ANALYZE.fullmatch(question.strip(" .!?")):
+        question = ""
+    return {"operation": _PHOTO_ANALYZE, "photo": path, "question": question}, None
 
 
 def _photo_followup_continuation(normalized: str, active_context: ActiveContext) -> bool:
@@ -1427,13 +1519,19 @@ def understand(
     correction = _is_correction(normalized)
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
-    note_write = None if (context_control or topic_change or correction) else _note_write_request(normalized)
-    note_search = False if (context_control or topic_change or correction) else _notes_search_request(normalized)
-    note_summary = None if (context_control or topic_change or correction) else _notes_summary_request(normalized)
-    notes_read_request = ((not (context_control or topic_change or correction))
+    # A canonical photo artifact plus a photo operation is a photo request: generic note/file/
+    # translation grammars must not reinterpret the same utterance.
+    photo_proposal, photo_ambiguity = _photo_proposal(text, normalized, active_context, request_id)
+    photo_targeted = photo_proposal is not None or photo_ambiguity is not None
+    note_write = None if (photo_targeted or context_control or topic_change or correction) else _note_write_request(normalized)
+    note_search = False if (photo_targeted or context_control or topic_change or correction) else _notes_search_request(normalized)
+    note_summary = None if (photo_targeted or context_control or topic_change or correction) else _notes_summary_request(normalized)
+    notes_read_request = ((not (photo_targeted or context_control or topic_change or correction))
                           and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
-    file_operation = None if (context_control or topic_change or correction) else _file_operation(normalized)
+    file_operation = None if (photo_targeted or context_control or topic_change or correction) else _file_operation(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
+    if photo_ambiguity is not None:
+        ambiguities = (*ambiguities, photo_ambiguity)
     if note_write is not None:
         note_refs = [ref for ref in references if ref.kind == "note"]
         if not note_refs:
@@ -1466,7 +1564,7 @@ def understand(
                       else _desktop_window_arguments(normalized))
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
     translation, translate_args = (None, {})
-    if level is None and not (context_control or topic_change or correction):
+    if level is None and not photo_targeted and not (context_control or topic_change or correction):
         translation, translate_args = _translate_proposal(text, candidates)
         if translation is not None:
             # The translation source rule owns "which text"; reference ambiguity does not apply to it.
@@ -1493,7 +1591,7 @@ def understand(
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
-        or translation is not None or file_operation is not None
+        or translation is not None or file_operation is not None or photo_proposal is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -1573,6 +1671,8 @@ def understand(
         reason_codes.append("NOTE_SEARCH_QUERY_MISSING")
     elif MULTIPLE_PENDING_ANSWER_OWNERS in ambiguities:
         reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
+    elif photo_ambiguity is not None:
+        reason_codes.append(photo_ambiguity)
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
@@ -1603,6 +1703,10 @@ def understand(
     if translation is not None:
         capability_hint = TRANSLATE_CAPABILITY
         arguments = {**arguments, **translate_args}
+    if photo_proposal is not None:
+        # Photo operation is decided only here; every surface consumer reads this typed proposal.
+        capability_hint = PHOTO_CAPABILITY
+        arguments = {**arguments, **photo_proposal}
     if capability_hint in {"weather.read", "weather.read.current"}:
         location = _weather_location(normalized)
         if location is not None:

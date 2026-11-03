@@ -84,21 +84,21 @@ def handle(runtime, command: str):
             if selected is not None:
                 return selected
 
-    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: relation kararı canonical Brain'den gelir.
+    # Telefondan fotoğraf geldi ve "ne yapayım?" diye soruldu: işlem kararı canonical Brain/Core'da.
     ph = runtime._pending_photo.get(runtime.profile.slug)
     if ph and not runtime._session()._in_multi:
         from modules import brain_entry
-        if runtime.time.time() - ph["t"] > 600:
+        if runtime.time.time() - ph["t"] > brain_entry.PENDING_PHOTO_TTL:
             runtime._pending_photo.pop(runtime.profile.slug, None)
         elif brain_entry.matched_protocol("phone_photo.cancel"):
             runtime._pending_photo.pop(runtime.profile.slug, None)
             return "Tamam, fotoğrafla bir şey yapmıyorum."
         else:
             entry = brain_entry.current()
-            if brain_entry.open_pending_answer(entry, "pending_photo"):
-                runtime._pending_photo.pop(runtime.profile.slug, None)
-                return runtime._photo_action(ph["path"], command)
-            if brain_entry.relation_decided(entry):
+            if brain_entry.photo_followup_owned(entry):
+                # Devam isteği Core planıyla yürütülür; bu yüzey ham metinden fotoğraf işlemi seçmez.
+                pass
+            elif brain_entry.relation_decided(entry):
                 # Brain cevabı fotoğrafa bağlamadı: pending düşer, normal akış devam eder.
                 runtime._pending_photo.pop(runtime.profile.slug, None)
             # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının

@@ -774,7 +774,7 @@
       "setup": {
         "pending_photo": {
           "path": "C:/tmp/foto.jpg",
-          "t": 1,
+          "age_seconds": 0,
           "origin_request_id": "eski"
         }
       }
@@ -786,7 +786,7 @@
       "setup": {
         "pending_photo": {
           "path": "C:/tmp/foto.jpg",
-          "t": 1,
+          "age_seconds": 0,
           "origin_request_id": "eski"
         }
       },

@@ -149,10 +149,6 @@ def _keep_photo(runtime, src: str) -> str:
     from modules import main_documents
     return main_documents._keep_photo(runtime, src)
 
-def _photo_action(runtime, path: str, question: str) -> str:
-    from modules import main_documents
-    return main_documents._photo_action(runtime, path, question)
-
 def _sys_prompt(runtime, command: str = "") -> str:
     """Sohbet talimatı. Soru sesle sorulduysa cevap kısa olsun (hızlı gelir, dinlemesi kolay); 'Detaylı' seçiliyse dokunma."""
     base = runtime.profile.system_prompt(command)
