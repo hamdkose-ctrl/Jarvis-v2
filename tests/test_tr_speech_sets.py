@@ -24,6 +24,9 @@ EXPECTED = {
         'darvis', 'yarış', 'yarvis', 'jarviş', 'jarvisi', 'service', 'jarves', 'javis', 'carviş',
     },
 }
+# Motor yüzeyindeki aynalar: PR3A'dan sonra `WEATHER_STOP` yalnız canonical şehir çözümünde
+# (`brain_understanding`) doğrudan kümeden okunur, `runtime._WEATHER_STOP` olarak taşınmaz.
+RUNTIME_MIRRORED = ('NAME_SUFFIXES', 'JARVIS_MISHEAR')
 
 
 class TurkishSpeechSetTests(unittest.TestCase):
@@ -57,8 +60,7 @@ class TurkishSpeechSetTests(unittest.TestCase):
             self.assertEqual(node.value.keywords, [])
             self.assertEqual(ast.literal_eval(node.value.args[0]), EXPECTED[node.targets[0].id])
 
-    def test_real_engine_context_keeps_old_attribute_names_and_shared_values(self):
-        sets = importlib.import_module('modules.tr_speech_sets')
+    def _context(self):
         # Mevcut test_engine_modular.context yolu: gerçek kurucu, geçici DATA_DIR,
         # kök log tutucularının ve ön-getirme havuzunun garantili temizlenmesi.
         import test_engine_modular as fixture
@@ -69,11 +71,24 @@ class TurkishSpeechSetTests(unittest.TestCase):
                 patch.object(engine, 'migrate_legacy'), \
                 patch.object(engine.system_control, 'installed_apps'), \
                 patch.object(engine._llm, 'set_user_context'):
-            runtime = fixture.ModularEngineTests.context(self)
-        for name in EXPECTED:
+            return fixture.ModularEngineTests.context(self)
+
+    def test_real_engine_context_keeps_old_attribute_names_and_shared_values(self):
+        sets = importlib.import_module('modules.tr_speech_sets')
+        runtime = self._context()
+        for name in RUNTIME_MIRRORED:
             with self.subTest(name=name):
                 self.assertEqual(getattr(runtime, '_' + name), getattr(sets, name))
                 self.assertIs(getattr(runtime, '_' + name), getattr(sets, name))
+
+    def test_weather_stop_is_read_by_its_canonical_owner_not_the_engine_surface(self):
+        # PR3A: kümenin tek motor okuyucusu emekli edilen ham şehir ayrıştırıcısı
+        # (engine_tools._city_in) idi; ayna artık yüzeyde durmuyor. İçerik kilidi
+        # test_constants_are_frozensets_with_exact_old_contents'de; okuyucu canonical.
+        runtime = self._context()
+        self.assertFalse(hasattr(runtime, '_WEATHER_STOP'))
+        source = (ROOT / 'modules' / 'brain_understanding.py').read_text(encoding='utf-8')
+        self.assertIn('from modules.tr_speech_sets import WEATHER_STOP', source)
 
 
 if __name__ == '__main__':

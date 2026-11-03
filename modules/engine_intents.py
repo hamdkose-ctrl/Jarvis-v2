@@ -122,6 +122,59 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 _remember(runtime, "brightness")
                 return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
             return "Ekran parlaklığını doğrulayamadım."
+        case "audio_action":
+            # Eski ham "ses" dallarının tek sahibi: durum tersine çevrilmez, seviye adımı aynı owner'da.
+            control = runtime.system_control
+            action = str(a.get("action") or "")
+            if action == "mute":
+                if control.is_muted():
+                    return "Ses zaten kapalı (sessizde)."
+                return "Sesi kapattım, bilgisayar sessizde." if control.set_mute(True) else "Sesi kapatamadım."
+            if action == "unmute":
+                if not control.set_mute(False):
+                    return "Sesi açamadım."
+                lvl = control.current_volume()
+                return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
+            if action == "open":
+                if control.is_muted():
+                    control.set_mute(False)   # sessizdeyken "sesi aç": önce sessizi kaldır, seviye aynı kalsın
+                    lvl = control.current_volume()
+                    return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
+                return runtime._volume_step(15, "arttırdım")
+            if action == "volume_up":
+                return runtime._volume_step(15, "arttırdım")
+            if action == "lower":
+                return runtime._volume_step(-10, "kıstım")
+            return "Ses isteği Core tarafından doğrulanmadı."
+        case "media_action":
+            action = str(a.get("action") or "")
+            if action not in {"next", "prev", "play_pause"}:
+                return "Medya isteği Core tarafından doğrulanmadı."
+            runtime.system_control.media_control(action)
+            if action == "next":
+                return "Sonraki şarkıya geçiliyor."
+            if action == "prev":
+                return "Önceki şarkıya dönülüyor."
+            return "Medya oynatıcısı tetiklendi."
+        case "screen_capture":
+            return runtime.desktop.screenshot()
+        case "shutdown_request":
+            runtime._session().pending_confirm = "shutdown"
+            return "Bilgisayarı kapatmamı onaylıyor musun? Evet ya da hayır de."
+        case "shutdown_cancel":
+            if runtime.system_control.cancel_shutdown() is False:
+                return "Kapatma iptal komutu kabul edilmedi; iptal edildi demiyorum."
+            return "Zamanlanmış bilgisayar kapatma işlemini iptal ettim."
+        case "fast_time":
+            return "Saat " + runtime.time.strftime("%H:%M")
+        case "fast_date":
+            return runtime.time.strftime("Bugün %d.%m.%Y, ") + runtime._DAYS[runtime.time.localtime().tm_wday]
+        case "fast_system_status":
+            return runtime.desktop.system_status()
+        case "fast_speech_stop":
+            requests_state.cancel(runtime.profile.slug)
+            runtime.voice.stop_speaking()
+            return "Konuşmayı durdurdum."
         case "screen_analyze":
             if (msg := runtime.privacy.blocked("screen")):
                 return msg

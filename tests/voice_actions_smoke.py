@@ -51,7 +51,10 @@ assert main.flags['mic'] is False
 with patch.object(web,'_set_mic') as mic:
     mic.side_effect=lambda value:main.flags.__setitem__('mic',value)
     main.flags['mic']=True
-    assert 'kapatıldı' in main.handle('mikrofonu kapat')
+    # PR3A: mikrofon anahtarını seçen ham `mikrofon` dalı engine_commands'tan silindi.
+    # Etki artık üretim zincirinin kendi sahibi: Fast gate `fast.mic.toggle` → tipli
+    # `app_action(set_flag mic)` → gerçek Bridge `set_flag` → `_set_mic`.
+    assert 'kapatıldı' in headless_smoke.canonical('mikrofonu kapat','voice-mic-toggle')
     mic.assert_called_once_with(False)
 # An actual theme change reaches settings storage.
 door('Temayı açık yap','voice-theme-set',

@@ -76,8 +76,8 @@ def dispatch_case_names(source: str) -> set[str]:
     return names
 
 
-def core_intent_targets(source: str) -> set[str]:
-    """The intent names brain_core_map.CORE_INTENTS can hand to dispatch."""
+def _dict_table_intents(source: str, constant_name: str) -> set[str]:
+    """Intent names of a ``{hint: (intent, ...)}`` Core mapping table in brain_core_map."""
     found: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Assign):
@@ -86,7 +86,7 @@ def core_intent_targets(source: str) -> set[str]:
             targets, value = [node.target], node.value
         else:
             continue
-        if not any(isinstance(t, ast.Name) and t.id == "CORE_INTENTS" for t in targets):
+        if not any(isinstance(t, ast.Name) and t.id == constant_name for t in targets):
             continue
         if not isinstance(value, ast.Dict):
             continue
@@ -95,6 +95,16 @@ def core_intent_targets(source: str) -> set[str]:
                 if isinstance(item.elts[0].value, str):
                     found.add(item.elts[0].value)
     return found
+
+
+def core_intent_targets(source: str) -> set[str]:
+    """The intent names brain_core_map.CORE_INTENTS can hand to dispatch."""
+    return _dict_table_intents(source, "CORE_INTENTS")
+
+
+def fast_intent_targets(source: str) -> set[str]:
+    """Intent names of the Fast Gate table: the protocol sentence never re-selects them."""
+    return _dict_table_intents(source, "FAST_INTENTS")
 
 
 def literal_intents_in(source: str) -> set[str]:
@@ -130,7 +140,8 @@ def dispatch_call_sites(sources: dict[str, str]) -> dict[str, list[str]]:
 
 def producer_intents(sources: dict[str, str]) -> set[str]:
     """The complete living vocabulary dispatch may receive, derived from audited call sites only."""
-    producers = core_intent_targets(sources["modules/brain_core_map.py"])
+    core_map = sources["modules/brain_core_map.py"]
+    producers = core_intent_targets(core_map) | fast_intent_targets(core_map)
     for file_name in sorted(AUDITED_CALL_SITES):
         producers |= literal_intents_in(sources[file_name])
     producers.add("chat")  # engine_commands fallback when the projection carries no intent
@@ -158,13 +169,16 @@ class ProducerAndCaseExtractionTests(unittest.TestCase):
         producers = producer_intents(self.sources)
         for known_produced in {"level_set", "weather", "file_action", "reminder", "notes_read",
                                "notes_write", "task", "translate", "screen_analyze", "app_action",
-                               "clarify", "chat"}:
+                               "audio_action", "media_action", "screen_capture", "shutdown_request",
+                               "shutdown_cancel", "fast_time", "fast_date", "fast_system_status",
+                               "fast_speech_stop", "clarify", "chat"}:
             self.assertIn(known_produced, producers, known_produced)
 
     def test_producer_set_is_exactly_the_canonical_vocabulary(self):
+        core_map = self.sources["modules/brain_core_map.py"]
         self.assertEqual(
             producer_intents(self.sources),
-            core_intent_targets(self.sources["modules/brain_core_map.py"])
+            core_intent_targets(core_map) | fast_intent_targets(core_map)
             | literal_intents_in(self.sources["modules/brain_entry.py"])
             | literal_intents_in(self.sources["modules/engine_commands.py"])
             | {"chat"},
@@ -184,9 +198,12 @@ class DispatchCallSiteAuthorityTests(unittest.TestCase):
         self.assertEqual(set(dispatch_call_sites(self.sources)), set(AUDITED_CALL_SITES))
 
     def test_dispatch_intent_arguments_are_canonical_shapes(self):
+        # "intent" = legacy projection, "plan[0]" = validated Core plan, "lane_plan[0]" = the bounded
+        # State/Fast protocol answer mapped in brain_core_map; '"chat"' is the no-intent fallback.
+        allowed = {"intent", "plan[0]", "lane_plan[0]", '"chat"'}
         for file_name, expressions in dispatch_call_sites(self.sources).items():
             for expression in expressions:
-                self.assertIn(expression, {"intent", "plan[0]", '"chat"'},
+                self.assertIn(expression, allowed,
                                 f"{file_name}: beklenmeyen dispatch niyeti {expression!r}")
 
     def test_engine_commands_takes_the_intent_from_the_canonical_route(self):

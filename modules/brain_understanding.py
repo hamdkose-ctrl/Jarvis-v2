@@ -412,12 +412,19 @@ def _weather_location(text: str) -> str | None:
     return match.group(1)
 
 
+_WEATHER_RAIN_ASK = re.compile(r"(?<!\w)yağmur\s+(?:yağacak|var)\s+m[ıi](?!\w)")
+_WEATHER_OFF_TOPIC = re.compile(r"(?<!\w)(?:havaalan|havaliman|hava\s+(?:yolu|kuvvet)|havai)(?!\w)")
+
+
 def _is_weather_request(text: str) -> bool:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return False
-    if not _contains_domain_token(text, _WEATHER_DOMAIN_TOKENS):
+    if _WEATHER_OFF_TOPIC.search(text) is not None:
         return False
-    if re.search(r"(?<!\w)hava\s+(?:yolu|kuvvetleri)(?!\w)", text) is not None:
+    # Eski ham hava dalının yağmur sorusu yüzü: başka bir alan hedefi taşımayan kapalı kalıp.
+    if _WEATHER_RAIN_ASK.search(text) is not None:
+        return True
+    if not _contains_domain_token(text, _WEATHER_DOMAIN_TOKENS):
         return False
     return re.search(r"(?<!\w)hava(?!\w).*\b(?:nasıl|nasil|nasıldı|nasildi)\b", text) is not None
 
@@ -822,6 +829,9 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return WINDOW_LIST_CAPABILITY if _WINDOW_LIST_REQUEST.fullmatch(text) else WINDOW_OP_CAPABILITY
     if _file_operation(text) is not None:
         return "files.read"
+    # Eski ham dalın "hava durumuna bak / söyle" yüzü: dosya-not-ekran hedefi yoksa hava okumasıdır.
+    if _weather_status_request(text):
+        return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
     # New canonical path: explicit public-web research, including the Turkish verb "araştır".
@@ -1090,6 +1100,8 @@ _LEVEL_WORDS = {
     "parlaklik": "brightness", "parlakligi": "brightness", "parlakligini": "brightness",
     "ekran parlaklığı": "brightness", "ekran parlaklığını": "brightness",
     "ekran parlaklıgı": "brightness", "ekran parlakligi": "brightness",
+    "ekran ışığı": "brightness", "ekran ışığını": "brightness",
+    "ekran isigi": "brightness", "ekran isigin": "brightness",
 }
 _LEVEL_VERBS = r"(?:yap|olsun|ayarla|yapar mısın|yapsana)"
 _LEVEL_EXPLICIT = re.compile(
@@ -1126,6 +1138,190 @@ def _level_request(normalized: str, active_context: ActiveContext) -> tuple[str 
             if value in {"volume", "brightness"}:
                 return value, level
     return None, level
+
+
+# PR3A: `engine_commands.handle` içindeki düz-metin dalları (uygulama aç/kapat, ses, medya, ekran
+# görüntüsü, kapatma, uyandırma) burada tek tanıyıcıdır. Yalnız cümlenin TAMAMI bir kalıba uyduğunda
+# öneri üretilir; Core kararı brain_core_map doğrular, etki sahibi yürütücüde kalır.
+APP_TARGET_MISSING = "APP_TARGET_MISSING"
+AUDIO_CAPABILITY = "pc.audio.action"
+MEDIA_CAPABILITY = "pc.media.action"
+SCREEN_CAPTURE_CAPABILITY = "screen.capture"
+SHUTDOWN_REQUEST_CAPABILITY = "pc.shutdown.request"
+SHUTDOWN_CANCEL_CAPABILITY = "pc.shutdown.cancel"
+WAKE_ENABLE_CAPABILITY = "voice.wake.enable"
+
+_APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"
+_APP_CLOSE_TAIL = r"(?:kapat|kapatır mısın|kapatsana|kapa)"
+# Eski dallarla aynı sınırlar: hedef en fazla 40 karakter, açık sözcük yasağı, konuşma eki korunur.
+_APP_OPEN_TARGET = re.compile(rf"^(?:lütfen\s+)?(.+?)\s+{_APP_OPEN_TAIL}$", re.I)
+_APP_CLOSE_TARGET = re.compile(rf"^(?:lütfen\s+)?(.+?)\s+{_APP_CLOSE_TAIL}$", re.I)
+_APP_OPEN_BLOCK = re.compile(
+    r"^(?:ses|sesi|ışık|ışı|kapı|kamera|mikrofon|wifi|bluetooth|internet|onu|bunu|şunu|o|bu|şu|az önceki)\b")
+_APP_CLOSE_BLOCK = re.compile(
+    r"^(?:ses|sesi|müzi|bilgisayar|pc|mikrofon|kamera|ekran|paylaşım|ışı|wifi|internet|bluetooth|"
+    r"jarvis|telefon|uyku|alarm|hatırlat|bildirim|parlaklı|"
+    r"(?:onu|bunu|şunu|sunu|o|bu|şu)\b|onları|bunları|şunları)")
+_APP_OPEN_MODIFIER = re.compile(r"\b(?:uygulamasını|programını|uygulamayı|programı|oyununu|oyunu)\b")
+# "sayfa" hedefli istek bir web/sayfa isteğidir; uygulama hedefi olarak burada seçilmez.
+_PAGE_TARGET = re.compile(r"\bsayfa")
+# Adımlar zinciri tek bir uygulama etkisi değildir: "Ayarları aç ve Bluetooth'u kapat" bütün
+# cümlesiyle hedef yürütücüsüne devredilir (`outcome_contracts.open_only_request` aynı hükmü
+# verir). Emekli edilen ham dal bağlaçlı cümleyi de tek uygulamaya bağlıyordu; canonical
+# sahip zinciri ayırt eder ve hedef uydurmaz.
+# Converb kanadı ancak bir eylem fiilinin gövdesine bitişik ek olarak sayılır: "WinZip" ve "7zip"
+# kurulu bir uygulama adıdır (APPS sabiti dışında Start Menu'den de çözülür) ve son iki-üç harfi
+# Türkçe fiilimsi eki varsayılamaz. Aile `outcome_contracts.open_only_request` fiilleriyle
+# ortak tutulur; oraya fiil eklenince buraya da eklenir.
+_APP_CONNECTIVE = re.compile(
+    r"\b(?:ve|veya|sonra|ardından|ardindan|sonrasında|sonrasinda)\b|[,:;]", re.I)
+_APP_ACTION_STEMS = (
+    r"ac|aç|baslat|başlat|calistir|çalıştır|kapat|degistir|değiştir|ayarla|yaz|gir|sec|seç|"
+    r"tikla|tıkla|uygula|kaydet|sil|gonder|gönder|duraklat|durdur|getir|cikar|çıkar|oynat|"
+    r"cevir|çevir|kilitle|guncelle|güncelle|tasi|taşı|al|ver|yap|bas|oku|ara|tara"
+)
+_APP_CONVERB = re.compile(rf"(?:{_APP_ACTION_STEMS})[ıiyuüyc]?(?:ıp|ip|up|üp|arak|erek)\b", re.I)
+_APP_ACTION_TOKEN = re.compile(rf"(?:{_APP_ACTION_STEMS})\w*", re.I)
+
+
+def _app_chain(text: str) -> bool:
+    """Bağlaç/noktalama zinciri ya da kanıtlanmış fiilimsi zinciri (eylem fiili + converb ve
+    ardından ikinci bir eylem token'ı). Kelime sonu harfleri tek başına zincir kanıtı değildir."""
+    if _APP_CONNECTIVE.search(text):
+        return True
+    converb = _APP_CONVERB.search(text)
+    return converb is not None and _APP_ACTION_TOKEN.search(text, converb.end()) is not None
+
+_AUDIO_NOUN = re.compile(r"(?<!\w)(?:ses|sesi|sesin|sesini|sessiz|sessize|sessizi|sessizden)(?!\w)")
+_AUDIO_POLITE_TAIL = re.compile(
+    r"(?:\s+(?:mısın|misin|musun|musun|bilir|sin|sın|sun|lütfen|lutfen|benim|için|in|rica|ederim))*\s*$")
+_AUDIO_MUTERS = ("kapat", "kes", "sustur", "sıfırla")
+_AUDIO_UPNERS = ("yükselt", "arttır", "artır")
+_AUDIO_DOWNNERS = ("kıs", "azalt", "düşür")
+_AUDIO_UNMUTERS = ("kaldır", "getir", "çıkar", "çık")
+_AUDIO_OPENERS = ("sessizi", "sessizden", "geri")
+
+_MEDIA_NEXT = re.compile(
+    r"^(?:(?:bir\s+)?sonraki\s+(?:şarkı\w*|parça\w*|müzik\w*|müziği|video\w*)|"
+    r"(?:şarkıyı|parçayı|müziği)\s+geç|sonrakine\s+geç)$")
+_MEDIA_PREV = re.compile(
+    r"^(?:(?:bir\s+)?önceki\s+(?:şarkı\w*|parça\w*|müzik\w*|müziği|video\w*)|"
+    r"(?:şarkıyı|parçayı|müziği)\s+geri\s+al|öncekine\s+dön)$")
+_MEDIA_TOGGLE = re.compile(
+    r"^(?:(?:müziği|şarkıyı|videoyu|oynatmayı)\s+(?:kes|durdur|duraklat|oynat|başlat|çal)|"
+    r"müzik\s+(?:dursun|durdur))$")
+
+_SCREEN_CAPTURE_REQUEST = re.compile(
+    r"^(?:(?:hey\s+)?jarvis[ ,]+)?(?:(?:ekran\s+(?:görüntüsü|görüntüsünü))\s*(?:al|çek|çıkar)?|"
+    r"screenshot\s*(?:al|çek)?|resmini\s+çek)$", re.I)
+_SHUTDOWN_REQUEST = re.compile(r"^(?:lütfen\s+)?(?:bilgisayarı|bilgisayar(?:ı)?|pc(?:'i)?|pc)\s+(?:kapat|kapatır mısın|kapatsana|kapa)$")
+_SHUTDOWN_CANCEL = re.compile(r"^(?:kapatmayı|kapatma)\s+iptal(?:\s+et)?$")
+_WAKE_ENABLE = re.compile(r"^(?:(?:hey\s+)?jarvis)\s+uyandırmasını\s+(?:aç|ac)$")
+
+
+def _jarvis_page_request(normalized: str) -> bool:
+    """Jarvis'in kendi sayfasını açma isteği bir uygulama hedefi değildir; sahibi selfctl kapısıdır."""
+    from modules.selfctl import recognizes_page
+    return recognizes_page(normalized)
+
+
+def _app_request(normalized: str) -> tuple[str, dict[str, object]] | None:
+    """Aç/kapat cümlesinin bounded hedefi; hedef yoksa clarify önerisi (`APP_TARGET_MISSING`)."""
+    text = normalized.strip()
+    # Dosya/belge hedefinin tek sahibi dosya alanıdır: "dosyayı aç" uygulama açmaz.
+    if not text or _jarvis_page_request(text) or _file_operation(text) is not None:
+        return None
+    # Emekli edilen ham dal cümleyi `strip(" .!?")` ile okuyordu: sesli yazımda "Kapat." ve
+    # "Kapatır mısın?" noktalamayla gelir; çıplak fiil tanımı o noktalamadan bağımsızdır.
+    bare = re.fullmatch(r"(?:lütfen\s+)?(kapat|kapa|kapatır mısın|kapatsana|aç|açar mısın|açsana)",
+                        text.strip(" .!?"))
+    if bare is not None:
+        kind = APP_OPEN_CAPABILITY if bare.group(1).startswith("aç") else APP_CLOSE_CAPABILITY
+        return "target-missing", {"app_target_kind": kind}
+    if _app_chain(text):
+        return None
+    close = _APP_CLOSE_TARGET.match(text)
+    if close is not None:
+        target = close.group(1).strip()
+        if target and len(target) <= _CLARIFY_TARGET_MAX and _APP_CLOSE_BLOCK.match(target) is None \
+                and not _PAGE_TARGET.search(target):
+            return APP_CLOSE_CAPABILITY, {"app": target}
+        return None
+    open_match = _APP_OPEN_TARGET.match(text)
+    if open_match is None:
+        return None
+    spoken = _APP_OPEN_MODIFIER.sub("", open_match.group(1).strip()).strip()
+    if not spoken or len(spoken) > _CLARIFY_TARGET_MAX or _APP_OPEN_BLOCK.match(spoken) is not None:
+        return None
+    # "indirme sayfasını aç" bir web sayfası isteğidir: uygulama hedefi burada seçilmez,
+    # sahipleri (araştırma/tarayıcı/selfctl sayfası) kendi yollarında kalır.
+    if _PAGE_TARGET.search(spoken):
+        return None
+    return APP_OPEN_CAPABILITY, {"app": spoken}
+
+
+def _audio_action(normalized: str) -> str | None:
+    """Tek cümlelik ses eylemi: cümlenin tamamı bir ses fiiliyle biter, hedef bir ses varlığıdır.
+
+    Sayı taşıyan cümle seviye isteğidir (`pc.level.set`) ve burada yorumlanmaz."""
+    text = _AUDIO_POLITE_TAIL.sub("", normalized.strip(" .!?")).strip()
+    words = text.split()
+    if not words:
+        return None
+    if not _AUDIO_NOUN.search(text) and "bilgisayarı sustur" not in text:
+        return None
+    if "yüzde" in words or any(word.isdigit() for word in words):
+        return None
+    verb = words[-1]
+    if "sessize" in words and verb.startswith("al"):
+        return "mute"
+    if any(verb.startswith(stem) for stem in _AUDIO_DOWNNERS):
+        return "lower"
+    if any(verb.startswith(stem) for stem in _AUDIO_UPNERS):
+        return "volume_up"
+    if "modu" in words or "modunu" in words:
+        return "unmute" if verb.startswith("kapat") else None
+    if any(verb.startswith(stem) for stem in _AUDIO_UNMUTERS) and ("sessiz" in text or "geri" in words):
+        return "unmute"
+    if verb.startswith("aç"):
+        return "unmute" if any(word in words for word in _AUDIO_OPENERS) else "open"
+    if "sessiz" in text:
+        return None
+    if any(verb.startswith(stem) for stem in _AUDIO_MUTERS):
+        return "mute"
+    return None
+
+
+def _media_action(normalized: str) -> str | None:
+    text = normalized.strip(" .!?")
+    if _MEDIA_NEXT.match(text):
+        return "next"
+    if _MEDIA_PREV.match(text):
+        return "prev"
+    if _MEDIA_TOGGLE.match(text):
+        return "play_pause"
+    return None
+
+
+def _device_request(normalized: str) -> tuple[str, dict[str, object]] | None:
+    """Tek canonical cihaz-istek tanıyıcısı: (hint, argüman) ya da None."""
+    if not normalized or _is_meta_language(normalized) or _is_literal_command_usage(normalized):
+        return None
+    audio = _audio_action(normalized)
+    if audio is not None:
+        return AUDIO_CAPABILITY, {"audio": {"action": audio}}
+    media = _media_action(normalized)
+    if media is not None:
+        return MEDIA_CAPABILITY, {"media": {"action": media}}
+    if _SHUTDOWN_CANCEL.match(normalized):
+        return SHUTDOWN_CANCEL_CAPABILITY, {}
+    if _SHUTDOWN_REQUEST.match(normalized):
+        return SHUTDOWN_REQUEST_CAPABILITY, {}
+    if _WAKE_ENABLE.match(normalized):
+        return WAKE_ENABLE_CAPABILITY, {}
+    if _SCREEN_CAPTURE_REQUEST.match(normalized) and not _SCREEN_ANALYZE_CUE.search(normalized):
+        return SCREEN_CAPTURE_CAPABILITY, {}
+    return _app_request(normalized)
 
 
 def _active_identity_set(active_context: ActiveContext) -> set[tuple[str, str]]:
@@ -1567,6 +1763,9 @@ def understand(
     window_request = ({} if (context_control or topic_change or correction)
                       else _desktop_window_arguments(normalized))
     level = None if (context_control or topic_change or correction) else _level_request(normalized, active_context)
+    # PR3A: kaldırılan ham cihaz dallarının tek canonical önerisi (ses/medya/ekran/kapatma/uygulama).
+    device = (None if (context_control or topic_change or correction or level is not None)
+              else _device_request(normalized))
     translation, translate_args = (None, {})
     if level is None and not photo_targeted and not (context_control or topic_change or correction):
         translation, translate_args = _translate_proposal(text, candidates)
@@ -1575,6 +1774,8 @@ def understand(
             ambiguities = () if translate_args else (TRANSLATE_SOURCE_MISSING,)
     if level is not None and level[0] is None:
         ambiguities = (LEVEL_UNSPECIFIED,)
+    elif device is not None and device[0] == "target-missing" and not ambiguities:
+        ambiguities = (APP_TARGET_MISSING,)
     elif not ambiguities and not context_control and file_operation is not None:
         file_refs = [ref for ref in references if ref.kind == "file"]
         if file_operation in _FILE_TARGET_REQUIRED and len(file_refs) != 1:
@@ -1596,6 +1797,7 @@ def understand(
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or photo_proposal is not None
+        or device is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -1733,6 +1935,11 @@ def understand(
         arguments = {**arguments, **_screen_arguments(text, normalized)}
     if capability_hint in {WINDOW_LIST_CAPABILITY, WINDOW_OP_CAPABILITY}:
         arguments = {**arguments, **_desktop_window_arguments(normalized)}
+    if device is not None:
+        # Cihaz önerisi tek kalıptan gelir: hedefsız fiil yalnız sorusunu taşır, etki taşımaz.
+        arguments = {**arguments, **device[1]}
+        if device[0] != "target-missing":
+            capability_hint = device[0]
     if level is not None:
         arguments = {**arguments, "level": level[1]}
         if level[0] is not None:

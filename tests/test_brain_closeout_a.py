@@ -2,6 +2,7 @@
 import tempfile
 from contextlib import nullcontext
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -13,7 +14,7 @@ if 'pyautogui' not in sys.modules:
     _keyboard = ModuleType('pyautogui')
     _keyboard.__getattr__ = lambda name: Mock()
     sys.modules['pyautogui'] = _keyboard
-from modules import app_actions, brain_context, brain_entry, brain_gates, engine_commands, engine_runtime, session_state
+from modules import app_actions, brain_context, brain_entry, brain_gates, engine_commands, engine_runtime, requests_state, session_state
 from modules.session_state import SessionState, SessionStore
 from modules.brain_contracts import ConversationRelation, RequestKind
 import test_brain_production_entry as fixtures
@@ -84,19 +85,51 @@ class LastPropertyTests(unittest.TestCase):
 
 
 class BareLevelTests(unittest.TestCase):
-    def run_pipeline(self, text, state_setup=None):
+    """Ham "70 yap" artık kendi başına etki seçmiyor: cümle yalnız üretim zincirinden geçer.
+
+    Hedef söylenmemişse sorunun tek yazarı Understanding (`level target unspecified`), söylenen
+    cevabın tek yürütücüsü State Gate `session.pending_level.select` -> Core `level_set`'tir.
+    """
+
+    def build(self, state_setup=None):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        # test_engine_modular.context kalıbı: bu turda açılan kök log tutucusu kapanmadan
+        # geçici klasör silinmez (Windows'ta jarvis.log kilidi).
+        root_logger = engine_runtime.logging.getLogger()
+        previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(temp.name)):
             context = engine_runtime.EngineContext()
+
+        def close_test_handlers():
+            for handler in list(root_logger.handlers):
+                if handler not in previous_handlers:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+
+        self.addCleanup(close_test_handlers)
         self.addCleanup(context._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         context.system_control = Mock(set_volume=Mock(return_value=True), set_brightness_verified=Mock(return_value=True),
                                       windows_settings=Mock(return_value=None))
         if state_setup:
             state_setup(context._session())
-        with patch.object(context, "route", side_effect=AssertionError("model/router çağrılmamalı"), create=True):
-            reply = context.handle(text)
-        return context, reply
+        return context
+
+    def turn(self, context, text):
+        """engine_loop'un yazı yolu: activate -> prepare -> handoff(runtime.handle)."""
+        owner = context.profile.slug
+        rid = "closeout-a-" + uuid.uuid4().hex[:8]
+        guard = patch.object(brain_entry, "_install_core_guards", lambda runtime: None)
+        with guard, patch.object(context, "route", side_effect=AssertionError("model/router çağrılmamalı"), create=True):
+            requests_state.register(owner, rid)
+            with requests_state.activate(owner, rid):
+                entry = brain_entry.prepare(context, owner=owner, request_id=rid, text=text, source="yazı")
+                out, _feedback, _ = brain_entry.handoff(context, entry, context.handle, text)
+        return out
+
+    def run_pipeline(self, text, state_setup=None):
+        context = self.build(state_setup)
+        return context, self.turn(context, text)
 
     def test_last_volume_sets_volume(self):
         context, reply = self.run_pipeline("70 yap", lambda s: session_state.remember_property(s, "volume"))
@@ -125,7 +158,7 @@ class BareLevelTests(unittest.TestCase):
 
     def test_successful_answer_to_question_becomes_last_property(self):
         context, _ = self.run_pipeline("70 yap")
-        reply = context.handle("ses")
+        reply = self.turn(context, "ses")
         self.assertEqual(session_state.fresh_property(context._session()), "volume")
         context.system_control.set_volume.assert_called_once_with(70)
 
@@ -142,7 +175,7 @@ class BareLevelTests(unittest.TestCase):
         context.system_control.set_volume.return_value = False
         before = context._session().last_property_at
         context._session().pending_level = None
-        context.handle("80 yap")
+        self.turn(context, "80 yap")
         self.assertEqual(context._session().last_property_at, before)
 
 

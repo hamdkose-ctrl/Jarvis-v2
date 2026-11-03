@@ -40,11 +40,14 @@ class OutcomeLearningContracts(unittest.TestCase):
         self.assertEqual(decision['intent'], 'task')
         self.assertEqual(decision['args'], {'request': 'Ayarları aç ve Bluetooth’u kapat'})
 
-    def test_plain_open_is_a_capability_the_app_handler_owns_first(self):
+    def test_plain_open_is_a_capability_the_core_app_action_owns(self):
+        # PR3A: tek hedefli açma cümlesinin etkisini engine_commands'taki ham regex dalı seçmiyor.
+        # Understanding tipli app.open hedefini kurar, kapı tek Core planına bağlanır; zincirli
+        # cümle (`test_complex_open_is_handed_to_the_goal_runner_whole`) bütün olarak Goal Runner'da kalır.
         semantic, decision = _door_full('Hesap Makinesini aç')
         self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
-        # Kapı app'i tek başına açmayı reddetmez; Goal Runner cümlenin kendisini devralır.
-        self.assertEqual(decision['intent'], 'task')
+        self.assertEqual(semantic.capability_hint, 'app.open')
+        self.assertEqual(decision, {'intent': 'app_open', 'args': {'name': 'hesap makinesini'}})
         self.assertTrue(outcome_contracts.open_only_request('Hesap Makinesini aç'))
 
     def test_goal_application_open_cannot_complete_larger_pc_goal(self):

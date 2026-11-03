@@ -17,6 +17,8 @@ from modules import translation_targets
 from modules.brain_understanding import (
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
+    APP_TARGET_MISSING,
+    AUDIO_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
     FILE_CONVERSION_FORMAT_MISSING,
@@ -30,6 +32,7 @@ from modules.brain_understanding import (
     FILE_TRANSLATION_TARGET_MISSING,
     LEVEL_CAPABILITY,
     LEVEL_UNSPECIFIED,
+    MEDIA_CAPABILITY,
     NOTE_SEARCH_QUERY_MISSING,
     NOTE_TARGET_AMBIGUOUS,
     NOTE_TARGET_UNRESOLVED,
@@ -40,7 +43,11 @@ from modules.brain_understanding import (
     PHOTO_TARGET_UNRESOLVED,
     RESEARCH_MAX_QUERY,
     SCREEN_CAPABILITY,
+    SCREEN_CAPTURE_CAPABILITY,
+    SHUTDOWN_CANCEL_CAPABILITY,
+    SHUTDOWN_REQUEST_CAPABILITY,
     TRANSLATE_SOURCE_MISSING,
+    WAKE_ENABLE_CAPABILITY,
     WINDOW_LIST_CAPABILITY,
     WINDOW_OP_CAPABILITY,
 )
@@ -292,6 +299,54 @@ def _app_close_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return _app_open_args(arguments)
 
 
+_AUDIO_ACTIONS = frozenset({"mute", "unmute", "open", "volume_up", "lower"})
+_MEDIA_ACTIONS = frozenset({"next", "prev", "play_pause"})
+_WAKE_PAYLOAD = {
+    "wake_word": "Jarvis",
+    "wake_aliases": ["jarvis", "hey jarvis", "yarvis"],
+    "wake_engine": "auto",
+}
+
+
+def _only_original_text(arguments: Mapping[str, Any]) -> bool:
+    """Cihaz eyleminin tek girdisi cümlenin kendisidir; ham metinden başka alan üretilmez."""
+    return not set(arguments) - {"original_text"}
+
+
+def _audio_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = arguments.get("audio")
+    if not isinstance(row, Mapping) or set(row) != {"action"}:
+        return None
+    action = row.get("action")
+    if action not in _AUDIO_ACTIONS:
+        return None
+    return {"action": action}
+
+
+def _media_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = arguments.get("media")
+    if not isinstance(row, Mapping) or set(row) != {"action"}:
+        return None
+    action = row.get("action")
+    if action not in _MEDIA_ACTIONS:
+        return None
+    return {"action": action}
+
+
+def _capture_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    return {} if _only_original_text(arguments) else None
+
+
+def _shutdown_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    return {} if _only_original_text(arguments) else None
+
+
+def _wake_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Açıklama kapalı bir ayar yazması: kullanıcı metinden tek bir alan bile taşınmaz."""
+    return ({"action": "settings_save", "params": {"data": dict(_WAKE_PAYLOAD)}}
+            if _only_original_text(arguments) else None)
+
+
 def _screen_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Ekran okuma önerisi: soru boş olabilir (genel analiz) ama en fazla tek satır uzunluğunda."""
     if set(arguments) - {"original_text", "question"}:
@@ -376,7 +431,49 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     APP_CLOSE_CAPABILITY: ("app_close", _app_close_args),
     # Fotoğraf işlemi yalnız Understanding'in typed önerisinden gelir; domain executor seçim yapmaz.
     PHOTO_CAPABILITY: ("photo_action", _photo_args),
+    # PR3A: `engine_commands` içindeki ham-metin dallarının kaldırıldığı yetenekler. Öneri
+    # Understanding'de tek kalıptan doğar, burada yeniden doğrulanır ve etki sahibi yürütücüsünde kalır.
+    AUDIO_CAPABILITY: ("audio_action", _audio_args),
+    MEDIA_CAPABILITY: ("media_action", _media_args),
+    SCREEN_CAPTURE_CAPABILITY: ("screen_capture", _capture_args),
+    SHUTDOWN_REQUEST_CAPABILITY: ("shutdown_request", _shutdown_args),
+    SHUTDOWN_CANCEL_CAPABILITY: ("shutdown_cancel", _shutdown_args),
+    WAKE_ENABLE_CAPABILITY: ("app_action", _wake_args),
 }
+
+
+# Fast Gate'in bütünüyle sahip olduğu okuma/kontrol turları: cümlenin kendisi yeniden
+# yorumlanmaz, yalnız seçilen protokol tek bir Core niyetine bağlanır.
+FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
+    "fast.time.read": ("fast_time", {}),
+    "fast.date.read": ("fast_date", {}),
+    "fast.system.status": ("fast_system_status", {}),
+    "fast.speech.stop": ("fast_speech_stop", {}),
+    "fast.mic.toggle": ("app_action", {"action": "set_flag", "params": {"name": "mic", "value": True}}),
+}
+
+# session.pending_level.select: seviye zaten Core'un sorduğu soruda saklı; cevap yalnız özelliği seçer.
+LEVEL_SELECT_PROTOCOL = "session.pending_level.select"
+
+
+def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]] | None:
+    entry = FAST_INTENTS.get(protocol or "")
+    if entry is None:
+        return None
+    intent, args = entry
+    if protocol == "fast.mic.toggle":
+        if selection not in {"mic_on", "mic_off"}:
+            return None
+        args = {"action": "set_flag", "params": {"name": "mic", "value": selection == "mic_on"}}
+    return intent, dict(args)
+
+
+def state_plan(protocol: str | None, selection: Any, level: Any) -> tuple[str, dict[str, Any]] | None:
+    if protocol != LEVEL_SELECT_PROTOCOL or selection not in _LEVEL_PROPERTIES:
+        return None
+    if isinstance(level, bool) or not isinstance(level, int):
+        return None
+    return "level_set", {"property": selection, "level": max(0, min(100, level))}
 
 
 # Capability hints Understanding may emit that are NOT dispatched from the proposal. Each one has a
@@ -435,7 +532,23 @@ def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str,
         level = arguments.get("level")
         if isinstance(level, int) and not isinstance(level, bool):
             return f"Yüzde {max(0, min(100, level))}, ses mi parlaklık mı?"
+    if APP_TARGET_MISSING in ambiguities:
+        return _app_target_question(arguments)
     return None
+
+
+_APP_TARGET_QUESTIONS = {APP_OPEN_CAPABILITY: "Neyi açmamı istiyorsun?",
+                         APP_CLOSE_CAPABILITY: "Neyi kapatmamı istiyorsun?"}
+
+
+def _app_target_kind(arguments: Mapping[str, Any]) -> str | None:
+    kind = arguments.get("app_target_kind")
+    return kind if kind in _APP_TARGET_QUESTIONS else None
+
+
+def _app_target_question(arguments: Mapping[str, Any]) -> str | None:
+    kind = _app_target_kind(arguments)
+    return None if kind is None else _APP_TARGET_QUESTIONS[kind]
 
 
 def clarification_effect(runtime: Any, ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> None:
@@ -444,3 +557,13 @@ def clarification_effect(runtime: Any, ambiguities: tuple[str, ...], arguments: 
         level = arguments.get("level")
         if isinstance(level, int) and not isinstance(level, bool):
             runtime._session().pending_level = max(0, min(100, level))
+        return
+    if APP_TARGET_MISSING in ambiguities:
+        kind = _app_target_kind(arguments)
+        question = _app_target_question(arguments)
+        if kind is None or question is None:
+            return
+        # Yalnız bounded proposal yazılır: hedefsiz fiilin cevabi mevcut app aç/kapat sahibine döner.
+        from modules import app_actions
+        app_actions.ask_clarification(runtime._session(), str(arguments.get("original_text") or ""),
+                                      question, runtime.profile, {"kind": kind})

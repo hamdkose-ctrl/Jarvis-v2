@@ -39,6 +39,8 @@ _LEVEL_SELECT = {
     "parlaklik": "brightness", "parlakligi": "brightness", "parlakligini": "brightness",
     "ekran parlaklığı": "brightness", "ekran parlaklığını": "brightness",
     "ekran parlaklıgı": "brightness", "ekran parlakligi": "brightness",
+    "ekran": "brightness", "ekranı": "brightness",
+    "ışık": "brightness", "ışı": "brightness", "ekran ışığı": "brightness", "ekran ışığını": "brightness",
 }
 _LEVEL_VERB_TAIL = re.compile(r"\s+(?:yap|olsun|ayarla|yapar mısın|yapsana)$")
 # The answer vocabulary of "sohbetten mi, dosyadan mı?": the source noun plus an optional
