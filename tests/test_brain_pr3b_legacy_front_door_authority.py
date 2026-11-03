@@ -13,6 +13,7 @@ ve testler "etki hiç çağrılmadı" der. Model/ağ/worker çağrısı yoktur.
 from __future__ import annotations
 
 import ast
+import inspect
 import re
 import unittest
 import uuid
@@ -638,6 +639,91 @@ class FinanceAlertEntryScopeTests(unittest.TestCase):
         for text in self.NEGATIVE:
             with self.subTest(text=text):
                 self.assertFalse(finance_alert_commands.matches(text), text)
+
+
+class RepoWideAuthorityGuardTests(unittest.TestCase):
+    """§25 C/D yapısal guard'ları repo geneli: ham anlamsal cephe adı yeni sahibi olamaz.
+
+    Bu sınıftaki her küme kodundan ölçüldü (`_source_calls` AST taraması; tanımlar değil
+    *çağıranlar* sayılır). Kilitlerin amacı PR3B'de söküm değildir — kalan kapıların sahipliği
+    BRAIN-MIG-051/052/053/054 envanterindedir (PR3C) — fakat sıralık yüzeye yarın bir modülden
+    ikinci `watcher.handle(command)` çağrısı gelirse bu testler onu RED yapar. Guard brittle
+    tam-dosya snapshot değildir: yalnız ad + çağıran dosya kümesi."""
+
+    # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
+    RAW_PROBE_OWNERS = {
+        "watcher.handle": {"modules/engine_commands.py"},
+        "learning.handle": {"modules/engine_commands.py"},
+        "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
+        "is_whatsapp_message": {"modules/engine_commands.py"},
+        "_contact_command": {"modules/engine_commands.py"},
+        "quick_parse": {"modules/engine_commands.py"},
+        "selfctl.handle": {"modules/engine_commands.py"},
+        "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
+                          "modules/engine_tools.py", "modules/main_documents.py"},
+        "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+    }
+
+    def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
+        for marker, owners in self.RAW_PROBE_OWNERS.items():
+            with self.subTest(marker=marker):
+                self.assertEqual(set(_source_calls(marker)), owners)
+
+    def test_the_cascade_helper_is_called_only_from_the_order_contract(self):
+        # §25 D: `_extra_commands` bir compat yardımcısı olarak yüzeye geri bağlanamaz; tek
+        # çağıran `brain_precedence` sırası sözleşmesidir. Söküm BRAIN-MIG-052 (PR3C) satırıdır.
+        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
+
+    def test_the_typo_rewriter_is_consulted_from_exactly_one_production_site(self):
+        # §25 A'nın repo geneli yarısı: düzeltilmiş görünümü başka bir modül de okuyamaz.
+        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+
+    def test_every_capability_hint_understanding_can_emit_is_core_mapped(self):
+        """Yeni hint yalnız Core eşlemesiyle doğar: §24 fence'inin ön koşulu burada kilitlidir."""
+        import re as _re
+
+        from modules import brain_core_map
+        source = (ROOT / "modules" / "brain_understanding.py").read_text(encoding="utf-8")
+        constants = dict(_re.findall(r'^([A-Z_]+(?:_CAPABILITY|_HINT))\s*=\s*"([^"]+)"', source, _re.M))
+        emitted = set(constants.values()) | set(_re.findall(r'(?:return|:)\s*"([a-z_]+\.[a-z_.]+)"', source))
+        self.assertTrue(emitted)
+        self.assertEqual(sorted(emitted - set(brain_core_map.CORE_INTENTS)), [])
+
+
+class CoreRejectionFallthroughInventoryTests(_RawDoorHarness):
+    """§24'ün bugünkü gerçek kapsama alanı: fence parity'si olan ailelerde var, olmayanlarda yok.
+
+    Ölçülen (bu head, yalıtılmış kanonical akış): kanonical öneri Core'da doğrulanmadığında
+    (`core_plan` None) `handoff` ham cepheyi yalnız iki ailede tamamen kapatır — photo
+    (`modules/brain_entry.py:1069`) ve files (`_file_access_refusal`). Diğer ailelerde kontrol
+    `handler(command)`'a düşer ve sıralık yüzey ham cümleyi kapılarına sorar; bir kapı
+    cevaplanırsa efekt kanonical reddi ezer (ölçülen satırlar: alarm grameri ve kural öğretme,
+    ikisi de `reminder.propose` taşmasına rağmen). Genel fence, o kapıların kanonical parity
+    kazandıktan sonra konur (PR3C); bugün konursa yaşayan domain davranışı regresyona düşer.
+    Bu sınıf o iki aileyi kapatır, kalanı envanter olarak adlandırır — liste büyürse test düşer."""
+
+    def test_a_rejected_proposal_falls_through_to_the_raw_surface_today(self):
+        """§24'ün kapatılmayan kısmı açıkça kilitlidir: parity'siz ailede ham kapı kanonical reddi ezer.
+
+        Bu test bugünkü ÜRETİM davranışını yazar, istenen davranışı değil. Kanonical öneri
+        (`text.translate`) Core'da doğrulanmadığında `handoff` kontrolü `handler(command)`'a
+        bırakır ve yüzey ham cümleyi kapılarına sorar; kapı cevaplanırsa kullanıcının etkisi
+        kanonical red mesajının yerine geçer. PR3C bu satırı `assert_not_called`'a çevirir —
+        o gün bu test düşmek zorundadır, yani burası sessiz borç değil adlandırılmış iştir."""
+        self.ctx._extra_commands = Mock(return_value="HAM KAPI CEVABI")
+        with patch.object(brain_entry, "core_plan", lambda entry: None):
+            _entry, out, _handle, _ = self.turn("şu notu ingilizceye çevir")
+        self.assertIn("HAM KAPI CEVABI", str(out))
+
+    def test_the_parity_families_that_already_close_a_rejected_proposal_are_named(self):
+        # Ölçülen: red durumunda ham yüzeyi tamamen kapatmış iki aile var — photo (handoff'ta
+        # plan'sız ret) ve files (`_file_access_refusal`). İkisi de kendi test sınıflarında
+        # kilitli (test_brain_photo_core_cutover, CoreRejectionFenceTests); burada yalnız envanter
+        # sahibi olarak adlandırılır ki PR3C "kalan kapı" listesini buradan genişletsin.
+        from modules import brain_entry as entry_module
+        source = inspect.getsource(entry_module.handoff)
+        self.assertIn("capability_hint == PHOTO_CAPABILITY", source)
+        self.assertIn("refusal = _file_access_refusal(entry)", source)
 
 
 if __name__ == "__main__":
