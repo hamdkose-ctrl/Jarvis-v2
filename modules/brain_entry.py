@@ -644,19 +644,14 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     return {"intent": "chat", "args": {}}
 
 
-def nested_step(command: str, runtime: Any = None) -> bool:
+def nested_step(command: str) -> bool:
     """True when a canonical entry is bound but this text is a different request: a sequence or macro step.
 
     The bound entry's decision belongs to the whole utterance, never to one of its steps.
-    `handle_request`'s single typo-corrected re-run is the SAME request (same request id), so it is
-    not a step; every other text that arrives while an entry is bound is."""
+    A request never runs a second pass (§25 A, BRAIN-MIG-042), so any text that arrives while an
+    entry is bound and differs from that entry's own sentence is a step."""
     entry = current()
-    if entry is None or str(command).strip() == entry.text.strip():
-        return False
-    text = entry.text.strip()
-    if text and runtime is not None and getattr(runtime, "_typo_pass", ""):
-        return str(getattr(runtime, "_typo_orig", "")).strip() != text
-    return True
+    return entry is not None and str(command).strip() != entry.text.strip()
 
 
 _NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin canonical kararı ona devredilmez. "
@@ -668,7 +663,7 @@ def route_command(runtime: Any, command: str) -> dict[str, object]:
 
     Bu turn'de Brain'in zaten vermiş olduğu kararın izdüşümünü verir. Bağlı bir Brain girişi
     yoksa cümle burada hiç yorumlanmaz ve istek fail-closed netleştirmeyle durur."""
-    if nested_step(command, runtime):
+    if nested_step(command):
         return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
     entry = current()
     if entry is None:

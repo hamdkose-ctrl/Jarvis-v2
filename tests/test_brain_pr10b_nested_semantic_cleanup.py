@@ -6,6 +6,7 @@ Nested (çok adımlı / kısayol) adımlar ikinci bir Understanding, router veya
 """
 import ast
 import importlib.util
+import inspect
 import pathlib
 import tempfile
 import unittest
@@ -125,13 +126,13 @@ class NestedStepBoundaryTests(EngineFixture):
             self.assertNotIn("path", row["args"])
             self.assertIn("adım", str(row["args"]["question"]).lower())
 
-    def test_typo_corrected_rerun_of_the_same_request_is_not_a_step(self):
-        # handle_request'ın TEK açık yeniden geçişi aynı istektir; adım reddi değil, canonical izdüşümünü alır.
-        self.ctx._typo_pass, self.ctx._typo_orig = True, self.entry.text
-        self.addCleanup(setattr, self.ctx, "_typo_pass", False)
-        self.addCleanup(setattr, self.ctx, "_typo_orig", "")
+    def test_the_nested_step_refusal_has_no_turn_flag_escape(self):
+        # BRAIN-MIG-042 (§25 A): aynı request içinde ikinci bir geçiş yoktur. Adım reddi tur
+        # bayraklarına bakmaz; bağlı cümleden farklı gelen her metin addır.
+        self.assertNotIn("runtime", inspect.signature(brain_entry.nested_step).parameters)
         with brain_entry.bind(self.entry):
-            self.assertEqual(brain_entry.route_command(self.ctx, "ankara'da hava nasıl ardından sesi 30"), self.parent)
+            self.assertNotEqual(
+                brain_entry.route_command(self.ctx, "ankara'da hava nasıl ardından sesi 30"), self.parent)
 
     def test_legacy_door_projects_the_bound_turn_without_any_classifier(self):
         # PR10c: classifier kapısı fiziksel olarak kalktı; route kapısı yalnız bağlı turn'ü izdüşürür.

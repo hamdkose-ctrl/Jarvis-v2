@@ -43,7 +43,8 @@ def dispatch(context, command, normalized):
       - 'görev akışı …:' (B): sabit önek; sözdizimi bozuksa sohbet yerine kullanım hatası döner.
       - pending_action (A): oturumda bekleyen onayın devamı, `pending_answer_owned` + süre çitiyle.
       - usage_meter / smart_router / system_doctor (B): tam cümle kümesi üyeliği; cümlenin içinde
-        aramaz, uzun cümleyi reddeder (negatif kilitler `ExactAdminArmScopeTests`).
+        aramaz, uzun cümleyi reddeder (negatif kilitler `ExactAdminArmScopeTests`). Yazım düzeltilmiş
+        görünümün görebileceği kapalı kümenin üyeleridir (`exact_admin_view`).
       - task_agents (B/C): 'görev akışı/akışları', 'görev kuyruğu', 'hesap durumu' gibi tam kalıplar;
         general NL girişi BRAIN-MIG-070 gereği PR3C envanterinde.
       - pc_guide (A/B): kullanıcının açtığı rehberlik oturumunun devamı; kapanış/kaçış kalıpları
@@ -140,6 +141,33 @@ def dispatch(context, command, normalized):
         return 'Tamam.'
     result = context.study_intent(normalized)
     return result if result else None
+
+
+def exact_admin_view(context, corrected):
+    """Yazım düzeltmesinin tek görebileceği kapalı küme (§25 A, BRAIN-MIG-042).
+
+    İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
+    Buradaki beş tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
+    üyeliği veya sabit-olmayan `fullmatch` — ve ham cümleyi bu turn'de zaten reddettiği için
+    efekt en çok bir kez çalışır. Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü,
+    görsel, Hoca, ek komutlar) listeye giremez: düzeltilmiş bir görünüm onların akışının sahibi
+    olamaz. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py::TypoSinglePassTests`."""
+    from modules import brain_gates, smart_router, system_doctor, usage_meter
+    owner = context.profile.slug
+    result = usage_meter.handle(owner, corrected)
+    if result is not None:
+        return result
+    result = smart_router.handle(owner, corrected)
+    if result is not None:
+        return result
+    result = system_doctor.handle(owner, corrected)
+    if result is not None:
+        return result
+    if brain_gates.conversation_summary_request(corrected):
+        return context.conversation_summary()
+    if brain_gates.table_request(corrected):
+        return context.table_chat()
+    return None
 
 
 def engine_control(normalized, *, source, sleeping, close, set_sleep):

@@ -72,7 +72,7 @@ def door(text: str, *, owner: str = OWNER, request_id: str = RID):
                                               active_context=ActiveContext(owner=owner, request_id=request_id),
                                               candidates=(), references=())
     row = dataclasses.replace(entry(brain_entry, semantic=semantic), text=text)
-    runtime = SimpleNamespace(_typo_pass="", _typo_orig="")
+    runtime = SimpleNamespace()
     with brain_entry.bind(row):
         return semantic, brain_entry.route_command(runtime, text)
 

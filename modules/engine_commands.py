@@ -3,28 +3,13 @@ from __future__ import annotations
 import contextlib
 
 
-class _TypoRetry:
-    """Signal that the whole pipeline should run once more on the typo-corrected text."""
-    __slots__ = ("text",)
-
-    def __init__(self, text: str):
-        self.text = text
-
-
 def handle_request(runtime, command: str) -> str:
-    """Public entry: run the pipeline; at most one explicit retry on typo-corrected text, same request id."""
-    reply = handle(runtime, command)
-    if not isinstance(reply, _TypoRetry):
-        return reply
-    original = command.strip()
-    runtime._typo_pass, runtime._typo_orig = True, original
-    try:
-        reply = handle(runtime, reply.text)
-    finally:
-        runtime._typo_pass, runtime._typo_orig = False, ""
-    if isinstance(reply, _TypoRetry):   # ikinci geçiş tekrar düzeltme isteyemez
-        raise RuntimeError("Yazım düzeltme ikinci kez tekrar istenemez.")
-    return reply
+    """Public entry: bu turn'ün tek pipeline geçişi; aynı request'te ikinci bir geçiş çalışmaz.
+
+    Yazım düzeltme artık yeniden deneme değildir (§25 A, BRAIN-MIG-042): kanonical tur ham cümleyi
+    bir kez yürütür, düzeltilmiş görünümün tek yetkisi
+    `command_manager.exact_admin_view` kapalı kümesidir."""
+    return handle(runtime, command)
 
 
 def _canonical_tail(runtime, command: str, cmd_lower: str):
@@ -59,7 +44,7 @@ def handle(runtime, command: str):
     # Web ayarları / telefon / geçici kullanıcı işlemleri istek bağlamını değiştirmiş olabilir.
     runtime._llm.set_user_context(runtime.profile.slug)
 
-    from modules.command_manager import CommandContext, dispatch, engine_control
+    from modules.command_manager import CommandContext, dispatch, engine_control, exact_admin_view
     from modules.confirmation import decision
     session = runtime._session()
     session.speech_override = None  # Only this command may choose its short spoken response.
@@ -331,18 +316,13 @@ def handle(runtime, command: str):
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
-    # ---- Yazım hatası: hiçbir kalıba uymadıysa düzeltilmiş hâliyle bir kez daha dene ("kotrol" -> "kontrol") ----
-    pass  # Shared fields are held by the explicit engine context.
-    if not runtime._typo_pass:
-        fixed = runtime.typo.fix(cmd_lower)
-        if fixed != cmd_lower:
-            runtime.log.info("İşlem kaydı: %s", 'main.py:handle')
-            return _TypoRetry(fixed)
-    elif runtime._typo_orig:
-        # Düzeltilmiş hâli de hızlı komutlara uymadı: yapay zekaya kullanıcının yazdığı asıl cümle gitsin
-        # ("yarış merhaba" -> "yarın merhaba" gibi bozulmalar olmasın; yapay zeka yazım hatasını zaten anlar).
-        command = runtime._typo_orig
-        cmd_lower = runtime._tr_lower(command)
+    # ---- Yazım hatası: ikinci bir pipeline geçişi yok (§25 A, BRAIN-MIG-042) ----
+    # Düzeltilmiş görünüm yalnız kapalı exact-admin kümesine gösterilir; ham cümle bu turn'de tüm
+    # kolları geçtığı için o kolun efekti en çok bir kez çalışır. Yapay zekaya her zaman
+    # kullanıcının yazdığı asıl cümle gider ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
+    view = exact_admin_view(context, runtime.typo.fix(cmd_lower))
+    if view is not None:
+        return view
 
     # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.

@@ -3,7 +3,8 @@
 Bu dosya RED olarak yazıldı: kanonical State/Fast/Understanding kararı verildikten sonra bile
 `engine_commands.handle` ham kullanıcı cümlesini bağımsız yeniden sınıflandırıyor, bir *soru*
 cffekt üretebiliyor, `_TypoRetry` aynı request'te ikinci bir pipeline geçişi çalıştırıyor ve
-sıra semantiği ham yüzeyde doğuyor.
+sıra semantiği ham yüzeyde doğuyor. Kapanan maddeler bu dosyada kilit olarak durur (aşağıdaki
+sınıf docstring'leri hangi hükmün artık üretimde olduğunu yazar); kapanmayanlar RED kalır.
 
 Üretim zinciri sınanır: `brain_entry.prepare → handoff → EngineContext.handle`. Canlı kullanıcı
 state'i okunmaz (geçici dizin + izole goal/history store); effekte giden her modül sınırı Mock'tur
@@ -19,7 +20,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import test_brain_pr3_raw_text_authority as pr3a
-from modules import brain_entry, engine_commands, finance, git_publish, learning, watcher
+from modules import brain_entry, engine_commands, finance, git_publish, learning, typo, watcher
 from modules.brain_contracts import RequestKind
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -179,12 +180,15 @@ class TypoSinglePassTests(_RawDoorHarness):
         self.assertNotIn("_TypoRetry", names)
         entry_point = next(node for node in tree.body
                            if isinstance(node, ast.FunctionDef) and node.name == "handle_request")
-        recursive = {node.func.id for node in ast.walk(entry_point)
-                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-        self.assertNotIn("handle", recursive)
+        calls = [node.func.id for node in ast.walk(entry_point)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)]
+        self.assertEqual(calls, ["handle"], "giriş tek bir geçiş çalıştırır, başka hiçbir şey yapmaz")
+        self.assertFalse(any(isinstance(node, (ast.For, ast.While)) for node in ast.walk(entry_point)))
 
     def test_the_door_runs_once_with_the_users_own_sentence(self):
-        for text in ("kotrol et", "whatsapp nasıl çalışır?", "notlarımı göstr"):
+        corpus = ("kotrol et", "whatsapp nasıl çalışır?", "notlarımı göstr",
+                  "notlari temizle", "yarinki randevularimi soyle", "seviyeyi 40 yap")
+        for text in corpus:
             with self.subTest(text=text):
                 self.door.reset_mock()
                 self.turn(text)
@@ -195,6 +199,50 @@ class TypoSinglePassTests(_RawDoorHarness):
         self.turn("yarış merhaba")
         self.assertTrue(self.ctx.chat.called)
         self.assertEqual(self.ctx.chat.call_args.args[0], "yarış merhaba")
+
+    def test_the_corrected_view_reaches_only_the_closed_exact_admin_set(self):
+        # §25 A / Karar B: düzeltilmiş görünümün tek yetkisi tam-cümle exact admin tanıyıcılarıdır.
+        # Yeni bir kol listeye ancak bilinçli olarak eklenebilir; domain akışları giremez.
+        tree = ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
+        arm = next(node for node in tree.body
+                   if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
+        self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
+                         {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
+                          "brain_gates.conversation_summary_request", "brain_gates.table_request",
+                          "context.conversation_summary", "context.table_chat"})
+
+    def test_the_surface_consults_the_closed_set_exactly_once(self):
+        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
+        calls = [ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)]
+        self.assertEqual(calls.count("exact_admin_view"), 1)
+        self.assertEqual(calls.count("runtime.typo.fix"), 1)
+        self.assertEqual(_source_calls("typo.fix"), ["modules/engine_commands.py"])
+
+    def test_a_diacritic_only_misspelling_still_reaches_its_exact_admin_owner(self):
+        # Tek ölçülen kazanç sınıfı: cümlenin tek eksiği Türkçe karakter, tek farkı exact admin grameri.
+        self.ctx._conversation_summary = Mock(return_value="ÖZET")
+        self.door.reset_mock()
+        _entry, out, _handle, _ = self.turn("konusmayi ozetle")
+        self.assertEqual(self.turn_texts, ["konusmayi ozetle"])
+        self.ctx._conversation_summary.assert_called_once_with()
+        self.assertEqual(out, "ÖZET")
+
+    def test_a_corrected_view_reaches_no_effect_gate(self):
+        # Ölçülen taban: ikinci geçiş effekte giden kapıları düzeltilmiş metinle *tekrar* çalıştırıyordu
+        # ("yarinki randevularimi soyle" -> "yarınki randevularimi sö", "raporuwhatsapp ile ahmeta
+        # gönder" -> "… ahmet"). Ölçülen kazanç: ham cümle bu kapılara zaten kendi yazımıyla ulaşıyor
+        # ("notlari temizle" planner kapısına girdi), yani düzeltmenin domain effekte yetkisi yoktu.
+        gates = (self.ctx._planner_command, self.ctx._file_command, self.ctx._user_command)
+        for text in ("notlari temizle", "yarinki randevularimi soyle", "indirilenleri duzenle"):
+            with self.subTest(text=text):
+                self.door.reset_mock()
+                for gate in gates:
+                    gate.reset_mock()
+                self.turn(text)
+                self.assertEqual(self.turn_texts, [text])
+                seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
+                self.assertNotIn(typo.fix(text.casefold()), seen,
+                                 "düzeltilmiş görünüm effekte giden bir kapıya ulaşamaz")
 
 
 class MultiStepAuthorityTests(_RawDoorHarness):
@@ -405,7 +453,10 @@ class CoreRejectionFenceTests(_RawDoorHarness):
 
 
 def _source_calls(marker: str) -> list[str]:
-    """Bu adı *çağıran* üretim modülleri (ast.Attribute veya ast.Name çağrısı); tanımlar hariç."""
+    """Bu adı *çağıran* üretim modülleri (ast.Attribute veya ast.Name çağrısı); tanımlar hariç.
+
+    Noktalı işaretçi ("typo.fix") zincirin son iki halkasıyla karşılaştırılır, çıplak ad tek
+    halkayla."""
     found = []
     files = sorted(list(ROOT.glob("*.py")) + list((ROOT / "modules").rglob("*.py"))
                    + list((ROOT / "scripts").glob("*.py")))
@@ -419,7 +470,8 @@ def _source_calls(marker: str) -> list[str]:
                 continue
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else None)
-            if name == marker:
+            dotted = ast.unparse(func) if "." in marker else None
+            if name == marker or (dotted and dotted.split(".")[-2:] == marker.split(".")):
                 found.append(path.relative_to(ROOT).as_posix())
                 break
     return found

@@ -1,8 +1,10 @@
 """Yazım hatası düzeltici: "kotrol et" -> "kontrol et", "hatirlat" -> "hatırlat".
 
 Yalnızca Jarvis'in komut kalıplarında geçen anahtar kelimeler düzeltilir (Türkçe ekler korunur: "maylerimi" -> "maillerimi"
-gibi değil, kökün başı eşleşirse "kotrolü" -> "kontrolü"). main.handle önce yazılanı olduğu gibi dener; hiçbir kalıba
-uymazsa düzeltilmiş hâliyle bir kez daha dener. Böylece doğru yazılmış cümleler hiç değişmez.
+gibi değil, kökün başı eşleşirse "kotrolü" -> "kontrolü"). main.handle cümleyi her zaman kullanıcının yazdığı hâliyle
+yürütür; düzeltilmiş görünüm ikinci bir geçiş değildir ve tek yetkisi `command_manager.exact_admin_view` kapalı
+exact-admin kümesidir (BRAIN-MIG-042). Böylece doğru yazılmış cümleler hiç değişmez, bozulmuş bir görünüm de
+effekte giden bir kapıya ulaşamaz.
 """
 import re
 

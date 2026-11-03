@@ -39,8 +39,10 @@ class RetiredRouteWaitTests(unittest.TestCase):
     def test_route_projection_is_the_only_legacy_shaped_door(self):
         from modules import brain_entry
         body = inspect.getsource(brain_entry.route_command)
-        self.assertIn("nested_step(command, runtime)", body)
+        self.assertIn("nested_step(command)", body)
         self.assertNotIn("classify", body)
+        # BRAIN-MIG-042: adım reddi tur bayraklarına bakmaz; ikinci geçiş kaçışı yoktur.
+        self.assertNotIn("_typo", inspect.getsource(brain_entry.nested_step))
 
 
 if __name__ == "__main__":

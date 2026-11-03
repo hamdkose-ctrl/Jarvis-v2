@@ -74,17 +74,16 @@ class EngineLinkTests(unittest.TestCase):
 
     def test_concurrent_command_metadata_does_not_cross_between_threads(self):
         context=self.context();barrier=threading.Barrier(2)
-        def work(source,rid,typo):
+        def work(source,rid):
             context._cur_source=source;context._cur_rid=rid
-            context._typo_pass=typo;context._typo_orig=rid
             barrier.wait(timeout=5)
-            return context._cur_source,context._cur_rid,context._typo_pass,context._typo_orig
+            return context._cur_source,context._cur_rid
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            first=pool.submit(work,'telefon','phone-rid',True)
-            second=pool.submit(work,'ses','voice-rid',False)
-            self.assertEqual(first.result(),('telefon','phone-rid',True,'phone-rid'))
-            self.assertEqual(second.result(),('ses','voice-rid',False,'voice-rid'))
-        self.assertEqual((context._cur_source,context._cur_rid,context._typo_pass),('',None,False))
+            first=pool.submit(work,'telefon','phone-rid')
+            second=pool.submit(work,'ses','voice-rid')
+            self.assertEqual(first.result(),('telefon','phone-rid'))
+            self.assertEqual(second.result(),('ses','voice-rid'))
+        self.assertEqual((context._cur_source,context._cur_rid),('',None))
 
     def test_output_keeps_each_threads_request_identity(self):
         context=self.context();barrier=threading.Barrier(2)
@@ -102,20 +101,19 @@ class EngineLinkTests(unittest.TestCase):
         context.match_user=lambda name:context.profile.name
         context._get_profile=lambda name:context.profile
         context._cur_source='telefon';context._cur_rid='outer-rid'
-        context._typo_pass=False;context._typo_orig='outer text'
         observed=[]
         def handle(text):
-            observed.append((context._cur_source,context._cur_rid,context._typo_pass,context._typo_orig))
+            observed.append((context._cur_source,context._cur_rid))
             context._session().speech_override='Sesli kısa sonuç'
             return 'Tam sonuç'
         context.handle=handle
         self.assertEqual(context._live_command('istek'),'Sesli kısa sonuç')
         self.assertEqual(len(observed),1)
-        source,rid,typo,original=observed[0]
-        self.assertEqual((source,typo,original),('ses',True,''))
+        source,rid=observed[0]
+        self.assertEqual(source,'ses')
         self.assertTrue(rid)
         self.assertNotEqual(rid,'outer-rid')
-        self.assertEqual((context._cur_source,context._cur_rid,context._typo_pass,context._typo_orig),('telefon','outer-rid',False,'outer text'))
+        self.assertEqual((context._cur_source,context._cur_rid),('telefon','outer-rid'))
 
     def test_live_preparation_failure_restores_context(self):
         context=self.context();context._cur_source='web';context._cur_rid='outer'
@@ -123,12 +121,12 @@ class EngineLinkTests(unittest.TestCase):
         context._get_profile=lambda name:context.profile
         context.emit=Mock(side_effect=RuntimeError('output unavailable'))
         with self.assertRaises(RuntimeError):context._live_command('istek')
-        self.assertEqual((context._cur_source,context._cur_rid,context._typo_pass),('web','outer',False))
+        self.assertEqual((context._cur_source,context._cur_rid),('web','outer'))
 
     def test_facade_temporary_metadata_patch_restores_the_outer_values(self):
         import main
-        outer=('telefon','outer',True,'outer text')
-        for name,value in zip(('_cur_source','_cur_rid','_typo_pass','_typo_orig'),outer):
+        outer=('telefon','outer')
+        for name,value in zip(('_cur_source','_cur_rid'),outer):
             previous=getattr(main,name)
             setattr(main,name,value)
             try:
