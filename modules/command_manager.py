@@ -143,17 +143,17 @@ def dispatch(context, command, normalized):
     return result if result else None
 
 
-def exact_admin_view(context, corrected):
+def exact_admin_view(context, corrected, speak_flag=None):
     """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
-    Buradaki beş tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
+    Buradaki altı tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
     üyeliği veya sabit-olmayan `fullmatch` — ve ham cümle bu turn'de zaten reddedildiği için
     efekt en çok bir kez çalışır. Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü,
     görsel, Hoca, ek komutlar) listeye giremez: düzeltilmiş bir görünüm onların akışının sahibi
     olamaz. Düzeltilmiş görünümün ikinci (ve son) yetkisi salt-okuma kurtarmasıdır:
     `typo_read_recovery`. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`."""
-    from modules import brain_gates, smart_router, system_doctor, usage_meter
+    from modules import brain_gates, diagnose, smart_router, system_doctor, usage_meter
     owner = context.profile.slug
     result = usage_meter.handle(owner, corrected)
     if result is not None:
@@ -164,6 +164,12 @@ def exact_admin_view(context, corrected):
     result = system_doctor.handle(owner, corrected)
     if result is not None:
         return result
+    if diagnose.requested(corrected):
+        # Tam-cümle arıza tespiti (`sistemi kontrol et`): teşhis salt-okunurdur, sahibi ve tek
+        # yürütmesi `modules.diagnose`dır. Ham cümle bu turn'de düz-metin kapısını kendi yazımıyla
+        # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
+        # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
+        return diagnose.summary(diagnose.run(speak_flag=speak_flag))
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):

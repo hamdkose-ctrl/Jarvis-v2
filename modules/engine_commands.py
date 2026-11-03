@@ -338,7 +338,7 @@ def handle(runtime, command: str):
     # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
     # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
     corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected)
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"))
     if view is not None:
         return view
     if corrected != cmd_lower:

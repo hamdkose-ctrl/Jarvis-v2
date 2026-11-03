@@ -13,7 +13,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
-from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
+from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest, typo
 from modules.brain_understanding import (
     ACTION_REQUEST_CODE,
     APP_CLOSE_CAPABILITY,
@@ -614,6 +614,10 @@ def _correlated_job_id(entry: EntryResult) -> str | None:
     return str(ident) if ident else None
 
 
+_TYPO_UNVERIFIED_QUESTION = ("Cümlenin Türkçe karakterleri tamamlanmış hâli doğrulanmış bir yetenekte karşılık "
+                             "bulmadı; genel hedef yürütmesi başlatılmadı, işlem başlatılmadı. İsteği tek tek de söyleyebilirsin.")
+
+
 def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     """Build a legacy-dispatch-shaped result without invoking the legacy classifier."""
     question = clarification(entry)
@@ -638,6 +642,15 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
                 # bağlanmış referans varsa kapı kendi başına hedef sorusu üretmez, ikinci yetki olmaz.
                 if brain_actions.ambiguous_reference(entry.text) and not semantic.references:
                     return {"intent": "clarify", "args": {"question": "Hangi hedef üzerinde ne yapmamı istiyorsun?"}}
+                if typo.diacritic_correction(entry.text.casefold()):
+                    # Kaldırılan ikinci `handle()` geçişi düzeltilmiş metni ham kapılara tekrar
+                    # sokuyordu; o geçiş geri gelmez (BRAIN-MIG-042). Yalnız Türkçe karakteri
+                    # geri getirilen — kelime kimliği değişmemiş — bir cümle doğrulanmış hiçbir
+                    # yetenekte karşılık bulmadıysa Goal/Task yetkisi olamaz: bu yolla yeni
+                    # GoalState kaydı, model planlayıcısı veya dosya efekti başlamaz. Düzeltici
+                    # doğru kelimeyi de bozabildiği için ("hazırla" -> "hatırla") kapı bilinçli
+                    # olarak bu dar sınıfla sınırlandı; doğru yazılmış cümleler yetkisini kaybetmez.
+                    return {"intent": "clarify", "args": {"question": _TYPO_UNVERIFIED_QUESTION}}
                 return {"intent": "task", "args": {"request": entry.text}}
             return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
         return {"intent": "task", "args": {}}
