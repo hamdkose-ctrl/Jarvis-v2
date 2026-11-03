@@ -11,7 +11,7 @@ if 'pyautogui' not in sys.modules:
     sys.modules['pyautogui'] = _keyboard
 
 from modules import brain_core_map, brain_entry, engine_intents, session_state
-from modules.brain_contracts import ActiveContext, ContextReference, RequestKind
+from modules.brain_contracts import ActiveContext, ContextReference, ConversationRelation, RequestKind
 from modules.brain_understanding import understand
 
 OWNER = "hamdi"
@@ -128,12 +128,13 @@ class EndToEndTests(unittest.TestCase):
         handler.assert_called_once_with("ses")
         dispatch.assert_not_called()
 
-    def test_other_pending_states_still_block_the_level_plan(self):
+    def test_unrelated_pending_state_does_not_veto_the_level_plan(self):
         self.state.pending_confirm = "shutdown"
         entry, output, feedback, handler, dispatch = self.run_turn("sesi 30 yap")
-        self.assertIsNone(brain_entry.core_plan(entry))
-        for call in dispatch.call_args_list:
-            self.assertNotEqual(call.args[1], "level_set")
+        # NEW_REQUEST + CAPABILITY bağımsız istektir: açık onay yalnız kendi cevabını sahiplenir.
+        self.assertEqual(brain_entry.core_plan(entry), ("level_set", {"property": "volume", "level": 30}))
+        self.assertEqual(dispatch.call_args.args[1:3], ("level_set", {"property": "volume", "level": 30}))
+        self.assertEqual(self.state.pending_confirm, "shutdown")
 
     def test_bare_number_with_fresh_last_property_end_to_end(self):
         session_state.remember_property(self.state, "brightness")
@@ -176,10 +177,14 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(brain_entry._multi_step(text),
                              engine_sequence._split_steps(runtime, text) is not None or text.startswith("önce"), text)
 
-    def test_weather_answer_to_open_location_question_keeps_existing_path(self):
+    def test_weather_request_is_not_captured_by_an_open_location_question(self):
         self.state.pending_weather_location = True
         entry, output, feedback, handler, dispatch = self.run_turn("hava nasıl")
-        self.assertIsNone(brain_entry.core_plan(entry))
+        # "hava nasıl" yeni bir hava isteğidir; açık şehir sorusunun cevabı sayılmaz.
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual(brain_entry.core_plan(entry), ("weather", {}))
+        self.assertEqual(dispatch.call_args.args[1], "weather")
+        self.assertIs(self.state.pending_weather_location, True)
 
 
 if __name__ == "__main__":

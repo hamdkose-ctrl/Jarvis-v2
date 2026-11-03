@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401  (shared test stubs)
 from modules import brain_core_map, brain_entry, brain_precedence, engine_runtime, main_planner, reminder_parse, requests_state
+from modules.brain_contracts import ConversationRelation, RequestKind
 
 # (sentence, expected reply prefix, pending_event_title is set?)
 TABLE = [
@@ -147,14 +148,23 @@ class EndToEndTests(Pipeline):
             self.ctx._planner_command(text, self.ctx._tr_lower(text))
         self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["ilaç"])
 
-    def test_open_pending_blocks_the_core_plan_itself(self):
+    def test_open_event_title_does_not_block_a_new_validated_reminder(self):
         self.ctx._session().pending_event_title = "ilaç"
+        text = "bana yarın 10'da toplantıyı hatırlat"
         rid = "b3c2-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
-            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text="bana yarın 10'da toplantıyı hatırlat", source="yazı")
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source="yazı")
+        # Slot varlığı plan veto sebebi değildir: yeni istek kendi doğrulanmış planıyla çalışır.
         self.assertTrue(brain_entry._has_open_pending(entry))
-        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual((brain_entry.core_plan(entry) or (None,))[0], "reminder")
+
+        entry, out, feedback, handle = self.through_brain(text)
+        self.assertTrue(str(out).startswith("Takvime ekledim: toplantıyı"), out)
+        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["toplantıyı"])
+        self.assertEqual(self.ctx._session().pending_event_title, "ilaç")   # eski soru korunur
 
     def test_no_second_reminder_when_core_args_are_consumed(self):
         self.through_brain("bana yarın 9'da ilaç hatırlat")

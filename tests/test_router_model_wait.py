@@ -8,7 +8,7 @@ import inspect
 import unittest
 from unittest.mock import patch
 
-from modules import brain_gates, brain_understanding, engine_runtime, llm
+from modules import brain_understanding, engine_runtime, llm
 from modules.brain_contracts import ActiveContext
 
 OWNER, RID = "hamdi", "rid-wait"
@@ -35,19 +35,6 @@ class RetiredRouteWaitTests(unittest.TestCase):
             for text in texts:
                 with self.subTest(text=text):
                     self.assertIsNotNone(understand(text).request_kind, text)
-
-    def test_no_semantic_door_clears_the_pending_request_slot(self):
-        from pathlib import Path
-        root = Path(__file__).resolve().parents[1] / "modules"
-        for name in ("brain_entry", "brain_gates", "brain_understanding", "command_manager", "engine_tools"):
-            with self.subTest(module=name):
-                text = (root / f"{name}.py").read_text(encoding="utf-8")
-                self.assertNotIn(".pending_request = None", text, name)
-
-    def test_the_pending_request_is_a_bounded_state_key(self):
-        # Bekleyen isteğin tek sahibi exact state gate; oradan geçen cümle modele düşmez.
-        self.assertIn("pending_request", brain_gates._PENDING_SESSION_IDS)
-        self.assertTrue(callable(brain_gates.exact_state_gate))
 
     def test_route_projection_is_the_only_legacy_shaped_door(self):
         from modules import brain_entry

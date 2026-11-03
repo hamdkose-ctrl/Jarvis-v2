@@ -221,11 +221,21 @@ class EngineClarifyTests(unittest.TestCase):
     def test_bare_verbs_ask_without_model_call(self):
         context = self.context()
         context.route = Mock(side_effect=AssertionError('model çağrılmamalı'))
-        for text, word in (('kapat', 'kapatmamı'), ('Kapatır mısın?', 'kapatmamı'), ('aç', 'açmamı'), ('sil', 'silmemi')):
+        for text, word in (('kapat', 'kapatmamı'), ('Kapatır mısın?', 'kapatmamı'), ('aç', 'açmamı')):
             with context.as_user(context.profile.name):
                 answer = context.handle(text)
             self.assertEqual(answer, f'Neyi {word} istiyorsun?', text)
-            self.assertEqual(context._session().pending_request['question'], answer)
+            self.assertEqual(context._session().pending_action['question'], answer)
+
+    def test_bare_verbs_without_bounded_owner_fail_closed_without_model_call(self):
+        context = self.context()
+        context.route = Mock(side_effect=AssertionError('model çağrılmamalı'))
+        for text in ('sil', 'gönder', 'başlat'):
+            with context.as_user(context.profile.name):
+                answer = context.handle(text)
+            self.assertEqual(answer, 'Bu cümle Brain turunda yorumlanmadı; işlem başlatılmadı.', text)
+            self.assertEqual(context._session().pending_action['question'], answer)
+            self.assertNotIn('Neyi', answer, text)
 
     def test_voice_and_typed_bare_close_reach_handler_without_direct_stop(self):
         import contextlib

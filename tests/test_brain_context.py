@@ -71,7 +71,7 @@ class BrainContextTests(unittest.TestCase):
         self.assertEqual(context.request_id, "rid-from-caller-001")
 
     def test_cross_owner_state_cannot_enter_snapshot(self):
-        other = SimpleNamespace(pending_request={"question": "başkasının"})
+        other = SimpleNamespace(pending_action={"stage": "clarify", "question": "başkasının"})
         store = _SessionStore({"hasan": other})
         context = self._build(session_store=store)
         self.assertFalse(context.pending_references)
@@ -84,11 +84,12 @@ class BrainContextTests(unittest.TestCase):
             )
 
     def test_session_pending_state_becomes_read_only_reference(self):
-        session = SimpleNamespace(pending_request={"question": "Hangi dosya?", "original": "onu aç"})
+        session = SimpleNamespace(pending_action={"stage": "clarify", "command": "onu aç",
+                                                  "question": "Hangi dosya?", "owner": "hamdi", "expires": 9999999999})
         context = self._build(session_store=_SessionStore({"hamdi": session}))
         ref = context.pending_references[0]
-        self.assertEqual((ref.id, ref.kind, ref.source, ref.owner), ("pending_request", "pending_state", "session_state", "hamdi"))
-        self.assertEqual(ref.provenance["field"], "pending_request")
+        self.assertEqual((ref.id, ref.kind, ref.source, ref.owner), ("pending_action", "pending_state", "session_state", "hamdi"))
+        self.assertEqual(ref.provenance["field"], "pending_action")
         self.assertEqual(ref.provenance["value"]["question"], "Hangi dosya?")
 
     def test_session_last_artifact_has_real_source_and_provenance(self):
@@ -251,7 +252,7 @@ class BrainContextTests(unittest.TestCase):
     def test_source_data_is_not_mutated(self):
         pending = {"question": "Hangi dosya?", "nested": {"items": [1, 2]}}
         lesson = {"topic": "Matematik", "active": 0, "done": False, "steps": [{"title": "A", "goal": "B"}]}
-        session = SimpleNamespace(pending_request=pending)
+        session = SimpleNamespace(pending_action=pending)
         profile = self._profile(hoca=lesson)
         before_pending = json.loads(json.dumps(pending))
         before_lesson = json.loads(json.dumps(lesson))
@@ -260,7 +261,7 @@ class BrainContextTests(unittest.TestCase):
         self.assertEqual(lesson, before_lesson)
 
     def test_snapshot_does_not_call_source_write_or_creating_accessors(self):
-        session = SimpleNamespace(pending_request={"question": "x"})
+        session = SimpleNamespace(pending_action={"stage": "clarify", "question": "x"})
         store = _SessionStore({"hamdi": session})
         profile = self._profile()
         self._build(session_store=store, profile=profile)
@@ -284,7 +285,7 @@ class BrainContextTests(unittest.TestCase):
 
     def test_same_input_state_produces_deterministic_snapshot(self):
         session = SimpleNamespace(
-            pending_request={"question": "Hangi dosya?"},
+            pending_action={"stage": "clarify", "question": "Hangi dosya?"},
             last_doc=("özet", "C:/docs/a.pdf", "ozet"),
             last_visual=None,
             last_command="son komut",
@@ -310,7 +311,7 @@ class BrainContextTests(unittest.TestCase):
         self.assertNotIn("secret path", json.dumps(context.to_dict(), ensure_ascii=False))
 
     def test_callable_or_executable_objects_never_enter_snapshot(self):
-        session = SimpleNamespace(pending_request={"question": "x", "callback": lambda: None})
+        session = SimpleNamespace(pending_action={"stage": "clarify", "question": "x", "callback": lambda: None})
         context = self._build(session_store=_SessionStore({"hamdi": session}))
         payload = context.to_dict()
         json.dumps(payload, ensure_ascii=False, allow_nan=False)

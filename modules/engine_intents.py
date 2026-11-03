@@ -29,6 +29,14 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 from modules import goal_executor
                 if not goal_executor.active():return goal_executor.run(runtime,command,initial_failure=str(result))
             return result
+        case "app_open":
+            # Target came from a typed clarify proposal and was re-validated by brain_core_map.
+            from modules.command_execution import open_app
+            return open_app(runtime, str(a.get("name") or ""))
+        case "app_close":
+            # Only opens the existing confirmation; close_application runs after approval.
+            from modules.command_execution import request_close_app
+            return request_close_app(runtime, str(a.get("name") or "")) or "Uygulama adı doğrulanamadı; kapatma işlemi başlatılmadı."
         case "file_action":
             from pathlib import Path
             from modules import nxapi
@@ -96,9 +104,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return result
 
         case "clarify":
+            from modules import app_actions
             question = str(a.get('question') or 'Hangi uygulama, dosya veya iş üzerinde ne yapmamı istiyorsun?')
-            runtime._session().pending_request = {'command': command, 'question': question}
-            return question
+            return app_actions.ask_clarification(runtime._session(), command, question, runtime.profile)
         case "task":
             from modules import goal_executor
             return goal_executor.run(runtime,command)

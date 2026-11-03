@@ -905,20 +905,25 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     """Not defteri ve takvim komutları (kullanıcıya özel)."""
     now = runtime.datetime.now()
     if runtime._session().pending_event_title is not None:
-        title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
-        if isinstance(title, dict):       # çakışma sorusunun cevabı
-            from modules.confirmation import decision
-            approval = decision(cmd_lower, extra=('ekle', 'yine de ekle', 'ekle gitsin'))
-            if approval is True:
-                return _save_reminder(runtime, *title['confirm'])
-            if approval is False:
+        from modules import brain_entry
+        # Açık başlık sorusu yalnız canonical olarak kendi cevabı olan turu tüketir (State zaman
+        # protokolü veya semantik ANSWER_TO_PENDING); bağımsız yeni istek soruyu ham metne çevirmez.
+        if brain_entry.pending_answer_owned("pending_event_title"):
+            title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
+            if isinstance(title, dict):       # çakışma sorusunun cevabı
+                from modules.confirmation import decision
+                approval = decision(cmd_lower, extra=('ekle', 'yine de ekle', 'ekle gitsin'))
+                if approval is True:
+                    return _save_reminder(runtime, *title['confirm'])
+                if approval is False:
+                    return 'Tamam, eklemedim.'
+                title = None                  # başka bir komut geldi: soru düşer, normal akışa devam
+            elif brain_entry.matched_protocol("session.pending_event_title.cancel") \
+                    or cmd_lower in ('iptal', 'vazgeç', 'boşver'):
                 return 'Tamam, eklemedim.'
-            title = None                  # başka bir komut geldi: soru düşer, normal akışa devam
-        elif cmd_lower in ('iptal', 'vazgeç', 'boşver'):
-            return 'Tamam, eklemedim.'
-        when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
-        if when:
-            return _reminder_or_confirm(runtime, title, when)
+            when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
+            if when:
+                return _reminder_or_confirm(runtime, title, when)
     if runtime.re.fullmatch('(notlarım(ı (oku|göster|say))?|notlarımı (oku|göster|say)|notları (oku|göster|say)|notlar)', cmd_lower.strip(' .!?')):
         return runtime._notes_text()
     m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)

@@ -14,7 +14,7 @@ _CANCEL = frozenset({'iptal', 'vazgeç', 'boşver'})
 _OPEN = frozenset({'interrupted', 'incomplete', 'approval'})
 _FRESH_SECONDS = 24 * 3600
 _PENDING = ('pending_confirm', 'pending_action', 'pending_organize', 'pending_msg', 'pending_level', 'pending_voice',
-            'pending_event_title', 'pending_app', 'pending_request', 'pending_desktop', 'pending_weather_location')
+            'pending_event_title', 'pending_app', 'pending_desktop', 'pending_weather_location')
 
 
 def _goal_open(owner):

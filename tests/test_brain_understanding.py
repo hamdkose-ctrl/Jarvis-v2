@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from datetime import datetime, timedelta
 
 from modules.brain_contracts import (
     ActiveContext,
@@ -127,6 +128,7 @@ class BrainUnderstandingTests(unittest.TestCase):
         active = ctx(pending_references=(pending,))
         result = self.call("İstanbul", active_context=active, candidates=(pending,))
         self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_weather_location")
         self.assertNotEqual(result.request_kind, RequestKind.CLARIFY)
 
     def test_weather_pending_rejects_unrelated_short_sentence(self):
@@ -135,12 +137,227 @@ class BrainUnderstandingTests(unittest.TestCase):
         result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
         self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
 
+    def test_message_pending_accepts_bounded_recipient_and_text_answers(self):
+        rows = (
+            ({"to": "", "text": "", "stage": "to"}, "Ebru", "session.pending_msg.to"),
+            ({"to": "Ebru", "text": "", "stage": "text"}, "Yarın geliyorum.",
+             "session.pending_msg.text"),
+        )
+        for value, text, owner in rows:
+            with self.subTest(stage=value["stage"]):
+                pending = ref("pending_msg", "pending_state", field="pending_msg", value=value)
+                active = ctx(pending_references=(pending,))
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, owner)
+
+    def test_specific_location_owner_outranks_a_generic_message_text_slot(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "Ebru", "text": "", "stage": "text"})
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_weather_location")
+
+    def test_recipient_and_location_tie_is_a_fail_closed_ambiguity(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIsNone(result.pending_owner)
+        self.assertEqual(result.request_kind, RequestKind.CLARIFY)
+        self.assertTrue(result.needs_input)
+        self.assertIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
+    def test_typed_clarify_owner_outranks_an_open_location_question(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        clarify = ref(
+            "pending_action", "pending_state", source="session_state",
+            field="pending_action", active=True, targets=("Chrome", "Edge"),
+            value={"stage": "clarify", "command": "aç", "owner": OWNER, "expires": 9999999999,
+                   "proposal": {"kind": "app.open"}},
+        )
+        active = ctx(pending_references=(clarify, weather))
+        result = self.call("Chrome", active_context=active, candidates=(clarify, weather))
+        self.assertEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_action.clarify")
+        self.assertEqual(result.capability_hint, "app.open")
+        self.assertEqual(result.arguments["app"], "Chrome")
+
+    def test_independent_capability_carries_no_pending_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        active = ctx(pending_references=(weather,))
+        result = self.call("notlarımı göster", active_context=active, candidates=(weather,))
+        self.assertEqual(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(result.pending_owner)
+
+    def message_draft(self):
+        return ref("pending_msg", "pending_state", field="pending_msg",
+                   value={"to": "Ebru", "text": "", "stage": "text"})
+
+    def test_capability_classes_are_never_the_pending_message_answer(self):
+        pending = self.message_draft()
+        active = ctx(pending_references=(pending,))
+        cases = (
+            ("notlarımı göster", "notes.read"),
+            ("hava nasıl", "weather.read"),
+            ("iyi günler İngilizceye çevir", "text.translate"),
+            ("hava durumuna bak", None),
+            ("ekran görüntüsü al", None),
+        )
+        for text, hint in cases:
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+                self.assertIs(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+                self.assertIsNone(result.pending_owner)
+                self.assertEqual(result.capability_hint, hint)
+
+    def test_definition_questions_are_not_legacy_capability_commands(self):
+        # "hava durumu nedir" bir komut değil açıklama sorusudur; legacy sahibi adına
+        # capability sayılırsa Core manifesti doğrulayamaz ve sohbet fail-closed clarify olurdu.
+        for text in ("hava durumu nedir", "ekran görüntüsü ne demek"):
+            with self.subTest(text=text):
+                result = self.call(text)
+                self.assertIs(result.request_kind, RequestKind.CHAT)
+                self.assertIs(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+
+    def test_file_capabilities_are_never_the_pending_message_answer(self):
+        pending = self.message_draft()
+        file = ref("/data/rapor.docx", "file", path="/data/rapor.docx", name="rapor.docx")
+        active = ctx(pending_references=(pending,))
+        cases = (
+            ("rapor.docx dosyasını incele", "analyze"),
+            ("rapor.docx dosyasını İngilizceye çevir", "translate"),
+            ("rapor.docx dosyasını PDF'e dönüştür", "convert"),
+        )
+        for text, operation in cases:
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active,
+                                   candidates=(pending, file), references=(file,))
+                self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+                self.assertIs(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+                self.assertIsNone(result.pending_owner)
+                self.assertEqual(result.capability_hint, "files.read")
+                self.assertEqual(result.arguments.get("operation"), operation)
+                self.assertEqual(result.arguments.get("path"), "/data/rapor.docx")
+
+    def test_translation_with_a_brain_source_is_capability_not_message_text(self):
+        pending = self.message_draft()
+        source = ref("turn-1", "conversation_turn", role="user", text="gizli metin",
+                     ts=(datetime.now() - timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S"))
+        active = ctx(pending_references=(pending,))
+        result = self.call("bunu İngilizceye çevir", active_context=active,
+                           candidates=(pending, source))
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertIs(result.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertIsNone(result.pending_owner)
+        self.assertEqual(result.arguments["translate"]["text"], "gizli metin")
+
+    def test_typed_clarify_answer_owns_the_turn_while_a_message_draft_is_open(self):
+        message = self.message_draft()
+        clarify = ref(
+            "pending_action", "pending_state", source="session_state",
+            field="pending_action", active=True, targets=("Chrome", "Edge"),
+            value={"stage": "clarify", "command": "aç", "owner": OWNER, "expires": 9999999999,
+                   "proposal": {"kind": "app.open"}},
+        )
+        active = ctx(pending_references=(clarify, message))
+        result = self.call("Chrome", active_context=active, candidates=(clarify, message))
+        self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.pending_owner, "session.pending_action.clarify")
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(result.capability_hint, "app.open")
+
+    def test_free_form_bodies_are_owned_by_the_message_text_slot(self):
+        # pending_msg(stage=text) bounded bir kimlik/mekân slotu değil, free-text foreground slot'tur:
+        # selam, soru cümlesi ve doğal sohbet dili mesaj gövdesidir.
+        pending = self.message_draft()
+        active = ctx(pending_references=(pending,))
+        for text in ("Selam", "Nasılsın?", "İyi misin?", "Yarın geliyor musun?",
+                     "Selam, nasılsın? Yarın görüşelim mi?", "Kuantum hakkında konuşalım"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, "session.pending_msg.text")
+
+    def test_recipient_slot_stays_bounded_while_the_body_slot_is_free_form(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        bounded = self.call("Ebru", active_context=active, candidates=(recipient,))
+        self.assertEqual(bounded.pending_owner, "session.pending_msg.to")
+        for text in ("nasılsın?", "kuantum hakkında konuşalım"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIsNone(result.pending_owner)
+                self.assertIsNot(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_recipient_slot_accepts_multi_word_names_without_a_word_count_rule(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        for text in ("Mehmet Ali Yılmaz", "Mehmet Ali Can Yılmaz", "Ayşe Nur Demir"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, "session.pending_msg.to")
+
+    def test_recipient_slot_rejects_sentence_shapes_not_identity_names(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        for text in ("Selam nasılsın bugün", "kuantum hakkında konuşalım",
+                     "nasılsın?", "bugün hava nasıl?"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIsNone(result.pending_owner)
+                self.assertIsNot(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_registered_contact_evidence_strengthens_the_recipient_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"},
+                      recipient_candidates=("İstanbul Ofis",))
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul Ofis", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.pending_owner, "session.pending_msg.to")
+        self.assertNotIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
+    def test_unregistered_shape_does_not_strengthen_the_recipient_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"},
+                      recipient_candidates=("Ankara Ofis",))
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul Ofis", active_context=active, candidates=(weather, message))
+        self.assertIsNone(result.pending_owner)
+        self.assertIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
+    def test_message_pending_does_not_consume_new_requests_or_confirmations(self):
+        text_pending = ref("pending_msg", "pending_state", field="pending_msg",
+                           value={"to": "Ebru", "text": "", "stage": "text"})
+        active = ctx(pending_references=(text_pending,))
+        result = self.call("notlarımı göster", active_context=active, candidates=(text_pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(result.request_kind, RequestKind.CAPABILITY)
+
+        confirm_pending = ref("pending_msg", "pending_state", field="pending_msg",
+                              value={"to": "Ebru", "text": "Merhaba", "stage": "confirm"})
+        active = ctx(pending_references=(confirm_pending,))
+        result = self.call("başka bir şey", active_context=active, candidates=(confirm_pending,))
+        self.assertNotEqual(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
     def test_generic_pending_question_does_not_consume_unrelated_short_sentence(self):
         pending = ref(
-            "pending_request",
+            "pending_action",
             "pending_state",
-            field="pending_request",
-            question="Hangi dosyayı kastettin?",
+            field="pending_action",
+            value={"stage": "clarify", "command": "aç", "question": "Hangi dosyayı kastettin?",
+                   "owner": OWNER, "expires": 9999999999},
         )
         active = ctx(pending_references=(pending,))
         result = self.call("yarın toplantım var", active_context=active, candidates=(pending,))
@@ -154,10 +371,11 @@ class BrainUnderstandingTests(unittest.TestCase):
 
     def test_pending_presence_is_not_relation_authority(self):
         pending = ref(
-            "pending_request",
+            "pending_action",
             "pending_state",
-            field="pending_request",
-            question="Ne yapmak istersin?",
+            field="pending_action",
+            value={"stage": "clarify", "command": "aç", "question": "Ne yapmak istersin?",
+                   "owner": OWNER, "expires": 9999999999},
         )
         active = ctx(pending_references=(pending,))
         result = self.call("kuantum fiziği konuşalım", active_context=active, candidates=(pending,))

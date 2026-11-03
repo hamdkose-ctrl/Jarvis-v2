@@ -9,14 +9,15 @@ from __future__ import annotations
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
 from modules.brain_understanding import (
     ACTION_REQUEST_CODE,
+    APP_CLOSE_CAPABILITY,
+    APP_OPEN_CAPABILITY,
     EXECUTION_REQUEST_CODE,
-    LEVEL_CAPABILITY,
     PHOTO_FOLLOWUP_CODE,
 )
 from modules.brain_candidates import build_candidates
@@ -25,6 +26,7 @@ from modules.brain_contracts import (
     BrainFeedback,
     ContextReference,
     ConversationRelation,
+    PendingOwner,
     RequestKind,
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
@@ -162,6 +164,84 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
 
 
+_APP_CLARIFY_KINDS = frozenset({APP_OPEN_CAPABILITY, APP_CLOSE_CAPABILITY})
+
+
+def _app_clarify_reference(reference: ContextReference) -> bool:
+    value = reference.provenance.get("value")
+    proposal = value.get("proposal") if isinstance(value, Mapping) else None
+    return (
+        reference.id == "pending_action"
+        and reference.source == "session_state"
+        and reference.provenance.get("active") is True
+        and isinstance(value, Mapping)
+        and value.get("stage") == "clarify"
+        and isinstance(proposal, Mapping)
+        and proposal.get("kind") in _APP_CLARIFY_KINDS
+    )
+
+
+def _with_app_target_evidence(active: ActiveContext, runtime: Any) -> ActiveContext:
+    """Attach the canonical app alias catalog while a typed app open/close question is open.
+
+    Understanding never discovers apps; the caller supplies the bounded evidence it may accept."""
+    if not any(_app_clarify_reference(ref) for ref in active.pending_references):
+        return active
+    try:
+        aliases = tuple(sorted(
+            name for name in runtime.system_control.APPS
+            if isinstance(name, str) and name.strip()
+        ))
+    except Exception:
+        _record_failure("modules/brain_entry.py:app_target_evidence")
+        return active
+    if not aliases:
+        return active
+    rows = tuple(
+        replace(ref, provenance={**ref.provenance, "targets": aliases})
+        if _app_clarify_reference(ref) else ref
+        for ref in active.pending_references
+    )
+    return replace(active, pending_references=rows)
+
+
+def _recipient_pending_reference(reference: ContextReference) -> bool:
+    value = reference.provenance.get("value")
+    return (
+        reference.id == "pending_msg"
+        and reference.kind == "pending_state"
+        and reference.source == "session_state"
+        and isinstance(value, Mapping)
+        and value.get("stage") == "to"
+    )
+
+
+def _with_recipient_evidence(active: ActiveContext, runtime: Any) -> ActiveContext:
+    """Attach registered contact names while the recipient question is open.
+
+    Understanding never reads the profile: it only consumes the names the caller supplies, so
+    phone numbers never leave the profile."""
+    if not any(_recipient_pending_reference(ref) for ref in active.pending_references):
+        return active
+    try:
+        data = getattr(getattr(runtime, "profile", None), "data", None)
+        contacts = data.get("contacts") if isinstance(data, Mapping) else None
+        names = tuple(sorted(
+            name for name in contacts if isinstance(name, str) and name.strip()
+        )) if isinstance(contacts, Mapping) else ()
+    except Exception:
+        _record_failure("modules/brain_entry.py:recipient_evidence")
+        return active
+    if not names:
+        return active
+    rows = tuple(
+        replace(ref, provenance={**ref.provenance, "recipient_candidates": names})
+        if _recipient_pending_reference(ref) else ref
+        for ref in active.pending_references
+    )
+    return replace(active, pending_references=rows)
+
+
 def _pending_photo_state(active: ActiveContext) -> ContextReference | None:
     """The one canonical pending-photo representation, shared by ActiveContext and the gate."""
     return next(
@@ -203,6 +283,8 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     )
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
+    active = _with_app_target_evidence(active, runtime)
+    active = _with_recipient_evidence(active, runtime)
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)
@@ -585,6 +667,12 @@ def _install_job_guard() -> None:
     original = job_front.route
 
     def guarded(owner, emit, cmd_lower, session, *, photo_pending=False, bounded=False):
+        entry = current()
+        if entry is not None:
+            if entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+                return None
+            if entry.state_gate.matched and not matched_protocol("job.resume", "job.cancel"):
+                return None
         canonical = matched_protocol("job.resume", "job.cancel")
         return original(owner, emit, cmd_lower, session, photo_pending=photo_pending, bounded=bounded or canonical)
 
@@ -660,15 +748,60 @@ def _is_clarify_pending(ref: ContextReference) -> bool:
     return ref.source == "session_state" and ref.id == "pending_action" and isinstance(value, Mapping) and value.get("stage") == "clarify"
 
 
-def _has_open_pending(entry: EntryResult, *, ignore: frozenset[str] = frozenset()) -> bool:
+def _relation_supersedes_clarify(entry: EntryResult) -> bool:
+    """Does this canonical turn answer the open clarify? Only its own protocols keep it.
+
+    The answer relation is decided by whichever canonical entry produced the turn: the state
+    gate's offered-choice protocol or Understanding's ANSWER_TO_PENDING. A Fast Gate read or a
+    new semantic request is not an answer, so the stale question must not survive the turn."""
+    gate = entry.state_gate
+    if gate.matched:
+        return gate.protocol != "session.pending_action.clarify_select"
+    fast = entry.fast_gate
+    if fast is not None and fast.matched:
+        return True
+    semantic = entry.understanding
+    return (semantic is not None
+            and semantic.conversation_relation is not ConversationRelation.ANSWER_TO_PENDING)
+
+
+def _has_open_pending(entry: EntryResult) -> bool:
+    """Slot inventory only: is another interaction still open?
+
+    Presence alone grants no relation authority; ``_pending_owns_turn`` decides whether this
+    turn belongs to that interaction."""
     # A clarify question never blocks a new request: only an exact offered-choice answer is
     # consumed (state gate protocol session.pending_action.clarify_select); anything else is a new request.
-    if any(ref.id not in ignore and not _is_clarify_pending(ref) for ref in entry.active_context.pending_references):
+    if any(not _is_clarify_pending(ref) for ref in entry.active_context.pending_references):
         return True
     return any(
         ref.kind == "photo" and ref.source == "engine_queue.photo"
         for ref in entry.active_context.active_artifacts
     )
+
+
+def _pending_owns_turn(entry: EntryResult) -> bool:
+    """Does another open interaction canonically own this turn?
+
+    Relation authority is the canonical chain, not slot presence: an exact State protocol, a
+    fail-closed multiple match, or Understanding's ANSWER_TO_PENDING/CONTINUE_ACTIVE decision.
+    A NEW_REQUEST/TOPIC_CHANGE/CORRECTION/CONTEXT_CONTROL turn stays independent while the
+    other interaction remains open; preserving or dropping that state is a separate lifecycle.
+    """
+    if not _has_open_pending(entry):
+        return False
+    if entry.state_gate.matched or entry.state_gate.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
+        return True
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return False
+    semantic = entry.understanding
+    if semantic is None:
+        return True
+    if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+        # The typed clarify answer is itself the Core plan's turn: another still-open slot
+        # must not veto the plan that consumes this bound target.
+        return semantic.pending_owner is not PendingOwner.APP_CLARIFY
+    return semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
 
 
 # Protocols that may be answered before the (possibly busy) command loop: read-only,
@@ -709,10 +842,9 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         return None
     if _multi_step(entry.text):
         return None
-    # A fresh, explicit level request supersedes the open "ses mi parlaklık mı?" question;
-    # every other open pending state still blocks the plan.
-    ignore = frozenset({"pending_level"}) if semantic.capability_hint == LEVEL_CAPABILITY else frozenset()
-    if _has_open_pending(entry, ignore=ignore):
+    # Slot presence is not relation authority: only a turn the canonical chain assigned to an
+    # open interaction (exact state/answer/continuation) blocks the plan.
+    if _pending_owns_turn(entry):
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     if plan is not None and plan[0] in {"notes_read", "notes_write"}:
@@ -754,8 +886,15 @@ def _use_existing_handler(entry: EntryResult) -> bool:
         return True
     if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references):
         return True
-    if semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CHAT}:
-        return not _has_open_pending(entry)
+    if semantic.request_kind is RequestKind.CAPABILITY:
+        # An independent new capability keeps its Core plan/handler while another interaction
+        # stays open; a capability never silently falls through to chat because of a slot.
+        return not _pending_owns_turn(entry)
+    if semantic.request_kind is RequestKind.CHAT:
+        # Chat is never an open slot's answer. An independent chat-shaped request keeps the
+        # existing handler path (Brain-unmapped phrases such as "hava durumuna bak" still have a
+        # legacy owner); slot consumers are fenced by pending_answer_owned, so the slot survives.
+        return not _pending_owns_turn(entry)
     return False
 
 
@@ -812,7 +951,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     try:
         with bind(entry):
             plan = core_plan(entry)
-            if plan is not None or not _use_existing_handler(entry):
+            if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
             if claimed is not None:
@@ -919,6 +1058,119 @@ def matched_protocol(*protocols: str) -> bool:
     return bool(entry is not None and entry.state_gate.matched and entry.state_gate.protocol in protocols)
 
 
+def turn_protocol() -> str | None:
+    """The single State/Fast protocol the canonical gate selected for the bound turn, if any.
+
+    Legacy pending consumers read this one observation before touching the raw text: a turn the
+    canonical Fast Gate owns is not theirs, even though it has no bounded state protocol.
+    Understanding is not a bounded protocol and stays out of this ownership view.
+    """
+    entry = current()
+    if entry is None:
+        return None
+    if entry.state_gate.matched:
+        return entry.state_gate.protocol
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return entry.fast_gate.protocol
+    return None
+
+
+def protocol_owned_by(*prefixes: str) -> bool:
+    """Is the bound turn canonically owned by one of *prefixes*?
+
+    Visibility only: the Fast protocol seen here grants no effect, permission or execution
+    authority; the existing Fast handler still runs on the canonical path.
+    """
+    owned = turn_protocol()
+    if owned is None:
+        return False
+    return any(owned == prefix.rstrip(".") or owned.startswith(prefix) for prefix in prefixes if prefix)
+
+
+# Pending field -> the State protocol prefix that legitimately answers it. Every session field
+# is answered by ``session.<field>.``; desktop consent is the one domain-owned exception.
+_PENDING_PROTOCOL_PREFIX = {"pending_desktop": "desktop."}
+
+# The single session field each semantic pending owner represents. ``pending_msg`` has two
+# stage-scoped owners; a field appears for both, never as a wildcard.
+_PENDING_OWNER_FIELDS = {
+    PendingOwner.WEATHER_LOCATION: "pending_weather_location",
+    PendingOwner.MESSAGE_TO: "pending_msg",
+    PendingOwner.MESSAGE_TEXT: "pending_msg",
+    PendingOwner.APP_CLARIFY: "pending_action",
+}
+
+
+def pending_owner_matches(field: str, owner: object) -> bool:
+    """Is *owner* the single canonical pending slot that *field* represents?
+
+    The owner is Understanding's typed selection in state-protocol vocabulary. Missing,
+    ambiguous or foreign owners match nothing, so two open slots cannot both consume the text."""
+    if owner is None:
+        return False
+    try:
+        owner = PendingOwner(owner)
+    except (TypeError, ValueError):
+        return False
+    return _PENDING_OWNER_FIELDS.get(owner) == field
+
+
+def protocol_selection(protocol: str) -> object | None:
+    """The State Gate selection for *protocol* on the bound canonical turn.
+
+    Consumers use this instead of re-parsing raw text: the gate's answer vocabulary and the
+    consumer's interpretation can never drift apart. Unbound/mismatched turns return None.
+    """
+    entry = current()
+    if entry is None or not entry.state_gate.matched or entry.state_gate.protocol != protocol:
+        return None
+    return entry.state_gate.selection
+
+
+def pending_answer_owned(field: str) -> bool:
+    """May the legacy consumer of *field* interpret the raw text on this canonical turn?
+
+    Unbound callers keep their old behavior. A State turn belongs to the matching field
+    protocol only; a Fast turn belongs to no pending field. An Understanding answer belongs
+    only to the one slot its typed owner names; a turn with no single owner (independent
+    request or true ambiguity) consumes nothing while every slot stays open.
+    """
+    entry = current()
+    if entry is None:
+        return True
+    if entry.state_gate.matched:
+        return protocol_owned_by(_PENDING_PROTOCOL_PREFIX.get(field, f"session.{field}."))
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return False
+    semantic = entry.understanding
+    if semantic is None:
+        return True
+    return pending_owner_matches(field, semantic.pending_owner)
+
+
+def allow_legacy_goal_control(text: str) -> bool:
+    """Can the legacy goal handler interpret *text* inside this canonical turn?
+
+    Explicit goal commands keep their domain state. A bare yes/cancel may reach the legacy
+    handler only when the canonical gate selected a goal protocol; when the gate selected a
+    foreground/Job owner, a long-lived Goal must not re-decide it. A canonical Fast turn other
+    than the goal-status read is likewise not a goal answer (``saat kaç`` must not resume a
+    paused goal's question). Unbound callers (Live, nested steps outside a turn) keep their old
+    behavior.
+    """
+    entry = current()
+    if entry is None:
+        return True
+    low = " ".join(str(text or "").casefold().split()).strip(" .!?")
+    if low.startswith(("hedef ", "hedef:", "görev:", "görev yap:")):
+        return True
+    if entry.state_gate.matched:
+        return str(entry.state_gate.protocol or "").startswith("goal.")
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return entry.fast_gate.protocol == "fast.goal.status"
+    return True
+
+
 def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if not isinstance(entry, EntryResult):
         return False
@@ -936,7 +1188,7 @@ def open_pending_answer(entry: EntryResult, field: str) -> bool:
     if semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL, RequestKind.CLARIFY}:
         return False
     if field == "pending_weather_location":
-        return semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
+        return semantic.pending_owner is PendingOwner.WEATHER_LOCATION
     if field == "pending_photo":
         # Tek authority: Understanding relation'ı seçer; pending photo canonical state'i
         # ActiveContext'teki tek temsil ile doğrulanır.

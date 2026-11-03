@@ -7,6 +7,7 @@ import re
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
+from modules import brain_entry
 from modules.confirmation import decision
 from modules.session_state import SessionState
 
@@ -42,7 +43,7 @@ class ConfirmationTests(unittest.TestCase):
             with self.subTest(text=text):
                 session = SessionState(pending_confirm='shutdown')
                 system = Mock()
-                self.branch('_session().pending_confirm', {'_session': lambda: session, 'cmd_lower': text, 'decision': decision, 'system_control': system, 'privacy': Mock()})
+                self.branch('_session().pending_confirm', {'_session': lambda: session, 'cmd_lower': text, 'decision': decision, 'system_control': system, 'privacy': Mock(), 'brain_entry': brain_entry})
                 system.shutdown_pc.assert_not_called()
                 self.assertIsNone(session.pending_confirm)
 
@@ -53,7 +54,7 @@ class ConfirmationTests(unittest.TestCase):
                 system = Mock()
                 self.branch('_session().pending_confirm', {
                     '_session': lambda: session, 'cmd_lower': text, 'decision': decision,
-                    'system_control': system, 'privacy': Mock(),
+                    'system_control': system, 'privacy': Mock(), 'brain_entry': brain_entry,
                 })
                 system.close_application.assert_not_called()
                 self.assertIsNone(session.pending_confirm)
@@ -63,7 +64,7 @@ class ConfirmationTests(unittest.TestCase):
         system.close_application.return_value = 'Not Defteri pencerelerinin kapandığını doğruladım.'
         result = self.branch('_session().pending_confirm', {
             '_session': lambda: session, 'cmd_lower': 'evet', 'decision': decision,
-            'system_control': system, 'privacy': Mock(),
+            'system_control': system, 'privacy': Mock(), 'brain_entry': brain_entry,
         })
         self.assertIn('kapandığını doğruladım', result)
         system.close_application.assert_called_once_with('Not Defteri')
@@ -71,7 +72,7 @@ class ConfirmationTests(unittest.TestCase):
     def test_folder_denial_does_not_move_files(self):
         session = SessionState(pending_organize={'plan': [], 'label': 'Belgeler'})
         files = Mock()
-        result = self.branch('_session().pending_organize is not None', {'_session': lambda: session, 'cmd_lower': 'evet ama düzenleme', 'decision': decision, 'files': files, 'privacy': Mock()})
+        result = self.branch('_session().pending_organize is not None', {'_session': lambda: session, 'cmd_lower': 'evet ama düzenleme', 'decision': decision, 'files': files, 'privacy': Mock(), 'brain_entry': brain_entry})
         self.assertIn('dokunmadım', result)
         files.apply_organize.assert_not_called()
 

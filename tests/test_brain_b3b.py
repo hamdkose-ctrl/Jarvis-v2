@@ -24,7 +24,10 @@ OLD_NEW_SENTENCES = [
     "evet devam et", "hayır iptal", "python ile yaz",
 ]
 # Intentional improvements: Understanding sees a new capability the old verb rule could not.
-IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl", "notlarımı oku"}
+# "hava durumunu söyle" is one of the legacy-owned weather status commands; the canonical
+# capability decision now recognizes it as an independent new request (no pending owner).
+IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl", "notlarımı oku",
+            "hava durumunu söyle"}
 
 
 def real_entry(text):

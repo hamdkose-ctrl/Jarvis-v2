@@ -2,6 +2,18 @@
 import re
 import time
 
+_CLOSE_NAME_MAX = 40
+
+
+def request_close_app(runtime, name):
+    """Open the existing close confirmation; the effect stays behind approval and system_control guards."""
+    clean = str(name).strip()
+    if not clean or len(clean) > _CLOSE_NAME_MAX or "\x00" in clean:
+        return None
+    runtime._session().pending_confirm = {'action': 'close_app', 'name': clean}
+    return (f"{clean} uygulamasını kapatmak kaydedilmemiş çalışmayı kaybettirebilir. "
+            "Kapatmamı onaylıyor musun? Evet ya da hayır de.")
+
 
 def open_app(runtime, name):
     result = runtime.system_control.open_application(name)
@@ -19,7 +31,8 @@ def continue_app(runtime, command):
         session.pending_app = None
         return None
     text = command.casefold().strip(' .!?')
-    if text in {'iptal', 'vazgeç', 'boşver'}:
+    from modules import brain_entry
+    if brain_entry.matched_protocol("session.pending_app.cancel") or text in {'iptal', 'vazgeç', 'boşver'}:
         session.pending_app = None
         return 'Uygulama seçimini iptal ettim.'
     match = re.fullmatch(r'(\d+)(?:\s*(?:numara|numarayı|olanı|aç))?', text)

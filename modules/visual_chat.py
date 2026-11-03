@@ -59,10 +59,16 @@ def handle(context, command: str, normalized: str) -> str | None:
     pending = getattr(session, "pending_visual", None)
     if pending is not None:
         if pending.get("stage") == "source":
-            if _SOURCE_SOHBET.search(normalized):
+            from modules import brain_entry
+            # Açık kaynak sorusu yalnız canonical olarak kendi cevabı olan turu tüketir; bağlı
+            # entry yoksa (Live/eski çağrı) eski davranış korunur.
+            if not brain_entry.pending_answer_owned("pending_visual"):
+                return None
+            selected = brain_entry.protocol_selection("session.pending_visual.select")
+            if selected == "chat" or (selected is None and _SOURCE_SOHBET.search(normalized)):
                 session.pending_visual = None
                 return _generate(context, owner, pending["text"], _history_text(context, owner), pending["kind"])
-            if _SOURCE_DOSYA.search(normalized):
+            if selected == "file" or (selected is None and _SOURCE_DOSYA.search(normalized)):
                 session.pending_visual = None
                 return ('Dosyalar sayfasında ilgili dosyayı seç, sonra o dosyanın yanındaki '
                         '"Görselleştir" düğmesine bas — içerik oradan otomatik alınır.')

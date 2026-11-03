@@ -17,6 +17,7 @@ from modules.brain_contracts import (
     ContextReference,
     ConversationRelation,
     EchoPreview,
+    PendingOwner,
     RequestKind,
     TemporalNeed,
     UnderstandingResult,
@@ -752,6 +753,12 @@ def _is_notes_read_request(text: str) -> bool:
 SCREEN_CAPABILITY = "screen.analyze"
 WINDOW_LIST_CAPABILITY = "desktop.windows.list"
 WINDOW_OP_CAPABILITY = "desktop.window.op"
+# Bounded clarify follow-up: the target of the question ("Neyi açmamı istiyorsun?") completes
+# the existing app-open owner. Core re-validates the name and keeps the launch guards.
+APP_OPEN_CAPABILITY = "app.open"
+# Same bounded shape for close: the answer only resolves the target; the existing close
+# confirmation/permission/effect owner still runs after approval.
+APP_CLOSE_CAPABILITY = "app.close"
 _SCREEN_ANALYZE_CUE = re.compile(
     r"(?<!\w)(?:ekran(?:ı|i|imi|ımı)?|ekrandaki).{0,35}(?:analiz|incele|bak|ne var|ne görüyorsun|ne goruyorsun)"
     r"|"
@@ -760,6 +767,12 @@ _SCREEN_ANALYZE_CUE = re.compile(
 )
 _SCREEN_GENERIC_REQUEST = re.compile(
     r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:ekran(?:ı|i|imi|ımı)?\s*)?(?:analiz\s*et|incele|bak)[ .!?]*$", re.I)
+# Core plan'ı olmayan ama legacy sahibi kesin olan okuma komutları; açık bir slot bunları
+# kendi cevabı sanmamalı ("hava durumuna bak" bir mesaj gövdesi değildir).
+_WEATHER_STATUS_CUE = re.compile(
+    r"(?<!\w)hava\s+durumu(?:na|nu|n[üu])?(?:\s+(?:bak|göster|goster|söyle|soyle))?(?!\w)", re.I)
+_SCREENSHOT_CUE = re.compile(
+    r"(?<!\w)(?:ekran\s+görüntüsü\w*|screenshot|resmini\s+çek)(?!\w)", re.I)
 _WINDOW_LIST_REQUEST = re.compile(
     r"^(?:(?:hey\s+)?jarvis[ ,]*)?(?:açık|acik)(?: olan)? pencereler(?:i|im|imi)?"
     r"\s+(?:listele|göster|goster|say)[ .!?]*$", re.I)
@@ -1169,25 +1182,202 @@ def _photo_followup_continuation(normalized: str, active_context: ActiveContext)
     return pending and _PHOTO_FOLLOWUP.search(normalized) is not None
 
 
-def _answer_to_pending(text: str, normalized: str, active_context: ActiveContext) -> bool:
-    if not active_context.pending_references:
+_CLARIFY_PROPOSALS = frozenset({APP_OPEN_CAPABILITY, APP_CLOSE_CAPABILITY})
+_CLARIFY_TARGET_MAX = 40
+_ANSWER_CONTROL = frozenset({
+    "evet", "hayır", "hayir", "tamam", "olur", "onayla", "onaylıyorum", "onayliyorum",
+    "iptal", "vazgeç", "vazgec", "boşver", "bosver",
+})
+
+
+def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, Any] | None:
+    """The caller-supplied typed follow-up carried by an active clarify, if any.
+
+    Context observes validity (owner + expiry) and carries the result as ``active``; this
+    layer only reads supplied evidence, so it never reads a clock or imports an effect domain."""
+    if reference.kind != "pending_state" or reference.source != "session_state" or reference.id != "pending_action":
+        return None
+    if reference.owner != owner or reference.provenance.get("active") is not True:
+        return None
+    value = reference.provenance.get("value")
+    if not isinstance(value, Mapping) or value.get("stage") != "clarify":
+        return None
+    if str(value.get("owner") or "") != owner:
+        return None
+    proposal = value.get("proposal")
+    if not isinstance(proposal, Mapping) or proposal.get("kind") not in _CLARIFY_PROPOSALS:
+        return None
+    return proposal
+
+
+def _definition_question(normalized: str) -> bool:
+    """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner."""
+    return _contains_any(f" {normalized}", _STATIC_MARKERS)
+
+
+def _weather_status_request(normalized: str) -> bool:
+    """Legacy-owned weather status command ("hava durumuna bak"); an independent request, not an answer."""
+    if _definition_question(normalized):
         return False
+    return _WEATHER_STATUS_CUE.search(normalized) is not None
+
+
+def _screenshot_request(normalized: str) -> bool:
+    """The screenshot command is owned by the legacy desktop handler; it never answers an open slot."""
+    if _definition_question(normalized):
+        return False
+    return _SCREENSHOT_CUE.search(normalized) is not None
+
+
+def _pending_answer_candidate(normalized: str) -> bool:
+    """Structural eligibility shared by every pending slot; ``understand`` already decided the turn.
+
+    Slot-specific semantics belong to each owner: a message body is deliberately free-form while a
+    recipient, location or app answer is bounded. Rejecting chat vocabulary or a question mark here
+    would silently revoke the open foreground message slot."""
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
-    if _is_context_control(normalized) or _is_correction(normalized) or _looks_like_capability(normalized):
+    if _is_context_control(normalized) or _is_correction(normalized):
         return False
-    if _contains_any(normalized, _GENERIC_CHAT):
-        return False
-    if "?" in normalized:
-        return False
+    return True
 
+
+def _message_text_candidate(normalized: str) -> bool:
+    """`pending_msg(stage=text)` is an explicit free-form contract: an ordinary sentence is content.
+
+    Greetings and questions are normal message bodies, so this slot never inherits a lexical shape
+    rule; only another owner's claim (State, Fast, canonical capability, bounded slot) outranks it."""
+    return _pending_answer_candidate(normalized)
+
+
+def _recipient_contact_evidence(text: str, reference: ContextReference) -> bool:
+    """A registered contact name the caller supplied is the strongest recipient evidence."""
+    names = reference.provenance.get("recipient_candidates")
+    if not isinstance(names, (tuple, list)) or not names:
+        return False
+    known = {_norm(name) for name in names if isinstance(name, str) and name.strip()}
+    return _norm(text) in known
+
+
+def _human_name_shape(text: str) -> bool:
+    """A legacy-compatible human name: bounded identity syntax, never a word-count ceiling.
+
+    A one-word answer is the identity itself; a multi-word name keeps the proper-noun shape the
+    other bounded slots use, so an ordinary lowercase sentence cannot become a recipient."""
+    raw = text.strip()
+    if not raw or len(raw) > _CLARIFY_TARGET_MAX or any(mark in raw for mark in "?!,;:"):
+        return False
+    words = raw.split()
+    pieces = [[piece for piece in re.split(r"[-']", word) if piece] for word in words]
+    if any(not parts or any(not part.isalpha() for part in parts) for parts in pieces):
+        return False
+    if len(words) > 1 and any(not part[0].isupper() for parts in pieces for part in parts):
+        return False
+    return True
+
+
+def _bounded_recipient_candidate(text: str, normalized: str, reference: ContextReference) -> bool:
+    """The recipient slot is a bounded identity; caller-supplied contact evidence comes first.
+
+    Multi-word sentences and question forms are not identity evidence, so they must not be
+    written into `pending_msg.to` even though the body slot legitimately accepts them."""
+    if not _pending_answer_candidate(normalized):
+        return False
+    if any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT) or "?" in normalized:
+        return False
+    if any(mark in normalized for mark in ",;:"):
+        return False
+    return _recipient_contact_evidence(text, reference) or _human_name_shape(text)
+
+
+def _app_target_evidence(target: str, reference: ContextReference) -> bool:
+    """The target must match the canonical app alias evidence the caller supplied.
+
+    Missing or empty evidence fails closed; a short unrelated word is never an app."""
+    aliases = reference.provenance.get("targets")
+    if not isinstance(aliases, (tuple, list)) or not aliases:
+        return False
+    known = {_norm(alias) for alias in aliases if isinstance(alias, str) and alias.strip()}
+    candidate = _norm(target)
+    return bool(candidate) and candidate in known
+
+
+def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveContext,
+                          owner: str) -> tuple[str, dict[str, object]] | None:
+    """A typed clarify accepts a bounded target; Understanding—not Core slot presence—decides it."""
+    if not _pending_answer_candidate(normalized):
+        return None
+    target = text.strip(" .!?")
+    if not target or _norm(target) in _ANSWER_CONTROL or "?" in target or "\x00" in target \
+            or len(target) > _CLARIFY_TARGET_MAX:
+        return None
+    for pending in active_context.pending_references:
+        proposal = _clarify_proposal(pending, owner)
+        if proposal is not None and _app_target_evidence(target, pending):
+            return str(proposal["kind"]), {"app": target}
+    return None
+
+
+MULTIPLE_PENDING_ANSWER_OWNERS = "MULTIPLE_PENDING_ANSWER_OWNERS"
+
+# Specificity, never slot/consumer order, decides the one owner: a typed bounded clarify target
+# first, then a specific domain answer, then a generic free-text draft. The recipient slot ties
+# with a location answer unless caller-supplied contact evidence names it.
+_PENDING_OWNER_RANK = {
+    PendingOwner.APP_CLARIFY: 1,
+    PendingOwner.WEATHER_LOCATION: 2,
+    PendingOwner.MESSAGE_TO: 2,
+    PendingOwner.MESSAGE_TEXT: 3,
+}
+
+# A registered contact is not a guess: legacy pending_msg consumption also preceded the weather
+# question, so that identity evidence keeps the recipient ahead of an ambiguous city.
+_KNOWN_RECIPIENT_RANK = 1
+
+
+def _pending_answer_owners(text: str, normalized: str, active_context: ActiveContext,
+                           clarify_answer: tuple[str, dict[str, object]] | None,
+                           *, independent_capability: bool,
+                           ) -> tuple[PendingOwner | None, bool]:
+    """Pick the single pending owner this utterance can answer, or report true ambiguity.
+
+    The caller supplies the already-made canonical capability decision: a new capability request
+    is never an answer, so this selector never re-classifies the utterance. Eligibility is slot
+    typed: a bounded recipient or location answer is shaped by its own evidence, while an open
+    message body deliberately accepts free text and stays the lowest specificity fallback."""
+    if independent_capability or not _pending_answer_candidate(normalized):
+        return None, False
+    owners: set[PendingOwner] = {PendingOwner.APP_CLARIFY} if clarify_answer is not None else set()
+    known_recipient = False
     for pending in active_context.pending_references:
         if pending.kind != "pending_state":
             continue
         field = _pending_field(pending)
         if field == "pending_weather_location" and _looks_like_location_answer(text):
-            return True
-    return False
+            owners.add(PendingOwner.WEATHER_LOCATION)
+        elif field == "pending_msg":
+            value = pending.provenance.get("value")
+            if not isinstance(value, Mapping):
+                continue
+            stage = value.get("stage")
+            if stage == "to" and _bounded_recipient_candidate(text, normalized, pending):
+                owners.add(PendingOwner.MESSAGE_TO)
+                known_recipient = known_recipient or _recipient_contact_evidence(text, pending)
+            elif stage == "text" and _message_text_candidate(normalized):
+                owners.add(PendingOwner.MESSAGE_TEXT)
+    if not owners:
+        return None, False
+    ranks = {
+        owner: (_KNOWN_RECIPIENT_RANK
+                if owner is PendingOwner.MESSAGE_TO and known_recipient
+                else _PENDING_OWNER_RANK[owner])
+        for owner in owners
+    }
+    best_rank = min(ranks.values())
+    best = {owner for owner, rank in ranks.items() if rank == best_rank}
+    if len(best) > 1:
+        return None, True
+    return next(iter(best)), False
 
 
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
@@ -1297,6 +1487,28 @@ def understand(
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
 
     photo_followup = _photo_followup_continuation(normalized, active_context)
+    # Canonical capability decision, produced exactly once. An explicit capability request is never
+    # the target of an open-ended clarify: it supersedes it. A typed pending continuation is the
+    # opposite case: its target answers an open clarify, so it is not an independent request.
+    explicit_capability_request = (
+        level is not None or notes_read_request or note_write is not None or weather_request
+        or research_request or screen_request or window_request or execution_request
+        or translation is not None or file_operation is not None
+        or _looks_like_capability(normalized)
+        or (not (context_control or topic_change or correction)
+            and (_weather_status_request(normalized) or _screenshot_request(normalized)))
+    )
+    typed_pending_capability = (
+        None if explicit_capability_request
+        else _typed_clarify_answer(text, normalized, active_context, owner)
+    )
+    independent_capability = explicit_capability_request and typed_pending_capability is None
+    pending_owner, pending_ambiguous = _pending_answer_owners(
+        text, normalized, active_context, typed_pending_capability,
+        independent_capability=independent_capability,
+    )
+    if pending_ambiguous:
+        ambiguities = (*ambiguities, MULTIPLE_PENDING_ANSWER_OWNERS)
     if topic_change:
         relation = ConversationRelation.TOPIC_CHANGE
     elif correction:
@@ -1304,7 +1516,7 @@ def understand(
     elif photo_followup:
         # Bekleyen telefona devam: relation'ı surface regex'i değil Understanding seçer.
         relation = ConversationRelation.CONTINUE_ACTIVE
-    elif _answer_to_pending(text, normalized, active_context):
+    elif typed_pending_capability is not None or pending_owner is not None or pending_ambiguous:
         relation = ConversationRelation.ANSWER_TO_PENDING
     elif _continues_active(active_context, references):
         relation = ConversationRelation.CONTINUE_ACTIVE
@@ -1315,9 +1527,7 @@ def understand(
         request_kind = RequestKind.CONTEXT_CONTROL
     elif ambiguities:
         request_kind = RequestKind.CLARIFY
-    elif (level is not None or notes_read_request or note_write is not None or weather_request or research_request
-          or screen_request or window_request or execution_request
-          or translation is not None or file_operation is not None or _looks_like_capability(normalized)):
+    elif typed_pending_capability is not None or explicit_capability_request:
         request_kind = RequestKind.CAPABILITY
     else:
         request_kind = RequestKind.CHAT
@@ -1361,6 +1571,8 @@ def understand(
         reason_codes.append("NOTE_UPDATE_TEXT_MISSING")
     elif NOTE_SEARCH_QUERY_MISSING in ambiguities:
         reason_codes.append("NOTE_SEARCH_QUERY_MISSING")
+    elif MULTIPLE_PENDING_ANSWER_OWNERS in ambiguities:
+        reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
     elif ambiguities:
         reason_codes.append("MULTIPLE_TARGET_REFERENCES")
     if level is not None and level[0] is not None:
@@ -1385,6 +1597,9 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = _capability_hint(normalized, temporal_need)
+    if typed_pending_capability is not None:
+        capability_hint, clarify_arguments = typed_pending_capability
+        arguments = {**arguments, **clarify_arguments}
     if translation is not None:
         capability_hint = TRANSLATE_CAPABILITY
         arguments = {**arguments, **translate_args}
@@ -1435,6 +1650,7 @@ def understand(
         arguments=arguments,
         references=references,
         conversation_relation=relation,
+        pending_owner=pending_owner,
         temporal_need=temporal_need,
         context_actions=context_actions,
         confidence=confidence,

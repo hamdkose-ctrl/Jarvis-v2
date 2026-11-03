@@ -19,7 +19,7 @@ class CommandContext:
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
-                        'pending_app', 'pending_request', 'pending_desktop', 'pending_visual')
+                        'pending_app', 'pending_desktop', 'pending_visual')
 
 
 def awaiting_input(session):
@@ -48,7 +48,7 @@ def dispatch(context, command, normalized):
       - 'tamam/ok/teşekkürler': bekleyen onay yokken geçen kısa karşılık.
       - study_intent: Hoca domain'inin kendi kapısı (hoca.handle).
     """
-    from modules import app_actions, brain_gates
+    from modules import app_actions, brain_entry, brain_gates
     owner, session = context.profile.slug, context.session
     from modules import visual_chat
     visual_result = visual_chat.handle(context, command, normalized)
@@ -72,8 +72,10 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Görev sonucu sohbet ekranında hazır.'
         return result
     if session.pending_action is not None:
-        result = app_actions.continue_voice(command, session, context.profile, context.emit)
-        if result is not None: return result
+        # Açık onay/netleştirme yalnız canonical olarak kendi cevabı olan turu tüketir.
+        if brain_entry.pending_answer_owned("pending_action"):
+            result = app_actions.continue_voice(command, session, context.profile, context.emit)
+            if result is not None: return result
     from modules import usage_meter
     result = usage_meter.handle(owner, command)
     if result is not None: return result
@@ -98,9 +100,13 @@ def dispatch(context, command, normalized):
         session.speech_override = 'Geliştirme sonucu sohbet ekranında hazır.'
         return result
     from modules import desktop_agent
-    desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
-    if desktop_command == command and session.pending_desktop:
-        desktop_command = desktop_agent.consent_reply(owner, normalized) or command
+    # Başka bir bounded State/Fast protokolü canonical kapıda seçildiyse "evet/devam"
+    # masaüstü iznine yeniden yorumlanmaz; canonical protokol tek sahiptir.
+    desktop_command = command
+    if brain_entry.pending_answer_owned("pending_desktop"):
+        desktop_command = 'PC görevi devam' if session.pending_desktop and normalized.strip(' .!?') in ('devam', 'devam et', 'kaldığın yerden devam et') else command
+        if desktop_command == command and session.pending_desktop:
+            desktop_command = desktop_agent.consent_reply(owner, normalized) or command
     result = desktop_agent.handle(owner, desktop_command, context.emit, current=context.pc_owner, source=context.source)
     if result is not None:
         session.pending_desktop = True if desktop_agent.awaiting(owner) else None

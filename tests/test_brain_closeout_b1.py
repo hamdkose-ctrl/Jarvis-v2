@@ -121,12 +121,15 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(state.pending_level, 70)
         self.assertEqual(feedback.result_status, "needs_input")
 
-    def test_open_pending_state_blocks_the_plan(self):
+    def test_unrelated_open_pending_state_does_not_veto_a_validated_plan(self):
         runtime, _ = self.runtime()
         pending = ContextReference(owner=OWNER, id="pending_confirm", kind="pending_state", source="session_state",
                                    provenance={"field": "pending_confirm"})
         active = ActiveContext(owner=OWNER, request_id=RID, pending_references=(pending,))
-        self.assertIsNone(brain_entry.core_plan(self.entry("sesi 50 yap", active=active)))
+        entry = self.entry("sesi 50 yap", active=active)
+        # Slot varlığı relation authority değildir: NEW_REQUEST + CAPABILITY planı çalışır.
+        self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
+        self.assertEqual(brain_entry.core_plan(entry), ("level_set", {"property": "volume", "level": 50}))
 
     def test_state_or_fast_match_never_plans(self):
         from modules.brain_gates import GateObservation

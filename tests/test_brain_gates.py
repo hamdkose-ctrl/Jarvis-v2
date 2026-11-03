@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import time
 import unittest
 
 from modules.brain_contracts import ActiveContext, ContextReference
@@ -175,7 +176,8 @@ class GateTests(unittest.TestCase):
     def test_open_ended_pending_states_are_left_to_understanding(self):
         rows = (
             ref("pending_weather_location", value=True),
-            ref("pending_request", value={"question": "Hangi dosya?", "command": "aç"}),
+            ref("pending_action", value={"stage": "clarify", "command": "aç", "question": "Hangi dosya?",
+                                         "owner": OWNER, "expires": 9999999999}),
             ref("pending_msg", value={"to": "", "text": "", "stage": "to"}),
             ref("pending_msg", value={"to": "Ebru", "text": "", "stage": "text"}),
         )
@@ -259,12 +261,75 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result.protocol, protocol)
                 self.assertEqual(result.reason_code, reason)
 
-    def test_deduping_keeps_genuinely_ambiguous_states_ambiguous(self):
+    def test_foreground_photo_cancel_outranks_background_job(self):
         photo = ref("pending_photo", source="engine_commands", path="C:/photo.jpg", t=1.0)
         job = ref("job-1", kind="task_job", source="task_agents", state="incomplete")
         result = self.state("iptal", active_context=ctx(pending=(photo,)), refs=(photo, job))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, "phone_photo.cancel")
+
+    def test_active_clarify_cancel_outranks_long_lived_goal(self):
+        clarify = ref("pending_action", value={
+            "stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
+            "owner": OWNER, "expires": time.time() + 90, "proposal": {"kind": "app.open"},
+        })
+        goal = ref("goal-1", kind="goal", source="goal_state", state="running")
+        result = self.state("iptal", active_context=ctx(pending=(clarify,), goals=(goal,)))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, "session.pending_action.clarify_cancel")
+        self.assertEqual(result.selection, "cancel")
+
+    def test_explicit_goal_control_outranks_foreground_clarify(self):
+        clarify = ref("pending_action", value={
+            "stage": "clarify", "command": "aç", "question": "Neyi açmamı istiyorsun?",
+            "owner": OWNER, "expires": time.time() + 90, "proposal": {"kind": "app.open"},
+        })
+        goal = ref("goal-1", kind="goal", source="goal_state", state="running")
+        result = self.state("hedef iptal", active_context=ctx(pending=(clarify,), goals=(goal,)))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, "goal.cancel")
+
+    def test_foreground_desktop_consent_outranks_goal_approval(self):
+        consent = ref("consent", source="desktop_agent", status="consent")
+        goal = ref("goal-1", kind="goal", source="goal_state", state="approval")
+        result = self.state("evet", active_context=ctx(goals=(goal,)), refs=(consent,))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, "desktop.consent")
+
+    def test_open_ended_foreground_cancel_is_left_to_understanding(self):
+        weather = ref("pending_weather_location", value=True)
+        goal = ref("goal-1", kind="goal", source="goal_state", state="running")
+        result = self.state("boşver", active_context=ctx(pending=(weather,), goals=(goal,)))
+        self.assertFalse(result.matched)
+        self.assertEqual(result.reason_code, "FOREGROUND_STATE_REQUIRES_UNDERSTANDING")
+
+    def test_exact_foreground_cancel_outranks_goal(self):
+        goal = ref("goal-1", kind="goal", source="goal_state", state="running")
+        rows = (
+            (ref("pending_msg", value={"to": "Ebru", "text": "", "stage": "text"}),
+             "session.pending_msg.cancel"),
+            (ref("pending_event_title", value="Toplantı"),
+             "session.pending_event_title.cancel"),
+        )
+        for pending, protocol in rows:
+            with self.subTest(protocol=protocol):
+                result = self.state("iptal", active_context=ctx(pending=(pending,), goals=(goal,)))
+                self.assertTrue(result.matched)
+                self.assertEqual(result.protocol, protocol)
+                self.assertEqual(result.selection, "cancel")
+
+    def test_equal_rank_foreground_states_stay_fail_closed(self):
+        confirm = ref("pending_confirm", value={"action": "close_app", "name": "Chrome"})
+        message = ref("pending_msg", value={"to": "Ali", "text": "Selam", "stage": "confirm"})
+        result = self.state("evet", active_context=ctx(pending=(confirm, message)))
         self.assertFalse(result.matched)
         self.assertEqual(result.reason_code, "MULTIPLE_BOUNDED_STATE_MATCHES")
+
+    def test_deduping_one_state_from_both_carriers_stays_a_single_protocol_hit(self):
+        photo = ref("pending_photo", source="engine_commands", path="C:/photo.jpg", t=1.0)
+        result = self.state("iptal", active_context=ctx(pending=(photo,)), refs=(photo,))
+        self.assertTrue(result.matched)
+        self.assertEqual(result.protocol, "phone_photo.cancel")
 
     def test_owner_and_request_fences_fail_closed(self):
         module = self.module()

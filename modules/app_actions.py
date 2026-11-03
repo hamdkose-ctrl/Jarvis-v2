@@ -225,10 +225,22 @@ def _owned(profile):
     try:yield web.bridge
     finally:web._bridge_profile.reset(token)
 
+def ask_clarification(session,command,question,profile,proposal=None):
+    """Open-ended clarification: only the canonical bounded slot, owned and expiring.
+
+    ``proposal`` is typed follow-up information (e.g. ``{"kind": "app.open"}``) for questions
+    whose answer can complete one bounded Core action. Without it the answer is a new request."""
+    question=str(question)[:400]
+    pending={'stage':'clarify','command':command,'question':question,
+             'owner':profile.slug,'expires':time.time()+90}
+    if isinstance(proposal,dict) and proposal:
+        pending['proposal']=proposal
+    session.pending_action=pending
+    return question
+
 def voice(args,session,profile,emit,command=''):
     if args.get('question'):
-        session.pending_action={'stage':'clarify','command':command,'question':str(args['question'])[:400],'owner':profile.slug,'expires':time.time()+90}
-        return str(args['question'])[:400]
+        return ask_clarification(session,command,args['question'],profile)
     action=args.get('action','');params=args.get('params',{})
     try:
         spec,values=validate(action,params)
@@ -271,7 +283,18 @@ def _resume_clarification(pending,answer,session,profile,emit):
 def continue_voice(command,session,profile,emit):
     pending=session.pending_action
     if not pending:return None
+    # A clarify with a typed follow-up is answered by the canonical Brain entry: Understanding
+    # decides ANSWER_TO_PENDING vs NEW_REQUEST on this state. Clearing it here would erase the
+    # only typed proposal before that decision.
+    if pending.get('stage')=='clarify' and isinstance(pending.get('proposal'),dict) \
+            and pending['owner']==profile.slug and pending.get('expires',0)>=time.time():
+        return None
     session.pending_action=None
+    # An open-ended question has no offered choices: its reply is a new request, never an
+    # approval and never an expiry failure. Offered-choice clarifications keep the expiry below.
+    if pending.get('stage')=='clarify' and not isinstance(pending.get('resume'),dict) \
+            and pending['owner']==profile.slug:
+        return None
     if pending['owner']!=profile.slug or pending['expires']<time.time():
         return 'İşlem onayının süresi doldu; isteğini yeniden söyle.'
     t=command.casefold().strip(' .!?')

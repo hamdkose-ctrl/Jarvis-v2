@@ -856,6 +856,11 @@ def status_summary(job):
 
 
 def handle(runtime,command):
+    from modules import brain_entry
+    # Canonical State/Fast sahibi başka protokole verdiyse uzun ömürlü Goal ham metni
+    # yeniden yorumlayamaz (özellikle açık soruyu 'saat kaç' ile sürdüremez).
+    if not brain_entry.allow_legacy_goal_control(command):
+        return None
     low=command.casefold().strip(' .!?');job=latest(runtime.profile.slug)
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
     if bound:

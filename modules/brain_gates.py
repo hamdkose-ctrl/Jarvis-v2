@@ -24,12 +24,44 @@ _YES = frozenset({"evet", "tamam", "olur", "onayla", "onaylıyorum", "onayliyoru
 _PENDING_SESSION_IDS = frozenset({
     "pending_confirm", "pending_action", "pending_organize", "pending_msg",
     "pending_level", "pending_voice", "pending_event_title", "pending_app",
-    "pending_weather_location", "pending_request", "pending_desktop", "pending_visual",
+    "pending_weather_location", "pending_desktop", "pending_visual",
 })
 _VOICE_NAMES = frozenset({
     "kerem", "defne", "liam", "olivia", "noah", "mia",
     "mert", "zeynep", "emir", "asya", "ahmet", "emel", "andrew", "ava", "brian", "emma",
 })
+# The answer vocabulary of the "ses mi parlaklık mı?" question. Only the property noun may
+# appear: a number or another domain word makes the sentence a new request, not this answer.
+_LEVEL_SELECT = {
+    "ses": "volume", "sesi": "volume", "sesin": "volume", "sesini": "volume",
+    "ses seviyesi": "volume", "ses seviyesini": "volume",
+    "parlaklık": "brightness", "parlaklığı": "brightness", "parlaklığını": "brightness",
+    "parlaklik": "brightness", "parlakligi": "brightness", "parlakligini": "brightness",
+    "ekran parlaklığı": "brightness", "ekran parlaklığını": "brightness",
+    "ekran parlaklıgı": "brightness", "ekran parlakligi": "brightness",
+}
+_LEVEL_VERB_TAIL = re.compile(r"\s+(?:yap|olsun|ayarla|yapar mısın|yapsana)$")
+# The answer vocabulary of "sohbetten mi, dosyadan mı?": the source noun plus an optional
+# "olsun/yap/kullan". A longer sentence is a new request and keeps the question open.
+_VISUAL_CHAT_SELECT = re.compile(
+    r"(?:sohbet(?:ten|i)?|konuşma(?:dan|yı)?|geçmiş(?:ten)?)(?:\s+(?:olsun|yap|kullan))?")
+_VISUAL_FILE_SELECT = re.compile(
+    r"(?:dosya(?:dan|yı)?|belge(?:den|yi)?)(?:\s+(?:olsun|yap|kullan))?")
+# The answer to "ne zaman?" is a whole time expression; the planner still parses the value.
+_WHEN_DAY = (
+    r"(?:bugün|yarın|öbür gün|ertesi gün|haftaya|"
+    r"(?:haftaya\s+)?(?:pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar)|"
+    r"\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?|"
+    r"\d{1,2}\s+(?:ocak|şubat|mart|nisan|mayıs|haziran|temmuz|ağustos|eylül|ekim|kasım|aralık)(?:\s+\d{4})?)"
+)
+_WHEN_TIME = (
+    r"(?:(?:saat\s+)?\d{1,2}(?:[:.]\d{2}|['’]?(?:da|de|ta|te))|"
+    r"saat\s+\d{1,2}(?:\s*(?:buçuk|çeyrek))?|"
+    r"(?:sabah|öğlen|öğleden sonra|akşam|gece)\s+\d{1,2}(?:(?:[:.]\d{2})|['’]?(?:da|de|ta|te))?|"
+    r"öğlen)"
+)
+_WHEN_RELATIVE = r"(?:(?:\d+|bir|iki|üç|beş|on)\s*(?:dakika|dk|saat)\s*(?:sonra|içinde)|\d+\s*gün\s*sonra)"
+_EVENT_WHEN_ANSWER = re.compile(rf"(?:{_WHEN_RELATIVE}|{_WHEN_DAY}(?:\s+{_WHEN_TIME})?|{_WHEN_TIME})")
 
 
 @dataclass(frozen=True)
@@ -137,6 +169,11 @@ def _confirmation(text: str, *, extra: Iterable[str] = ()) -> str | None:
     return None
 
 
+def _level_selection(text: str) -> str | None:
+    base = _LEVEL_VERB_TAIL.sub("", text).strip()
+    return _LEVEL_SELECT.get(base)
+
+
 def _goal_open(reference: ContextReference) -> bool:
     return reference.kind == "goal" and reference.source == "goal_state" and str(reference.provenance.get("state") or "") not in _GOAL_CLOSED
 
@@ -196,14 +233,19 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
         if data is None:
             return None
         if data.get("stage") == "clarify":
+            expires = data.get("expires")
+            expired = isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires < time.time()
+            # An active clarification owns its own cancel: the user is closing the question the
+            # system just asked, not issuing a long-lived Goal/Job control.
+            if text in _CANCEL and not expired:
+                return _hit(owner, request_id, "state", "session.pending_action.clarify_cancel", "cancel", "BOUNDED_ACTION_CLARIFY_CANCEL")
             # Only an answer that selects exactly one OFFERED choice belongs to the clarification.
             # Open-ended clarify (no resume choices) is never consumed: the reply is a new request.
             resume = _mapping(data.get("resume"))
             choices = resume.get("choices") if resume is not None else None
             if not isinstance(choices, (tuple, list)) or not choices or not all(isinstance(c, str) and c.strip() for c in choices):
                 return None
-            expires = data.get("expires")
-            if isinstance(expires, (int, float)) and not isinstance(expires, bool) and expires < time.time():
+            if expired:
                 return None
             index = choice_index(text, choices)
             if index is None:
@@ -221,28 +263,35 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
         return _hit(owner, request_id, "state", "session.pending_confirm.confirm", answer, "BOUNDED_FINAL_CONFIRM") if answer else None
 
     if reference.id == "pending_msg":
+        if data is not None and data.get("stage") in ("to", "text") and text in _CANCEL:
+            return _hit(owner, request_id, "state", "session.pending_msg.cancel", "cancel", "BOUNDED_MESSAGE_CANCEL")
         if data is None or data.get("stage") != "confirm":
             return None
         answer = _confirmation(text, extra=("gönder", "gonder", "evet gönder", "evet gonder", "gönder gitsin", "gonder gitsin"))
         return _hit(owner, request_id, "state", "session.pending_msg.confirm", answer, "BOUNDED_MESSAGE_CONFIRM") if answer else None
 
     if reference.id == "pending_event_title":
+        if isinstance(value, str) and value.strip() and text in _CANCEL:
+            return _hit(owner, request_id, "state", "session.pending_event_title.cancel", "cancel", "BOUNDED_EVENT_CANCEL")
+        if isinstance(value, str) and value.strip() and _EVENT_WHEN_ANSWER.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_event_title.answer", "when", "BOUNDED_EVENT_WHEN")
         if data is None or "confirm" not in data:
             return None
         answer = _confirmation(text, extra=("ekle", "yine de ekle", "ekle gitsin"))
         return _hit(owner, request_id, "state", "session.pending_event_title.confirm", answer, "BOUNDED_EVENT_CONFIRM") if answer else None
 
     if reference.id == "pending_level":
-        options = {"ses": "volume", "parlaklık": "brightness", "parlaklik": "brightness"}
-        selection = options.get(text)
+        selection = _level_selection(text)
         return _hit(owner, request_id, "state", "session.pending_level.select", selection, "BOUNDED_LEVEL_SELECTION") if selection else None
 
     if reference.id == "pending_visual":
         if data is None or data.get("stage") != "source":
             return None
-        options = {"sohbet": "chat", "dosya": "file"}
-        selection = options.get(text)
-        return _hit(owner, request_id, "state", "session.pending_visual.select", selection, "BOUNDED_VISUAL_SELECTION") if selection else None
+        if _VISUAL_CHAT_SELECT.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_visual.select", "chat", "BOUNDED_VISUAL_SELECTION")
+        if _VISUAL_FILE_SELECT.fullmatch(text):
+            return _hit(owner, request_id, "state", "session.pending_visual.select", "file", "BOUNDED_VISUAL_SELECTION")
+        return None
 
     if reference.id == "pending_voice":
         if text in _CANCEL:
@@ -255,8 +304,15 @@ def _session_match(reference: ContextReference, text: str, owner: str, request_i
             return _hit(owner, request_id, "state", "session.pending_voice.select", f"{pending}:{gender}", "BOUNDED_VOICE_SELECTION")
         return None
 
-    # weather location, generic pending_request and generic pending_desktop are
-    # deliberately observations only; they require semantic/domain handling.
+    if reference.id == "pending_weather_location":
+        # "Hangi şehir?" question: only the cancel tokens are exact protocols. City names and
+        # every other sentence stay with Understanding (ANSWER_TO_PENDING vs new request).
+        if text in {"iptal", "vazgeç", "vazgec"}:
+            return _hit(owner, request_id, "state", "session.pending_weather_location.cancel", "cancel", "BOUNDED_WEATHER_CANCEL")
+        return None
+
+    # Generic pending_desktop is deliberately observation-only; desktop consent has its own
+    # domain protocol and free text requires semantic/domain handling.
     return None
 
 
@@ -314,6 +370,53 @@ def _photo_match(reference: ContextReference, text: str, owner: str, request_id:
     return None
 
 
+# Explicit state precedence. A bare reply belongs to the interaction the system just asked
+# about; a long-lived Goal/background Job may use it only when no foreground interaction claims
+# it. Ranks are a fixed product contract, not list order:
+#   0 explicit-qualified Goal control ("hedef iptal/onayla/devam")
+#   1 foreground session interaction (pending_confirm/action/msg/organize/...)
+#   2 domain-specific foreground prompt (learning/hoca/desktop consent/photo)
+#   3 long-lived Goal state
+#   4 background Job
+# Equal rank means the utterance is genuinely ambiguous for this turn: fail closed.
+_QUALIFIED_GOAL_PREFIX = "hedef "
+_RANK_EXPLICIT_GOAL = 0
+_RANK_SESSION = 1
+_RANK_DOMAIN_PROMPT = 2
+_RANK_GOAL = 3
+_RANK_JOB = 4
+
+
+def _state_rank(protocol: str, normalized: str) -> int:
+    if protocol.startswith("session."):
+        return _RANK_SESSION
+    if protocol.startswith("goal."):
+        return _RANK_EXPLICIT_GOAL if normalized.startswith(_QUALIFIED_GOAL_PREFIX) else _RANK_GOAL
+    if protocol.startswith("job."):
+        return _RANK_JOB
+    return _RANK_DOMAIN_PROMPT
+
+
+def _foreground_open(reference: ContextReference) -> bool:
+    """Is this reference an interaction the system just asked the user about?
+
+    Open-ended foreground states (weather city, free message text, photo follow-up) do not
+    own every exact token. A bare cancel belongs to that interaction's semantic layer
+    (Understanding), not to a long-lived Goal/Job; an unrelated continue may still resume
+    background work.
+    """
+    if reference.source == "session_state" and reference.id in _PENDING_SESSION_IDS:
+        if reference.id == "pending_action":
+            return reference.provenance.get("active") is not False
+        return True
+    return (
+        (reference.source == "learning" and reference.id == "pending_facts")
+        or (reference.source == "profile.hoca" and reference.id == "lesson.pending")
+        or (reference.source == "desktop_agent" and reference.id == "consent")
+        or (reference.source == "engine_commands" and reference.id == "pending_photo")
+    )
+
+
 def exact_state_gate(
     *,
     owner: str,
@@ -322,7 +425,10 @@ def exact_state_gate(
     active_context: ActiveContext,
     state_references: tuple[ContextReference, ...] = (),
 ) -> GateObservation:
-    """Observe whether *this utterance* exactly fits an observed bounded protocol."""
+    """Observe whether *this utterance* exactly fits an observed bounded protocol.
+
+    When several observed states match the same token, the fixed foreground-first precedence
+    above selects exactly one owner. A tie at the winning rank stays ambiguous and fails closed."""
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
     if not isinstance(text, str):
@@ -346,9 +452,18 @@ def exact_state_gate(
             matches.append(match)
     if not matches:
         return _miss(owner, request_id, "state", "NO_BOUNDED_STATE_MATCH")
-    if len(matches) != 1:
+    best_rank = min(_state_rank(match.protocol or "", normalized) for match in matches)
+    winners = [match for match in matches if _state_rank(match.protocol or "", normalized) == best_rank]
+    if len(winners) != 1:
         return _miss(owner, request_id, "state", "MULTIPLE_BOUNDED_STATE_MATCHES")
-    return matches[0]
+    if (best_rank in {_RANK_GOAL, _RANK_JOB} and winners[0].selection == "cancel"
+            and any(_foreground_open(reference) for reference in rows)):
+        # A cancel token is not an exact protocol of the open-ended foreground interaction, but
+        # it still belongs to that interaction's semantic layer: Understanding decides whether it
+        # closes the question. Background work must not steal it. Unrelated continue ("devam")
+        # keeps its Job/Goal owner.
+        return _miss(owner, request_id, "state", "FOREGROUND_STATE_REQUIRES_UNDERSTANDING")
+    return winners[0]
 
 
 def goal_status_selection(text: object) -> str | None:
