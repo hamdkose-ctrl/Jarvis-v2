@@ -40,6 +40,10 @@ EFFECT_SEAMS = (
 _EFFECT_DEFAULTS = {"verify_sync": {"sync_state": "clean"}, "status": {"error": "", "sha": "", "msg": ""},
                     "run": {}, "summary": "ARIZA", "matches": False}
 
+# Ham cümleyi kapılarına soran yüzey kapıları: soru turunda hiçbiri çağrılmamalı (§28).
+RAW_DOORS = ("_file_command", "_planner_command", "_user_command", "_contact_command",
+             "_extra_commands")
+
 
 class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
     """Kanonical tur + gerçek legacy kapı; effekte giden her sınır kaydedilmiş Mock."""
@@ -724,6 +728,83 @@ class CoreRejectionFallthroughInventoryTests(_RawDoorHarness):
         source = inspect.getsource(entry_module.handoff)
         self.assertIn("capability_hint == PHOTO_CAPABILITY", source)
         self.assertIn("refusal = _file_access_refusal(entry)", source)
+
+
+class MetaLanguageRawDoorSilenceTests(_RawDoorHarness):
+    """§28: kanonical olarak tanınmış bir soru hiçbir ham domain kapısına gitmez.
+
+    Taban `ea2f0b3` ölçümü (aynı yalıtılmış zincir, kapılar Mock): bu dört cümlenin HERİ
+    `_file_command`, `_planner_command`, `_user_command`, `_contact_command`,
+    `_extra_commands` ve `selfctl/pc_guide/developer/task_agents/watcher/learning/finance`
+    sınırlarının tamamına soruluyordu. Bu head'te hiçbirine sorulmuyor: `explanation_turn`
+    yüzeyi kapalı exact-admin setine yönlendiriyor. Efekt sıfır, sorgu sıfır."""
+
+    def _doors_silent(self):
+        for name in RAW_DOORS:
+            getattr(self.ctx, name).assert_not_called()
+
+    def test_a_rate_question_consults_no_raw_domain_door(self):
+        entry, out, _handle, _ = self.turn("döviz kuru nedir?")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self._doors_silent()
+        self.assertEqual(self.silent("modules.watcher", "modules.learning", "modules.finance",
+                                     "modules.selfctl"), [])
+        self.assertEqual(out, "CHAT")
+
+    def test_a_file_operation_question_touches_no_file_door(self):
+        entry, _out, _handle, _ = self.turn("rapor dosyasını belgelerime taşımak ne demek?")
+        self._doors_silent()
+        self.assertEqual(self.silent("modules.file_ops", "modules.watcher", "modules.learning"), [])
+        self.ctx._file_command.assert_not_called()
+
+    def test_a_screen_text_question_reads_no_screen_and_asks_no_door(self):
+        entry, _out, _handle, _ = self.turn("ekrandaki metni okumak nasıl yapılır?")
+        self._doors_silent()
+        self.ctx._screen_ocr.assert_not_called()
+        self.ctx._copy_text.assert_not_called()
+
+    def test_a_clipboard_question_copies_nothing(self):
+        entry, _out, _handle, _ = self.turn("panoya kopyalamak nedir?")
+        self._doors_silent()
+        self.ctx._copy_text.assert_not_called()
+        self.assertEqual(self.silent("modules.selfctl", "modules.notify"), [])
+
+
+class EpistemicQuestionInventoryTests(_RawDoorHarness):
+    """§28'in kapanmayan iki satırı adlandırılır: kanonical Understanding soruyu tanımıyor.
+
+    Her iki satırda da ham cephe YOK — karar kanonical Understanding/Core'da veriliyor. Yani
+    bunlar PR3B'nin emekli ettiği bir legacy authority değil, kanonical katmanın kendi
+    sınıflandırma eksiği; taban `ea2f0b3`'te de birebir aynı ölçüldü (diff-proven). PR3C
+    envanter satırları: soru işareti filtresi (`_definition_question` vetosu) ve epistemik
+    soru işaretçilerinin `_STATIC_MARKERS` dışında kalması."""
+
+    def test_a_question_without_an_explanation_marker_still_walks_the_surface_today(self):
+        """Bu test bugünkü ÜRETİM davranışını yazar, istenen davranışı değil.
+
+        Ölçülen: "dosya taşımak güvenli mi?" ve "mail göndermenin riskleri neler?" hiçbir
+        `_STATIC_MARKERS` işaretçisi taşımadığı için `EXPLANATION_REQUEST` üretmiyor ve tur
+        ham cephenin tamamını dolaşıyor (efekt yine de yok: kapıların hiçbiri cevaplamıyor).
+        PR3C işaretçileri genişlettiğinde bu satır düşmek zorundadır."""
+        for text in ("dosya taşımak güvenli mi?", "mail göndermenin riskleri neler?"):
+            with self.subTest(text=text):
+                self.door.reset_mock()
+                for door in RAW_DOORS:
+                    getattr(self.ctx, door).reset_mock()
+                entry, _out, _handle, _ = self.turn(text)
+                self.assertNotIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
+                self.door.assert_called()
+                self.ctx._extra_commands.assert_called_once()
+
+    def test_a_marker_question_with_a_capability_hint_runs_the_canonical_plan(self):
+        # Ölçülen taban+head aynı: "dolar kaç tl ne demek?" hem EXPLANATION_REQUEST hem
+        # capability_hint=research.search taşıyor; fence bilinçli olarak hint varken çekiliyor
+        # ve kanonical plan koşuyor (ham kapı çağrılmıyor: door_calls=0). Kalan iş Understanding
+        # tarafında (PR3C satırı), PR3B ham kapı emekliliği değil.
+        entry, _out, _handle, _ = self.turn("dolar kaç tl ne demek?")
+        self.assertEqual(entry.understanding.capability_hint, "research.search")
+        self.assertIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
+        self.door.assert_not_called()
 
 
 if __name__ == "__main__":
