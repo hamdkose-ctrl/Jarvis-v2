@@ -101,6 +101,14 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
             state_patch = patch.object(target, attr, value)
             state_patch.start()
             self.addCleanup(state_patch.stop)
+        # İstek günlüğü import anında canlı kullanıcı dosyasına bağlanır: turn'ler testi geçici
+        # kayda yazmalı, `~/.jarvis/requests.json`'ı hiç değiştirmemeli.
+        journal_patch = patch.object(requests_state, "_journal", Path(self.temp.name) / "requests.json")
+        journal_patch.start()
+        self.addCleanup(journal_patch.stop)
+        saved_records = dict(requests_state._records)
+        requests_state._records.clear()
+        self.addCleanup(requests_state._records.update, saved_records)
         for target, attr in ((job_front, "observe"), (desktop_agent, "_load")):
             state_patch = patch.object(target, attr, return_value=None)
             state_patch.start()
