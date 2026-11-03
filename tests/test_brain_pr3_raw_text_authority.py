@@ -8,6 +8,7 @@ yazıldı: dallar henüz retire edilmediği için canonical effect testleri dü�
 from __future__ import annotations
 
 import ast
+import inspect
 import tempfile
 import unittest
 import uuid
@@ -16,11 +17,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from modules import app_actions, brain_context, brain_entry, brain_precedence
+from modules import brain_understanding as understanding
 from modules import desktop_agent, engine_runtime, goal_executor, job_front, personalization
 from modules import requests_state
 from modules import history as history_mod
 from modules.brain_contracts import ActiveContext, ContextReference, ConversationRelation, RequestKind
-from modules.brain_understanding import AUDIO_CAPABILITY, SHUTDOWN_REQUEST_CAPABILITY
+from modules.brain_understanding import (APP_CLOSE_CAPABILITY, APP_OPEN_CAPABILITY, AUDIO_CAPABILITY,
+                                         SHUTDOWN_REQUEST_CAPABILITY)
 from modules.system_control import APPS as STATIC_APPS
 from modules.system_control import ApplicationResult
 
@@ -250,6 +253,87 @@ class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
         self.assertNotIn("app", entry.understanding.arguments)
         self.assertIsNone(self.ctx._session().pending_confirm)
         self.ctx.system_control.close_application.assert_not_called()
+
+
+    def test_installed_app_names_ending_like_a_converb_are_single_app_targets(self):
+        # Kurulu uygulama adları sabit APPS ile sınırlı değil (Windows Start Menu'den de çözülür).
+        # 'WinZip' ve '7zip' gibi -ip/-up ile biten adlar zincir sanılmaz: tek uygulama isteği
+        # yine app.open olur ve etki doğrulanmış Core `app_open` intent'inden yürür.
+        for text, name in (("WinZip aç", "winzip"), ("7zip aç", "7zip"), ("WinZip'i aç", "winzip'i")):
+            with self.subTest(text=text):
+                entry, out, handle, _ = self.turn(text)
+                self.assertEqual(entry.understanding.capability_hint, "app.open", text)
+                self.assertEqual(str(entry.understanding.arguments.get("app") or "").casefold(), name, text)
+                handle.assert_not_called()
+                self.ctx.system_control.open_application.assert_called_once_with(name)
+                self.assertIn("Chrome penceresi açık", out, text)
+                self.ctx.system_control.open_application.reset_mock()
+
+    def test_converb_looking_close_targets_are_single_app_targets(self):
+        entry, _out, _handle, _ = self.turn("WinZip kapat")
+        self.assertEqual(entry.understanding.capability_hint, "app.close")
+        self.assertEqual(self.ctx._session().pending_confirm, {"action": "close_app", "name": "winzip"})
+
+
+class AppChainGuardTests(unittest.TestCase):
+    """Zincir filtresi uygulama adına özel bir istisna listesi değildir.
+
+    Converb kanadı ancak bir eylem fiili gövdesine bitişik ek olarak zincir sayar; herhangi bir
+    kelimenin son iki-üç harfi fiilimsi eki varsayılmaz (`WinZip`, `7zip` kurulu bir uygulama adıdır
+    ve cümlede tek eylem vardır)."""
+
+    CONVERB_SUFFIXES = ("ıp", "ip", "up", "üp", "arak", "erek")
+    NON_VERB_NAME_STEMS = ("winz", "7z", "klip", "dot", "snap", "hex", "quick")
+
+    def test_name_like_converb_tails_are_never_chains(self):
+        for stem in self.NON_VERB_NAME_STEMS:
+            for suffix in self.CONVERB_SUFFIXES:
+                name = stem + suffix
+                with self.subTest(name=name):
+                    self.assertEqual(understanding._app_request(f"{name} aç"),
+                                     (APP_OPEN_CAPABILITY, {"app": name}))
+
+    def test_verb_converb_chains_are_not_one_app_target(self):
+        for text in ("chrome'u kapatıp aç", "chrome'u açıp kapat", "vlc'yi çalıştırıp kapat",
+                     "excel'i açıp a1 hücresine merhaba yaz", "chrome'u kapatarak aç"):
+            with self.subTest(text=text):
+                self.assertIsNone(understanding._app_request(text))
+
+    def test_connective_and_punctuation_chains_are_not_one_app_target(self):
+        for text in ("ayarları aç ve bluetooth'u kapat", "excel'i aç, a1'e merhaba yaz",
+                     "chrome'u aç sonra kapat", "chrome'u aç; kapat"):
+            with self.subTest(text=text):
+                self.assertIsNone(understanding._app_request(text))
+
+    def test_single_app_requests_keep_their_typed_capability(self):
+        for text, kind, target in (("chrome aç", APP_OPEN_CAPABILITY, "chrome"),
+                                   ("winzip kapat", APP_CLOSE_CAPABILITY, "winzip")):
+            with self.subTest(text=text):
+                self.assertEqual(understanding._app_request(text), (kind, {"app": target}))
+
+    APP_NAME_LITERALS = ("winzip", "7zip", "chrome", "vlc", "paint", "excel",
+                         "not defteri", "hesap makinesi")
+
+    def _chain_source(self):
+        """Zincir filtresinin kaynak bölgesi: dört modül düzeyi desen + `_app_chain` gövdesi."""
+        tree = ast.parse(inspect.getsource(understanding))
+        wanted = {"_APP_CONNECTIVE", "_APP_ACTION_STEMS", "_APP_CONVERB", "_APP_ACTION_TOKEN"}
+        parts = [node for node in tree.body
+                 if isinstance(node, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id in wanted for t in node.targets)]
+        parts += [node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "_app_chain"]
+        self.assertEqual(len(parts), 5, "zincir filtresinin sahibi bu beş bildirimdir")
+        return "\n".join(ast.unparse(node) for node in parts)
+
+    def test_chain_filter_is_a_verb_rule_not_an_app_name_list(self):
+        source = self._chain_source().casefold()
+        for name in self.APP_NAME_LITERALS:
+            self.assertNotIn(name, source, name)
+
+    def test_bare_word_tail_rule_is_not_relocated_into_the_new_owner(self):
+        # Emekli edilen kural: `\w+` + fiilimsi eki. Yardımcıya taşınarak "fix" yapılamaz.
+        self.assertNotIn(r"\w+(?:", self._chain_source().replace(" ", ""))
 
 
 class WeatherAuthorityTests(_CanonicalAuthorityHarness):

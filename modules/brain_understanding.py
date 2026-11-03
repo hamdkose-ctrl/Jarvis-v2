@@ -1169,8 +1169,28 @@ _PAGE_TARGET = re.compile(r"\bsayfa")
 # cümlesiyle hedef yürütücüsüne devredilir (`outcome_contracts.open_only_request` aynı hükmü
 # verir). Emekli edilen ham dal bağlaçlı cümleyi de tek uygulamaya bağlıyordu; canonical
 # sahip zinciri ayırt eder ve hedef uydurmaz.
-_APP_CHAIN = re.compile(r"\b(?:ve|veya|sonra|ardından|ardindan|sonrasında|sonrasinda)\b|"
-                        r"\w+(?:ıp|ip|up|üp|arak|erek)\b|[,:;]")
+# Converb kanadı ancak bir eylem fiilinin gövdesine bitişik ek olarak sayılır: "WinZip" ve "7zip"
+# kurulu bir uygulama adıdır (APPS sabiti dışında Start Menu'den de çözülür) ve son iki-üç harfi
+# Türkçe fiilimsi eki varsayılamaz. Aile `outcome_contracts.open_only_request` fiilleriyle
+# ortak tutulur; oraya fiil eklenince buraya da eklenir.
+_APP_CONNECTIVE = re.compile(
+    r"\b(?:ve|veya|sonra|ardından|ardindan|sonrasında|sonrasinda)\b|[,:;]", re.I)
+_APP_ACTION_STEMS = (
+    r"ac|aç|baslat|başlat|calistir|çalıştır|kapat|degistir|değiştir|ayarla|yaz|gir|sec|seç|"
+    r"tikla|tıkla|uygula|kaydet|sil|gonder|gönder|duraklat|durdur|getir|cikar|çıkar|oynat|"
+    r"cevir|çevir|kilitle|guncelle|güncelle|tasi|taşı|al|ver|yap|bas|oku|ara|tara"
+)
+_APP_CONVERB = re.compile(rf"(?:{_APP_ACTION_STEMS})[ıiyuüyc]?(?:ıp|ip|up|üp|arak|erek)\b", re.I)
+_APP_ACTION_TOKEN = re.compile(rf"(?:{_APP_ACTION_STEMS})\w*", re.I)
+
+
+def _app_chain(text: str) -> bool:
+    """Bağlaç/noktalama zinciri ya da kanıtlanmış fiilimsi zinciri (eylem fiili + converb ve
+    ardından ikinci bir eylem token'ı). Kelime sonu harfleri tek başına zincir kanıtı değildir."""
+    if _APP_CONNECTIVE.search(text):
+        return True
+    converb = _APP_CONVERB.search(text)
+    return converb is not None and _APP_ACTION_TOKEN.search(text, converb.end()) is not None
 
 _AUDIO_NOUN = re.compile(r"(?<!\w)(?:ses|sesi|sesin|sesini|sessiz|sessize|sessizi|sessizden)(?!\w)")
 _AUDIO_POLITE_TAIL = re.compile(
@@ -1218,7 +1238,7 @@ def _app_request(normalized: str) -> tuple[str, dict[str, object]] | None:
     if bare is not None:
         kind = APP_OPEN_CAPABILITY if bare.group(1).startswith("aç") else APP_CLOSE_CAPABILITY
         return "target-missing", {"app_target_kind": kind}
-    if _APP_CHAIN.search(text):
+    if _app_chain(text):
         return None
     close = _APP_CLOSE_TARGET.match(text)
     if close is not None:
