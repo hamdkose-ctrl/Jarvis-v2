@@ -12,6 +12,7 @@ ve testler "etki hiç çağrılmadı" der. Model/ağ/worker çağrısı yoktur.
 from __future__ import annotations
 
 import ast
+import re
 import unittest
 import uuid
 from pathlib import Path
@@ -295,6 +296,97 @@ class DispatchArmFenceTests(_RawDoorHarness):
         _entry, out, _handle, _ = self.turn("görev: raporu özetle")
         self.assertTrue(self.door.called)
         self.assertNotEqual(out, "CHAT")
+
+
+class DispatchArmPrecedenceTests(_RawDoorHarness):
+    """Açık admin önek kolları, geniş anahtar taramasından önce sahibine gider (bölüm 3 denetimi).
+
+    Ölçüldü (taban): `dispatch`'in ilk kolu `visual_chat`, görsel türünü cümlenin *içinde* arayan
+    sabit-olmayan bir taramadır (`visual_commands.detect_type_by_keyword` → `re.search`). Bu yüzden
+    `pc görevi: infografik çiz` masaüstü görevi görsel taslağa, `görev akışı rapor: infografik
+    tasarla` görev akışı da aynı şekilde düşüyordu; kullanıcıya "içerik nereden gelsin?" sorusu
+    dönüyordu. exact protokol, geniş NL taramasından önce gelir (§29: "Brain daha önce olsun"
+    kör kuralı değil, sahiplik sırası). Görsel kolun kendisi kanonical sahibi gelene kadar
+    domain-owned kalır (BRAIN-MIG-063 → PR3C envanteri)."""
+
+    def setUp(self):
+        super().setUp()
+        from modules import desktop_agent, task_agents, visual_chat
+        self.seen: list[str] = []
+
+        def desktop(owner, command, *args, **kwargs):
+            self.seen.append("desktop")
+            return "PC GÖREVİ" if re.match(r"^pc\s+görev", command, re.I) else None
+
+        def flow(owner, command, emit=None, *, summary=False):
+            self.seen.append("workflow")
+            return "GÖREV AKIŞI" if str(command).lower().startswith("görev akışı") else None
+
+        def visual(context, command, normalized):
+            self.seen.append("visual")
+            return real_visual(context, command, normalized)
+
+        real_visual = visual_chat.handle
+        for module, attr, value in ((desktop_agent, "handle", desktop),
+                                    (desktop_agent, "awaiting", lambda owner: False),
+                                    (desktop_agent, "spoken", lambda owner: ""),
+                                    (task_agents, "handle", flow),
+                                    (visual_chat, "handle", visual)):
+            starter = patch.object(module, attr, value)
+            starter.start()
+            self.addCleanup(starter.stop)
+
+    def test_an_explicit_pc_task_is_not_stolen_by_the_broad_keyword_sweep(self):
+        _entry, out, _handle, _ = self.turn("pc görevi: infografik çiz")
+        self.assertEqual(self.seen, ["desktop"])
+        self.assertIsNone(self.ctx._session().pending_visual)
+        self.assertIn("PC GÖREVİ", str(out))
+        self.assertNotIn("nereden gelsin", str(out))
+
+    def test_an_explicit_workflow_is_not_stolen_by_the_broad_keyword_sweep(self):
+        _entry, out, _handle, _ = self.turn("görev akışı rapor: infografik tasarla")
+        self.assertEqual(self.seen, ["workflow"])
+        self.assertIsNone(self.ctx._session().pending_visual)
+        self.assertIn("GÖREV AKIŞI", str(out))
+
+    def test_a_visual_request_without_an_admin_prefix_keeps_its_current_owner(self):
+        # Fence kör değil: açık admin öneki olmayan görsel isteği aynı kolunda kalır.
+        _entry, out, _handle, _ = self.turn("zihin haritası çıkar")
+        self.assertIn("visual", self.seen)
+        self.assertIsNotNone(self.ctx._session().pending_visual)
+        self.assertIn("nereden gelsin", str(out))
+
+
+class ExactAdminArmScopeTests(unittest.TestCase):
+    """§3 kanıtı: exact admin kolları cümlenin *tamamı* üzerinde karar verir, içinde değil.
+
+    Yalnız negatif biçimler gerçek tanıyıcılara gider (efektsiz küme üyeliği); pozitif biçimler
+    kendi owner testlerinde ölçülmüştür ve burada kota/dosya/worker efekti başlatmaz."""
+
+    def test_the_quota_arm_rejects_a_longer_sentence(self):
+        from modules import usage_meter
+        for text in ("kota durumu değil", "pc kota durumu nedir", "kullanım"):
+            self.assertIsNone(usage_meter.handle("alice", text), text)
+
+    def test_router_and_doctor_arms_are_membership_lists(self):
+        from modules import smart_router, system_doctor
+        for text in ("smart router açılır mı", "akıllı router nasıl çalışır", "model yetenekleri listesi"):
+            self.assertIsNone(smart_router.handle("alice", text), text)
+        for text in ("pc ses kontrolü değil", "sistem tanılama nedir", "arka planda sistem kontrolü yap"):
+            self.assertIsNone(system_doctor.handle("alice", text), text)
+
+    def test_the_desktop_owner_gate_is_the_same_admin_family_as_the_early_arm(self):
+        # Erken kolun öneki ile owner'ın kendi kapısı aynı aileyi tanımalı; aksi hâlde yüzey,
+        # owner'ın sahiplenmediği bir cümleyi masaüstüne itiyor olur (ölçülen sapma riski).
+        import re as _re
+        from modules import desktop_agent
+        surface = _re.compile(r"^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)", _re.I)
+        for text in ("pc görevi: hesap makinesi 12 ile 7 topla", "pc görevi durum", "pc onayla evet",
+                     "pc izinleri", "PC İZİN VER"):
+            self.assertTrue(surface.match(text), text)
+        for text in ("hesap makinesini aç", "pc rehberliği: wifi", "izin ver"):
+            self.assertFalse(surface.match(text), text)
+        self.assertTrue(callable(desktop_agent.handle))
 
 
 class CoreRejectionFenceTests(_RawDoorHarness):
