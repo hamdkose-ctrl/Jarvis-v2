@@ -7,6 +7,7 @@ work complete. Existing Core/domain handlers remain the only execution path.
 from __future__ import annotations
 
 import re
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -18,6 +19,7 @@ from modules.brain_understanding import (
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
     EXECUTION_REQUEST_CODE,
+    PHOTO_CAPABILITY,
     PHOTO_FOLLOWUP_CODE,
 )
 from modules.brain_candidates import build_candidates
@@ -162,6 +164,18 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
 
 
 _PENDING_PHOTO_STATE = ("pending_photo", "pending_state", "engine_commands")
+PENDING_PHOTO_TTL = 600
+
+
+def _pending_photo_row(runtime: Any, owner: str) -> dict[str, Any] | None:
+    """The fresh owner-scoped pending-photo row; expiry is lifecycle, never semantic authority."""
+    row = getattr(runtime, "_pending_photo", {}).get(owner)
+    if not isinstance(row, dict) or not row.get("path"):
+        return None
+    started = row.get("t")
+    if not isinstance(started, (int, float)) or time.time() - float(started) > PENDING_PHOTO_TTL:
+        return None
+    return row
 
 
 _APP_CLARIFY_KINDS = frozenset({APP_OPEN_CAPABILITY, APP_CLOSE_CAPABILITY})
@@ -252,8 +266,8 @@ def _pending_photo_state(active: ActiveContext) -> ContextReference | None:
 
 
 def _pending_photo_reference(runtime: Any, owner: str) -> ContextReference | None:
-    row = getattr(runtime, "_pending_photo", {}).get(owner)
-    if not isinstance(row, dict) or not row.get("path"):
+    row = _pending_photo_row(runtime, owner)
+    if row is None:
         return None
     return ContextReference(
         id="pending_photo", kind="pending_state", source="engine_commands", owner=owner,
@@ -266,8 +280,8 @@ def _pending_photo_reference(runtime: Any, owner: str) -> ContextReference | Non
 
 
 def _pending_photo_artifact(runtime: Any, owner: str) -> ContextReference | None:
-    row = getattr(runtime, "_pending_photo", {}).get(owner)
-    if not isinstance(row, dict) or not row.get("path"):
+    row = _pending_photo_row(runtime, owner)
+    if row is None:
         return None
     origin = str(row.get("origin_request_id") or "legacy-photo")
     return photo_artifact(owner=owner, request_id=origin, path=str(row["path"]))
@@ -774,10 +788,26 @@ def _has_open_pending(entry: EntryResult) -> bool:
     # consumed (state gate protocol session.pending_action.clarify_select); anything else is a new request.
     if any(not _is_clarify_pending(ref) for ref in entry.active_context.pending_references):
         return True
+    # A photo artifact belonging to THIS request is the turn's own input, not another open slot.
     return any(
         ref.kind == "photo" and ref.source == "engine_queue.photo"
+        and str(ref.provenance.get("origin_request_id") or "") != entry.request_id
         for ref in entry.active_context.active_artifacts
     )
+
+
+def photo_followup_owned(entry: EntryResult | None) -> bool:
+    """True when the canonical relation points at the still-open pending photo.
+
+    This is a relation check only: it grants no execution authority and never reads raw text."""
+    if not isinstance(entry, EntryResult):
+        return False
+    semantic = entry.understanding
+    if semantic is None:
+        return False
+    return (semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
+            and PHOTO_FOLLOWUP_CODE in semantic.reason_codes
+            and _pending_photo_state(entry.active_context) is not None)
 
 
 def _pending_owns_turn(entry: EntryResult) -> bool:
@@ -833,6 +863,33 @@ def _multi_step(text: str) -> bool:
     return _STEP_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
 
 
+def _canonical_photo_path(entry: EntryResult) -> tuple[str | None, bool]:
+    """Re-derive the one photo artifact this request may act on; Core does not trust the proposal.
+
+    A current-request artifact wins; otherwise the still-open pending photo is the target.
+    More than one candidate is ambiguous and yields no plan."""
+    rows = [
+        ref for ref in entry.active_context.active_artifacts
+        if ref.kind == "photo" and ref.source == "engine_queue.photo"
+        and isinstance(ref.provenance.get("path"), str) and ref.provenance.get("path")
+    ]
+    current = {
+        str(ref.provenance["path"]) for ref in rows
+        if str(ref.provenance.get("origin_request_id") or "") == entry.request_id
+    }
+    if current:
+        return (next(iter(current)), False) if len(current) == 1 else (None, True)
+    pending = _pending_photo_state(entry.active_context)
+    if pending is None:
+        return None, False
+    pending_path = pending.provenance.get("path")
+    if not isinstance(pending_path, str) or not pending_path:
+        return None, True
+    matching = {str(ref.provenance["path"]) for ref in rows
+                if str(ref.provenance["path"]) == pending_path}
+    return (pending_path, False) if len(matching) == 1 else (None, True)
+
+
 def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     """Core-validated intent for a mapped capability hint; None keeps the existing handler path."""
     if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
@@ -842,11 +899,20 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         return None
     if _multi_step(entry.text):
         return None
-    # Slot presence is not relation authority: only a turn the canonical chain assigned to an
-    # open interaction (exact state/answer/continuation) blocks the plan.
-    if _pending_owns_turn(entry):
-        return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    photo_plan = plan is not None and plan[0] == "photo_action"
+    if photo_plan:
+        selected, ambiguous = _canonical_photo_path(entry)
+        if ambiguous or selected is None or plan[1].get("photo") != selected:
+            return None
+    # Slot presence is not relation authority: only a turn the canonical chain assigned to an
+    # open interaction (exact state/answer/continuation) blocks the plan. The single exception is
+    # a validated photo plan that consumes exactly the open pending photo it was built from.
+    if _pending_owns_turn(entry):
+        consumes_pending = (photo_plan and photo_followup_owned(entry)
+                            and not semantic.ambiguities)
+        if not consumes_pending:
+            return None
     if plan is not None and plan[0] in {"notes_read", "notes_write"}:
         ident = plan[1].get("id")
         # A note effect/read may target only an id Brain resolved for THIS request, never an arbitrary string.
@@ -883,8 +949,6 @@ def _use_existing_handler(entry: EntryResult) -> bool:
     if semantic is None:
         return False
     if semantic.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
-        return True
-    if semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE and any(row.kind == "photo" for row in semantic.references):
         return True
     if semantic.request_kind is RequestKind.CAPABILITY:
         # An independent new capability keeps its Core plan/handler while another interaction
@@ -943,6 +1007,14 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         row = feedback(entry, result_status="failed", reason_code="FILE_TARGET_NOT_ACCESSIBLE")
         _LAST_FEEDBACK.set(row)
         return refusal, row, None
+    plan = core_plan(entry)
+    if (plan is None and entry.understanding is not None
+            and entry.understanding.capability_hint == PHOTO_CAPABILITY):
+        # No validated Core photo plan means no photo effect, and no legacy raw-text fallback.
+        message = "Bu fotoğraf isteğini güvenli biçimde doğrulayamadım; işlem başlatılmadı."
+        row = feedback(entry, result_status="failed", reason_code="PHOTO_TARGET_NOT_VALIDATED")
+        _LAST_FEEDBACK.set(row)
+        return message, row, None
     if not callable(handler):
         raise ValueError("Core handler callable olmalı.")
     _install_core_guards(runtime)
@@ -950,7 +1022,6 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     before = _open_core_pending(runtime)
     try:
         with bind(entry):
-            plan = core_plan(entry)
             if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
@@ -1169,33 +1240,6 @@ def allow_legacy_goal_control(text: str) -> bool:
     if entry.fast_gate is not None and entry.fast_gate.matched:
         return entry.fast_gate.protocol == "fast.goal.status"
     return True
-
-
-def open_pending_answer(entry: EntryResult, field: str) -> bool:
-    if not isinstance(entry, EntryResult):
-        return False
-    if entry.state_gate.matched:
-        if field == "pending_photo" and entry.state_gate.protocol == "phone_photo.cancel":
-            return True
-        if field == "pending_msg" and entry.state_gate.protocol == "session.pending_msg.confirm":
-            return True
-        return False
-    semantic = entry.understanding
-    if semantic is None:
-        return False
-    if semantic.conversation_relation in {ConversationRelation.TOPIC_CHANGE, ConversationRelation.CORRECTION}:
-        return False
-    if semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL, RequestKind.CLARIFY}:
-        return False
-    if field == "pending_weather_location":
-        return semantic.pending_owner is PendingOwner.WEATHER_LOCATION
-    if field == "pending_photo":
-        # Tek authority: Understanding relation'ı seçer; pending photo canonical state'i
-        # ActiveContext'teki tek temsil ile doğrulanır.
-        return (semantic.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
-                and PHOTO_FOLLOWUP_CODE in semantic.reason_codes
-                and _pending_photo_state(entry.active_context) is not None)
-    return False
 
 
 def relation_decided(entry: Any) -> bool:

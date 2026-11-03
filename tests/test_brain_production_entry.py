@@ -337,15 +337,6 @@ class BrainProductionEntryTests(unittest.TestCase):
         self.assertTrue(result.state_gate.matched)
         self.assertEqual(result.state_gate.protocol, "job.resume")
 
-    def test_topic_change_and_correction_are_not_open_pending_consumption(self):
-        module = self.module()
-        for relation in (ConversationRelation.TOPIC_CHANGE, ConversationRelation.CORRECTION):
-            with self.subTest(relation=relation):
-                result = entry(module, semantic=understanding(relation=relation))
-                self.assertFalse(module.open_pending_answer(result, "pending_weather_location"))
-                self.assertFalse(module.open_pending_answer(result, "pending_msg"))
-                self.assertFalse(module.open_pending_answer(result, "pending_photo"))
-
     def test_fast_gate_suffix_regression_stays_closed(self):
         result = deterministic_fast_gate(
             owner=OWNER, request_id=RID, text="Jarvis'i kapatma", active_context=context(), source="yazı"

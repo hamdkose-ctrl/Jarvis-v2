@@ -131,27 +131,25 @@ def _keep_photo(runtime, src: str) -> str:
         pass
     return str(dest)
 
-def _photo_action(runtime, path: str, question: str) -> str:
-    """Fotoğrafla istenen işi yapar: not olarak kaydet, yazıyı çevir ya da analiz et / soruyu cevapla."""
+def _photo_action(runtime, path: str, operation: str, *, question: str = "",
+                  target: str = "", note_text: str = "") -> str:
+    """Apply the Core-validated photo operation; this executor never selects the operation."""
     if (msg := runtime.privacy.blocked('camera')):
         return msg
-    q = (question or '').strip()
-    ql = runtime._tr_lower(q)
-    if runtime.re.search('\\bnot\\b|not\\s*(?:al|ekle|et|olarak)|nota\\b|notlara|kaydet|sakla', ql) and (not runtime.re.search('analiz|çevir|çöz', ql)):
-        text = runtime.re.sub('(?:(?:bu|şu)\\s+)?(?:resmi|fotoğrafı|fotoyu|görseli)?\\s*(?:not\\s+olarak\\s+)?(?:not\\s+(?:al|ekle|et)\\w*|nota\\s+(?:ekle|al)\\w*|notlara\\s+ekle\\w*|kaydet\\w*|sakla\\w*|ekle\\w*)', ' ', q, flags=runtime.re.I)
-        text = runtime._plain(runtime.re.sub('^\\s*(?:bu|şu)\\s+(?:resmi|fotoğrafı|fotoyu|görseli)\\b', '', text, flags=runtime.re.I)) or 'Fotoğraf'
+    if operation == 'note':
+        text = note_text or 'Fotoğraf'
         runtime._add_note(text, photo=path)
         runtime.privacy.audit('fotoğraflı not', text[:60])
         return f'Fotoğraflı not aldım: {text}'
     photo_sys = f'Sen {runtime.ASSISTANT_NAME} adlı, Türkçe konuşan bir asistansın; {runtime.profile.name} ile konuşuyorsun. Bu yanıt ekranda okunacak: anlaşılır ve gerektiği kadar ayrıntılı yaz. LaTeX ($...$, \\frac gibi) kullanma; düz metin ve Unicode yaz (x², √x, a/b, ≤, ×). Markdown başlıkları ve emoji kullanma; adımları 1), 2) diye numarala. Emin değilsen söyle.'
-    if runtime.re.search('çevir|tercüme|translate', ql):
-        langs = {'ingilizce': 'İngilizce', 'almanca': 'Almanca', 'arapça': 'Arapça', 'rusça': 'Rusça', 'fransızca': 'Fransızca', 'japonca': 'Japonca', 'çince': 'Çince', 'korece': 'Korece', 'italyanca': 'İtalyanca', 'ispanyolca': 'İspanyolca'}
-        target = next((v for k, v in langs.items() if k in ql), 'Türkçe')
-        prompt = f'Fotoğraftaki bütün yazıları oku ve {target} diline çevir. Önce “Metin:” satırlarıyla özgün yazıyı, sonra “Çeviri:” satırlarıyla çeviriyi yaz. Fotoğrafta yazı yoksa bunu söyle.'
-        runtime.privacy.audit('fotoğraf çevirisi', target)
-    else:
+    if operation == 'translate':
+        prompt = f'Fotoğraftaki bütün yazıları oku ve {target or "Türkçe"} diline çevir. Önce “Metin:” satırlarıyla özgün yazıyı, sonra “Çeviri:” satırlarıyla çeviriyi yaz. Fotoğrafta yazı yoksa bunu söyle.'
+        runtime.privacy.audit('fotoğraf çevirisi', target or 'Türkçe')
+    elif operation == 'analyze':
         prompt = "Bu bir telefon kamerasıyla çekilmiş fotoğraf. Önce fotoğrafta ne olduğuna bak. İçinde bir soru, problem ya da alıştırma (matematik, fizik, test vb.) varsa şu biçimde yanıtla: 1) Soruyu kendi cümlelerinle yaz. 2) Çözümü numaralı adımlarla ayrıntılı anlat; her adımda ne yaptığını ve nedenini açıkla, ara işlemleri göster. 3) 'Sonuç:' satırıyla cevabı net yaz. 4) Kısa bir doğrulama ya da ipucu ekle. Soru yoksa görüneni Türkçe ve anlaşılır biçimde anlat."
-        if q and (not runtime.re.fullmatch('(?:bunu |şunu )?(?:analiz et|incele|ne var|bu ne|açıkla|anlat)\\w*', ql.strip(' .!?'))):
-            prompt += f'\nKullanıcının isteği (öncelikle buna cevap ver): {q}'
-        runtime.privacy.audit('fotoğraf analizi', q[:60] or '-')
+        if question:
+            prompt += f'\nKullanıcının isteği (öncelikle buna cevap ver): {question}'
+        runtime.privacy.audit('fotoğraf analizi', question[:60] or '-')
+    else:
+        return 'Fotoğraf işlemi doğrulanamadı; işlem başlatılmadı.'
     return runtime.ask_image(path, prompt, photo_sys, max_tokens=3500).strip() or 'Fotoğraftan bir şey çıkaramadım.'

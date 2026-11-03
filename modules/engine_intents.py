@@ -177,6 +177,20 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
+        case "photo_action":
+            # Operation and path are Core-validated; the domain executor only applies them.
+            from modules import main_documents
+            path = str(a.get("photo") or "")
+            result = main_documents._photo_action(
+                runtime, path, str(a.get("operation") or ""),
+                question=str(a.get("question") or ""),
+                target=str(a.get("target") or ""),
+                note_text=str(a.get("note_text") or ""),
+            )
+            pending = getattr(runtime, "_pending_photo", {}).get(runtime.profile.slug)
+            if isinstance(pending, dict) and str(pending.get("path") or "") == path:
+                runtime._pending_photo.pop(runtime.profile.slug, None)
+            return result
         case _:
             # Direct feedback about Jarvis' own response style is durable user intent,
             # not just another chat sentence. Capture it before building the system prompt

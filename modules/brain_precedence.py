@@ -80,6 +80,10 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
 def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
     """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
+    if plan is not None and plan[0] == "photo_action":
+        # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
+        # mutation gates must not reinterpret the same utterance.
+        return None
     lower = getattr(runtime, "_tr_lower", None)
     lowered = lower(command) if callable(lower) else command.casefold()
     table = _gates(runtime, command, lowered, plan)
