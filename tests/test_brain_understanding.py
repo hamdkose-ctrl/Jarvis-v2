@@ -272,6 +272,30 @@ class BrainUnderstandingTests(unittest.TestCase):
         self.assertIs(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, "app.open")
 
+    def test_free_form_bodies_are_owned_by_the_message_text_slot(self):
+        # pending_msg(stage=text) bounded bir kimlik/mekân slotu değil, free-text foreground slot'tur:
+        # selam, soru cümlesi ve doğal sohbet dili mesaj gövdesidir.
+        pending = self.message_draft()
+        active = ctx(pending_references=(pending,))
+        for text in ("Selam", "Nasılsın?", "İyi misin?", "Yarın geliyor musun?",
+                     "Selam, nasılsın? Yarın görüşelim mi?", "Kuantum hakkında konuşalım"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(pending,))
+                self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, "session.pending_msg.text")
+
+    def test_recipient_slot_stays_bounded_while_the_body_slot_is_free_form(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        bounded = self.call("Ebru", active_context=active, candidates=(recipient,))
+        self.assertEqual(bounded.pending_owner, "session.pending_msg.to")
+        for text in ("nasılsın?", "kuantum hakkında konuşalım"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIsNone(result.pending_owner)
+                self.assertIsNot(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
     def test_message_pending_does_not_consume_new_requests_or_confirmations(self):
         text_pending = ref("pending_msg", "pending_state", field="pending_msg",
                            value={"to": "Ebru", "text": "", "stage": "text"})

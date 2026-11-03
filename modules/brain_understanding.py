@@ -1230,17 +1230,38 @@ def _screenshot_request(normalized: str) -> bool:
 
 
 def _pending_answer_candidate(normalized: str) -> bool:
-    """Structural eligibility only; ``understand`` already decided whether this is a capability.
+    """Structural eligibility shared by every pending slot; ``understand`` already decided the turn.
 
-    The pending-owner layer must not own a second capability grammar: when a new capability class
-    is added, only the canonical capability decision changes, never this structural filter."""
+    Slot-specific semantics belong to each owner: a message body is deliberately free-form while a
+    recipient, location or app answer is bounded. Rejecting chat vocabulary or a question mark here
+    would silently revoke the open foreground message slot."""
     if not normalized or _is_pr6_protocol_answer(normalized):
         return False
     if _is_context_control(normalized) or _is_correction(normalized):
         return False
+    return True
+
+
+def _message_text_candidate(normalized: str) -> bool:
+    """`pending_msg(stage=text)` is an explicit free-form contract: an ordinary sentence is content.
+
+    Greetings and questions are normal message bodies, so this slot never inherits a lexical shape
+    rule; only another owner's claim (State, Fast, canonical capability, bounded slot) outranks it."""
+    return _pending_answer_candidate(normalized)
+
+
+def _bounded_recipient_candidate(text: str, normalized: str) -> bool:
+    """The recipient slot stays a bounded identity: its own shape rule, not a global one.
+
+    Multi-word sentences and question forms are not identity evidence, so they must not be written
+    into `pending_msg.to` even though the body slot legitimately accepts them."""
+    if not _pending_answer_candidate(normalized):
+        return False
     if _contains_any(normalized, _GENERIC_CHAT) or "?" in normalized:
         return False
-    return True
+    if any(mark in normalized for mark in ",;:"):
+        return False
+    return 1 <= len(text.split()) <= _RECIPIENT_MAX_WORDS
 
 
 def _app_target_evidence(target: str, reference: ContextReference) -> bool:
@@ -1283,6 +1304,9 @@ _PENDING_OWNER_RANK = {
     PendingOwner.MESSAGE_TEXT: 3,
 }
 
+# A recipient is said as a name, not as a sentence; the body slot deliberately has no such bound.
+_RECIPIENT_MAX_WORDS = 2
+
 
 def _pending_answer_owners(text: str, normalized: str, active_context: ActiveContext,
                            clarify_answer: tuple[str, dict[str, object]] | None,
@@ -1291,8 +1315,9 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
     """Pick the single pending owner this utterance can answer, or report true ambiguity.
 
     The caller supplies the already-made canonical capability decision: a new capability request
-    is never an answer, so this selector never re-classifies the utterance. Only slots whose
-    observed evidence plausibly accepts the text are candidates."""
+    is never an answer, so this selector never re-classifies the utterance. Eligibility is slot
+    typed: a bounded recipient or location answer is shaped by its own evidence, while an open
+    message body deliberately accepts free text and stays the lowest specificity fallback."""
     if independent_capability or not _pending_answer_candidate(normalized):
         return None, False
     owners: set[PendingOwner] = {PendingOwner.APP_CLARIFY} if clarify_answer is not None else set()
@@ -1304,9 +1329,12 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
             owners.add(PendingOwner.WEATHER_LOCATION)
         elif field == "pending_msg":
             value = pending.provenance.get("value")
-            if isinstance(value, Mapping) and value.get("stage") == "to":
+            if not isinstance(value, Mapping):
+                continue
+            stage = value.get("stage")
+            if stage == "to" and _bounded_recipient_candidate(text, normalized):
                 owners.add(PendingOwner.MESSAGE_TO)
-            elif isinstance(value, Mapping) and value.get("stage") == "text":
+            elif stage == "text" and _message_text_candidate(normalized):
                 owners.add(PendingOwner.MESSAGE_TEXT)
     if not owners:
         return None, False

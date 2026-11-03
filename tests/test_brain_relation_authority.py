@@ -1141,15 +1141,22 @@ class PlanEligibilityTests(_CanonicalTurnHarness):
         self.ctx.chat.assert_not_called()
         self.assertEqual(session.pending_msg, pending)
 
-    def test_new_request_chat_is_not_turned_into_a_pending_answer(self):
+    def test_generic_greeting_is_a_new_request_only_without_a_foreground_draft(self):
+        # Free-text mesaj slotu açıkken selam mesaj gövdesidir; açık slot yokken aynı ifade CHAT kalır.
         session = self.ctx._session()
-        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
         entry, out = self.turn("merhaba")
         self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
         self.assertEqual(entry.understanding.conversation_relation, ConversationRelation.NEW_REQUEST)
         self.assertEqual(out, "CHAT")
         self.message_step.assert_not_called()
-        self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
+        self.assertIsNone(session.pending_msg)
+
+        session.pending_msg = {"to": "Ebru", "text": "", "stage": "text"}
+        entry, _out = self.turn("merhaba")
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, "session.pending_msg.text")
+        self.assertEqual(session.pending_msg["text"], "merhaba")
+        self.message_step.assert_called_once()
 
     def test_context_control_is_not_executed_as_a_pending_answer_or_capability(self):
         session = self.ctx._session()
@@ -1534,6 +1541,139 @@ class PendingCapabilityAuthorityTests(_CanonicalTurnHarness):
         self.assertIn("göndereyim mi", out)
 
 
+class MessageTextFreeFormTests(_CanonicalTurnHarness):
+    """`pending_msg(stage=text)` bilinçli bir free-text foreground slot'tur.
+
+    Selam / nasılsın? / soru cümlesi mesaj gövdesidir; bunları NEW_REQUEST/CHAT saymak PR öncesi
+    `_message_step` davranışını bozar. Free-text sahibi olmak her şeyi claiming değildir: State Gate,
+    Fast Gate, canonical independent capability ve specific bounded owner sırası korunur.
+    """
+
+    MESSAGE_TEXT_OWNER = "session.pending_msg.text"
+
+    def open_draft(self):
+        session = self.ctx._session()
+        draft = {"to": "Ebru", "text": "", "stage": "text"}
+        session.pending_msg = dict(draft)
+        return session, draft
+
+    def run_body(self, text):
+        session, _draft = self.open_draft()
+        self.ctx.chat.reset_mock()
+        self.message_step.reset_mock()
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn(text)
+            sender.assert_not_called()
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TEXT_OWNER)
+        self.assertEqual(session.pending_msg["text"], text)
+        self.assertEqual(session.pending_msg["stage"], "confirm")
+        self.message_step.assert_called_once()
+        self.ctx.chat.assert_not_called()
+        self.assertIn("göndereyim mi", out)
+        return session, entry, out
+
+    def test_greeting_body_is_consumed_by_the_open_message_draft(self):
+        self.run_body("Selam")
+
+    def test_question_body_is_not_wrongly_a_new_request(self):
+        self.run_body("Nasılsın?")
+
+    def test_natural_conversational_body_is_consumed(self):
+        self.run_body("Selam, nasılsın? Yarın görüşelim mi?")
+
+    def test_topic_like_sentence_is_the_message_body(self):
+        self.run_body("Kuantum hakkında konuşalım")
+
+    def test_regression_matrix_phrases_all_stay_message_bodies(self):
+        for text in ("Selam", "Nasılsın?", "Yarın görüşelim mi?", "Selam, nasılsın?",
+                     "Bugün iş nasıldı?", "Kuantum hakkında konuşalım"):
+            with self.subTest(text=text):
+                self.run_body(text)
+
+    def test_accepted_body_then_confirmation_runs_the_existing_lifecycle(self):
+        session, _entry, _out = self.run_body("Selam, nasılsın?")
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn("evet")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.confirm")
+        self.assertIn("gönderiyorum", out)
+        self.assertIsNone(session.pending_msg)
+        sender.assert_not_called()  # gönderim arka planda; test effect başlatmaz
+
+    def test_free_text_body_never_overrides_the_fast_gate_owner(self):
+        for text, protocol in (("saat kaç", "fast.time.read"), ("tarih", "fast.date.read"),
+                               ("sistem durumu", "fast.system.status")):
+            with self.subTest(text=text):
+                session, draft = self.open_draft()
+                entry, out = self.turn(text)
+                self.assertEqual(entry.stage, "fast")
+                self.assertEqual(entry.fast_gate.protocol, protocol)
+                self.assertEqual(session.pending_msg, draft)
+                self.message_step.assert_not_called()
+
+    def test_free_text_body_never_overrides_the_state_gate_owner(self):
+        session, draft = self.open_draft()
+        session.pending_confirm = {"action": "close_app", "name": "Chrome"}
+        close = Mock(return_value=ApplicationResult("kapandı", ok=True))
+        self.ctx.system_control.close_application = close
+        _entry, out = self.turn("evet")
+        self.assertEqual(out, "kapandı")
+        close.assert_called_once_with("Chrome")
+        self.assertEqual(session.pending_msg, draft)
+        self.message_step.assert_not_called()
+
+    def test_context_control_is_never_written_into_the_message_body(self):
+        # İptal/boşver kendi State Gate sahibine gider, konuyu değiştir relation'ı yeniden kurar;
+        # hiçbirinde ham kontrol ifadesi mesaj gövdesi olarak birikmez.
+        for text in ("iptal", "boşver", "konuyu değiştir"):
+            with self.subTest(text=text):
+                session, _draft = self.open_draft()
+                _entry, _out = self.turn(text)
+                stored = session.pending_msg
+                self.assertTrue(stored is None or not stored.get("text"),
+                                f"{text} mesaj gövdesi olarak yazıldı.")
+
+    def test_specific_bounded_owner_outranks_the_generic_message_body(self):
+        session, draft = self.open_slots("text")
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, _out = self.turn("İstanbul")
+            sender.assert_not_called()
+        self.assertEqual(entry.understanding.pending_owner, "session.pending_weather_location")
+        self.assertEqual(session.pending_msg, draft)
+        self.message_step.assert_not_called()
+
+    def open_slots(self, stage: str):
+        session = self.ctx._session()
+        pending = {"to": "" if stage == "to" else "Ebru", "text": "", "stage": stage}
+        session.pending_msg = dict(pending)
+        session.pending_weather_location = True
+        return session, pending
+
+    def open_recipient(self):
+        session = self.ctx._session()
+        pending = {"to": "", "text": "", "stage": "to"}
+        session.pending_msg = dict(pending)
+        return session, pending
+
+    def test_recipient_slot_is_not_loosened_into_a_free_text_slot(self):
+        for text in ("nasılsın?", "kuantum hakkında konuşalım", "Selam, nasılsın? Yarın görüşelim mi?"):
+            with self.subTest(text=text):
+                session, pending = self.open_recipient()
+                self.ctx.chat.reset_mock()
+                entry, _out = self.turn(text)
+                self.assertIsNone(entry.understanding.pending_owner)
+                self.assertEqual(session.pending_msg, pending)
+                self.message_step.assert_not_called()
+                self.ctx.chat.assert_called_once()
+
+    def test_recipient_slot_still_takes_a_bounded_name(self):
+        session, _pending = self.open_recipient()
+        entry, out = self.turn("Ebru")
+        self.assertEqual(entry.understanding.pending_owner, "session.pending_msg.to")
+        self.assertEqual(session.pending_msg["to"], "Ebru")
+        self.assertIn("ne yazayım", out)
+
+
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
@@ -1722,6 +1862,63 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         passed = {keyword.arg for keyword in calls[0].keywords}
         self.assertIn("independent_capability", passed,
                       "Capability kararı pending owner seçimine parametre olarak geçmeli.")
+
+    def _question_mark_rejects(self, node) -> bool:
+        """`"?" in ...` biçiminde bir reddetme bu düğümün içinde mi?"""
+        return any(
+            isinstance(compare, ast.Compare)
+            and any(isinstance(operation, (ast.In, ast.NotIn)) for operation in compare.ops)
+            and any(isinstance(child, ast.Constant) and child.value == "?"
+                    for child in (compare.left, *compare.comparators))
+            for compare in ast.walk(node)
+        )
+
+    def test_message_text_and_recipient_slots_do_not_share_one_lexical_gate(self):
+        """Bounded slot ile free-text slot aynı sözcük süzgeciyle değerlendirilemez."""
+        _tree, candidate = self._func(brain_understanding, "_pending_answer_candidate")
+        self.assertFalse(self._mentions(candidate, "_GENERIC_CHAT"),
+                         "_pending_answer_candidate generic chat listesiyle global reddetmemeli.")
+        self.assertFalse(self._question_mark_rejects(candidate),
+                         "_pending_answer_candidate '?' ile global reddetmemeli.")
+
+    def test_message_text_eligibility_is_an_explicit_free_form_contract(self):
+        _tree, owners = self._func(brain_understanding, "_pending_answer_owners")
+        bounded = free_form = False
+        for node in ast.walk(owners):
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.BoolOp):
+                continue
+            names = {call.func.id for call in ast.walk(node.test)
+                     if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)}
+            consts = {child.value for child in ast.walk(node.test)
+                      if isinstance(child, ast.Constant) and isinstance(child.value, str)}
+            bounded |= "_bounded_recipient_candidate" in names and "to" in consts
+            free_form |= "_message_text_candidate" in names and "text" in consts
+        self.assertTrue(bounded, "pending_msg stage=to kendi bounded şekil süzgeciyle aday olmalı.")
+        self.assertTrue(free_form, "MESSAGE_TEXT explicit free-form sözleşmeye bağlı olmalı.")
+
+    def test_bounded_recipient_keeps_its_own_shape_rule(self):
+        _tree, recipient = self._func(brain_understanding, "_bounded_recipient_candidate")
+        self.assertTrue(self._mentions(recipient, "_GENERIC_CHAT") or self._question_mark_rejects(recipient),
+                        "Recipient bounded slot reddi kendi evidence kuralında taşımalı.")
+
+    def test_free_text_fallback_is_the_last_specificity_after_independent_capability(self):
+        _tree, understand = self._func(brain_understanding, "understand")
+        decided = next(node.lineno for node in ast.walk(understand)
+                       if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == "independent_capability"
+                               for target in node.targets))
+        selection = next(node.lineno for node in ast.walk(understand)
+                         if isinstance(node, ast.Call) and self._name(node.func) == "_pending_answer_owners")
+        self.assertLess(decided, selection,
+                        "Canonical capability kararı owner seçiminden önce üretilmeli.")
+        _owners_tree, owners = self._func(brain_understanding, "_pending_answer_owners")
+        guards = [node for node in ast.walk(owners) if isinstance(node, ast.If)
+                  and self._mentions(node.test, "independent_capability")]
+        adds = [node for node in ast.walk(owners) if isinstance(node, ast.Call)
+                and self._name(node.func) == "add"]
+        self.assertTrue(guards and adds)
+        self.assertLess(min(node.lineno for node in guards), min(node.lineno for node in adds),
+                        "Bağımsız capability, hiçbir owner eklemeden önce elenmeli.")
 
     def test_goal_legacy_text_is_fenced_before_any_state_rebinding(self):
         _tree, handle = self._func(goal_executor, "handle")
