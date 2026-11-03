@@ -1114,6 +1114,9 @@ ACTION_REQUEST_CODE = "ENDS_WITH_ACTION"
 # Understanding "bu cümle bir icra isteğidir" hükmünü yalnız burada verir; kapı bu kaydı okur,
 # kendi başına ham metinden niyet türetmez.
 EXECUTION_REQUEST_CODE = "EXECUTION_REQUEST"
+# Understanding "bu cümle açıklama/sohbet ister" hükmünü de yalnız burada verir: bir yüzey bu
+# kaydı okuyabilir, ama aynı hükmü ham metinden ikinci kez sınıflandırarak üretemez.
+EXPLANATION_REQUEST_CODE = "EXPLANATION_REQUEST"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -1505,6 +1508,25 @@ def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, A
 def _definition_question(normalized: str) -> bool:
     """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner."""
     return _contains_any(f" {normalized}", _STATIC_MARKERS)
+
+
+def explanation_request(text: str, normalized: str) -> bool:
+    """Understanding'ın tek açıklama hükmü: cümle bilgi ister, yürütülecek bir iş değildir.
+
+    Üç kanonical dal: tanım/açıklama sorusu (`_definition_question` — aynı hüküm zaten hava durumu
+    ve ekran görüntüsü kapılarını da veto eder), soru biçimli rehberlik/eleştiri/karar isteği
+    ("… ne yapmalıyım?") ve çıplak selamlama. Icra yetkisi taşıyan cümle (`action_request` /
+    `ends_with_action`) açıklama değildir; soru biçimli *olmayan* rehberlik isteği
+    ("adım adım wifi nasıl açılır") rehberlik kapısının sahibidir. Yüzeyler bu hükmü okur, ham
+    metinden kendi başlarına yeniden sınıflandıramaz.
+    """
+    if action_request(text) or ends_with_action(text):
+        return False
+    if _definition_question(normalized):
+        return True
+    if _advisory_request(normalized) is not None and str(text or "").rstrip().endswith("?"):
+        return True
+    return any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT)
 
 
 def _weather_status_request(normalized: str) -> bool:
@@ -1953,6 +1975,10 @@ def understand(
     advisory = None if (context_control or topic_change or correction or capability_hint) else _advisory_request(normalized)
     if advisory is not None:
         arguments = {**arguments, ADVISORY_ARGUMENT_KEY: advisory}
+    # Açıklama hükmü de burada doğar ve tek sahibinden okunur: hiçbir legacy yüzey aynı cümleyi
+    # ikinci kez "bu bir soru" diye sınıflandırmaz.
+    if explanation_request(text, normalized):
+        reason_codes.append(EXPLANATION_REQUEST_CODE)
     preview = None
     if request_kind is RequestKind.CAPABILITY and not ambiguities:
         preview = _preview_text(capability_hint, arguments, references)

@@ -27,6 +27,27 @@ def handle_request(runtime, command: str) -> str:
     return reply
 
 
+def _canonical_tail(runtime, command: str, cmd_lower: str):
+    """Bu turn'ün tek kanonical rota kararı ve tek yürütmesi.
+
+    Cümle burada yeniden sınıflandırılmaz: `route_command` yalnız bu turn'ün Understanding'ini
+    okur, etki ise seçilen intent'in kendi sahibinde (`engine_intents.dispatch`) yürür. Ham
+    cephe(ler) bittiğinde de, bir açıklama turu hiç cepheye inmeden de aynı tek yol çalışır."""
+    from modules import brain_entry
+    try:
+        r = brain_entry.route_command(runtime, command)
+    except Exception:
+        runtime._record_failure('main.py:handle')
+        raise
+    intent = str(r.get("intent") or "chat")
+    a = r.get("args")
+    if not isinstance(a, dict):
+        a = {}
+    runtime.profile.log_command(intent)
+    from modules.engine_intents import dispatch
+    return dispatch(runtime, intent, a, command, cmd_lower)
+
+
 def handle(runtime, command: str):
 
     from modules import requests_state
@@ -60,6 +81,14 @@ def handle(runtime, command: str):
     if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in goal_executor.RESUME_COMMANDS or cmd_lower.strip(' .!?') in ('evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
         goal_result=goal_executor.handle(runtime,command)
         if goal_result is not None:return goal_result
+    # Kanonical açıklama turu (Understanding'ın tek EXPLANATION hükmü): cümle bilgi ister, yürütülecek
+    # iş değildir. Buradan sonrası ham cümleyi yeniden sınıflandıran cephelerdir — erken dispatch
+    # kolları bile bir soruyu kendi akışına çekebilir (ölçüldü: "infografik nedir?" görsel taslağı
+    # başlattı, "görev akışı nedir?" kullanım hatası verdi) ve admin/efekt cepheleri bir soru için
+    # gerçek iş yapar (yayın, güncelleme kurma, arıza taraması, not silme, ekran OCR'ı). Tur kendi tek
+    # kanonical rotasına döner; icra yetkisi olan cümleler burada fence edilmez.
+    if brain_entry.explanation_turn():
+        return _canonical_tail(runtime, command, cmd_lower)
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
@@ -316,16 +345,4 @@ def handle(runtime, command: str):
 
     # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
-    from modules import brain_entry
-    try:
-        r = brain_entry.route_command(runtime, command)
-    except Exception:
-        runtime._record_failure('main.py:handle')
-        raise
-    intent = str(r.get("intent") or "chat")
-    a = r.get("args")
-    if not isinstance(a, dict):
-        a = {}
-    runtime.profile.log_command(intent)
-    from modules.engine_intents import dispatch
-    return dispatch(runtime, intent, a, command, cmd_lower)
+    return _canonical_tail(runtime, command, cmd_lower)

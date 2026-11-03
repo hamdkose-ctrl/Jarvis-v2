@@ -19,6 +19,7 @@ from modules.brain_understanding import (
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
     EXECUTION_REQUEST_CODE,
+    EXPLANATION_REQUEST_CODE,
     PHOTO_CAPABILITY,
     PHOTO_FOLLOWUP_CODE,
 )
@@ -1184,6 +1185,29 @@ def goal_question_superseded(runtime: Any = None) -> bool | None:
     return (semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL}
             or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE
             or ACTION_REQUEST_CODE in semantic.reason_codes)
+
+
+def explanation_turn() -> bool:
+    """Bu kanonical tur bir açıklama/sohbet isteğidir; hiçbir ham cephe ona etki yürütemez.
+
+    Hüküm Understanding'in `EXPLANATION_REQUEST` kaydından okunur; yüzey cümleyi ham metinden
+    ikinci kez sınıflandırmaz. Bounded sahiplik korunur: bir State/Fast protokolü turu aldığında,
+    tur açık bir alanın cevabı olduğunda, typed bir yetenek önerisi ya da typed pending sahibi
+    taşıdığında kapılar kendi akışına devam eder. Doğrulanmış Core planı olan tur zaten buraya
+    inmez (handoff planı yürütür)."""
+    entry = current()
+    if entry is None or entry.state_gate.matched:
+        return False
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return False
+    semantic = entry.understanding
+    if semantic is None or semantic.capability_hint or semantic.pending_owner is not None:
+        return False
+    if semantic.conversation_relation is not ConversationRelation.NEW_REQUEST:
+        return False
+    if semantic.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
+        return False
+    return EXPLANATION_REQUEST_CODE in semantic.reason_codes
 
 
 def matched_protocol(*protocols: str) -> bool:

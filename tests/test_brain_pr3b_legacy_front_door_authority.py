@@ -69,6 +69,8 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             stub.extract.return_value = (None, None)
             setattr(self.ctx, name, stub)
         self.ctx._extra_commands = Mock(return_value=None)
+        # Core planının meşru effect'i kendi modül sınırında durur: hiçbir test model/ağ çağrısı yapmaz.
+        self.ctx.tr = Mock(translate=Mock(return_value="ÇEVİRİ"))
         self.ctx._mail_handle = Mock(return_value=None)
         self.ctx._screen_ocr = Mock(return_value="EKRAN METNİ")
         self.ctx._copy_text = Mock(return_value=True)
@@ -221,6 +223,18 @@ class DispatchArmFenceTests(_RawDoorHarness):
         entry, _out, _handle, _ = self.turn("fotosentez nedir")
         self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
         self.assertEqual(self.silent("modules.pc_guide", "modules.developer", "modules.task_agents"), [])
+
+    def test_a_question_about_a_visual_type_opens_no_image_draft(self):
+        # Ölçüldü (taban): ilk kol görsel taslağı başlattı ve "sohbetten mi, dosyadan mı?" sordu;
+        # sonraki "sohbet" cevabı ücretli görsel üretir. Bir soru görsel akışının sahibi olamaz.
+        _entry, out, _handle, _ = self.turn("infografik nedir?")
+        self.assertIsNone(self.ctx._session().pending_visual)
+        self.assertNotIn("nereden gelsin", str(out))
+
+    def test_a_question_about_the_workflow_grammar_is_not_a_usage_error(self):
+        # Ölçüldü (taban): sabit önek kolu "görev akışı nedir?"i bozuk kullanım sayıp ValueError attı.
+        _entry, out, _handle, _ = self.turn("görev akışı nedir?")
+        self.assertNotIn("Kullanım:", str(out))
 
     def test_advisory_guidance_keeps_its_canonical_owner(self):
         # PR3B soru-fencesi rehberlik kolunu kapatmaz: "adım adım" kanonical advisory isteğidir.
