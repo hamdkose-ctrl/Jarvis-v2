@@ -150,13 +150,14 @@ class FrontGatePrecedenceTests(_Pipeline):
             "selfctl": "selfctl.handle(",
             "user_command": "runtime._user_command(",
             "planner_command": "runtime._planner_command(",
-            "macro_teach": "runtime._macro_teach",
-            "macro_manage": "runtime._macro_manage",
-            "macro_run": "runtime._macro_run",
-            "extra_commands": "runtime._extra_commands",
         }
-        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES]
+        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:5]]
+        positions.append(source.index("brain_precedence.claim_tail("))
         self.assertEqual(positions, sorted(positions))
+        # Kuyruk aralığı yüzeyde ikinci kez listelenmez: kısayollar ve cascade tek sahibinden gelir.
+        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[5:]))
+        for gate in ("_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"):
+            self.assertNotIn(gate, source)
 
     def test_each_front_gate_beats_core_weather(self):
         for gate in brain_precedence.FRONT_GATES:

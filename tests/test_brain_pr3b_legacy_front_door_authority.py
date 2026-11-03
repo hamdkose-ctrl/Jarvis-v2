@@ -404,5 +404,189 @@ class CoreRejectionFenceTests(_RawDoorHarness):
         self.door.assert_not_called()
 
 
+def _source_calls(marker: str) -> list[str]:
+    """Bu adı *çağıran* üretim modülleri (ast.Attribute veya ast.Name çağrısı); tanımlar hariç."""
+    found = []
+    files = sorted(list(ROOT.glob("*.py")) + list((ROOT / "modules").rglob("*.py"))
+                   + list((ROOT / "scripts").glob("*.py")))
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else None)
+            if name == marker:
+                found.append(path.relative_to(ROOT).as_posix())
+                break
+    return found
+
+
+class CascadeOrderContractTests(unittest.TestCase):
+    """§11/§25 B: cascade'in kökü tek sıra sözleşmesidir; yüzey kendi mini-router'ını taşımaz.
+
+    Ölçülen taban (base `ea2f0b3` üzerinden bu committen önce): `engine_commands.handle` dört
+    ham handler'ı (`_macro_teach/_macro_manage/_macro_run/_extra_commands`) bir tuple döngüsünde
+    sırayla yokluyordu. Aynı sıra `brain_precedence.FRONT_GATES`'te ikinci kez tanımlıydı, yani
+    sıranın iki sahibi vardı ve yüzeyde plan-fencesi yoktu. Kök çözüm: kuyruk aralığı tek
+    sahibinden çağrılır; yüzey gate adlarını hiç anmaz. (Sahiplik envanteri BRAIN-MIG-052 → PR3C;
+    buradaki kilitten sonra bile cascade'in üretim çağıranı yalnız sıralık sözleşmedir.)"""
+
+    def test_the_tail_is_the_end_of_the_single_order_contract(self):
+        from modules import brain_precedence
+        self.assertEqual(brain_precedence.TAIL_GATES,
+                         brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
+        self.assertEqual(brain_precedence.TAIL_GATES,
+                         ("macro_teach", "macro_manage", "macro_run", "extra_commands"))
+
+    def _runtime(self, answers=None):
+        from types import SimpleNamespace
+        answers = answers or {}
+        calls: list[tuple[str, tuple]] = []
+
+        def gate(name):
+            def run(*args):
+                calls.append((name, args))
+                return answers.get(name)
+            return run
+
+        return SimpleNamespace(
+            calls=calls, _tr_lower=lambda text: text.casefold(),
+            _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
+            _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
+            _file_command=gate("file_command"), _user_command=gate("user_command"),
+            _planner_command=gate("planner_command"),
+            system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
+            emit=gate("emit"))
+
+    def test_each_tail_gate_is_consulted_once_in_contract_order(self):
+        from modules import brain_precedence
+        runtime = self._runtime()
+        self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
+        self.assertEqual([name for name, _ in runtime.calls],
+                         ["macro_teach", "macro_manage", "macro_run", "extra_commands"])
+        self.assertEqual([args for _, args in runtime.calls],
+                         [("Raporumu telefona gönder", "raporumu telefona gönder"),
+                          ("raporumu telefona gönder",), ("raporumu telefona gönder",),
+                          ("Raporumu telefona gönder", "raporumu telefona gönder")])
+
+    def test_the_first_answering_gate_stops_the_tail(self):
+        from modules import brain_precedence
+        runtime = self._runtime({"macro_run": "KISAYOL"})
+        self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
+        self.assertEqual([name for name, _ in runtime.calls], ["macro_teach", "macro_manage", "macro_run"])
+
+    def test_the_tail_never_replays_an_earlier_effect_gate(self):
+        # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini
+        # ikinci kez çalıştıramaz (ikinci taşıma/silme/yayın riski).
+        from modules import brain_precedence
+        runtime = self._runtime()
+        brain_precedence.claim_tail(runtime, "bugün neler var")
+        replayed = {name for name, _ in runtime.calls}
+        self.assertTrue(replayed.isdisjoint({"file_command", "windows_settings", "user_command",
+                                             "planner_command", "emit"}))
+
+    def test_the_full_contract_still_runs_every_gate_from_the_front(self):
+        from modules import brain_precedence, selfctl
+        runtime = self._runtime()
+        # selfctl bir modül sınırıdır (runtime._x değil), bu yüzden çağrı defterinde adı geçmez;
+        # efektsiz olması için burada patch'lenir.
+        with patch.object(selfctl, "handle", lambda lowered, emit: None):
+            self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
+        self.assertEqual([name for name, _ in runtime.calls],
+                         [name for name in brain_precedence.FRONT_GATES if name != "selfctl"])
+
+
+class CascadeRootTests(_RawDoorHarness):
+    """§25 B ve D: ham anlamsal aday döngüsü yüzeyden kalkar, cascade'in tek üretim çağıranı kalır."""
+
+    def _handle_body(self):
+        tree = ast.parse(ENGINE_COMMANDS_SOURCE)
+        return next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "handle")
+
+    def test_the_surface_carries_no_raw_semantic_candidate_loop(self):
+        handle = self._handle_body()
+        loops = [node for node in ast.walk(handle)
+                 if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.iter, (ast.Tuple, ast.List))]
+        self.assertEqual(loops, [], "engine_commands.handle çoklu ham anlamsal aday döngüsü taşıyamaz (§25 B)")
+
+    def test_the_surface_names_no_cascade_gate(self):
+        handle = self._handle_body()
+        attrs = {node.attr for node in ast.walk(handle) if isinstance(node, ast.Attribute)}
+        self.assertTrue(attrs.isdisjoint({"_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"}),
+                        "sıranın tek sahibi brain_precedence; yüzey gate adlarını tekrar listeleyemez")
+        self.assertIn("claim_tail", attrs)
+
+    def test_the_cascade_has_one_production_call_owner(self):
+        # §25 D'nin PR3B'de ölçülebilir hâli: normal kullanıcı üretim yolunda cascade'i çağıran
+        # tek yer sıra sözleşmesidir. BRAIN-MIG-052'de kollar kanonical parity kazanınca bu son
+        # çağıran da silinir; o gün bu satır [] bekler — başka modüle izin yoktur.
+        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
+
+    def test_the_mail_owner_is_reached_only_from_the_cascade(self):
+        # BRAIN-MIG-051: "bu cümle mail mi?" hükmü yalnız tek cascade kolundadır, yüzeylerde değil.
+        self.assertEqual(_source_calls("_mail_handle"), ["modules/engine_tools.py"])
+
+
+class CascadeReachabilityTests(_RawDoorHarness):
+    """Fence kör değildir: kuyruk devri sonrası eşleşmemiş kometler aynı sahibine ulaşıyor."""
+
+    def setUp(self):
+        super().setUp()
+        from functools import partial
+
+        from modules import engine_tools
+        self.ctx._extra_commands = partial(engine_tools._extra_commands, self.ctx)
+
+    def test_an_unmapped_folder_request_still_reaches_its_cascade_owner(self):
+        self.seams["modules.folder_analysis.handle"].return_value = "ANALİZ"
+        _entry, out, _handle, _ = self.turn("İndirilenler klasörünü incele")
+        self.assertIn("ANALİZ", str(out))
+        self.seams["modules.folder_analysis.handle"].assert_called_once()
+
+    def test_a_shortcut_answer_stops_the_cascade_behind_it(self):
+        self.ctx._macro_run = Mock(return_value="KISAYOL ÇALIŞTI")
+        self.seams["modules.folder_analysis.handle"].return_value = "ANALİZ"
+        _entry, out, _handle, _ = self.turn("deneme kısayolunu çalıştır")
+        self.assertIn("KISAYOL ÇALIŞTI", str(out))
+        self.seams["modules.folder_analysis.handle"].assert_not_called()
+
+    def test_an_explicit_mail_request_still_reaches_the_mail_owner(self):
+        # Provider/account kararları domain'de kalır (§12): kanonical mail capability yokken
+        # cümle aynı sahibine gider; PR3B bunu sökmez, yalnız tek kapıya indirir.
+        self.ctx._mail_handle = Mock(return_value="MAİL")
+        _entry, out, _handle, _ = self.turn("maillerimi kontrol et")
+        self.assertIn("MAİL", str(out))
+
+
+class FinanceAlertEntryScopeTests(unittest.TestCase):
+    """§13 ölçümü (taban): giriş küresel anlamsal seçim değil, sabit tam kalıptır.
+
+    Spec `if finance_alert_commands.matches(command)` satırını "bu global semantic selection"
+    olarak sınıflıyordu. Kod gerçeği ölçüldü: tanıyıcı `fullmatch`/tam küme üyeliğidir, yani
+    cümlenin *içinde* alan aramaz; exact admin/FAST ailesindendir (B). Kalan iş, alarmın
+    kanonical öneri/Core eşlemesi (BRAIN-MIG-053 → PR3C), bu kalıbın genişletilmesi değil."""
+
+    POSITIVE = ("dolar 45 tl üstüne çıkarsa haber ver", "altın 2500 tl'nin altına inerse haber ver",
+                "alarmi sil 3", "alarmlarim")
+    NEGATIVE = ("döviz kuru nedir?", "alarm kurmak nasıl çalışır", "bugün hava nasıl, alarmlar da var mı",
+                "iş mailimi kontrol et", "gram altın kaç tl", "")
+
+    def test_the_exact_alarm_grammar_is_recognised(self):
+        from modules import finance_alert_commands
+        for text in self.POSITIVE:
+            with self.subTest(text=text):
+                self.assertTrue(finance_alert_commands.matches(text), text)
+
+    def test_a_sentence_that_only_mentions_the_words_does_not_match(self):
+        from modules import finance_alert_commands
+        for text in self.NEGATIVE:
+            with self.subTest(text=text):
+                self.assertFalse(finance_alert_commands.matches(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()

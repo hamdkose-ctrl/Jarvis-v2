@@ -250,12 +250,12 @@ def handle(runtime, command: str):
     if plan_reply is not None:
         return plan_reply
 
-    # Kısayollar (öğret / çalıştır / listele) ve ek komutlar: hepsi LLM'e gitmeden çalışır
-    for handler, arguments in ((runtime._macro_teach, (command, cmd_lower)), (runtime._macro_manage, (cmd_lower,)),
-                               (runtime._macro_run, (cmd_lower,)), (runtime._extra_commands, (command, cmd_lower))):
-        reply = handler(*arguments)
-        if reply is not None:
-            return reply
+    # Kısayollar (öğret / çalıştır / listele) ve ek komutlar: hepsi LLM'e gitmeden çalışır.
+    # Sıra ve imza tek sahibindedir (`brain_precedence`); yüzey ikinci bir ham aday döngüsü taşımaz (§25 B).
+    from modules import brain_precedence
+    tail = brain_precedence.claim_tail(runtime, command, cmd_lower)
+    if tail is not None:
+        return tail[1]
 
     # Kayıtlı şehir: "şehrim İzmir" / "konumum Ankara" (hava durumu bu şehre göre bakar)
     m = runtime.re.match(r"^(?:şehrim|konumum|yaşadığım şehir)\s+(.+?)(?:['’]?(?:da|de|ta|te))?\s*(?:olsun|dır|dir)?$", cmd_lower)

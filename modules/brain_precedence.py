@@ -2,10 +2,12 @@
 
 Core never executes a Brain ``capability_hint`` ahead of a gate that the legacy pipeline
 (``engine_commands.handle``) evaluates *before* the generic fast path. The gates below keep
-exactly that relative order; ``engine_commands.handle`` evaluates the same names in the same
-order (pinned by tests/test_brain_precedence.py). A gate that answers owns the request, so a
-user macro, a saved custom command, a planner phrase, a Windows-settings page or a Jarvis
-self-control command always beats weather/level Core dispatch.
+exactly that relative order, and ``engine_commands.handle`` consults the same table instead of
+carrying its own copy: the inline gates run in place, the tail range is delegated with
+``claim_tail`` (pinned by tests/test_brain_b3a.py::FrontGatePrecedenceTests and
+tests/test_brain_pr3b_legacy_front_door_authority.py::CascadeOrderContractTests). A gate that
+answers owns the request, so a user macro, a saved custom command, a planner phrase, a Windows
+settings page or a Jarvis self-control command always beats weather/level Core dispatch.
 
 Canonical data requests are the narrow exception when Brain has already produced a validated
 Core plan for the same surface. In that case legacy UI/read gates must not shadow the data
@@ -17,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-# Order is the contract. Do not reorder without changing engine_commands.handle.
+# Order is the contract. This table is its only owner.
 FRONT_GATES: tuple[str, ...] = (
     "file_command",
     "windows_settings",
@@ -29,6 +31,10 @@ FRONT_GATES: tuple[str, ...] = (
     "macro_run",
     "extra_commands",
 )
+
+# The range ``engine_commands.handle`` delegates instead of re-listing: shortcuts, then the
+# domain cascade. PR3B §11/§25 B: the surface may not carry a second copy of this order.
+TAIL_GATES: tuple[str, ...] = ("macro_teach", "macro_manage", "macro_run", "extra_commands")
 
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
@@ -84,10 +90,32 @@ def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> t
         # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
         # mutation gates must not reinterpret the same utterance.
         return None
+    lowered = _lowered(runtime, command)
+    return _claim_range(runtime, command, lowered, FRONT_GATES, plan)
+
+
+def claim_tail(runtime: Any, command: str, lowered: str | None = None) -> tuple[str, Any] | None:
+    """``engine_commands.handle``'ın devrettiği kuyruk aralığı: kısayollar, sonra domain cascade'i.
+
+    Yüzey kendi handler tuple'ını artık taşımıyor (§25 B); sıra ve argüman biçimi yalnız bu
+    tablodan gelir. Erken efekt gate'leri (dosya/ayyarlar/sayfa/planner) burada ikinci kez
+    çalışmaz: bu aralık onları yüzeyin kendisine bırakır, yoksa aynı taşıma/yayın iki kez olur.
+    Cascade'in kendisi (BRAIN-MIG-052) kanonical capability parity kazanan kollara bölünene kadar
+    domain-owned kalır; PR3C satırı budur, bu fonksiyon değil."""
+    if lowered is None:
+        lowered = _lowered(runtime, command)
+    return _claim_range(runtime, command, lowered, TAIL_GATES)
+
+
+def _lowered(runtime: Any, command: str) -> str:
     lower = getattr(runtime, "_tr_lower", None)
-    lowered = lower(command) if callable(lower) else command.casefold()
+    return lower(command) if callable(lower) else command.casefold()
+
+
+def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...],
+                 plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
     table = _gates(runtime, command, lowered, plan)
-    for name in FRONT_GATES:
+    for name in names:
         try:
             reply = table[name]()
         except AttributeError:
