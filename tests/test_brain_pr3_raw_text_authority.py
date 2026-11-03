@@ -19,6 +19,7 @@ from unittest.mock import Mock, patch
 from modules import app_actions, brain_context, brain_entry, brain_precedence
 from modules import brain_understanding as understanding
 from modules import desktop_agent, engine_runtime, goal_executor, job_front, personalization
+from modules import output as output_mod
 from modules import requests_state
 from modules import history as history_mod
 from modules.brain_contracts import ActiveContext, ContextReference, ConversationRelation, RequestKind
@@ -120,6 +121,15 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
         run_patch = patch.object(goal_executor, "run", self.run_goal)
         run_patch.start()
         self.addCleanup(run_patch.stop)
+        # Bu harness kullanıcı klasörüne hiçbir şey yazmaz: `runtime.output` stub'tur ve gerçek Tk
+        # "Farklı kaydet" diyaloğu çağrılırsa test patlar. Kanıtlanmış ölçüm: `last_doc` kapısı
+        # masaüstünde `Jarvis_ceviri.docx` üretmişti (mock çeviri çıktısıyla, kullanıcı onaysız).
+        self.ctx.output = Mock(name="output", save_text_result=Mock(return_value=None),
+                               convert_document=Mock(return_value=None))
+        dialog_patch = patch.object(output_mod, "_save_path", Mock(
+            side_effect=AssertionError("testte gerçek kayıt diyaloğu açılamaz")))
+        dialog_patch.start()
+        self.addCleanup(dialog_patch.stop)
 
     def turn(self, text, handler=None, source="yazı"):
         rid = "pr3a-" + uuid.uuid4().hex[:8]

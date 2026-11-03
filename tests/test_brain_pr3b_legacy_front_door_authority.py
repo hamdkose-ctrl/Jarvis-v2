@@ -215,6 +215,7 @@ class TypoSinglePassTests(_RawDoorHarness):
                    if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
+                          "diagnose.requested", "diagnose.run", "diagnose.summary",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 
@@ -1136,6 +1137,145 @@ class EpistemicQuestionInventoryTests(_RawDoorHarness):
         self.assertEqual(entry.understanding.capability_hint, "research.search")
         self.assertIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
         self.door.assert_not_called()
+
+
+class DiagnoseTypoViewTests(_RawDoorHarness):
+    """Regresyon 1 (`sistemi kotrol et`): teşhis yüzeyi düzeltilmiş görünümde de sahibine yürür.
+
+    Ölçülen taban (`ea2f0b3` probe koşusu, satır p486): base ikinci bir `handle()` geçişinde ham
+    regex arıza kapısını düzeltilmiş cümleyle çalıştırdı — owner `none`, `passes=2`, `effect_total=34`
+    (`diagnose.run` gerçekten koştu; mock olduğu için outcome kaydı boş). Head: owner `chat`,
+    `passes=1`, `effect_total=16`, outcome `CHAT`. Kayıp, kullanıcının gördüğü teşhis çıktısıdır.
+    Düzeltme ikinci geçiş veya ham regex yetkisi değildir: düzeltilmiş görünümün kapalı tam-cümle
+    admin setine, sahibi `modules.diagnose` olan bir tanıyıcı daha girer (§25 A).
+    """
+
+    def test_correctly_spelled_diagnosis_runs_the_diagnose_owner(self):
+        self.door.reset_mock()
+        _entry, out, _handle, _ = self.turn("sistemi kontrol et")
+        self.assertEqual(out, "ARIZA")
+        self.seams["modules.diagnose.run"].assert_called_once()
+        self.assertEqual(self.turn_texts, ["sistemi kontrol et"])
+        self.run_goal.assert_not_called()
+
+    def test_misspelled_diagnosis_reaches_the_same_owner_exactly_once(self):
+        self.door.reset_mock()
+        _entry, out, _handle, _ = self.turn("sistemi kotrol et")
+        self.assertEqual(out, "ARIZA")
+        self.seams["modules.diagnose.run"].assert_called_once()
+        self.seams["modules.diagnose.summary"].assert_called_once()
+        self.assertEqual(self.turn_texts, ["sistemi kotrol et"],
+                         "düzeltilmiş metin legacy kapıya ikinci kez giremez")
+
+    def test_misspelled_diagnosis_never_becomes_a_goal_run(self):
+        self.turn("sistemi kotrol et")
+        self.run_goal.assert_not_called()
+
+    def test_the_closed_recognizer_owns_the_whole_sentence_only(self):
+        # Tanıyıcı tam-cümledir: cümlenin bir kesitinde geçen teşhis sözcüğü etki yetkisi almaz.
+        from modules import diagnose
+        for text in ("sistem taraması nedir", "arıza tespiti nasıl çalışır",
+                     "sistem çökmeleri neden olur", "bunu kontrol et", "sistem durumu",
+                     "sistem tanılama", "pc ses kontrolü"):
+            with self.subTest(text=text):
+                self.assertFalse(diagnose.requested(text), text)
+        for text in ("sistemi kontrol et", "sistem kontrol", "bağlantıyı kontrol et",
+                     "kendini test et", "her şey yolunda mı", "sorun var mı", "neden çalışmıyor",
+                     "ne bozuk", "sistem taraması", "arıza tespiti yap", "jarvis sistemi kontrol et"):
+            with self.subTest(text=text):
+                self.assertTrue(diagnose.requested(text), text)
+
+    def test_an_explanation_question_about_diagnosis_produces_no_effect(self):
+        for text in ("sistem taraması nedir", "arıza tespiti nasıl çalışır"):
+            with self.subTest(text=text):
+                self.seams["modules.diagnose.run"].reset_mock()
+                self.turn(text)
+                self.seams["modules.diagnose.run"].assert_not_called()
+
+    def test_a_misspelled_domain_sentence_still_does_not_diagnose(self):
+        # Yeni tanıyıcı hiçbir domain akışının yerine geçmez: düzeltilmiş görünümde de yalnız
+        # tam-cümle teşhis kalıbı etki alır.
+        for text in ("klasörleri duzenle", "masaüstünü duzenle", "takvimimi kotrol et"):
+            with self.subTest(text=text):
+                self.seams["modules.diagnose.run"].reset_mock()
+                self.turn(text)
+                self.seams["modules.diagnose.run"].assert_not_called()
+
+
+class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
+    """Regresyon 2 (`masaüstünü duzenle`): yazım-düzeltilmiş ve yeteneği doğrulanmamış cümle hedef yürütmesi açamaz.
+
+    Ölçülen taban (satır p486/phase2): base'de bu cümle ikinci geçişde `_extra_commands` düzenleme
+    kapısına ulaşıp 30 dosyalık plan *önizlemesi* + tek onay üretiyordu; head tek geçişde hiçbir
+    yetenekte karşılık bulamayınca PR10c catch-all'u `task` seçti ve `goal_executor.run` çağrıldı.
+    Üretimde o yol kullanıcı onayı olmadan yeni GoalState kaydı yazar
+    (`goal_executor._run` → `_save(job)`) ve planlayıcı modeli başlatır; mock testin
+    `mutating_effects={}` kaydı bu yürütmeyi hiç kapsamıyordu. Kilit: yalnız Türkçe karakteri
+    geri getirilen — kelimenin katlanmış kimliği değişmemiş — bir görünüm doğrulanmış bir yetenek
+    bulamadığında Goal/Task yetkisi doğmaz. Düzeltici doğru yazılmış kelimeyi de bozabildiği için
+    ("hazırla" -> "hatırla") kapı bilinçli olarak bu dar sınıfla sınırlandı: doğru yazılmış icra
+    cümlelerinin catch-all sözleşmesi (PR10c) değişmez.
+    """
+
+    def goals_root(self) -> Path:
+        from modules import goal_executor
+        return Path(goal_executor.STORE)
+
+    def test_the_gate_is_limited_to_identity_preserving_corrections(self):
+        # Ölçülen sınır: düzeltici "hazırla"yı "hatırla"ya bozuyor — kimlik değiştiyse kapı çalışmaz.
+        for text in ("masaüstünü duzenle", "konusmayi ozetle", "gorevlerimi listelee"):
+            with self.subTest(text=text):
+                self.assertTrue(typo.diacritic_correction(text), text)
+        for text in ("araştırıp rapor hazırla", "masaüstünü düzenle", "yarış merhaba", "selam"):
+            with self.subTest(text=text):
+                self.assertFalse(typo.diacritic_correction(text), text)
+
+    def test_a_correctly_spelled_sentence_the_corrector_mangles_keeps_the_catch_all(self):
+        # Doğru yazılmış cümle, düzeltici onu bozsa da yetkisini kaybetmez (PR10c kilidi).
+        _entry, out, _handle, _ = self.turn("Araştırıp rapor hazırla")
+        self.assertEqual(out, "GOAL_RUN")
+        self.run_goal.assert_called_once()
+
+    def test_misspelled_organize_request_opens_no_goal_and_writes_no_record(self):
+        _entry, out, _handle, _ = self.turn("masaüstünü duzenle")
+        self.run_goal.assert_not_called()
+        self.assertIn("işlem başlatılmadı", out)
+        self.ctx.files.apply_organize.assert_not_called()
+        self.assertEqual(list(self.goals_root().rglob("*.json")), [],
+                         "onaysız yeni GoalState kaydı yazıldı")
+
+    def test_misspelled_organize_request_never_hands_the_corrected_text_to_a_domain_door(self):
+        # Eski ikinci typo geçişi geri gelmez: kapılar yalnız kullanıcının yazdığı cümleyi görür.
+        self.turn("masaüstünü duzenle")
+        self.assertEqual(self.turn_texts, ["masaüstünü duzenle"])
+        seen = [call.args[0] for call in self.ctx._extra_commands.call_args_list if call.args]
+        self.assertEqual(seen, ["masaüstünü duzenle"],
+                         f"düzeltilmiş görünüm ham-komut kapısına ulaştı: {seen}")
+
+    def test_correctly_spelled_organize_keeps_its_domain_owner(self):
+        # Domain sahibi cümleyi aldığında catch-all hiç devreye girmez (base ile head aynı).
+        self.ctx._extra_commands = Mock(
+            return_value="Masaüstü klasöründeki 30 dosyayı klasörlere taşıyayım mı? (evet/hayır)")
+        _entry, out, _handle, _ = self.turn("masaüstünü düzenle")
+        self.assertIn("taşıyayım mı", out)
+        self.run_goal.assert_not_called()
+        self.ctx._extra_commands.assert_called_once()
+
+    def test_a_correctly_spelled_unmapped_execution_request_keeps_the_pinned_catch_all(self):
+        # PR10c kilidi: doğru yazılmış, yeteneksiz icra cümlesi yine hedef yürütücüsüne devredilir.
+        _entry, out, _handle, _ = self.turn("maillerimi kontrol et")
+        self.assertEqual(out, "GOAL_RUN")
+        self.run_goal.assert_called_once()
+
+    def test_the_fail_closed_turn_starts_no_file_or_domain_effect(self):
+        # Erken dispatch kolları (task_agents/pc_guide/developer/selfctl) her cümleyi *görüşür* ve
+        # None döner; burada kilitlenen şey effekte dokuyan sınırların hiç çağrılmamasıdır.
+        self.turn("desktoptaki gereksizleri duzenle")
+        self.assertEqual(self.silent("modules.file_ops", "modules.folder_analysis", "modules.filesend",
+                                     "modules.notify", "modules.diagnose"), [])
+        self.ctx.files.plan_organize.assert_not_called()
+        self.ctx.files.apply_organize.assert_not_called()
+        self.ctx._mail_handle.assert_not_called()
 
 
 if __name__ == "__main__":
