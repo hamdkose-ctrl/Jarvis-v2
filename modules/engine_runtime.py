@@ -92,7 +92,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                        '_learning_notice',
                        '_google_health'),
  'engine_queue': ('submit', 'submit_audio', 'submit_photo', '_reject_queued_input'),
- 'engine_sequence': ('_split_steps', '_run_steps', '_close_jarvis'),
+ 'engine_sequence': ('_run_steps', '_close_jarvis'),
  'engine_commands': ('handle_request',),
  'engine_loop': ('main',),
  'engine_tools': ('_tr_lower',
@@ -272,7 +272,6 @@ def _initialize(runtime):
     runtime._MACRO_SPLIT = runtime.re.compile(r"\s*(?:,|\bve\b|\bsonra\b|\bardından\b)\s*")
     runtime._VERB_END = runtime.re.compile(r"\s+(aç|başlat|çalıştır)$")
     runtime._NONAPP = runtime.re.compile(r"\b(sesi|ses seviyesi|parlaklık|youtube|spotify|müzi[kğ]|şarkı|hava durumu|saat kaç|notlarım|dosya)\b")
-    runtime._STEP_SPLIT = runtime.re.compile(r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", runtime.re.I)
     runtime._typo_pass = False
     runtime._typo_orig = ""
     runtime._JARVIS_MISHEAR = tr_speech_sets.JARVIS_MISHEAR

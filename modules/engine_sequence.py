@@ -1,16 +1,6 @@
 """engine sequence; all mutable dependencies are supplied by EngineContext."""
 from __future__ import annotations
 
-def _split_steps(runtime, command: str) -> list[str] | None:
-    """'önce A, sonra B' / 'A ardından B' -> [A, B]. Tek adımlıysa None. En fazla 5 adım."""
-    text = runtime.re.sub(r"^\s*önce\s+", "", command, flags=runtime.re.I)
-    if text == command and not runtime.re.search(r"\s(?:ardından|akabinde)\s", command, runtime.re.I) \
-            and not runtime.re.search(r"\bönce\b.+\bsonra\b", command, runtime.re.I):
-        return None
-    parts = [x.strip(" ,.") for x in runtime._STEP_SPLIT.split(text)]
-    parts = [x for x in parts if len(x) >= 3]
-    return parts[:5] if len(parts) >= 2 else None
-
 def _run_steps(runtime, steps: list[str]) -> str:
     """Her adım KENDİ canonical kararıyla sırayla çalışır; ham adım eski zincire dönmez.
 

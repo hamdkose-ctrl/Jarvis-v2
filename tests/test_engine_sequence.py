@@ -1,5 +1,8 @@
-"""Direct tests for the three EngineContext-bound sequence handlers; no real timer or device."""
-import re
+"""Direct tests for the two EngineContext-bound sequence handlers; no real timer or device.
+
+Adım bölme grameri artık burada değildir: tipli adım planının tek sahibi Understanding'dir
+(`brain_understanding.sequence_steps`, sözleşmesi `tests/test_brain_understanding.py`
+SequenceGrammarTests içinde). Buradaki yüzey yalnız typed adım çalıştırma adaptörüdür."""
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -16,51 +19,11 @@ class EngineSequenceTests(unittest.TestCase):
                                        _in_multi=False, speech_override='old step speech')
         self.timer = Mock()
         self.runtime = SimpleNamespace(
-            re=re,
-            # Same command grammar supplied by engine_runtime._initialize.
-            _STEP_SPLIT=re.compile(r'\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+', re.I),
             _session=Mock(return_value=self.session), profile=SimpleNamespace(slug='alice'),
             flags={}, stop_event=Mock(), handle=Mock(return_value='Tamam'),
             privacy=SimpleNamespace(audit=Mock()), emit=Mock(),
             threading=SimpleNamespace(Timer=Mock(return_value=self.timer)))
         self.runtime.stop_event.is_set.return_value = False
-
-    def test_split_steps_understands_documented_sequence_forms_and_preserves_order(self):
-        for command in ('önce maili oku, sonra raporu yaz', 'maili oku ardından raporu yaz',
-                        'maili oku akabinde raporu yaz', 'ÖNCE maili oku SONRA raporu yaz',
-                        ' önce maili oku, ve daha sonra, raporu yaz. '):
-            with self.subTest(command=command):
-                self.assertEqual(sequence._split_steps(self.runtime, command), ['maili oku', 'raporu yaz'])
-
-    def test_split_steps_returns_none_for_single_empty_or_unmarked_commands(self):
-        for command in ('', '   ', 'maili oku', 'önce maili oku', 'önce', 'sonra raporu yaz',
-                        'maili oku ve raporu yaz', 'aç ardından x', 'önce abc sonra xy'):
-            with self.subTest(command=command):
-                self.assertIsNone(sequence._split_steps(self.runtime, command))
-
-    def test_split_steps_filters_short_parts_and_keeps_three_character_boundary(self):
-        self.assertEqual(sequence._split_steps(self.runtime, 'önce ab sonra abc ardından def'), ['abc', 'def'])
-        self.assertEqual(sequence._split_steps(self.runtime, 'önce abc sonra def'), ['abc', 'def'])
-
-    def test_split_steps_caps_six_or_more_steps_at_five(self):
-        for count in (2, 5, 6, 100):
-            with self.subTest(count=count):
-                steps = [f'adım {index}' for index in range(count)]
-                command = 'önce ' + ' sonra '.join(steps)
-                self.assertEqual(sequence._split_steps(self.runtime, command), steps[:5])
-
-    def test_split_steps_keeps_long_valid_text_without_truncating_each_step(self):
-        long_step = 'ğ' * 100000
-        self.assertEqual(sequence._split_steps(self.runtime, 'önce ' + long_step + ' sonra bitir'),
-                         [long_step, 'bitir'])
-
-    def test_split_steps_invalid_types_raise_without_executing_anything(self):
-        for command in (None, True, 12, b'abc', [], {}):
-            with self.subTest(command=command), self.assertRaises(TypeError):
-                sequence._split_steps(self.runtime, command)
-        self.runtime.handle.assert_not_called()
-        self.runtime.emit.assert_not_called()
-        self.runtime.threading.Timer.assert_not_called()
 
     def drive(self, steps, replies=None):
         """_run_steps'i canonical adım envelope'ı üzerinden ölçer; gerçek motor/etki yok."""

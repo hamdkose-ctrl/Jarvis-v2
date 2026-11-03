@@ -128,16 +128,17 @@ def handle(runtime, command: str):
             # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının
             # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
 
-    # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
+    # Çok adımlı komut: sıra semantiği kanonical Understanding'de doğar (`brain_entry.step_plan`);
+    # bu yüzey cümleyi bölmez, yalnız bağlı turn'ün tipli planını okur ve typed adım adaptörüne verir.
     # Açık bir soru varken adım bölünmez: ilk adım o soruyu cevaplamış sayılamaz, kalan adımlar çalışmaz.
     # Bu tur açık alanın cevabı değilse ham cümle kısmi yürütülmez; kullanıcıya açıkça söylenir.
     if not runtime._session()._in_multi:
-        steps = runtime._split_steps(command)
+        steps = brain_entry.step_plan(command)
         if steps:
             blocked = [field for field in ("pending_msg", "pending_confirm", "pending_organize")
                        if getattr(runtime._session(), field) is not None]
             if not blocked:
-                return runtime._run_steps(steps)
+                return runtime._run_steps(list(steps))
             if not any(brain_entry.pending_answer_owned(field) for field in blocked):
                 return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım; "
                         "önce onu tamamla ya da iptal et, sonra adımları yeniden söyle.")

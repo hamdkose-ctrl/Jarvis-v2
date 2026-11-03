@@ -34,7 +34,7 @@ from modules.brain_contracts import (
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import understand
+from modules.brain_understanding import is_sequenced, sequence_steps, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -890,12 +890,17 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
-_STEP_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+def step_plan(command: str) -> tuple[str, ...]:
+    """Bu turn'ün kanonical sıralı adım planı; ham motor yüzeyi cümleyi kendi başına bölmez.
 
-
-def _multi_step(text: str) -> bool:
-    """Same marker rule as engine_sequence._split_steps: a sequenced request belongs to the step runner."""
-    return _STEP_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+    Karar bağlı request'e aittir: giriş bu turn'ün cümlesiyle birebir aynı olmalıdır. Böylece
+    düzeltilmiş/geçmiş bir metin görüşü ikinci bir adım planı üretemez. Sıra gramerinin tek sahibi
+    Understanding'dir (`sequence_steps`); plan boşsa yüzey tek isteğe sahip normal akışına devam
+    eder, adım yürütmesi typed adaptörde (`engine_sequence._run_steps`) kalır."""
+    entry = current()
+    if entry is None or entry.text.strip() != command:
+        return ()
+    return sequence_steps(command)
 
 
 def _canonical_photo_path(entry: EntryResult) -> tuple[str | None, bool]:
@@ -932,7 +937,7 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    if _multi_step(entry.text):
+    if is_sequenced(entry.text):
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     photo_plan = plan is not None and plan[0] == "photo_action"

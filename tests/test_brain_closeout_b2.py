@@ -168,15 +168,13 @@ class EndToEndTests(unittest.TestCase):
             handler.assert_called_once_with(text)
             dispatch.assert_not_called()
 
-    def test_step_marker_matches_the_runtime_splitter(self):
-        import re as _re
-        from modules import engine_sequence
-        runtime = SimpleNamespace(re=_re, _STEP_SPLIT=_re.compile(
-            r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", _re.I))
+    def test_step_marker_matches_the_step_plan(self):
+        # Tek gramer sahibi: veto işareti ile tipli adım planı aynı kalıptan doğar ve anlaşır.
+        from modules.brain_understanding import is_sequenced, sequence_steps
         for text in ("önce hava nasıl sonra sesi kıs", "ankara'da hava nasıl", "sesi 30 yap",
                      "hava nasıl ardından sesi kıs", "önce sesi kıs", "İzmir'de hava nasıl"):
-            self.assertEqual(brain_entry._multi_step(text),
-                             engine_sequence._split_steps(runtime, text) is not None or text.startswith("önce"), text)
+            self.assertEqual(is_sequenced(text),
+                             sequence_steps(text) != () or text.startswith("önce"), text)
 
     def test_weather_request_is_not_captured_by_an_open_location_question(self):
         self.state.pending_weather_location = True

@@ -210,9 +210,10 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
             "origin_request_id": "photo-origin",
         }
         runtime._photo_action = Mock(return_value="PHOTO_ACTION")
+        runtime._run_steps = Mock(return_value="CONTINUED")
         if steps is not None:
-            runtime._split_steps = Mock(return_value=steps)
-            runtime._run_steps = Mock(return_value="CONTINUED")
+            # Adım planı artık kanonical girdinin kararıdır; yüzeyde bölme grameri yok.
+            runtime._steps = steps
         rid = "rid-photo-" + uuid.uuid4().hex[:12]
         self.assertTrue(requests_state.register(owner, rid))
         # prepare and handle are two stages of the same request: keep the request queued
@@ -232,6 +233,10 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
         stack.enter_context(patch("modules.goal_executor.active", return_value=False))
         stack.enter_context(patch("modules.goal_executor.handle", return_value=None))
         stack.enter_context(patch("modules.command_execution.continue_app", return_value=None))
+        if getattr(runtime, "_steps", None) is not None:
+            # Bu testler adımı çalıştırmaz; çok adımlı tura durmasını bekledikleri noktada
+            # kanonical adım planını hazır değerle besler (gerçek gramer testi PR3B kilidindedir).
+            stack.enter_context(patch("modules.brain_entry.step_plan", return_value=runtime._steps))
         if not dispatch:
             stack.enter_context(patch("modules.command_manager.dispatch", return_value=None))
         stack.enter_context(requests_state.activate(entry.owner, entry.request_id))

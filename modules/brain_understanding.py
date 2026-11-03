@@ -1529,6 +1529,33 @@ def explanation_request(text: str, normalized: str) -> bool:
     return any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT)
 
 
+# Sıra grameri ('önce A, sonra B' / 'A ardından B') tek sahibindedir. Veto işareti ve adım bölmesi
+# aynı kalıptan doğar; motor yüzeyi cümleyi kendi başına bölmez, tipli planı buradan okur.
+_SEQUENCE_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+_SEQUENCE_SPLIT = re.compile(r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", re.I)
+_SEQUENCE_LEAD = re.compile(r"^\s*önce\s+", re.I)
+
+
+def is_sequenced(text: str) -> bool:
+    """Cümle sıralı bir isteğe benziyor; tek adımlı 'önce …' de sıralı sayılır (plan vetosu)."""
+    return _SEQUENCE_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+
+
+def sequence_steps(text: str) -> tuple[str, ...]:
+    """Sıralı isteğin tipli adım planı: en az iki, en çok beş adım; kısa parçalar düşer.
+
+    Adımlar kullanıcının kendi sözcükleriyle döner (büyük/küçük harf ve Türkçe ekler korunur).
+    Yürütme typed adaptörde (`engine_sequence._run_steps`) kalır ve her adım kendi canonical
+    kararını `brain_entry.run_step` üzerinden alır. Geçersiz tip ilk kalıp çağrısında TypeError
+    verir; hiçbir adım üretilmez."""
+    body = _SEQUENCE_LEAD.sub("", text)
+    if not is_sequenced(text):
+        return ()
+    parts = [x.strip(" ,.") for x in _SEQUENCE_SPLIT.split(body)]
+    parts = [x for x in parts if len(x) >= 3]
+    return tuple(parts[:5]) if len(parts) >= 2 else ()
+
+
 def _weather_status_request(normalized: str) -> bool:
     """Legacy-owned weather status command ("hava durumuna bak"); an independent request, not an answer."""
     if _definition_question(normalized):

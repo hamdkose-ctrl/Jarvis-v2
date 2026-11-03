@@ -289,10 +289,10 @@ class PendingPhotoCoreTests(_PhotoHarness):
         self.assertIs(entry.understanding.conversation_relation,
                       brain_understanding.ConversationRelation.NEW_REQUEST)
         self.assertIsNone(brain_entry.core_plan(entry))
-        self.ctx._split_steps = Mock(return_value=("fallback-step",))
         self.ctx._run_steps = Mock(return_value="CONTINUED")
 
-        result = self.handle_legacy(entry, "yarın toplantım var")
+        with patch.object(brain_entry, "step_plan", return_value=("fallback-step",)):
+            result = self.handle_legacy(entry, "yarın toplantım var")
 
         self.assertEqual(result, "CONTINUED")
         self.executor.assert_not_called()
@@ -306,10 +306,10 @@ class PendingPhotoCoreTests(_PhotoHarness):
             state_gate=GateObservation(entry.owner, rid, "state", False, "MULTIPLE_BOUNDED_STATE_MATCHES"),
         )
         self.assertIsNone(brain_entry.core_plan(ambiguous))
-        self.ctx._split_steps = Mock(return_value=("fallback-step",))
         self.ctx._run_steps = Mock(return_value="CONTINUED")
 
-        result = self.handle_legacy(ambiguous, "analiz et")
+        with patch.object(brain_entry, "step_plan", return_value=("fallback-step",)):
+            result = self.handle_legacy(ambiguous, "analiz et")
 
         self.assertEqual(result, "CONTINUED")
         self.executor.assert_not_called()

@@ -199,13 +199,55 @@ class TypoSinglePassTests(_RawDoorHarness):
 class MultiStepAuthorityTests(_RawDoorHarness):
     """Sıra semantiği kanonical katmanda doğar; ham yüzey adım seçmez (BRAIN-MIG-017)."""
 
-    def test_engine_surface_does_not_split_the_user_sentence(self):
+    def test_engine_surface_carries_no_sequence_grammar(self):
         tree = ast.parse(ENGINE_COMMANDS_SOURCE)
         calls = {node.func.attr for node in ast.walk(tree)
                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
         names = {node.func.id for node in ast.walk(tree)
                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-        self.assertTrue({"_split_steps", "_run_steps"}.isdisjoint(calls | names))
+        attrs = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+        # Bölme grameri yüzeyde hiç duramaz: ne fonksiyon çağrısı ne de runtime regex'i.
+        self.assertTrue({"_split_steps"}.isdisjoint(calls | names))
+        self.assertNotIn("_STEP_SPLIT", attrs)
+        self.assertIn("step_plan", calls)
+
+    def test_the_segmentation_owner_is_the_canonical_understanding_layer(self):
+        # Tek sahip: gramer brain_understanding'de doğar, entry yalnız bağlı tur için okur.
+        from modules import brain_understanding
+        self.assertEqual(brain_understanding.sequence_steps("önce sesi kıs sonra parlaklığı 40 yap"),
+                         ("sesi kıs", "parlaklığı 40 yap"))
+        self.assertEqual(brain_understanding.sequence_steps("sesi kıs"), ())
+        self.assertEqual(brain_understanding.sequence_steps("önce sesi kıs"), ())
+        self.assertTrue(brain_understanding.is_sequenced("önce sesi kıs"))
+        self.assertFalse(brain_understanding.is_sequenced("sesi kıs"))
+
+    def test_the_legacy_raw_splitter_has_no_owner_left(self):
+        # Retire = silinir; "legacy" diye bırakılan ikinci bir gramer sahibi kabul edilmez.
+        tree = ast.parse((ROOT / "modules" / "engine_sequence.py").read_text(encoding="utf-8"))
+        defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        self.assertNotIn("_split_steps", defined)
+        self.assertIn("_run_steps", defined)  # typed adım çalıştırma adaptörü meşru sahibinde kalır.
+        surface = sorted(str(path.relative_to(ROOT)).replace("\\", "/") for path in (ROOT / "modules").glob("*.py")
+                         if "_split_steps" in path.read_text(encoding="utf-8"))
+        self.assertEqual(surface, [])
+
+    def test_the_plan_is_bound_to_this_turns_own_sentence(self):
+        # Kanonical karar bağlı request'in kendi cümlesine aittir: tur dışı bir metin için
+        # (ör. düzeltilmiş ikinci geçiş görüşü) adım planı doğmaz.
+        seen = {}
+
+        def probe(command):
+            seen["other"] = brain_entry.step_plan("önce maili oku sonra raporu yaz")
+            seen["own"] = brain_entry.step_plan(command)
+            return "PROBE"
+
+        # "selam" legacy handler'a düşen bir sohbet turudur; plan kendi cümlesinden doğar.
+        self.turn("selam", handler=probe)
+        self.assertEqual(seen["other"], ())
+        self.assertEqual(seen["own"], ())
+        self.turn("önce sesi kıs sonra parlaklığı 40 yap", handler=probe)
+        self.assertEqual(seen["other"], ())
+        self.assertEqual(seen["own"], ("sesi kıs", "parlaklığı 40 yap"))
 
     def test_two_steps_run_their_own_typed_effect_once_each(self):
         entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
@@ -214,6 +256,14 @@ class MultiStepAuthorityTests(_RawDoorHarness):
         self.ctx.system_control.media_control.assert_called_once_with("next")
         self.assertIn("1.", out)
         self.assertIn("2.", out)
+
+    def test_an_open_pending_still_blocks_a_new_sequence(self):
+        # Bounded state invariant'ı yüzeyde kalır: adım planı açıksa bile kısmi yürütme yok.
+        self.ctx._session().pending_confirm = ("silinsin mi?", "not")
+        _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
+        self.assertIn("Açık bir mesaj/onay/düzenleme akışı varken", str(out))
+        self.ctx._volume_step.assert_not_called()
+        self.ctx.system_control.media_control.assert_not_called()
 
 
 class DispatchArmFenceTests(_RawDoorHarness):
