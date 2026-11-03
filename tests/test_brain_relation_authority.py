@@ -1674,6 +1674,119 @@ class MessageTextFreeFormTests(_CanonicalTurnHarness):
         self.assertIn("ne yazayım", out)
 
 
+class RecipientIdentityTests(_CanonicalTurnHarness):
+    """`pending_msg(stage=to)` bounded bir insan kimliğidir; keyfi kelime sayısı ürün kuralı değildir.
+
+    PR öncesi `_message_step` alıcı metnini kelime sınırı olmadan kabul ediyordu. Slot cümle/komut
+    şeklini reddetmeye devam eder, ama gerçek çok kelimeli kişi adları sabit bir kelime tavanıyla
+    düşmez; kayıtlı kişi kanıtı varsa alıcı belirsiz şehir cevabından daha güçlü olabilir."""
+
+    MESSAGE_TO_OWNER = "session.pending_msg.to"
+    AMBIGUOUS = "MULTIPLE_PENDING_ANSWER_OWNERS"
+
+    def open_recipient(self, contacts=None):
+        session = self.ctx._session()
+        pending = {"to": "", "text": "", "stage": "to"}
+        session.pending_msg = dict(pending)
+        if contacts is not None:
+            self.ctx.profile.data["contacts"] = dict(contacts)
+        return session, pending
+
+    def run_recipient(self, text, contacts=None):
+        session, _pending = self.open_recipient(contacts)
+        self.ctx.chat.reset_mock()
+        self.message_step.reset_mock()
+        with patch.object(messaging, "send_whatsapp", Mock()) as sender:
+            entry, out = self.turn(text)
+            sender.assert_not_called()
+        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+        self.assertEqual(session.pending_msg["to"], text)
+        self.assertEqual(session.pending_msg["stage"], "text")
+        self.message_step.assert_called_once()
+        self.ctx.chat.assert_not_called()
+        self.assertIn("ne yazayım", out)
+        return session, entry, out
+
+    def test_three_word_name_is_a_recipient_answer(self):
+        self.run_recipient("Mehmet Ali Yılmaz")
+
+    def test_four_part_name_is_not_blocked_by_a_word_count_rule(self):
+        self.run_recipient("Mehmet Ali Can Yılmaz")
+
+    def test_registered_multi_word_contact_is_a_recipient_answer(self):
+        self.run_recipient("Mehmet Ali Yılmaz", contacts={"Mehmet Ali Yılmaz": "905001112233"})
+
+    def test_registered_contact_is_carried_as_read_only_name_evidence(self):
+        self.open_recipient({"Mehmet Ali Yılmaz": "905001112233"})
+        rid = "rel-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        with requests_state.activate(self.owner, rid):
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
+                                        text="Kime yazayım?", source="yazı")
+        message = next(ref for ref in entry.active_context.pending_references
+                       if ref.id == "pending_msg")
+        self.assertEqual(message.provenance.get("recipient_candidates"),
+                         ("Mehmet Ali Yılmaz",))
+        self.assertNotIn("905001112233", repr(message.provenance),
+                         "Telefon numarası Understanding provenance'ına taşınamaz.")
+
+    def test_registered_contact_evidence_outranks_an_ambiguous_city(self):
+        session, _pending = self.open_recipient({"İstanbul Ofis": "905001112233"})
+        session.pending_weather_location = True
+        with patch.object(messaging, "send_whatsapp", Mock()):
+            entry, out = self.turn("İstanbul Ofis")
+        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+        self.assertNotIn(self.AMBIGUOUS, entry.understanding.ambiguities)
+        self.assertEqual(session.pending_msg["to"], "İstanbul Ofis")
+        self.assertIs(session.pending_weather_location, True)
+        self.ctx._weather.assert_not_called()
+        self.assertIn("ne yazayım", out)
+
+    def test_unregistered_city_still_ties_with_the_open_recipient_question(self):
+        session, pending = self.open_recipient()
+        session.pending_weather_location = True
+        entry, _out = self.turn("İstanbul")
+        self.assertIsNone(entry.understanding.pending_owner)
+        self.assertIn(self.AMBIGUOUS, entry.understanding.ambiguities)
+        self.assertEqual(session.pending_msg, pending)
+        self.message_step.assert_not_called()
+
+    def test_sentence_shapes_are_not_recipient_identities(self):
+        for text in ("Selam nasılsın bugün", "kuantum hakkında konuşalım", "nasılsın?",
+                     "bugün hava nasıl?"):
+            with self.subTest(text=text):
+                session, pending = self.open_recipient()
+                entry, _out = self.turn(text)
+                self.assertNotEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+                self.assertEqual(session.pending_msg, pending)
+                self.message_step.assert_not_called()
+
+    def test_independent_capabilities_never_claim_the_recipient_slot(self):
+        self.ctx._notes_text = Mock(return_value="NOTLARIM")
+        self.ctx.system_control.set_volume = Mock(return_value=True)
+        self.ctx.desktop.screenshot = Mock(return_value="EKRAN")
+        for text in ("notlarımı göster", "sesi 50 yap", "ekran görüntüsü al"):
+            with self.subTest(text=text):
+                session, pending = self.open_recipient()
+                entry, _out = self.turn(text)
+                self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+                self.assertNotEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+                self.assertEqual(session.pending_msg, pending)
+                self.message_step.assert_not_called()
+
+    def test_fast_owner_never_yields_to_the_recipient_slot(self):
+        for text, protocol in (("saat kaç", "fast.time.read"), ("tarih", "fast.date.read"),
+                               ("sistem durumu", "fast.system.status")):
+            with self.subTest(text=text):
+                session, pending = self.open_recipient()
+                entry, _out = self.turn(text)
+                self.assertEqual(entry.stage, "fast")
+                self.assertEqual(entry.fast_gate.protocol, protocol)
+                self.assertEqual(session.pending_msg, pending)
+                self.message_step.assert_not_called()
+
+
 class BoundedJobLegacyGuardTests(unittest.TestCase):
     def test_canonical_non_job_state_cannot_be_reclaimed_by_job_route(self):
         active = ActiveContext(owner="alice", request_id="rel-guard")
@@ -1900,6 +2013,60 @@ class StateAuthorityArchitectureGuardTests(unittest.TestCase):
         _tree, recipient = self._func(brain_understanding, "_bounded_recipient_candidate")
         self.assertTrue(self._mentions(recipient, "_GENERIC_CHAT") or self._question_mark_rejects(recipient),
                         "Recipient bounded slot reddi kendi evidence kuralında taşımalı.")
+
+    @staticmethod
+    def _word_ceiling(node) -> bool:
+        """`len(...split()) <= <sayı>` biçiminde sabit kelime tavanı reddi mi?"""
+        for compare in ast.walk(node):
+            if not isinstance(compare, ast.Compare):
+                continue
+            if not any(isinstance(op, (ast.LtE, ast.Lt)) for op in compare.ops):
+                continue
+            operands = [compare.left, *compare.comparators]
+            counted = any(
+                isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "split"
+                for operand in operands for call in ast.walk(operand)
+            )
+            ceiling = any(
+                isinstance(child, ast.Constant) and isinstance(child.value, int)
+                and not isinstance(child.value, bool)
+                for operand in operands for child in ast.walk(operand)
+            )
+            if counted and ceiling:
+                return True
+        return False
+
+    def test_recipient_eligibility_has_no_hard_coded_word_ceiling(self):
+        """Alıcı uygunluğu "en fazla N kelime" gibi keyfi bir ürün kuralıyla tanımlanamaz."""
+        tree, recipient = self._func(brain_understanding, "_bounded_recipient_candidate")
+        self.assertFalse(self._word_ceiling(recipient),
+                         "Alıcı slotu sabit bir kelime tavanıyla reddedilemez.")
+        helper = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                       and node.name == "_human_name_shape"), None)
+        if helper is not None:
+            self.assertFalse(self._word_ceiling(helper),
+                             "Alıcı şekil kuralı kelime sayısı tavanı taşıyamaz.")
+        assigned = {target.id for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                    for target in node.targets if isinstance(target, ast.Name)}
+        used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        self.assertFalse({name for name in assigned | used if "RECIPIENT" in name and "MAX" in name},
+                         "Keyfi alıcı kelime tavanı sabiti geri eklenemez.")
+
+    def test_recipient_evidence_is_caller_supplied_not_discovered(self):
+        """Understanding profile/contact state'ini kendi okumaz; yalnız verilen isim kanıtını tüketir."""
+        tree = ast.parse(Path(brain_understanding.__file__).read_text(encoding="utf-8-sig"))
+        funcs = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        names = ("_bounded_recipient_candidate", "_recipient_contact_evidence", "_human_name_shape")
+        nodes = [funcs[name] for name in names if name in funcs]
+        attrs = {node.attr for func in nodes for node in ast.walk(func)
+                 if isinstance(node, ast.Attribute)}
+        self.assertFalse(attrs & {"profile", "runtime", "data", "contacts"},
+                         "Recipient uygunluğu profile/contact state'ini kendi keşfetmemeli.")
+        consts = {node.value for func in nodes for node in ast.walk(func)
+                  if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+        self.assertIn("recipient_candidates", consts,
+                      "Alıcı kanıtı caller-supplied recipient_candidates provenance'ından okunmalı.")
 
     def test_free_text_fallback_is_the_last_specificity_after_independent_capability(self):
         _tree, understand = self._func(brain_understanding, "understand")

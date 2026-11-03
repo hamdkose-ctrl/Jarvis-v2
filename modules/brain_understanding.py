@@ -1250,18 +1250,44 @@ def _message_text_candidate(normalized: str) -> bool:
     return _pending_answer_candidate(normalized)
 
 
-def _bounded_recipient_candidate(text: str, normalized: str) -> bool:
-    """The recipient slot stays a bounded identity: its own shape rule, not a global one.
+def _recipient_contact_evidence(text: str, reference: ContextReference) -> bool:
+    """A registered contact name the caller supplied is the strongest recipient evidence."""
+    names = reference.provenance.get("recipient_candidates")
+    if not isinstance(names, (tuple, list)) or not names:
+        return False
+    known = {_norm(name) for name in names if isinstance(name, str) and name.strip()}
+    return _norm(text) in known
 
-    Multi-word sentences and question forms are not identity evidence, so they must not be written
-    into `pending_msg.to` even though the body slot legitimately accepts them."""
+
+def _human_name_shape(text: str) -> bool:
+    """A legacy-compatible human name: bounded identity syntax, never a word-count ceiling.
+
+    A one-word answer is the identity itself; a multi-word name keeps the proper-noun shape the
+    other bounded slots use, so an ordinary lowercase sentence cannot become a recipient."""
+    raw = text.strip()
+    if not raw or len(raw) > _CLARIFY_TARGET_MAX or any(mark in raw for mark in "?!,;:"):
+        return False
+    words = raw.split()
+    pieces = [[piece for piece in re.split(r"[-']", word) if piece] for word in words]
+    if any(not parts or any(not part.isalpha() for part in parts) for parts in pieces):
+        return False
+    if len(words) > 1 and any(not part[0].isupper() for parts in pieces for part in parts):
+        return False
+    return True
+
+
+def _bounded_recipient_candidate(text: str, normalized: str, reference: ContextReference) -> bool:
+    """The recipient slot is a bounded identity; caller-supplied contact evidence comes first.
+
+    Multi-word sentences and question forms are not identity evidence, so they must not be
+    written into `pending_msg.to` even though the body slot legitimately accepts them."""
     if not _pending_answer_candidate(normalized):
         return False
-    if _contains_any(normalized, _GENERIC_CHAT) or "?" in normalized:
+    if any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT) or "?" in normalized:
         return False
     if any(mark in normalized for mark in ",;:"):
         return False
-    return 1 <= len(text.split()) <= _RECIPIENT_MAX_WORDS
+    return _recipient_contact_evidence(text, reference) or _human_name_shape(text)
 
 
 def _app_target_evidence(target: str, reference: ContextReference) -> bool:
@@ -1295,8 +1321,8 @@ def _typed_clarify_answer(text: str, normalized: str, active_context: ActiveCont
 MULTIPLE_PENDING_ANSWER_OWNERS = "MULTIPLE_PENDING_ANSWER_OWNERS"
 
 # Specificity, never slot/consumer order, decides the one owner: a typed bounded clarify target
-# first, then a specific domain answer, then a generic free-text draft. The recipient slot has no
-# caller-supplied identity evidence here, so it ties with a location answer instead of guessing.
+# first, then a specific domain answer, then a generic free-text draft. The recipient slot ties
+# with a location answer unless caller-supplied contact evidence names it.
 _PENDING_OWNER_RANK = {
     PendingOwner.APP_CLARIFY: 1,
     PendingOwner.WEATHER_LOCATION: 2,
@@ -1304,8 +1330,9 @@ _PENDING_OWNER_RANK = {
     PendingOwner.MESSAGE_TEXT: 3,
 }
 
-# A recipient is said as a name, not as a sentence; the body slot deliberately has no such bound.
-_RECIPIENT_MAX_WORDS = 2
+# A registered contact is not a guess: legacy pending_msg consumption also preceded the weather
+# question, so that identity evidence keeps the recipient ahead of an ambiguous city.
+_KNOWN_RECIPIENT_RANK = 1
 
 
 def _pending_answer_owners(text: str, normalized: str, active_context: ActiveContext,
@@ -1321,6 +1348,7 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
     if independent_capability or not _pending_answer_candidate(normalized):
         return None, False
     owners: set[PendingOwner] = {PendingOwner.APP_CLARIFY} if clarify_answer is not None else set()
+    known_recipient = False
     for pending in active_context.pending_references:
         if pending.kind != "pending_state":
             continue
@@ -1332,14 +1360,21 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
             if not isinstance(value, Mapping):
                 continue
             stage = value.get("stage")
-            if stage == "to" and _bounded_recipient_candidate(text, normalized):
+            if stage == "to" and _bounded_recipient_candidate(text, normalized, pending):
                 owners.add(PendingOwner.MESSAGE_TO)
+                known_recipient = known_recipient or _recipient_contact_evidence(text, pending)
             elif stage == "text" and _message_text_candidate(normalized):
                 owners.add(PendingOwner.MESSAGE_TEXT)
     if not owners:
         return None, False
-    best_rank = min(_PENDING_OWNER_RANK[owner] for owner in owners)
-    best = {owner for owner in owners if _PENDING_OWNER_RANK[owner] == best_rank}
+    ranks = {
+        owner: (_KNOWN_RECIPIENT_RANK
+                if owner is PendingOwner.MESSAGE_TO and known_recipient
+                else _PENDING_OWNER_RANK[owner])
+        for owner in owners
+    }
+    best_rank = min(ranks.values())
+    best = {owner for owner, rank in ranks.items() if rank == best_rank}
     if len(best) > 1:
         return None, True
     return next(iter(best)), False

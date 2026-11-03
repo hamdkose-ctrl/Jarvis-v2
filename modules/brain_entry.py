@@ -205,6 +205,43 @@ def _with_app_target_evidence(active: ActiveContext, runtime: Any) -> ActiveCont
     return replace(active, pending_references=rows)
 
 
+def _recipient_pending_reference(reference: ContextReference) -> bool:
+    value = reference.provenance.get("value")
+    return (
+        reference.id == "pending_msg"
+        and reference.kind == "pending_state"
+        and reference.source == "session_state"
+        and isinstance(value, Mapping)
+        and value.get("stage") == "to"
+    )
+
+
+def _with_recipient_evidence(active: ActiveContext, runtime: Any) -> ActiveContext:
+    """Attach registered contact names while the recipient question is open.
+
+    Understanding never reads the profile: it only consumes the names the caller supplies, so
+    phone numbers never leave the profile."""
+    if not any(_recipient_pending_reference(ref) for ref in active.pending_references):
+        return active
+    try:
+        data = getattr(getattr(runtime, "profile", None), "data", None)
+        contacts = data.get("contacts") if isinstance(data, Mapping) else None
+        names = tuple(sorted(
+            name for name in contacts if isinstance(name, str) and name.strip()
+        )) if isinstance(contacts, Mapping) else ()
+    except Exception:
+        _record_failure("modules/brain_entry.py:recipient_evidence")
+        return active
+    if not names:
+        return active
+    rows = tuple(
+        replace(ref, provenance={**ref.provenance, "recipient_candidates": names})
+        if _recipient_pending_reference(ref) else ref
+        for ref in active.pending_references
+    )
+    return replace(active, pending_references=rows)
+
+
 def _pending_photo_state(active: ActiveContext) -> ContextReference | None:
     """The one canonical pending-photo representation, shared by ActiveContext and the gate."""
     return next(
@@ -247,6 +284,7 @@ def _build_context(runtime: Any, owner: str, request_id: str,
     if active.owner != owner or active.request_id != request_id:
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
     active = _with_app_target_evidence(active, runtime)
+    active = _with_recipient_evidence(active, runtime)
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)

@@ -296,6 +296,47 @@ class BrainUnderstandingTests(unittest.TestCase):
                 self.assertIsNone(result.pending_owner)
                 self.assertIsNot(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
 
+    def test_recipient_slot_accepts_multi_word_names_without_a_word_count_rule(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        for text in ("Mehmet Ali Yılmaz", "Mehmet Ali Can Yılmaz", "Ayşe Nur Demir"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIs(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+                self.assertEqual(result.pending_owner, "session.pending_msg.to")
+
+    def test_recipient_slot_rejects_sentence_shapes_not_identity_names(self):
+        recipient = ref("pending_msg", "pending_state", field="pending_msg",
+                        value={"to": "", "text": "", "stage": "to"})
+        active = ctx(pending_references=(recipient,))
+        for text in ("Selam nasılsın bugün", "kuantum hakkında konuşalım",
+                     "nasılsın?", "bugün hava nasıl?"):
+            with self.subTest(text=text):
+                result = self.call(text, active_context=active, candidates=(recipient,))
+                self.assertIsNone(result.pending_owner)
+                self.assertIsNot(result.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
+
+    def test_registered_contact_evidence_strengthens_the_recipient_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"},
+                      recipient_candidates=("İstanbul Ofis",))
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul Ofis", active_context=active, candidates=(weather, message))
+        self.assertEqual(result.pending_owner, "session.pending_msg.to")
+        self.assertNotIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
+    def test_unregistered_shape_does_not_strengthen_the_recipient_owner(self):
+        weather = ref("pending_weather_location", "pending_state", field="pending_weather_location")
+        message = ref("pending_msg", "pending_state", field="pending_msg",
+                      value={"to": "", "text": "", "stage": "to"},
+                      recipient_candidates=("Ankara Ofis",))
+        active = ctx(pending_references=(weather, message))
+        result = self.call("İstanbul Ofis", active_context=active, candidates=(weather, message))
+        self.assertIsNone(result.pending_owner)
+        self.assertIn("MULTIPLE_PENDING_ANSWER_OWNERS", result.ambiguities)
+
     def test_message_pending_does_not_consume_new_requests_or_confirmations(self):
         text_pending = ref("pending_msg", "pending_state", field="pending_msg",
                            value={"to": "Ebru", "text": "", "stage": "text"})
