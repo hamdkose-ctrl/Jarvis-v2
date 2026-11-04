@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta
 
 from modules.brain_contracts import (
@@ -872,7 +873,7 @@ class SequenceGrammarTests(unittest.TestCase):
     def test_canonical_understanding_propagates_model_request_cancellation(self):
         from modules import requests_state
         source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
-        with __import__("unittest").mock.patch(
+        with patch(
             "modules.brain_model_understanding.refine",
             side_effect=requests_state.Cancelled("cancelled"),
         ):
