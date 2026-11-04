@@ -329,12 +329,18 @@ def cooldown(provider, exc):
     return failure_policy.cooldown_seconds(provider, exc)
 
 
-def run(owner, prompt, callback, image=False, route=None):
+def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=()):
+    """Run only Router-eligible providers; callers may narrow, never add, the candidate pool."""
     task = task_type(prompt, image)
+    excluded = frozenset(exclude_providers)
+    if not excluded <= _CLOUD_PROVIDERS | {"ollama"}:
+        raise ValueError('Router dışlama kümesinde bilinmeyen sağlayıcı var.')
     attempts = []
     chosen = selection(owner,task,route)
-    selected=list(chosen['candidates'])
+    selected=[provider for provider in chosen['candidates'] if provider not in excluded]
     skipped=list(chosen['skipped'])
+    skipped.extend(_skip(provider, 'Bu çağrı için sağlayıcı dışlandı', 'PROVIDER_CALLER_EXCLUDED')
+                   for provider in chosen['candidates'] if provider in excluded)
     providers=list(selected)
     for provider in providers:
         requests_state.check(); start = time.monotonic()
