@@ -1,0 +1,1006 @@
+{
+  "format_version": 1,
+  "description": "100 previously unseen Turkish conversational/non-command utterances for false-positive and semantic boundary evaluation.",
+  "senaryolar": [
+    {
+      "id": "s5-tr-001",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün içimde garip bir huzur var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-002",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Dünkü konuşmamız aklımda kaldı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-003",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu konu bana biraz karmaşık geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-004",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Sence sabah mı akşam mı daha verimli?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-005",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bazen karar vermek gerçekten yorucu oluyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-006",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Kahvemin tadı bugün her zamankinden farklı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-007",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Hafta sonu deniz kenarı güzel olurdu.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-008",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Yeni fikirler üzerine düşünmeyi seviyorum.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-009",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu cümlenin tonu biraz sert mi?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-010",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan neden alışkanlıklarına bağlı kalır?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-011",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Son günlerde zaman çok hızlı geçiyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-012",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Çocukken en sevdiğim mevsim yazdı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-013",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu renk bana eski bir anıyı hatırlatıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-014",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Akşamları sessizlik daha huzurlu geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-015",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir konuyu farklı açılardan değerlendirmek ilginç.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-016",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugünkü toplantı beklediğimden sakindi.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-017",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu filmin sonu biraz şaşırtıcıydı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-018",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan bazen kendi düşüncelerine fazla takılıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-019",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Şehir hayatı mı köy hayatı mı daha rahat?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-020",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu müzikte tanıdık bir his var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-021",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Sonbaharın havası bana iyi geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-022",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir fikrin değerini zaman mı belirler?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-023",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu meselede herkesin bakış açısı farklı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-024",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Sabır bazen en zor beceri oluyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-025",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Çalışma ortamının sessiz olması hoşuma gidiyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-026",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu hikâyenin karakterleri oldukça gerçekçi.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-027",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün kendimi daha enerjik hissediyorum.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-028",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Geçen ayki yolculuk aklımda kaldı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-029",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsanlar neden aynı olaya farklı tepki verir?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-030",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu kelimenin kulağa hoş gelmesi ilginç.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-031",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir şeyin basit olması onu değersiz kılmaz.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-032",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Akşam yemeğinde hafif bir şey daha iyi olur.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-033",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu kararın uzun vadeli etkileri merak uyandırıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-034",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Eski fotoğrafların ayrı bir duygusu var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-035",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Kalabalık yerler bazen insanı yoruyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-036",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu fikre tamamen karşı değilim.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-037",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Sabah güneşi odaya güzel düşüyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-038",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan kendini zamanla daha iyi tanıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-039",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu tartışmada önemli bir ayrıntı var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-040",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Biraz düşününce konu daha anlaşılır geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-041",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün yollar beklediğimden sakindi.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-042",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu kitabın dili oldukça akıcı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-043",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Farklı kültürleri tanımak ufuk açıcı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-044",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu ses bana çocukluğumu anımsatıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-045",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İyi bir ekipte güven çok önemli.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-046",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Zor zamanlarda mizahın ayrı bir yeri var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-047",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu sorunun tek bir cevabı olmayabilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-048",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan bazen küçük şeylerden mutlu oluyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-049",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Gece gökyüzü şehir dışında daha etkileyici.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-050",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu fikrin arkasındaki mantık ilginç.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-051",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugünkü ruh hâlim biraz karışık.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-052",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir konuyu öğrenmenin en iyi yolu kişiden kişiye değişir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-053",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu mekânın atmosferi oldukça sıcak.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-054",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Geçmişteki bazı kararlar bugün daha anlamlı görünüyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-055",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan neden belirsizlikten hoşlanmaz?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-056",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu cümlede hafif bir ironi var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-057",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Birlikte çalışmak bazen tek başına olmaktan daha kolay.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-058",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu tasarımın dengesi gözüme hoş geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-059",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Her insanın kendine özgü bir düşünme biçimi var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-060",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu konunun tarihsel tarafı da ilginç.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-061",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Uzun yolculuklarda zaman farklı akıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-062",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir fikrin yanlış olması onu düşünmeye değmez yapmaz.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-063",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu örnek oldukça açıklayıcı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-064",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsanlar bazen aynı kelimeye farklı anlamlar yükler.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-065",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün biraz nostaljik hissediyorum.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-066",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu davranışın arkasında başka bir neden olabilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-067",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir şehrin karakterini sokakları belirliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-068",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu anlatım bana samimi geldi.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-069",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Zaman zaman yalnız kalmak iyi geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-070",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu meselede aceleci davranmak doğru olmayabilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-071",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İyi bir sohbetin süresi önemli değil.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-072",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu renk paleti dengeli görünüyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-073",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsanların mizah anlayışı oldukça değişken.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-074",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu düşünce ilk bakışta tuhaf gelebilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-075",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Geçen seneye göre bakış açım değişti.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-076",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir konunun ayrıntıları bazen bütünü değiştirir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-077",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu hikâyede beklenmedik bir duygu var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-078",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Sabah erken saatlerin kendine özgü bir sessizliği var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-079",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu yaklaşımın güçlü ve zayıf yanları bulunuyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-080",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan neden bazen bildiği şeyi sorgular?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-081",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu örneğin günlük hayatta karşılığı var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-082",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugünkü sohbetin havası oldukça rahattı.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-083",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir kararın doğru olması kadar zamanlaması da önemli.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-084",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu meselede duygular ve mantık iç içe.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-085",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Eski şehirlerin mimarisi beni etkiliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-086",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu cümlenin anlamı bağlama göre değişebilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-087",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan bazen bir konuyu olduğundan büyük görüyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-088",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu fikir üzerinde farklı görüşler bulunabilir.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-089",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir alışkanlığın oluşması düşündüğümden uzun sürüyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-090",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu filmin müzikleri atmosferi güçlendiriyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-091",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün zihnim biraz dağınık.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-092",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu konu hakkında henüz net bir fikrim yok.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-093",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İyi bir dinleyici olmak önemli bir özellik.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-094",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu yaklaşım bana daha dengeli geliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-095",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bir insanın niyetini yalnızca sözlerinden anlamak zor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-096",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu hikâyenin geçtiği dönem oldukça ilginç.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-097",
+      "group": "s5_unseen_turkish_chat",
+      "text": "İnsan neden bazen en basit seçeneği zorlaştırır?",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-098",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu düşünceye katılanlar kadar karşı çıkanlar da var.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-099",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bugün küçük ayrıntılar daha çok gözüme çarpıyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-tr-100",
+      "group": "s5_unseen_turkish_chat",
+      "text": "Bu konuşmada karşılıklı saygı hissediliyor.",
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    }
+  ]
+}
