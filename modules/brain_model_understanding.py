@@ -100,6 +100,8 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             capability_hint=row["capability_hint"],
             confidence=Confidence(row["confidence"]),
         )
+        if proposed.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
+            return None
         if proposed.capability_hint is not None and proposed.capability_hint not in CORE_INTENTS:
             return None
         # A model may not rewrite an owner-bound pending answer, correction, topic change,
