@@ -1960,7 +1960,6 @@ def understand(
     active_context: ActiveContext,
     candidates: tuple[ContextReference, ...],
     references: tuple[ContextReference, ...],
-    model_refinement: bool = False,
 ) -> UnderstandingResult:
     """Return an immutable semantic proposal without taking Core authority."""
     owner = _required("owner", owner)
@@ -2271,46 +2270,51 @@ def understand(
     # Model refinement is a proposal guard, never a second authority. It runs only for
     # unambiguous canonical capability proposals; exact state/fast gates already returned
     # in Brain Entry before this function is reached.
-    if model_refinement and (not result.needs_input and (
-            result.request_kind is RequestKind.CAPABILITY
-            or any(reference.kind == "file" for reference in result.references)
-            or (result.request_kind is RequestKind.CHAT and _looks_like_capability(normalized))
-    )):
-        try:
-            from modules.brain_model_understanding import refine
-            refined = refine(
-                owner=owner,
-                text=text,
-                current=result,
-                arguments=result.arguments,
-                protected_relation=(
-                    result.pending_owner is not None
-                    or result.conversation_relation is not ConversationRelation.NEW_REQUEST
-                ),
-            )
-            if refined is not None:
-                next_kind = refined.request_kind
-                next_hint = refined.capability_hint
-                next_arguments = refined.arguments if refined.arguments is not None else result.arguments
-                next_preview = result.preview
-                if next_kind is RequestKind.CHAT:
-                    next_hint = None
-                    next_arguments = {"original_text": text}
-                    next_preview = None
-                result = replace(
-                    result,
-                    request_kind=next_kind,
-                    conversation_relation=refined.conversation_relation,
-                    temporal_need=refined.temporal_need,
-                    capability_hint=next_hint,
-                    arguments=next_arguments,
-                    confidence=refined.confidence,
-                    preview=next_preview,
+
+    return result
+
+def apply_model_refinement(result: UnderstandingResult, text: str) -> UnderstandingResult:
+    """Apply one bounded model proposal to a completed deterministic Understanding result."""
+        if model_refinement and (not result.needs_input and (
+                result.request_kind is RequestKind.CAPABILITY
+                or any(reference.kind == "file" for reference in result.references)
+                or (result.request_kind is RequestKind.CHAT and _looks_like_capability(normalized))
+        )):
+            try:
+                from modules.brain_model_understanding import refine
+                refined = refine(
+                    owner=owner,
+                    text=text,
+                    current=result,
+                    arguments=result.arguments,
+                    protected_relation=(
+                        result.pending_owner is not None
+                        or result.conversation_relation is not ConversationRelation.NEW_REQUEST
+                    ),
                 )
-        except Exception as exc:
-            from modules import requests_state
-            if isinstance(exc, requests_state.Cancelled):
-                raise
-            # Optional model failure never changes the deterministic, Core-validated proposal.
-            pass
+                if refined is not None:
+                    next_kind = refined.request_kind
+                    next_hint = refined.capability_hint
+                    next_arguments = refined.arguments if refined.arguments is not None else result.arguments
+                    next_preview = result.preview
+                    if next_kind is RequestKind.CHAT:
+                        next_hint = None
+                        next_arguments = {"original_text": text}
+                        next_preview = None
+                    result = replace(
+                        result,
+                        request_kind=next_kind,
+                        conversation_relation=refined.conversation_relation,
+                        temporal_need=refined.temporal_need,
+                        capability_hint=next_hint,
+                        arguments=next_arguments,
+                        confidence=refined.confidence,
+                        preview=next_preview,
+                    )
+            except Exception as exc:
+                from modules import requests_state
+                if isinstance(exc, requests_state.Cancelled):
+                    raise
+                # Optional model failure never changes the deterministic, Core-validated proposal.
+                pass
     return result
