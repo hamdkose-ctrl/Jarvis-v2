@@ -6,6 +6,7 @@ owners, approvals, or execution authority. Core revalidates every capability pro
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -102,8 +103,14 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             "references, approvals, permissions, or execution claims. For other capabilities keep the "
             "current capability and never invent arguments. If uncertain choose CHAT. Core revalidates."
         )
+        deadline = time.monotonic() + 12.0
+
         def send(provider: str) -> str:
-            return llm._send_provider(provider, prompt, system, 12, None)
+            requests_state.check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise requests_state.Cancelled("Brain model refinement budget expired.")
+            return llm._send_provider(provider, prompt, system, remaining, None)
 
         with requests_state.budget(12):
             # Smart Router remains the only provider selector. This call narrows its
