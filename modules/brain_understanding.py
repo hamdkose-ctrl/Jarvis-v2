@@ -2316,9 +2316,8 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
             preview=next_preview,
         )
     except Exception as exc:
+        _record_failure("modules/brain_understanding.py:apply_model_refinement")
         from modules import requests_state
         if isinstance(exc, requests_state.Cancelled):
             raise
-        from modules.diagnostics import record_failure
-        record_failure("modules/brain_understanding.py:apply_model_refinement")
         return result
