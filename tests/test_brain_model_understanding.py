@@ -50,7 +50,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
 
     def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.llm.ask", return_value=answer()):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=answer()):
             result = model.refine(
                 owner=OWNER, text="rapor dosyasını özetle", current=current(),
                 arguments=current().arguments,
@@ -60,20 +60,20 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIs(result.temporal_need, TemporalNeed.STATIC)
 
     def test_paid_provider_is_never_used_by_brain_refinement(self):
-        with patch("modules.llm.provider", return_value="openai"), patch("modules.llm.ask") as ask:
+        with patch("modules.llm.provider", return_value="openai"), patch("modules.smart_router.run") as ask:
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_local_ollama_is_not_silently_started_or_selected(self):
-        with patch("modules.llm.provider", return_value="ollama"), patch("modules.llm.ask") as ask:
+        with patch("modules.llm.provider", return_value="ollama"), patch("modules.smart_router.run") as ask:
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_no_verified_free_provider_means_no_model_call(self):
         p1, p2, _ = self.eligible()
-        with p1, p2, patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}), patch("modules.llm.ask") as ask:
+        with p1, p2, patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}), patch("modules.smart_router.run") as ask:
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
@@ -81,21 +81,21 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_unknown_capability_is_rejected(self):
         p1, p2, p3 = self.eligible()
         raw = answer(request_kind="CAPABILITY", capability_hint="shell.execute", confidence="LOW")
-        with p1, p2, p3, patch("modules.llm.ask", return_value=raw):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             result = model.refine(owner=OWNER, text="çalıştır", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
 
     def test_capability_requires_independent_core_argument_validation(self):
         p1, p2, p3 = self.eligible()
         raw = answer(request_kind="CAPABILITY", capability_hint="files.read", confidence="LOW")
-        with p1, p2, p3, patch("modules.llm.ask", return_value=raw):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments={"execute": True})
         self.assertIsNone(result)
 
     def test_model_cannot_upgrade_confidence_or_rewrite_pending_relation(self):
         p1, p2, p3 = self.eligible()
         raw = answer(confidence="HIGH")
-        with p1, p2, p3, patch("modules.llm.ask", return_value=raw):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
 
@@ -103,14 +103,14 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
         )
         raw = answer(conversation_relation="NEW_REQUEST")
-        with p1, p2, p3, patch("modules.llm.ask", return_value=raw):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             result = model.refine(owner=OWNER, text="İstanbul", current=pending, arguments=pending.arguments,
                                   protected_relation=True)
         self.assertIsNone(result)
 
     def test_malformed_json_fails_closed(self):
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.llm.ask", return_value="not json"):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value="not json"):
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
 
