@@ -317,7 +317,7 @@ def main(runtime, ui=None):
                     runtime.emit("user", cmd, source)
                     entry = brain_entry.prepare(
                         runtime, owner=owner, request_id=runtime._cur_rid,
-                        text=cmd, source=source,
+                        text=cmd, source=source, model_refinement=True,
                     )
                     from modules import brain_echo
                     brain_echo.present(runtime, entry)
