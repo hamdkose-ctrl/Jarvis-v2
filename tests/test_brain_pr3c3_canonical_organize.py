@@ -13,6 +13,7 @@ geri alma kaydını okumaz/yazmaz.
 """
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -278,6 +279,53 @@ class CanonicalOrganizeApprovalTests(_OrganizeHarness):
         _entry, _out, _handle, _ = self.turn("evet")
         self.assertEqual((self.desktop / "Belgeler" / "belge.txt").read_text(encoding="utf-8"), before)
         self.assertEqual(sorted(self.tree(self.desktop)), ["Belgeler/belge (1).txt", "Belgeler/belge.txt"])
+
+    def test_a_file_edited_after_the_preview_is_not_moved_under_the_old_approval(self):
+        # Red: tazelik yalnız yol çiftlerini karşılaştırıyordu; önizlemeden sonra içeriği değişen
+        # dosya aynı yol ve aynı hedefle planı "değişmemiş" gösterip ESKİ onayla taşınıyordu.
+        self.seed(self.desktop, "rapor.txt")
+        self.preview("masaüstünü düzenle")
+        (self.desktop / "rapor.txt").write_text("kullanıcının yeni uzun içeriği", encoding="utf-8")
+        self.apply_spy.reset_mock()
+        _entry, out, _handle, _ = self.turn("evet")
+        self.apply_spy.assert_not_called()
+        self.assertIn("taşıyayım mı", out)
+        self.assertEqual(self.tree(self.desktop), ["rapor.txt"])
+        self.assertEqual(self.ctx._session().pending_organize["plan"], [(self.desktop / "rapor.txt",
+                                                                          self.desktop / "Belgeler" / "rapor.txt")])
+        # Taze önizleme onaylanınca gerçek içerik korunarak taşınır.
+        self.turn("evet")
+        self.assertEqual(self.tree(self.desktop), ["Belgeler/rapor.txt"])
+        self.assertEqual((self.desktop / "Belgeler" / "rapor.txt").read_text(encoding="utf-8"),
+                         "kullanıcının yeni uzun içeriği")
+
+    def test_a_different_file_swapped_into_the_previewed_path_is_not_moved(self):
+        # Red: aynı adda ve aynı boyda başka bir dosya konduğunda yol karşılaştırması hiçbir şey
+        # görmüyordu; eski onay yabancı dosyayı kategoriye taşıyordu.
+        self.seed(self.desktop, "rapor.txt")
+        self.preview("masaüstünü düzenle")
+        swap = self.downloads / "baska.txt"
+        swap.write_text("baska dosya icerigi", encoding="utf-8")
+        original = self.desktop / "rapor.txt"
+        stamp = original.stat()
+        os.replace(swap, original)
+        os.utime(original, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        self.assertEqual(original.stat().st_size, stamp.st_size)
+        self.apply_spy.reset_mock()
+        _entry, out, _handle, _ = self.turn("evet")
+        self.apply_spy.assert_not_called()
+        self.assertIn("taşıyayım mı", out)
+        self.assertEqual(self.tree(self.desktop), ["rapor.txt"])
+        self.assertEqual(original.read_text(encoding="utf-8"), "baska dosya icerigi")
+
+    def test_an_unchanged_folder_still_applies_after_the_freshness_stamp(self):
+        # Kilit: tazelik denetimi sıradan akışı bozmaz — dokunulmamış klasör tek onayla bir kez yürür.
+        self.seed(self.desktop, "belge.txt")
+        self.preview("masaüstünü düzenle")
+        self.apply_spy.reset_mock()
+        self.turn("evet")
+        self.apply_spy.assert_called_once()
+        self.assertEqual(self.tree(self.desktop), ["Belgeler/belge.txt"])
 
     def test_a_chained_or_ambiguous_request_starts_no_move_without_approval(self):
         self.seed(self.desktop, "belge.txt")

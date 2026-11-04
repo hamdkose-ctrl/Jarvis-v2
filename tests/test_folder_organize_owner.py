@@ -75,6 +75,89 @@ class FolderOrganizeOwnerTests(unittest.TestCase):
                 self.assertEqual(first.read_text(encoding='utf-8'), 'a')
                 self.assertFalse(undo_file.exists())
 
+    def test_a_record_whose_moved_file_is_missing_is_not_silently_dropped(self):
+        # Red: `undo_organize` yerinde bulamadığı kaydı `continue` ile düşürüyordu. Dosya sonra
+        # geri gelirse (geri dönüş kutusu, OneDrive eşzitlemesi) geri alınacak kayıt kalmıyordu.
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / 'Masaüstü'
+            folder.mkdir()
+            first, second = folder / 'a.txt', folder / 'b.txt'
+            first.write_text('a', encoding='utf-8')
+            second.write_text('b', encoding='utf-8')
+            moved_first = folder / 'Belgeler' / 'a.txt'
+            plan = [(first, moved_first), (second, folder / 'Belgeler' / 'b.txt')]
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                self.assertEqual(files.apply_organize(plan, 'alice'), 2)
+                moved_first.unlink()                        # kategorideki dosya şu anda yok
+                second.write_text('çakışma', encoding='utf-8')  # öbür kaydın hedefi dolu
+                self.assertEqual(files.undo_organize('alice'), 0)
+                undo_file = files._undo_file('alice')
+                remaining = json.loads(undo_file.read_text(encoding='utf-8'))
+                self.assertEqual(len(remaining), 2, "geri alınamamış kayıtlar ledger'da kalmalı")
+                # Hedefi açılan kayıt geri alınır; başarılan kayıt tekrar denenmez.
+                second.unlink()
+                self.assertEqual(files.undo_organize('alice'), 1)
+                self.assertEqual(second.read_text(encoding='utf-8'), 'b')
+                self.assertEqual(len(json.loads(undo_file.read_text(encoding='utf-8'))), 1)
+                # Kayıp kayıt düşürülmedi: dosya kategoride yeniden belirince kayıt tekrar denenir.
+                # (Boş kalan kategori klasörü geri alma sırasında temizlenmişti.)
+                moved_first.parent.mkdir(exist_ok=True)
+                moved_first.write_text('a', encoding='utf-8')
+                self.assertEqual(files.undo_organize('alice'), 1)
+                self.assertEqual(first.read_text(encoding='utf-8'), 'a')
+                self.assertFalse(undo_file.exists())
+
+    def test_the_previewed_plan_stamp_sees_a_different_file_in_the_same_path(self):
+        # Red: plan tazeliği yalnız (kaynak, hedef) yollarını karşılaştırıyordu; aynı yolda farklı
+        # bir dosya durduğunda (aynı ad, aynı boy) tazelik "değişmedi" diyordu.
+        import os
+        import shutil
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / 'Masaüstü'
+            folder.mkdir()
+            path = folder / 'belge.txt'
+            path.write_text('orijinal içerik', encoding='utf-8')
+            plan = [(path, folder / 'Belgeler' / 'belge.txt')]
+            stamp = files.plan_stamp(plan)
+            self.assertTrue(files.same_plan(plan, plan))
+            # Aynı ad ve aynı boy, başka bir dosya: yol karşılaştırması bunu göremez.
+            other = root / 'baska.txt'
+            other.write_text(path.read_text(encoding='utf-8'), encoding='utf-8')
+            os.utime(other, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns))
+            os.replace(other, path)
+            self.assertTrue(path.is_file())
+            self.assertFalse(files.same_plan(plan, plan) and files.plan_stamp(plan) == stamp)
+            # Gerçekten dokunulmamış plan ise mühür aynı kalır.
+            untouched = folder / 'not.txt'
+            untouched.write_text('not', encoding='utf-8')
+            clean = [(untouched, folder / 'Belgeler' / 'not.txt')]
+            self.assertEqual(files.plan_stamp(clean), files.plan_stamp(clean))
+            self.assertTrue(files.same_plan(clean, clean))
+
+
+class PendingOrganizeFreshnessTests(unittest.TestCase):
+    def test_the_pending_job_carries_the_previewed_plan_stamp(self):
+        # Red: önizleme job'ı yalnız planı taşıyordu; onay anında "aynı yollar" = "aynı dosyalar"
+        # sayılıyordu. Bekleyen iş, önizlemede görülen dosya kimliğini de taşımalıdır.
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / 'Masaüstü'
+            folder.mkdir()
+            path = folder / 'a.txt'
+            path.write_text('a', encoding='utf-8')
+            plan = [(path, folder / 'Belgeler' / 'a.txt')]
+            job = {"folder": folder, "key": "desktop", "label": "Masaüstü", "plan": plan,
+                   "stamp": files.plan_stamp(plan)}
+            self.assertIsInstance(job["stamp"], str, "mühür JSON turuna dayanmalı (salt metin)")
+            self.assertEqual(json.loads(json.dumps({"stamp": job["stamp"]}))["stamp"], job["stamp"])
+            path.write_text('değiştirilmiş uzun içerik', encoding='utf-8')
+            self.assertNotEqual(files.plan_stamp(plan), job["stamp"])
+
 
 if __name__ == '__main__':
     unittest.main()

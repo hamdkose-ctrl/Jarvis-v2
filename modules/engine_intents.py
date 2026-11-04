@@ -40,7 +40,8 @@ def organize_preview(runtime, folder: str) -> str:
     if not plan:
         runtime._session().pending_organize = None
         return f"{label} klasöründe düzenlenecek dosya yok."
-    runtime._session().pending_organize = {"folder": path, "key": folder, "label": label, "plan": plan}
+    runtime._session().pending_organize = {"folder": path, "key": folder, "label": label, "plan": plan,
+                                           "stamp": runtime.files.plan_stamp(plan)}
     return organize_preview_question(label, plan)
 
 

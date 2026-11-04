@@ -153,11 +153,14 @@ def handle(runtime, command: str):
                 # taşıma yapılmaz — kullanıcıya taze önizleme yeniden sorulur.
                 from modules import engine_intents
                 current = runtime.files.plan_organize(job["folder"])
-                if not runtime.files.same_plan(job["plan"], current):
+                fresh = runtime.files.plan_stamp(current)
+                # Yol çiftleri birebir dursa bile önizlemedeki dosya kimliği değişmiş olabilir
+                # (aynı yola başka dosya / yeni içerik): mühür farklıysa ESKİ onay yürümez.
+                if not runtime.files.same_plan(job["plan"], current) or job.get("stamp") != fresh:
                     if not current:
                         runtime._session().pending_organize = None
                         return f"{job['label']} klasöründe düzenlenecek dosya yok."
-                    runtime._session().pending_organize = dict(job, plan=current)
+                    runtime._session().pending_organize = dict(job, plan=current, stamp=fresh)
                     return engine_intents.organize_preview_question(job["label"], current)
                 moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
                 runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")

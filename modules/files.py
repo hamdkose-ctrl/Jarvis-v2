@@ -1,6 +1,7 @@
 """Dosya komutları: klasör açma, son dosyayı açma, klasör düzenleme (geri alınabilir)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -130,6 +131,29 @@ def same_plan(before: list[tuple[Path, Path]], after: list[tuple[Path, Path]]) -
     return [(str(a), str(b)) for a, b in before] == [(str(a), str(b)) for a, b in after]
 
 
+def _identity(path: Path) -> str:
+    """Dosyanın o andaki kimlik imzası: boy, zaman damgaları ve disk üzerindeki dosya indeksi.
+
+    Windows'ta `st_ctime` yaratılma zamanıdır ve bir dosyanın yerine aynı boy/zamanlı başka bir dosya
+    konduğunda değişmeyebilir; `st_ino` (NTFS dosya indeksi) o ayrımı taşır."""
+    try:
+        info = path.stat()
+    except OSError:
+        return "yok"
+    return f"{info.st_size}:{info.st_mtime_ns}:{info.st_ctime_ns}:{info.st_ino}"
+
+
+def plan_stamp(plan: list[tuple[Path, Path]]) -> str:
+    """Yol çiftlerinin ötesinde, her kaynağın o andaki dosya kimliği mührü (salt metin).
+
+    Aynı adda ve aynı boyda yabancı bir dosya kaynağın yerine konsa ya da içerik değişse mühür
+    değişir; böylece ESKİ onay başka bir dosyayı taşımaz. Salt metin olduğu için bekleyen iş
+    ile birlikte JSON/oturum turuna dayanır."""
+    return hashlib.sha256(
+        "\n".join(f"{src}|{dst}|{_identity(src)}" for src, dst in plan).encode("utf-8")
+    ).hexdigest()
+
+
 def plan_organize(folder: Path) -> list[tuple[Path, Path]]:
     """(kaynak, hedef) çiftleri. Kısayollar, klasörler ve geçici dosyalar yerinde kalır."""
     plan = []
@@ -189,6 +213,9 @@ def undo_organize(owner: str = "") -> int | None:
     for new, old in reversed(moved):
         try:
             if not os.path.exists(new):
+                # Yerinde olmayan kayıt silinmez: dosya kategoride belki yeniden belirir ve
+                # bir sonraki "geri al" onu tekrar dener.
+                blocked.append([new, old])
                 continue
             if os.path.exists(old):
                 blocked.append([new, old])
