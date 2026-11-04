@@ -659,6 +659,68 @@ class BrainUnderstandingTests(unittest.TestCase):
             self.assertNotIn(token, source)
 
 
+
+
+class BrainFileMutationProposalTests(unittest.TestCase):
+    def call(self, text, *, candidates=(), references=()):
+        return understand(
+            owner=OWNER, request_id=RID, text=text, active_context=ctx(),
+            candidates=tuple(candidates), references=tuple(references),
+        )
+
+    def test_file_mutations_propose_typed_core_payloads_from_resolved_candidates(self):
+        from modules.brain_core_map import core_plan
+        from modules.brain_understanding import FILE_MUTATE_CAPABILITY
+
+        source = ref("file:rapor", "file", path="C:/Users/hamdi/Downloads/rapor.pdf", name="rapor.pdf")
+        move = self.call("rapor dosyasını belgelere taşı", candidates=(source,), references=(source,))
+        self.assertIs(move.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(move.capability_hint, FILE_MUTATE_CAPABILITY)
+        self.assertEqual(move.arguments["mutation"], {
+            "operation": "move", "path": "C:/Users/hamdi/Downloads/rapor.pdf", "folder": "belgeler",
+        })
+        self.assertEqual(core_plan(move.capability_hint, move.arguments),
+                         ("file_mutate", {"operation": "move",
+                                          "path": "C:/Users/hamdi/Downloads/rapor.pdf",
+                                          "folder": "belgeler"}))
+
+        rename = self.call("rapor dosyasının adını yeni rapor yap",
+                           candidates=(source,), references=(source,))
+        self.assertEqual(rename.capability_hint, FILE_MUTATE_CAPABILITY)
+        self.assertEqual(rename.arguments["mutation"]["name"], "yeni rapor")
+
+        create = self.call("masaüstüne alışveriş adında bir metin dosyası oluştur ve içine süt yaz")
+        self.assertEqual(create.capability_hint, FILE_MUTATE_CAPABILITY)
+        self.assertEqual(create.arguments["mutation"], {
+            "operation": "create", "folder": "masaüstü", "name": "alışveriş", "content": "süt",
+        })
+        self.assertEqual(core_plan(create.capability_hint, create.arguments),
+                         ("file_mutate", {"operation": "create", "folder": "masaüstü",
+                                          "name": "alışveriş", "content": "süt"}))
+
+        undo = self.call("son dosya işlemini geri al")
+        self.assertEqual(undo.capability_hint, FILE_MUTATE_CAPABILITY)
+        self.assertEqual(core_plan(undo.capability_hint, undo.arguments),
+                         ("file_mutate", {"operation": "undo"}))
+
+    def test_file_mutation_without_one_resolved_file_is_clarification_not_execution(self):
+        from modules.brain_understanding import FILE_MUTATE_CAPABILITY, FILE_MUTATION_TARGET_UNRESOLVED
+        result = self.call("rapor dosyasını belgelere taşı")
+        self.assertEqual(result.capability_hint, FILE_MUTATE_CAPABILITY)
+        self.assertIs(result.request_kind, RequestKind.CLARIFY)
+        self.assertTrue(result.needs_input)
+        self.assertIn(FILE_MUTATION_TARGET_UNRESOLVED, result.ambiguities)
+        from modules.brain_core_map import core_plan
+        self.assertIsNone(core_plan(result.capability_hint, result.arguments))
+
+    def test_file_mutation_refuses_a_resolved_but_name_mismatched_candidate(self):
+        from modules.brain_understanding import FILE_MUTATION_TARGET_UNRESOLVED
+        wrong = ref("file:other", "file", path="C:/Users/hamdi/Downloads/other.pdf", name="other.pdf")
+        result = self.call("rapor dosyasını belgelere taşı", candidates=(wrong,), references=(wrong,))
+        self.assertIs(result.request_kind, RequestKind.CLARIFY)
+        self.assertIn(FILE_MUTATION_TARGET_UNRESOLVED, result.ambiguities)
+
+
 class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
     def test_capability_domain_signals_are_bounded(self):
         cases = (
@@ -867,6 +929,8 @@ class SequenceGrammarTests(unittest.TestCase):
         self.assertTrue(is_sequenced('önce maili oku'))
         self.assertEqual(sequence_steps('önce maili oku'), ())
         self.assertFalse(is_sequenced('maili oku'))
+
+
 
 
 if __name__ == "__main__":

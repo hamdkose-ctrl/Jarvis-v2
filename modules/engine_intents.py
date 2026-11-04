@@ -119,6 +119,18 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return (f"Dosyayı {fmt.upper()} formatında kaydettim: {saved['path']}" + ('\n' + saved['note'] if saved['note'] else '')) if saved else "Dönüştürme iptal edildi."
             return "Bu dosya işlemi Core tarafından doğrulanmadı."
 
+        case "file_mutate":
+            # Natural-language parsing is already complete; only the typed Core payload reaches the executor.
+            from modules import file_ops
+            return file_ops.execute_typed(
+                str(a.get("operation") or ""),
+                owner=runtime.profile.slug,
+                path=str(a.get("path") or ""),
+                folder=str(a.get("folder") or ""),
+                name=str(a.get("name") or ""),
+                content=str(a.get("content") or ""),
+            )
+
         case "file_organize":
             # Önizleme tek sahibinden: plan gerçek klasörde kurulur, burada HİÇBİR dosya taşınmaz.
             return organize_preview(runtime, str(a.get("folder") or ""))

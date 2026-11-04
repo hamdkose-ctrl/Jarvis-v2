@@ -440,10 +440,7 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
             return "Ekranda bir hata görünmüyor."
         runtime.profile.add_note_item("Ekran hatası: " + " ".join(text.split()))
         return "Ekrandaki hatayı notlarına ekledim: " + " ".join(text.split())[:200]
-    from modules import file_ops                      # tek dosya: taşı, yeniden adlandır, metin dosyası oluştur, geri al (onaysız, geri alınabilir)
-    file_reply = file_ops.handle(command, runtime.profile.slug)
-    if file_reply is not None:
-        return file_reply
+    # PR3C-5: file mutations are handled only by canonical Brain -> Core typed proposals.
     # Klasör düzenleme geri alması (önizleme artık kanonical: `files.organize` → `file_organize`)
     if runtime.re.search(r"düzenlemey[ie] geri al|düzenlemeyi iptal et|taşıdıklarını geri", cmd_lower):
         back = runtime.files.undo_organize(runtime.profile.slug)

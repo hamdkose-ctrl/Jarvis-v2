@@ -931,6 +931,66 @@ FILE_CONVERT = "convert"
 FILE_TARGET_UNRESOLVED = "file target unresolved"
 FILE_TRANSLATION_TARGET_MISSING = "file translation target missing"
 FILE_CONVERSION_FORMAT_MISSING = "file conversion format missing"
+FILE_MUTATE_CAPABILITY = "files.mutate"
+FILE_MUTATION_TARGET_UNRESOLVED = "file mutation target unresolved"
+_FILE_MUTATION_UNDO = re.compile(r"^(?:son )?dosya i[sş]lemini geri al$")
+_FILE_MUTATION_MOVE = re.compile(
+    r"^(?P<target>.+?)\s+dosyas[ıi]n[ıi]\s+(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere|resimlere)\s+ta[sş][ıi]\w*$",
+    re.I,
+)
+_FILE_MUTATION_RENAME = re.compile(
+    r"^(?P<target>.+?)\s+dosyas[ıi]n[ıi]n\s+ad[ıi]n[ıi]\s+(?P<name>.+?)\s+(?:yap|olarak de[ğg]i[sş]tir\w*|yeniden adland[ıi]r\w*)$",
+    re.I,
+)
+_FILE_MUTATION_CREATE = re.compile(
+    r"^(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere)\s+(?P<name>.+?)\s+ad[ıi]nda\s+(?:bir )?(?:metin|not|txt) dosyas[ıi]\s+(?:olu[sş]tur\w*|yap\w*)"
+    r"(?:\s+(?:ve )?i[çc]ine (?P<content>.+?) yaz\w*)?$",
+    re.I,
+)
+
+
+def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...]):
+    """Typed file mutation proposal; target paths come only from resolved owner-bound references."""
+    cleaned = text.strip(" .!?")
+    if _FILE_MUTATION_UNDO.fullmatch(cleaned):
+        return {"mutation": {"operation": "undo"}}, None
+    move = _FILE_MUTATION_MOVE.fullmatch(cleaned)
+    rename = _FILE_MUTATION_RENAME.fullmatch(cleaned)
+    create = _FILE_MUTATION_CREATE.fullmatch(cleaned)
+    if create is not None:
+        folder = {
+            "masaüstüne": "masaüstü", "masaustune": "masaüstü",
+            "indirilenlere": "indirilenler", "belgelere": "belgeler",
+        }.get(typo.fold(create.group("folder")), typo.fold(create.group("folder")))
+        return {"mutation": {"operation": "create", "folder": folder,
+                             "name": create.group("name").strip(),
+                             "content": (create.group("content") or "").strip()}}, None
+    if move is None and rename is None:
+        return None, None
+    target = (move.group("target") if move is not None else rename.group("target")).strip()
+    rows = [ref for ref in references if ref.kind == "file"]
+    operation = "move"
+    if move is None:
+        operation = "rename"
+    if len(rows) != 1:
+        return {"mutation": {"operation": operation}}, FILE_MUTATION_TARGET_UNRESOLVED
+    path = rows[0].provenance.get("path")
+    if not isinstance(path, str) or not path.strip() or "\x00" in path:
+        return {"mutation": {"operation": operation}}, FILE_MUTATION_TARGET_UNRESOLVED
+    candidate_name = rows[0].provenance.get("name")
+    candidate_name = candidate_name if isinstance(candidate_name, str) and candidate_name.strip() else re.split(r"[\\/]", path)[-1]
+    candidate_stem = candidate_name.rsplit(".", 1)[0]
+    wanted = typo.fold(target.strip(" '\\\""))
+    if wanted not in {typo.fold(candidate_name), typo.fold(candidate_stem)}:
+        return {"mutation": {"operation": operation}}, FILE_MUTATION_TARGET_UNRESOLVED
+    if move is not None:
+        folder = {
+            "masaüstüne": "masaüstü", "masaustune": "masaüstü",
+            "indirilenlere": "indirilenler", "belgelere": "belgeler", "resimlere": "resimler",
+        }.get(typo.fold(move.group("folder")), typo.fold(move.group("folder")))
+        return {"mutation": {"operation": "move", "path": path, "folder": folder}}, None
+    return {"mutation": {"operation": "rename", "path": path, "name": rename.group("name").strip()}}, None
+
 # Operations Core fully owns with no sensible legacy raw-text fallback: Brain must ask rather than
 # let Core guess. FILE_OPEN/FILE_LOCATE stay legacy-resolved by name search when Brain has no single
 # resolved reference (pre-existing behavior); Brain only proposes them when a reference did resolve.
@@ -1989,10 +2049,16 @@ def understand(
     notes_read_request = ((not (photo_targeted or context_control or topic_change or correction))
                           and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
     file_operation = None if (photo_targeted or context_control or topic_change or correction) else _file_operation(normalized)
+    file_mutation, file_mutation_ambiguity = (
+        (None, None) if (photo_targeted or context_control or topic_change or correction)
+        else _file_mutation_proposal(normalized, references)
+    )
     organize_targets = () if (photo_targeted or context_control or topic_change or correction) else _organize_targets(normalized)
     folder_analysis = (None if (photo_targeted or context_control or topic_change or correction)
                        else folder_analysis_request(normalized))
     ambiguities = _ambiguity_for_references(normalized, references)
+    if file_mutation_ambiguity is not None and not ambiguities:
+        ambiguities = (file_mutation_ambiguity,)
     if photo_ambiguity is not None:
         ambiguities = (*ambiguities, photo_ambiguity)
     if note_write is not None:
@@ -2063,7 +2129,7 @@ def understand(
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
-        or translation is not None or file_operation is not None or photo_proposal is not None
+        or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
@@ -2171,7 +2237,7 @@ def understand(
         if correction
         else {"original_text": text}
     )
-    capability_hint = _capability_hint(normalized, temporal_need)
+    capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else _capability_hint(normalized, temporal_need)
     if typed_pending_capability is not None:
         capability_hint, clarify_arguments = typed_pending_capability
         arguments = {**arguments, **clarify_arguments}
@@ -2190,6 +2256,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == FILE_MUTATE_CAPABILITY and file_mutation is not None:
+        arguments = {**arguments, **file_mutation}
     if capability_hint == "research.search":
         arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":

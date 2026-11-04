@@ -115,5 +115,94 @@ class FileOpsTests(unittest.TestCase):
         self.assertTrue((self.downloads / 'rapor.pdf').exists())
 
 
+    def test_undo_keeps_record_when_moved_file_was_replaced_or_edited(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        moved = self.documents / 'rapor.pdf'
+        moved.write_text('user replacement', encoding='utf-8')
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'user replacement')
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_keeps_record_when_original_location_is_occupied(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        moved = self.documents / 'rapor.pdf'
+        self.write(self.downloads, 'rapor.pdf', 'new occupant')
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'original')
+        self.assertEqual((self.downloads / 'rapor.pdf').read_text(encoding='utf-8'), 'new occupant')
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_keeps_missing_destination_record_for_retry(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        (self.documents / 'rapor.pdf').unlink()
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_removes_only_completed_entries_from_partial_ledger(self):
+        first = self.documents / 'first.txt'
+        second = self.documents / 'second.txt'
+        first.write_text('first', encoding='utf-8')
+        second.write_text('second', encoding='utf-8')
+        old_first = self.downloads / 'first.txt'
+        old_second = self.downloads / 'second.txt'
+        old_second.write_text('occupied', encoding='utf-8')
+        file_ops._record([[str(first), str(old_first), file_ops._digest(first)],
+                          [str(second), str(old_second), file_ops._digest(second)]], 'alice')
+        self.assertIn('kısmen', file_ops.undo('alice'))
+        self.assertTrue(old_first.exists())
+        self.assertTrue(second.exists())
+        remaining = __import__('json').loads(file_ops._undo_path('alice').read_text(encoding='utf-8'))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0][0], str(second))
+
+
+    def test_legacy_undo_record_without_digest_remains_backward_compatible(self):
+        moved = self.documents / 'legacy.txt'
+        original = self.downloads / 'legacy.txt'
+        moved.write_text('legacy content', encoding='utf-8')
+        file_ops._record([[str(moved), str(original)]], 'alice')
+        self.assertIn('geri aldım', file_ops.undo('alice'))
+        self.assertEqual(original.read_text(encoding='utf-8'), 'legacy content')
+        self.assertFalse(moved.exists())
+
+
+    def test_typed_file_mutation_executor_moves_renames_creates_and_undoes(self):
+        source = self.write(self.downloads, 'typed.pdf', 'typed original')
+        moved_reply = file_ops.execute_typed('move', owner='alice', path=str(source), folder='belgeler')
+        self.assertIn('taşıdım', moved_reply)
+        moved = self.documents / 'typed.pdf'
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'typed original')
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
+        self.assertTrue(source.exists())
+
+        file_ops.execute_typed('move', owner='alice', path=str(source), folder='belgeler')
+        moved = self.documents / 'typed.pdf'
+        rename_reply = file_ops.execute_typed('rename', owner='alice', path=str(moved), name='new typed')
+        self.assertIn('adını', rename_reply)
+        renamed = self.documents / 'new typed.pdf'
+        self.assertTrue(renamed.exists())
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
+        self.assertTrue(moved.exists())
+        self.assertFalse(renamed.exists())
+
+        create_reply = file_ops.execute_typed('create', owner='alice', folder='masaüstü',
+                                              name='typed note', content='hello')
+        self.assertIn('oluşturdum', create_reply)
+        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello' + chr(10))
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
+        self.assertFalse((self.desktop / 'typed note.txt').exists())
+
+    def test_typed_file_mutation_executor_rejects_outside_root_source(self):
+        outside = self.home / 'outside.txt'
+        outside.write_text('do not move', encoding='utf-8')
+        reply = file_ops.execute_typed('move', owner='alice', path=str(outside), folder='belgeler')
+        self.assertIn('izinli konumda değil', reply)
+        self.assertTrue(outside.exists())
+        self.assertFalse((self.documents / 'outside.txt').exists())
+
+
 if __name__ == '__main__':
     unittest.main()

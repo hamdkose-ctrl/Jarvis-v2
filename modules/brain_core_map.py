@@ -24,6 +24,7 @@ from modules.brain_understanding import (
     FILE_CONVERSION_FORMAT_MISSING,
     FILE_CONVERT,
     FILE_LIST,
+    FILE_MUTATE_CAPABILITY,
     FILE_LOCATE,
     FILE_OPEN,
     FILE_SUMMARIZE,
@@ -315,6 +316,58 @@ def _notes_write_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+
+_FILE_MUTATION_FOLDERS = frozenset({"masaüstü", "masaustu", "indirilenler", "belgeler", "resimler"})
+
+
+def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "mutation"}:
+        return None
+    row = arguments.get("mutation")
+    if not isinstance(row, Mapping):
+        return None
+    operation = row.get("operation")
+    if operation == "undo":
+        return {"operation": "undo"} if set(row) == {"operation"} else None
+    if operation == "move":
+        if set(row) != {"operation", "path", "folder"}:
+            return None
+        path, folder = row.get("path"), row.get("folder")
+        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\x00" in path:
+            return None
+        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path)):
+            return None
+        if not isinstance(folder, str) or folder.casefold() not in _FILE_MUTATION_FOLDERS:
+            return None
+        return {"operation": "move", "path": path, "folder": folder}
+    if operation == "rename":
+        if set(row) != {"operation", "path", "name"}:
+            return None
+        path, name = row.get("path"), row.get("name")
+        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\x00" in path:
+            return None
+        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path)):
+            return None
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\x00" in name:
+            return None
+        if re.search(r'[<>:"/\\\\|?*\x00-\x1f]', name) or name.endswith((" ", ".")):
+            return None
+        return {"operation": "rename", "path": path, "name": name.strip()}
+    if operation == "create":
+        if set(row) != {"operation", "folder", "name", "content"}:
+            return None
+        folder, name, content = row.get("folder"), row.get("name"), row.get("content")
+        if not isinstance(folder, str) or folder.casefold() not in {"masaüstü", "masaustu", "indirilenler", "belgeler"}:
+            return None
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\x00" in name:
+            return None
+        if re.search(r'[<>:"/\\\\|?*\x00-\x1f]', name) or name.endswith((" ", ".")):
+            return None
+        if not isinstance(content, str) or len(content) > 16000 or "\x00" in content:
+            return None
+        return {"operation": "create", "folder": folder, "name": name.strip(), "content": content}
+    return None
+
 def _research_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core validates the proposal; execution still consumes the original user command."""
     row = arguments.get("research")
@@ -463,6 +516,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "weather.read.current": ("weather", _weather_args),
     # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
     "files.read": ("file_action", _file_args),
+    FILE_MUTATE_CAPABILITY: ("file_mutate", _file_mutate_args),
     # PR3C-3: klasör düzenleme önizlemesi. Niyet ve kapalı klasör anahtarı Brain'den gelir,
     # Core anahtarı gerçek kimlikte yeniden doğrular; taşımayı yapacak olan yürütücü değildir.
     ORGANIZE_CAPABILITY: ("file_organize", _organize_args),

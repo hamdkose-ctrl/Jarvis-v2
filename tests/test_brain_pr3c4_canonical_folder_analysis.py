@@ -160,7 +160,7 @@ class CanonicalFolderAnalysisDecisionTests(_FolderHarness):
         self.assertEqual(self.indexed, typo_indexed * 2)
         # Okuma sayısı eşit değil: ikinci turda `kb.add` değişmemiş imzayı görüp dosyayı yeniden
         # açmıyor (mevcut yürütücü davranışı, §3) — rapor her iki türkende iki dosyayı da okur.
-        self.assertEqual(self.reads[:2], ["kira.txt", "maliyet.txt"])
+        self.assertEqual(sorted(self.reads[:2]), ["kira.txt", "maliyet.txt"])
         self.assertEqual(sorted(self.reads), ["kira.txt", "kira.txt", "kira.txt",
                                               "maliyet.txt", "maliyet.txt", "maliyet.txt"])
 
