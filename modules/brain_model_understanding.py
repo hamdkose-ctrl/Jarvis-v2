@@ -160,7 +160,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                 current_paths = current.arguments.get("paths")
                 if current_path is not None and proposed_arguments.get("path") != current_path:
                     return None
-                if current_paths is not None and proposed_arguments.get("paths") != current_paths:
+                if current_paths is not None and proposed_arguments.get("paths") != list(current_paths):
                     return None
         elif operation is not None or slots:
             return None
