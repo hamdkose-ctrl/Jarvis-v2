@@ -395,7 +395,13 @@ def _needs_file_discovery(references: tuple[ContextReference, ...], semantic: An
     """Use resolved Understanding evidence to decide whether cold file discovery is needed."""
     return bool(
         semantic is not None
-        and semantic.capability_hint == "files.read"
+        and (
+            semantic.capability_hint == "files.read"
+            or (
+                semantic.capability_hint == "files.mutate"
+                and "file mutation target unresolved" in semantic.ambiguities
+            )
+        )
         and not any(reference.kind == "file" for reference in references)
     )
 
