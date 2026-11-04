@@ -14,6 +14,7 @@ from typing import Any, Iterable, Mapping
 from modules import typo
 from modules.app_identities import verified_alias as _verified_app_alias
 from modules.brain_actions import action_request, ends_with_action, instructional_question
+from modules.diagnostics import record_failure as _record_failure
 from modules.brain_contracts import (
     ActiveContext,
     Confidence,
