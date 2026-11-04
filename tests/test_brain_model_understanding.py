@@ -115,5 +115,19 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+    def test_request_cancellation_propagates_instead_of_becoming_chat_fallback(self):
+        from modules import requests_state
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch("modules.smart_router.run", side_effect=requests_state.Cancelled("cancelled")):
+            with self.assertRaises(requests_state.Cancelled):
+                model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+
+    def test_model_timeout_fails_closed_without_changing_existing_proposal(self):
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch("modules.smart_router.run", side_effect=TimeoutError("late")):
+            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
