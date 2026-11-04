@@ -935,16 +935,16 @@ FILE_MUTATE_CAPABILITY = "files.mutate"
 FILE_MUTATION_TARGET_UNRESOLVED = "file mutation target unresolved"
 _FILE_MUTATION_UNDO = re.compile(r"^(?:son )?dosya i[sş]lemini geri al$")
 _FILE_MUTATION_MOVE = re.compile(
-    r"^(?P<target>.+?)\\s+dosyas[ıi]n[ıi]\\s+(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere|resimlere)\\s+ta[sş][ıi]\\w*$",
+    r"^(?P<target>.+?)\s+dosyas[ıi]n[ıi]\s+(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere|resimlere)\s+ta[sş][ıi]\w*$",
     re.I,
 )
 _FILE_MUTATION_RENAME = re.compile(
-    r"^(?P<target>.+?)\\s+dosyas[ıi]n[ıi]n\\s+ad[ıi]n[ıi]\\s+(?P<name>.+?)\\s+(?:yap|olarak de[ğg]i[sş]tir\\w*|yeniden adland[ıi]r\\w*)$",
+    r"^(?P<target>.+?)\s+dosyas[ıi]n[ıi]n\s+ad[ıi]n[ıi]\s+(?P<name>.+?)\s+(?:yap|olarak de[ğg]i[sş]tir\w*|yeniden adland[ıi]r\w*)$",
     re.I,
 )
 _FILE_MUTATION_CREATE = re.compile(
-    r"^(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere)\\s+(?P<name>.+?)\\s+ad[ıi]nda\\s+(?:bir )?(?:metin|not|txt) dosyas[ıi]\\s+(?:olu[sş]tur\\w*|yap\\w*)"
-    r"(?:\\s+(?:ve )?i[çc]ine (?P<content>.+?) yaz\\w*)?$",
+    r"^(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere)\s+(?P<name>.+?)\s+ad[ıi]nda\s+(?:bir )?(?:metin|not|txt) dosyas[ıi]\s+(?:olu[sş]tur\w*|yap\w*)"
+    r"(?:\s+(?:ve )?i[çc]ine (?P<content>.+?) yaz\w*)?$",
     re.I,
 )
 
@@ -972,7 +972,7 @@ def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...])
     if len(rows) != 1:
         return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
     path = rows[0].provenance.get("path")
-    if not isinstance(path, str) or not path.strip() or "\\x00" in path:
+    if not isinstance(path, str) or not path.strip() or "\x00" in path:
         return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
     if move is not None:
         folder = {
