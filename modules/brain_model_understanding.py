@@ -178,6 +178,12 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         if proposed.request_kind is RequestKind.CAPABILITY:
             if proposed.confidence is Confidence.LOW or proposed.capability_hint is None:
                 return None
+            if current.capability_hint is not None and proposed.capability_hint != current.capability_hint:
+                return None
+            if current.capability_hint is None and not (
+                current.request_kind is RequestKind.CHAT and proposed.capability_hint == "files.read"
+            ):
+                return None
             from modules.brain_core_map import core_plan
             candidate_arguments = proposed.arguments if proposed.arguments is not None else arguments
             if core_plan(proposed.capability_hint, candidate_arguments) is None:
