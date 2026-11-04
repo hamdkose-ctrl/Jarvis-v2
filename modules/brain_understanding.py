@@ -974,6 +974,12 @@ def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...])
     path = rows[0].provenance.get("path")
     if not isinstance(path, str) or not path.strip() or "\x00" in path:
         return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
+    candidate_name = rows[0].provenance.get("name")
+    candidate_name = candidate_name if isinstance(candidate_name, str) and candidate_name.strip() else re.split(r"[\\\\/]", path)[-1]
+    candidate_stem = candidate_name.rsplit(".", 1)[0]
+    wanted = typo.fold(target.strip(" '\\\""))
+    if wanted not in {typo.fold(candidate_name), typo.fold(candidate_stem)}:
+        return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
     if move is not None:
         folder = {
             "masaüstüne": "masaüstü", "masaustune": "masaustu",
