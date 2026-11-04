@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from modules.diagnostics import record_failure as _record_failure
+
 from modules.brain_contracts import Confidence, ConversationRelation, RequestKind, TemporalNeed
 
 _PAID = frozenset({"openai", "anthropic"})
@@ -194,4 +196,5 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                 raise
         except ImportError:
             pass
+        _record_failure("modules/brain_model_understanding.py:refine")
         return None
