@@ -81,8 +81,16 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             "recipients, references, approvals, permissions, or execution claims. If uncertain, keep "
             "the current decision or choose CHAT/CLARIFY. The Core will independently validate."
         )
+        def send(provider: str) -> str:
+            return llm._send_provider(provider, prompt, system, 180, None)
+
         with requests_state.budget(12):
-            raw = llm.ask(prompt, system=system, max_tokens=180)
+            # Smart Router remains the only provider selector. This call narrows its
+            # eligible pool to cloud providers and explicitly excludes local fallback.
+            raw = smart_router.run(
+                owner, prompt + "\\n" + system, send, route=route,
+                exclude_providers={"ollama"},
+            )
             requests_state.check()
         row = _decode(raw)
         proposed = SemanticRefinement(
