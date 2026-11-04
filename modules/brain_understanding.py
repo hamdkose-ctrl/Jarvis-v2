@@ -167,7 +167,16 @@ _STATIC_MARKERS = (
     " kimdir",
     " açıkla",
     " acikla",
+    " açıklar",
     " anlat",
+    " anlatır",
+    # Güvenlik/risk sorusu bir açıklama isteğidir; işlemin kendisini başlatmaz (§PR3C-2).
+    " güvenli mi",
+    " güvenli midir",
+    " riskli mi",
+    " riskli midir",
+    " riskleri neler",
+    " riskleri nedir",
 )
 _PENDING_PROTOCOL_TOKENS = frozenset({"evet", "hayır", "hayir", "yes", "no"})
 _GENERIC_CHAT = ("merhaba", "selam", "nasılsın", "nasilsin", "teşekkür", "tesekkur")
@@ -1564,8 +1573,19 @@ def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, A
 
 
 def _definition_question(normalized: str) -> bool:
-    """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner."""
-    return _contains_any(f" {normalized}", _STATIC_MARKERS)
+    """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner.
+
+    Marker must end at a word boundary: "anlat" inside "anlatımı" / "açıkla" inside "açıklama"
+    is a word prefix, not an explanation request."""
+    text = f" {normalized}"
+    for marker in _STATIC_MARKERS:
+        start = text.find(marker)
+        while start != -1:
+            end = start + len(marker)
+            if end == len(text) or not text[end].isalnum():
+                return True
+            start = text.find(marker, start + 1)
+    return False
 
 
 def explanation_request(text: str, normalized: str) -> bool:
@@ -1581,7 +1601,14 @@ def explanation_request(text: str, normalized: str) -> bool:
     if action_request(text) or ends_with_action(text):
         return False
     if _definition_question(normalized):
-        return True
+        # Tanım kalıbı açık tazelik işareti taşıyan dış veri isteğini bastırmaz: "güncel dolar
+        # kuru nedir?" canlı kur isteğidir, tanım sorusu değil (mevcut freshness sözleşmesi).
+        if not (_RESEARCH_FRESH_TOPIC.search(normalized) and _RESEARCH_NOW_MARK.search(normalized)):
+            # "haberleri anlat" gibi taze dış veri isteği açıklama fiiliyle bitse de tanım sorusu
+            # değildir; gerçek bir tanım işareti ("nedir", "ne demek") taşımıyorsa tazelik kazanır.
+            if not (_needs_fresh_external_data(normalized)
+                    and _RESEARCH_DEFINITION.search(normalized) is None):
+                return True
     if _advisory_request(normalized) is not None and str(text or "").rstrip().endswith("?"):
         return True
     return any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT)
@@ -2064,6 +2091,17 @@ def understand(
     # ikinci kez "bu bir soru" diye sınıflandırmaz.
     if explanation_request(text, normalized):
         reason_codes.append(EXPLANATION_REQUEST_CODE)
+        # Tanım/risk sorusu bir anahtar sözcük yüzünden yetenek önerisi taşıyamaz: bağımsız yeni
+        # turda ipucu ve typed payload düşer, karar CHAT olur. Bekleyen cevap, typed pending,
+        # konu değişimi/düzeltme ve belirsizlik turları kendi sahiplerinde kalır.
+        if (not (context_control or topic_change or correction) and typed_pending_capability is None
+                and pending_owner is None and not pending_ambiguous and not ambiguities
+                and photo_proposal is None):
+            if capability_hint:
+                capability_hint = None
+                arguments = {"original_text": text}
+            if request_kind is RequestKind.CAPABILITY:
+                request_kind = RequestKind.CHAT
     preview = None
     if request_kind is RequestKind.CAPABILITY and not ambiguities:
         preview = _preview_text(capability_hint, arguments, references)

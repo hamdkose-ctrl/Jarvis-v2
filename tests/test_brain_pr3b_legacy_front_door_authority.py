@@ -127,7 +127,9 @@ class MetaLanguageEffectFenceTests(_RawDoorHarness):
 
     def test_a_question_about_publishing_publishes_nothing(self):
         entry, _out, _handle, _ = self.turn("git yükle ne demek?")
-        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        # PR3C-2: tanım sorusu artık CHAT hükmüdür (yayın yeteneği taşımaz).
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
         self.assertIsNone(entry.understanding.capability_hint)
         self.assertEqual(self.silent("updater", "modules.git_publish"), [])
 
@@ -1027,39 +1029,37 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
 
 
 class CoreRejectionFallthroughInventoryTests(_RawDoorHarness):
-    """§24'ün bugünkü gerçek kapsama alanı: fence parity'si olan ailelerde var, olmayanlarda yok.
+    """§24 kapanışı: Core'un reddettiği TAM tipli öneri ham cepheden ikinci kez yürütülemez.
 
-    Ölçülen (bu head, yalıtılmış kanonical akış): kanonical öneri Core'da doğrulanmadığında
-    (`core_plan` None) `handoff` ham cepheyi yalnız iki ailede tamamen kapatır — photo
-    (`modules/brain_entry.py:1069`) ve files (`_file_access_refusal`). Diğer ailelerde kontrol
-    `handler(command)`'a düşer ve sıralık yüzey ham cümleyi kapılarına sorar; bir kapı
-    cevaplanırsa efekt kanonical reddi ezer (ölçülen satırlar: alarm grameri ve kural öğretme,
-    ikisi de `reminder.propose` taşmasına rağmen). Genel fence, o kapıların kanonical parity
-    kazandıktan sonra konur (PR3C); bugün konursa yaşayan domain davranışı regresyona düşer.
-    Bu sınıf o iki aileyi kapatır, kalanı envanter olarak adlandırır — liste büyürse test düşer."""
+    PR3B ölçümü: `core_plan` None olduğunda `handoff` kontrolü `handler(command)`'a düşüyor,
+    bir kapı cevaplanırsa efekt kanonical reddi eziyordu (ölçülen satır: `text.translate`).
+    PR3C-2 bu aileyi kapattı: mapped hint + `original_text` dışında tipli payload taşıyan öneri
+    Core'da doğrulanmadıysa `handoff` fail-closed reddeder (`CORE_PROPOSAL_REJECTED`). Eksik
+    öneri (yalnız cümle metni) ret sayılmaz; meşru eski sahibinde kalır (`beni uyar`,
+    `dosyayı aç`, `raporda ara`) — bu ayrım `test_brain_pr3c2_core_rejection_and_explanation.py`
+    içinde kilitlidir."""
 
-    def test_a_rejected_proposal_falls_through_to_the_raw_surface_today(self):
-        """§24'ün kapatılmayan kısmı açıkça kilitlidir: parity'siz ailede ham kapı kanonical reddi ezer.
-
-        Bu test bugünkü ÜRETİM davranışını yazar, istenen davranışı değil. Kanonical öneri
-        (`text.translate`) Core'da doğrulanmadığında `handoff` kontrolü `handler(command)`'a
-        bırakır ve yüzey ham cümleyi kapılarına sorar; kapı cevaplanırsa kullanıcının etkisi
-        kanonical red mesajının yerine geçer. PR3C bu satırı `assert_not_called`'a çevirir —
-        o gün bu test düşmek zorundadır, yani burası sessiz borç değil adlandırılmış iştir."""
+    def test_a_rejected_typed_proposal_never_reaches_the_raw_surface(self):
+        """PR3C-2 kapanışı: eski `assertIn("HAM KAPI CEVABI")` sözleşmesi tersine döndü."""
         self.ctx._extra_commands = Mock(return_value="HAM KAPI CEVABI")
         with patch.object(brain_entry, "core_plan", lambda entry: None):
-            _entry, out, _handle, _ = self.turn("şu notu ingilizceye çevir")
-        self.assertIn("HAM KAPI CEVABI", str(out))
+            entry, out, _handle, feedback = self.turn("şu notu ingilizceye çevir")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertNotIn("HAM KAPI CEVABI", str(out))
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertEqual(feedback.reason_code, "CORE_PROPOSAL_REJECTED")
+        self.ctx._extra_commands.assert_not_called()
 
     def test_the_parity_families_that_already_close_a_rejected_proposal_are_named(self):
-        # Ölçülen: red durumunda ham yüzeyi tamamen kapatmış iki aile var — photo (handoff'ta
-        # plan'sız ret) ve files (`_file_access_refusal`). İkisi de kendi test sınıflarında
-        # kilitli (test_brain_photo_core_cutover, CoreRejectionFenceTests); burada yalnız envanter
-        # sahibi olarak adlandırılır ki PR3C "kalan kapı" listesini buradan genişletsin.
+        # Red durumunda ham yüzeyi tamamen kapatan aileler: photo (handoff'ta plan'sız ret),
+        # files (`_file_access_refusal`) ve PR3C-2'nin tipli-payload çiti. Üçü de kendi
+        # test sınıflarında kilitlidir (test_brain_photo_core_cutover, CoreRejectionFenceTests,
+        # test_brain_pr3c2_core_rejection_and_explanation); burada envanter sahibi olarak adlandırılır.
         from modules import brain_entry as entry_module
         source = inspect.getsource(entry_module.handoff)
         self.assertIn("capability_hint == PHOTO_CAPABILITY", source)
         self.assertIn("refusal = _file_access_refusal(entry)", source)
+        self.assertIn("_core_rejected_proposal(entry)", source)
 
 
 class MetaLanguageRawDoorSilenceTests(_RawDoorHarness):
@@ -1103,40 +1103,38 @@ class MetaLanguageRawDoorSilenceTests(_RawDoorHarness):
 
 
 class EpistemicQuestionInventoryTests(_RawDoorHarness):
-    """§28'in kapanmayan iki satırı adlandırılır: kanonical Understanding soruyu tanımıyor.
+    """§28 kapanışı: güvenlik/risk ve tanım soruları kanonical olarak açıklama hükmüdür.
 
-    Her iki satırda da ham cephe YOK — karar kanonical Understanding/Core'da veriliyor. Yani
-    bunlar PR3B'nin emekli ettiği bir legacy authority değil, kanonical katmanın kendi
-    sınıflandırma eksiği; taban `ea2f0b3`'te de birebir aynı ölçüldü (diff-proven). PR3C
-    envanter satırları: soru işareti filtresi (`_definition_question` vetosu) ve epistemik
-    soru işaretçilerinin `_STATIC_MARKERS` dışında kalması."""
+    Taban `ea2f0b3` ölçümü: "dosya taşımak güvenli mi?" ve "mail göndermenin riskleri neler?"
+    hiçbir `_STATIC_MARKERS` işaretçisi taşımadığı için EXPLANATION_REQUEST üretmiyor, tur ham
+    cephenin tamamını dolaşıyordu. PR3C-2 işaretçileri genişletti: ikisi de EXPLANATION + CHAT
+    olur, ham kapıya sorulmaz. Tanım sorusu bir anahtar sözcük yüzünden yetenek önerisi de
+    taşıyamaz (`dolar kaç tl ne demek?` → research ipucu düşer); açık tazelik isteği
+    (`güncel dolar kuru nedir?`) kendi planında kalır."""
 
-    def test_a_question_without_an_explanation_marker_still_walks_the_surface_today(self):
-        """Bu test bugünkü ÜRETİM davranışını yazar, istenen davranışı değil.
-
-        Ölçülen: "dosya taşımak güvenli mi?" ve "mail göndermenin riskleri neler?" hiçbir
-        `_STATIC_MARKERS` işaretçisi taşımadığı için `EXPLANATION_REQUEST` üretmiyor ve tur
-        ham cephenin tamamını dolaşıyor (efekt yine de yok: kapıların hiçbiri cevaplamıyor).
-        PR3C işaretçileri genişlettiğinde bu satır düşmek zorundadır."""
+    def test_a_safety_or_risk_question_walks_no_raw_door(self):
         for text in ("dosya taşımak güvenli mi?", "mail göndermenin riskleri neler?"):
             with self.subTest(text=text):
                 self.door.reset_mock()
                 for door in RAW_DOORS:
                     getattr(self.ctx, door).reset_mock()
                 entry, _out, _handle, _ = self.turn(text)
-                self.assertNotIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
-                self.door.assert_called()
-                self.ctx._extra_commands.assert_called_once()
+                self.assertIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
+                self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+                self.assertIsNone(entry.understanding.capability_hint)
+                self.assertEqual(self.door.call_count, 1)   # tek canonical geçiş
+                for name in RAW_DOORS:
+                    getattr(self.ctx, name).assert_not_called()
 
-    def test_a_marker_question_with_a_capability_hint_runs_the_canonical_plan(self):
-        # Ölçülen taban+head aynı: "dolar kaç tl ne demek?" hem EXPLANATION_REQUEST hem
-        # capability_hint=research.search taşıyor; fence bilinçli olarak hint varken çekiliyor
-        # ve kanonical plan koşuyor (ham kapı çağrılmıyor: door_calls=0). Kalan iş Understanding
-        # tarafında (PR3C satırı), PR3B ham kapı emekliliği değil.
+    def test_a_marker_question_with_a_market_phrase_starts_no_research(self):
+        # "ne demek?" tanım sorusudur; cümledeki "kaç tl" bir arama isteği doğurmaz.
         entry, _out, _handle, _ = self.turn("dolar kaç tl ne demek?")
-        self.assertEqual(entry.understanding.capability_hint, "research.search")
+        self.assertIsNone(entry.understanding.capability_hint)
+        self.assertEqual(set(entry.understanding.arguments), {"original_text"})
         self.assertIn("EXPLANATION_REQUEST", tuple(entry.understanding.reason_codes))
-        self.door.assert_not_called()
+        self.assertEqual(self.door.call_count, 1)
+        for name in RAW_DOORS:
+            getattr(self.ctx, name).assert_not_called()
 
 
 class DiagnoseTypoViewTests(_RawDoorHarness):

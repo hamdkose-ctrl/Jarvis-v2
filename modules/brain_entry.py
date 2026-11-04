@@ -1041,6 +1041,25 @@ def _file_access_refusal(entry: EntryResult) -> str | None:
     return "Bu dosyaya erişemiyorum (izinli klasörlerin dışında, bulunamıyor veya hedef doğrulanamadı); işlem başlatılmadı."
 
 
+def _core_rejected_proposal(entry: EntryResult) -> bool:
+    """Core refused a COMPLETE typed proposal; the raw gate may not execute it a second time.
+
+    `core_plan=None` alone is not a rejection: an incomplete proposal that carries only the
+    sentence text still belongs to its legacy domain owner (`beni uyar`, `dosyayı aç`). Only a
+    Core-mapped hint plus a typed payload beyond `original_text` counts as a proposal Core
+    validated and refused."""
+    if entry.state_gate.matched or (entry.fast_gate is not None and entry.fast_gate.matched):
+        return False
+    semantic = entry.understanding
+    if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
+        return False
+    if semantic.capability_hint not in brain_core_map.CORE_INTENTS:
+        return False
+    if not (set(semantic.arguments) - {"original_text"}):
+        return False
+    return not is_sequenced(entry.text) and not _pending_owns_turn(entry)
+
+
 def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     """Bounded State/Fast turn'un tek Core planı: cümle yeniden sınıflandırılmaz.
 
@@ -1084,6 +1103,13 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         # No validated Core photo plan means no photo effect, and no legacy raw-text fallback.
         message = "Bu fotoğraf isteğini güvenli biçimde doğrulayamadım; işlem başlatılmadı."
         row = feedback(entry, result_status="failed", reason_code="PHOTO_TARGET_NOT_VALIDATED")
+        _LAST_FEEDBACK.set(row)
+        return message, row, None
+    if plan is None and lane_plan is None and _core_rejected_proposal(entry):
+        # Core'un reddettiği tam tipli öneri ham cepheden ikinci kez yürütülemez: ne etki ne
+        # sahte başarı. Eksik öneri (yalnız cümle metni) bu çite girmez, eski sahibinde kalır.
+        message = "Bu isteği güvenli biçimde doğrulayamadım; işlem başlatılmadı."
+        row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")
         _LAST_FEEDBACK.set(row)
         return message, row, None
     if not callable(handler):
@@ -1197,6 +1223,7 @@ def goal_question_superseded(runtime: Any = None) -> bool | None:
         return False
     return (semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL}
             or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE
+            or EXPLANATION_REQUEST_CODE in semantic.reason_codes
             or ACTION_REQUEST_CODE in semantic.reason_codes)
 
 

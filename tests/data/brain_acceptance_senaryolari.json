@@ -1018,9 +1018,9 @@
       "group": "goal_question",
       "text": "yapay zeka nedir",
       "expect": {
-        "goal_question": "answer"
+        "goal_question": "new_request"
       },
-      "not": "Closeout-B3b: soru bekleyen hedefe gelen cümle; cevap sayılır."
+      "not": "PR3C-2: açıklama sorusu açık Goal sorusunun cevabı değildir; soruyu tüketmez, kanonical açıklama turu olarak yeni istek sayılır (Closeout-B3b beklentisi bu sözleşmeyle güncellendi)."
     },
     {
       "id": "b3b-goal-ans-5df4cd",

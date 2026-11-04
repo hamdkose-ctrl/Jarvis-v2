@@ -26,8 +26,10 @@ OLD_NEW_SENTENCES = [
 # Intentional improvements: Understanding sees a new capability the old verb rule could not.
 # "hava durumunu söyle" is one of the legacy-owned weather status commands; the canonical
 # capability decision now recognizes it as an independent new request (no pending owner).
+# "yapay zeka nedir" carries EXPLANATION_REQUEST (PR3C-2): an explanation question never
+# consumes an open goal question, even though the old verb rule saw no action ending.
 IMPROVED = {"yarın hava nasıl olacak", "bana hatırlat", "belgeyi özetle", "ankara'da hava nasıl", "notlarımı oku",
-            "hava durumunu söyle"}
+            "hava durumunu söyle", "yapay zeka nedir"}
 
 
 def real_entry(text):
