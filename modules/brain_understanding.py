@@ -2040,10 +2040,16 @@ def understand(
     notes_read_request = ((not (photo_targeted or context_control or topic_change or correction))
                           and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
     file_operation = None if (photo_targeted or context_control or topic_change or correction) else _file_operation(normalized)
+    file_mutation, file_mutation_ambiguity = (
+        (None, None) if (photo_targeted or context_control or topic_change or correction)
+        else _file_mutation_proposal(normalized, references)
+    )
     organize_targets = () if (photo_targeted or context_control or topic_change or correction) else _organize_targets(normalized)
     folder_analysis = (None if (photo_targeted or context_control or topic_change or correction)
                        else folder_analysis_request(normalized))
     ambiguities = _ambiguity_for_references(normalized, references)
+    if file_mutation_ambiguity is not None and not ambiguities:
+        ambiguities = (file_mutation_ambiguity,)
     if photo_ambiguity is not None:
         ambiguities = (*ambiguities, photo_ambiguity)
     if note_write is not None:
@@ -2114,7 +2120,7 @@ def understand(
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
-        or translation is not None or file_operation is not None or photo_proposal is not None
+        or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
@@ -2222,7 +2228,7 @@ def understand(
         if correction
         else {"original_text": text}
     )
-    capability_hint = _capability_hint(normalized, temporal_need)
+    capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else _capability_hint(normalized, temporal_need)
     if typed_pending_capability is not None:
         capability_hint, clarify_arguments = typed_pending_capability
         arguments = {**arguments, **clarify_arguments}
@@ -2241,6 +2247,8 @@ def understand(
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
         arguments = {**arguments, **_file_arguments(normalized, references)}
+    if capability_hint == FILE_MUTATE_CAPABILITY and file_mutation is not None:
+        arguments = {**arguments, **file_mutation}
     if capability_hint == "research.search":
         arguments = {**arguments, **_research_arguments(text, normalized)}
     if capability_hint == "notes.read":
