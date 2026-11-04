@@ -103,7 +103,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             "current capability and never invent arguments. If uncertain choose CHAT. Core revalidates."
         )
         def send(provider: str) -> str:
-            return llm._send_provider(provider, prompt, system, 180, None)
+            return llm._send_provider(provider, prompt, system, 12, None)
 
         with requests_state.budget(12):
             # Smart Router remains the only provider selector. This call narrows its
