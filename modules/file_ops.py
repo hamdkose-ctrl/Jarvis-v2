@@ -150,7 +150,7 @@ def _move(command: str, owner: str = "") -> str | None:
         shutil.move(str(source), str(final))
     except OSError as exc:
         return f"Dosyayı taşıyamadım: {exc}"
-    _record([[str(final), str(source)]], owner)
+    _record([[str(final), str(source), _digest(final)]], owner)
     return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
 
 
@@ -182,7 +182,7 @@ def _rename(command: str, owner: str = "") -> str | None:
         source.rename(target)
     except OSError as exc:
         return f"Adı değiştiremedim: {exc}"
-    _record([[str(target), str(source)]], owner)
+    _record([[str(target), str(source), _digest(target)]], owner)
     return f"{source.name} dosyasının adını {new} yaptım. İstersen “son dosya işlemini geri al” de."
 
 
@@ -224,26 +224,43 @@ def undo(owner: str = "") -> str:
     except (OSError, ValueError):
         return "Geri alınacak bir dosya işlemi yok."
     done = 0
+    pending = []
     for entry in reversed(pairs):
         new, old = entry[0], entry[1]
         try:
             if not os.path.exists(new):
+                pending.append(entry)
                 continue
             if old == "":
-                # Oluşturulan metin dosyası yalnız Jarvis'in yazdığı içerikle aynıysa silinir; sonradan düzenlendiyse dokunulmaz.
+                # Oluşturulan dosya yalnız Jarvis'in yazdığı içerikle aynıysa silinir.
                 if len(entry) > 2 and _digest(Path(new)) == entry[2]:
                     os.remove(new)
                     done += 1
-            elif not os.path.exists(old):
+                else:
+                    pending.append(entry)
+            elif len(entry) > 2 and _digest(Path(new)) != entry[2]:
+                # Taşınan/yeniden adlandırılan dosya sonradan değiştirildiyse kimliğini koru.
+                pending.append(entry)
+            elif os.path.exists(old):
+                # Eski konum doluysa üzerine yazma; kayıt sonraki deneme için kalsın.
+                pending.append(entry)
+            else:
                 shutil.move(new, old)
                 done += 1
         except OSError:
-            continue
+            pending.append(entry)
     try:
-        _undo_path(owner).unlink()
+        if pending:
+            _record(list(reversed(pending)), owner)
+        else:
+            _undo_path(owner).unlink(missing_ok=True)
     except OSError:
         pass
-    return "Son dosya işlemini geri aldım." if done else "Son dosya işlemini geri alamadım (dosya değişmiş ya da yerinde değil); dosyana dokunmadım."
+    if done and not pending:
+        return "Son dosya işlemini geri aldım."
+    if done and pending:
+        return "Geri alma kısmen tamamlandı; engellenen kayıtları daha sonra yeniden deneyebilirsin."
+    return "Son dosya işlemini geri alamadım (dosya değişmiş, yerinde değil ya da eski konum dolu); dosyana dokunmadım."
 
 
 def handle(command: str, owner: str = "") -> str | None:
