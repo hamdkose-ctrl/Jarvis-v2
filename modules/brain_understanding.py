@@ -969,7 +969,9 @@ def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...])
         return None, None
     target = (move.group("target") if move is not None else rename.group("target")).strip()
     rows = [ref for ref in references if ref.kind == "file"]
-    operation = "move" if move is not None else "rename"
+    operation = "move"
+    if move is None:
+        operation = "rename"
     if len(rows) != 1:
         return {"mutation": {"operation": operation}}, FILE_MUTATION_TARGET_UNRESOLVED
     path = rows[0].provenance.get("path")
