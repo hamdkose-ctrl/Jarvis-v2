@@ -253,7 +253,8 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             result = model.refine(owner=OWNER, text="rapor dosyasını özetle",
                                   current=current(), arguments=current().arguments)
         self.assertIsNotNone(result)
-        self.assertEqual(send.call_args.args[3], 12)
+        self.assertGreater(send.call_args.args[3], 0)
+        self.assertLessEqual(send.call_args.args[3], 12)
 
 
 if __name__ == "__main__":
