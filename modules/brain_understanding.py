@@ -931,6 +931,57 @@ FILE_CONVERT = "convert"
 FILE_TARGET_UNRESOLVED = "file target unresolved"
 FILE_TRANSLATION_TARGET_MISSING = "file translation target missing"
 FILE_CONVERSION_FORMAT_MISSING = "file conversion format missing"
+FILE_MUTATE_CAPABILITY = "files.mutate"
+FILE_MUTATION_TARGET_UNRESOLVED = "file mutation target unresolved"
+_FILE_MUTATION_UNDO = re.compile(r"^(?:son )?dosya i[sş]lemini geri al$")
+_FILE_MUTATION_MOVE = re.compile(
+    r"^(?P<target>.+?)\\s+dosyas[ıi]n[ıi]\\s+(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere|resimlere)\\s+ta[sş][ıi]\\w*$",
+    re.I,
+)
+_FILE_MUTATION_RENAME = re.compile(
+    r"^(?P<target>.+?)\\s+dosyas[ıi]n[ıi]n\\s+ad[ıi]n[ıi]\\s+(?P<name>.+?)\\s+(?:yap|olarak de[ğg]i[sş]tir\\w*|yeniden adland[ıi]r\\w*)$",
+    re.I,
+)
+_FILE_MUTATION_CREATE = re.compile(
+    r"^(?P<folder>masaüstüne|masaustune|indirilenlere|belgelere)\\s+(?P<name>.+?)\\s+ad[ıi]nda\\s+(?:bir )?(?:metin|not|txt) dosyas[ıi]\\s+(?:olu[sş]tur\\w*|yap\\w*)"
+    r"(?:\\s+(?:ve )?i[çc]ine (?P<content>.+?) yaz\\w*)?$",
+    re.I,
+)
+
+
+def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...]):
+    """Typed file mutation proposal; target paths come only from resolved owner-bound references."""
+    cleaned = text.strip(" .!?")
+    if _FILE_MUTATION_UNDO.fullmatch(cleaned):
+        return {"mutation": {"operation": "undo"}}, None
+    move = _FILE_MUTATION_MOVE.fullmatch(cleaned)
+    rename = _FILE_MUTATION_RENAME.fullmatch(cleaned)
+    create = _FILE_MUTATION_CREATE.fullmatch(cleaned)
+    if create is not None:
+        folder = {
+            "masaüstüne": "masaüstü", "masaustune": "masaustu",
+            "indirilenlere": "indirilenler", "belgelere": "belgeler",
+        }.get(typo.fold(create.group("folder")), typo.fold(create.group("folder")))
+        return {"mutation": {"operation": "create", "folder": folder,
+                             "name": create.group("name").strip(),
+                             "content": (create.group("content") or "").strip()}}, None
+    if move is None and rename is None:
+        return None, None
+    target = (move.group("target") if move is not None else rename.group("target")).strip()
+    rows = [ref for ref in references if ref.kind == "file"]
+    if len(rows) != 1:
+        return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
+    path = rows[0].provenance.get("path")
+    if not isinstance(path, str) or not path.strip() or "\\x00" in path:
+        return {"mutation": {"operation": "move" if move is not None else "rename"}}, FILE_MUTATION_TARGET_UNRESOLVED
+    if move is not None:
+        folder = {
+            "masaüstüne": "masaüstü", "masaustune": "masaustu",
+            "indirilenlere": "indirilenler", "belgelere": "belgeler", "resimlere": "resimler",
+        }.get(typo.fold(move.group("folder")), typo.fold(move.group("folder")))
+        return {"mutation": {"operation": "move", "path": path, "folder": folder}}, None
+    return {"mutation": {"operation": "rename", "path": path, "name": rename.group("name").strip()}}, None
+
 # Operations Core fully owns with no sensible legacy raw-text fallback: Brain must ask rather than
 # let Core guess. FILE_OPEN/FILE_LOCATE stay legacy-resolved by name search when Brain has no single
 # resolved reference (pre-existing behavior); Brain only proposes them when a reference did resolve.
