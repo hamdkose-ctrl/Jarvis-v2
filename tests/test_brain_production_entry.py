@@ -227,6 +227,32 @@ class BrainProductionEntryTests(unittest.TestCase):
         self.assertEqual(order, ["state", "fast", "candidates", "references", "understanding"])
         self.assertIs(result.understanding, semantic)
 
+    def test_model_refinement_runs_once_after_final_candidate_resolution(self):
+        module = self.module()
+        order = []
+        miss_state = GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH")
+        miss_fast = GateObservation(OWNER, RID, "fast", False, "NO_EXACT_FAST_MATCH")
+        candidate = ContextReference(
+            id="file-1", kind="file", source="files", owner=OWNER,
+            provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf", "name": "rapor.pdf"},
+        )
+        semantic = understanding(kind=RequestKind.CAPABILITY, hint="files.read")
+        with patch.object(module, "_build_context", return_value=context()), \
+             patch.object(module, "_state_refs", return_value=()), \
+             patch.object(module, "exact_state_gate", return_value=miss_state), \
+             patch.object(module, "deterministic_fast_gate", return_value=miss_fast), \
+             patch.object(module, "build_candidates", side_effect=lambda **k: (order.append("candidates") or (candidate,))), \
+             patch.object(module, "resolve_references", side_effect=lambda **k: (order.append("references") or (candidate,))), \
+             patch.object(module, "understand", side_effect=lambda **k: (order.append("understand") or semantic)), \
+             patch.object(module, "apply_model_refinement", side_effect=lambda value, text: (order.append("model") or value)) as refine:
+            result = module.prepare(
+                self.runtime(), owner=OWNER, request_id=RID, text="şu raporu incele",
+                source="yazı", model_refinement=True,
+            )
+        self.assertIs(result.understanding, semantic)
+        self.assertEqual(order, ["candidates", "references", "understand", "model"])
+        refine.assert_called_once_with(semantic, "şu raporu incele")
+
     def test_needs_input_short_circuits_core_handler_and_worker_effects(self):
         module = self.module()
         result = entry(module, semantic=understanding(
