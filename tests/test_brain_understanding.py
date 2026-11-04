@@ -69,7 +69,6 @@ class BrainUnderstandingTests(unittest.TestCase):
         references=(),
         owner: str = OWNER,
         request_id: str = RID,
-        model_refinement: bool = False,
     ):
         return understand(
             owner=owner,
@@ -78,7 +77,6 @@ class BrainUnderstandingTests(unittest.TestCase):
             active_context=active_context or ctx(),
             candidates=tuple(candidates),
             references=tuple(references),
-            model_refinement=model_refinement,
         )
 
     def test_owner_request_and_context_fences_fail_closed(self):
@@ -665,12 +663,14 @@ class BrainUnderstandingTests(unittest.TestCase):
     def test_canonical_understanding_propagates_model_request_cancellation(self):
         from modules import requests_state
         source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
+        result = self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
         with patch(
             "modules.brain_model_understanding.refine",
             side_effect=requests_state.Cancelled("cancelled"),
         ):
             with self.assertRaises(requests_state.Cancelled):
-                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,), model_refinement=True)
+                from modules.brain_understanding import apply_model_refinement
+                apply_model_refinement(result, "rapor dosyasını özetle")
 
     def test_model_file_proposal_is_wired_into_canonical_understanding(self):
         from modules.brain_model_understanding import SemanticRefinement
@@ -679,8 +679,10 @@ class BrainUnderstandingTests(unittest.TestCase):
                                       TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
                                       {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
                                        'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
+        result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
         with patch('modules.brain_model_understanding.refine', return_value=proposal):
-            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,), model_refinement=True)
+            from modules.brain_understanding import apply_model_refinement
+            result = apply_model_refinement(result, 'şu raporu bir incele')
         self.assertIs(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, 'files.read')
         self.assertEqual(result.arguments['operation'], 'analyze')
