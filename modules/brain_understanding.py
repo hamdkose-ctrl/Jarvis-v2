@@ -1960,7 +1960,7 @@ def understand(
     active_context: ActiveContext,
     candidates: tuple[ContextReference, ...],
     references: tuple[ContextReference, ...],
-    model_refinement: bool = True,
+    model_refinement: bool = False,
 ) -> UnderstandingResult:
     """Return an immutable semantic proposal without taking Core authority."""
     owner = _required("owner", owner)
