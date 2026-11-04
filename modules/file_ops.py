@@ -263,6 +263,75 @@ def undo(owner: str = "") -> str:
     return "Son dosya işlemini geri alamadım (dosya değişmiş, yerinde değil ya da eski konum dolu); dosyana dokunmadım."
 
 
+def execute_typed(operation: str, *, owner: str = "", path: str = "",
+                  folder: str = "", name: str = "", content: str = "") -> str:
+    """Execute a Brain/Core-validated file mutation; never parses natural language."""
+    if operation == "undo":
+        return undo(owner)
+    if operation not in {"move", "rename", "create"}:
+        return "Dosya işlemi türü doğrulanamadı; işlem başlatılmadı."
+    if operation in {"move", "rename"}:
+        if not isinstance(path, str) or not path or "\\x00" in path or len(path) > 4096:
+            return "Dosya yolu doğrulanamadı; işlem başlatılmadı."
+        source = Path(path)
+        try:
+            roots = [root.resolve() for root in _roots()]
+            if source.is_symlink() or not source.is_file() or source.parent.resolve() not in roots:
+                return "Dosya artık izinli konumda değil; işlem başlatılmadı."
+        except OSError:
+            return "Dosya konumu doğrulanamadı; işlem başlatılmadı."
+        if operation == "move":
+            hit = files.match_folder(_fold(folder))
+            if not hit or hit[1] not in _DEST:
+                return "Hedef klasör doğrulanamadı; işlem başlatılmadı."
+            destination, label, _need = hit
+            if source.parent.resolve() == destination.resolve():
+                return f"{source.name} zaten {label} klasöründe."
+            if reason := _permission_decision(owner, "Taşı", str(source)):
+                return reason
+            try:
+                target = files._free_name(destination / source.name)
+                shutil.move(str(source), str(target))
+                _record([[str(target), str(source), _digest(target)]], owner)
+            except OSError:
+                return "Dosyayı güvenli biçimde taşıyamadım."
+            return f"{source.name} dosyasını {label} klasörüne taşıdım."
+        new, problem = _valid_name(name, source)
+        if not new:
+            return problem
+        target = source.with_name(new)
+        if target.exists() and target.resolve() != source.resolve():
+            return f"{new} adında bir dosya zaten var; üzerine yazmadım."
+        if reason := _permission_decision(owner, "Yeniden adlandır", str(source)):
+            return reason
+        try:
+            source.rename(target)
+            _record([[str(target), str(source), _digest(target)]], owner)
+        except OSError:
+            return "Dosyanın adını güvenli biçimde değiştiremedim."
+        return f"{source.name} dosyasının adını {new} yaptım."
+    hit = files.match_folder(_fold(folder))
+    if not hit or hit[1] not in ("Masaüstü", "İndirilenler", "Belgeler"):
+        return "Hedef klasör doğrulanamadı; işlem başlatılmadı."
+    destination, label, _need = hit
+    if not isinstance(name, str) or not name.strip() or len(name) > 120 or not isinstance(content, str) or len(content) > 16000 or "\\x00" in content:
+        return "Dosya adı veya içeriği doğrulanamadı; işlem başlatılmadı."
+    filename, problem = _valid_name(name, Path("x.txt"))
+    if not filename:
+        return problem
+    if Path(filename).suffix.lower() != ".txt":
+        filename = Path(filename).stem + ".txt"
+    if reason := _permission_decision(owner, "Metin dosyası oluştur", str(destination / filename)):
+        return reason
+    try:
+        target = files._free_name(destination / filename)
+        target.write_text(content + ("\\n" if content else ""), encoding="utf-8", errors="strict")
+        _record([[str(target), "", _digest(target)]], owner)
+    except OSError:
+        return "Metin dosyasını güvenli biçimde oluşturamadım."
+    return f"{label} klasöründe {target.name} dosyasını oluşturdum."
+
+
 def handle(command: str, owner: str = "") -> str | None:
     """“rapor.pdf dosyasını belgelere taşı”, “x dosyasının adını y yap”, “masaüstüne not adında bir metin dosyası oluştur
     ve içine merhaba yaz”, “son dosya işlemini geri al”. İlgisizse None."""
