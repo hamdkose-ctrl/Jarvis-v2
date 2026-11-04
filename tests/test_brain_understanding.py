@@ -660,6 +660,29 @@ class BrainUnderstandingTests(unittest.TestCase):
             self.assertNotIn(token, source)
 
 
+    def test_canonical_understanding_propagates_model_request_cancellation(self):
+        from modules import requests_state
+        source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
+        with patch(
+            "modules.brain_model_understanding.refine",
+            side_effect=requests_state.Cancelled("cancelled"),
+        ):
+            with self.assertRaises(requests_state.Cancelled):
+                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
+
+    def test_model_file_proposal_is_wired_into_canonical_understanding(self):
+        from modules.brain_model_understanding import SemanticRefinement
+        source = ref('file:rapor', 'file', path='C:/Users/hamdi/Documents/rapor.pdf', name='rapor.pdf')
+        proposal = SemanticRefinement(RequestKind.CAPABILITY, ConversationRelation.NEW_REQUEST,
+                                      TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
+                                      {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
+                                       'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
+        with patch('modules.brain_model_understanding.refine', return_value=proposal):
+            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(result.capability_hint, 'files.read')
+        self.assertEqual(result.arguments['operation'], 'analyze')
+
 class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
     def test_capability_domain_signals_are_bounded(self):
         cases = (
@@ -870,28 +893,6 @@ class SequenceGrammarTests(unittest.TestCase):
         self.assertFalse(is_sequenced('maili oku'))
 
 
-    def test_canonical_understanding_propagates_model_request_cancellation(self):
-        from modules import requests_state
-        source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
-        with patch(
-            "modules.brain_model_understanding.refine",
-            side_effect=requests_state.Cancelled("cancelled"),
-        ):
-            with self.assertRaises(requests_state.Cancelled):
-                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
-
-    def test_model_file_proposal_is_wired_into_canonical_understanding(self):
-        from modules.brain_model_understanding import SemanticRefinement
-        source = ref('file:rapor', 'file', path='C:/Users/hamdi/Documents/rapor.pdf', name='rapor.pdf')
-        proposal = SemanticRefinement(RequestKind.CAPABILITY, ConversationRelation.NEW_REQUEST,
-                                      TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
-                                      {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
-                                       'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
-        with patch('modules.brain_model_understanding.refine', return_value=proposal):
-            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
-        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
-        self.assertEqual(result.capability_hint, 'files.read')
-        self.assertEqual(result.arguments['operation'], 'analyze')
 
 
 if __name__ == "__main__":
