@@ -34,7 +34,7 @@ from modules.brain_contracts import (
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import is_sequenced, sequence_steps, understand
+from modules.brain_understanding import apply_model_refinement, is_sequenced, sequence_steps, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -362,7 +362,6 @@ def _semantic_pass(
     text: str,
     active: ActiveContext,
     allow_file_scan: bool,
-    model_refinement: bool = False,
 ):
     candidates = build_candidates(
         owner=owner,
@@ -386,7 +385,6 @@ def _semantic_pass(
         active_context=active,
         candidates=candidates,
         references=references,
-        model_refinement=model_refinement,
     )
     if semantic.owner != owner or semantic.request_id != request_id:
         raise ValueError("Understanding owner/request fence eşleşmiyor.")
@@ -445,7 +443,6 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         text=text,
         active=active,
         allow_file_scan=False,
-        model_refinement=False,
     )
     if _needs_file_discovery(references, semantic):
         candidates, references, semantic = _semantic_pass(
@@ -455,19 +452,10 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             text=text,
             active=active,
             allow_file_scan=True,
-            model_refinement=model_refinement,
         )
-    elif model_refinement:
-        # Candidate enrichment is complete. Invoke optional model refinement exactly once.
-        semantic = understand(
-            owner=owner,
-            request_id=request_id,
-            text=text,
-            active_context=active,
-            candidates=candidates,
-            references=references,
-            model_refinement=True,
-        )
+    if model_refinement:
+        # Candidate enrichment is complete. Apply at most one optional model proposal.
+        semantic = apply_model_refinement(semantic, text)
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
 
