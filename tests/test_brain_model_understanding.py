@@ -129,5 +129,13 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+    def test_model_cannot_create_a_clarification_without_a_typed_reason(self):
+        p1, p2, p3 = self.eligible()
+        raw = answer(request_kind="CLARIFY", capability_hint=None)
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
