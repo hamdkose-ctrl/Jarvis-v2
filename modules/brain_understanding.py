@@ -2273,6 +2273,7 @@ def understand(
     if (not result.needs_input and (
             result.request_kind is RequestKind.CAPABILITY
             or any(reference.kind == "file" for reference in result.references)
+            or (result.request_kind is RequestKind.CHAT and _looks_like_capability(normalized))
     )):
         try:
             from modules.brain_model_understanding import refine
