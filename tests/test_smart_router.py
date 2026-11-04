@@ -276,8 +276,6 @@ class SmartRouterTests(unittest.TestCase):
         self.assertNotIn(secret,str(caught.exception))
         self.assertNotIn(secret,json.dumps(router.status('alice')['last']))
 
-if __name__=='__main__':unittest.main()
-
     def test_caller_can_only_narrow_router_candidates_and_exclude_local_fallback(self):
         router.configure('alice', True)
         calls = []
@@ -290,3 +288,5 @@ if __name__=='__main__':unittest.main()
         with self.assertRaises(ValueError):
             router.run('alice', 'brain semantic proposal', answer,
                        exclude_providers={'invented-provider'})
+
+if __name__=='__main__':unittest.main()
