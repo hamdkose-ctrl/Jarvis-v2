@@ -61,13 +61,17 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         allowed_hints = sorted(CORE_INTENTS)
         file_refs = [ref for ref in current.references if getattr(ref, "kind", None) == "file"]
         file_slots = []
-        for index, reference in enumerate(file_refs):
+        slot_refs = []
+        for reference in file_refs:
             path_value = reference.provenance.get("path")
+            if not isinstance(path_value, str) or not path_value.strip():
+                continue
             name_value = reference.provenance.get("name")
             if not isinstance(name_value, str) or not name_value.strip():
-                name_value = str(path_value or "").replace("\\\\", "/").rsplit("/", 1)[-1]
-            if isinstance(path_value, str) and path_value.strip():
-                file_slots.append({"slot": f"file_{index}", "name": name_value[:180]})
+                name_value = path_value.replace("\\\\", "/").rsplit("/", 1)[-1]
+            slot = f"file_{len(slot_refs)}"
+            file_slots.append({"slot": slot, "name": name_value[:180]})
+            slot_refs.append((slot, reference))
         prompt = json.dumps({
             "utterance": text[:2000],
             "current": {
@@ -81,7 +85,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                 "conversation_relation": [item.value for item in ConversationRelation],
                 "temporal_need": [item.value for item in TemporalNeed],
                 "capability_hint": allowed_hints,
-                "file_operation": ["summarize", "analyze", "open", "locate", "list", "compare"],
+                "file_operation": ["summarize", "analyze", "locate", "list", "compare"],
             },
             "file_candidates": file_slots,
         }, ensure_ascii=False)
@@ -89,7 +93,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             "You are a semantic proposal component, not an agent. Return exactly one JSON object "
             "with keys request_kind, conversation_relation, temporal_need, capability_hint, confidence, "
             "file_operation, file_slots. file_slots may contain only supplied slot labels. You may propose "
-            "files.read only with one valid file slot for summarize/analyze/open/locate, 2-10 slots for "
+            "files.read only with one valid file slot for summarize/analyze/locate, 2-10 slots for "
             "compare, or no slots for list. Do not output arguments, paths, filenames, recipients, "
             "references, approvals, permissions, or execution claims. For other capabilities keep the "
             "current capability and never invent arguments. If uncertain choose CHAT. Core revalidates."
@@ -114,9 +118,9 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             return None
         proposed_arguments = None
         if proposed_hint == "files.read":
-            if operation not in {"summarize", "analyze", "open", "locate", "list", "compare"}:
+            if operation not in {"summarize", "analyze", "locate", "list", "compare"}:
                 return None
-            by_slot = {item["slot"]: ref for item, ref in zip(file_slots, file_refs)}
+            by_slot = dict(slot_refs)
             if len(set(slots)) != len(slots) or any(slot not in by_slot for slot in slots):
                 return None
             if operation == "list":
