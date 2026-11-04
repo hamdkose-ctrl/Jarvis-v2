@@ -362,7 +362,7 @@ def _semantic_pass(
     text: str,
     active: ActiveContext,
     allow_file_scan: bool,
-    model_refinement: bool = True,
+    model_refinement: bool = False,
 ):
     candidates = build_candidates(
         owner=owner,
@@ -403,7 +403,7 @@ def _needs_file_discovery(references: tuple[ContextReference, ...], semantic: An
 
 
 def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str,
-            artifact: ContextReference | None = None) -> EntryResult:
+            artifact: ContextReference | None = None, model_refinement: bool = False) -> EntryResult:
     """Build one canonical Brain observation/proposal for the already-active request."""
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
@@ -455,9 +455,9 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             text=text,
             active=active,
             allow_file_scan=True,
-            model_refinement=True,
+            model_refinement=model_refinement,
         )
-    else:
+    elif model_refinement:
         # Candidate enrichment is complete. Invoke optional model refinement exactly once.
         semantic = understand(
             owner=owner,
