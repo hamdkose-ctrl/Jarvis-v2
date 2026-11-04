@@ -665,7 +665,7 @@ class BrainFileMutationProposalTests(unittest.TestCase):
     def call(self, text, *, candidates=(), references=()):
         return understand(
             owner=OWNER, request_id=RID, text=text, active_context=ctx(),
-            candidates=tuple(candidates), references=tuple(references), model_refinement=False,
+            candidates=tuple(candidates), references=tuple(references),
         )
 
     def test_file_mutations_propose_typed_core_payloads_from_resolved_candidates(self):
