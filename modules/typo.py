@@ -46,6 +46,16 @@ def _fold(s: str) -> str:
     return s.translate(_FOLD)
 
 
+def fold(s: str) -> str:
+    """Türkçe karakter katlaması (ç→c, ı→i…); dönüş uzunluğu girdiyle aynıdır."""
+    return _fold(s)
+
+
+def one_edit(a: str, b: str) -> bool:
+    """İki katlanmış form arasında tam olarak bir düzenleme (yer değiştirme dahil) var mı."""
+    return _lev1(a, b)
+
+
 _VF = [(v, _fold(v)) for v in VOCAB]
 
 

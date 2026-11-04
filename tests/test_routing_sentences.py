@@ -37,10 +37,12 @@ _PLAN_TO_CORPUS = {'screen_analyze': 'screen_analyze', 'task': 'task', 'weather'
 _FILE_TARGET_QUESTION_STANDS_FOR = frozenset({'doc_summary', 'doc_insight', 'doc_convert', 'doc_translate'})
 # Legacy corpus bu iki hedefsiz dosya işlemini ortak task diye etiketliyordu. PR10c'de Core hedef
 # tahmin etmediği için yalnız bu gözden geçirilmiş cümleler canonical clarify ile eşdeğerdir.
-# Liste exact tutulur: yeni bir task→clarify sürüklenmesi sessizce geçemez.
+# PR3C-1: yazım toleransı sonrası `şu pdfyi worde cevir` de aynı sınıfta incelendi; Core dosya
+# hedefi uydurmaz, sorar. Liste exact tutulur: yeni bir task→clarify sürüklenmesi sessizce geçemez.
 _TASK_FILE_TARGET_CLARIFY = frozenset({
     "bu pdf'yi word belgesine dönüştür",
     'bu iki dosyayı karşılaştır, farkları maddeler halinde çıkar.',
+    'şu pdfyi worde cevir',
 })
 _FAST_TO_CORPUS = {'fast.system.status': 'status', 'fast.time.read': 'status', 'fast.date.read': 'status',
                    'fast.conversation.summary': 'chat'}
@@ -245,6 +247,7 @@ class RoutingSentenceTests(unittest.TestCase):
         self.assertEqual(_TASK_FILE_TARGET_CLARIFY, {
             "bu pdf'yi word belgesine dönüştür",
             'bu iki dosyayı karşılaştır, farkları maddeler halinde çıkar.',
+            'şu pdfyi worde cevir',
         })
         for text in _TASK_FILE_TARGET_CLARIFY:
             with self.subTest(text=text):
