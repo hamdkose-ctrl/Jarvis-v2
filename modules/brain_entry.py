@@ -34,7 +34,7 @@ from modules.brain_contracts import (
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import is_sequenced, sequence_steps, understand
+from modules.brain_understanding import apply_model_refinement, is_sequenced, sequence_steps, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -407,7 +407,7 @@ def _needs_file_discovery(references: tuple[ContextReference, ...], semantic: An
 
 
 def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str,
-            artifact: ContextReference | None = None) -> EntryResult:
+            artifact: ContextReference | None = None, model_refinement: bool = False) -> EntryResult:
     """Build one canonical Brain observation/proposal for the already-active request."""
     owner = _required("owner", owner)
     request_id = _required("request_id", request_id)
@@ -459,6 +459,9 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             active=active,
             allow_file_scan=True,
         )
+    if model_refinement:
+        # Apply one bounded model proposal only after the final candidate/reference set exists.
+        semantic = apply_model_refinement(semantic, text)
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
 
