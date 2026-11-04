@@ -680,7 +680,7 @@ class BrainUnderstandingTests(unittest.TestCase):
                                       {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
                                        'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
         with patch('modules.brain_model_understanding.refine', return_value=proposal):
-            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
+            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,), model_refinement=True)
         self.assertIs(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, 'files.read')
         self.assertEqual(result.arguments['operation'], 'analyze')
