@@ -30,6 +30,8 @@ from modules.brain_understanding import (
     FILE_TARGET_UNRESOLVED,
     FILE_TRANSLATE,
     FILE_TRANSLATION_TARGET_MISSING,
+    FOLDER_ANALYSIS_CAPABILITY,
+    FOLDER_ANALYSIS_OPERATION,
     LEVEL_CAPABILITY,
     LEVEL_UNSPECIFIED,
     MEDIA_CAPABILITY,
@@ -191,6 +193,37 @@ def _organize_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(folder, str) or folder not in files.ORGANIZE_FOLDERS:
         return None
     return {"operation": ORGANIZE_OPERATION, "folder": folder}
+
+
+_FOLDER_ANALYSIS_NAME_MAX = 40
+# Ad asla bir yol değildir: ayraç, üst-dizin ve denetim karakteri taşıyan bir öneri reddedilir.
+_FOLDER_ANALYSIS_NAME_BAD = re.compile(r"[/\\:*?\"<>|\x00-\x1f\x7f]|\.\.|^$")
+
+
+def _folder_analysis_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core, önerilen klasör anahtarlarını kapalı kümede yeniden doğrular; yol burada doğmaz.
+
+    Brain üç kapalı alan taşır: hangi izinli kök (`folder`), "klasör" sözünden önceki sözcük tek başına
+    bilinen bir kök mü (`named`) ve o sözcük (`name`). Kökler yalnız `folder_analysis.FOLDER_KEYS`
+    kümesindendir; ad sınırlı tek sözcüktür. Kimlik çözümü ve disk erişimi etki sahibinin kendi sınırındadır."""
+    from modules import folder_analysis
+    if set(arguments) - {"operation", "folder", "named", "name", "original_text"}:
+        return None
+    if arguments.get("operation") != FOLDER_ANALYSIS_OPERATION:
+        return None
+    result: dict[str, Any] = {"operation": FOLDER_ANALYSIS_OPERATION}
+    for key in ("folder", "named"):
+        value = arguments.get(key)
+        if not isinstance(value, str) or (value and value not in folder_analysis.FOLDER_KEYS):
+            return None
+        result[key] = value
+    name = arguments.get("name")
+    if not isinstance(name, str) or len(name) > _FOLDER_ANALYSIS_NAME_MAX:
+        return None
+    if name and _FOLDER_ANALYSIS_NAME_BAD.search(name):
+        return None
+    result["name"] = name
+    return result
 
 
 def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -433,6 +466,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # PR3C-3: klasör düzenleme önizlemesi. Niyet ve kapalı klasör anahtarı Brain'den gelir,
     # Core anahtarı gerçek kimlikte yeniden doğrular; taşımayı yapacak olan yürütücü değildir.
     ORGANIZE_CAPABILITY: ("file_organize", _organize_args),
+    # PR3C-4: klasör analizi. Kök anahtarı ve adı geçen alt klasör sözcüğü Brain'den gelir; Core kapalı
+    # kümede yeniden doğrular ve HİÇ yol görmez. Diskteki gerçek kimliği yalnız yürütücü çözer.
+    FOLDER_ANALYSIS_CAPABILITY: ("folder_analyze", _folder_analysis_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),

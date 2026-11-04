@@ -123,6 +123,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # Önizleme tek sahibinden: plan gerçek klasörde kurulur, burada HİÇBİR dosya taşınmaz.
             return organize_preview(runtime, str(a.get("folder") or ""))
 
+        case "folder_analyze":
+            # PR3C-4: kanonical anahtarlar burada gerçek klasör kimliğine çözülür; salt-okuma + KB
+            # dizine ekleme + en çok bir model çağrısı yürütücünün kendi sınırlarıdır.
+            from modules import folder_analysis
+            return folder_analysis.analyze_turn(runtime.profile, a, command)
+
         case "translate":
             text = str(a.get("text") or "").strip()
             target = str(a.get("target") or "").strip() or "Kaynak Türkçe ise İngilizce; diğer dillerde Türkçe"
