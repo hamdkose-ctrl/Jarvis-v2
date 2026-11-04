@@ -1960,6 +1960,7 @@ def understand(
     active_context: ActiveContext,
     candidates: tuple[ContextReference, ...],
     references: tuple[ContextReference, ...],
+    model_refinement: bool = True,
 ) -> UnderstandingResult:
     """Return an immutable semantic proposal without taking Core authority."""
     owner = _required("owner", owner)
@@ -2270,7 +2271,7 @@ def understand(
     # Model refinement is a proposal guard, never a second authority. It runs only for
     # unambiguous canonical capability proposals; exact state/fast gates already returned
     # in Brain Entry before this function is reached.
-    if (not result.needs_input and (
+    if model_refinement and (not result.needs_input and (
             result.request_kind is RequestKind.CAPABILITY
             or any(reference.kind == "file" for reference in result.references)
             or (result.request_kind is RequestKind.CHAT and _looks_like_capability(normalized))
