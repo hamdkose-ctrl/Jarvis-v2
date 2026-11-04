@@ -214,5 +214,34 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+    def test_model_cannot_change_deterministic_file_operation_or_target(self):
+        from modules.brain_contracts import ContextReference
+        first = ContextReference(
+            id="file-ref-1", kind="file", source="candidate", owner=OWNER,
+            provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf", "name": "rapor.pdf"},
+        )
+        second = ContextReference(
+            id="file-ref-2", kind="file", source="candidate", owner=OWNER,
+            provenance={"path": "C:/Users/hamdi/Documents/butce.pdf", "name": "butce.pdf"},
+        )
+        active = current(
+            capability_hint="files.read",
+            arguments={"original_text": "rapor dosyasını özetle", "operation": "summarize",
+                       "path": "C:/Users/hamdi/Documents/rapor.pdf"},
+            references=(first, second),
+        )
+        p1, p2, p3 = self.eligible()
+        changed_operation = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                                  file_operation="analyze", file_slots=["file_0"], confidence="MEDIUM")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=changed_operation):
+            self.assertIsNone(model.refine(owner=OWNER, text="rapor dosyasını özetle", current=active,
+                                           arguments=active.arguments))
+        wrong_target = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                              file_operation="summarize", file_slots=["file_1"], confidence="MEDIUM")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=wrong_target):
+            self.assertIsNone(model.refine(owner=OWNER, text="rapor dosyasını özetle", current=active,
+                                           arguments=active.arguments))
+
+
 if __name__ == "__main__":
     unittest.main()
