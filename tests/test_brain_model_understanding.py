@@ -35,6 +35,8 @@ def answer(**changes):
         "temporal_need": "STATIC",
         "capability_hint": None,
         "confidence": "LOW",
+        "file_operation": None,
+        "file_slots": [],
     }
     values.update(changes)
     return json.dumps(values)
@@ -135,6 +137,57 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
         self.assertIsNone(result)
+
+
+    def test_model_maps_file_operation_only_through_supplied_reference_slot(self):
+        from modules.brain_contracts import ContextReference
+        from modules.brain_core_map import core_plan
+        file_ref = ContextReference(
+            id="file-ref-1", kind="file", source="candidate", owner=OWNER,
+            provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf", "name": "rapor.pdf"},
+        )
+        active = current(
+            request_kind=RequestKind.CHAT,
+            capability_hint=None,
+            arguments={"original_text": "şu raporu bir incele"},
+            references=(file_ref,),
+        )
+        p1, p2, p3 = self.eligible()
+        raw = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                     file_operation="analyze", file_slots=["file_0"], confidence="LOW")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+            result = model.refine(owner=OWNER, text="şu raporu bir incele", current=active,
+                                  arguments=active.arguments)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.capability_hint, "files.read")
+        self.assertEqual(result.arguments, {
+            "original_text": "şu raporu bir incele",
+            "operation": "analyze",
+            "path": "C:/Users/hamdi/Documents/rapor.pdf",
+        })
+        self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                         ("file_action", {"operation": "analyze",
+                                          "path": "C:/Users/hamdi/Documents/rapor.pdf"}))
+
+    def test_model_cannot_invent_file_slot_or_path(self):
+        from modules.brain_contracts import ContextReference
+        file_ref = ContextReference(
+            id="file-ref-1", kind="file", source="candidate", owner=OWNER,
+            provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf", "name": "rapor.pdf"},
+        )
+        active = current(request_kind=RequestKind.CHAT, capability_hint=None,
+                         arguments={"original_text": "şu raporu incele"}, references=(file_ref,))
+        p1, p2, p3 = self.eligible()
+        unknown_slot = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                              file_operation="analyze", file_slots=["file_9"], confidence="LOW")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=unknown_slot):
+            self.assertIsNone(model.refine(owner=OWNER, text="şu raporu incele", current=active,
+                                           arguments=active.arguments))
+        invented_path = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                               file_operation="analyze", file_slots=["file_0"], path="C:/secret.txt")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=invented_path):
+            self.assertIsNone(model.refine(owner=OWNER, text="şu raporu incele", current=active,
+                                           arguments=active.arguments))
 
 
 if __name__ == "__main__":
