@@ -168,7 +168,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         # The model cannot upgrade a chat into an executable capability unless Core accepts
         # the unchanged, deterministic argument payload for that exact capability.
         if proposed.request_kind is RequestKind.CAPABILITY:
-            if proposed.capability_hint is None:
+            if proposed.confidence is Confidence.LOW or proposed.capability_hint is None:
                 return None
             from modules.brain_core_map import core_plan
             candidate_arguments = proposed.arguments if proposed.arguments is not None else arguments
