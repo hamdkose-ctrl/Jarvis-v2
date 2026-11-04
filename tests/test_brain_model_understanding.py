@@ -43,6 +43,11 @@ def answer(**changes):
 
 
 class BrainModelUnderstandingTests(unittest.TestCase):
+    def setUp(self):
+        owner_patch = patch("modules.llm.current_user", return_value=OWNER)
+        owner_patch.start()
+        self.addCleanup(owner_patch.stop)
+
     def eligible(self):
         return (
             patch("modules.llm.provider", return_value="groq"),
@@ -60,6 +65,13 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIs(result.request_kind, RequestKind.CHAT)
         self.assertIs(result.temporal_need, TemporalNeed.STATIC)
+
+    def test_owner_mismatch_never_uses_another_profiles_provider_key(self):
+        with patch("modules.llm.current_user", return_value="other"), \
+                patch("modules.smart_router.run") as run:
+            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+        self.assertIsNone(result)
+        run.assert_not_called()
 
     def test_paid_provider_is_never_used_by_brain_refinement(self):
         with patch("modules.llm.provider", return_value="openai"), patch("modules.smart_router.run") as ask:
