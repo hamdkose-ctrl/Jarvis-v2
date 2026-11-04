@@ -862,6 +862,8 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return SCREEN_CAPABILITY
     if _WINDOW_LIST_REQUEST.fullmatch(text) or _WINDOW_OP_REQUEST.fullmatch(text):
         return WINDOW_LIST_CAPABILITY if _WINDOW_LIST_REQUEST.fullmatch(text) else WINDOW_OP_CAPABILITY
+    if _organize_targets(text):
+        return ORGANIZE_CAPABILITY
     if _file_operation(text) is not None:
         return "files.read"
     # Eski ham dalın "hava durumuna bak / söyle" yüzü: dosya-not-ekran hedefi yoksa hava okumasıdır.
@@ -1047,6 +1049,52 @@ def _file_arguments(text: str, references: tuple[ContextReference, ...]) -> dict
     return row
 
 
+# --- kanonical klasör düzenleme (PR3C-3) ---------------------------------------------------------
+# Öneri tek bir kapalı sözleşme üretir: `operation` + `folder` ANAHTARI. Yol asla ham metinden
+# türemez; Core anahtarı doğrular, domain (`files.ORGANIZE_FOLDERS`) anahtarı gerçek klasöre çevirir.
+ORGANIZE_CAPABILITY = "files.organize"
+ORGANIZE_OPERATION = "organize"
+ORGANIZE_TARGET_AMBIGUOUS = "organize target ambiguous"
+_ORGANIZE_PREVIEW_LABELS = {"desktop": "Masaüstü", "downloads": "İndirilenler", "documents": "Belgeler"}
+
+# Emekli edilen ham dalın fiil kümesiyle birebir aynı, kapalı bir fiil listesi: `"düzenleyeceğim
+# nereden başlamak mantıklı"` bir öğüt sorusudur, emir değildir. Uzunluk-koruyan katlamada yalnız
+# Türkçe karakteri düşmüş *aynı* biçim okunur; ek almak yeni yetki üretmek olur.
+_ORGANIZE_VERB = re.compile(r"(?<!\w)(?:duzenle|topla|temizle|derle|sirala)(?!\w)")
+# "düzenlemeyi geri al" bir önizleme isteği değil, geri alma sahibinin cümlesidir.
+_ORGANIZE_UNDO = re.compile(r"(?:geri\s+al\w*|iptal\w*|vazgec\w*|eski\s+yerine)")
+# Emekli edilen ham dalın dışlamaları: not ve takvim düzenlemesi kendi alanlarının sözünü taşır.
+_ORGANIZE_OTHER_DOMAIN = re.compile(r"(?<!\w)(?:not\w*|takvim\w*)(?!\w)")
+# Anahtar kümesi `files.ORGANIZE_FOLDERS` ile birebir aynıdır; ikisi de kapalı listedir.
+_ORGANIZE_FOLDERS = (
+    ("desktop", re.compile(r"(?<!\w)(?:masaust\w*|desktop\w*)(?!\w)")),
+    ("downloads", re.compile(r"(?<!\w)(?:indirilen\w*|indirdi\w*|download\w*)(?!\w)")),
+    ("documents", re.compile(r"(?<!\w)(?:belge\w*|document\w*)(?!\w)")),
+)
+
+
+def _organize_targets(text: str) -> tuple[str, ...]:
+    """Düzenleme fiili ve anahtar(ler)ı; katlanmış görünüm okunur, karakter eksikliği tanınır.
+
+    Birden fazla anahtar bir sıralı isteği tek klasöre bağlamak tahmindir; o yüzden liste döner ve
+    çağıran pipeline iki ya da fazlasını belirsizlik sayar. Boş klasör istek anahtarsız gelir."""
+    if not text or _is_meta_language(text) or _is_literal_command_usage(text):
+        return ()
+    folded = typo.fold(text)
+    if _ORGANIZE_VERB.search(folded) is None:
+        return ()
+    if _ORGANIZE_UNDO.search(folded) or _ORGANIZE_OTHER_DOMAIN.search(folded):
+        return ()
+    return tuple(key for key, pattern in _ORGANIZE_FOLDERS if pattern.search(folded))
+
+
+def _organize_arguments(targets: tuple[str, ...]) -> dict[str, object]:
+    """Tek doğrulanmış anahtar taşınabiliyorsa {operation, folder}; belirsizse öneri payload'ı yok."""
+    if len(targets) != 1:
+        return {}
+    return {"operation": ORGANIZE_OPERATION, "folder": targets[0]}
+
+
 # Echo / semantic preview labels. Each one is derived from an already resolved
 # capability + bounded argument; none of them re-reads the user sentence.
 _FILE_PREVIEW_LABELS = {
@@ -1102,6 +1150,9 @@ def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
             label = f"Dosyayı {_PREVIEW_FORMAT_LABELS.get(fmt, fmt)} biçimine çevirme"
         subject = _preview_subject(arguments, references)
         return EchoPreview(text=f"{label}: {subject}" if subject else label)
+    if capability_hint == ORGANIZE_CAPABILITY:
+        label = _ORGANIZE_PREVIEW_LABELS.get(str(arguments.get("folder") or ""))
+        return EchoPreview(text=f"{label} klasörünü düzenleme") if label else None
     if capability_hint == PHOTO_CAPABILITY:
         operation = arguments.get("operation")
         if operation == _PHOTO_TRANSLATE:
@@ -1863,6 +1914,7 @@ def understand(
     notes_read_request = ((not (photo_targeted or context_control or topic_change or correction))
                           and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
     file_operation = None if (photo_targeted or context_control or topic_change or correction) else _file_operation(normalized)
+    organize_targets = () if (photo_targeted or context_control or topic_change or correction) else _organize_targets(normalized)
     ambiguities = _ambiguity_for_references(normalized, references)
     if photo_ambiguity is not None:
         ambiguities = (*ambiguities, photo_ambiguity)
@@ -1922,6 +1974,10 @@ def understand(
             ambiguities = (FILE_TRANSLATION_TARGET_MISSING,)
         elif file_operation == FILE_CONVERT and _file_format(normalized) is None:
             ambiguities = (FILE_CONVERSION_FORMAT_MISSING,)
+    elif not ambiguities and len(organize_targets) > 1:
+        # Bir cümle birden fazla klasörü düzenlemek istiyorsa hangi sırayla ve hangisi önce decided
+        # değildir; tek klasöre tahminle bağlamak yerine kullanıcıya sorulur.
+        ambiguities = (ORGANIZE_TARGET_AMBIGUOUS,)
 
     photo_followup = _photo_followup_continuation(normalized, active_context)
     # Canonical capability decision, produced exactly once. An explicit capability request is never
@@ -1931,7 +1987,7 @@ def understand(
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or photo_proposal is not None
-        or device is not None
+        or device is not None or bool(organize_targets)
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -2011,6 +2067,8 @@ def understand(
         reason_codes.append("NOTE_SEARCH_QUERY_MISSING")
     elif MULTIPLE_PENDING_ANSWER_OWNERS in ambiguities:
         reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
+    elif ORGANIZE_TARGET_AMBIGUOUS in ambiguities:
+        reason_codes.append(ORGANIZE_TARGET_AMBIGUOUS)
     elif photo_ambiguity is not None:
         reason_codes.append(photo_ambiguity)
     elif ambiguities:
@@ -2081,6 +2139,9 @@ def understand(
             capability_hint = LEVEL_CAPABILITY
         else:
             capability_hint = None
+    # Son bağlanır: bir üstteki hiçbir öneri düzenleme anahtarını taşıyorsa payload'ı da yoktur.
+    if capability_hint == ORGANIZE_CAPABILITY:
+        arguments = {**arguments, **_organize_arguments(organize_targets)}
 
     # Advisory chat shaping is a semantic choice, so it is resolved once here and the
     # advisor layer only formats. A Core-mapped request keeps its own owner.

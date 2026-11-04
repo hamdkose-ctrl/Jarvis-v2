@@ -38,6 +38,9 @@ from modules.brain_understanding import (
     NOTE_TARGET_UNRESOLVED,
     NOTE_UPDATE_TEXT_MISSING,
     NOTES_WRITE_CAPABILITY,
+    ORGANIZE_CAPABILITY,
+    ORGANIZE_OPERATION,
+    ORGANIZE_TARGET_AMBIGUOUS,
     PHOTO_CAPABILITY,
     PHOTO_TARGET_AMBIGUOUS,
     PHOTO_TARGET_UNRESOLVED,
@@ -171,6 +174,23 @@ def _file_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
             return None
         result["format"] = fmt
     return result
+
+
+def _organize_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core, önerilen düzenleme anahtarını kapalı kimlik kümesinde yeniden doğrular.
+
+    Ham metin burada hedef seçmez: anahtar yalnız domain'in kapalı `ORGANIZE_FOLDERS` kümesindendir;
+    yol etki sahibi yürütücünün kendi sınırında gerçek klasöre çözülür, çözülemezse işlem başlamaz.
+    Silme yetkisi bu sözleşmede hiç yoktur; tek operation taşınmadır."""
+    from modules import files
+    if set(arguments) - {"operation", "folder", "original_text"}:
+        return None
+    if arguments.get("operation") != ORGANIZE_OPERATION:
+        return None
+    folder = arguments.get("folder")
+    if not isinstance(folder, str) or folder not in files.ORGANIZE_FOLDERS:
+        return None
+    return {"operation": ORGANIZE_OPERATION, "folder": folder}
 
 
 def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -410,6 +430,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "weather.read.current": ("weather", _weather_args),
     # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
     "files.read": ("file_action", _file_args),
+    # PR3C-3: klasör düzenleme önizlemesi. Niyet ve kapalı klasör anahtarı Brain'den gelir,
+    # Core anahtarı gerçek kimlikte yeniden doğrular; taşımayı yapacak olan yürütücü değildir.
+    ORGANIZE_CAPABILITY: ("file_organize", _organize_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),
@@ -526,6 +549,8 @@ def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str,
         return "Notun yeni metnini de söyle; örneğin 'market notunu düzelt: yeni metin'."
     if NOTE_SEARCH_QUERY_MISSING in ambiguities:
         return "Hangi kelimeyi notlarında aramamı istersin?"
+    if ORGANIZE_TARGET_AMBIGUOUS in ambiguities:
+        return "Hangi klasörü düzenlememi istediğini netleştir: Masaüstü, İndirilenler veya Belgeler."
     if TRANSLATE_SOURCE_MISSING in ambiguities:
         return "Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin."
     if LEVEL_UNSPECIFIED in ambiguities:

@@ -1,6 +1,7 @@
 """Dosya komutları: klasör açma, son dosyayı açma, klasör düzenleme (geri alınabilir)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -12,7 +13,8 @@ from config import DATA_DIR
 
 def _undo_file(owner: str = "") -> Path:
     """Toplu düzenleme geri alması yalnız onaylayan kullanıcıya aittir."""
-    safe = re.sub(r"[^\\w-]", "_", owner)[:60] or "ortak"
+    # `\\w` karakter sınıfı değil, ters bölü + "w" demektir: her ad aynı dosyaya düşerdi.
+    safe = re.sub(r"[^\w-]", "_", owner)[:60] or "ortak"
     return DATA_DIR / f"organize_undo_{safe}.json"
 
 # (söylenen kök) -> (klasör adaylar, klasör sözcüğü gerekir mi)
@@ -105,12 +107,51 @@ def handle(cmd_lower: str) -> str | None:
 
 
 # --- düzenleme --------------------------------------------------------------------------------
-def wants_organize(cmd_lower: str) -> tuple[Path, str] | None:
-    if re.search(r"\b(düzenle|topla|temizle|derle|sırala)\b", cmd_lower) and not re.search(r"not|takvim", cmd_lower):
-        hit = match_folder(cmd_lower)
-        if hit and hit[1] in ("Masaüstü", "İndirilenler", "Belgeler"):
-            return hit[0], hit[1]
-    return None
+# Kanonical düzenleme yetkisinin kapalı klasör kimliği: yalnız bu üç gerçek kullanıcı klasörü.
+# Understanding bir anahtar seçer, yol burada sabit listeden çözülür — ham metinden klasör tahmini yok.
+ORGANIZE_FOLDERS = {
+    "desktop": (("Desktop", "OneDrive/Desktop", "OneDrive/Masaüstü", "Masaüstü"), "Masaüstü"),
+    "downloads": (("Downloads", "İndirilenler"), "İndirilenler"),
+    "documents": (("Documents", "OneDrive/Documents", "OneDrive/Belgeler", "Belgeler"), "Belgeler"),
+}
+
+
+def organize_folder(key: object) -> tuple[Path, str] | None:
+    """Core'un doğruladığı anahtarı gerçek klasör kimliğine çevirir; çözülemezse None."""
+    row = ORGANIZE_FOLDERS.get(key) if isinstance(key, str) else None
+    if row is None:
+        return None
+    candidates, label = row
+    path = folder_path(candidates)
+    return (path, label) if path is not None else None
+
+
+def same_plan(before: list[tuple[Path, Path]], after: list[tuple[Path, Path]]) -> bool:
+    """Önizlenen plan ile güncel plan aynı çiftleri mi taşıyor (sıra dahil)."""
+    return [(str(a), str(b)) for a, b in before] == [(str(a), str(b)) for a, b in after]
+
+
+def _identity(path: Path) -> str:
+    """Dosyanın o andaki kimlik imzası: boy, zaman damgaları ve disk üzerindeki dosya indeksi.
+
+    Windows'ta `st_ctime` yaratılma zamanıdır ve bir dosyanın yerine aynı boy/zamanlı başka bir dosya
+    konduğunda değişmeyebilir; `st_ino` (NTFS dosya indeksi) o ayrımı taşır."""
+    try:
+        info = path.stat()
+    except OSError:
+        return "yok"
+    return f"{info.st_size}:{info.st_mtime_ns}:{info.st_ctime_ns}:{info.st_ino}"
+
+
+def plan_stamp(plan: list[tuple[Path, Path]]) -> str:
+    """Yol çiftlerinin ötesinde, her kaynağın o andaki dosya kimliği mührü (salt metin).
+
+    Aynı adda ve aynı boyda yabancı bir dosya kaynağın yerine konsa ya da içerik değişse mühür
+    değişir; böylece ESKİ onay başka bir dosyayı taşımaz. Salt metin olduğu için bekleyen iş
+    ile birlikte JSON/oturum turuna dayanır."""
+    return hashlib.sha256(
+        "\n".join(f"{src}|{dst}|{_identity(src)}" for src, dst in plan).encode("utf-8")
+    ).hexdigest()
 
 
 def plan_organize(folder: Path) -> list[tuple[Path, Path]]:
@@ -158,27 +199,41 @@ def apply_organize(plan: list[tuple[Path, Path]], owner: str = "") -> int:
 
 
 def undo_organize(owner: str = "") -> int | None:
-    """Son düzenlemeyi geri alır. Kayıt yoksa None."""
+    """Son düzenlemeyi geri alır. Kayıt yoksa None.
+
+    Yerine dönmeyen her kayıt silinmez: hedefi dolu olan dosya kategoride kalır ve bir sonraki
+    "geri al" denemesi onu yeniden dener; başarı sayısıyla kaybolmayan kayıt sayısı birlikte doğru olur."""
     undo_file = _undo_file(owner)
     try:
         moved = json.loads(undo_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     back = 0
+    blocked = []
     for new, old in reversed(moved):
         try:
-            if os.path.exists(new) and not os.path.exists(old):
-                shutil.move(new, old)
-                back += 1
+            if not os.path.exists(new):
+                # Yerinde olmayan kayıt silinmez: dosya kategoride belki yeniden belirir ve
+                # bir sonraki "geri al" onu tekrar dener.
+                blocked.append([new, old])
+                continue
+            if os.path.exists(old):
+                blocked.append([new, old])
+                continue
+            shutil.move(new, old)
+            back += 1
         except OSError:
-            continue
+            blocked.append([new, old])
     for new, _old in moved:       # boş kalan kategori klasörlerini temizle
         try:
             Path(new).parent.rmdir()
         except OSError:
             pass
-    try:
-        undo_file.unlink()
-    except OSError:
-        pass
+    if blocked:
+        undo_file.write_text(json.dumps(blocked, ensure_ascii=False), encoding="utf-8")
+    else:
+        try:
+            undo_file.unlink()
+        except OSError:
+            pass
     return back

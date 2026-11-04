@@ -19,6 +19,32 @@ def _result_or_file(runtime, result: str, path: str, label: str, noun: str, fmt:
         return f"{noun} hazırladım ve kaydettim: {saved}" if saved else result
     return result + "\n\nDosya olarak almak istersen çıktı al de."
 
+def organize_preview_question(label: str, plan: list) -> str:
+    """Bekleyen düzenlemenin tek önizleme cümlesi; onay metnini iki yüzey de buradan alır."""
+    from modules import files as domain
+    return (f"{label} klasöründeki {len(plan)} dosyayı klasörlere taşıyayım mı? ({domain.summary(plan)}) "
+            "Kısayollar ve geçici dosyalar yerinde kalır, istersen “düzenlemeyi geri al” diyebilirsin. Evet mi?")
+
+
+def organize_preview(runtime, folder: str) -> str:
+    """Kanonical düzenleme önizlemesinin tek sahibi: planı doğrulanmış klasörde kurar.
+
+    Anahtar `files.ORGANIZE_FOLDERS` kapalı kümesinden çözülür; klasör gerçek değilse hiçbir plan
+    kurulmaz. Bu fonksiyon dosyaları taşımaz — taşıma yalnız kullanıcının kendi "evet" cevabıyla,
+    `engine_commands` onay kolunda ve o anda tazelenen planla olur."""
+    resolved = runtime.files.organize_folder(folder)
+    if resolved is None:
+        return "Düzenlenecek klasörü güvenli biçimde doğrulayamadım; işlem başlatılmadı."
+    path, label = resolved
+    plan = runtime.files.plan_organize(path)
+    if not plan:
+        runtime._session().pending_organize = None
+        return f"{label} klasöründe düzenlenecek dosya yok."
+    runtime._session().pending_organize = {"folder": path, "key": folder, "label": label, "plan": plan,
+                                           "stamp": runtime.files.plan_stamp(plan)}
+    return organize_preview_question(label, plan)
+
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -92,6 +118,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 saved = runtime.output.convert_document(path_s, fmt)
                 return (f"Dosyayı {fmt.upper()} formatında kaydettim: {saved['path']}" + ('\n' + saved['note'] if saved['note'] else '')) if saved else "Dönüştürme iptal edildi."
             return "Bu dosya işlemi Core tarafından doğrulanmadı."
+
+        case "file_organize":
+            # Önizleme tek sahibinden: plan gerçek klasörde kurulur, burada HİÇBİR dosya taşınmaz.
+            return organize_preview(runtime, str(a.get("folder") or ""))
 
         case "translate":
             text = str(a.get("text") or "").strip()
