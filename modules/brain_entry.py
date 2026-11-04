@@ -362,6 +362,7 @@ def _semantic_pass(
     text: str,
     active: ActiveContext,
     allow_file_scan: bool,
+    model_refinement: bool = True,
 ):
     candidates = build_candidates(
         owner=owner,
@@ -385,6 +386,7 @@ def _semantic_pass(
         active_context=active,
         candidates=candidates,
         references=references,
+        model_refinement=model_refinement,
     )
     if semantic.owner != owner or semantic.request_id != request_id:
         raise ValueError("Understanding owner/request fence eşleşmiyor.")
@@ -443,6 +445,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         text=text,
         active=active,
         allow_file_scan=False,
+        model_refinement=False,
     )
     if _needs_file_discovery(references, semantic):
         candidates, references, semantic = _semantic_pass(
@@ -452,6 +455,18 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             text=text,
             active=active,
             allow_file_scan=True,
+            model_refinement=True,
+        )
+    else:
+        # Candidate enrichment is complete. Invoke optional model refinement exactly once.
+        semantic = understand(
+            owner=owner,
+            request_id=request_id,
+            text=text,
+            active_context=active,
+            candidates=candidates,
+            references=references,
+            model_refinement=True,
         )
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
