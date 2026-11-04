@@ -115,5 +115,49 @@ class FileOpsTests(unittest.TestCase):
         self.assertTrue((self.downloads / 'rapor.pdf').exists())
 
 
+    def test_undo_keeps_record_when_moved_file_was_replaced_or_edited(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        moved = self.documents / 'rapor.pdf'
+        moved.write_text('user replacement', encoding='utf-8')
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'user replacement')
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_keeps_record_when_original_location_is_occupied(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        moved = self.documents / 'rapor.pdf'
+        self.write(self.downloads, 'rapor.pdf', 'new occupant')
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'original')
+        self.assertEqual((self.downloads / 'rapor.pdf').read_text(encoding='utf-8'), 'new occupant')
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_keeps_missing_destination_record_for_retry(self):
+        self.write(self.downloads, 'rapor.pdf', 'original')
+        file_ops.handle('rapor dosyasını belgelere taşı')
+        (self.documents / 'rapor.pdf').unlink()
+        self.assertIn('dokunmadım', file_ops.handle('son dosya işlemini geri al'))
+        self.assertTrue(file_ops._undo_path('alice').exists())
+
+    def test_undo_removes_only_completed_entries_from_partial_ledger(self):
+        first = self.documents / 'first.txt'
+        second = self.documents / 'second.txt'
+        first.write_text('first', encoding='utf-8')
+        second.write_text('second', encoding='utf-8')
+        old_first = self.downloads / 'first.txt'
+        old_second = self.downloads / 'second.txt'
+        old_second.write_text('occupied', encoding='utf-8')
+        file_ops._record([[str(first), str(old_first), file_ops._digest(first)],
+                          [str(second), str(old_second), file_ops._digest(second)]], 'alice')
+        self.assertIn('kısmen', file_ops.undo('alice'))
+        self.assertTrue(old_first.exists())
+        self.assertTrue(second.exists())
+        remaining = __import__('json').loads(file_ops._undo_path('alice').read_text(encoding='utf-8'))
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0][0], str(second))
+
+
 if __name__ == '__main__':
     unittest.main()
