@@ -869,5 +869,16 @@ class SequenceGrammarTests(unittest.TestCase):
         self.assertFalse(is_sequenced('maili oku'))
 
 
+    def test_canonical_understanding_propagates_model_request_cancellation(self):
+        from modules import requests_state
+        source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
+        with __import__("unittest").mock.patch(
+            "modules.brain_model_understanding.refine",
+            side_effect=requests_state.Cancelled("cancelled"),
+        ):
+            with self.assertRaises(requests_state.Cancelled):
+                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
+
+
 if __name__ == "__main__":
     unittest.main()
