@@ -1,4 +1,4 @@
-"""PR7 Closeout-A: history cap, last_property continuity, structured clarification, typo retry, real feedback."""
+"""PR7 Closeout-A: history cap, last_property continuity, structured clarification, single-pass typo, real feedback."""
 import tempfile
 from contextlib import nullcontext
 import unittest
@@ -234,39 +234,28 @@ class StructuredClarificationTests(unittest.TestCase):
         self.assertNotIn("router", inspect.getsource(app_actions._resume_clarification))
 
 
-class TypoRetryTests(unittest.TestCase):
-    def runtime(self, results):
+class TypoSinglePassTests(unittest.TestCase):
+    """BRAIN-MIG-042 (§25 A): bir request tam olarak bir pipeline geçişi yürür.
+
+    Eskiden `handle_request` bir `_TypoRetry` sinyali alırsa tüm hattı düzeltilmiş metinle
+    ikinci kez çalıştırıyordu; o ikinci geçiş ham cepheleri de yeniden çalıştırdığı için PR3B'de
+    emekli edildi. Bu sınıf artık tek geçişi kilitler."""
+
+    def test_the_entry_runs_exactly_one_pass_and_returns_its_reply(self):
         calls = []
-        rt = SimpleNamespace(_typo_pass=False, _typo_orig="")
-        rt.handle = Mock(side_effect=AssertionError("runtime.handle özyinelemeli çağrılmamalı"))
 
         def one_pass(runtime, command):
-            calls.append((command, runtime._typo_pass, runtime._typo_orig))
-            return results.pop(0)
+            calls.append(command)
+            return "Tamam"
 
-        return rt, calls, one_pass
-
-    def test_retry_runs_once_with_flags_and_resets(self):
-        rt, calls, one_pass = self.runtime([engine_commands._TypoRetry("duzeltilmis"), "Cevap"])
         with patch.object(engine_commands, "handle", one_pass):
-            self.assertEqual(engine_commands.handle_request(rt, " yanlis "), "Cevap")
-        self.assertEqual(calls, [(" yanlis ", False, ""), ("duzeltilmis", True, "yanlis")])
-        self.assertEqual((rt._typo_pass, rt._typo_orig), (False, ""))
-        rt.handle.assert_not_called()
+            self.assertEqual(engine_commands.handle_request(SimpleNamespace(), "yanlik yazim"), "Tamam")
+        self.assertEqual(calls, ["yanlik yazim"])
 
-    def test_second_retry_is_refused_and_flags_reset(self):
-        rt, calls, one_pass = self.runtime([engine_commands._TypoRetry("a"), engine_commands._TypoRetry("b")])
-        with patch.object(engine_commands, "handle", one_pass):
-            with self.assertRaises(RuntimeError):
-                engine_commands.handle_request(rt, "x")
-        self.assertEqual((rt._typo_pass, rt._typo_orig), (False, ""))
-        self.assertEqual(len(calls), 2)
-
-    def test_no_typo_single_pass(self):
-        rt, calls, one_pass = self.runtime(["Tamam"])
-        with patch.object(engine_commands, "handle", one_pass):
-            self.assertEqual(engine_commands.handle_request(rt, "merhaba"), "Tamam")
-        self.assertEqual(len(calls), 1)
+    def test_the_retry_signal_and_turn_flags_are_retired(self):
+        self.assertFalse(hasattr(engine_commands, "_TypoRetry"))
+        self.assertFalse(hasattr(engine_runtime.EngineContext, "_typo_pass"))
+        self.assertFalse(hasattr(engine_runtime.EngineContext, "_typo_orig"))
 
     def test_handle_source_does_not_recurse_into_runtime_handle(self):
         import inspect

@@ -325,7 +325,15 @@ def _important_mail(ga, outlook, cmd_lower: str) -> str:
     return reply + " Bu bilgisayarda klasik Outlook da kurulu değil, iş maili için o da kullanılamıyor."
 
 def _mail_handle(runtime, cmd_lower: str) -> str | None:
-    """İş maili (Outlook) açıkça istenirse yalnızca onu; genel 'maili kontrol et'te Gmail + açıksa Outlook."""
+    """İş maili (Outlook) açıkça istenirse yalnızca onu; genel 'maili kontrol et'te Gmail + açıksa Outlook.
+
+    BRAIN-MIG-051 (§12) envanteri: bu dört sıra (meeting prep → Outlook draft → Outlook okuma →
+    Gmail) provider/account değişmezlerinin domain sahibidir; "bu cümle mail mi?" hükmünü de
+    burada verir. Kanonical communication/mail capability ve Core eşlemesi gelene kadar bu hüküm
+    PR3C satırıdır (kilit: `CascadeRootTests.test_the_mail_owner_is_reached_only_from_the_cascade`
+    — yüzeylerden hiçbir yer doğrudan buraya bakamaz, tek giriş cascade kolu). Provider eklenmez,
+    Gmail/Outlook davranışı yeniden yazılmaz.
+    """
     from modules import meeting_prep, outlook
     if meeting_prep.asked(cmd_lower):
         return meeting_prep.handle(cmd_lower, runtime.profile, runtime.datetime.now())
@@ -345,6 +353,45 @@ def _mail_handle(runtime, cmd_lower: str) -> str | None:
     return reply
 
 def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
+    """Domain cascade'inin tek sırası; §0 envanteri koldan kaleme sınıflandırıldı.
+
+    Bu cascade tek bir yerden çağrılır: `engine_commands.handle` kuyruğu
+    `brain_precedence.claim_tail` üzerinden sıra sözleşmesine devredildi (§25 B) ve başka üretim
+    çağıranı yoktur (§25 D kilidi
+    `CascadeRootTests.test_the_cascade_has_one_production_call_owner`). Her kol kendi
+    tanırıcısıyla ilk-yanıt-verir; sınıflar A KEEP_STATE / B KEEP_EXACT_ADMIN / C
+    KEEP_DOMAIN_EXECUTION / D RETIRE_RAW_FRONT_DOOR:
+
+    1. `finance_alert_commands` (B): kalıp `fullmatch`/tam küme üyeliğidir, cümlenin *içinde*
+       alan aramaz — ölçüldü, §13'ün "global semantic selection" ön kabulu kod gerçeği değil.
+       Kalan iş alarmın kanonical öneri/Core eşlemesi (BRAIN-MIG-053 → PR3C).
+    2. `plugins` (D → PR3C): kullanıcı eklentileri ham cümleyi sırayla yoklar; kanonical sahibi
+       ve capability sözlüğü yok. Kaldırmak ürün gerilemesidir, parity ile sökülecek.
+    3. `handoff` (D → PR3C): "işte neler var / evde neler var" `re.search` ile sabit-önek değil.
+    4. `folder_analysis` (C): kendi kapısı var (`_NOT_THIS` veto: taşı/sil/aç/düzenle), klasör
+       okuma; kanonical `files.read` tek dosyayı kapsar, klasör analizi PR3C satırı.
+    5. `browser` (C): URL + özetleme ya da sabit "… ara" kalıbı; effekte gitmeden önce privacy
+       kapısı var. Kanonical sayfa-okuma capability'si yok → PR3C.
+    6. `günlük özet` (D → PR3C, §21): cümlenin içinde aranan fazlasıyla uzun bir sözcük listesi;
+       briefing'i ayrı bir alt sistem kurmadan en yakın kanonical okuma yeteneğine bağlama kararı
+       PR3C'nindir.
+    7. `tasks` ve 8. `kb` (C): eklemeler `re.match` ile kalıba bağlı; kb'nin "hangi dosyada"
+       doğal soruları domain-owned. Görev yönetimi/kanonical `task` eşlemesi BRAIN-MIG-070 → PR3C.
+    9. ekran metni kopyala/oku ve 10. ekran hatası → not (D → PR3C, §20): typed
+       `screen.text.read` / `screen.text.copy` / `screen.error.note` kararı bekliyor; OCR ve
+       nota-yazma yürütmesi mevcut domain sahibinde kalır.
+    11. `file_ops` (C) tek dosya taşı/yeniden adlandır/oluştur/geri al; 12. düzenlemeyi geri al
+        ve 13. klasör düzenleme planı (C, §22 bounded onay akışı) → BRAIN-MIG-052/048 PR3C.
+    14. `filesend` (C): Taildrop dosya gönderimi; "hangisi?" cevabını kendi 180 sn'lik modül-içi
+        bekleyen listesiyle tüketir — bu, kanonical `pending_answer_owned` sahibi olmayan ikinci
+        bir bekleyen yetkisidir ve PR3C'de kanonical clarification'a bağlanmalı (§33 yasağı).
+    15. `worktrack`, 16. `files`, 17. `media`, 18. `_mail_handle`, 19. `notify` (C): alanların
+        kendi yürütme kapıları; hiçbiri kanonical karar sonrası genel domain seçimi yapmamalı,
+        kanonical capability'leri gelene kadar PR3C envanterindedir.
+
+    §33: buradaki kalıplar başka bir helper'a taşınarak "emekli" ilan edilmez; bir kol ancak
+    kanonical capability + Core eşlemesi + owner testleri parite verdiğinde bu sıradan silinir.
+    """
     from modules import finance_alert_commands
     if finance_alert_commands.matches(command):
         return finance_alert_commands.handle(runtime.profile.slug, command)
@@ -369,10 +416,12 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
                  r"bugün ne var|neler var bugün|günüm nasıl|bugünkü durum|bugün ne yapıyoruz", cmd_lower):
         return runtime._daily_briefing()
     # Ekrandaki metni kopyala / oku / hatayı nota ekle
-    for mod in (runtime.tasks, runtime.kb):            # görev listesi ve bilgi tabanı komutları
-        out = mod.handle(cmd_lower, runtime.profile)
-        if out:
-            return out
+    tasks_reply = runtime.tasks.handle(cmd_lower, runtime.profile)     # görev listesi komutu
+    if tasks_reply:
+        return tasks_reply
+    kb_reply = runtime.kb.handle(cmd_lower, runtime.profile)           # bilgi tabanı komutu
+    if kb_reply:
+        return kb_reply
     if runtime.re.search(r"ekrandaki\s+(?:metn\w*|yaz\w*)\s+(?:kopyala|al|çıkar|oku)\b|ekran(?:ın)?\s+metnini", cmd_lower):
         text = runtime._screen_ocr("Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini koruyarak yaz. "
                            "Yorum, başlık ya da açıklama ekleme; yalnızca metin.")
@@ -416,8 +465,13 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     work = worktrack.handle(cmd_lower, runtime.profile)       # iş takibi: proje durumu, cevap bekleyenler, tarihli işler
     if work is not None:
         return work
-    for fn in (runtime.files.handle, runtime.media.handle, runtime._mail_handle):
-        reply = fn(cmd_lower)
-        if reply is not None:
-            return reply
+    files_reply = runtime.files.handle(cmd_lower)     # "indirilenlerdeki son dosyayı aç", "masaüstünü aç"
+    if files_reply is not None:
+        return files_reply
+    media_reply = runtime.media.handle(cmd_lower)     # "youtube'da türkü aç", "spotify'da podcast aç"
+    if media_reply is not None:
+        return media_reply
+    mail_reply = runtime._mail_handle(cmd_lower)      # BRAIN-MIG-051: provider kararları domain'de
+    if mail_reply is not None:
+        return mail_reply
     return runtime.notify.handle(cmd_lower, runtime.profile.data["prefs"], runtime.profile.save)

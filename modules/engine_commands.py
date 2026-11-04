@@ -3,28 +3,47 @@ from __future__ import annotations
 import contextlib
 
 
-class _TypoRetry:
-    """Signal that the whole pipeline should run once more on the typo-corrected text."""
-    __slots__ = ("text",)
-
-    def __init__(self, text: str):
-        self.text = text
-
-
 def handle_request(runtime, command: str) -> str:
-    """Public entry: run the pipeline; at most one explicit retry on typo-corrected text, same request id."""
-    reply = handle(runtime, command)
-    if not isinstance(reply, _TypoRetry):
-        return reply
-    original = command.strip()
-    runtime._typo_pass, runtime._typo_orig = True, original
+    """Public entry: bu turn'ün tek pipeline geçişi; aynı request'te ikinci bir geçiş çalışmaz.
+
+    Yazım düzeltme artık yeniden deneme değildir (§25 A, BRAIN-MIG-042): kanonical tur ham cümleyi
+    bir kez yürütür, düzeltilmiş görünümün yetkisi iki kapalı setle sınırlıdır —
+    `command_manager.exact_admin_view` (tam-cümle admin) ve `command_manager.typo_read_recovery` +
+    `command_manager.typo_read_plan` (tam-cümle salt-okuma gramerleri; plan yürütme yetkisi seam'de,
+    effect sahibi `engine_intents`tedir). Yazma, organize ve açma akışları düzeltilmiş metni görmez."""
+    return handle(runtime, command)
+
+
+def _canonical_tail(runtime, command: str, cmd_lower: str):
+    """Bu turn'ün tek kanonical rota kararı ve tek yürütmesi.
+
+    Cümle burada yeniden sınıflandırılmaz: `route_command` yalnız bu turn'ün Understanding'ini
+    okur, etki ise seçilen intent'in kendi sahibinde (`engine_intents.dispatch`) yürür. Ham
+    cephe(ler) bittiğinde de, bir açıklama turu hiç cepheye inmeden de aynı tek yol çalışır."""
+    from modules import brain_entry
     try:
-        reply = handle(runtime, reply.text)
-    finally:
-        runtime._typo_pass, runtime._typo_orig = False, ""
-    if isinstance(reply, _TypoRetry):   # ikinci geçiş tekrar düzeltme isteyemez
-        raise RuntimeError("Yazım düzeltme ikinci kez tekrar istenemez.")
-    return reply
+        r = brain_entry.route_command(runtime, command)
+    except Exception:
+        runtime._record_failure('main.py:handle')
+        raise
+    intent = str(r.get("intent") or "chat")
+    a = r.get("args")
+    if not isinstance(a, dict):
+        a = {}
+    runtime.profile.log_command(intent)
+    from modules.engine_intents import dispatch
+    return dispatch(runtime, intent, a, command, cmd_lower)
+
+
+def _read_plan_tail(runtime, plan, command: str, cmd_lower: str):
+    """Yazım kurtarmasının tek salt-okuma planı: yürütme intent'in kendi sahibindedir.
+
+    Seam buradan başka bir intent seçmez; `command_manager.typo_read_plan` kapalı salt-okuma
+    setinden geçmiş doğrulanmış Core önerisini taşır. Kullanıcının yazdığı asıl cümle
+    (`command`) provenance olarak sahibine geçer. `engine_intents.dispatch`in denetlenmiş tek
+    üretim çağıranı bu yüzeydir (BRAIN-MIG-042)."""
+    from modules.engine_intents import dispatch
+    return dispatch(runtime, plan[0], plan[1], command, cmd_lower)
 
 
 def handle(runtime, command: str):
@@ -38,7 +57,8 @@ def handle(runtime, command: str):
     # Web ayarları / telefon / geçici kullanıcı işlemleri istek bağlamını değiştirmiş olabilir.
     runtime._llm.set_user_context(runtime.profile.slug)
 
-    from modules.command_manager import CommandContext, dispatch, engine_control
+    from modules.command_manager import (CommandContext, dispatch, engine_control, exact_admin_view,
+                                         typo_read_plan, typo_read_recovery)
     from modules.confirmation import decision
     session = runtime._session()
     session.speech_override = None  # Only this command may choose its short spoken response.
@@ -60,6 +80,14 @@ def handle(runtime, command: str):
     if not goal_executor.active() and (cmd_lower.startswith(('hedef:','görev:','görev yap:','hedef ')) or cmd_lower.strip(' .!?') in goal_executor.RESUME_COMMANDS or cmd_lower.strip(' .!?') in ('evet','onaylıyorum','onayla','iptal','vazgeç','boşver')):
         goal_result=goal_executor.handle(runtime,command)
         if goal_result is not None:return goal_result
+    # Kanonical açıklama turu (Understanding'ın tek EXPLANATION hükmü): cümle bilgi ister, yürütülecek
+    # iş değildir. Buradan sonrası ham cümleyi yeniden sınıflandıran cephelerdir — erken dispatch
+    # kolları bile bir soruyu kendi akışına çekebilir (ölçüldü: "infografik nedir?" görsel taslağı
+    # başlattı, "görev akışı nedir?" kullanım hatası verdi) ve admin/efekt cepheleri bir soru için
+    # gerçek iş yapar (yayın, güncelleme kurma, arıza taraması, not silme, ekran OCR'ı). Tur kendi tek
+    # kanonical rotasına döner; icra yetkisi olan cümleler burada fence edilmez.
+    if brain_entry.explanation_turn():
+        return _canonical_tail(runtime, command, cmd_lower)
     context = CommandContext(profile=runtime.profile, session=session, emit=runtime.emit,
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
@@ -99,16 +127,17 @@ def handle(runtime, command: str):
             # Canonical karar eksik/belirsizse pending fotoğraf korunur; kullanıcının
             # cevabı sessizce düşmez, Core'un clarify/normal yanıtı akışa devam eder.
 
-    # Çok adımlı komut: "önce X sonra Y", "X ardından Y". Adımlar sırayla çalışır, yanıtlar birleştirilir.
+    # Çok adımlı komut: sıra semantiği kanonical Understanding'de doğar (`brain_entry.step_plan`);
+    # bu yüzey cümleyi bölmez, yalnız bağlı turn'ün tipli planını okur ve typed adım adaptörüne verir.
     # Açık bir soru varken adım bölünmez: ilk adım o soruyu cevaplamış sayılamaz, kalan adımlar çalışmaz.
     # Bu tur açık alanın cevabı değilse ham cümle kısmi yürütülmez; kullanıcıya açıkça söylenir.
     if not runtime._session()._in_multi:
-        steps = runtime._split_steps(command)
+        steps = brain_entry.step_plan(command)
         if steps:
             blocked = [field for field in ("pending_msg", "pending_confirm", "pending_organize")
                        if getattr(runtime._session(), field) is not None]
             if not blocked:
-                return runtime._run_steps(steps)
+                return runtime._run_steps(list(steps))
             if not any(brain_entry.pending_answer_owned(field) for field in blocked):
                 return ("Açık bir mesaj/onay/düzenleme akışı varken çok adımlı komutu başlatmadım; "
                         "önce onu tamamla ya da iptal et, sonra adımları yeniden söyle.")
@@ -220,12 +249,12 @@ def handle(runtime, command: str):
     if plan_reply is not None:
         return plan_reply
 
-    # Kısayollar (öğret / çalıştır / listele) ve ek komutlar: hepsi LLM'e gitmeden çalışır
-    for handler, arguments in ((runtime._macro_teach, (command, cmd_lower)), (runtime._macro_manage, (cmd_lower,)),
-                               (runtime._macro_run, (cmd_lower,)), (runtime._extra_commands, (command, cmd_lower))):
-        reply = handler(*arguments)
-        if reply is not None:
-            return reply
+    # Kısayollar (öğret / çalıştır / listele) ve ek komutlar: hepsi LLM'e gitmeden çalışır.
+    # Sıra ve imza tek sahibindedir (`brain_precedence`); yüzey ikinci bir ham aday döngüsü taşımaz (§25 B).
+    from modules import brain_precedence
+    tail = brain_precedence.claim_tail(runtime, command, cmd_lower)
+    if tail is not None:
+        return tail[1]
 
     # Kayıtlı şehir: "şehrim İzmir" / "konumum Ankara" (hava durumu bu şehre göre bakar)
     m = runtime.re.match(r"^(?:şehrim|konumum|yaşadığım şehir)\s+(.+?)(?:['’]?(?:da|de|ta|te))?\s*(?:olsun|dır|dir)?$", cmd_lower)
@@ -301,31 +330,25 @@ def handle(runtime, command: str):
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
-    # ---- Yazım hatası: hiçbir kalıba uymadıysa düzeltilmiş hâliyle bir kez daha dene ("kotrol" -> "kontrol") ----
-    pass  # Shared fields are held by the explicit engine context.
-    if not runtime._typo_pass:
-        fixed = runtime.typo.fix(cmd_lower)
-        if fixed != cmd_lower:
-            runtime.log.info("İşlem kaydı: %s", 'main.py:handle')
-            return _TypoRetry(fixed)
-    elif runtime._typo_orig:
-        # Düzeltilmiş hâli de hızlı komutlara uymadı: yapay zekaya kullanıcının yazdığı asıl cümle gitsin
-        # ("yarış merhaba" -> "yarın merhaba" gibi bozulmalar olmasın; yapay zeka yazım hatasını zaten anlar).
-        command = runtime._typo_orig
-        cmd_lower = runtime._tr_lower(command)
+    # ---- Yazım hatası: ikinci bir pipeline geçişi yok (§25 A, BRAIN-MIG-042) ----
+    # Düzeltilmiş görünüm iki kapalı sete gösterilir: exact-admin tanıyıcıları ve salt-okuma
+    # kurtarması. Ham cümle bu turn'de tüm kolları geçtiği için o kolun efekti en çok bir kez
+    # çalışır; yazma/organize/açma akışları düzeltilmiş metni hiçbir zaman görmez. Kurtarma hiçbir
+    # intent'i burada seçmez: not listesinin doğrulanmış salt-okuma planı effect'in kendi sahibine
+    # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
+    # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
+    corrected = runtime.typo.fix(cmd_lower)
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"))
+    if view is not None:
+        return view
+    if corrected != cmd_lower:
+        recovered = typo_read_recovery(context, runtime, corrected)
+        if recovered is not None:
+            return recovered
+        plan = typo_read_plan(corrected)
+        if plan is not None:
+            return _read_plan_tail(runtime, plan, command, cmd_lower)
 
     # ---- Karmaşık istekler: bu turn'ün canonical Brain kararı ----
     # Sınıflandırma ve cevap sıralıdır; kullanılmayacak cevap için ek kota harcanmaz.
-    from modules import brain_entry
-    try:
-        r = brain_entry.route_command(runtime, command)
-    except Exception:
-        runtime._record_failure('main.py:handle')
-        raise
-    intent = str(r.get("intent") or "chat")
-    a = r.get("args")
-    if not isinstance(a, dict):
-        a = {}
-    runtime.profile.log_command(intent)
-    from modules.engine_intents import dispatch
-    return dispatch(runtime, intent, a, command, cmd_lower)
+    return _canonical_tail(runtime, command, cmd_lower)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
                   _pre_registered_owner: str | None = None) -> str:
-    previous = (runtime._cur_source, runtime._cur_rid, runtime._typo_pass, runtime._typo_orig)
+    previous = (runtime._cur_source, runtime._cur_rid)
     owner = _pre_registered_owner or runtime.slugify(runtime.pc_profile().name)
     rid = _pre_registered_rid or runtime.secrets.token_hex(16)
     runtime._cur_source = "ses"
@@ -22,8 +22,6 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
             runtime.log.info("İşlem kaydı: %s", "main.py:_live_command")
             runtime.emit("activity", "Komut motoru isteği işliyor", f"working|Komut motoru|{text[:220]}")
             runtime._session().speech_override = None
-            runtime._typo_pass = True
-            runtime._typo_orig = ""
             entry = brain_entry.prepare(
                 runtime, owner=owner, request_id=rid, text=text, source="ses",
             )
@@ -79,4 +77,4 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
         runtime._session().speech_override = None
         return str(exc)
     finally:
-        runtime._cur_source, runtime._cur_rid, runtime._typo_pass, runtime._typo_orig = previous
+        runtime._cur_source, runtime._cur_rid = previous

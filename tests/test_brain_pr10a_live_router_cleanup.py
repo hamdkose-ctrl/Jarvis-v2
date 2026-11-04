@@ -150,7 +150,6 @@ class CanonicalRequestTests(unittest.TestCase):
         runtime._tr_lower = lambda text: text.lower()
         runtime.agents = SimpleNamespace(classify=lambda text: "chat")
         runtime._cur_source = runtime._cur_rid = ""
-        runtime._typo_pass = runtime._typo_orig = False
         with contextlib.ExitStack() as stack:
             self.guards(stack)
             dispatch = stack.enter_context(patch("modules.engine_intents.dispatch", return_value="<<core>>"))

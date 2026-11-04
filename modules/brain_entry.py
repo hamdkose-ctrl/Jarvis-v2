@@ -13,12 +13,13 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
-from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest
+from modules import brain_actions, brain_context, brain_core_map, brain_precedence, capability_manifest, typo
 from modules.brain_understanding import (
     ACTION_REQUEST_CODE,
     APP_CLOSE_CAPABILITY,
     APP_OPEN_CAPABILITY,
     EXECUTION_REQUEST_CODE,
+    EXPLANATION_REQUEST_CODE,
     PHOTO_CAPABILITY,
     PHOTO_FOLLOWUP_CODE,
 )
@@ -33,7 +34,7 @@ from modules.brain_contracts import (
 )
 from modules.brain_gates import GateObservation, deterministic_fast_gate, exact_state_gate
 from modules.brain_reference import resolve_references
-from modules.brain_understanding import understand
+from modules.brain_understanding import is_sequenced, sequence_steps, understand
 from modules.diagnostics import record_failure as _record_failure
 
 _CURRENT: ContextVar["EntryResult | None"] = ContextVar("jarvis_brain_entry", default=None)
@@ -613,6 +614,10 @@ def _correlated_job_id(entry: EntryResult) -> str | None:
     return str(ident) if ident else None
 
 
+_TYPO_UNVERIFIED_QUESTION = ("Cümlenin Türkçe karakterleri tamamlanmış hâli doğrulanmış bir yetenekte karşılık "
+                             "bulmadı; genel hedef yürütmesi başlatılmadı, işlem başlatılmadı. İsteği tek tek de söyleyebilirsin.")
+
+
 def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     """Build a legacy-dispatch-shaped result without invoking the legacy classifier."""
     question = clarification(entry)
@@ -637,25 +642,29 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
                 # bağlanmış referans varsa kapı kendi başına hedef sorusu üretmez, ikinci yetki olmaz.
                 if brain_actions.ambiguous_reference(entry.text) and not semantic.references:
                     return {"intent": "clarify", "args": {"question": "Hangi hedef üzerinde ne yapmamı istiyorsun?"}}
+                if typo.diacritic_correction(entry.text.casefold()):
+                    # Kaldırılan ikinci `handle()` geçişi düzeltilmiş metni ham kapılara tekrar
+                    # sokuyordu; o geçiş geri gelmez (BRAIN-MIG-042). Yalnız Türkçe karakteri
+                    # geri getirilen — kelime kimliği değişmemiş — bir cümle doğrulanmış hiçbir
+                    # yetenekte karşılık bulmadıysa Goal/Task yetkisi olamaz: bu yolla yeni
+                    # GoalState kaydı, model planlayıcısı veya dosya efekti başlamaz. Düzeltici
+                    # doğru kelimeyi de bozabildiği için ("hazırla" -> "hatırla") kapı bilinçli
+                    # olarak bu dar sınıfla sınırlandı; doğru yazılmış cümleler yetkisini kaybetmez.
+                    return {"intent": "clarify", "args": {"question": _TYPO_UNVERIFIED_QUESTION}}
                 return {"intent": "task", "args": {"request": entry.text}}
             return {"intent": "clarify", "args": {"question": "Capability önerisi mevcut Core manifestinde doğrulanamadı; işlem başlatılmadı."}}
         return {"intent": "task", "args": {}}
     return {"intent": "chat", "args": {}}
 
 
-def nested_step(command: str, runtime: Any = None) -> bool:
+def nested_step(command: str) -> bool:
     """True when a canonical entry is bound but this text is a different request: a sequence or macro step.
 
     The bound entry's decision belongs to the whole utterance, never to one of its steps.
-    `handle_request`'s single typo-corrected re-run is the SAME request (same request id), so it is
-    not a step; every other text that arrives while an entry is bound is."""
+    A request never runs a second pass (§25 A, BRAIN-MIG-042), so any text that arrives while an
+    entry is bound and differs from that entry's own sentence is a step."""
     entry = current()
-    if entry is None or str(command).strip() == entry.text.strip():
-        return False
-    text = entry.text.strip()
-    if text and runtime is not None and getattr(runtime, "_typo_pass", ""):
-        return str(getattr(runtime, "_typo_orig", "")).strip() != text
-    return True
+    return entry is not None and str(command).strip() != entry.text.strip()
 
 
 _NESTED_STEP_QUESTION = ("Bu metin bir adımlar zincirinin adımı; cümlenin canonical kararı ona devredilmez. "
@@ -667,7 +676,7 @@ def route_command(runtime: Any, command: str) -> dict[str, object]:
 
     Bu turn'de Brain'in zaten vermiş olduğu kararın izdüşümünü verir. Bağlı bir Brain girişi
     yoksa cümle burada hiç yorumlanmaz ve istek fail-closed netleştirmeyle durur."""
-    if nested_step(command, runtime):
+    if nested_step(command):
         return {"intent": "clarify", "args": {"question": _NESTED_STEP_QUESTION}}
     entry = current()
     if entry is None:
@@ -889,12 +898,17 @@ def fast_lane(owner: str, request_id: str, text: str, source: str = "yazı") -> 
     return None
 
 
-_STEP_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+def step_plan(command: str) -> tuple[str, ...]:
+    """Bu turn'ün kanonical sıralı adım planı; ham motor yüzeyi cümleyi kendi başına bölmez.
 
-
-def _multi_step(text: str) -> bool:
-    """Same marker rule as engine_sequence._split_steps: a sequenced request belongs to the step runner."""
-    return _STEP_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+    Karar bağlı request'e aittir: giriş bu turn'ün cümlesiyle birebir aynı olmalıdır. Böylece
+    düzeltilmiş/geçmiş bir metin görüşü ikinci bir adım planı üretemez. Sıra gramerinin tek sahibi
+    Understanding'dir (`sequence_steps`); plan boşsa yüzey tek isteğe sahip normal akışına devam
+    eder, adım yürütmesi typed adaptörde (`engine_sequence._run_steps`) kalır."""
+    entry = current()
+    if entry is None or entry.text.strip() != command:
+        return ()
+    return sequence_steps(command)
 
 
 def _canonical_photo_path(entry: EntryResult) -> tuple[str | None, bool]:
@@ -931,7 +945,7 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    if _multi_step(entry.text):
+    if is_sequenced(entry.text):
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     photo_plan = plan is not None and plan[0] == "photo_action"
@@ -1184,6 +1198,29 @@ def goal_question_superseded(runtime: Any = None) -> bool | None:
     return (semantic.request_kind in {RequestKind.CAPABILITY, RequestKind.CONTEXT_CONTROL}
             or semantic.conversation_relation is ConversationRelation.TOPIC_CHANGE
             or ACTION_REQUEST_CODE in semantic.reason_codes)
+
+
+def explanation_turn() -> bool:
+    """Bu kanonical tur bir açıklama/sohbet isteğidir; hiçbir ham cephe ona etki yürütemez.
+
+    Hüküm Understanding'in `EXPLANATION_REQUEST` kaydından okunur; yüzey cümleyi ham metinden
+    ikinci kez sınıflandırmaz. Bounded sahiplik korunur: bir State/Fast protokolü turu aldığında,
+    tur açık bir alanın cevabı olduğunda, typed bir yetenek önerisi ya da typed pending sahibi
+    taşıdığında kapılar kendi akışına devam eder. Doğrulanmış Core planı olan tur zaten buraya
+    inmez (handoff planı yürütür)."""
+    entry = current()
+    if entry is None or entry.state_gate.matched:
+        return False
+    if entry.fast_gate is not None and entry.fast_gate.matched:
+        return False
+    semantic = entry.understanding
+    if semantic is None or semantic.capability_hint or semantic.pending_owner is not None:
+        return False
+    if semantic.conversation_relation is not ConversationRelation.NEW_REQUEST:
+        return False
+    if semantic.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
+        return False
+    return EXPLANATION_REQUEST_CODE in semantic.reason_codes
 
 
 def matched_protocol(*protocols: str) -> bool:

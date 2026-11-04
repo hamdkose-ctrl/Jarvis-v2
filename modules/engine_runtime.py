@@ -92,7 +92,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                        '_learning_notice',
                        '_google_health'),
  'engine_queue': ('submit', 'submit_audio', 'submit_photo', '_reject_queued_input'),
- 'engine_sequence': ('_split_steps', '_run_steps', '_close_jarvis'),
+ 'engine_sequence': ('_run_steps', '_close_jarvis'),
  'engine_commands': ('handle_request',),
  'engine_loop': ('main',),
  'engine_tools': ('_tr_lower',
@@ -139,15 +139,13 @@ class EngineContext:
     def __init__(self):
         self._command_source = ContextVar('engine_command_source', default='')
         self._command_rid = ContextVar('engine_command_rid', default=None)
-        self._command_typo_pass = ContextVar('engine_command_typo_pass', default=False)
-        self._command_typo_orig = ContextVar('engine_command_typo_orig', default='')
         for name in _DEPENDENCIES:
             setattr(self, name, globals()[name])
         for module, names in _HANDLERS.items():
             component = import_module('modules.' + module)
             for name in names:
                 setattr(self, name, partial(getattr(component, name), self))
-        self.handle = self.handle_request   # tek giriş: yazım düzeltme yeniden denemesi dahil
+        self.handle = self.handle_request   # tek giriş: bir request bir kez yürür
         for name in ('_live_prompt', '_live_command'):
             setattr(self, name, self._pc_context(getattr(self, name)))
         from modules.pc_steps import ReportedControl
@@ -155,7 +153,7 @@ class EngineContext:
         self.system_control = ReportedControl(system_control, lambda text, status, step_id, detail:
                                               self.emit('step', text, f'{status}|{step_id}|{detail}'))
         _initialize(self)
-        self._exported = set(vars(self)) | {'last_doc', 'speech_override', '_cur_source', '_cur_rid', '_typo_pass', '_typo_orig'}
+        self._exported = set(vars(self)) | {'last_doc', 'speech_override', '_cur_source', '_cur_rid'}
 
     @property
     def _cur_source(self):
@@ -180,30 +178,6 @@ class EngineContext:
     @_cur_rid.deleter
     def _cur_rid(self):
         self._command_rid.set(_DELETED_COMMAND_FIELD)
-
-    @property
-    def _typo_pass(self):
-        return _command_field(self._command_typo_pass, '_typo_pass')
-
-    @_typo_pass.setter
-    def _typo_pass(self, value):
-        self._command_typo_pass.set(value)
-
-    @_typo_pass.deleter
-    def _typo_pass(self):
-        self._command_typo_pass.set(_DELETED_COMMAND_FIELD)
-
-    @property
-    def _typo_orig(self):
-        return _command_field(self._command_typo_orig, '_typo_orig')
-
-    @_typo_orig.setter
-    def _typo_orig(self, value):
-        self._command_typo_orig.set(value)
-
-    @_typo_orig.deleter
-    def _typo_orig(self):
-        self._command_typo_orig.set(_DELETED_COMMAND_FIELD)
 
     def __getattr__(self, name):
         if name in ('last_doc', 'speech_override'):
@@ -272,8 +246,5 @@ def _initialize(runtime):
     runtime._MACRO_SPLIT = runtime.re.compile(r"\s*(?:,|\bve\b|\bsonra\b|\bardından\b)\s*")
     runtime._VERB_END = runtime.re.compile(r"\s+(aç|başlat|çalıştır)$")
     runtime._NONAPP = runtime.re.compile(r"\b(sesi|ses seviyesi|parlaklık|youtube|spotify|müzi[kğ]|şarkı|hava durumu|saat kaç|notlarım|dosya)\b")
-    runtime._STEP_SPLIT = runtime.re.compile(r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", runtime.re.I)
-    runtime._typo_pass = False
-    runtime._typo_orig = ""
     runtime._JARVIS_MISHEAR = tr_speech_sets.JARVIS_MISHEAR
     runtime._LEAD_WORDS = {"hey", "hay", "hei", "der"}

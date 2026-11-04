@@ -1,6 +1,7 @@
 """Arıza tespiti: Jarvis'in çalışması için gereken her şeyi gerçekten dener ve sorun varsa ne yapılacağını söyler.
 
 run()      -> kontrol listesi (Komut Merkezi'ndeki "Sistem taraması" ve "sistemi kontrol et" komutu)
+requested  -> tam-cümle teşhis isteği tanıyıcısı (yazım düzeltmesinin kapalı admin seti buradan sorar)
 summary()  -> listeden sesli okunacak kısa özet
 explain()  -> bir komut çalışırken çıkan hatayı anlaşılır Türkçe cümleye çevirir
 """
@@ -8,10 +9,35 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 import concurrent.futures as cf
+import re
 import socket
 import time
 
 PHONE = None          # web.py açılışta telefon sunucusunu buraya bağlar (telefon kontrolü için)
+
+# Tam-cümle arıza tespiti isteği (BRAIN-MIG-042 §25 A kesişimi): yazım düzeltmesinin görebileceği
+# kapalı admin setinin tanıyıcısıdır; cümlenin TAMAMI bir teşhis kalıbıysa etki bu modülde yürür.
+# Eski düz-metin kapısı `re.search` ile cümlenin içindeki kesitleri de alıyordu — burası o yetkiyi
+# bilerek daraltır. `sistem tanılama` ve `pc ses kontrolü`nünü sahibi `modules.system_doctor`dır,
+# burada alınmaz; `sistem durumu` Fast Gate'in okuma protokolüdür.
+_TOPIC = r"(?:(?:hey\s+)?jarvis\s+)?(?:(?:lütfen|lutfen)\s+)?"
+_AUX = (r"(?:\s+(?:(?:bir\s+kez|şimdi|hemen|lutfen|lütfen)\s+)?"
+        r"(?:et|eder\s+m[ıi]sin|edebilirsin|ebilir\s+sin|ebilirsin|bilir\s+m[ıi]sin|yap|yapar\s+m[ıi]sin|"
+        r"başlat|baslat|bak|bakar\s+m[ıi]sin|koy|mısın|misin|istiyorum))?")
+_SUBJECT = r"(?:sistem\w*|bağlantı\w*|baglanti\w*|kendin\w*)"
+_CHECK = r"(?:kontrol\w*|tarama\w*|tara\w*|test\w*)"
+_FAULT_TOPIC = r"(?:internet|bağlantı|baglanti|wifi|ses\w*|mikrofon|hoparlör|hoparlor|pc|bilgisayar\w*|tarayıcı\w*)"
+_DIAGNOSE_REQUEST = re.compile(
+    _TOPIC + r"(?:(?:" + _SUBJECT + r"\s+" + _CHECK + r"|sistem\s+taraması"
+    r"|arıza\w*(?:\s+tespit\w*)?|ariza\w*(?:\s+tespit\w*)?|teşhis\w*|teshis\w*"
+    r"|her\s+şey\s+yolunda\s+m[ıi]|sorun\s+var\s+m[ıi]"
+    r"|(?:(?:" + _FAULT_TOPIC + r")\s+)?neden\s+çalışm[ıi]yor"
+    r"|(?:(?:" + _FAULT_TOPIC + r")\s+)?ne\s+bozuk)" + _AUX + r")", re.I)
+
+
+def requested(text: str) -> bool:
+    """Cümlenin tamamı bir arıza tespiti isteği mi? Karar burada, yürütme `run`/`summary`dedir."""
+    return bool(_DIAGNOSE_REQUEST.fullmatch(str(text).strip().strip(" .!?")))
 
 
 def _item(name: str, status: str, detail: str, fix: str = "") -> dict:

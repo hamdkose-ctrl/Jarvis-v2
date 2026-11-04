@@ -207,7 +207,7 @@ class CanonicalRouteAuthorityTests(unittest.TestCase):
         from modules import brain_entry
         entry = SimpleNamespace(text="raporu özetle")
         with self.bound(entry):
-            step = brain_entry.route_command(SimpleNamespace(_typo_pass=False), "sesi 30 yap")
+            step = brain_entry.route_command(SimpleNamespace(), "sesi 30 yap")
         self.assertEqual(step["intent"], "clarify")
         self.assertIn("adımı", step["args"]["question"])
 
@@ -457,7 +457,7 @@ def fake_runtime(slug="hamdi", user_name="Hamdi"):
     session = SimpleNamespace(speech_override=None, last_doc=None, pending_visual=None)
     sequence = iter(range(1, 1000))
     return SimpleNamespace(
-        _cur_source="", _cur_rid=None, _typo_pass=False, _typo_orig="",
+        _cur_source="", _cur_rid=None,
         slugify=lambda name: (name or "").casefold().strip(),
         pc_profile=lambda: SimpleNamespace(name=user_name, slug=slug),
         secrets=SimpleNamespace(token_hex=lambda size: f"rid-{next(sequence)}"),
@@ -929,7 +929,7 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                                                   candidates=(ref,), references=(ref,))
         self.assertTrue(semantic.references, "bağlanan referans Understanding'e taşınmadı")
         row = dataclasses.replace(fixtures.entry(brain_entry, semantic=semantic), text="onu aç")
-        runtime = SimpleNamespace(_typo_pass="", _typo_orig="")
+        runtime = SimpleNamespace()
         with brain_entry.bind(row):
             decision = brain_entry.route_command(runtime, "onu aç")
         self.assertEqual(decision, {"intent": "task", "args": {"request": "onu aç"}})

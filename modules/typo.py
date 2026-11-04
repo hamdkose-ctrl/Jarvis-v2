@@ -1,8 +1,16 @@
 """Yazım hatası düzeltici: "kotrol et" -> "kontrol et", "hatirlat" -> "hatırlat".
 
 Yalnızca Jarvis'in komut kalıplarında geçen anahtar kelimeler düzeltilir (Türkçe ekler korunur: "maylerimi" -> "maillerimi"
-gibi değil, kökün başı eşleşirse "kotrolü" -> "kontrolü"). main.handle önce yazılanı olduğu gibi dener; hiçbir kalıba
-uymazsa düzeltilmiş hâliyle bir kez daha dener. Böylece doğru yazılmış cümleler hiç değişmez.
+gibi değil, kökün başı eşleşirse "kotrolü" -> "kontrolü"). main.handle cümleyi her zaman kullanıcının yazdığı hâliyle
+yürütür; düzeltilmiş görünüm ikinci bir geçiş değildir ve yetkisi iki kapalı setle sınırlıdır:
+`command_manager.exact_admin_view` (tam-cümle admin tanıyıcıları) ve salt-okuma kurtarması
+`command_manager.typo_read_recovery` + `command_manager.typo_read_plan` (tam-cümle salt-okuma gramerleri;
+yürütme yetkisi intent'in kendi sahibindedir) (BRAIN-MIG-042). Düzeltici tek harf ikamesi yaptığında doğru
+yazılmış bir kelimeyi de bozabilir ("hazırla" -> "hatırla"); `diacritic_correction` bu yüzden yalnız
+kelimenin katlanmış kimliğini koruyan (sadece Türkçe karakteri geri getiren) düzeltmeyi doğrulanmış sayar ve
+`brain_entry._legacy_route_projection` o dar sınıfta, düzeltilmiş cümle hiçbir yetenekte karşılık bulamadığında
+genel hedef yürütmesine yetki vermez. Böylece doğru yazılmış cümleler yetkisini kaybetmez, bozulmuş bir görünüm de
+yazma/organize/açma gibi effekte giden bir kapıya ulaşamaz.
 """
 import re
 
@@ -94,3 +102,16 @@ def fix_word(tok: str) -> str:
 def fix(text: str) -> str:
     """Komuttaki kelimeleri tek tek düzeltir; noktalama ve boşluklar korunur."""
     return re.sub(r"[a-zçğıöşüâîû]+", lambda m: fix_word(m.group(0)), text)
+
+
+def diacritic_correction(text: str) -> bool:
+    """Düzeltme yalnızca Türkçe karakterleri mi geri getiriyor (kelimenin kimliği aynı mı)?
+
+    Yalnız karar bilgisi üreten salt-tanıyıcıdır: yeni bir geçiş başlatmaz, hiçbir kapıya düzeltilmiş
+    metni vermez. Ölçülen sınır: düzeltici doğru yazılmış kelimeyi de bozabiliyor ("hazırla" ->
+    "hatırla"), bu yüzden düzeltilmiş görünüm ancak katlanmış hâli kullanıcının yazdığınızdakiyle
+    birebir aynıysa cümlenin kimliğini doğrular. Kanıt: kimliği doğrulanmamış bir cümle doğrulanmış
+    bir yetenekte karşılık bulamıyorsa genel hedef yürütmesine yetki vermez
+    (`brain_entry._legacy_route_projection`)."""
+    fixed = fix(text)
+    return fixed != text and _fold(fixed) == _fold(text)

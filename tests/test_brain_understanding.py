@@ -13,7 +13,7 @@ from modules.brain_contracts import (
     RequestKind,
     TemporalNeed,
 )
-from modules.brain_understanding import understand
+from modules.brain_understanding import is_sequenced, sequence_steps, understand
 
 
 OWNER = "hamdi"
@@ -822,6 +822,51 @@ class BrainUnderstandingFinalCloseoutTests(BrainUnderstandingReviewRegressionTes
         self.assertEqual(result.request_kind, RequestKind.CONTEXT_CONTROL)
         self.assertEqual(result.capability_hint, "weather.read")
         self.assertIn(ContextAction.DROP_TOPIC, result.context_actions)
+
+
+class SequenceGrammarTests(unittest.TestCase):
+    """Sıra grameri (BRAIN-MIG-017): tipli adım planının tek sahibi Understanding'dir.
+
+    Eski sahibi `engine_sequence._split_steps` ham motor yüzeyinden emekli edildi; sözleşme
+    olduğu gibi bu kata taşındı (sıra, kısa parça çiti, beş adım sınırı, geçersiz tip)."""
+
+    def test_documented_sequence_forms_keep_their_order(self):
+        for command in ('önce maili oku, sonra raporu yaz', 'maili oku ardından raporu yaz',
+                        'maili oku akabinde raporu yaz', 'ÖNCE maili oku SONRA raporu yaz',
+                        ' önce maili oku, ve daha sonra, raporu yaz. '):
+            with self.subTest(command=command):
+                self.assertEqual(sequence_steps(command), ('maili oku', 'raporu yaz'))
+
+    def test_single_empty_or_unmarked_sentences_produce_no_plan(self):
+        for command in ('', '   ', 'maili oku', 'önce maili oku', 'önce', 'sonra raporu yaz',
+                        'maili oku ve raporu yaz', 'aç ardından x', 'önce abc sonra xy'):
+            with self.subTest(command=command):
+                self.assertEqual(sequence_steps(command), ())
+
+    def test_short_parts_are_filtered_at_the_three_character_boundary(self):
+        self.assertEqual(sequence_steps('önce ab sonra abc ardından def'), ('abc', 'def'))
+        self.assertEqual(sequence_steps('önce abc sonra def'), ('abc', 'def'))
+
+    def test_six_or_more_steps_are_capped_at_five(self):
+        for count in (2, 5, 6, 100):
+            with self.subTest(count=count):
+                steps = [f'adım {index}' for index in range(count)]
+                self.assertEqual(sequence_steps('önce ' + ' sonra '.join(steps)), tuple(steps[:5]))
+
+    def test_a_long_step_is_passed_intact_without_truncation(self):
+        long_step = 'ğ' * 100000
+        self.assertEqual(sequence_steps('önce ' + long_step + ' sonra bitir'), (long_step, 'bitir'))
+
+    def test_invalid_types_raise_before_any_step_exists(self):
+        for command in (None, True, 12, b'abc', [], {}):
+            with self.subTest(command=command), self.assertRaises(TypeError):
+                sequence_steps(command)
+
+    def test_the_marker_veto_is_wider_than_the_step_plan(self):
+        # Tek adımlı 'önce …' bölünmez ama sıralı sayılır: canonical plan vetosu bu hükmü okur.
+        self.assertTrue(is_sequenced('önce maili oku'))
+        self.assertEqual(sequence_steps('önce maili oku'), ())
+        self.assertFalse(is_sequenced('maili oku'))
 
 
 if __name__ == "__main__":

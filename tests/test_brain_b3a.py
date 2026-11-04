@@ -1,5 +1,6 @@
 """PR7 Closeout-B3a: clarify E2E through prepare->handoff, photo feedback, legacy front-gate precedence."""
 import inspect
+import logging
 import re
 import tempfile
 import time
@@ -19,10 +20,30 @@ RESUME = {"action": "pc_window", "params": {"target": "chrome", "action": "focus
 
 class _Pipeline(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
+        self.temp = temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        root_logger = logging.getLogger()
+        previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(temp.name)):
             self.ctx = engine_runtime.EngineContext()
+
+        def close_test_handlers():
+            # EngineContext kök logger'a DATA_DIR/jarvis.log handler'ı ekliyor; kapatılmazsa
+            # Windows'ta tutamak açık kalır ve yukarıdaki temp.cleanup PermissionError verir.
+            for handler in list(root_logger.handlers):
+                if handler not in previous_handlers:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+
+        self.addCleanup(close_test_handlers)
+        # requests_state._journal import anında canlı ~/.jarvis/requests.json'a bağlanır: turn'ler
+        # testi geçici kayda yazmalı, kullanıcının günlüğünü ve arşiv SQLite'ını hiç değiştirmemeli.
+        journal = patch.object(requests_state, "_journal", Path(temp.name) / "requests.json")
+        journal.start()
+        self.addCleanup(journal.stop)
+        saved_records = dict(requests_state._records)
+        requests_state._records.clear()
+        self.addCleanup(requests_state._records.update, saved_records)
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))
@@ -40,6 +61,36 @@ class _Pipeline(unittest.TestCase):
             handle = Mock(wraps=self.ctx.handle)
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         return entry, out, feedback, handle
+
+
+class LiveUserStateIsolationTests(_Pipeline):
+    """Kanatlı test: bu dosyanın turleri kullanıcının canlı durumuna dokunamaz.
+
+    `requests_state._journal` modül yüklenirken gerçek `~/.jarvis/requests.json`'a bağlanır;
+    `_Pipeline` yalnız `engine_runtime.DATA_DIR`'i geçici yaptığı için `register()` canlı günlüğü
+    ve yanındaki arşiv SQLite'ını yeniden yazıyordu. `EngineContext` ayrıca kök logger'a
+    `jarvis.log` handler'ı ekliyor ve kaldıran olmadığından tutamak kapanmadan kalıcıyordu:
+    Windows'ta `TemporaryDirectory` temizliği bu yüzden `PermissionError` veriyordu.
+    """
+
+    def test_a_turn_writes_only_the_case_temporary_journal(self):
+        self.through_brain("hava nasıl")
+        journal = Path(requests_state._journal)
+        self.assertTrue(journal.is_relative_to(Path(self.temp.name)),
+                        f"tur kullanıcının canlı istek günlüğüne yazdı: {journal}")
+
+    def test_the_case_starts_from_an_empty_request_record_table(self):
+        self.assertEqual(dict(requests_state._records), {},
+                         "canlı kullanıcının istek kayıtları test sürecine taşındı")
+        self.through_brain("hava nasıl")
+        self.assertTrue(all(rid.startswith("b3a-") for _user, rid in requests_state._records),
+                        f"kendi turüm dışındaki kayıtlar görünüyor: {sorted(requests_state._records)}")
+
+    def test_the_case_leaves_no_open_log_handle_in_its_temp_root(self):
+        self.through_brain("hava nasıl")
+        self.doCleanups()
+        self.assertFalse(Path(self.temp.name).exists(),
+                         "geçici kök dizini silinemedi: kök logger'da açık kalan jarvis.log tutamağı")
 
 
 class ClarifyEndToEndTests(_Pipeline):
@@ -150,13 +201,14 @@ class FrontGatePrecedenceTests(_Pipeline):
             "selfctl": "selfctl.handle(",
             "user_command": "runtime._user_command(",
             "planner_command": "runtime._planner_command(",
-            "macro_teach": "runtime._macro_teach",
-            "macro_manage": "runtime._macro_manage",
-            "macro_run": "runtime._macro_run",
-            "extra_commands": "runtime._extra_commands",
         }
-        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES]
+        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:5]]
+        positions.append(source.index("brain_precedence.claim_tail("))
         self.assertEqual(positions, sorted(positions))
+        # Kuyruk aralığı yüzeyde ikinci kez listelenmez: kısayollar ve cascade tek sahibinden gelir.
+        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[5:]))
+        for gate in ("_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"):
+            self.assertNotIn(gate, source)
 
     def test_each_front_gate_beats_core_weather(self):
         for gate in brain_precedence.FRONT_GATES:

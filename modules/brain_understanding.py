@@ -628,6 +628,16 @@ def _notes_arguments(text: str, references: tuple[ContextReference, ...]) -> dic
     return {}
 
 
+def notes_read_view(text: str) -> tuple[str, dict[str, object]] | None:
+    """Tek tam-cümle salt-okuma önerisi: (capability, Core'a gidecek argümanlar) veya None.
+
+    Referans çözmez (bağlam ikinci kez yürütülmez): yalnız çoklu not listesi önerilebilir.
+    Öneri burada doğar, yetkiyi `brain_core_map.core_plan` doğrular; bu yüzden düzeltilmiş
+    bir yazım tek başına hiçbir yazma akışının sahibi olamaz."""
+    arguments = _notes_arguments(text, ())
+    return None if not arguments else ("notes.read", dict(arguments))
+
+
 def _note_window_label(text: str) -> str | None:
     for pattern, label in _NOTE_WINDOWS:
         if pattern.search(text) is not None:
@@ -1114,6 +1124,9 @@ ACTION_REQUEST_CODE = "ENDS_WITH_ACTION"
 # Understanding "bu cümle bir icra isteğidir" hükmünü yalnız burada verir; kapı bu kaydı okur,
 # kendi başına ham metinden niyet türetmez.
 EXECUTION_REQUEST_CODE = "EXECUTION_REQUEST"
+# Understanding "bu cümle açıklama/sohbet ister" hükmünü de yalnız burada verir: bir yüzey bu
+# kaydı okuyabilir, ama aynı hükmü ham metinden ikinci kez sınıflandırarak üretemez.
+EXPLANATION_REQUEST_CODE = "EXPLANATION_REQUEST"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -1505,6 +1518,52 @@ def _clarify_proposal(reference: ContextReference, owner: str) -> Mapping[str, A
 def _definition_question(normalized: str) -> bool:
     """An explication question ("hava durumu nedir") is chat, not a command with a legacy owner."""
     return _contains_any(f" {normalized}", _STATIC_MARKERS)
+
+
+def explanation_request(text: str, normalized: str) -> bool:
+    """Understanding'ın tek açıklama hükmü: cümle bilgi ister, yürütülecek bir iş değildir.
+
+    Üç kanonical dal: tanım/açıklama sorusu (`_definition_question` — aynı hüküm zaten hava durumu
+    ve ekran görüntüsü kapılarını da veto eder), soru biçimli rehberlik/eleştiri/karar isteği
+    ("… ne yapmalıyım?") ve çıplak selamlama. Icra yetkisi taşıyan cümle (`action_request` /
+    `ends_with_action`) açıklama değildir; soru biçimli *olmayan* rehberlik isteği
+    ("adım adım wifi nasıl açılır") rehberlik kapısının sahibidir. Yüzeyler bu hükmü okur, ham
+    metinden kendi başlarına yeniden sınıflandıramaz.
+    """
+    if action_request(text) or ends_with_action(text):
+        return False
+    if _definition_question(normalized):
+        return True
+    if _advisory_request(normalized) is not None and str(text or "").rstrip().endswith("?"):
+        return True
+    return any(_bounded_token(normalized, chat) for chat in _GENERIC_CHAT)
+
+
+# Sıra grameri ('önce A, sonra B' / 'A ardından B') tek sahibindedir. Veto işareti ve adım bölmesi
+# aynı kalıptan doğar; motor yüzeyi cümleyi kendi başına bölmez, tipli planı buradan okur.
+_SEQUENCE_MARKER = re.compile(r"(?:^\s*önce\s)|(?:\s(?:ardından|akabinde)\s)|(?:\bönce\b.+\bsonra\b)", re.I)
+_SEQUENCE_SPLIT = re.compile(r"\s*(?:,\s*)?(?:ve\s+)?(?:daha\s+)?(?:sonra|ardından|akabinde)\s*,?\s+", re.I)
+_SEQUENCE_LEAD = re.compile(r"^\s*önce\s+", re.I)
+
+
+def is_sequenced(text: str) -> bool:
+    """Cümle sıralı bir isteğe benziyor; tek adımlı 'önce …' de sıralı sayılır (plan vetosu)."""
+    return _SEQUENCE_MARKER.search(text.replace("İ", "i").replace("I", "ı")) is not None
+
+
+def sequence_steps(text: str) -> tuple[str, ...]:
+    """Sıralı isteğin tipli adım planı: en az iki, en çok beş adım; kısa parçalar düşer.
+
+    Adımlar kullanıcının kendi sözcükleriyle döner (büyük/küçük harf ve Türkçe ekler korunur).
+    Yürütme typed adaptörde (`engine_sequence._run_steps`) kalır ve her adım kendi canonical
+    kararını `brain_entry.run_step` üzerinden alır. Geçersiz tip ilk kalıp çağrısında TypeError
+    verir; hiçbir adım üretilmez."""
+    body = _SEQUENCE_LEAD.sub("", text)
+    if not is_sequenced(text):
+        return ()
+    parts = [x.strip(" ,.") for x in _SEQUENCE_SPLIT.split(body)]
+    parts = [x for x in parts if len(x) >= 3]
+    return tuple(parts[:5]) if len(parts) >= 2 else ()
 
 
 def _weather_status_request(normalized: str) -> bool:
@@ -1953,6 +2012,10 @@ def understand(
     advisory = None if (context_control or topic_change or correction or capability_hint) else _advisory_request(normalized)
     if advisory is not None:
         arguments = {**arguments, ADVISORY_ARGUMENT_KEY: advisory}
+    # Açıklama hükmü de burada doğar ve tek sahibinden okunur: hiçbir legacy yüzey aynı cümleyi
+    # ikinci kez "bu bir soru" diye sınıflandırmaz.
+    if explanation_request(text, normalized):
+        reason_codes.append(EXPLANATION_REQUEST_CODE)
     preview = None
     if request_kind is RequestKind.CAPABILITY and not ambiguities:
         preview = _preview_text(capability_hint, arguments, references)
