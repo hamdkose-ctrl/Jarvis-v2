@@ -124,7 +124,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             if len(set(slots)) != len(slots) or any(slot not in by_slot for slot in slots):
                 return None
             if operation == "list":
-                if slots:
+                if slots or current.capability_hint != "files.read":
                     return None
                 proposed_arguments = {"original_text": text, "operation": "list"}
             elif operation == "compare":
