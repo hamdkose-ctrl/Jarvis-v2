@@ -203,5 +203,16 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                                            arguments=active.arguments))
 
 
+    def test_model_cannot_switch_a_current_capability_to_another_domain(self):
+        p1, p2, p3 = self.eligible()
+        active = current(capability_hint="notes.read", arguments={"original_text": "notları göster"})
+        raw = answer(request_kind="CAPABILITY", capability_hint="files.read",
+                     file_operation="list", file_slots=[], confidence="MEDIUM")
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+            result = model.refine(owner=OWNER, text="notları göster", current=active,
+                                  arguments=active.arguments)
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()
