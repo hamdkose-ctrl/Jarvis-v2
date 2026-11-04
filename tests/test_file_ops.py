@@ -169,5 +169,33 @@ class FileOpsTests(unittest.TestCase):
         self.assertFalse(moved.exists())
 
 
+    def test_typed_file_mutation_executor_moves_renames_creates_and_undoes(self):
+        source = self.write(self.downloads, 'typed.pdf', 'typed original')
+        moved_reply = file_ops.execute_typed('move', owner='alice', path=str(source), folder='belgeler')
+        self.assertIn('taşıdım', moved_reply)
+        moved = self.documents / 'typed.pdf'
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'typed original')
+        rename_reply = file_ops.execute_typed('rename', owner='alice', path=str(moved), name='new typed')
+        self.assertIn('adını', rename_reply)
+        renamed = self.documents / 'new typed.pdf'
+        self.assertTrue(renamed.exists())
+        create_reply = file_ops.execute_typed('create', owner='alice', folder='masaüstü',
+                                              name='typed note', content='hello')
+        self.assertIn('oluşturdum', create_reply)
+        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello\n')
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
+        self.assertTrue(moved.exists())
+        self.assertFalse(renamed.exists())
+        self.assertFalse((self.desktop / 'typed note.txt').exists())
+
+    def test_typed_file_mutation_executor_rejects_outside_root_source(self):
+        outside = self.home / 'outside.txt'
+        outside.write_text('do not move', encoding='utf-8')
+        reply = file_ops.execute_typed('move', owner='alice', path=str(outside), folder='belgeler')
+        self.assertIn('izinli konumda değil', reply)
+        self.assertTrue(outside.exists())
+        self.assertFalse((self.documents / 'outside.txt').exists())
+
+
 if __name__ == '__main__':
     unittest.main()
