@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping
 
+from modules import typo
+from modules.app_identities import verified_alias as _verified_app_alias
 from modules.brain_actions import action_request, ends_with_action, instructional_question
 from modules.brain_contracts import (
     ActiveContext,
@@ -390,10 +392,24 @@ def _contains_domain_token(text: str, tokens: Iterable[str]) -> bool:
     return any(_bounded_token(text, token) for token in tokens)
 
 
+# Ekli/bozuk yazımlı belge biçimi ("pdfyi", "worde") tek başına dosya alanı değildir; alan ancak
+# kaynak ve hedef biçim aynı dönüştürme cümlesinde geçince doğar ("pdfyi worde çevir"). Tek biçim
+# sözcüğü taşıyan "bunu pdf'e çevir" eski sahibinde kalır.
+_FILE_DOCUMENT_FORMAT = re.compile(
+    r"(?<!\w)(pdf|docx?|txt|md|csv|xlsx?|pptx?|word|excel)"
+    r"(?:['’]?(?:y?[ıiuü]|y?[ea]|n[ıiuü]))?(?!\w)",
+    re.I,
+)
+
+
 def _has_file_domain(text: str) -> bool:
     if _contains_domain_token(text, _FILE_DOMAIN_TOKENS):
         return True
-    return re.search(r"\.(?:pdf|doc|docx|txt|md|csv|xls|xlsx|ppt|pptx)(?!\w)", text) is not None
+    if re.search(r"\.(?:pdf|doc|docx|txt|md|csv|xls|xlsx|ppt|pptx)(?!\w)", text) is not None:
+        return True
+    if _FILE_FORMAT_RE.search(text) is None:
+        return False
+    return len({match.group(1).lower() for match in _FILE_DOCUMENT_FORMAT.finditer(text)}) >= 2
 
 
 _WEATHER_LOCATION = re.compile(r"([a-zçğıöşü]{3,}?)(?:['’]?(?:da|de|ta|te|daki|deki|nın|nin))?\s+hava")
@@ -906,7 +922,8 @@ FILE_CONVERSION_FORMAT_MISSING = "file conversion format missing"
 _FILE_TARGET_REQUIRED = frozenset({FILE_SUMMARIZE, FILE_ANALYZE, FILE_TRANSLATE, FILE_CONVERT})
 _FILE_ASK_EXEMPT = frozenset({FILE_OPEN, FILE_LOCATE})
 _FILE_FORMAT_RE = re.compile(
-    r"(?<!\w)(pdf|excel|xlsx|word|docx)(?:['’]?(?:e|a|ye|ya))?(?:\s+format(?:ına|ina))?\s+(?:dönüştür|donustur)\w*(?!\w)"
+    r"(?<!\w)(pdf|excel|xlsx|word|docx)(?:['’]?(?:e|a|ye|ya))?(?:\s+format(?:ına|ina))?\s+"
+    r"(?:dönüştür|donustur|çevir|cevir)\w*(?!\w)"
 )
 
 
@@ -951,9 +968,12 @@ def _file_operation(text: str) -> str | None:
     operations: list[str] = []
     if _contains_command_token(text, ("karşılaştır", "karsilastir")):
         operations.append(FILE_COMPARE)
-    if re.search(r"(?<!\w)(?:dönüştür|donustur)\w*(?!\w)", text):
+    converts = re.search(r"(?<!\w)(?:dönüştür|donustur)\w*(?!\w)", text) is not None
+    translates = re.search(r"(?<!\w)(?:çevir|cevir)\w*(?!\w)", text) is not None
+    # "word'e çevir" hedef biçim adı taşıyorsa dil çevirisi değil dosya dönüştürmesidir.
+    if converts or (translates and _file_format(text) is not None):
         operations.append(FILE_CONVERT)
-    if re.search(r"(?<!\w)(?:çevir|cevir)\w*(?!\w)", text):
+    elif translates:
         operations.append(FILE_TRANSLATE)
     if re.search(r"(?<!\w)(?:analiz\s+et\w*|incele\w*)(?!\w)", text):
         operations.append(FILE_ANALYZE)
@@ -1178,6 +1198,14 @@ _APP_CLOSE_BLOCK = re.compile(
 _APP_OPEN_MODIFIER = re.compile(r"\b(?:uygulamasını|programını|uygulamayı|programı|oyununu|oyunu)\b")
 # "sayfa" hedefli istek bir web/sayfa isteğidir; uygulama hedefi olarak burada seçilmez.
 _PAGE_TARGET = re.compile(r"\bsayfa")
+# PR3C-1 yazım toleransı: Türkçe karakteri düşmüş görünüm ("chromu acar misin") yalnız ham
+# gramerin kaçırdığı *açma* cümlesinde okunur. Katlama uzunluk korur; hedef ham metinden aynı
+# span'la alınır, düzeltilmiş metin yürütülebilir komut olmaz. Kapatma yolunda ikinci yorum yok.
+_APP_OPEN_TAIL_FOLD = typo.fold(_APP_OPEN_TAIL)
+_APP_OPEN_TARGET_FOLD = re.compile(rf"^(?:lütfen\s+)?(.+?)\s+{_APP_OPEN_TAIL_FOLD}$")
+_APP_OPEN_BLOCK_FOLD = re.compile(typo.fold(_APP_OPEN_BLOCK.pattern))
+_PAGE_TARGET_FOLD = re.compile(typo.fold(_PAGE_TARGET.pattern))
+_APP_OPEN_MODIFIER_FOLD = re.compile(r"\b(?:uygulamasini|programini|uygulamayi|programi|oyununu|oyunu)\b")
 # Adımlar zinciri tek bir uygulama etkisi değildir: "Ayarları aç ve Bluetooth'u kapat" bütün
 # cümlesiyle hedef yürütücüsüne devredilir (`outcome_contracts.open_only_request` aynı hükmü
 # verir). Emekli edilen ham dal bağlaçlı cümleyi de tek uygulamaya bağlıyordu; canonical
@@ -1238,6 +1266,26 @@ def _jarvis_page_request(normalized: str) -> bool:
     return recognizes_page(normalized)
 
 
+def _app_folded_request(text: str) -> tuple[str, dict[str, object]] | None:
+    """Ham açma gramerinin kaçırdığı Türkçe-karakteri-düşmüş cümle; hedef yalnız doğrulanmış
+    sabit kimliğe çözülürse `app.open` doğar, çözülemezse hedef sorusu."""
+    folded = typo.fold(text)
+    if _app_chain(folded):
+        return None
+    match = _APP_OPEN_TARGET_FOLD.match(folded)
+    if match is None:
+        return None
+    spoken = _APP_OPEN_MODIFIER_FOLD.sub("", match.group(1).strip()).strip()
+    if not spoken or len(spoken) > _CLARIFY_TARGET_MAX:
+        return None
+    if _APP_OPEN_BLOCK_FOLD.match(spoken) is not None or _PAGE_TARGET_FOLD.search(spoken):
+        return None
+    alias = _verified_app_alias(spoken)
+    if alias is None:
+        return "target-missing", {"app_target_kind": APP_OPEN_CAPABILITY}
+    return APP_OPEN_CAPABILITY, {"app": alias}
+
+
 def _app_request(normalized: str) -> tuple[str, dict[str, object]] | None:
     """Aç/kapat cümlesinin bounded hedefi; hedef yoksa clarify önerisi (`APP_TARGET_MISSING`)."""
     text = normalized.strip()
@@ -1262,7 +1310,7 @@ def _app_request(normalized: str) -> tuple[str, dict[str, object]] | None:
         return None
     open_match = _APP_OPEN_TARGET.match(text)
     if open_match is None:
-        return None
+        return _app_folded_request(text)
     spoken = _APP_OPEN_MODIFIER.sub("", open_match.group(1).strip()).strip()
     if not spoken or len(spoken) > _CLARIFY_TARGET_MAX or _APP_OPEN_BLOCK.match(spoken) is not None:
         return None

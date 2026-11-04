@@ -43,34 +43,8 @@ def _permission_instrument(action, target):
         return target(*args, **kwargs)
     return guarded
 
-# Sabit kısayollar. Bunların dışında yalnızca Başlat menüsünde kurulu görünen uygulamalar açılır
-# (serbest komut çalıştırılmaz; komut enjeksiyonu olmaz).
-# Yeni uygulama eklemek için: "söylenen ad": "çalıştırılacak program" satırı ekle.
-APPS = {
-    "chrome": "chrome",
-    "krom": "chrome",
-    "google chrome": "chrome",
-    "edge": "msedge",
-    "tarayıcı": "msedge",
-    "notepad": "notepad",
-    "not defteri": "notepad",
-    "notdefteri": "notepad",
-    "hesap makinesi": "calc",
-    "calculator": "calc",
-    "calc": "calc",
-    "calculatorapp": "calc",
-    "paint": "mspaint",
-    "excel": "excel",
-    "word": "winword",
-    "powerpoint": "powerpnt",
-    "power point": "powerpnt",
-    "vs code": "code",
-    "vscode": "code",
-    "visual studio code": "code",
-    "outlook": "outlook",
-    "teams": "ms-teams",
-    "dosya gezgini": "explorer",
-}
+# Sabit uygulama kimlikleri saf `app_identities` tablosunda; burada yalnız yürütme okunur.
+from modules.app_identities import APPS
 
 
 _TR = str.maketrans({"İ": "i", "I": "ı"})
