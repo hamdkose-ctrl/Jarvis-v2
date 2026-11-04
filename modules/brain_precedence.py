@@ -53,7 +53,10 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # branches are unchanged and remain domain-owned until their own migration decision.
         # PR3C-3: kanonical `file_organize` planı önizlemeyi kendi sahibinde kurar; planner'ın eski
         # ham-metin dalı aynı cümleye ikinci kez bakamaz (serbest Goal fallback'i de buradan yasak).
-        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize"}:
+        # PR3C-4: aynı hüküm `folder_analyze` için geçerlidir — klasör taraması yürütücünün tek sahibiyle
+        # yapılır, planner'ın "şunu incele" kalıbı aynı cümleyi ikinci kez yorumlayamaz.
+        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
+                                            "folder_analyze"}:
             return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
@@ -71,7 +74,10 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # handler reacting to a word like "toplantı") must not answer it instead.
         # `file_organize` aynı hükmü PR3C-3'ten alır: önizleme sahibini cascade'teki ham kalıp
         # yeniden yorumlayamaz, geri alma koluna ise plan olmadan (None) ulaşılır.
-        if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write"}:
+        # PR3C-4: `folder_analyze` planının kapısı cascade'in içindeydi; ham kalıp emekli olduğunda
+        # cascade aynı cümleye bir daha bakamaz (klasör taraması yalnız kanonical plandan yürür).
+        if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write",
+                                            "folder_analyze"}:
             return None
         return runtime._extra_commands(command, lowered)
 

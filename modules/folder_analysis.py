@@ -32,19 +32,16 @@ _SECRET_NAME = re.compile(r"şifre|sifre|parola|password|passwd|kimlik|nüfus|nu
                           r"banka|ekstre|dekont|iban|kredi\s*kart|maaş|maas|bordro|vergi\s*levha|id_rsa|token|secret")
 _SECRET_TEXT = re.compile(r"\bTR\d{2}(?:\s?\d{4}){5}\s?\d{2}\b|(?:şifre|sifre|parola|password)\s*[:=]", re.I)
 
-# "klasör" sözcüğü olmadan da tanınan klasör adları (ASCII yazım dahil); tekil "belge/resim" tek dosyaya karışmasın diye çoğul
-_FOLDER_WORDS = (
-    (r"indirilen\w*|download\w*|indirdikler\w*", ("Downloads", "İndirilenler")),
-    (r"masa[üu]st[üu]\w*|desktop\w*", ("Desktop", "OneDrive/Desktop", "OneDrive/Masaüstü", "Masaüstü")),
-    (r"belgeler\w*|belgelerim\w*|documents\w*", ("Documents", "OneDrive/Documents", "OneDrive/Belgeler", "Belgeler")),
-    (r"resimler\w*|foto[ğg]raflar\w*|pictures\w*", ("Pictures", "OneDrive/Pictures", "Resimler")),
-)
-_ASK = re.compile(r"\b(?:incele\w*|analiz\w*|ne(?:ler)?\s+var|ne\s+hakk[ıi]nda|i[çc]inde(?:ki)?\s+ne\w*|"
-                  r"i[çc]eri[ğg]\w*|neyle\s+ilgili|ne\s+i[çc]eriyor)")
-_ASK_WITH_FOLDER = re.compile(r"\b(?:[öo]zetle\w*|tara\b|tarar\s+m[ıi]s[ıi]n|g[öo]zden\s+ge[çc]ir\w*)")
-_NOT_THIS = re.compile(r"\b(?:d[üu]zenle|topla|temizle|s[ıi]rala|izle|a[çc]|sil|ta[şs][ıi]|kopyala|yedekle)"
-                       r"(?:\b|r\b|sana\b|y?abilir|y?ar\s+m[ıi]|r\s+m[ıi]s[ıi]n)|"   # "toplantı/silinen" fiil sayılmaz
-                       r"dosyas[ıi]n[ıi]|dosyay[ıi]|dosyas[ıi]\b|ge[çc]iyor")
+# Kanonical anahtar kümesi: Brain yalnız bu kapalı adlarla hangi izinli kökün kastedildiğini söyler.
+# Tanıyıcı kalıplar (`brain_understanding.folder_analysis_request`) burada hiç tekrarlanmaz — burası
+# anahtarı GERÇEK klasör kimliğine çeviren tek yerdir, ikinci bir anlam okuması değil.
+FOLDER_KEYS = ("jarvis", "downloads", "desktop", "documents", "pictures")
+_HOME_CANDIDATES = {
+    "downloads": ("Downloads", "İndirilenler"),
+    "desktop": ("Desktop", "OneDrive/Desktop", "OneDrive/Masaüstü", "Masaüstü"),
+    "documents": ("Documents", "OneDrive/Documents", "OneDrive/Belgeler", "Belgeler"),
+    "pictures": ("Pictures", "OneDrive/Pictures", "Resimler"),
+}
 
 
 def _fold(s: str) -> str:
@@ -78,38 +75,39 @@ def _home_folder(cands: tuple[str, ...]) -> Path | None:
     return max(found, key=_count)    # eşitlikte ilk aday (max ilkini korur)
 
 
-_GENERIC = {"bu", "şu", "o", "bir", "tüm", "bütün", "ilgili", "ki", "şuradaki", "buradaki", "içindeki"}
-_SPECIAL = re.compile(r"jarvis\s+dosyalar\w*|y[üu]klediklerim\w*")
-
-
-def _base_for(low: str, word: str | None = None) -> Path | None:
-    if _SPECIAL.fullmatch(word or "") or (word is None and _SPECIAL.search(low)):
+def home_folder(key: str) -> Path | None:
+    """Kapalı anahtarın gerçek kimliği; anahtar tanınmıyorsa ya da klasör yoksa None."""
+    if key == "jarvis":
         return nxapi.FILES_DIR if nxapi.FILES_DIR.is_dir() else None
-    for pattern, cands in _FOLDER_WORDS:
-        if re.search(rf"\b(?:{pattern})" if word is None else rf"^(?:{pattern})$", word or low):
-            return _home_folder(cands)
-    return None
+    cands = _HOME_CANDIDATES.get(key)
+    return None if cands is None else _home_folder(cands)
 
 
-def resolve(cmd_lower: str) -> tuple[Path | None, str | None]:
-    """(klasör, bulunamayan alt klasör adı). Adı geçen alt klasör yoksa üst klasöre GENİŞLEMEZ."""
-    low = _fold(cmd_lower)
-    if _NOT_THIS.search(low):
-        return None, None
-    has_word = re.search(r"\bklas[öo]r\w*", low)
-    if not (_ASK.search(low) or (has_word and _ASK_WITH_FOLDER.search(low))):
-        return None, None
-    m = re.search(r"((?:\S+\s+){0,3}?)(\S+)\s+klas[öo]r\w*", low)
-    last = m.group(2).strip("'’\"") if m else ""
-    base = _base_for(low)
-    if m and base is None:
-        base = _base_for(low, last)
+def missing_message(name: object) -> str:
+    """Bulunamayan alt klasörde tek yanıt: üst klasöre genişletilmez, yalnız tam ad sorulur."""
+    return (f"'{_fold(str(name or ''))}' adlı bir klasör bulamadım; başka bir klasörü incelemedim. "
+            "Klasörün tam adını söyler misin?")
+
+
+# Kanonical kök çözülemezse işlem hiç başlamaz: tahmini bir yol üretilmez, kullanıcıya bounded söylenir.
+ROOT_UNVERIFIED = "İncelenecek klasörü güvenli biçimde doğrulayamadım; işlem başlatılmadı."
+
+
+def analysis_target(arguments, text: str) -> tuple[Path | None, str | None]:
+    """Anahtarlar ve kullanıcının kendi sözü → (klasör, bulunamayan alt klasör adı).
+
+    Alt klasör adayı yalnız diskte GERÇEKTEN var olan, izinli ve bağ olmayan bir klasördür; kullanıcının
+    cümlesindeki sözcük onun kimlik kanıtıdır, bir yol tahmini değildir. Adına rağmen alt klasör bulunamazsa
+    üst klasöre veya başka bir köke GENİŞLENMEZ (bulunamayan ad döner), ancak ad kendi başına bilinen bir kök
+    ise ("masaüstündeki belgeler klasörü") o kök hedef olur."""
+    named = home_folder(str(arguments.get("named") or ""))
+    base = home_folder(str(arguments.get("folder") or "")) or named
     if base is None:
         return None, None
-    if not m:
+    name = _fold(str(arguments.get("name") or ""))
+    if not name:
         return base, None
-    # klasörden hemen önceki söz başka bir bilinen klasörse ("masaüstündeki belgeler klasörü") asıl hedef odur
-    word_base = _base_for(low, last) if last else None
+    low = _fold(text)
     try:
         kids = [c for c in base.iterdir() if c.is_dir() and not c.is_symlink() and nxapi.allowed(c) is not None]
     except OSError:
@@ -118,22 +116,26 @@ def resolve(cmd_lower: str) -> tuple[Path | None, str | None]:
     for c in kids:
         n = _fold(c.name)
         if re.search(rf"(?<![\w]){re.escape(n)}\w*(?!\w)", low) and (best is None or len(n) > len(_fold(best.name))):
-            if n != last or word_base is None:       # 'belgeler' alt klasörü yoksa Belgeler'e gidilir
+            if n != name or named is None:       # 'belgeler' alt klasörü yoksa Belgeler'e gidilir
                 best = c
             elif best is None:
                 best = c
     if best is not None:
         return best, None
-    if word_base is not None:
-        return word_base, None
-    if not last or last in _GENERIC or _base_for(low, last) is not None or re.fullmatch(_ASK.pattern, last):
-        return base, None
-    return None, last
+    if named is not None:
+        return named, None
+    # Ad diskte yoksa ÜST KLASÖRE GENİŞLENMEZ: bulunamayan ad döner, kullanıcı tam adı söyler.
+    return None, name
 
 
-def target(cmd_lower: str) -> Path | None:
-    """Komut bir klasör analizi isteğiyse klasörün yolunu döner; değilse (ya da alt klasör yoksa) None."""
-    return resolve(cmd_lower)[0]
+def analyze_turn(profile, arguments, text: str) -> str:
+    """Kanonical turun tek yürütmesi: kök doğrulanamazsa hiçbir dosya okunmaz, hiçbir model çağrılmaz."""
+    folder, missing = analysis_target(arguments, text)
+    if missing:
+        return missing_message(missing)
+    if folder is None:
+        return ROOT_UNVERIFIED
+    return analyze(profile, folder)
 
 
 def _title(folder: Path) -> str:
@@ -406,12 +408,3 @@ def analyze(profile, folder: Path, use_model: bool = True) -> str:
     if indexed:
         lines += ["", f"Okuduğum {indexed} dosyayı aramaya ekledim; artık “… hangi dosyada?” diye sorabilirsin."]
     return "\n".join(lines)
-
-
-def handle(cmd_lower: str, profile) -> str | None:
-    folder, missing = resolve(cmd_lower)
-    if missing:
-        return f"'{missing}' adlı bir klasör bulamadım; başka bir klasörü incelemedim. Klasörün tam adını söyler misin?"
-    if folder is None:
-        return None
-    return analyze(profile, folder)

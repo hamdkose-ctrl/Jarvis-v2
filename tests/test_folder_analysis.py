@@ -104,6 +104,18 @@ class FolderAnalysisTests(unittest.TestCase):
             out = fa.analyze(self.profile, self.dl)
         self.assertIn('1 dosya var', out)
 
+    def target(self, phrase):
+        """Kanonical zincirin hedef çözümlemesi: Understanding kararı → gerçek klasör kimliği.
+
+        Eski `fa.target` ham cümleyi kendi grameriyle yorumluyordu (PR3C-4'te emekli); karar artık
+        `brain_understanding.folder_analysis_request`'te, disk kimliği `analysis_target`'ta."""
+        from modules import brain_understanding
+        args = brain_understanding.folder_analysis_request(phrase)
+        if args is None:
+            return None
+        folder, missing = fa.analysis_target(args, phrase)
+        return None if missing else folder
+
     def test_phrases(self):
         (self.home / 'Desktop').mkdir(); (self.dl / 'Proje').mkdir()
         yes = {'indirilenler klasörünü incele': self.dl, 'indirilenler klasorunu incele': self.dl,
@@ -115,32 +127,34 @@ class FolderAnalysisTests(unittest.TestCase):
         (self.home / 'Documents').mkdir()
         for q, want in yes.items():
             with self.subTest(q):
-                self.assertEqual(fa.target(kb._norm(q)), want)
+                self.assertEqual(self.target(q), want)
         for q in ('indirilenleri düzenle', 'indirilenlerdeki rapor dosyasını özetle', 'indirilenlerde kira geçiyor mu',
                   'bugün ne var', 'indirilenler klasörünü aç', 'bu belgeyi incele', 'evde neler var', 'indirilenleri izle',
                   'masaüstünü temizle', 'indirilenleri açar mısın', 'masaüstünü düzenler misin', 'resim nedir', 'dosyalarımı göster', 'videolar klasöründe ne var'):
             with self.subTest(q):
-                self.assertIsNone(fa.target(kb._norm(q)))
+                self.assertIsNone(self.target(q))
 
     # --- GPT incelemesi (madde 4-9): gerçek klasör düzenleriyle ---
     def test_onedrive_redirected_folder_wins_over_empty_stub(self):
         (self.home / 'Desktop').mkdir()                                    # boş kalıntı
         real = self.home / 'OneDrive' / 'Desktop'; real.mkdir(parents=True)
         (real / 'a.txt').write_text('gerçek dosya', encoding='utf-8')
-        self.assertEqual(fa.target(kb._norm('masaüstümde ne var')), real)
+        self.assertEqual(self.target('masaüstümde ne var'), real)
 
     def test_named_subfolder_not_found_does_not_expand(self):
         (self.dl / 'Proje Dosyaları').mkdir(); (self.dl / 'baska.txt').write_text('x', encoding='utf-8')
-        self.assertEqual(fa.target(kb._norm('indirilenlerdeki proje dosyaları klasörünü incele')), self.dl / 'Proje Dosyaları')
-        self.assertIsNone(fa.target(kb._norm('indirilenlerdeki gizli proje klasörünü incele')))
+        self.assertEqual(self.target('indirilenlerdeki proje dosyaları klasörünü incele'), self.dl / 'Proje Dosyaları')
+        self.assertIsNone(self.target('indirilenlerdeki gizli proje klasörünü incele'))
+        from modules import brain_understanding
+        args = brain_understanding.folder_analysis_request('indirilenlerdeki gizli proje klasörünü incele')
         with patch('modules.llm.ask', side_effect=AssertionError('model çağrılmamalı')):
-            out = fa.handle(kb._norm('indirilenlerdeki gizli proje klasörünü incele'), self.profile)
+            out = fa.analyze_turn(self.profile, args, 'indirilenlerdeki gizli proje klasörünü incele')
         self.assertIn("'proje' adlı bir klasör bulamadım", out)
         self.assertNotIn('baska.txt', out)
 
     def test_two_folder_phrase_goes_to_named_folder(self):
         (self.home / 'Desktop').mkdir(); (self.home / 'Documents').mkdir()
-        self.assertEqual(fa.target(kb._norm('masaüstündeki belgeler klasörünü incele')), self.home / 'Documents')
+        self.assertEqual(self.target('masaüstündeki belgeler klasörünü incele'), self.home / 'Documents')
 
     def test_secret_files_are_not_hashed_and_wording_is_exact(self):
         (self.dl / 'sifre1.txt').write_text('aynı', encoding='utf-8'); (self.dl / 'sifre2.txt').write_text('aynı', encoding='utf-8')
@@ -188,7 +202,7 @@ class FolderAnalysisTests(unittest.TestCase):
         (d / 'not.txt').write_text('taşınmış klasör içeriği', encoding='utf-8')
         (self.home / 'Desktop').mkdir()                                          # HOME altında boş kalıntı
         with patch.object(nxapi, 'known_folder', side_effect=lambda n: d if n == 'Desktop' else None):
-            self.assertEqual(fa.target(kb._norm('masaüstümde ne var')), d)
+            self.assertEqual(self.target('masaüstümde ne var'), d)
             self.assertIsNotNone(nxapi.allowed(d / 'not.txt'))                    # izinli kökler aynı kaynaktan
             with patch('modules.llm.ask', return_value='x' * 30):
                 self.assertIn('1 dosya var', fa.analyze(self.profile, d))

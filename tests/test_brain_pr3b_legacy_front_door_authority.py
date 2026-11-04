@@ -33,7 +33,7 @@ ENGINE_COMMANDS_SOURCE = (ROOT / "modules" / "engine_commands.py").read_text(enc
 EFFECT_SEAMS = (
     "updater.check", "updater.install_latest", "updater.verify_sync", "updater.status",
     "modules.diagnose.run", "modules.diagnose.summary",
-    "modules.folder_analysis.handle", "modules.file_ops.handle",
+    "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
     "modules.finance_alert_commands.matches", "modules.selfctl.handle",
     "modules.media.handle", "modules.filesend.handle",
@@ -938,18 +938,20 @@ class CascadeReachabilityTests(_RawDoorHarness):
         from modules import engine_tools
         self.ctx._extra_commands = partial(engine_tools._extra_commands, self.ctx)
 
-    def test_an_unmapped_folder_request_still_reaches_its_cascade_owner(self):
-        self.seams["modules.folder_analysis.handle"].return_value = "ANALİZ"
-        _entry, out, _handle, _ = self.turn("İndirilenler klasörünü incele")
-        self.assertIn("ANALİZ", str(out))
-        self.seams["modules.folder_analysis.handle"].assert_called_once()
+    def test_an_unmapped_handoff_request_still_reaches_its_cascade_owner(self):
+        # PR3C-4'ten sonra klasör kapısı cascade'te değil; sıra sözleşmesi hâlâ eşlenmemiş bir
+        # domain kolunu buluyor: "işte neler var" yalnız `_extra_commands` sırasında sahibine varır.
+        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
+        _entry, out, _handle, _ = self.turn("yarın işte neler var")
+        self.assertIn("DEVRAL", str(out))
+        self.seams["modules.handoff.handle"].assert_called_once()
 
     def test_a_shortcut_answer_stops_the_cascade_behind_it(self):
         self.ctx._macro_run = Mock(return_value="KISAYOL ÇALIŞTI")
-        self.seams["modules.folder_analysis.handle"].return_value = "ANALİZ"
+        self.seams["modules.handoff.handle"].return_value = "DEVRAL"
         _entry, out, _handle, _ = self.turn("deneme kısayolunu çalıştır")
         self.assertIn("KISAYOL ÇALIŞTI", str(out))
-        self.seams["modules.folder_analysis.handle"].assert_not_called()
+        self.seams["modules.handoff.handle"].assert_not_called()
 
     def test_an_explicit_mail_request_still_reaches_the_mail_owner(self):
         # Provider/account kararları domain'de kalır (§12): kanonical mail capability yokken

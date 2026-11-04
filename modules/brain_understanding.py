@@ -866,6 +866,10 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return ORGANIZE_CAPABILITY
     if _file_operation(text) is not None:
         return "files.read"
+    # Klasör analizi tek dosya okumasından sonra gelir: "… dosyasını özetle" bir dosya isteğidir,
+    # kök adı geçse de klasör taraması başlatmaz (ölçülen taban sırası).
+    if folder_analysis_request(text) is not None:
+        return FOLDER_ANALYSIS_CAPABILITY
     # Eski ham dalın "hava durumuna bak / söyle" yüzü: dosya-not-ekran hedefi yoksa hava okumasıdır.
     if _weather_status_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
@@ -1095,6 +1099,72 @@ def _organize_arguments(targets: tuple[str, ...]) -> dict[str, object]:
     return {"operation": ORGANIZE_OPERATION, "folder": targets[0]}
 
 
+# --- kanonical klasör analizi (PR3C-4) -----------------------------------------------------------
+# Karar bir kez burada doğar ve kapalı üç sözlükle sınırlıdır: hangi izinli kök (`folder`), "klasör"
+# sözünden hemen önceki sözcük kendi başına bir bilinen kök mü (`named`), ve o sözcük (`name`).
+# Yol asla burada doğmaz — anahtarları gerçek klasör kimliğine yalnız domain çevirir. Kalıplar
+# emekli edilen ham dalın (folder_analysis.resolve) katlanmış biçimiyle birebir aynıdır: metin
+# `typo.fold` ile ASCII'ye indirildiği için [öo]/[çc] gibi çift yazımlar tek biçimde toplanır ve
+# Türkçe karakterli/karaktersiz aynı cümle aynı kararı verir.
+FOLDER_ANALYSIS_CAPABILITY = "files.folder_analyze"
+FOLDER_ANALYSIS_OPERATION = "analyze"
+_FOLDER_ANALYSIS_LABELS = {"downloads": "İndirilenler", "desktop": "Masaüstü", "documents": "Belgeler",
+                           "pictures": "Resimler", "jarvis": "Jarvis Dosyaları"}
+
+# Sıra = tanima önceliği: `jarvis dosyaları` kümesi emekli edilen `_SPECIAL` ile aynı yerde, ilk okunur.
+_FOLDER_ANALYSIS_WORDS = (
+    ("jarvis", re.compile(r"jarvis\s+dosyalar\w*|yuklediklerim\w*")),
+    ("downloads", re.compile(r"indirilen\w*|download\w*|indirdikler\w*")),
+    ("desktop", re.compile(r"masaust\w*|desktop\w*")),
+    ("documents", re.compile(r"belgeler\w*|belgelerim\w*|documents\w*")),
+    ("pictures", re.compile(r"resimler\w*|fotograflar\w*|pictures\w*")),
+)
+# Analiz fiilinin iki yüzü: tek başına "incele/analiz et/ne var" ve yalnız "klasör" sözüyle birlikte
+# anlam kazanan "özetle/tara/gözden geçir".
+_FOLDER_ANALYSIS_ASK = re.compile(r"(?<!\w)(?:incele\w*|analiz\w*|ne(?:ler)?\s+var|ne\s+hakkinda|"
+                                  r"icinde(?:ki)?\s+ne\w*|icerig\w*|neyle\s+ilgili|ne\s+iceriyor)")
+_FOLDER_ANALYSIS_ASK_WITH_FOLDER = re.compile(r"(?<!\w)(?:ozetle\w*|tara\b|tarar\s+misin|gozden\s+gecir\w*)")
+# Başka alanların fiilleri: taşıma/düzenleme/izleme/açma kendi sahiplerinde; "toplantı" ve "silinen"
+# kök-ek sınırı sayesinde fiil sayılmaz (emekli edilen `_NOT_THIS` ile aynı dışlamalar).
+_FOLDER_ANALYSIS_VETO = re.compile(r"(?<!\w)(?:duzenle|topla|temizle|sirala|izle|ac|sil|tasi|kopyala|yedekle)"
+                                   r"(?:\b|r\b|sana\b|y?abilir|y?ar\s+misin|r\s+misin)"
+                                   r"|dosyasin|dosyayi|dosyas\b|geciyor")
+# "bu klasörü incele" bir hedef sorusudur, üst klasör adlı bir alt klasör isteği değil.
+_FOLDER_ANALYSIS_GENERIC = frozenset({"bu", "su", "o", "bir", "tum", "butun", "ilgili", "ki",
+                                      "suradaki", "buradaki", "icindeki"})
+_FOLDER_ANALYSIS_KLASOR = re.compile(r"(?<!\w)klasor\w*")
+_FOLDER_ANALYSIS_NAMED = re.compile(r"((?:\S+\s+){0,3}?)(\S+)\s+klasor\w*")
+
+
+def folder_analysis_request(text: str) -> dict[str, object] | None:
+    """Klasör analizi önerisi: kapalı kök anahtarı(+ları) ve adı geçen alt klasör sözcüğü.
+
+    Bulunamayan alt klasör üst klasöre genişletilmez: `name` taşındığında domain ya gerçek bir alt
+    klasör bulur ya da kullanıcıya tam adı sorar; hangisinin olduğunu yalnız diskteki kimlik söyler,
+    o yüzden karar domain'de kalır. Ne fiil ne de anahtar bulunursa öneri yoktur — ham cümleyi ikinci
+    kez yorumlayan bir yedeği de yoktur."""
+    if not text or _is_meta_language(text) or _is_literal_command_usage(text):
+        return None
+    folded = typo.fold(text)
+    if _FOLDER_ANALYSIS_VETO.search(folded) is not None:
+        return None
+    named_folder = _FOLDER_ANALYSIS_KLASOR.search(folded) is not None
+    if not (_FOLDER_ANALYSIS_ASK.search(folded)
+            or (named_folder and _FOLDER_ANALYSIS_ASK_WITH_FOLDER.search(folded))):
+        return None
+    match = _FOLDER_ANALYSIS_NAMED.search(folded)
+    # Sözcük katlanmış görünümün aynı konumundan dilimlenir: `typo.fold` uzunluk korur, böylece
+    # kullanıcı kendi yazdığı Türkçe adla cevaplanır ("çalışma" → 'çalışma', değil 'calisma').
+    name = text[match.start(2):match.end(2)].strip("'’\"") if match else ""
+    folder = next((key for key, pattern in _FOLDER_ANALYSIS_WORDS if pattern.search(folded)), "")
+    named = next((key for key, pattern in _FOLDER_ANALYSIS_WORDS if pattern.fullmatch(name)), "")
+    if not folder and not named:
+        return None
+    if typo.fold(name) in _FOLDER_ANALYSIS_GENERIC or _FOLDER_ANALYSIS_ASK.fullmatch(typo.fold(name)):
+        name = ""
+    return {"operation": FOLDER_ANALYSIS_OPERATION, "folder": folder, "named": named, "name": name}
+
+
 # Echo / semantic preview labels. Each one is derived from an already resolved
 # capability + bounded argument; none of them re-reads the user sentence.
 _FILE_PREVIEW_LABELS = {
@@ -1153,6 +1223,11 @@ def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
     if capability_hint == ORGANIZE_CAPABILITY:
         label = _ORGANIZE_PREVIEW_LABELS.get(str(arguments.get("folder") or ""))
         return EchoPreview(text=f"{label} klasörünü düzenleme") if label else None
+    if capability_hint == FOLDER_ANALYSIS_CAPABILITY:
+        # Görünüm yalnız doğrulanmış kapalı anahtardan okunur: kullanıcı cümlesi ikinci kez yorumlanmaz.
+        key = str(arguments.get("folder") or arguments.get("named") or "")
+        label = _FOLDER_ANALYSIS_LABELS.get(key)
+        return EchoPreview(text=f"{label} klasörünü inceleme") if label else None
     if capability_hint == PHOTO_CAPABILITY:
         operation = arguments.get("operation")
         if operation == _PHOTO_TRANSLATE:
@@ -1915,6 +1990,8 @@ def understand(
                           and (_is_notes_read_request(normalized) or note_search or note_summary is not None))
     file_operation = None if (photo_targeted or context_control or topic_change or correction) else _file_operation(normalized)
     organize_targets = () if (photo_targeted or context_control or topic_change or correction) else _organize_targets(normalized)
+    folder_analysis = (None if (photo_targeted or context_control or topic_change or correction)
+                       else folder_analysis_request(normalized))
     ambiguities = _ambiguity_for_references(normalized, references)
     if photo_ambiguity is not None:
         ambiguities = (*ambiguities, photo_ambiguity)
@@ -1987,7 +2064,7 @@ def understand(
         level is not None or notes_read_request or note_write is not None or weather_request
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or photo_proposal is not None
-        or device is not None or bool(organize_targets)
+        or device is not None or bool(organize_targets) or folder_analysis is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -2142,6 +2219,9 @@ def understand(
     # Son bağlanır: bir üstteki hiçbir öneri düzenleme anahtarını taşıyorsa payload'ı da yoktur.
     if capability_hint == ORGANIZE_CAPABILITY:
         arguments = {**arguments, **_organize_arguments(organize_targets)}
+    # Klasör analizi anahtarları da yalnız tek öneriden gelir: ipucu bu yetenek değilse payload yoktur.
+    if capability_hint == FOLDER_ANALYSIS_CAPABILITY and folder_analysis is not None:
+        arguments = {**arguments, **folder_analysis}
 
     # Advisory chat shaping is a semantic choice, so it is resolved once here and the
     # advisor layer only formats. A Core-mapped request keeps its own owner.

@@ -368,8 +368,11 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     2. `plugins` (D → PR3C): kullanıcı eklentileri ham cümleyi sırayla yoklar; kanonical sahibi
        ve capability sözlüğü yok. Kaldırmak ürün gerilemesidir, parity ile sökülecek.
     3. `handoff` (D → PR3C): "işte neler var / evde neler var" `re.search` ile sabit-önek değil.
-    4. `folder_analysis` (C): kendi kapısı var (`_NOT_THIS` veto: taşı/sil/aç/düzenle), klasör
-       okuma; kanonical `files.read` tek dosyayı kapsar, klasör analizi PR3C satırı.
+    4. `folder_analysis` (D, PR3C-4 kapandı): ham kalıp ve `_NOT_THIS` vetosu artık yok; karar
+       `brain_understanding.folder_analysis_request` → Core `folder_analyze` → `engine_intents` →
+       `folder_analysis.analyze_turn` zincirinde yürür. İzinli kökler, derinlik/okuma sınırları, gizli
+       dosya ve yalnız-çevrimiçi korumaları ile KB dizine ekleme + en çok bir model çağrısı yürüticide
+       olduğu gibi kaldı; tek dosya isteği (`files.read`) karışmaz.
     5. `browser` (C): URL + özetleme ya da sabit "… ara" kalıbı; effekte gitmeden önce privacy
        kapısı var. Kanonical sayfa-okuma capability'si yok → PR3C.
     6. `günlük özet` (D → PR3C, §21): cümlenin içinde aranan fazlasıyla uzun bir sözcük listesi;
@@ -405,10 +408,6 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
             return hand
     except Exception:
         runtime._record_failure('main.py:_extra_commands')
-    from modules import folder_analysis              # "İndirilenler klasörünü incele", "masaüstünde ne var"
-    folder_reply = folder_analysis.handle(cmd_lower, runtime.profile)
-    if folder_reply is not None:
-        return folder_reply
     web = runtime.browser.handle(cmd_lower)
     if web:
         return web

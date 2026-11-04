@@ -255,7 +255,9 @@ class FileTargetAuthorityTests(unittest.TestCase):
         # İkinci hedef seçiciyle gelen klasör listesi yardımcısı silinir; sahibi folder_analysis kalmalı.
         self.assertNotIn("_folder_overview", identities(source("main_documents")))
         self.assertNotIn("_folder_overview", identities(source("engine_tools")))
-        self.assertIn("folder_analysis", imported_modules(source("engine_tools")))
+        # PR3C-4: ham kalıp kapısı kalktı; yürütücüye tek kanonical çağrı engine_intents'ten gelir.
+        self.assertNotIn("folder_analysis", imported_modules(source("engine_tools")))
+        self.assertIn("folder_analysis", imported_modules(source("engine_intents")))
 
     def test_doc_only_fallback_helpers_retired_with_their_caller(self):
         # Bu yardımcıların tek çağrısı legacy doc_* case'leriydi; hedef seçiciyle birlikte kalktı.
