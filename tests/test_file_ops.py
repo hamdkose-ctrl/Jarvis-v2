@@ -191,7 +191,7 @@ class FileOpsTests(unittest.TestCase):
         create_reply = file_ops.execute_typed('create', owner='alice', folder='masaüstü',
                                               name='typed note', content='hello')
         self.assertIn('oluşturdum', create_reply)
-        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello\\n')
+        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello' + chr(10))
         self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
         self.assertFalse((self.desktop / 'typed note.txt').exists())
 
