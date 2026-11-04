@@ -659,6 +659,15 @@ class BrainUnderstandingTests(unittest.TestCase):
             self.assertNotIn(token, source)
 
 
+
+
+class BrainFileMutationProposalTests(unittest.TestCase):
+    def call(self, text, *, candidates=(), references=()):
+        return understand(
+            owner=OWNER, request_id=RID, text=text, active_context=ctx(),
+            candidates=tuple(candidates), references=tuple(references), model_refinement=False,
+        )
+
     def test_file_mutations_propose_typed_core_payloads_from_resolved_candidates(self):
         from modules.brain_core_map import core_plan
         from modules.brain_understanding import FILE_MUTATE_CAPABILITY
