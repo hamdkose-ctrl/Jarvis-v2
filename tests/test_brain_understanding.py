@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta
 
 from modules.brain_contracts import (
@@ -932,6 +933,38 @@ class SequenceGrammarTests(unittest.TestCase):
 
 
 
+
+class BrainModelIntegrationTests(unittest.TestCase):
+    def call(self, text, *, candidates=(), references=()):
+        return understand(owner=OWNER, request_id=RID, text=text, active_context=ctx(),
+                          candidates=tuple(candidates), references=tuple(references))
+
+    def test_canonical_understanding_propagates_model_request_cancellation(self):
+        from modules import requests_state
+        source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
+        result = self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
+        with patch(
+            "modules.brain_model_understanding.refine",
+            side_effect=requests_state.Cancelled("cancelled"),
+        ):
+            with self.assertRaises(requests_state.Cancelled):
+                from modules.brain_understanding import apply_model_refinement
+                apply_model_refinement(result, "rapor dosyasını özetle")
+
+    def test_model_file_proposal_is_wired_into_canonical_understanding(self):
+        from modules.brain_model_understanding import SemanticRefinement
+        source = ref('file:rapor', 'file', path='C:/Users/hamdi/Documents/rapor.pdf', name='rapor.pdf')
+        proposal = SemanticRefinement(RequestKind.CAPABILITY, ConversationRelation.NEW_REQUEST,
+                                      TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
+                                      {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
+                                       'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
+        result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
+        with patch('modules.brain_model_understanding.refine', return_value=proposal):
+            from modules.brain_understanding import apply_model_refinement
+            result = apply_model_refinement(result, 'şu raporu bir incele')
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(result.capability_hint, 'files.read')
+        self.assertEqual(result.arguments['operation'], 'analyze')
 
 if __name__ == "__main__":
     unittest.main()
