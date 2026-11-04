@@ -2302,7 +2302,10 @@ def understand(
                     confidence=refined.confidence,
                     preview=next_preview,
                 )
-        except Exception:
+        except Exception as exc:
+            from modules import requests_state
+            if isinstance(exc, requests_state.Cancelled):
+                raise
             # Optional model failure never changes the deterministic, Core-validated proposal.
             pass
     return result
