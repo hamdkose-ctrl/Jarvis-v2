@@ -69,6 +69,7 @@ class BrainUnderstandingTests(unittest.TestCase):
         references=(),
         owner: str = OWNER,
         request_id: str = RID,
+        model_refinement: bool = False,
     ):
         return understand(
             owner=owner,
@@ -77,6 +78,7 @@ class BrainUnderstandingTests(unittest.TestCase):
             active_context=active_context or ctx(),
             candidates=tuple(candidates),
             references=tuple(references),
+            model_refinement=model_refinement,
         )
 
     def test_owner_request_and_context_fences_fail_closed(self):
@@ -668,7 +670,7 @@ class BrainUnderstandingTests(unittest.TestCase):
             side_effect=requests_state.Cancelled("cancelled"),
         ):
             with self.assertRaises(requests_state.Cancelled):
-                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
+                self.call("rapor dosyasını özetle", candidates=(source,), references=(source,), model_refinement=True)
 
     def test_model_file_proposal_is_wired_into_canonical_understanding(self):
         from modules.brain_model_understanding import SemanticRefinement
