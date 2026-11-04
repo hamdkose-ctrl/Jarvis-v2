@@ -243,5 +243,18 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                                            arguments=active.arguments))
 
 
+    def test_model_refinement_transport_timeout_is_bounded(self):
+        p1, p2, p3 = self.eligible()
+        raw = answer(request_kind="CHAT", capability_hint=None, confidence="MEDIUM")
+        def through_router(owner, prompt, callback, **kwargs):
+            return callback("groq")
+        with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
+                patch("modules.llm._send_provider", return_value=raw) as send:
+            result = model.refine(owner=OWNER, text="rapor dosyasını özetle",
+                                  current=current(), arguments=current().arguments)
+        self.assertIsNotNone(result)
+        self.assertEqual(send.call_args.args[3], 12)
+
+
 if __name__ == "__main__":
     unittest.main()
