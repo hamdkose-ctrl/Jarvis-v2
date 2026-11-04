@@ -959,7 +959,7 @@ def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...])
     create = _FILE_MUTATION_CREATE.fullmatch(cleaned)
     if create is not None:
         folder = {
-            "masaüstüne": "masaüstü", "masaustune": "masaustu",
+            "masaüstüne": "masaüstü", "masaustune": "masaüstü",
             "indirilenlere": "indirilenler", "belgelere": "belgeler",
         }.get(typo.fold(create.group("folder")), typo.fold(create.group("folder")))
         return {"mutation": {"operation": "create", "folder": folder,
@@ -985,7 +985,7 @@ def _file_mutation_proposal(text: str, references: tuple[ContextReference, ...])
         return {"mutation": {"operation": operation}}, FILE_MUTATION_TARGET_UNRESOLVED
     if move is not None:
         folder = {
-            "masaüstüne": "masaüstü", "masaustune": "masaustu",
+            "masaüstüne": "masaüstü", "masaustune": "masaüstü",
             "indirilenlere": "indirilenler", "belgelere": "belgeler", "resimlere": "resimler",
         }.get(typo.fold(move.group("folder")), typo.fold(move.group("folder")))
         return {"mutation": {"operation": "move", "path": path, "folder": folder}}, None
