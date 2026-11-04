@@ -1,0 +1,1636 @@
+{
+  "format_version": 1,
+  "description": "100 unseen Turkish multi-turn/session-state continuation, approval, owner-isolation and ambiguity cases.",
+  "senaryolar": [
+    {
+      "id": "s5-multi-001",
+      "group": "pending_confirmation",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "rapor.pdf"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-002",
+      "group": "pending_confirmation",
+      "text": "hayır",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "sunum.docx"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-003",
+      "group": "pending_confirmation",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "fatura.xlsx"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-004",
+      "group": "pending_confirmation",
+      "text": "hayır",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "notlar.txt"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-005",
+      "group": "pending_confirmation",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "taslak.docx"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-006",
+      "group": "pending_confirmation",
+      "text": "hayır",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "arsiv.zip"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-007",
+      "group": "pending_confirmation",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "butce.xlsx"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-008",
+      "group": "pending_confirmation",
+      "text": "hayır",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "proje.pdf"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-009",
+      "group": "pending_confirmation",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "liste.csv"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-010",
+      "group": "pending_confirmation",
+      "text": "hayır",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "sozlesme.docx"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_confirm.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-011",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Ayşe",
+            "text": "Ayşe için toplantı saati 9:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-012",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Mehmet",
+            "text": "Mehmet için toplantı saati 10:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-013",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Zeynep",
+            "text": "Zeynep için toplantı saati 11:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-014",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Can",
+            "text": "Can için toplantı saati 12:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-015",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Deniz",
+            "text": "Deniz için toplantı saati 13:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-016",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Ece",
+            "text": "Ece için toplantı saati 14:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-017",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Mert",
+            "text": "Mert için toplantı saati 15:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-018",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Elif",
+            "text": "Elif için toplantı saati 16:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-019",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Ali",
+            "text": "Ali için toplantı saati 17:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-020",
+      "group": "pending_message",
+      "text": "gönder",
+      "setup": {
+        "session": {
+          "pending_msg": {
+            "stage": "confirm",
+            "to": "Derya",
+            "text": "Derya için toplantı saati 18:00"
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_msg.confirm"
+      }
+    },
+    {
+      "id": "s5-multi-021",
+      "group": "pending_app_selection",
+      "text": "1",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-022",
+      "group": "pending_app_selection",
+      "text": "2",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-023",
+      "group": "pending_app_selection",
+      "text": "1",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-024",
+      "group": "pending_app_selection",
+      "text": "2",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-025",
+      "group": "pending_app_selection",
+      "text": "1",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-026",
+      "group": "pending_app_selection",
+      "text": "2",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-027",
+      "group": "pending_app_selection",
+      "text": "1",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-028",
+      "group": "pending_app_selection",
+      "text": "2",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-029",
+      "group": "pending_app_selection",
+      "text": "1",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-030",
+      "group": "pending_app_selection",
+      "text": "2",
+      "setup": {
+        "session": {
+          "pending_app": {
+            "choices": [
+              "Chrome",
+              "Edge"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "session.pending_app.select"
+      }
+    },
+    {
+      "id": "s5-multi-031",
+      "group": "interrupted_job",
+      "text": "devam",
+      "setup": {
+        "job": {
+          "id": "job-s5-1",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.resume"
+      }
+    },
+    {
+      "id": "s5-multi-032",
+      "group": "interrupted_job",
+      "text": "iptal",
+      "setup": {
+        "job": {
+          "id": "job-s5-2",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-033",
+      "group": "interrupted_job",
+      "text": "devam",
+      "setup": {
+        "job": {
+          "id": "job-s5-3",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.resume"
+      }
+    },
+    {
+      "id": "s5-multi-034",
+      "group": "interrupted_job",
+      "text": "iptal",
+      "setup": {
+        "job": {
+          "id": "job-s5-4",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-035",
+      "group": "interrupted_job",
+      "text": "devam",
+      "setup": {
+        "job": {
+          "id": "job-s5-5",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.resume"
+      }
+    },
+    {
+      "id": "s5-multi-036",
+      "group": "interrupted_job",
+      "text": "iptal",
+      "setup": {
+        "job": {
+          "id": "job-s5-6",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-037",
+      "group": "interrupted_job",
+      "text": "devam",
+      "setup": {
+        "job": {
+          "id": "job-s5-7",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.resume"
+      }
+    },
+    {
+      "id": "s5-multi-038",
+      "group": "interrupted_job",
+      "text": "iptal",
+      "setup": {
+        "job": {
+          "id": "job-s5-8",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-039",
+      "group": "interrupted_job",
+      "text": "devam",
+      "setup": {
+        "job": {
+          "id": "job-s5-9",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.resume"
+      }
+    },
+    {
+      "id": "s5-multi-040",
+      "group": "interrupted_job",
+      "text": "iptal",
+      "setup": {
+        "job": {
+          "id": "job-s5-10",
+          "state": "interrupted"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "job.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-041",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-1",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-042",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-2",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-043",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-3",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-044",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-4",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-045",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-5",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-046",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-6",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-047",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-7",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-048",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-8",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-049",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-9",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-050",
+      "group": "goal_approval",
+      "text": "onayla",
+      "setup": {
+        "goal": {
+          "id": "goal-s5-10",
+          "state": "approval"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "goal.approval"
+      }
+    },
+    {
+      "id": "s5-multi-051",
+      "group": "pending_weather_location",
+      "text": "Ankara",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-052",
+      "group": "pending_weather_location",
+      "text": "İzmir",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-053",
+      "group": "pending_weather_location",
+      "text": "Bursa",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-054",
+      "group": "pending_weather_location",
+      "text": "Adana",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-055",
+      "group": "pending_weather_location",
+      "text": "Eskişehir",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-056",
+      "group": "pending_weather_location",
+      "text": "Konya",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-057",
+      "group": "pending_weather_location",
+      "text": "Antalya",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-058",
+      "group": "pending_weather_location",
+      "text": "Samsun",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-059",
+      "group": "pending_weather_location",
+      "text": "Trabzon",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-060",
+      "group": "pending_weather_location",
+      "text": "Gaziantep",
+      "setup": {
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-multi-061",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "volume",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-062",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "brightness",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-063",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "volume",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-064",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "brightness",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-065",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "volume",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-066",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "brightness",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-067",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "volume",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-068",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "brightness",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-069",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "volume",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-070",
+      "group": "last_property_continuation",
+      "text": "70 yap",
+      "setup": {
+        "session": {
+          "last_property": "brightness",
+          "last_property_age_seconds": 30
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-multi-071",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-1.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-1"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-072",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-2.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-2"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-073",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-3.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-3"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-074",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-4.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-4"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-075",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-5.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-5"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-076",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-6.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-6"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-077",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-7.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-7"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-078",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-8.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-8"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-079",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-9.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-9"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-080",
+      "group": "pending_photo_cancel",
+      "text": "vazgeç",
+      "setup": {
+        "pending_photo": {
+          "path": "C:/tmp/s5-photo-10.jpg",
+          "age_seconds": 0,
+          "origin_request_id": "old-photo-10"
+        }
+      },
+      "expect": {
+        "stage": "state",
+        "protocol": "phone_photo.cancel"
+      }
+    },
+    {
+      "id": "s5-multi-081",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "rapor.pdf"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-082",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "sunum.docx"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-083",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "fatura.xlsx"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-084",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "notlar.txt"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-085",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "taslak.docx"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-086",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "arsiv.zip"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-087",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "butce.xlsx"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-088",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "proje.pdf"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-089",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "liste.csv"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-090",
+      "group": "ambiguous_pending_authorities",
+      "text": "evet",
+      "setup": {
+        "session": {
+          "pending_confirm": {
+            "action": "delete",
+            "target": "sozlesme.docx"
+          },
+          "pending_organize": {
+            "folder": "indirilenler"
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify",
+        "stage": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-091",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "volume",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-092",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "brightness",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-093",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "volume",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-094",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "brightness",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-095",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "volume",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-096",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "brightness",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-097",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "volume",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-098",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "brightness",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-099",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "volume",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    },
+    {
+      "id": "s5-multi-100",
+      "group": "foreign_owner_isolation",
+      "text": "70 yap",
+      "setup": {
+        "foreign_sessions": {
+          "hasan": {
+            "last_property": "brightness",
+            "last_property_age_seconds": 30
+          }
+        }
+      },
+      "expect": {
+        "outcome": "clarify"
+      }
+    }
+  ]
+}
