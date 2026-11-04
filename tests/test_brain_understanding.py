@@ -880,6 +880,19 @@ class SequenceGrammarTests(unittest.TestCase):
             with self.assertRaises(requests_state.Cancelled):
                 self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
 
+    def test_model_file_proposal_is_wired_into_canonical_understanding(self):
+        from modules.brain_model_understanding import SemanticRefinement
+        source = ref('file:rapor', 'file', path='C:/Users/hamdi/Documents/rapor.pdf', name='rapor.pdf')
+        proposal = SemanticRefinement(RequestKind.CAPABILITY, ConversationRelation.NEW_REQUEST,
+                                      TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
+                                      {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
+                                       'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
+        with patch('modules.brain_model_understanding.refine', return_value=proposal):
+            result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(result.capability_hint, 'files.read')
+        self.assertEqual(result.arguments['operation'], 'analyze')
+
 
 if __name__ == "__main__":
     unittest.main()
