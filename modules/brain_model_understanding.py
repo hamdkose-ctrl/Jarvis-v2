@@ -196,13 +196,10 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             return None
         return proposed
     except Exception as exc:
+        _record_failure("modules/brain_model_understanding.py:refine")
         # User cancellation must propagate to the request boundary; all other optional-model
         # failures leave the deterministic proposal unchanged.
-        try:
-            from modules import requests_state
-            if isinstance(exc, requests_state.Cancelled):
-                raise
-        except ImportError:
-            pass
-        _record_failure("modules/brain_model_understanding.py:refine")
+        from modules import requests_state
+        if isinstance(exc, requests_state.Cancelled):
+            raise
         return None
