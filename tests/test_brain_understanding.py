@@ -704,6 +704,14 @@ class BrainUnderstandingTests(unittest.TestCase):
         from modules.brain_core_map import core_plan
         self.assertIsNone(core_plan(result.capability_hint, result.arguments))
 
+    def test_file_mutation_refuses_a_resolved_but_name_mismatched_candidate(self):
+        from modules.brain_understanding import FILE_MUTATION_TARGET_UNRESOLVED
+        wrong = ref("file:other", "file", path="C:/Users/hamdi/Downloads/other.pdf", name="other.pdf")
+        result = self.call("rapor dosyasını belgelere taşı", candidates=(wrong,), references=(wrong,))
+        self.assertIs(result.request_kind, RequestKind.CLARIFY)
+        self.assertIn(FILE_MUTATION_TARGET_UNRESOLVED, result.ambiguities)
+
+
 class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
     def test_capability_domain_signals_are_bounded(self):
         cases = (
