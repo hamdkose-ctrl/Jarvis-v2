@@ -50,6 +50,8 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         return None
     try:
         from modules import llm, provider_privacy, requests_state, smart_router
+        if llm.current_user() != owner:
+            return None
         selected = llm.provider()
         # Explicit paid/local selections are not silently overridden or used by Brain.
         if selected in _PAID or selected in _LOCAL or llm.privacy.mode() == "yerel":
