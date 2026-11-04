@@ -22,6 +22,7 @@ class SemanticRefinement:
     temporal_need: TemporalNeed
     capability_hint: str | None
     confidence: Confidence
+    arguments: Mapping[str, Any] | None = None
 
 
 def _decode(raw: str) -> dict[str, Any]:
@@ -30,7 +31,7 @@ def _decode(raw: str) -> dict[str, Any]:
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError("Model proposal must be a JSON object.")
-    expected = {"request_kind", "conversation_relation", "temporal_need", "capability_hint", "confidence"}
+    expected = {"request_kind", "conversation_relation", "temporal_need", "capability_hint", "confidence", "file_operation", "file_slots"}
     if set(value) != expected:
         raise ValueError("Model proposal schema mismatch.")
     return value
@@ -58,6 +59,15 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
 
         from modules.brain_core_map import CORE_INTENTS
         allowed_hints = sorted(CORE_INTENTS)
+        file_refs = [ref for ref in current.references if getattr(ref, "kind", None) == "file"]
+        file_slots = []
+        for index, reference in enumerate(file_refs):
+            path_value = reference.provenance.get("path")
+            name_value = reference.provenance.get("name")
+            if not isinstance(name_value, str) or not name_value.strip():
+                name_value = str(path_value or "").replace("\\\\", "/").rsplit("/", 1)[-1]
+            if isinstance(path_value, str) and path_value.strip():
+                file_slots.append({"slot": f"file_{index}", "name": name_value[:180]})
         prompt = json.dumps({
             "utterance": text[:2000],
             "current": {
@@ -67,19 +77,22 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                 "capability_hint": current.capability_hint,
             },
             "allowed": {
-                "request_kind": [item.value for item in RequestKind],
+                "request_kind": [RequestKind.CHAT.value, RequestKind.CAPABILITY.value],
                 "conversation_relation": [item.value for item in ConversationRelation],
                 "temporal_need": [item.value for item in TemporalNeed],
                 "capability_hint": allowed_hints,
+                "file_operation": ["summarize", "analyze", "open", "locate", "list", "compare"],
             },
-            "candidate_kinds": sorted({str(getattr(ref, "kind", "")) for ref in current.references}),
+            "file_candidates": file_slots,
         }, ensure_ascii=False)
         system = (
             "You are a semantic proposal component, not an agent. Return exactly one JSON object "
-            "with keys request_kind, conversation_relation, temporal_need, capability_hint, confidence. "
-            "Use only supplied enum values and capability hints. Do not output arguments, paths, names, "
-            "recipients, references, approvals, permissions, or execution claims. If uncertain, keep "
-            "the current decision or choose CHAT/CLARIFY. The Core will independently validate."
+            "with keys request_kind, conversation_relation, temporal_need, capability_hint, confidence, "
+            "file_operation, file_slots. file_slots may contain only supplied slot labels. You may propose "
+            "files.read only with one valid file slot for summarize/analyze/open/locate, 2-10 slots for "
+            "compare, or no slots for list. Do not output arguments, paths, filenames, recipients, "
+            "references, approvals, permissions, or execution claims. For other capabilities keep the "
+            "current capability and never invent arguments. If uncertain choose CHAT. Core revalidates."
         )
         def send(provider: str) -> str:
             return llm._send_provider(provider, prompt, system, 180, None)
@@ -93,12 +106,54 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             )
             requests_state.check()
         row = _decode(raw)
+        proposed_kind = RequestKind(row["request_kind"])
+        proposed_hint = row["capability_hint"]
+        operation = row["file_operation"]
+        slots = row["file_slots"]
+        if not isinstance(slots, list) or any(not isinstance(slot, str) for slot in slots):
+            return None
+        proposed_arguments = None
+        if proposed_hint == "files.read":
+            if operation not in {"summarize", "analyze", "open", "locate", "list", "compare"}:
+                return None
+            by_slot = {item["slot"]: ref for item, ref in zip(file_slots, file_refs)}
+            if len(set(slots)) != len(slots) or any(slot not in by_slot for slot in slots):
+                return None
+            if operation == "list":
+                if slots:
+                    return None
+                proposed_arguments = {"original_text": text, "operation": "list"}
+            elif operation == "compare":
+                if not 2 <= len(slots) <= 10:
+                    return None
+                proposed_arguments = {
+                    "original_text": text,
+                    "operation": "compare",
+                    "paths": [by_slot[slot].provenance.get("path") for slot in slots],
+                }
+            else:
+                if len(slots) != 1:
+                    return None
+                proposed_arguments = {
+                    "original_text": text,
+                    "operation": operation,
+                    "path": by_slot[slots[0]].provenance.get("path"),
+                }
+            if not all(isinstance(value, str) and value.strip() for value in (
+                    proposed_arguments.get("path"),) if "path" in proposed_arguments):
+                return None
+            if "paths" in proposed_arguments and any(not isinstance(value, str) or not value.strip()
+                                                       for value in proposed_arguments["paths"]):
+                return None
+        elif operation is not None or slots:
+            return None
         proposed = SemanticRefinement(
-            request_kind=RequestKind(row["request_kind"]),
+            request_kind=proposed_kind,
             conversation_relation=ConversationRelation(row["conversation_relation"]),
             temporal_need=TemporalNeed(row["temporal_need"]),
-            capability_hint=row["capability_hint"],
+            capability_hint=proposed_hint,
             confidence=Confidence(row["confidence"]),
+            arguments=proposed_arguments,
         )
         if proposed.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
             return None
@@ -116,9 +171,10 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             if proposed.capability_hint is None:
                 return None
             from modules.brain_core_map import core_plan
-            if core_plan(proposed.capability_hint, arguments) is None:
+            candidate_arguments = proposed.arguments if proposed.arguments is not None else arguments
+            if core_plan(proposed.capability_hint, candidate_arguments) is None:
                 return None
-        elif proposed.capability_hint is not None:
+        elif proposed.capability_hint is not None or proposed.arguments is not None:
             return None
         # Never upgrade confidence beyond the deterministic proposal.
         rank = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
