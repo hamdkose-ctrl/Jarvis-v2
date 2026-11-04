@@ -660,6 +660,13 @@ class BrainUnderstandingTests(unittest.TestCase):
             self.assertNotIn(token, source)
 
 
+
+
+class BrainModelIntegrationTests(unittest.TestCase):
+    def call(self, text, *, candidates=(), references=()):
+        return understand(owner=OWNER, request_id=RID, text=text, active_context=ctx(),
+                          candidates=tuple(candidates), references=tuple(references))
+
     def test_canonical_understanding_propagates_model_request_cancellation(self):
         from modules import requests_state
         source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
@@ -686,6 +693,7 @@ class BrainUnderstandingTests(unittest.TestCase):
         self.assertIs(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, 'files.read')
         self.assertEqual(result.arguments['operation'], 'analyze')
+
 
 class BrainUnderstandingReviewRegressionTests(BrainUnderstandingTests):
     def test_capability_domain_signals_are_bounded(self):
