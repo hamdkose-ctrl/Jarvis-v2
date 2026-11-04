@@ -124,6 +124,8 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         if proposed_hint == "files.read":
             if operation not in {"summarize", "analyze", "locate", "list", "compare"}:
                 return None
+            if current.capability_hint == "files.read" and current.arguments.get("operation") != operation:
+                return None
             by_slot = dict(slot_refs)
             if len(set(slots)) != len(slots) or any(slot not in by_slot for slot in slots):
                 return None
@@ -153,6 +155,13 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             if "paths" in proposed_arguments and any(not isinstance(value, str) or not value.strip()
                                                        for value in proposed_arguments["paths"]):
                 return None
+            if current.capability_hint == "files.read":
+                current_path = current.arguments.get("path")
+                current_paths = current.arguments.get("paths")
+                if current_path is not None and proposed_arguments.get("path") != current_path:
+                    return None
+                if current_paths is not None and proposed_arguments.get("paths") != current_paths:
+                    return None
         elif operation is not None or slots:
             return None
         proposed = SemanticRefinement(
