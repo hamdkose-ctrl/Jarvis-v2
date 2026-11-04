@@ -2270,7 +2270,10 @@ def understand(
     # Model refinement is a proposal guard, never a second authority. It runs only for
     # unambiguous canonical capability proposals; exact state/fast gates already returned
     # in Brain Entry before this function is reached.
-    if result.request_kind is RequestKind.CAPABILITY and not result.needs_input:
+    if (not result.needs_input and (
+            result.request_kind is RequestKind.CAPABILITY
+            or any(reference.kind == "file" for reference in result.references)
+    )):
         try:
             from modules.brain_model_understanding import refine
             refined = refine(
@@ -2286,7 +2289,7 @@ def understand(
             if refined is not None:
                 next_kind = refined.request_kind
                 next_hint = refined.capability_hint
-                next_arguments = result.arguments
+                next_arguments = refined.arguments if refined.arguments is not None else result.arguments
                 next_preview = result.preview
                 if next_kind is RequestKind.CHAT:
                     next_hint = None
