@@ -123,7 +123,13 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         if rank[proposed.confidence] > rank[current.confidence]:
             return None
         return proposed
-    except Exception:
-        # Provider exhaustion, timeout, cancellation, malformed JSON and schema drift
-        # leave the deterministic proposal unchanged; no regex fallback is added here.
+    except Exception as exc:
+        # User cancellation must propagate to the request boundary; all other optional-model
+        # failures leave the deterministic proposal unchanged.
+        try:
+            from modules import requests_state
+            if isinstance(exc, requests_state.Cancelled):
+                raise
+        except ImportError:
+            pass
         return None
