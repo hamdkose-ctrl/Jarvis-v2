@@ -175,17 +175,24 @@ class FileOpsTests(unittest.TestCase):
         self.assertIn('taşıdım', moved_reply)
         moved = self.documents / 'typed.pdf'
         self.assertEqual(moved.read_text(encoding='utf-8'), 'typed original')
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
+        self.assertTrue(source.exists())
+
+        file_ops.execute_typed('move', owner='alice', path=str(source), folder='belgeler')
+        moved = self.documents / 'typed.pdf'
         rename_reply = file_ops.execute_typed('rename', owner='alice', path=str(moved), name='new typed')
         self.assertIn('adını', rename_reply)
         renamed = self.documents / 'new typed.pdf'
         self.assertTrue(renamed.exists())
-        create_reply = file_ops.execute_typed('create', owner='alice', folder='masaüstü',
-                                              name='typed note', content='hello')
-        self.assertIn('oluşturdum', create_reply)
-        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello\n')
         self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
         self.assertTrue(moved.exists())
         self.assertFalse(renamed.exists())
+
+        create_reply = file_ops.execute_typed('create', owner='alice', folder='masaüstü',
+                                              name='typed note', content='hello')
+        self.assertIn('oluşturdum', create_reply)
+        self.assertEqual((self.desktop / 'typed note.txt').read_text(encoding='utf-8'), 'hello\\n')
+        self.assertIn('geri aldım', file_ops.execute_typed('undo', owner='alice'))
         self.assertFalse((self.desktop / 'typed note.txt').exists())
 
     def test_typed_file_mutation_executor_rejects_outside_root_source(self):
