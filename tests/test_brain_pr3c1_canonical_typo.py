@@ -256,9 +256,14 @@ class ProductionChainEffectTests(_TypoToleranceHarness):
 
 class NegativeAndRegressionLocks(_TypoToleranceHarness):
     def test_a_mispelled_desktop_edit_still_never_reaches_the_goal_runner(self):
+        # PR3C-3 bu cümleye kanonical düzenleme yeteneğini verdi: artık Goal değil, önizleme doğar.
+        # Kilit hâlâ aynı yönde: yazım toleransı serbest Goal yürütmesi üretemez, önizleme taşımaz.
+        # Klasör kimliği Mock sınırdan gelir; gerçek dosya efekti pr3c3'ün geçici kökteki testindedir.
+        self.ctx.files.organize_folder.return_value = (Path("Masaüstü"), "Masaüstü")
+        self.ctx.files.plan_organize.return_value = [(Path("Masaüstü/a.txt"), Path("Masaüstü/Belgeler/a.txt"))]
         _entry, out, _handle, _ = self.turn("masaüstünü duzenle")
         self.run_goal.assert_not_called()
-        self.assertIn("işlem başlatılmadı", out)
+        self.assertIn("taşıyayım mı", out)
         self.ctx.files.apply_organize.assert_not_called()
 
     def test_a_meta_question_about_the_typoed_sentence_starts_no_effect(self):

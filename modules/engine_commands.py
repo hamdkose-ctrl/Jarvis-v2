@@ -148,6 +148,17 @@ def handle(runtime, command: str):
             job, runtime._session().pending_organize = runtime._session().pending_organize, None
             approval = decision(cmd_lower, extra=('düzenle', 'duzenle', 'evet düzenle', 'evet duzenle'))
             if approval is True:
+                # Uygulamadan hemen önce tazelik: önizlenen plan ile güncel plan birebir aynı çiftleri
+                # taşıyorsa yürür. Klasör araya dosya eklediyse ya da bir kaynak silindiyse ESKİ planla
+                # taşıma yapılmaz — kullanıcıya taze önizleme yeniden sorulur.
+                from modules import engine_intents
+                current = runtime.files.plan_organize(job["folder"])
+                if not runtime.files.same_plan(job["plan"], current):
+                    if not current:
+                        runtime._session().pending_organize = None
+                        return f"{job['label']} klasöründe düzenlenecek dosya yok."
+                    runtime._session().pending_organize = dict(job, plan=current)
+                    return engine_intents.organize_preview_question(job["label"], current)
                 moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
                 runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")
                 return f"{job['label']} klasöründe {moved} dosyayı düzenledim. Beğenmezsen “düzenlemeyi geri al” de."

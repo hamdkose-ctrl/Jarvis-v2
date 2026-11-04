@@ -445,19 +445,10 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     file_reply = file_ops.handle(command, runtime.profile.slug)
     if file_reply is not None:
         return file_reply
-    # Klasör düzenleme (onaylı) ve geri alma
+    # Klasör düzenleme geri alması (önizleme artık kanonical: `files.organize` → `file_organize`)
     if runtime.re.search(r"düzenlemey[ie] geri al|düzenlemeyi iptal et|taşıdıklarını geri", cmd_lower):
         back = runtime.files.undo_organize(runtime.profile.slug)
         return "Geri alınacak bir düzenleme kaydı yok." if back is None else f"{back} dosyayı eski yerine taşıdım."
-    target = runtime.files.wants_organize(cmd_lower)
-    if target:
-        folder, label = target
-        plan = runtime.files.plan_organize(folder)
-        if not plan:
-            return f"{label} klasöründe düzenlenecek dosya yok."
-        runtime._session().pending_organize = {"folder": folder, "label": label, "plan": plan}
-        return (f"{label} klasöründeki {len(plan)} dosyayı klasörlere taşıyayım mı? ({runtime.files.summary(plan)}) "
-                "Kısayollar ve geçici dosyalar yerinde kalır, istersen “düzenlemeyi geri al” diyebilirsin. Evet mi?")
     from modules import filesend, worktrack
     sent = filesend.handle(cmd_lower)                 # "test planını telefonuma gönder" (Tailscale Taildrop)
     if sent is not None:

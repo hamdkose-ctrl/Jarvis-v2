@@ -72,7 +72,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
         for name in ("messaging", "plugins", "browser", "tasks", "kb", "files", "output"):
             stub = Mock(name=name)
             for attr in ("is_whatsapp_message", "quick_parse", "extract", "send_whatsapp",
-                         "handle", "wants_organize", "plan_organize", "apply_organize",
+                         "handle", "organize_folder", "same_plan", "plan_organize", "apply_organize",
                          "save_text_result", "find_contact", "normalize_phone"):
                 setattr(stub, attr, Mock(return_value=None))
             stub.extract.return_value = (None, None)
@@ -249,7 +249,10 @@ class TypoSinglePassTests(_RawDoorHarness):
                 for gate in gates:
                     gate.reset_mock()
                 self.turn(text)
-                self.assertEqual(self.turn_texts, [text])
+                if self.door.called:
+                    # Kanonical plan kendi sahibini bulduğunda legacy kapı hiç çalışmaz (PR3C-3
+                    # düzenleme); çalıştığında ise yalnız kullanıcının yazdığı cümleyi görür.
+                    self.assertEqual(self.turn_texts, [text])
                 seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
                 self.assertNotIn(typo.fix(text.casefold()), seen,
                                  "düzeltilmiş görünüm effekte giden bir kapıya ulaşamaz")
@@ -377,7 +380,10 @@ class TypoReadRecoveryTests(_RawDoorHarness):
                 corrected = typo.fix(text.casefold())
                 seen = [call.args[0] for gate in gates for call in gate.call_args_list if call.args]
                 self.assertNotIn(corrected, seen, "düzeltilmiş görünüm effekte giden ham kapıya ulaşamaz")
-                self.assertEqual(self.turn_texts, [text])
+                if self.door.called:
+                    # Kanonical plan kendi sahibini bulduğunda legacy kapı hiç çalışmaz (PR3C-3
+                    # düzenleme); çalıştığında ise yalnız kullanıcının yazdığı cümleyi görür.
+                    self.assertEqual(self.turn_texts, [text])
                 # Aynı cümle düzeltme hiç uygulanmasa da aynı sonucu verir: kurtarma yalnız okur.
                 self.door.reset_mock()
                 identity = patch.object(self.ctx, "typo", SimpleNamespace(fix=lambda value: value))
@@ -1201,7 +1207,7 @@ class DiagnoseTypoViewTests(_RawDoorHarness):
 
 
 class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
-    """Regresyon 2 (`masaüstünü duzenle`): yazım-düzeltilmiş ve yeteneği doğrulanmamış cümle hedef yürütmesi açamaz.
+    """Regresyon 2 (`masaüstünü duzenle`): bozuk yazım ya hedef yürütmesi açar ya da hiçbir şey.
 
     Ölçülen taban (satır p486/phase2): base'de bu cümle ikinci geçişde `_extra_commands` düzenleme
     kapısına ulaşıp 30 dosyalık plan *önizlemesi* + tek onay üretiyordu; head tek geçişde hiçbir
@@ -1213,6 +1219,11 @@ class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
     bulamadığında Goal/Task yetkisi doğmaz. Düzeltici doğru yazılmış kelimeyi de bozabildiği için
     ("hazırla" -> "hatırla") kapı bilinçli olarak bu dar sınıfla sınırlandı: doğru yazılmış icra
     cümlelerinin catch-all sözleşmesi (PR10c) değişmez.
+
+    PR3C-3 kapattı: düzenleme burada kendi kanonical yetenisini aldı (`files.organize` →
+    `file_organize`), dolayısıyla bu cümle artık catch-all'a düşmüyor. Aşağıdaki kilitler kaybolan
+    davranışın geri getirilişinin *bedelini* yazar: Goal açılmaz, legacy cascade'e düşülmez ve
+    önizleme tek başına hiçbir dosya taşımaz.
     """
 
     def goals_root(self) -> Path:
@@ -1234,30 +1245,32 @@ class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
         self.assertEqual(out, "GOAL_RUN")
         self.run_goal.assert_called_once()
 
-    def test_misspelled_organize_request_opens_no_goal_and_writes_no_record(self):
+    def test_misspelled_organize_request_opens_no_goal_and_moves_nothing(self):
+        # PR3C-3 kapattı: bozuk yazım düzenleme isteği artık kanonical sahibinden önizleme kurar.
+        # Kilitlenen şey kaybolan davranışın bedeli değil: Goal/Task yetkisi doğmaz, dosya taşınmaz.
+        self.ctx.files.organize_folder.return_value = (Path("Masaüstü"), "Masaüstü")
+        self.ctx.files.plan_organize.return_value = [
+            (Path("Masaüstü/a.txt"), Path("Masaüstü/Belgeler/a.txt"))]
         _entry, out, _handle, _ = self.turn("masaüstünü duzenle")
         self.run_goal.assert_not_called()
-        self.assertIn("işlem başlatılmadı", out)
+        self.assertIn("taşıyayım mı", out)
         self.ctx.files.apply_organize.assert_not_called()
         self.assertEqual(list(self.goals_root().rglob("*.json")), [],
                          "onaysız yeni GoalState kaydı yazıldı")
 
-    def test_misspelled_organize_request_never_hands_the_corrected_text_to_a_domain_door(self):
-        # Eski ikinci typo geçişi geri gelmez: kapılar yalnız kullanıcının yazdığı cümleyi görür.
+    def test_misspelled_organize_request_never_reaches_a_raw_domain_door(self):
+        # Eski ikinci typo geçişi geri gelmez; kanonical plan sahibi cümle legacy cascade'e hiç
+        # düşmez (brain_precedence skip seti), dolayısıyla kapı düzeltilmiş metni de göremez.
         self.turn("masaüstünü duzenle")
-        self.assertEqual(self.turn_texts, ["masaüstünü duzenle"])
-        seen = [call.args[0] for call in self.ctx._extra_commands.call_args_list if call.args]
-        self.assertEqual(seen, ["masaüstünü duzenle"],
-                         f"düzeltilmiş görünüm ham-komut kapısına ulaştı: {seen}")
+        self.assertEqual(self.turn_texts, [])
+        self.ctx._extra_commands.assert_not_called()
 
-    def test_correctly_spelled_organize_keeps_its_domain_owner(self):
-        # Domain sahibi cümleyi aldığında catch-all hiç devreye girmez (base ile head aynı).
-        self.ctx._extra_commands = Mock(
-            return_value="Masaüstü klasöründeki 30 dosyayı klasörlere taşıyayım mı? (evet/hayır)")
-        _entry, out, _handle, _ = self.turn("masaüstünü düzenle")
-        self.assertIn("taşıyayım mı", out)
+    def test_correctly_spelled_organize_is_the_same_canonical_turn(self):
+        # Doğru yazılmış ikiz aynı kanonical sahibi taşır: parite çift yazımda da kuruldu.
+        self.turn("masaüstünü düzenle")
+        self.assertEqual(self.turn_texts, [])
+        self.ctx._extra_commands.assert_not_called()
         self.run_goal.assert_not_called()
-        self.ctx._extra_commands.assert_called_once()
 
     def test_a_correctly_spelled_unmapped_execution_request_keeps_the_pinned_catch_all(self):
         # PR10c kilidi: doğru yazılmış, yeteneksiz icra cümlesi yine hedef yürütücüsüne devredilir.
@@ -1265,13 +1278,15 @@ class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
         self.assertEqual(out, "GOAL_RUN")
         self.run_goal.assert_called_once()
 
-    def test_the_fail_closed_turn_starts_no_file_or_domain_effect(self):
-        # Erken dispatch kolları (task_agents/pc_guide/developer/selfctl) her cümleyi *görüşür* ve
-        # None döner; burada kilitlenen şey effekte dokuyan sınırların hiç çağrılmamasıdır.
+    def test_the_preview_turn_starts_no_write_or_domain_effect(self):
+        # Önizlemenin salt-okuma plan kurması meşrudur; kilitlenen, effekte dokuyan hiçbir sınırın
+        # çağrılmamasıdır — ne bir dosya taşınır ne de başka bir alan aynı cümleyi yorumlar.
+        self.ctx.files.organize_folder.return_value = (Path("Masaüstü"), "Masaüstü")
+        self.ctx.files.plan_organize.return_value = [
+            (Path("Masaüstü/a.txt"), Path("Masaüstü/Belgeler/a.txt"))]
         self.turn("desktoptaki gereksizleri duzenle")
         self.assertEqual(self.silent("modules.file_ops", "modules.folder_analysis", "modules.filesend",
                                      "modules.notify", "modules.diagnose"), [])
-        self.ctx.files.plan_organize.assert_not_called()
         self.ctx.files.apply_organize.assert_not_called()
         self.ctx._mail_handle.assert_not_called()
 

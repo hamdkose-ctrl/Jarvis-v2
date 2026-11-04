@@ -51,7 +51,9 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
         # branches are unchanged and remain domain-owned until their own migration decision.
-        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action"}:
+        # PR3C-3: kanonical `file_organize` planı önizlemeyi kendi sahibinde kurar; planner'ın eski
+        # ham-metin dalı aynı cümleye ikinci kez bakamaz (serbest Goal fallback'i de buradan yasak).
+        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize"}:
             return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
@@ -67,7 +69,9 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # file_action, the later files.handle chain must not get a second chance at the same target.
         # A validated notes plan likewise owns its request: unrelated later chains (e.g. the mail/agenda
         # handler reacting to a word like "toplantı") must not answer it instead.
-        if plan is not None and plan[0] in {"file_action", "notes_read", "notes_write"}:
+        # `file_organize` aynı hükmü PR3C-3'ten alır: önizleme sahibini cascade'teki ham kalıp
+        # yeniden yorumlayamaz, geri alma koluna ise plan olmadan (None) ulaşılır.
+        if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write"}:
             return None
         return runtime._extra_commands(command, lowered)
 
