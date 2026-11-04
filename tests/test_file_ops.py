@@ -159,5 +159,15 @@ class FileOpsTests(unittest.TestCase):
         self.assertEqual(remaining[0][0], str(second))
 
 
+    def test_legacy_undo_record_without_digest_remains_backward_compatible(self):
+        moved = self.documents / 'legacy.txt'
+        original = self.downloads / 'legacy.txt'
+        moved.write_text('legacy content', encoding='utf-8')
+        file_ops._record([[str(moved), str(original)]], 'alice')
+        self.assertIn('geri aldım', file_ops.undo('alice'))
+        self.assertEqual(original.read_text(encoding='utf-8'), 'legacy content')
+        self.assertFalse(moved.exists())
+
+
 if __name__ == '__main__':
     unittest.main()
