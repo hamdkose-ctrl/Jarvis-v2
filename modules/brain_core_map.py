@@ -333,9 +333,9 @@ def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if set(row) != {"operation", "path", "folder"}:
             return None
         path, folder = row.get("path"), row.get("folder")
-        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\\x00" in path:
+        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\x00" in path:
             return None
-        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\\\/]", path)):
+        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path)):
             return None
         if not isinstance(folder, str) or folder.casefold() not in _FILE_MUTATION_FOLDERS:
             return None
@@ -344,13 +344,13 @@ def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if set(row) != {"operation", "path", "name"}:
             return None
         path, name = row.get("path"), row.get("name")
-        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\\x00" in path:
+        if not isinstance(path, str) or not 0 < len(path) <= 4096 or "\x00" in path:
             return None
-        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\\\/]", path)):
+        if not (os.path.isabs(path) or re.match(r"^[A-Za-z]:[\\/]", path)):
             return None
-        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\\x00" in name:
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\x00" in name:
             return None
-        if re.search(r'[<>:"/\\\\|?*\\x00-\\x1f]', name) or name.endswith((" ", ".")):
+        if re.search(r'[<>:"/\\\\|?*\x00-\x1f]', name) or name.endswith((" ", ".")):
             return None
         return {"operation": "rename", "path": path, "name": name.strip()}
     if operation == "create":
@@ -359,11 +359,11 @@ def _file_mutate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         folder, name, content = row.get("folder"), row.get("name"), row.get("content")
         if not isinstance(folder, str) or folder.casefold() not in {"masaüstü", "masaustu", "indirilenler", "belgeler"}:
             return None
-        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\\x00" in name:
+        if not isinstance(name, str) or not 0 < len(name.strip()) <= 120 or "\x00" in name:
             return None
-        if re.search(r'[<>:"/\\\\|?*\\x00-\\x1f]', name) or name.endswith((" ", ".")):
+        if re.search(r'[<>:"/\\\\|?*\x00-\x1f]', name) or name.endswith((" ", ".")):
             return None
-        if not isinstance(content, str) or len(content) > 16000 or "\\x00" in content:
+        if not isinstance(content, str) or len(content) > 16000 or "\x00" in content:
             return None
         return {"operation": "create", "folder": folder, "name": name.strip(), "content": content}
     return None
