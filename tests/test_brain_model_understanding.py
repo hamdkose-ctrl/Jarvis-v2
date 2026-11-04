@@ -155,19 +155,20 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         p1, p2, p3 = self.eligible()
         raw = answer(request_kind="CAPABILITY", capability_hint="files.read",
                      file_operation="analyze", file_slots=["file_0"], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw), \
+                patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             result = model.refine(owner=OWNER, text="şu raporu bir incele", current=active,
                                   arguments=active.arguments)
-        self.assertIsNotNone(result)
-        self.assertEqual(result.capability_hint, "files.read")
-        self.assertEqual(result.arguments, {
-            "original_text": "şu raporu bir incele",
-            "operation": "analyze",
-            "path": "C:/Users/hamdi/Documents/rapor.pdf",
-        })
-        self.assertEqual(core_plan(result.capability_hint, result.arguments),
-                         ("file_action", {"operation": "analyze",
-                                          "path": "C:/Users/hamdi/Documents/rapor.pdf"}))
+            self.assertIsNotNone(result)
+            self.assertEqual(result.capability_hint, "files.read")
+            self.assertEqual(result.arguments, {
+                "original_text": "şu raporu bir incele",
+                "operation": "analyze",
+                "path": "C:/Users/hamdi/Documents/rapor.pdf",
+            })
+            self.assertEqual(core_plan(result.capability_hint, result.arguments),
+                             ("file_action", {"operation": "analyze",
+                                              "path": "C:/Users/hamdi/Documents/rapor.pdf"}))
 
     def test_model_cannot_invent_file_slot_or_path(self):
         from modules.brain_contracts import ContextReference
