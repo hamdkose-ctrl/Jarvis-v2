@@ -17,9 +17,13 @@ class ActionRuleTests(unittest.TestCase):
     def test_brain_path_gives_the_same_answer_as_the_single_rule(self):
         # Gerçek yol: Understanding -> reason code -> brain_entry.goal_question_superseded.
         from test_brain_b3b import superseded
-        for text in ('devam et', 'raporu dosyaya yaz', 'masaüstünü düzenle', 'kaydet', 'evet', 'yapay zeka nedir'):
+        for text in ('devam et', 'raporu dosyaya yaz', 'masaüstünü düzenle', 'kaydet', 'evet'):
             with self.subTest(text=text):
                 self.assertEqual(superseded(text), brain_actions.ends_with_action(text))
+        # PR3C-2: açıklama sorusu açık Goal sorusunun cevabı değildir; fiil kuralı False derken
+        # canonical hüküm tüketimi engeller (EXPLANATION_REQUEST).
+        self.assertTrue(superseded('yapay zeka nedir'))
+        self.assertFalse(brain_actions.ends_with_action('yapay zeka nedir'))
 
     def test_rule_scope_needs_explicit_scope_phrase(self):
         cases = {
