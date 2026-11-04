@@ -271,7 +271,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
     if operation not in {"move", "rename", "create"}:
         return "Dosya işlemi türü doğrulanamadı; işlem başlatılmadı."
     if operation in {"move", "rename"}:
-        if not isinstance(path, str) or not path or "\\x00" in path or len(path) > 4096:
+        if not isinstance(path, str) or not path or "\x00" in path or len(path) > 4096:
             return "Dosya yolu doğrulanamadı; işlem başlatılmadı."
         source = Path(path)
         try:
@@ -314,7 +314,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
     if not hit or hit[1] not in ("Masaüstü", "İndirilenler", "Belgeler"):
         return "Hedef klasör doğrulanamadı; işlem başlatılmadı."
     destination, label, _need = hit
-    if not isinstance(name, str) or not name.strip() or len(name) > 120 or not isinstance(content, str) or len(content) > 16000 or "\\x00" in content:
+    if not isinstance(name, str) or not name.strip() or len(name) > 120 or not isinstance(content, str) or len(content) > 16000 or "\x00" in content:
         return "Dosya adı veya içeriği doğrulanamadı; işlem başlatılmadı."
     filename, problem = _valid_name(name, Path("x.txt"))
     if not filename:
@@ -325,7 +325,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
         return reason
     try:
         target = files._free_name(destination / filename)
-        target.write_text(content + ("\\n" if content else ""), encoding="utf-8", errors="strict")
+        target.write_text(content + ("\n" if content else ""), encoding="utf-8", errors="strict")
         _record([[str(target), "", _digest(target)]], owner)
     except OSError:
         return "Metin dosyasını güvenli biçimde oluşturamadım."
