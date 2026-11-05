@@ -996,7 +996,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
 
     # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
     RAW_PROBE_OWNERS = {
-        "watcher.handle": {"modules/engine_commands.py"},
+        "watcher.handle": set(),
         "learning.handle": {"modules/engine_commands.py"},
         "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
         "is_whatsapp_message": {"modules/engine_commands.py"},
@@ -1307,7 +1307,8 @@ class WatcherCoreCutoverTests(_RawDoorHarness):
 
         self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.capability_hint, "watcher.manage")
-        self.assertEqual(entry.understanding.arguments.get("watcher"), expected)
+        understood = entry.understanding.arguments.get("watcher")
+        self.assertEqual(dict(understood), {**expected, "extensions": (".pdf",)})
         self.assertEqual(output, "WATCHER_APPLIED")
         self.seams["modules.watcher.handle"].assert_not_called()
         self.seams["modules.watcher.apply"].assert_called_once_with(self.owner, expected)
