@@ -191,12 +191,6 @@ def handle(runtime, command: str):
     if learn_reply is not None:
         return learn_reply
 
-    # Klasör izleme: "İndirilenler'i izle, PDF gelince önemli yerleri tablo yap", "izlenen klasörler", "izlemeyi durdur"
-    from modules import watcher
-    watch_reply = watcher.handle(runtime.profile.slug, command)
-    if watch_reply is not None:
-        return watch_reply
-
     # Dosyalar ekranındaki düğmeler: '"C:\...\x.pdf" dosyasını özetle' -> yapay zekâya sormadan doğrudan o dosyada
     file_reply = runtime._file_command(command)
     if file_reply is not None:
