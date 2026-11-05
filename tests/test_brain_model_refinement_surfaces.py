@@ -322,5 +322,65 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         self.assertEqual(returned.request_kind, RequestKind.CLARIFY)
 
 
+    def test_non_file_reference_ambiguity_cannot_be_downgraded_to_chat(self):
+        note_a = ContextReference(
+            id="note-a", kind="note", source="candidate", owner=OWNER,
+            provenance={"title": "Toplantı notu"},
+        )
+        note_b = ContextReference(
+            id="note-b", kind="note", source="candidate", owner=OWNER,
+            provenance={"title": "Proje notu"},
+        )
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            arguments={"original_text": "onu göster"},
+            references=(note_a, note_b),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
+        raw = model_answer(request_kind="CHAT", confidence="LOW")
+        with p_owner, p_provider, p_privacy, p_selection, \\
+                patch("modules.smart_router.run", return_value=raw):
+            refined = model.refine(
+                owner=OWNER, text="onu göster", current=semantic,
+                arguments=semantic.arguments,
+            )
+        self.assertIsNone(refined)
+
+    def test_apply_model_refinement_preserves_non_file_target_clarification(self):
+        from modules.brain_model_understanding import SemanticRefinement
+
+        note_a = ContextReference(
+            id="note-a", kind="note", source="candidate", owner=OWNER,
+            provenance={"title": "Toplantı notu"},
+        )
+        note_b = ContextReference(
+            id="note-b", kind="note", source="candidate", owner=OWNER,
+            provenance={"title": "Proje notu"},
+        )
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            arguments={"original_text": "onu göster"},
+            references=(note_a, note_b),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        chat_proposal = SemanticRefinement(
+            request_kind=RequestKind.CHAT,
+            conversation_relation=ConversationRelation.NEW_REQUEST,
+            temporal_need=TemporalNeed.UNSURE,
+            capability_hint=None,
+            confidence=Confidence.LOW,
+        )
+        with patch("modules.brain_model_understanding.refine", return_value=chat_proposal):
+            returned = apply_model_refinement(semantic, "onu göster")
+        self.assertIs(returned, semantic)
+        self.assertTrue(returned.needs_input)
+        self.assertEqual(returned.ambiguities, ("multiple target references",))
+
+
 if __name__ == "__main__":
     unittest.main()
