@@ -460,8 +460,9 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             allow_file_scan=True,
         )
     if model_refinement:
-        # Apply one bounded model proposal only after the final candidate/reference set exists.
+        # Exactly one bounded proposal runs after final candidate/reference enrichment.
         semantic = apply_model_refinement(semantic, text)
+        references = semantic.references
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
 
@@ -1205,7 +1206,10 @@ def run_step(runtime: Any, text: str) -> tuple[Any, Any]:
     if step == outer.text.strip():
         raise ValueError("Outer cümlenin kendi kararı adım olarak yeniden çalıştırılamaz.")
     source = str(getattr(runtime, "_cur_source", "") or "") or outer.source
-    entry = prepare(runtime, owner=owner, request_id=request_id, text=step, source=source)
+    entry = prepare(
+        runtime, owner=owner, request_id=request_id, text=step, source=source,
+        model_refinement=True,
+    )
     return handoff(runtime, entry, getattr(runtime, "handle", None), step)[:2]
 
 
