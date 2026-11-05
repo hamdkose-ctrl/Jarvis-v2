@@ -129,6 +129,8 @@ _FOLDER_KEY_WORDS = {
     "documents": "Belgeler",
     "pictures": "Resimler",
 }
+_ALLOWED_EXTENSIONS = frozenset({".pdf", ".docx", ".xlsx", ".xlsm", ".csv", ".pptx",
+                                 ".png", ".jpg", ".jpeg", ".webp"})
 
 
 def apply(owner: str, proposal: dict) -> str:
@@ -138,13 +140,13 @@ def apply(owner: str, proposal: dict) -> str:
     operation = proposal.get("operation")
     if operation == "list" and set(proposal) == {"operation"}:
         rules = load(owner)
-        return ("İzlenen klasörler:\\n" + "\\n".join(f"• {describe(rule)}" for rule in rules)
+        return ("İzlenen klasörler:\n" + "\n".join(f"• {describe(rule)}" for rule in rules)
                 if rules else "İzlenen klasör yok.")
     if operation == "run_pending" and set(proposal) == {"operation"}:
         return run_pending(owner)
     if operation == "stop" and set(proposal).issubset({"operation", "folder"}):
         folder = proposal.get("folder")
-        if folder is not None and folder not in _FOLDER_KEY_WORDS:
+        if folder is not None and (not isinstance(folder, str) or folder not in _FOLDER_KEY_WORDS):
             return "Bu klasörün izleme kuralını doğrulayamadım; işlem başlatılmadı."
         return stop(owner, _FOLDER_KEY_WORDS[folder] if folder else None)
     if operation != "add" or set(proposal) != {"operation", "folder", "extensions", "action", "instruction"}:
@@ -153,9 +155,11 @@ def apply(owner: str, proposal: dict) -> str:
     exts = proposal.get("extensions")
     action = proposal.get("action")
     instruction = proposal.get("instruction")
-    if (folder_key not in _FOLDER_KEY_WORDS or not isinstance(exts, list)
-            or action not in {"notify", "summary", "workbench"}
-            or not isinstance(instruction, str) or len(instruction) > 300):
+    if (not isinstance(folder_key, str) or folder_key not in _FOLDER_KEY_WORDS
+            or not isinstance(exts, list) or any(not isinstance(ext, str) or ext not in _ALLOWED_EXTENSIONS for ext in exts)
+            or len(set(exts)) != len(exts)
+            or not isinstance(action, str) or action not in {"notify", "summary", "workbench"}
+            or not isinstance(instruction, str) or len(instruction) > 300 or "\x00" in instruction):
         return "Klasör izleme isteğini doğrulayamadım; işlem başlatılmadı."
     folder = resolve_folder(_FOLDER_KEY_WORDS[folder_key])
     if folder is None:
@@ -164,7 +168,7 @@ def apply(owner: str, proposal: dict) -> str:
         rule = add_rule(owner, folder, exts, action, instruction)
     except ValueError as exc:
         return str(exc)
-    return (f"Tamam, izliyorum. {describe(rule)}.\\nKlasörde şu an olan dosyalara dokunmam; saatte en fazla "
+    return (f"Tamam, izliyorum. {describe(rule)}.\nKlasörde şu an olan dosyalara dokunmam; saatte en fazla "
             f"{HOURLY_LIMIT} dosyayı kendiliğinden işlerim. Kapatmak için “izlemeyi durdur” de.")
 
 
