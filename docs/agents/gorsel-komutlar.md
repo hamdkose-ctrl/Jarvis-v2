@@ -2,20 +2,24 @@
 
 ## Güncel canonical akış — PR3C-6 (5 Kasım 2026)
 
-PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısını kaldırıp isteği Brain → Core sınırına taşır. **Bu henüz model-birincil semantik anlama değildir:** mevcut PR'da Brain'in görsel tür önerisi `brain_understanding._visual_kind` ve `visual_types.match_type` içindeki bounded regex gramerine dayanır. Genel doğal dilde modelin birincil karar sahibi olması BRAIN-01 kapsamındadır.
+PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısını kaldırıp isteği Brain → Core sınırına taşır. **Bu henüz model-birincil semantik anlama değildir:** görsel tür önerisi `brain_understanding._visual_kind` ve `visual_types.match_type` içindeki kapalı bounded regex gramerine dayanır. Kalıp dışı doğal Türkçe semantiği ve modelin birincil intent sahibi olması BRAIN-01 kapsamındadır.
 
-1. modules/visual_types.py yedi kapalı görsel türü ve ortak Türkçe/İngilizce tür sözlüğünü sağlar.
-2. modules/brain_understanding.py mevcut sınırlı görsel grameri eşleşirse visual.create + kind önerir. Tür adı tek başına yeterli değildir; bu PR'da kapalı action cue veya "süreç özeti" özel grameri gerekir. Bu sınırlı eşleşme, kalıp dışı doğal Türkçe desteği iddiası değildir. "infografik nedir?" gibi bilgi soruları CHAT kalır.
-3. modules/brain_core_map.py kind değerini yedi türlük allowlist'e göre yeniden doğrular; engine_intents.visual_create mevcut görsel akışına dispatch eder.
-4. visual_chat.begin yalnız "sohbetten mi, dosyadan mı?" kaynak sorusunu açar. Kaynak cevabı gelmeden image generation çağrısı yapılmaz. visual_chat.handle yalnız Brain tarafından sahiplenilmiş pending source cevabını ve son görsel için retry'ı yönetir; sohbet türü seçmez.
-5. "sohbet" cevabı bounded geçmişi içerik yapar; "dosya" cevabı kullanıcıyı Dosyalar ekranındaki açık Görselleştir düğmesine yönlendirir. Dosyalar ekranı düğmesi kendi açık türünü verir ve bu chat sınıflandırmasından bağımsızdır.
-6. Üretim mevcut image_gen/Cloudflare yapılandırmasını kullanır; yeni sağlayıcı, ücretli fallback veya yeni yetki eklenmez. Üretilen PNG mevcut Görseller klasörüne kaydedilir.
+1. `modules/visual_types.py` yedi kapalı görsel türünü ve ortak Türkçe/İngilizce tür sözlüğünü sağlar.
+2. `modules/brain_understanding.py` görsel tür + tam eylem biçimi veya açık “istiyorum/isterim” talebi eşleşirse `visual.create` + kind önerir. “Süreç özeti” mevcut doğal talep biçimi olarak korunur. Olumsuz ve pasif olumsuz istekler (“istemiyorum”, “oluşturulmasın”, “çizilmesin”) görsel capability üretmez. Eylem fiilleri tam sözcük/sonek sınırıyla eşleşir; “zaman çizgisi” veya “yapay zekâ” içindeki parçalar eylem sayılmaz. “İnfografik nedir?” gibi açıklamalar CHAT kalır.
+3. Explicit `pc görevi:` ve `görev akışı` protokolleri ortak `brain_precedence` owner helper'larıyla domain eşleşmesinden önce korunur. Böylece “görev akışı rapor: infografik tasarla” görev akışından görsel isteğine çalınmaz.
+4. `modules/brain_core_map.py` kind değerini yedi türlük allowlist'e göre yeniden doğrular; `engine_intents.visual_create` mevcut görsel akışına dispatch eder.
+5. `visual_chat.begin` yalnız “sohbetten mi, dosyadan mı?” kaynak sorusunu açar. Zaten `pending_visual` kaynak sorusu varsa ikinci görsel isteği ilk isteğin metin/tür/source bilgisini ezmez; kullanıcıya önce bekleyen kaynağı cevaplaması söylenir.
+6. Kaynak cevabı State Gate tarafından sahiplenilir; `visual_chat.handle` yalnız bu bağlı source cevabını veya son görsel retry'ını işler. “Sohbet” bounded geçmişi içerik yapar; “dosya” cevabı kullanıcıyı Dosyalar ekranındaki açık Görselleştir düğmesine yönlendirir.
+7. Dosyalar ekranındaki Görselleştir düğmesi ayrı, açık UI eylemi olarak kalır: `main_documents._file_command` açık dosya özetini ve kullanıcı tarafından seçilen türü mevcut worker'a verir. Bu chat sınıflandırması değildir ve bu PR onu Brain'e taşımayı iddia etmez.
+8. Üretim mevcut image_gen/Cloudflare yapılandırmasını kullanır; yeni sağlayıcı, ücretli fallback veya yeni effect yetkisi eklenmez. Üretilen PNG mevcut Görseller klasörüne kaydedilir.
 
-Açık PC sahibi protokolü (ör. "pc görevi: infografik çiz") görsel tür eşleşmesinden önce korunur. Core-owned `visual_create` planı eski Planner ve `_extra_commands` cascade'inin aynı isteği ikinci kez yorumlamasını engeller.
+## Davranış ve kabul kanıtı
 
-PR #521 test-first olarak Draft/açık durumdadır, henüz merge edilmedi. Güncel exact head `fc15bef95a93a2276784858ba1b9e72a3abca218` için Windows CI #1431 **SUCCESS**, aynı SHA gerçek Windows PC watcher **Genel PASS / Validation PASS** verdi. Dar visual authority cutover teknik kabul kanıtını geçti; merge edilmeden main'e geçmiş sayılmaz. Görsel subtype seçimi bounded regex olarak kaldığı için model-birincil doğal dil semantiği BRAIN-01 kapsamındadır.
-
-Aşağıdaki 25 Ekim bölümleri tasarım ve tarihsel uygulama notlarıdır; güncel sahiplik için bu bölüm ve PR #521 esas alınır.
+- Testler olumsuz/pasif cümleleri, açıklama sorularını, olumlu Türkçe biçim paritesini, eylem kelime sınırını, PC/görev-akışı owner önceliğini, pending source korumasını, sohbet ve dosya source seçimlerini kapsar.
+- Uçtan uca test gerçek `brain_entry.prepare → handoff → State Gate → Core/source adapter → visual_commands.create_visual` çağrı zincirini izler; yalnız dış görsel worker sahte/fake sonuçla sınırlandırılır.
+- Code/test head `a52808be95ae9fecba3382bfa6d9dd4f3bf30432`: Windows CI #1439 **SUCCESS**; 4.945 Python testi + 47 final validation testi geçti ve “Tüm test grupları başarılı.” kaydı alındı. Gerçek Windows PC watcher aynı SHA'da **Genel PASS / Validation PASS** verdi.
+- Gerçek Cloudflare API'ye canlı görsel üretim çağrısı bu kabulde yapılmadı; provider/credential kaynaklı canlı üretim kanıtı sayılmaz.
+- PR #521 Draft/açık ve henüz merge edilmedi. Kod/test SHA'sından sonra eklenecek doküman-only head için exact-SHA CI ve watcher yeniden doğrulanır.
 
 ## Tarihsel karar notu — Görsel üretimi v1 (25 Ekim 2026)
 
