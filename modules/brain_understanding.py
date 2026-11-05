@@ -2106,7 +2106,7 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
     return next(iter(best)), False
 
 
-_ANAPHORIC_ACTION_REQUEST = re.compile(r"^(?:(?:peki|tamam)\\s+)?(?:onu|bunu|şunu)\\s+yap(?:\\s|$)")
+_ANAPHORIC_ACTION_REQUEST = re.compile(r"^(?:(?:peki|tamam)\s+)?(?:onu|bunu|şunu)\s+yap(?:\s|$)")
 
 
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
