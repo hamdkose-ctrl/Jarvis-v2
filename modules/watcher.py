@@ -122,6 +122,52 @@ _WATCH = re.compile(r"^(.+?)(?:'?[ıiuü]|’[ıiuü]|\s+klasörünü)?\s+izle\b
 _WHEN = re.compile(r"\b(gelince|gelirse|düşünce|düşerse|inince|inerse|eklenince|eklenirse)\b[,]?\s*", re.I)
 
 
+_FOLDER_KEY_WORDS = {
+    "jarvis": "Jarvis Dosyaları",
+    "downloads": "İndirilenler",
+    "desktop": "Masaüstü",
+    "documents": "Belgeler",
+    "pictures": "Resimler",
+}
+
+
+def apply(owner: str, proposal: dict) -> str:
+    """Apply a Core-validated watcher operation; this adapter never interprets user text."""
+    if not isinstance(proposal, dict):
+        return "Klasör izleme isteğini doğrulayamadım; işlem başlatılmadı."
+    operation = proposal.get("operation")
+    if operation == "list" and set(proposal) == {"operation"}:
+        rules = load(owner)
+        return ("İzlenen klasörler:\\n" + "\\n".join(f"• {describe(rule)}" for rule in rules)
+                if rules else "İzlenen klasör yok.")
+    if operation == "run_pending" and set(proposal) == {"operation"}:
+        return run_pending(owner)
+    if operation == "stop" and set(proposal).issubset({"operation", "folder"}):
+        folder = proposal.get("folder")
+        if folder is not None and folder not in _FOLDER_KEY_WORDS:
+            return "Bu klasörün izleme kuralını doğrulayamadım; işlem başlatılmadı."
+        return stop(owner, _FOLDER_KEY_WORDS[folder] if folder else None)
+    if operation != "add" or set(proposal) != {"operation", "folder", "extensions", "action", "instruction"}:
+        return "Klasör izleme isteğini doğrulayamadım; işlem başlatılmadı."
+    folder_key = proposal.get("folder")
+    exts = proposal.get("extensions")
+    action = proposal.get("action")
+    instruction = proposal.get("instruction")
+    if (folder_key not in _FOLDER_KEY_WORDS or not isinstance(exts, list)
+            or action not in {"notify", "summary", "workbench"}
+            or not isinstance(instruction, str) or len(instruction) > 300):
+        return "Klasör izleme isteğini doğrulayamadım; işlem başlatılmadı."
+    folder = resolve_folder(_FOLDER_KEY_WORDS[folder_key])
+    if folder is None:
+        return "Bu klasörü güvenli biçimde bulamadım; izleme kuralı oluşturulmadı."
+    try:
+        rule = add_rule(owner, folder, exts, action, instruction)
+    except ValueError as exc:
+        return str(exc)
+    return (f"Tamam, izliyorum. {describe(rule)}.\\nKlasörde şu an olan dosyalara dokunmam; saatte en fazla "
+            f"{HOURLY_LIMIT} dosyayı kendiliğinden işlerim. Kapatmak için “izlemeyi durdur” de.")
+
+
 def handle(owner: str, command: str) -> str | None:
     text = (command or "").strip().rstrip(".!")
     low = _low(text)
