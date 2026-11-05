@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import ntpath
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -40,6 +41,73 @@ def _decode(raw: str) -> dict[str, Any]:
     if set(value) != expected:
         raise ValueError("Model proposal schema mismatch.")
     return value
+
+
+_FOLDER_SIGNAL_ALIASES = {
+    "downloads": ("downloads", "download", "indirilenler", "indirilen"),
+    "documents": ("documents", "document", "belgeler", "belge"),
+    "desktop": ("desktop", "masaüstü", "masaustu"),
+    "pictures": ("pictures", "picture", "resimler", "resim"),
+    "videos": ("videos", "video", "videolar"),
+    "music": ("music", "müzikler", "muzikler"),
+}
+
+
+def _normal_signal(value: str) -> str:
+    return " ".join(value.replace("İ", "i").replace("I", "ı").casefold().strip().split())
+
+
+def _text_mentions_label(text: str, label: str) -> bool:
+    signal = _normal_signal(label)
+    if not signal:
+        return False
+    return re.search(rf"(?<!\\w){re.escape(signal)}[\\w]*", text) is not None
+
+
+def _file_name_signals(reference: Any) -> tuple[str, ...]:
+    path_value = reference.provenance.get("path")
+    name_value = reference.provenance.get("name")
+    basename = ntpath.basename(name_value if isinstance(name_value, str) and name_value.strip()
+                                else path_value if isinstance(path_value, str) else "")
+    stem = ntpath.splitext(basename)[0]
+    return tuple(dict.fromkeys(signal for signal in (basename, stem) if signal))
+
+
+def _file_folder_signals(reference: Any) -> tuple[str, ...]:
+    path_value = reference.provenance.get("path")
+    if not isinstance(path_value, str) or not path_value.strip():
+        return ()
+    parent_parts = [
+        part for part in ntpath.dirname(path_value).replace("/", "\\\\").split("\\\\") if part
+    ][-2:]
+    signals: list[str] = []
+    for part in parent_parts:
+        signals.append(part)
+        signals.extend(_FOLDER_SIGNAL_ALIASES.get(_normal_signal(part), ()))
+    return tuple(dict.fromkeys(signals))
+
+
+def _selected_file_candidate_is_grounded(
+    text: str, selected: Any, candidates: list[Any],
+) -> bool:
+    """Require the spoken filename or folder to identify this candidate independently of the model."""
+    normalized = _normal_signal(text)
+    name_matches = [
+        candidate for candidate in candidates
+        if any(_text_mentions_label(normalized, signal) for signal in _file_name_signals(candidate))
+    ]
+    folder_matches = [
+        candidate for candidate in candidates
+        if any(_text_mentions_label(normalized, signal) for signal in _file_folder_signals(candidate))
+    ]
+    if len(folder_matches) == 1:
+        return folder_matches[0] is selected and (
+            not name_matches or (len(name_matches) == 1 and name_matches[0] is selected)
+            or len(name_matches) > 1
+        )
+    if folder_matches:
+        return False
+    return len(name_matches) == 1 and name_matches[0] is selected
 
 
 def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
@@ -217,6 +285,8 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                     return None
                 selected_reference = dict(slot_refs).get(selected_slot)
                 if selected_reference is None or selected_reference.owner != owner:
+                    return None
+                if not _selected_file_candidate_is_grounded(text, selected_reference, file_refs):
                     return None
                 resolved_references = (selected_reference,)
         elif operation is not None or slots:
