@@ -2379,19 +2379,8 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
             ) + ("MODEL_REFERENCE_RESOLVED",)
             next_preview = _preview_text(next_hint, next_arguments, next_references)
         elif result.needs_input:
-            if not (
-                result.capability_hint is None
-                and result.ambiguities == ("multiple target references",)
-                and refined.request_kind is RequestKind.CHAT
-                and result.conversation_relation is ConversationRelation.NEW_REQUEST
-                and result.pending_owner is None
-            ):
-                return result
-            next_ambiguities = ()
-            next_needs_input = False
-            next_reason_codes = tuple(
-                code for code in result.reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
-            ) + ("MODEL_AMBIGUITY_RESOLVED_AS_CHAT",)
+            # Never erase an unresolved target ambiguity by reclassifying it as CHAT.
+            return result
 
         if refined.request_kind is RequestKind.CHAT:
             next_hint = None

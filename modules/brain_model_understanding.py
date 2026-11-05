@@ -79,14 +79,6 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             and not protected_relation
             and len(file_refs) >= 2
         )
-        resolving_chat_ambiguity = bool(
-            getattr(current, "needs_input", False)
-            and current_ambiguities == ("multiple target references",)
-            and current.capability_hint is None
-            and current.conversation_relation is ConversationRelation.NEW_REQUEST
-            and current.pending_owner is None
-            and not protected_relation
-        )
         file_slots = []
         slot_refs = []
         slot_labels: dict[str, tuple[str, str]] = {}
@@ -242,17 +234,11 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             return None
         if proposed.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
             return None
-        if bool(getattr(current, "needs_input", False)) and not (
-            resolving_file_ambiguity or resolving_chat_ambiguity
-        ):
+        # An unresolved target may be cleared only by the bounded, owner-bound,
+        # read-only file-reference resolution above. The model cannot relabel it as CHAT.
+        if bool(getattr(current, "needs_input", False)) and not resolving_file_ambiguity:
             return None
         if resolving_file_ambiguity and not resolved_references:
-            return None
-        if resolving_chat_ambiguity and not (
-            proposed.request_kind is RequestKind.CHAT
-            and proposed.capability_hint is None
-            and proposed.arguments is None
-        ):
             return None
         if proposed.capability_hint is not None and proposed.capability_hint not in CORE_INTENTS:
             return None
