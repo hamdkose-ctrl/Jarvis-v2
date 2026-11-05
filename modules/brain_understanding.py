@@ -2516,6 +2516,10 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
         )
         if refined is None:
             return result
+        # An explicit, typed visual request is deterministic product intent; the optional
+        # model may refine its context but may not turn the requested image into chat.
+        if result.capability_hint == VISUAL_CAPABILITY and refined.request_kind is not RequestKind.CAPABILITY:
+            return result
         next_hint = refined.capability_hint
         next_arguments = refined.arguments if refined.arguments is not None else result.arguments
         next_preview = result.preview
