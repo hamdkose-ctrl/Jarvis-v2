@@ -64,7 +64,7 @@ def dispatch(context, command, normalized):
         retry'ını tüketir. Yeni görsel türü seçimi BRAIN-MIG-063 / PR3C-6 ile Understanding
         visual.create → Core visual_create yoluna taşındı; bu adapter yeni cümleden tür seçmez.
     """
-    from modules import app_actions, brain_entry, brain_gates
+    from modules import app_actions, brain_entry, brain_gates, brain_precedence
     owner, session = context.profile.slug, context.session
     from modules import visual_chat
     # Açık admin önekleri (B — KEEP_EXACT_ADMIN) geniş anahtar taramasından ÖNCE sahiplerine gider.

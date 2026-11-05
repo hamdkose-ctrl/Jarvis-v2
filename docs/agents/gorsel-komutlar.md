@@ -2,16 +2,18 @@
 
 ## Güncel canonical akış — PR3C-6 (5 Kasım 2026)
 
-Sohbetten görsel üretim isteğinin türünü artık erken çalışan visual_chat keyword kapısı seçmez. Tek semantik karar Brain'dedir:
+PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısını kaldırıp isteği Brain → Core sınırına taşır. **Bu henüz model-birincil semantik anlama değildir:** mevcut PR'da Brain'in görsel tür önerisi `brain_understanding._visual_kind` ve `visual_types.match_type` içindeki bounded regex gramerine dayanır. Genel doğal dilde modelin birincil karar sahibi olması BRAIN-01 kapsamındadır.
 
 1. modules/visual_types.py yedi kapalı görsel türü ve ortak Türkçe/İngilizce tür sözlüğünü sağlar.
-2. modules/brain_understanding.py açık görsel isteğini visual.create + kind olarak önerir. Tür adı tek başına yeterli değildir; açık eylem ifadesi gerekir. "süreç özeti" doğal görsel isteği olarak tanınır. "infografik nedir?" gibi bilgi soruları CHAT kalır.
+2. modules/brain_understanding.py mevcut sınırlı görsel grameri eşleşirse visual.create + kind önerir. Tür adı tek başına yeterli değildir; bu PR'da kapalı action cue veya "süreç özeti" özel grameri gerekir. Bu sınırlı eşleşme, kalıp dışı doğal Türkçe desteği iddiası değildir. "infografik nedir?" gibi bilgi soruları CHAT kalır.
 3. modules/brain_core_map.py kind değerini yedi türlük allowlist'e göre yeniden doğrular; engine_intents.visual_create mevcut görsel akışına dispatch eder.
 4. visual_chat.begin yalnız "sohbetten mi, dosyadan mı?" kaynak sorusunu açar. Kaynak cevabı gelmeden image generation çağrısı yapılmaz. visual_chat.handle yalnız Brain tarafından sahiplenilmiş pending source cevabını ve son görsel için retry'ı yönetir; sohbet türü seçmez.
 5. "sohbet" cevabı bounded geçmişi içerik yapar; "dosya" cevabı kullanıcıyı Dosyalar ekranındaki açık Görselleştir düğmesine yönlendirir. Dosyalar ekranı düğmesi kendi açık türünü verir ve bu chat sınıflandırmasından bağımsızdır.
 6. Üretim mevcut image_gen/Cloudflare yapılandırmasını kullanır; yeni sağlayıcı, ücretli fallback veya yeni yetki eklenmez. Üretilen PNG mevcut Görseller klasörüne kaydedilir.
 
-PR #521 test-first olarak açık/Draft durumundadır. Exact-head Windows CI ve aynı SHA gerçek PC watcher kabulü henüz tamamlanmadı; bu nedenle cutover henüz kabul edilmiş/merge edilmiş sayılmaz.
+Açık PC sahibi protokolü (ör. "pc görevi: infografik çiz") görsel tür eşleşmesinden önce korunur. Core-owned `visual_create` planı eski Planner ve `_extra_commands` cascade'inin aynı isteği ikinci kez yorumlamasını engeller.
+
+PR #521 test-first olarak açık/Draft durumundadır. Exact-head Windows CI ve aynı SHA gerçek PC watcher kabulü geçmeden cutover kabul edilmiş/merge edilmiş sayılmaz.
 
 Aşağıdaki 25 Ekim bölümleri tasarım ve tarihsel uygulama notlarıdır; güncel sahiplik için bu bölüm ve PR #521 esas alınır.
 

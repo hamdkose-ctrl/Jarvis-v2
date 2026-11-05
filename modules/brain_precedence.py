@@ -17,7 +17,21 @@ This module decides nothing about permission or effect: it only calls the existi
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
+
+# Exact, explicit desktop-owner protocol. This is a bounded admin prefix, not a
+# natural-language classifier; Brain domains may consult it only to avoid stealing
+# a turn that belongs to the user's explicitly addressed PC task.
+_EXPLICIT_DESKTOP_OWNER = re.compile(
+    r"^pc\\s+(?:görev(?:i)?(?=[:\\s])|onayla\\s|iz(?:in|ni|inleri|inler)\\b)",
+    re.I,
+)
+
+
+def explicit_desktop_owner_protocol(text: str) -> bool:
+    return isinstance(text, str) and _EXPLICIT_DESKTOP_OWNER.match(text.strip()) is not None
+
 
 # Order is the contract. This table is its only owner.
 FRONT_GATES: tuple[str, ...] = (
@@ -55,8 +69,10 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # ham-metin dalı aynı cümleye ikinci kez bakamaz (serbest Goal fallback'i de buradan yasak).
         # PR3C-4: aynı hüküm `folder_analyze` için geçerlidir — klasör taraması yürütücünün tek sahibiyle
         # yapılır, planner'ın "şunu incele" kalıbı aynı cümleyi ikinci kez yorumlayamaz.
+        # PR3C-6: Core-owned visual_create yalnız source-question adapterini açar; Planner'ın
+        # görsel türü/iş niyeti seçmeye çalışan raw cascade'i aynı isteği tekrar yorumlayamaz.
         if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
-                                            "folder_analyze"}:
+                                            "folder_analyze", "visual_create"}:
             return None
         # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
         # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
@@ -76,8 +92,10 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # yeniden yorumlayamaz, geri alma koluna ise plan olmadan (None) ulaşılır.
         # PR3C-4: `folder_analyze` planının kapısı cascade'in içindeydi; ham kalıp emekli olduğunda
         # cascade aynı cümleye bir daha bakamaz (klasör taraması yalnız kanonical plandan yürür).
+        # PR3C-6: `visual_create` de Brain→Core tarafından sahiplenildi; eski cascade ikinci
+        # intent sahibi olamaz.
         if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write",
-                                            "folder_analyze"}:
+                                            "folder_analyze", "visual_create"}:
             return None
         return runtime._extra_commands(command, lowered)
 

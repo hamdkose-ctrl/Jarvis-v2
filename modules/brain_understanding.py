@@ -11,7 +11,7 @@ from dataclasses import replace
 import re
 from typing import Any, Iterable, Mapping
 
-from modules import typo, visual_types
+from modules import brain_precedence, typo, visual_types
 from modules.app_identities import verified_alias as _verified_app_alias
 from modules.brain_actions import action_request, ends_with_action, instructional_question
 from modules.diagnostics import record_failure as _record_failure
@@ -867,6 +867,10 @@ _VISUAL_NATURAL_REQUEST = re.compile(r"\b(?:süreç\s+özet\w*|özet(?:i|ini)?\s
 
 
 def _visual_kind(text: str) -> str | None:
+    # Explicit PC task/approval/permission is a bounded owner protocol. It wins before
+    # any visual-domain proposal even when the PC task mentions "infografik" etc.
+    if brain_precedence.explicit_desktop_owner_protocol(text):
+        return None
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
     kind = visual_types.match_type(text)
