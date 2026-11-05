@@ -13,7 +13,7 @@ PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısın�
 
 Açık PC sahibi protokolü (ör. "pc görevi: infografik çiz") görsel tür eşleşmesinden önce korunur. Core-owned `visual_create` planı eski Planner ve `_extra_commands` cascade'inin aynı isteği ikinci kez yorumlamasını engeller.
 
-PR #521 test-first olarak açık/Draft durumundadır. Exact-head Windows CI ve aynı SHA gerçek PC watcher kabulü geçmeden cutover kabul edilmiş/merge edilmiş sayılmaz.
+PR #521 test-first olarak Draft/açık durumdadır, henüz merge edilmedi. Güncel exact head `fc15bef95a93a2276784858ba1b9e72a3abca218` için Windows CI #1431 **SUCCESS**, aynı SHA gerçek Windows PC watcher **Genel PASS / Validation PASS** verdi. Dar visual authority cutover teknik kabul kanıtını geçti; merge edilmeden main'e geçmiş sayılmaz. Görsel subtype seçimi bounded regex olarak kaldığı için model-birincil doğal dil semantiği BRAIN-01 kapsamındadır.
 
 Aşağıdaki 25 Ekim bölümleri tasarım ve tarihsel uygulama notlarıdır; güncel sahiplik için bu bölüm ve PR #521 esas alınır.
 
