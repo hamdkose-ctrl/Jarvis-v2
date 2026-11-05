@@ -58,6 +58,7 @@ from modules.brain_understanding import (
     WINDOW_OP_CAPABILITY,
     WATCHER_CAPABILITY,
     WATCHER_ACTION_UNSUPPORTED,
+    VISUAL_CAPABILITY,
 )
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
@@ -491,6 +492,15 @@ def _media_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"action": action}
 
 
+def _visual_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core accepts only one of the seven visual kinds selected by Understanding."""
+    if set(arguments) - {"original_text", "kind"}:
+        return None
+    kind = arguments.get("kind")
+    from modules.visual_types import TYPES
+    return {"kind": kind} if kind in TYPES else None
+
+
 def _capture_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {} if _only_original_text(arguments) else None
 
@@ -601,6 +611,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # Understanding'de tek kalıptan doğar, burada yeniden doğrulanır ve etki sahibi yürütücüsünde kalır.
     AUDIO_CAPABILITY: ("audio_action", _audio_args),
     MEDIA_CAPABILITY: ("media_action", _media_args),
+    VISUAL_CAPABILITY: ("visual_create", _visual_args),
     SCREEN_CAPTURE_CAPABILITY: ("screen_capture", _capture_args),
     SHUTDOWN_REQUEST_CAPABILITY: ("shutdown_request", _shutdown_args),
     SHUTDOWN_CANCEL_CAPABILITY: ("shutdown_cancel", _shutdown_args),

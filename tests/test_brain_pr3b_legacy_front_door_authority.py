@@ -740,10 +740,12 @@ class DispatchArmPrecedenceTests(_RawDoorHarness):
         self.assertIsNone(self.ctx._session().pending_visual)
         self.assertIn("GÖREV AKIŞI", str(out))
 
-    def test_a_visual_request_without_an_admin_prefix_keeps_its_current_owner(self):
-        # Fence kör değil: açık admin öneki olmayan görsel isteği aynı kolunda kalır.
-        _entry, out, _handle, _ = self.turn("zihin haritası çıkar")
-        self.assertIn("visual", self.seen)
+    def test_a_visual_request_without_an_admin_prefix_is_owned_by_brain_core(self):
+        # PR3C-6: visual_chat no longer selects new requests; Brain proposal + Core opens source question.
+        entry, out, _handle, _ = self.turn("zihin haritası oluştur")
+        from modules.brain_understanding import VISUAL_CAPABILITY
+        self.assertEqual(entry.understanding.capability_hint, VISUAL_CAPABILITY)
+        self.assertNotIn("visual", self.seen)
         self.assertIsNotNone(self.ctx._session().pending_visual)
         self.assertIn("nereden gelsin", str(out))
 
@@ -770,13 +772,15 @@ class ExactAdminArmScopeTests(unittest.TestCase):
         # Erken kolun öneki ile owner'ın kendi kapısı aynı aileyi tanımalı; aksi hâlde yüzey,
         # owner'ın sahiplenmediği bir cümleyi masaüstüne itiyor olur (ölçülen sapma riski).
         import re as _re
-        from modules import desktop_agent
+        from modules import brain_precedence, desktop_agent
         surface = _re.compile(r"^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)", _re.I)
         for text in ("pc görevi: hesap makinesi 12 ile 7 topla", "pc görevi durum", "pc onayla evet",
                      "pc izinleri", "PC İZİN VER"):
             self.assertTrue(surface.match(text), text)
+            self.assertTrue(brain_precedence.explicit_desktop_owner_protocol(text), text)
         for text in ("hesap makinesini aç", "pc rehberliği: wifi", "izin ver"):
             self.assertFalse(surface.match(text), text)
+            self.assertFalse(brain_precedence.explicit_desktop_owner_protocol(text), text)
         self.assertTrue(callable(desktop_agent.handle))
 
 

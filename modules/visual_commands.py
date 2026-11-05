@@ -1,22 +1,10 @@
-"""Doğal dille tetiklenen görsel komutlar — 7 tür (Hamdi'nin kararıyla hiçbiri
-literal bir komut adı değil: kullanıcı "/visualize" demez, "süreç özeti" gibi
-doğal bir şey söyler).
+"""Görsel üretim yürütücüsü ve prompt kurucusu.
 
-Bu modül yalnız şu üç şeyi yapar:
-  1. Söylenen cümlenin hangi görsel türü olduğunu bulur (`detect_type`).
-  2. O tür + verilen içerik için `modules/image_gen.py`'ye gidecek metin
-     istemini (prompt) kurar (`build_prompt`).
-  3. Üretilen görseli, mevcut "Dosyalar" ekranının zaten taradığı
-     `Jarvis Dosyaları` klasörüne kaydeder (`create_visual`) — Hamdi'nin
-     kararı: "bütün dosya işlerim tek ekranda olsun" (sohbete resim
-     düşmez).
-
-Çizimi her zaman model yapar (`image_gen.generate_image`); bu modül hiçbir
-pikseli kendisi çizmez. İçeriğin NEREDEN geleceği (sohbet geçmişi mi, açık
-bir dosya mı) ve "sohbet mi dosya mı" sorusunun sorulması ayrı bir iş —
-motorun (`engine_commands.py`) sohbet/pending-soru akışına bağlanması henüz
-yapılmadı; bu modül o katmanın çağıracağı, kendi başına test edilebilir
-çekirdektir.
+Sohbet türü seçimi canonical Brain'de yapılır: Understanding typed
+visual.create + kapalı kind önerir, Core doğrular. Bu modül yalnız prompt'u
+kurar, mevcut image_gen sağlayıcısını çağırır ve PNG'yi Jarvis Dosyaları'na
+kaydeder. detect_type* yardımcıları geriye dönük uyumluluk içindir; normal
+chat production path bunları çağırmaz.
 """
 from __future__ import annotations
 
@@ -27,45 +15,18 @@ from pathlib import Path
 
 from modules import image_gen
 from modules.diagnostics import record_failure as _record_failure
+from modules.visual_types import LABELS, TYPES, match_type
 
 # ------------------------------------------------------------------ tür tespiti
-# Sıra önemli: daha özel kalıplar önce. Her biri kök/gövde eşleşmesi yapar
-# (çekim ekleri için regex'te gövdeden sonra \w* bırakılır).
-_TYPE_PATTERNS: dict[str, tuple[str, ...]] = {
-    "mindmap": (r"zihin\s*harita", r"mind\s*map"),
-    "flowchart": (r"akış\s*şema", r"süreç\s*şema", r"flowchart"),
-    "timeline": (r"zaman\s*çizelge", r"zaman\s*çizgi", r"kronoloji", r"timeline"),
-    "infographic": (r"infografik", r"bilgi\s*grafi", r"infographic"),
-    "handwritten": (r"el\s*yazı", r"elle\s*yazılmış"),
-    "blueprint": (r"teknik\s*çizim", r"şema\s*plan", r"blueprint", r"mimari\s*çizim"),
-    # "visualize" en genel olduğu için en sonda: diğerlerinden biri eşleşmediyse
-    # ve genel bir görselleştirme isteği varsa buraya düşer.
-    "visualize": (r"görselleştir", r"özet(?:i|ini)?\s+görsel", r"süreç\s+özet"),
-}
-TYPES = tuple(_TYPE_PATTERNS)
-
-LABELS = {
-    "mindmap": "zihin haritası", "flowchart": "akış şeması", "infographic": "infografik",
-    "timeline": "zaman çizelgesi", "handwritten": "el yazısı notu", "blueprint": "teknik çizim",
-    "visualize": "görsel özet",
-}
-
 
 def _norm(text: str) -> str:
-    # Python'un .lower() Türkçe İ/I harflerini doğru çevirmiyor (İ -> combining
-    # dotted-i gibi tuhaf sonuçlar verebiliyor); kalıplarımız ascii 'i' ile
-    # yazıldığı için önce bu iki harfi elle normalize ediyoruz.
+    # Model output normalization; the user-turn type vocabulary is shared with Brain.
     return (text or "").replace("İ", "i").replace("I", "i").lower()
 
 
 def detect_type_by_keyword(text: str) -> str | None:
-    """Sabit kalıp eşleşmesi — ücretsiz, model çağırmaz. Eşleşme yoksa None."""
-    norm = _norm(text)
-    for kind, patterns in _TYPE_PATTERNS.items():
-        for pat in patterns:
-            if re.search(pat, norm):
-                return kind
-    return None
+    """Compatibility helper; production chat selection belongs to canonical Brain."""
+    return match_type(text)
 
 
 _MODEL_PROMPT = (

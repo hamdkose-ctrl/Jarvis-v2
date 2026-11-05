@@ -209,6 +209,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if action == "prev":
                 return "Önceki şarkıya dönülüyor."
             return "Medya oynatıcısı tetiklendi."
+        case "visual_create":
+            # Visual kind is a closed Brain proposal revalidated by Core; this opens only the source question.
+            from modules import visual_chat
+            return visual_chat.begin(runtime, command, str(a.get("kind") or ""))
         case "screen_capture":
             return runtime.desktop.screenshot()
         case "shutdown_request":

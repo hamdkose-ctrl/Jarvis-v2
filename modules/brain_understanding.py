@@ -11,7 +11,7 @@ from dataclasses import replace
 import re
 from typing import Any, Iterable, Mapping
 
-from modules import typo
+from modules import brain_precedence, typo, visual_types
 from modules.app_identities import verified_alias as _verified_app_alias
 from modules.brain_actions import action_request, ends_with_action, instructional_question
 from modules.diagnostics import record_failure as _record_failure
@@ -857,6 +857,52 @@ def _desktop_window_arguments(normalized: str) -> dict[str, object]:
     if action is None or not target or len(target) > WINDOW_TARGET_MAX or "\x00" in target:
         return {}
     return {"window": {"action": action, "target": target}}
+
+
+VISUAL_CAPABILITY = "visual.create"
+_VISUAL_ACTION_CUE = re.compile(
+    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir|"
+    r"yap|çıkar|cikar|çıkart|cikart|tasarla)"
+    r"(?:sana|sene|[ıiuü]n(?:ız|iz|uz|üz)?|"
+    r"(?:y?[aeiu]?r|y?[ae]bilir)\s*m[ıiuü]\w*|"
+    r"yalım|yelim|alım|elim)?"
+    r"(?=\s|$|[,;:.!?])",
+    re.I,
+)
+_VISUAL_WANT_CUE = re.compile(r"\b(?:istiyorum|istiyoruz|isterim|isteriz)\b")
+# Passive negative forms (oluşturulmasın / çizilmesin) and explicit rejection of the
+# natural "süreç özeti" phrase must never become a visual capability.
+_VISUAL_NEGATED_ACTION = re.compile(
+    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir|"
+    r"yap|çıkar|cikar|çıkart|cikart|tasarla)(?:n|[ıiuü]l)?m[ae](?:s[ıiuü]n|y[ıiuü]n|z|malı|meli)?"
+    r"(?=$|[\s,;.!?])"
+    r"|\b(?:istemiyorum|istemiyoruz|istemem|istemeyin|istemesin|istemiyor\w*)\b",
+    re.I,
+)
+_VISUAL_NATURAL_REQUEST = re.compile(r"\b(?:süreç\s+özet\w*|özet(?:i|ini)?\s+görsel)\b")
+
+
+def _visual_kind(text: str) -> str | None:
+    # Exact owner protocols are checked before visual-domain grammar. A task/workflow prefix
+    # owns its request even when the payload mentions a visual type and a drawing verb.
+    if (brain_precedence.explicit_desktop_owner_protocol(text)
+            or brain_precedence.explicit_workflow_owner_protocol(text)):
+        return None
+    normalized = _norm(text)
+    if _is_meta_language(text) or _is_literal_command_usage(text):
+        return None
+    if _VISUAL_NEGATED_ACTION.search(normalized):
+        return None
+    kind = visual_types.match_type(normalized)
+    if kind is None:
+        return None
+    # "süreç özeti" is an established natural visual request. Other visual kinds need a
+    # complete bounded action form or explicit first-person want form, never a word fragment.
+    if not (_VISUAL_ACTION_CUE.search(normalized)
+            or _VISUAL_WANT_CUE.search(normalized)
+            or _VISUAL_NATURAL_REQUEST.search(normalized)):
+        return None
+    return kind
 
 
 def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
@@ -2178,6 +2224,8 @@ def understand(
         else _file_mutation_proposal(normalized, references)
     )
     organize_targets = () if (photo_targeted or context_control or topic_change or correction) else _organize_targets(normalized)
+    visual_kind = (None if (photo_targeted or context_control or topic_change or correction)
+                   else _visual_kind(normalized))
     folder_analysis = (None if (photo_targeted or context_control or topic_change or correction)
                        else folder_analysis_request(normalized))
     ambiguities = _ambiguity_for_references(normalized, references)
@@ -2258,7 +2306,7 @@ def understand(
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
-        or watcher_proposal is not None
+        or visual_kind is not None or watcher_proposal is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -2368,7 +2416,9 @@ def understand(
         else {"original_text": text}
     )
     capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else (
-        WATCHER_CAPABILITY if watcher_proposal is not None else _capability_hint(normalized, temporal_need)
+        WATCHER_CAPABILITY if watcher_proposal is not None else (
+            VISUAL_CAPABILITY if visual_kind is not None else _capability_hint(normalized, temporal_need)
+        )
     )
     if typed_pending_capability is not None:
         capability_hint, clarify_arguments = typed_pending_capability
@@ -2424,6 +2474,8 @@ def understand(
         arguments = {**arguments, **folder_analysis}
     if capability_hint == WATCHER_CAPABILITY and watcher_proposal is not None:
         arguments = {**arguments, "watcher": watcher_proposal}
+    if capability_hint == VISUAL_CAPABILITY and visual_kind is not None:
+        arguments = {**arguments, "kind": visual_kind}
 
     # Advisory chat shaping is a semantic choice, so it is resolved once here and the
     # advisor layer only formats. A Core-mapped request keeps its own owner.
@@ -2490,6 +2542,10 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
             file_operation_hint=_file_operation(_norm(text)),
         )
         if refined is None:
+            return result
+        # An explicit, typed visual request is deterministic product intent; the optional
+        # model may refine its context but may not turn the requested image into chat.
+        if result.capability_hint == VISUAL_CAPABILITY and refined.request_kind is not RequestKind.CAPABILITY:
             return result
         next_hint = refined.capability_hint
         next_arguments = refined.arguments if refined.arguments is not None else result.arguments

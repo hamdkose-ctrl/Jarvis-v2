@@ -1,5 +1,29 @@
 # Görsel komutlar
 
+## Güncel canonical akış — PR3C-6 (5 Kasım 2026)
+
+PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısını kaldırıp isteği Brain → Core sınırına taşır. **Bu henüz model-birincil semantik anlama değildir:** görsel tür önerisi `brain_understanding._visual_kind` ve `visual_types.match_type` içindeki kapalı bounded regex gramerine dayanır. Kalıp dışı doğal Türkçe semantiği ve modelin birincil intent sahibi olması BRAIN-01 kapsamındadır.
+
+1. `modules/visual_types.py` yedi kapalı görsel türünü ve ortak Türkçe/İngilizce tür sözlüğünü sağlar.
+2. `modules/brain_understanding.py` görsel tür + tam eylem biçimi veya açık “istiyorum/isterim” talebi eşleşirse `visual.create` + kind önerir. “Süreç özeti” mevcut doğal talep biçimi olarak korunur. Olumsuz ve pasif olumsuz istekler (“istemiyorum”, “oluşturulmasın”, “çizilmesin”) görsel capability üretmez. Eylem fiilleri tam sözcük/sonek sınırıyla eşleşir; “zaman çizgisi” veya “yapay zekâ” içindeki parçalar eylem sayılmaz. “İnfografik nedir?” gibi açıklamalar CHAT kalır.
+3. Explicit `pc görevi:` ve `görev akışı` protokolleri ortak `brain_precedence` owner helper'larıyla domain eşleşmesinden önce korunur. Böylece “görev akışı rapor: infografik tasarla” görev akışından görsel isteğine çalınmaz.
+4. `modules/brain_core_map.py` kind değerini yedi türlük allowlist'e göre yeniden doğrular; `engine_intents.visual_create` mevcut görsel akışına dispatch eder.
+5. `visual_chat.begin` yalnız “sohbetten mi, dosyadan mı?” kaynak sorusunu açar. Zaten `pending_visual` kaynak sorusu varsa ikinci görsel isteği ilk isteğin metin/tür/source bilgisini ezmez; kullanıcıya önce bekleyen kaynağı cevaplaması söylenir.
+6. Kaynak cevabı State Gate tarafından sahiplenilir; `visual_chat.handle` yalnız bu bağlı source cevabını veya son görsel retry'ını işler. “Sohbet” bounded geçmişi içerik yapar; “dosya” cevabı kullanıcıyı Dosyalar ekranındaki açık Görselleştir düğmesine yönlendirir.
+7. Dosyalar ekranındaki Görselleştir düğmesi ayrı, açık UI eylemi olarak kalır: `main_documents._file_command` açık dosya özetini ve kullanıcı tarafından seçilen türü mevcut worker'a verir. Bu chat sınıflandırması değildir ve bu PR onu Brain'e taşımayı iddia etmez.
+8. Üretim mevcut image_gen/Cloudflare yapılandırmasını kullanır; yeni sağlayıcı, ücretli fallback veya yeni effect yetkisi eklenmez. Üretilen PNG mevcut Görseller klasörüne kaydedilir.
+
+## Davranış ve kabul kanıtı
+
+- Testler olumsuz/pasif cümleleri, açıklama sorularını, olumlu Türkçe biçim paritesini, eylem kelime sınırını, PC/görev-akışı owner önceliğini, pending source korumasını, sohbet ve dosya source seçimlerini kapsar.
+- Uçtan uca test gerçek `brain_entry.prepare → handoff → State Gate → Core/source adapter → visual_commands.create_visual` çağrı zincirini izler; yalnız dış görsel worker sahte/fake sonuçla sınırlandırılır.
+- Code/test head `a52808be95ae9fecba3382bfa6d9dd4f3bf30432`: Windows CI #1439 **SUCCESS**; 4.945 Python testi + 47 final validation testi geçti ve “Tüm test grupları başarılı.” kaydı alındı. Gerçek Windows PC watcher aynı SHA'da **Genel PASS / Validation PASS** verdi.
+- Gerçek Cloudflare API'ye canlı görsel üretim çağrısı bu kabulde yapılmadı; provider/credential kaynaklı canlı üretim kanıtı sayılmaz.
+- PR #521 Draft/açık ve henüz merge edilmedi. Kod/test SHA'sından sonra eklenecek doküman-only head için exact-SHA CI ve watcher yeniden doğrulanır.
+- [ ] **Sonraki gerçek cihaz testi:** Windows Jarvis'te mevcut kullanıcı Cloudflare Workers AI yapılandırmasıyla sohbetten görsel üretimini gerçekten çalıştır; `sohbetten` kaynağını seç, dönen içeriğin PNG imzasını/açılabilirliğini, mevcut Görseller klasörüne kaydını ve kullanıcıya teslimini doğrula. Kota, ağ ve kimlik doğrulama hatalarının güvenli sınıflandırıldığını; anahtarların log/çıktıya sızmadığını da kontrol et. Mock worker round-trip testi bu canlı kabulin yerine geçmez.
+
+## Tarihsel karar notu — Görsel üretimi v1 (25 Ekim 2026)
+
 ## Görsel üretimi v1 — 25 Ekim 2026
 
 `modules/image_gen.py`: kullanıcının doğal dille istediği bir görseli

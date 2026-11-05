@@ -27,12 +27,27 @@ def _ctx(session=None, history=None):
 
 
 class TriggerTests(unittest.TestCase):
-    def test_keyword_trigger_asks_source_and_sets_pending(self):
+    def test_chat_adapter_does_not_select_visual_type_before_brain(self):
         ctx = _ctx()
-        reply = visual_chat.handle(ctx, "zihin haritası çizer misin", "zihin haritası çizer misin")
+        self.assertIsNone(visual_chat.handle(ctx, "zihin haritası çizer misin", "zihin haritası çizer misin"))
+        self.assertIsNone(ctx.session.pending_visual)
+
+    def test_core_dispatched_typed_visual_proposal_asks_for_source(self):
+        from types import SimpleNamespace
+        session = SessionState()
+        runtime = SimpleNamespace(_session=lambda: session)
+        reply = visual_chat.begin(runtime, "zihin haritası oluştur", "mindmap")
         self.assertIn("sohbetten mi, dosyadan mı", reply)
-        self.assertEqual(ctx.session.pending_visual["kind"], "mindmap")
-        self.assertEqual(ctx.session.pending_visual["stage"], "source")
+        self.assertEqual(session.pending_visual["kind"], "mindmap")
+        self.assertEqual(session.pending_visual["stage"], "source")
+
+    def test_core_rejects_unknown_visual_kind(self):
+        from types import SimpleNamespace
+        session = SessionState()
+        runtime = SimpleNamespace(_session=lambda: session)
+        reply = visual_chat.begin(runtime, "görsel oluştur", "unknown")
+        self.assertIn("doğrulanmadı", reply)
+        self.assertIsNone(session.pending_visual)
 
     def test_unrelated_sentence_returns_none(self):
         ctx = _ctx()
