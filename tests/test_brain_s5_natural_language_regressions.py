@@ -66,3 +66,14 @@ class BrainS5NaturalLanguageRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrainS5AnaphoricMultiTargetRegressionTests(unittest.TestCase):
+    def test_ onu_yap_with_multiple_file_targets_still_clarifies(self):
+        one = ContextReference(id="file-one", kind="file", source="file_inventory", owner=OWNER, provenance={"path": "C:/Users/hamdi/Belgeler/dosya00.txt", "name": "dosya00.txt"})
+        two = ContextReference(id="file-two", kind="file", source="file_inventory", owner=OWNER, provenance={"path": "C:/Users/hamdi/Belgeler/dosya01.txt", "name": "dosya01.txt"})
+        active = ActiveContext(owner=OWNER, request_id="brain-s5-regression")
+        result = understand(owner=OWNER, request_id="brain-s5-regression", text="onu yap", active_context=active, candidates=(one, two), references=(one, two))
+        self.assertIs(result.request_kind, RequestKind.CLARIFY)
+        self.assertTrue(result.needs_input)
+        self.assertIn("multiple target references", result.ambiguities)
