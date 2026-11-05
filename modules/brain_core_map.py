@@ -56,6 +56,8 @@ from modules.brain_understanding import (
     WAKE_ENABLE_CAPABILITY,
     WINDOW_LIST_CAPABILITY,
     WINDOW_OP_CAPABILITY,
+    WATCHER_CAPABILITY,
+    WATCHER_ACTION_UNSUPPORTED,
 )
 
 _LEVEL_PROPERTIES = frozenset({"volume", "brightness"})
@@ -225,6 +227,53 @@ def _folder_analysis_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     result["name"] = name
     return result
+
+
+_WATCHER_FOLDERS = frozenset({"jarvis", "downloads", "desktop", "documents", "pictures"})
+_WATCHER_EXTENSIONS = frozenset({".pdf", ".docx", ".xlsx", ".xlsm", ".csv", ".pptx",
+                                 ".png", ".jpg", ".jpeg", ".webp"})
+_WATCHER_ACTIONS = frozenset({"notify", "summary", "workbench"})
+
+
+def _watcher_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates every watcher operation and closed folder/extension/action vocabulary."""
+    if set(arguments) - {"original_text", "watcher"}:
+        return None
+    row = arguments.get("watcher")
+    if not isinstance(row, Mapping):
+        return None
+    operation = row.get("operation")
+    if operation in {"list", "run_pending"}:
+        return {"watcher": {"operation": operation}} if set(row) == {"operation"} else None
+    if operation == "stop":
+        if set(row) - {"operation", "folder"}:
+            return None
+        folder = row.get("folder")
+        if folder is not None and folder not in _WATCHER_FOLDERS:
+            return None
+        return {"watcher": {"operation": "stop", **({"folder": folder} if folder else {})}}
+    if operation != "add" or set(row) != {"operation", "folder", "extensions", "action", "instruction"}:
+        return None
+    folder, extensions, action, instruction = (
+        row.get("folder"), row.get("extensions"), row.get("action"), row.get("instruction")
+    )
+    if folder not in _WATCHER_FOLDERS or action not in _WATCHER_ACTIONS:
+        return None
+    if (not isinstance(extensions, (list, tuple)) or len(extensions) > len(_WATCHER_EXTENSIONS)
+            or any(ext not in _WATCHER_EXTENSIONS for ext in extensions)
+            or len(set(extensions)) != len(extensions)):
+        return None
+    if not isinstance(instruction, str) or len(instruction) > 300 or "\\x00" in instruction:
+        return None
+    if action in {"summary", "workbench"} and not instruction.strip():
+        return None
+    return {"watcher": {
+        "operation": "add",
+        "folder": folder,
+        "extensions": sorted(extensions),
+        "action": action,
+        "instruction": instruction,
+    }}
 
 
 def _reminder_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -523,6 +572,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # PR3C-4: klasör analizi. Kök anahtarı ve adı geçen alt klasör sözcüğü Brain'den gelir; Core kapalı
     # kümede yeniden doğrular ve HİÇ yol görmez. Diskteki gerçek kimliği yalnız yürütücü çözer.
     FOLDER_ANALYSIS_CAPABILITY: ("folder_analyze", _folder_analysis_args),
+    WATCHER_CAPABILITY: ("watcher_manage", _watcher_args),
     # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),
@@ -620,6 +670,8 @@ def core_plan(hint: str | None, arguments: Mapping[str, Any]) -> tuple[str, dict
 def clarification_question(ambiguities: tuple[str, ...], arguments: Mapping[str, Any]) -> str | None:
     if "MULTIPLE_PENDING_ANSWER_OWNERS" in ambiguities:
         return "Birden fazla açık soru bu cevaba uyuyor; hangisini kastettiğini netleştir."
+    if WATCHER_ACTION_UNSUPPORTED in ambiguities:
+        return "İzleme kuralında ne yapacağımı netleştir: haber ver, özetle veya tablo yap."
     if PHOTO_TARGET_AMBIGUOUS in ambiguities:
         return "Birden fazla fotoğraf var; hangisiyle işlem yapmamı istediğini netleştir."
     if PHOTO_TARGET_UNRESOLVED in ambiguities:
