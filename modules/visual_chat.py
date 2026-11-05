@@ -55,6 +55,12 @@ def begin(runtime, command: str, kind: str) -> str:
     if kind not in visual_commands.TYPES:
         return "Görsel türü Core tarafından doğrulanmadı; üretim başlatılmadı."
     session = runtime._session()
+    pending = getattr(session, "pending_visual", None)
+    if isinstance(pending, dict) and pending.get("stage") == "source":
+        previous_kind = pending.get("kind")
+        previous_label = visual_commands.LABELS.get(previous_kind, "görsel")
+        return (f"Önce bekleyen {previous_label} isteğinin kaynağını seçelim: sohbetten mi, dosyadan mı? "
+                "Yeni görsel isteğini bundan sonra tekrar söyle.")
     session.pending_visual = {"text": command, "kind": kind, "stage": "source"}
     return f"{visual_commands.LABELS[kind].capitalize()} için içerik nereden gelsin: sohbetten mi, dosyadan mı?"
 

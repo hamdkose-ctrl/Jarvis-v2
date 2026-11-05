@@ -167,13 +167,12 @@ class VisualConversationRoundTripTests(pr3b._RawDoorHarness):
         history_read.assert_called_once()
 
     def test_second_visual_request_does_not_overwrite_the_first_pending_source(self):
-        first, question, _handle, _feedback = self.turn("zihin haritası oluştur")
+        first, _question, _handle, _feedback = self.turn("zihin haritası oluştur")
         pending_before = dict(self.ctx._session().pending_visual)
         second, reply, _handle, _feedback = self.turn("infografik hazırla")
         self.assertEqual(second.understanding.capability_hint, VISUAL_CAPABILITY)
         self.assertEqual(self.ctx._session().pending_visual, pending_before)
-        self.assertIn("önce", reply.casefold())
-        self.assertIn("zihin haritası", reply.casefold())
+        self.assertIn("önce bekleyen zihin haritası", reply.casefold())
         self.assertNotEqual(first.request_id, second.request_id)
 
     def test_file_source_answer_uses_the_existing_explicit_file_button(self):

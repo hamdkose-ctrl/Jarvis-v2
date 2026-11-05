@@ -861,7 +861,18 @@ def _desktop_window_arguments(normalized: str) -> dict[str, object]:
 
 VISUAL_CAPABILITY = "visual.create"
 _VISUAL_ACTION_CUE = re.compile(
-    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir)(?!m[ae]k)\w*\b"
+    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir|"
+    r"yap|çıkar|cikar|çıkart|cikart|tasarla)(?!m[ae])\w*\b"
+)
+_VISUAL_WANT_CUE = re.compile(r"\b(?:istiyorum|istiyoruz|isterim|isteriz)\b")
+# Passive negative forms (oluşturulmasın / çizilmesin) and explicit rejection of the
+# natural "süreç özeti" phrase must never become a visual capability.
+_VISUAL_NEGATED_ACTION = re.compile(
+    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir|"
+    r"yap|çıkar|cikar|çıkart|cikart|tasarla)(?:n|[ıiuü]l)?m[ae](?:s[ıiuü]n|y[ıiuü]n|z|malı|meli)?"
+    r"(?=$|[\s,;.!?])"
+    r"|\b(?:istemiyorum|istemiyoruz|istemem|istemeyin|istemesin|istemiyor\w*)\b",
+    re.I,
 )
 _VISUAL_NATURAL_REQUEST = re.compile(r"\b(?:süreç\s+özet\w*|özet(?:i|ini)?\s+görsel)\b")
 
@@ -871,13 +882,19 @@ def _visual_kind(text: str) -> str | None:
     # any visual-domain proposal even when the PC task mentions "infografik" etc.
     if brain_precedence.explicit_desktop_owner_protocol(text):
         return None
+    normalized = _norm(text)
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
-    kind = visual_types.match_type(text)
+    if _VISUAL_NEGATED_ACTION.search(normalized):
+        return None
+    kind = visual_types.match_type(normalized)
     if kind is None:
         return None
-    # "süreç özeti" is an established natural visual request; other type names need an action cue.
-    if not (_VISUAL_ACTION_CUE.search(_norm(text)) or _VISUAL_NATURAL_REQUEST.search(_norm(text))):
+    # "süreç özeti" is an established natural visual request; type names also accept
+    # common Turkish request forms that were supported by the previous visual entry.
+    if not (_VISUAL_ACTION_CUE.search(normalized)
+            or _VISUAL_WANT_CUE.search(normalized)
+            or _VISUAL_NATURAL_REQUEST.search(normalized)):
         return None
     return kind
 
