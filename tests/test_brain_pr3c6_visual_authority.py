@@ -187,5 +187,21 @@ class VisualConversationRoundTripTests(pr3b._RawDoorHarness):
         generate.assert_not_called()
 
 
+class VisualActionBoundaryRegressionTests(unittest.TestCase):
+    def test_timeline_noun_fragment_is_not_a_visual_action(self):
+        result = decide("zaman çizgisi örneği")
+        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+
+    def test_yapay_fragment_is_not_a_visual_action(self):
+        result = decide("infografik yapay zekâ hakkında konuşalım")
+        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+
+    def test_explicit_workflow_prefix_keeps_its_existing_owner(self):
+        result = decide("görev akışı rapor: infografik tasarla")
+        self.assertIsNot(result.capability_hint, VISUAL_CAPABILITY)
+
+
 if __name__ == "__main__":
     unittest.main()
