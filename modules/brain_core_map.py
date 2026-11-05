@@ -249,7 +249,7 @@ def _watcher_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         if set(row) - {"operation", "folder"}:
             return None
         folder = row.get("folder")
-        if folder is not None and folder not in _WATCHER_FOLDERS:
+        if folder is not None and (not isinstance(folder, str) or folder not in _WATCHER_FOLDERS):
             return None
         return {"watcher": {"operation": "stop", **({"folder": folder} if folder else {})}}
     if operation != "add" or set(row) != {"operation", "folder", "extensions", "action", "instruction"}:
@@ -257,13 +257,14 @@ def _watcher_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     folder, extensions, action, instruction = (
         row.get("folder"), row.get("extensions"), row.get("action"), row.get("instruction")
     )
-    if folder not in _WATCHER_FOLDERS or action not in _WATCHER_ACTIONS:
+    if (not isinstance(folder, str) or folder not in _WATCHER_FOLDERS
+            or not isinstance(action, str) or action not in _WATCHER_ACTIONS):
         return None
     if (not isinstance(extensions, (list, tuple)) or len(extensions) > len(_WATCHER_EXTENSIONS)
-            or any(ext not in _WATCHER_EXTENSIONS for ext in extensions)
+            or any(not isinstance(ext, str) or ext not in _WATCHER_EXTENSIONS for ext in extensions)
             or len(set(extensions)) != len(extensions)):
         return None
-    if not isinstance(instruction, str) or len(instruction) > 300 or "\\x00" in instruction:
+    if not isinstance(instruction, str) or len(instruction) > 300 or "\x00" in instruction:
         return None
     if action in {"summary", "workbench"} and not instruction.strip():
         return None
