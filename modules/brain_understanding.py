@@ -861,7 +861,7 @@ def _desktop_window_arguments(normalized: str) -> dict[str, object]:
 
 VISUAL_CAPABILITY = "visual.create"
 _VISUAL_ACTION_CUE = re.compile(
-    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir)\w*\b"
+    r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir)(?!m[ae]k)\w*\b"
 )
 _VISUAL_NATURAL_REQUEST = re.compile(r"\b(?:süreç\s+özet\w*|özet(?:i|ini)?\s+görsel)\b")
 
