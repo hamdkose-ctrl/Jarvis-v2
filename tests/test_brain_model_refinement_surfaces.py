@@ -382,5 +382,36 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         self.assertEqual(returned.ambiguities, ("multiple target references",))
 
 
+    def test_ambiguous_file_resolution_rejects_candidate_from_unmentioned_folder(self):
+        first = file_ref("file-a", r"C:\\Users\\hamdi\\Documents\\Butce\\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\\Users\\hamdi\\Downloads\\Fatura\\2025.xlsx", "2025.xlsx")
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            capability_hint="files.read",
+            arguments={"original_text": "İndirilenlerdeki 2025 dosyasını özetle"},
+            references=(first, second),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
+        raw = model_answer(
+            request_kind="CAPABILITY",
+            capability_hint="files.read",
+            confidence="HIGH",
+            file_operation="summarize",
+            file_slots=["file_0"],
+        )
+        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw):
+            refined = model.refine(
+                owner=OWNER,
+                text="İndirilenlerdeki 2025 dosyasını özetle",
+                current=semantic,
+                arguments=semantic.arguments,
+                file_operation_hint="summarize",
+            )
+        self.assertIsNone(refined)
+
+
 if __name__ == "__main__":
     unittest.main()
