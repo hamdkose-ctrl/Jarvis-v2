@@ -100,14 +100,11 @@ def _selected_file_candidate_is_grounded(
         candidate for candidate in candidates
         if any(_text_mentions_label(normalized, signal) for signal in _file_folder_signals(candidate))
     ]
+    if len(name_matches) == 1:
+        return name_matches[0] is selected and (not folder_matches or selected in folder_matches)
     if len(folder_matches) == 1:
-        return folder_matches[0] is selected and (
-            not name_matches or (len(name_matches) == 1 and name_matches[0] is selected)
-            or len(name_matches) > 1
-        )
-    if folder_matches:
-        return False
-    return len(name_matches) == 1 and name_matches[0] is selected
+        return folder_matches[0] is selected
+    return False
 
 
 def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],

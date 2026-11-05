@@ -441,5 +441,35 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         self.assertIsNone(refined)
 
 
+    def test_unique_file_name_is_enough_when_candidates_share_a_folder(self):
+        first = file_ref("file-a", r"C:\\Users\\hamdi\\Documents\\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\\Users\\hamdi\\Documents\\2026.xlsx", "2026.xlsx")
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            capability_hint="files.read",
+            arguments={"original_text": "2025 dosyasını özetle"},
+            references=(first, second),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
+        raw = model_answer(
+            request_kind="CAPABILITY",
+            capability_hint="files.read",
+            confidence="HIGH",
+            file_operation="summarize",
+            file_slots=["file_0"],
+        )
+        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw):
+            refined = model.refine(
+                owner=OWNER, text="2025 dosyasını özetle", current=semantic,
+                arguments=semantic.arguments, file_operation_hint="summarize",
+            )
+        self.assertIsNotNone(refined)
+        self.assertEqual(refined.references, (first,))
+        self.assertEqual(refined.arguments["path"], first.provenance["path"])
+
+
 if __name__ == "__main__":
     unittest.main()
