@@ -1293,5 +1293,28 @@ class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
         self.ctx._mail_handle.assert_not_called()
 
 
+class WatcherCoreCutoverTests(_RawDoorHarness):
+    """BRAIN-MIG-054: watcher semantics move to Understanding → Core; worker stays domain-owned."""
+
+    def test_folder_watch_rule_is_typed_and_dispatched_without_raw_watcher_entry(self):
+        command = "İndirilenler'i izle, PDF gelince haber ver"
+        expected = {
+            "operation": "add",
+            "folder": "downloads",
+            "extensions": [".pdf"],
+            "action": "notify",
+            "instruction": "haber ver",
+        }
+        with patch.object(watcher, "apply", create=True, return_value="WATCHER_APPLIED") as apply:
+            entry, output, _handle, _feedback = self.turn(command)
+
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.capability_hint, "watcher.manage")
+        self.assertEqual(entry.understanding.arguments.get("watcher"), expected)
+        self.assertEqual(output, "WATCHER_APPLIED")
+        self.seams["modules.watcher.handle"].assert_not_called()
+        apply.assert_called_once_with(self.owner, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
