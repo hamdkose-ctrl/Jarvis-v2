@@ -1385,6 +1385,14 @@ def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
         key = str(arguments.get("folder") or arguments.get("named") or "")
         label = _FOLDER_ANALYSIS_LABELS.get(key)
         return EchoPreview(text=f"{label} klasörünü inceleme") if label else None
+    if capability_hint == WATCHER_CAPABILITY:
+        operation = arguments.get("watcher", {}).get("operation") if isinstance(arguments.get("watcher"), Mapping) else None
+        return EchoPreview(text={
+            "add": "Klasör izleme kuralı oluşturma",
+            "list": "İzlenen klasörleri listeleme",
+            "stop": "Klasör izleme kuralını durdurma",
+            "run_pending": "Bekleyen dosyaları işleme",
+        }.get(operation, "Klasör izleme"))
     if capability_hint == PHOTO_CAPABILITY:
         operation = arguments.get("operation")
         if operation == _PHOTO_TRANSLATE:
@@ -2314,6 +2322,8 @@ def understand(
         reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
     elif ORGANIZE_TARGET_AMBIGUOUS in ambiguities:
         reason_codes.append(ORGANIZE_TARGET_AMBIGUOUS)
+    elif WATCHER_ACTION_UNSUPPORTED in ambiguities:
+        reason_codes.append(WATCHER_ACTION_UNSUPPORTED)
     elif photo_ambiguity is not None:
         reason_codes.append(photo_ambiguity)
     elif ambiguities:
