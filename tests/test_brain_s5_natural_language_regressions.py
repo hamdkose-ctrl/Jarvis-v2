@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
 
 class BrainS5AnaphoricMultiTargetRegressionTests(unittest.TestCase):
-    def test_ onu_yap_with_multiple_file_targets_still_clarifies(self):
+    def test_onu_yap_with_multiple_file_targets_still_clarifies(self):
         one = ContextReference(id="file-one", kind="file", source="file_inventory", owner=OWNER, provenance={"path": "C:/Users/hamdi/Belgeler/dosya00.txt", "name": "dosya00.txt"})
         two = ContextReference(id="file-two", kind="file", source="file_inventory", owner=OWNER, provenance={"path": "C:/Users/hamdi/Belgeler/dosya01.txt", "name": "dosya01.txt"})
         active = ActiveContext(owner=OWNER, request_id="brain-s5-regression")
