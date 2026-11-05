@@ -220,7 +220,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             request_kind="CAPABILITY",
             capability_hint="files.read",
             confidence="HIGH",
-            file_operation="summarize",
+            file_operation="analyze",
             file_slots=["file_0"],
         )
         with p_owner, p_provider, p_privacy, p_selection, \
@@ -230,6 +230,53 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
                 arguments=semantic.arguments, file_operation_hint="summarize",
             )
         self.assertIsNone(refined)
+
+    def test_ambiguous_file_open_is_not_resolved_by_the_model(self):
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\Rapor\rapor.pdf", "rapor.pdf")
+        second = file_ref("file-b", r"C:\Users\hamdi\Downloads\Rapor\son.pdf", "son.pdf")
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            capability_hint="files.read",
+            arguments={"original_text": "rapor.pdf'i aç"},
+            references=(first, second),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
+        raw = model_answer(
+            request_kind="CAPABILITY",
+            capability_hint="files.read",
+            confidence="HIGH",
+            file_operation="open",
+            file_slots=["file_0"],
+        )
+        with p_owner, p_provider, p_privacy, p_selection, \
+                patch("modules.smart_router.run", return_value=raw):
+            refined = model.refine(
+                owner=OWNER, text="rapor.pdf'i aç", current=semantic,
+                arguments=semantic.arguments, file_operation_hint="open",
+            )
+        self.assertIsNone(refined)
+
+    def test_model_chat_proposal_cannot_clear_ambiguous_file_target(self):
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\Rapor\rapor.pdf", "rapor.pdf")
+        second = file_ref("file-b", r"C:\Users\hamdi\Downloads\Rapor\rapor.pdf", "rapor.pdf")
+        semantic = make_result(
+            request_kind=RequestKind.CLARIFY,
+            capability_hint="files.read",
+            arguments={"original_text": "rapor.pdf'i aç"},
+            references=(first, second),
+            confidence=Confidence.LOW,
+            ambiguities=("multiple target references",),
+            needs_input=True,
+        )
+        with patch("modules.brain_model_understanding.refine", return_value=None) as refine:
+            returned = apply_model_refinement(semantic, "rapor.pdf'i aç")
+        refine.assert_called_once()
+        self.assertIs(returned, semantic)
+        self.assertTrue(returned.needs_input)
+        self.assertEqual(returned.request_kind, RequestKind.CLARIFY)
 
     def test_unresolved_ambiguity_stays_clarify_when_model_cannot_choose(self):
         first = file_ref("file-a", r"C:\Users\hamdi\Documents\Rapor\rapor.pdf", "rapor.pdf")
