@@ -41,7 +41,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (17 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (5 bölüm)
-- `docs/agents/gorsel-komutlar.md`: Görsel üretimi ve Brain/Core sınırı (6 bölüm)
+- `docs/agents/gorsel-komutlar.md`: Görsel üretimi ve Brain/Core sınırı (7 bölüm)
 
 ## Klasör haritası
 
