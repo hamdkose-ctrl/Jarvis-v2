@@ -72,7 +72,7 @@ def dispatch(context, command, normalized):
     # tüketir. Yine de explicit admin önceliği sabit kalır: bir alanın bounded devamı başka protokolü
     # gölgeleyemez.
     # Explicit desktop commands must not be interpreted as invented app actions.
-    if re.match(r'^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)', command.strip(), re.I):
+    if brain_precedence.explicit_desktop_owner_protocol(command):
         from modules import desktop_agent
         result = desktop_agent.handle(owner, command, context.emit, current=context.pc_owner, source=context.source)
         if result is not None:

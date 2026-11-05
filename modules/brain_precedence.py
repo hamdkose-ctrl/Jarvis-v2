@@ -24,7 +24,7 @@ from typing import Any, Callable
 # natural-language classifier; Brain domains may consult it only to avoid stealing
 # a turn that belongs to the user's explicitly addressed PC task.
 _EXPLICIT_DESKTOP_OWNER = re.compile(
-    r"^pc\\s+(?:görev(?:i)?(?=[:\\s])|onayla\\s|iz(?:in|ni|inleri|inler)\\b)",
+    r"^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)",
     re.I,
 )
 
