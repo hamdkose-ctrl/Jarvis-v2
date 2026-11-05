@@ -61,7 +61,7 @@ def _text_mentions_label(text: str, label: str) -> bool:
     signal = _normal_signal(label)
     if not signal:
         return False
-    return re.search(rf"(?<!\\w){re.escape(signal)}[\\w]*", text) is not None
+    return re.search(rf"(?<!\w){re.escape(signal)}[\w]*", text) is not None
 
 
 def _file_name_signals(reference: Any) -> tuple[str, ...]:
@@ -78,7 +78,7 @@ def _file_folder_signals(reference: Any) -> tuple[str, ...]:
     if not isinstance(path_value, str) or not path_value.strip():
         return ()
     parent_parts = [
-        part for part in ntpath.dirname(path_value).replace("/", "\\\\").split("\\\\") if part
+        part for part in re.split(r"[\\/]+", ntpath.dirname(path_value)) if part
     ][-2:]
     signals: list[str] = []
     for part in parent_parts:
