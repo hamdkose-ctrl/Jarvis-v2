@@ -60,18 +60,17 @@ def dispatch(context, command, normalized):
       - 'tamam/ok/teşekkürler' (B): bekleyen onay yokken geçen kısa karşılık; model çağırmaz.
       - study_intent (C): Hoca domain'inin kendi kapısı (`hoca.handle` tam cümle önekleri + aktif
         ders devamı); hoca modunun olmadığı her cümlede None.
-      - visual_chat (C, henüz kanonical sahibi yok): görsel türünün kendi kalıp listesi; tür
-        cümlenin *içinde* aranır, bu yüzden admin öneklerinden sonra gelir. BRAIN-MIG-063
-        görsel türü önerisini Understanding'e taşır; kanonical `capability_hint` gelene kadar bu
-        kol domain-owned kalır (PR3C).
+      - visual_chat (A): yalnız canonical olarak sahiplenilmiş pending source cevabı ve son görsel
+        retry'ını tüketir. Yeni görsel türü seçimi BRAIN-MIG-063 / PR3C-6 ile Understanding
+        visual.create → Core visual_create yoluna taşındı; bu adapter yeni cümleden tür seçmez.
     """
     from modules import app_actions, brain_entry, brain_gates
     owner, session = context.profile.slug, context.session
     from modules import visual_chat
     # Açık admin önekleri (B — KEEP_EXACT_ADMIN) geniş anahtar taramasından ÖNCE sahiplerine gider.
-    # `visual_chat` görsel türünü cümlenin *içinde* arar; sırası eski olduğu sürece "pc görevi:
-    # infografik çiz" masaüstü görevi ve "görev akışı rapor: infografik tasarla" görev akışı görsel
-    # taslağa düşüyordu (ölçüldü). Bir alanın geniş NL taraması explicit admin önekini gölgeleyemez.
+    # visual_chat artık tür seçmez; yalnız Brain'in bağladığı pending source cevabını veya retry'ı
+    # tüketir. Yine de explicit admin önceliği sabit kalır: bir alanın bounded devamı başka protokolü
+    # gölgeleyemez.
     # Explicit desktop commands must not be interpreted as invented app actions.
     if re.match(r'^pc\s+(?:görev(?:i)?(?=[:\s])|onayla\s|iz(?:in|ni|inleri|inler)\b)', command.strip(), re.I):
         from modules import desktop_agent
