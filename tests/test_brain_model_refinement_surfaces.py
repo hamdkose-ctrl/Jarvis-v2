@@ -383,8 +383,8 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
 
 
     def test_ambiguous_file_resolution_rejects_candidate_from_unmentioned_folder(self):
-        first = file_ref("file-a", r"C:\\Users\\hamdi\\Documents\\Butce\\2025.xlsx", "2025.xlsx")
-        second = file_ref("file-b", r"C:\\Users\\hamdi\\Downloads\\Fatura\\2025.xlsx", "2025.xlsx")
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\Butce\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\Users\hamdi\Downloads\Fatura\2025.xlsx", "2025.xlsx")
         semantic = make_result(
             request_kind=RequestKind.CLARIFY,
             capability_hint="files.read",
@@ -402,7 +402,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             file_operation="summarize",
             file_slots=["file_0"],
         )
-        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw):
+        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw), patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             refined = model.refine(
                 owner=OWNER,
                 text="İndirilenlerdeki 2025 dosyasını özetle",
@@ -414,8 +414,8 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
 
 
     def test_duplicate_file_name_without_folder_context_stays_ambiguous(self):
-        first = file_ref("file-a", r"C:\\Users\\hamdi\\Documents\\Butce\\2025.xlsx", "2025.xlsx")
-        second = file_ref("file-b", r"C:\\Users\\hamdi\\Downloads\\Fatura\\2025.xlsx", "2025.xlsx")
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\Butce\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\Users\hamdi\Downloads\Fatura\2025.xlsx", "2025.xlsx")
         semantic = make_result(
             request_kind=RequestKind.CLARIFY,
             capability_hint="files.read",
@@ -433,7 +433,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             file_operation="summarize",
             file_slots=["file_1"],
         )
-        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw):
+        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw), patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             refined = model.refine(
                 owner=OWNER, text="2025 dosyasını özetle", current=semantic,
                 arguments=semantic.arguments, file_operation_hint="summarize",
@@ -442,8 +442,8 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
 
 
     def test_unique_file_name_is_enough_when_candidates_share_a_folder(self):
-        first = file_ref("file-a", r"C:\\Users\\hamdi\\Documents\\2025.xlsx", "2025.xlsx")
-        second = file_ref("file-b", r"C:\\Users\\hamdi\\Documents\\2026.xlsx", "2026.xlsx")
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\Users\hamdi\Documents\2026.xlsx", "2026.xlsx")
         semantic = make_result(
             request_kind=RequestKind.CLARIFY,
             capability_hint="files.read",
@@ -461,7 +461,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             file_operation="summarize",
             file_slots=["file_0"],
         )
-        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw):
+        with p_owner, p_provider, p_privacy, p_selection, patch("modules.smart_router.run", return_value=raw), patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             refined = model.refine(
                 owner=OWNER, text="2025 dosyasını özetle", current=semantic,
                 arguments=semantic.arguments, file_operation_hint="summarize",
@@ -469,6 +469,26 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         self.assertIsNotNone(refined)
         self.assertEqual(refined.references, (first,))
         self.assertEqual(refined.arguments["path"], first.provenance["path"])
+
+
+    def test_file_candidate_grounding_is_independent_of_model_slot(self):
+        first = file_ref("file-a", r"C:\Users\hamdi\Documents\Butce\2025.xlsx", "2025.xlsx")
+        second = file_ref("file-b", r"C:\Users\hamdi\Downloads\Fatura\2025.xlsx", "2025.xlsx")
+        self.assertFalse(model._selected_file_candidate_is_grounded(
+            "İndirilenlerdeki 2025 dosyasını özetle", first, [first, second]
+        ))
+        self.assertTrue(model._selected_file_candidate_is_grounded(
+            "İndirilenlerdeki 2025 dosyasını özetle", second, [first, second]
+        ))
+        self.assertFalse(model._selected_file_candidate_is_grounded(
+            "2025 dosyasını özetle", second, [first, second]
+        ))
+
+        unique_first = file_ref("file-c", r"C:\Users\hamdi\Documents\2025.xlsx", "2025.xlsx")
+        unique_second = file_ref("file-d", r"C:\Users\hamdi\Documents\2026.xlsx", "2026.xlsx")
+        self.assertTrue(model._selected_file_candidate_is_grounded(
+            "2025 dosyasını özetle", unique_first, [unique_first, unique_second]
+        ))
 
 
 if __name__ == "__main__":
