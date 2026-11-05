@@ -10,6 +10,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import test_brain_pr3b_legacy_front_door_authority as pr3b
 from modules.brain_contracts import (
     ActiveContext, Confidence, ConversationRelation, RequestKind, TemporalNeed,
 )
@@ -78,6 +79,24 @@ class CanonicalVisualProposalTests(unittest.TestCase):
         result = decide("infografik hazırlamak için hangi veriler gerekir?")
         self.assertIs(result.request_kind, RequestKind.CHAT)
         self.assertIsNone(result.capability_hint)
+
+
+class VisualCoreDispatchTests(pr3b._RawDoorHarness):
+    def test_chat_visual_request_reaches_core_and_only_opens_source_question(self):
+        from modules import visual_chat
+
+        with patch.object(visual_chat.visual_commands, "create_visual") as create_visual:
+            entry, out, _handle, _feedback = self.turn("zihin haritası oluştur")
+
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.capability_hint, VISUAL_CAPABILITY)
+        self.assertIn("sohbetten mi, dosyadan mı", out)
+        self.assertEqual(
+            self.ctx._session().pending_visual,
+            {"text": "zihin haritası oluştur", "kind": "mindmap", "stage": "source"},
+        )
+        create_visual.assert_not_called()
+        self.ctx._extra_commands.assert_not_called()
 
 
 if __name__ == "__main__":
