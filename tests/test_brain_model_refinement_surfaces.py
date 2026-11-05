@@ -94,6 +94,23 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         ]
         self.assertIn(True, enabled)
 
+    def test_normal_command_loop_evaluates_every_free_form_turn(self):
+        from modules import engine_loop
+
+        source = inspect.getsource(engine_loop.main)
+        tree = ast.parse(source)
+        enabled = [
+            keyword.value.value
+            for call in ast.walk(tree)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "prepare"
+            for keyword in call.keywords
+            if keyword.arg == "model_refinement"
+            and isinstance(keyword.value, ast.Constant)
+        ]
+        self.assertIn(True, enabled)
+
     def test_nested_step_enables_model_refinement_for_its_own_utterance(self):
         from modules import brain_entry
 
