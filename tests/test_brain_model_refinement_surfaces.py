@@ -341,7 +341,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         )
         p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
         raw = model_answer(request_kind="CHAT", confidence="LOW")
-        with p_owner, p_provider, p_privacy, p_selection, \\
+        with p_owner, p_provider, p_privacy, p_selection, \
                 patch("modules.smart_router.run", return_value=raw):
             refined = model.refine(
                 owner=OWNER, text="onu göster", current=semantic,
