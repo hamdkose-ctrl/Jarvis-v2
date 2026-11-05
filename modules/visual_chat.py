@@ -50,6 +50,15 @@ def _generate(context, owner: str, text: str, content: str, kind: str) -> str:
             'Beğenmezsen "yeniden dene" diyebilirsin.')
 
 
+def begin(runtime, command: str, kind: str) -> str:
+    """Core-dispatched visual proposal: ask for a source, but do not generate yet."""
+    if kind not in visual_commands.TYPES:
+        return "Görsel türü Core tarafından doğrulanmadı; üretim başlatılmadı."
+    session = runtime._session()
+    session.pending_visual = {"text": command, "kind": kind, "stage": "source"}
+    return f"{visual_commands.LABELS[kind].capitalize()} için içerik nereden gelsin: sohbetten mi, dosyadan mı?"
+
+
 def handle(context, command: str, normalized: str) -> str | None:
     owner, session = context.profile.slug, context.session
 
@@ -79,14 +88,6 @@ def handle(context, command: str, normalized: str) -> str | None:
     if _RETRY.search(normalized) and last_visual:
         return _generate(context, owner, last_visual["text"], last_visual["content"], last_visual["kind"])
 
-    # Yalnız ücretsiz kelime kalıbı: her sohbet mesajında çalışan bu otomatik
-    # tetikleme, model tabanlı tespite (`detect_type_via_model`) düşerse her
-    # normal cümle için fazladan bir Gemini çağrısı yapar — kota kuralına
-    # aykırı ve geliştirme modu testinin araç sırasını bozuyordu (Windows CI).
-    # Model fallback, Dosyalar ekranındaki "Görselleştir" düğmesi gibi tek
-    # seferlik, açık eylemler için ayrıca çağrılmaya devam ediyor.
-    kind = visual_commands.detect_type_by_keyword(command)
-    if kind is None:
-        return None
-    session.pending_visual = {"text": command, "kind": kind, "stage": "source"}
-    return f"{visual_commands.LABELS[kind].capitalize()} için içerik nereden gelsin: sohbetten mi, dosyadan mı?"
+    # New visual creation is selected by Understanding and dispatched by Core.
+    # This early adapter handles only an already-owned source question or exact retry.
+    return None
