@@ -2106,13 +2106,18 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
     return next(iter(best)), False
 
 
+_ANAPHORIC_ACTION_REQUEST = re.compile(r"^(?:(?:peki|tamam)\\s+)?(?:onu|bunu|şunu)\\s+yap(?:\\s|$)")
+
+
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
     if len(references) <= 1 or _plural_reference_intent(text) or _is_correction(text):
         return ()
     if _NOTE_BOUNDED_MUTATION.search(text) is not None:
         return ()
     # Historical references are not unresolved targets unless this turn proposes an operation.
-    if not _looks_like_capability(text) and _advisory_request(text) is None:
+    if (not _looks_like_capability(text)
+            and _advisory_request(text) is None
+            and _ANAPHORIC_ACTION_REQUEST.search(text) is None):
         return ()
     return ("multiple target references",)
 
