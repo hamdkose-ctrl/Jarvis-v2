@@ -41,7 +41,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/yerel-git-emniyet-kemeri.md`: Yerel Git commit/push emniyet kemeri (3 bölüm)
 - `docs/agents/hoca.md`: Hoca çalışma alanı (ders/dönem/takvim, eski "Çalışma" sayfasının yerini alıyor) (17 bölüm)
 - `docs/agents/finans.md`: Finans takibi, kur, kripto ve gram altın (5 bölüm)
-- `docs/agents/gorsel-komutlar.md`: Görsel üretimi: Brain/Core istek sınırı ve görsel worker (6 bölüm)
+- `docs/agents/gorsel-komutlar.md`: Görsel üretimi ve Brain/Core sınırı (6 bölüm)
 
 ## Klasör haritası
 
@@ -56,8 +56,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `modules/llm.py`, `smart_router.py` | Model çağrıları ve otomatik model seçimi; yerel sunucu Ollama, LM Studio veya llama.cpp (`local_backend`) |
 | `modules/model_free_delivery.py` | Planlayıcı model yokken haber dışı hedeflerde doğrulanmış çıktıların modelsiz teslimi |
 | `modules/image_gen.py` | Görsel üretimi (Cloudflare Workers AI/FLUX, kullanıcıya özel anahtar) — yalnız üretim/iletişim katmanı |
-| `modules/visual_commands.py` | Görsel prompt kurma, mevcut üretim sağlayıcısını çağırma ve PNG'yi "Jarvis Dosyaları/Görseller" altına kaydetme; sohbet intent seçimi burada değildir |
-| `modules/visual_chat.py` | Core'un doğruladığı visual proposal sonrası kaynak sorusu, sahiplenilmiş pending cevabı ve "yeniden dene" akışı |
+| `modules/visual_commands.py` | Görsel prompt/PNG üretim ve kayıt worker'ı; intent seçmez |
+| `modules/visual_chat.py` | Core onaylı görsel isteğinin kaynak sorusu, cevabı ve retry akışı |
 | `modules/docs.py`, `document_conversion.py`, `kb.py` | Belge okuma, dönüştürme ve bilgi tabanı |
 | `modules/workbench.py` | Belge masası: belgeden tablo, karşılaştırma, Excel/CSV birleştirme ve gruplama |
 | `modules/watcher.py` | Klasör izleme kuralları ve 20 saniyelik arka plan taraması |
