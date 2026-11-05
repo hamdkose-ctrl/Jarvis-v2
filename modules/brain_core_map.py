@@ -243,6 +243,8 @@ def _watcher_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
     operation = row.get("operation")
+    if not isinstance(operation, str):
+        return None
     if operation in {"list", "run_pending"}:
         return {"watcher": {"operation": operation}} if set(row) == {"operation"} else None
     if operation == "stop":
