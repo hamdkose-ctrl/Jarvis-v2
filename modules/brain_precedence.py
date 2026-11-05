@@ -32,6 +32,14 @@ _EXPLICIT_DESKTOP_OWNER = re.compile(
 def explicit_desktop_owner_protocol(text: str) -> bool:
     return isinstance(text, str) and _EXPLICIT_DESKTOP_OWNER.match(text.strip()) is not None
 
+# Explicit workflow prefix: like the PC task prefix, this exact protocol owns the full
+# utterance before any domain-specific proposal can claim words inside its payload.
+_EXPLICIT_WORKFLOW_OWNER = re.compile(r"^görev\s+akışı(?:\s|:|$)", re.I)
+
+
+def explicit_workflow_owner_protocol(text: str) -> bool:
+    return isinstance(text, str) and _EXPLICIT_WORKFLOW_OWNER.match(text.strip()) is not None
+
 
 # Order is the contract. This table is its only owner.
 FRONT_GATES: tuple[str, ...] = (

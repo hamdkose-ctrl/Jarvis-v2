@@ -81,7 +81,8 @@ def dispatch(context, command, normalized):
             return result
     # A new explicit workflow is not an answer to an older application choice.
     # Invalid workflow syntax must stop here instead of becoming a chat/app request.
-    if re.match(r'^görev\s+akışı(?:\s|:|$)', normalized.strip()):
+    from modules import brain_precedence
+    if brain_precedence.explicit_workflow_owner_protocol(normalized):
         from modules import task_agents
         result = task_agents.handle(owner, command, context.emit, summary=True)
         if result is None:

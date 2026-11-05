@@ -862,7 +862,12 @@ def _desktop_window_arguments(normalized: str) -> dict[str, object]:
 VISUAL_CAPABILITY = "visual.create"
 _VISUAL_ACTION_CUE = re.compile(
     r"\b(?:oluştur|olustur|hazırla|hazirla|çiz|ciz|üret|uret|görselleştir|gorsellestir|"
-    r"yap|çıkar|cikar|çıkart|cikart|tasarla)(?!m[ae])\w*\b"
+    r"yap|çıkar|cikar|çıkart|cikart|tasarla)"
+    r"(?:sana|sene|[ıiuü]n(?:ız|iz|uz|üz)?|"
+    r"(?:y?[aeiu]?r|y?[ae]bilir)\s*m[ıiuü]\w*|"
+    r"yalım|yelim|alım|elim)?"
+    r"(?=\s|$|[,;:.!?])",
+    re.I,
 )
 _VISUAL_WANT_CUE = re.compile(r"\b(?:istiyorum|istiyoruz|isterim|isteriz)\b")
 # Passive negative forms (oluşturulmasın / çizilmesin) and explicit rejection of the
@@ -878,9 +883,10 @@ _VISUAL_NATURAL_REQUEST = re.compile(r"\b(?:süreç\s+özet\w*|özet(?:i|ini)?\s
 
 
 def _visual_kind(text: str) -> str | None:
-    # Explicit PC task/approval/permission is a bounded owner protocol. It wins before
-    # any visual-domain proposal even when the PC task mentions "infografik" etc.
-    if brain_precedence.explicit_desktop_owner_protocol(text):
+    # Exact owner protocols are checked before visual-domain grammar. A task/workflow prefix
+    # owns its request even when the payload mentions a visual type and a drawing verb.
+    if (brain_precedence.explicit_desktop_owner_protocol(text)
+            or brain_precedence.explicit_workflow_owner_protocol(text)):
         return None
     normalized = _norm(text)
     if _is_meta_language(text) or _is_literal_command_usage(text):
@@ -890,8 +896,8 @@ def _visual_kind(text: str) -> str | None:
     kind = visual_types.match_type(normalized)
     if kind is None:
         return None
-    # "süreç özeti" is an established natural visual request; type names also accept
-    # common Turkish request forms that were supported by the previous visual entry.
+    # "süreç özeti" is an established natural visual request. Other visual kinds need a
+    # complete bounded action form or explicit first-person want form, never a word fragment.
     if not (_VISUAL_ACTION_CUE.search(normalized)
             or _VISUAL_WANT_CUE.search(normalized)
             or _VISUAL_NATURAL_REQUEST.search(normalized)):
