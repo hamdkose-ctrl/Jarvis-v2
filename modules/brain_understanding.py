@@ -873,10 +873,6 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     # kök adı geçse de klasör taraması başlatmaz (ölçülen taban sırası).
     if folder_analysis_request(text) is not None:
         return FOLDER_ANALYSIS_CAPABILITY
-    if watcher_request(text) is not None:
-        return WATCHER_CAPABILITY
-    if watcher_request(text) is not None:
-        return WATCHER_CAPABILITY
     # Eski ham dalın "hava durumuna bak / söyle" yüzü: dosya-not-ekran hedefi yoksa hava okumasıdır.
     if _weather_status_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
