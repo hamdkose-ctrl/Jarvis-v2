@@ -81,6 +81,11 @@ class CanonicalVisualProposalTests(unittest.TestCase):
         self.assertIsNone(result.capability_hint)
 
 
+    def test_explicit_pc_task_prefix_is_not_a_visual_capability(self):
+        result = decide("pc görevi: infografik çiz")
+        self.assertNotEqual(result.capability_hint, VISUAL_CAPABILITY)
+
+
 class VisualCoreDispatchTests(pr3b._RawDoorHarness):
     def test_chat_visual_request_reaches_core_and_only_opens_source_question(self):
         from modules import visual_chat
