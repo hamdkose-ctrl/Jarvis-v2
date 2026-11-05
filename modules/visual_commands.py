@@ -27,45 +27,18 @@ from pathlib import Path
 
 from modules import image_gen
 from modules.diagnostics import record_failure as _record_failure
+from modules.visual_types import LABELS, TYPES, match_type
 
 # ------------------------------------------------------------------ tür tespiti
-# Sıra önemli: daha özel kalıplar önce. Her biri kök/gövde eşleşmesi yapar
-# (çekim ekleri için regex'te gövdeden sonra \w* bırakılır).
-_TYPE_PATTERNS: dict[str, tuple[str, ...]] = {
-    "mindmap": (r"zihin\s*harita", r"mind\s*map"),
-    "flowchart": (r"akış\s*şema", r"süreç\s*şema", r"flowchart"),
-    "timeline": (r"zaman\s*çizelge", r"zaman\s*çizgi", r"kronoloji", r"timeline"),
-    "infographic": (r"infografik", r"bilgi\s*grafi", r"infographic"),
-    "handwritten": (r"el\s*yazı", r"elle\s*yazılmış"),
-    "blueprint": (r"teknik\s*çizim", r"şema\s*plan", r"blueprint", r"mimari\s*çizim"),
-    # "visualize" en genel olduğu için en sonda: diğerlerinden biri eşleşmediyse
-    # ve genel bir görselleştirme isteği varsa buraya düşer.
-    "visualize": (r"görselleştir", r"özet(?:i|ini)?\s+görsel", r"süreç\s+özet"),
-}
-TYPES = tuple(_TYPE_PATTERNS)
-
-LABELS = {
-    "mindmap": "zihin haritası", "flowchart": "akış şeması", "infographic": "infografik",
-    "timeline": "zaman çizelgesi", "handwritten": "el yazısı notu", "blueprint": "teknik çizim",
-    "visualize": "görsel özet",
-}
-
 
 def _norm(text: str) -> str:
-    # Python'un .lower() Türkçe İ/I harflerini doğru çevirmiyor (İ -> combining
-    # dotted-i gibi tuhaf sonuçlar verebiliyor); kalıplarımız ascii 'i' ile
-    # yazıldığı için önce bu iki harfi elle normalize ediyoruz.
+    # Model output normalization; the user-turn type vocabulary is shared with Brain.
     return (text or "").replace("İ", "i").replace("I", "i").lower()
 
 
 def detect_type_by_keyword(text: str) -> str | None:
-    """Sabit kalıp eşleşmesi — ücretsiz, model çağırmaz. Eşleşme yoksa None."""
-    norm = _norm(text)
-    for kind, patterns in _TYPE_PATTERNS.items():
-        for pat in patterns:
-            if re.search(pat, norm):
-                return kind
-    return None
+    """Compatibility helper; production chat selection belongs to canonical Brain."""
+    return match_type(text)
 
 
 _MODEL_PROMPT = (
