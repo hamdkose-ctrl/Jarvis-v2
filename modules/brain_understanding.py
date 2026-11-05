@@ -6,12 +6,15 @@ state, run workers, grant authority, or wire itself into production routing.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 import re
 from typing import Any, Iterable, Mapping
 
 from modules import typo
 from modules.app_identities import verified_alias as _verified_app_alias
 from modules.brain_actions import action_request, ends_with_action, instructional_question
+from modules.diagnostics import record_failure as _record_failure
 from modules.brain_contracts import (
     ActiveContext,
     Confidence,
@@ -2333,3 +2336,53 @@ def understand(
         needs_input=bool(ambiguities),
         preview=preview,
     )
+
+
+def apply_model_refinement(result: UnderstandingResult, text: str) -> UnderstandingResult:
+    """Apply one bounded model proposal after deterministic candidates are resolved."""
+    if result.needs_input:
+        return result
+    should_refine = (
+        result.request_kind is RequestKind.CAPABILITY
+        or any(reference.kind == "file" for reference in result.references)
+        or (result.request_kind is RequestKind.CHAT and _looks_like_capability(text))
+    )
+    if not should_refine:
+        return result
+    try:
+        from modules.brain_model_understanding import refine
+        refined = refine(
+            owner=result.owner,
+            text=text,
+            current=result,
+            arguments=result.arguments,
+            protected_relation=(
+                result.pending_owner is not None
+                or result.conversation_relation is not ConversationRelation.NEW_REQUEST
+            ),
+        )
+        if refined is None:
+            return result
+        next_hint = refined.capability_hint
+        next_arguments = refined.arguments if refined.arguments is not None else result.arguments
+        next_preview = result.preview
+        if refined.request_kind is RequestKind.CHAT:
+            next_hint = None
+            next_arguments = {"original_text": text}
+            next_preview = None
+        return replace(
+            result,
+            request_kind=refined.request_kind,
+            conversation_relation=refined.conversation_relation,
+            temporal_need=refined.temporal_need,
+            capability_hint=next_hint,
+            arguments=next_arguments,
+            confidence=refined.confidence,
+            preview=next_preview,
+        )
+    except Exception as exc:
+        _record_failure("modules/brain_understanding.py:apply_model_refinement")
+        from modules import requests_state
+        if isinstance(exc, requests_state.Cancelled):
+            raise
+        return result

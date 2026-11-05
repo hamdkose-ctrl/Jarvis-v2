@@ -343,7 +343,10 @@ def run_scenario(scenario: Mapping[str, Any], *, owner: str = OWNER) -> dict:
         # Core guard'ları global modülleri sarmalar; ölçüm sırasında kurulmaz.
         stack.enter_context(patch.object(brain_entry, "_install_core_guards", lambda _runtime: None))
         stack.enter_context(patch.object(brain_entry, "_correlated_job_id", lambda _entry: None))
-        entry = brain_entry.prepare(runtime, owner=owner, request_id=request_id, text=text, source=source)
+        entry = brain_entry.prepare(
+            runtime, owner=owner, request_id=request_id, text=text, source=source,
+            model_refinement=False,
+        )
         proposal = brain_entry.core_proposal(entry)
         projection_fn = getattr(brain_entry, "_legacy_route_projection", None)
         projection = projection_fn(entry) if callable(projection_fn) else None
