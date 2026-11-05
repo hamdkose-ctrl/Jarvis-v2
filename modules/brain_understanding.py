@@ -2339,16 +2339,12 @@ def understand(
 
 
 def apply_model_refinement(result: UnderstandingResult, text: str) -> UnderstandingResult:
-    """Apply one bounded model proposal after deterministic candidates are resolved."""
-    if result.needs_input:
-        return result
-    should_refine = (
-        result.request_kind is RequestKind.CAPABILITY
-        or any(reference.kind == "file" for reference in result.references)
-        or (result.request_kind is RequestKind.CHAT and _looks_like_capability(text))
-    )
-    if not should_refine:
-        return result
+    """Apply one bounded model proposal after deterministic candidates are resolved.
+
+    Every non-State/Fast production turn reaches this single bounded proposal. Unsupported
+    proposals and unresolved ambiguities preserve the deterministic result. A reference choice
+    may select only an existing owner-bound file candidate; Core still revalidates the target.
+    """
     try:
         from modules.brain_model_understanding import refine
         refined = refine(
@@ -2360,12 +2356,32 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
                 result.pending_owner is not None
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
+            file_operation_hint=_file_operation(_norm(text)),
         )
         if refined is None:
             return result
         next_hint = refined.capability_hint
         next_arguments = refined.arguments if refined.arguments is not None else result.arguments
         next_preview = result.preview
+        next_references = refined.references if refined.references else result.references
+        next_ambiguities = result.ambiguities
+        next_reason_codes = result.reason_codes
+        next_confidence = refined.confidence
+        next_needs_input = result.needs_input
+
+        if refined.references:
+            if result.ambiguities != ("multiple target references",) or result.capability_hint != "files.read":
+                return result
+            next_ambiguities = ()
+            next_needs_input = False
+            next_reason_codes = tuple(
+                code for code in result.reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
+            ) + ("MODEL_REFERENCE_RESOLVED",)
+            next_preview = _preview_text(next_hint, next_arguments, next_references)
+        elif result.needs_input:
+            # Never erase an unresolved target ambiguity by reclassifying it as CHAT.
+            return result
+
         if refined.request_kind is RequestKind.CHAT:
             next_hint = None
             next_arguments = {"original_text": text}
@@ -2377,7 +2393,11 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
             temporal_need=refined.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,
-            confidence=refined.confidence,
+            references=next_references,
+            confidence=next_confidence,
+            ambiguities=next_ambiguities,
+            reason_codes=next_reason_codes,
+            needs_input=next_needs_input,
             preview=next_preview,
         )
     except Exception as exc:
