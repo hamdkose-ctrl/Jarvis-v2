@@ -73,7 +73,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             getattr(current, "needs_input", False)
             and current_ambiguities == ("multiple target references",)
             and current.capability_hint == "files.read"
-            and file_operation_hint in {"open", "summarize", "analyze", "locate"}
+            and file_operation_hint in {"summarize", "analyze", "locate"}
             and current.conversation_relation is ConversationRelation.NEW_REQUEST
             and current.pending_owner is None
             and not protected_relation
@@ -134,7 +134,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             "You are a semantic proposal component, not an agent. Return exactly one JSON object "
             "with keys request_kind, conversation_relation, temporal_need, capability_hint, confidence, "
             "file_operation, file_slots. file_slots may contain only supplied slot labels. You may propose "
-            "files.read only with one valid file slot for open/summarize/analyze/locate, 2-10 slots for "
+            "files.read only with one valid file slot for summarize/analyze/locate, 2-10 slots for "
             "compare, or no slots for list. Do not output arguments, paths, filenames, recipients, "
             "references, approvals, permissions, or execution claims. For other capabilities keep the "
             "current capability and never invent arguments. If current.needs_input is true, preserve "

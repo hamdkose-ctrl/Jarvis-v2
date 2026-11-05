@@ -134,7 +134,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
         semantic = make_result(
             request_kind=RequestKind.CLARIFY,
             capability_hint="files.read",
-            arguments={"original_text": "İndirilenlerdeki 2025 dosyasını aç"},
+            arguments={"original_text": "İndirilenlerdeki 2025 dosyasını özetle"},
             references=(first, second),
             confidence=Confidence.LOW,
             ambiguities=("multiple target references",),
@@ -145,7 +145,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             request_kind="CAPABILITY",
             capability_hint="files.read",
             confidence="HIGH",
-            file_operation="open",
+            file_operation="summarize",
             file_slots=["file_1"],
         )
         with p_owner, p_provider, p_privacy, p_selection, \
@@ -153,21 +153,21 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
                 patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             refined = model.refine(
                 owner=OWNER,
-                text="İndirilenlerdeki 2025 dosyasını aç",
+                text="İndirilenlerdeki 2025 dosyasını özetle",
                 current=semantic,
                 arguments=semantic.arguments,
-                file_operation_hint="open",
+                file_operation_hint="summarize",
             )
         self.assertIsNotNone(refined)
         self.assertEqual(refined.capability_hint, "files.read")
         self.assertEqual(refined.references, (second,))
         self.assertEqual(refined.arguments["path"], second.provenance["path"])
-        self.assertEqual(refined.arguments["operation"], "open")
+        self.assertEqual(refined.arguments["operation"], "summarize")
         # Only this grounded, read-only reference-resolution case may move LOW to MEDIUM.
         self.assertIs(refined.confidence, Confidence.MEDIUM)
 
         with patch("modules.brain_model_understanding.refine", return_value=refined):
-            applied = apply_model_refinement(semantic, "İndirilenlerdeki 2025 dosyasını aç")
+            applied = apply_model_refinement(semantic, "İndirilenlerdeki 2025 dosyasını özetle")
         self.assertIs(applied.request_kind, RequestKind.CAPABILITY)
         self.assertFalse(applied.needs_input)
         self.assertEqual(applied.ambiguities, ())
@@ -191,7 +191,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             request_kind="CAPABILITY",
             capability_hint="files.read",
             confidence="HIGH",
-            file_operation="open",
+            file_operation="summarize",
             file_slots=["file_0"],
         )
         with p_owner, p_provider, p_privacy, p_selection, \
@@ -199,7 +199,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
                 patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
             refined = model.refine(
                 owner=OWNER, text="rapor.pdf'i aç", current=semantic,
-                arguments=semantic.arguments, file_operation_hint="open",
+                arguments=semantic.arguments, file_operation_hint="summarize",
             )
         self.assertIsNone(refined)
 
@@ -220,7 +220,7 @@ class BrainAllTurnModelRefinementTests(unittest.TestCase):
             request_kind="CAPABILITY",
             capability_hint="files.read",
             confidence="HIGH",
-            file_operation="open",
+            file_operation="summarize",
             file_slots=["file_0"],
         )
         with p_owner, p_provider, p_privacy, p_selection, \
