@@ -69,6 +69,30 @@ def file_ref(ident: str, path: str, name: str, owner: str = OWNER):
 
 
 class BrainAllTurnModelRefinementTests(unittest.TestCase):
+    def test_model_cannot_downgrade_context_control_to_chat(self):
+        semantic = make_result(
+            request_kind=RequestKind.CONTEXT_CONTROL,
+            conversation_relation=ConversationRelation.TOPIC_CHANGE,
+            confidence=Confidence.HIGH,
+        )
+        p_owner, p_provider, p_privacy, p_selection = eligible_provider_patches()
+        raw = model_answer(
+            request_kind="CHAT",
+            conversation_relation="TOPIC_CHANGE",
+            temporal_need="STATIC",
+            confidence="LOW",
+        )
+        with p_owner, p_provider, p_privacy, p_selection, \
+                patch("modules.smart_router.run", return_value=raw):
+            refined = model.refine(
+                owner=OWNER,
+                text="boşver, başka konuya geçelim",
+                current=semantic,
+                arguments=semantic.arguments,
+                protected_relation=True,
+            )
+        self.assertIsNone(refined)
+
     def test_plain_chat_is_evaluated_without_a_keyword_or_capability_hint(self):
         semantic = make_result()
         with patch("modules.brain_model_understanding.refine", return_value=None) as refine:

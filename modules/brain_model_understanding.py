@@ -262,6 +262,9 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             return None
         if proposed.conversation_relation not in {current.conversation_relation, ConversationRelation.NEW_REQUEST}:
             return None
+        # Protected continuations/context controls cannot be reclassified by the optional model.
+        if protected_relation and proposed.request_kind is not current.request_kind:
+            return None
         # The model cannot upgrade a chat into an executable capability unless Core accepts
         # the unchanged, deterministic argument payload for that exact capability.
         if proposed.request_kind is RequestKind.CAPABILITY:
