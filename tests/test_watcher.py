@@ -55,6 +55,26 @@ class WatcherTests(unittest.TestCase):
         self.assertEqual(watcher.handle("hamdi", "izlemeyi durdur"), "1 izleme kuralı kapatıldı.")
         self.assertIsNone(watcher.handle("hamdi", "izlemeyi durdur"))   # kural yoksa başka komutlara kalır
 
+    def test_typed_apply_add_list_and_stop_preserves_domain_rule_storage(self):
+        proposal = {"operation": "add", "folder": "downloads", "extensions": [".pdf"],
+                    "action": "notify", "instruction": "haber ver"}
+        reply = watcher.apply("hamdi", proposal)
+        self.assertIn("Tamam, izliyorum", reply)
+        rules = watcher.load("hamdi")
+        self.assertEqual(len(rules), 1)
+        self.assertEqual((rules[0]["exts"], rules[0]["action"], rules[0]["instruction"]),
+                         ([".pdf"], "notify", "haber ver"))
+        self.assertIn("İndirilenler", watcher.apply("hamdi", {"operation": "list"}))
+        self.assertEqual(watcher.apply("hamdi", {"operation": "stop", "folder": "downloads"}),
+                         "1 izleme kuralı kapatıldı.")
+        self.assertEqual(watcher.apply("hamdi", {"operation": "list"}), "İzlenen klasör yok.")
+
+    def test_typed_apply_rejects_unvalidated_operation_without_mutating_rules(self):
+        reply = watcher.apply("hamdi", {"operation": "add", "folder": "C:/", "extensions": [".exe"],
+                                        "action": "notify", "instruction": "haber ver"})
+        self.assertIn("doğrulayamadım", reply)
+        self.assertEqual(watcher.load("hamdi"), [])
+
     def test_folder_outside_user_folders_is_refused(self):
         with patch.object(nxapi, "allowed", return_value=None):
             self.assertIn("izleyemem", watcher.handle("hamdi", "İndirilenler'i izle, PDF gelince haber ver"))

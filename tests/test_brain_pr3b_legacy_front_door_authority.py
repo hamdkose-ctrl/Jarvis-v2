@@ -62,8 +62,8 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             starter.start()
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
-                                    (watcher, "handle", None), (learning, "handle", None),
-                                    (finance, "answer", None)):
+                                    (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
+                                    (learning, "handle", None), (finance, "answer", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -172,12 +172,10 @@ class MetaLanguageEffectFenceTests(_RawDoorHarness):
         self.assertEqual(self.silent("modules.selfctl", "modules.media", "modules.notify",
                                      "modules.worktrack", "modules.finance_alert_commands"), [])
 
-    def test_an_unmapped_execution_command_keeps_its_current_owner(self):
-        # PR3B blind fence değildir: icra isteği olan ve kanonical sahibi henüz olmayan cümle
-        # kapısına ulaşmaya devam eder (parity PR3C envanterinde).
-        self.turn("İndirilenler'i izle")
-        self.assertEqual([name for name, m in self.seams.items()
-                          if name.endswith("watcher.handle") and m.called], ["modules.watcher.handle"])
+    def test_folder_watch_has_no_raw_legacy_entry_caller(self):
+        tree = ast.parse((ROOT / "modules" / "engine_commands.py").read_text(encoding="utf-8"))
+        calls = [ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)]
+        self.assertNotIn("watcher.handle", calls)
 
 
 class TypoSinglePassTests(_RawDoorHarness):
@@ -998,7 +996,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
 
     # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
     RAW_PROBE_OWNERS = {
-        "watcher.handle": {"modules/engine_commands.py"},
+        "watcher.handle": set(),
         "learning.handle": {"modules/engine_commands.py"},
         "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
         "is_whatsapp_message": {"modules/engine_commands.py"},
@@ -1291,6 +1289,45 @@ class MisspelledExecutionFailsClosedTests(_RawDoorHarness):
                                      "modules.notify", "modules.diagnose"), [])
         self.ctx.files.apply_organize.assert_not_called()
         self.ctx._mail_handle.assert_not_called()
+
+
+class WatcherCoreCutoverTests(_RawDoorHarness):
+    """BRAIN-MIG-054: watcher semantics move to Understanding → Core; worker stays domain-owned."""
+
+    def test_folder_watch_rule_is_typed_and_dispatched_without_raw_watcher_entry(self):
+        command = "İndirilenler'i izle, PDF gelince haber ver"
+        expected = {
+            "operation": "add",
+            "folder": "downloads",
+            "extensions": [".pdf"],
+            "action": "notify",
+            "instruction": "haber ver",
+        }
+        entry, output, _handle, _feedback = self.turn(command)
+
+        self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(entry.understanding.capability_hint, "watcher.manage")
+        understood = entry.understanding.arguments.get("watcher")
+        self.assertEqual(dict(understood), {**expected, "extensions": (".pdf",)})
+        self.assertEqual(output, "WATCHER_APPLIED")
+        self.seams["modules.watcher.handle"].assert_not_called()
+        self.seams["modules.watcher.apply"].assert_called_once_with(self.owner, expected)
+
+    def test_watcher_status_and_stop_are_typed_and_video_watch_is_not_claimed(self):
+        from modules import brain_core_map, brain_understanding
+
+        self.assertEqual(brain_understanding.watcher_request("izlenen klasörler"), {"operation": "list"})
+        self.assertEqual(brain_understanding.watcher_request("Masaüstü izlemesini durdur"),
+                         {"operation": "stop", "folder": "desktop"})
+        self.assertEqual(brain_understanding.watcher_request("bekleyen dosyaları işle"),
+                         {"operation": "run_pending"})
+        self.assertIsNone(brain_understanding.watcher_request("bu videoyu izle"))
+        valid = {"watcher": {"operation": "list"}, "original_text": "izlenen klasörler"}
+        self.assertEqual(brain_core_map.core_plan("watcher.manage", valid),
+                         ("watcher_manage", {"watcher": {"operation": "list"}}))
+        invalid = {"watcher": {"operation": "add", "folder": "C:/", "extensions": [".pdf"],
+                               "action": "notify", "instruction": "haber ver"}}
+        self.assertIsNone(brain_core_map.core_plan("watcher.manage", invalid))
 
 
 if __name__ == "__main__":

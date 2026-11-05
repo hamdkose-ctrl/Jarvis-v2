@@ -141,6 +141,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import folder_analysis
             return folder_analysis.analyze_turn(runtime.profile, a, command)
 
+        case "watcher_manage":
+            # Typed Brain/Core operation enters the domain adapter; no raw utterance is re-parsed.
+            from modules import watcher
+            return watcher.apply(runtime.profile.slug, a.get("watcher"))
+
         case "translate":
             text = str(a.get("text") or "").strip()
             target = str(a.get("target") or "").strip() or "Kaynak Türkçe ise İngilizce; diğer dillerde Türkçe"

@@ -1228,6 +1228,100 @@ def folder_analysis_request(text: str) -> dict[str, object] | None:
     return {"operation": FOLDER_ANALYSIS_OPERATION, "folder": folder, "named": named, "name": name}
 
 
+
+# --- kanonical klasör izleme (BRAIN-MIG-054) -----------------------------------------------------
+WATCHER_CAPABILITY = "watcher.manage"
+WATCHER_ACTION_UNSUPPORTED = "watcher action unsupported"
+_WATCHER_FOLDERS = (
+    ("jarvis", re.compile(r"(?:jarvis\s+dosyalar(?:i|lari)?|yuklediklerim)")),
+    ("downloads", re.compile(r"(?:indirilen(?:ler)?|indirdi(?:kler)?|downloads?)(?:'?[ıiuü]|n[ıiuü])?")),
+    ("desktop", re.compile(r"(?:masaustu|desktop)(?:'?[ıiuü]|n[ıiuü])?")),
+    ("documents", re.compile(r"(?:belgeler(?:im)?|documents?)(?:'?[ıiuü]|n[ıiuü])?")),
+    ("pictures", re.compile(r"(?:resimler(?:im)?|pictures?|fotograflar)(?:'?[ıiuü]|n[ıiuü])?")),
+)
+_WATCHER_LIST = re.compile(
+    r"(?:izlenen klasorler(?:im)?|klasor izlemeleri(?:ni)?(?: listele| goster)?|"
+    r"izleme kurallar(?:i|ini)(?: goster| listele)?)"
+)
+_WATCHER_PENDING = re.compile(r"bekleyen dosyalari isle")
+_WATCHER_STOP = re.compile(
+    r"(?:(.+?)\s+)?(?:klasor\s+)?izleme(?:yi|sini|lerini|leri)?\s+(durdur|kapat|sil|iptal et)"
+)
+_WATCHER_ADD = re.compile(r"^(.+?)\s+izle\b[,.]?\s*(.*)$")
+_WATCHER_WHEN = re.compile(
+    r"\b(gelince|gelirse|dusunce|duserse|inince|inerse|eklenince|eklenirse)\b[,]?\s*"
+)
+_WATCHER_KINDS = (
+    ("pdf", (".pdf",)),
+    ("word", (".docx",)),
+    ("excel", (".xlsx", ".xlsm", ".csv")),
+    ("csv", (".csv",)),
+    ("powerpoint", (".pptx",)),
+    ("sunum", (".pptx",)),
+    ("gorsel", (".png", ".jpg", ".jpeg", ".webp")),
+    ("resim", (".png", ".jpg", ".jpeg", ".webp")),
+)
+_WATCHER_NOTIFY = re.compile(r"haber ver|bildir|soyle")
+_WATCHER_SUMMARY = re.compile(r"ozet")
+
+
+def _watcher_folder_key(value: str) -> str | None:
+    folder = re.sub(r"\s+klasorunu$", "", value.strip())
+    return next((key for key, pattern in _WATCHER_FOLDERS if pattern.fullmatch(folder)), None)
+
+
+def watcher_request(text: str) -> dict[str, object] | None:
+    """Klasör izleme için kapalı typed proposal; gerçek yol ve kural state'i domain'de kalır."""
+    if not isinstance(text, str) or not text or _is_meta_language(text) or _is_literal_command_usage(text):
+        return None
+    normalized = _norm(text)
+    folded = typo.fold(normalized)
+    if _WATCHER_LIST.fullmatch(folded):
+        return {"operation": "list"}
+    if _WATCHER_PENDING.fullmatch(folded):
+        return {"operation": "run_pending"}
+    stopped = _WATCHER_STOP.fullmatch(folded)
+    if stopped is not None:
+        folder = _watcher_folder_key(stopped.group(1)) if stopped.group(1) else None
+        if stopped.group(1) and folder is None:
+            return None
+        return {"operation": "stop", **({"folder": folder} if folder else {})}
+    match = _WATCHER_ADD.fullmatch(folded)
+    if match is None:
+        return None
+    folder = _watcher_folder_key(match.group(1))
+    if folder is None:
+        return None
+    rest_start, rest_end = match.span(2)
+    rest = folded[rest_start:rest_end].strip()
+    original_rest = normalized[rest_start:rest_end].strip()
+    event = _WATCHER_WHEN.search(rest)
+    if event is None:
+        head, instruction = "", original_rest
+    else:
+        head = rest[:event.start()]
+        instruction = original_rest[event.end():].strip()
+    extensions = sorted({ext for word, values in _WATCHER_KINDS
+                         if re.search(rf"(?<!\w){word}(?!\w)", head) for ext in values})
+    from modules import workbench
+    action_text = typo.fold(instruction)
+    if not instruction or _WATCHER_NOTIFY.search(action_text):
+        action = "notify"
+    elif _WATCHER_SUMMARY.search(action_text) and not workbench.wants(instruction):
+        action = "summary"
+    elif workbench.wants(instruction):
+        action = "workbench"
+    else:
+        action = "unsupported"
+    return {
+        "operation": "add",
+        "folder": folder,
+        "extensions": extensions,
+        "action": action,
+        "instruction": instruction[:300],
+    }
+
+
 # Echo / semantic preview labels. Each one is derived from an already resolved
 # capability + bounded argument; none of them re-reads the user sentence.
 _FILE_PREVIEW_LABELS = {
@@ -1291,6 +1385,14 @@ def _preview_text(capability_hint: str | None, arguments: Mapping[str, Any],
         key = str(arguments.get("folder") or arguments.get("named") or "")
         label = _FOLDER_ANALYSIS_LABELS.get(key)
         return EchoPreview(text=f"{label} klasörünü inceleme") if label else None
+    if capability_hint == WATCHER_CAPABILITY:
+        operation = arguments.get("watcher", {}).get("operation") if isinstance(arguments.get("watcher"), Mapping) else None
+        return EchoPreview(text={
+            "add": "Klasör izleme kuralı oluşturma",
+            "list": "İzlenen klasörleri listeleme",
+            "stop": "Klasör izleme kuralını durdurma",
+            "run_pending": "Bekleyen dosyaları işleme",
+        }.get(operation, "Klasör izleme"))
     if capability_hint == PHOTO_CAPABILITY:
         operation = arguments.get("operation")
         if operation == _PHOTO_TRANSLATE:
@@ -2042,6 +2144,8 @@ def understand(
     correction = _is_correction(normalized)
     topic_change = _is_topic_change(normalized)
     context_control = _is_context_control(normalized)
+    watcher_proposal = (None if (context_control or topic_change or correction)
+                        else watcher_request(normalized))
     # A canonical photo artifact plus a photo operation is a photo request: generic note/file/
     # translation grammars must not reinterpret the same utterance.
     photo_proposal, photo_ambiguity = _photo_proposal(text, normalized, active_context, request_id)
@@ -2064,6 +2168,8 @@ def understand(
         ambiguities = (file_mutation_ambiguity,)
     if photo_ambiguity is not None:
         ambiguities = (*ambiguities, photo_ambiguity)
+    if watcher_proposal is not None and watcher_proposal.get("action") == "unsupported":
+        ambiguities = (*ambiguities, WATCHER_ACTION_UNSUPPORTED)
     if note_write is not None:
         note_refs = [ref for ref in references if ref.kind == "note"]
         if not note_refs:
@@ -2134,6 +2240,7 @@ def understand(
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
+        or watcher_proposal is not None
         or _looks_like_capability(normalized)
         or (not (context_control or topic_change or correction)
             and (_weather_status_request(normalized) or _screenshot_request(normalized)))
@@ -2215,6 +2322,8 @@ def understand(
         reason_codes.append(MULTIPLE_PENDING_ANSWER_OWNERS)
     elif ORGANIZE_TARGET_AMBIGUOUS in ambiguities:
         reason_codes.append(ORGANIZE_TARGET_AMBIGUOUS)
+    elif WATCHER_ACTION_UNSUPPORTED in ambiguities:
+        reason_codes.append(WATCHER_ACTION_UNSUPPORTED)
     elif photo_ambiguity is not None:
         reason_codes.append(photo_ambiguity)
     elif ambiguities:
@@ -2240,7 +2349,9 @@ def understand(
         if correction
         else {"original_text": text}
     )
-    capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else _capability_hint(normalized, temporal_need)
+    capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else (
+        WATCHER_CAPABILITY if watcher_proposal is not None else _capability_hint(normalized, temporal_need)
+    )
     if typed_pending_capability is not None:
         capability_hint, clarify_arguments = typed_pending_capability
         arguments = {**arguments, **clarify_arguments}
@@ -2293,6 +2404,8 @@ def understand(
     # Klasör analizi anahtarları da yalnız tek öneriden gelir: ipucu bu yetenek değilse payload yoktur.
     if capability_hint == FOLDER_ANALYSIS_CAPABILITY and folder_analysis is not None:
         arguments = {**arguments, **folder_analysis}
+    if capability_hint == WATCHER_CAPABILITY and watcher_proposal is not None:
+        arguments = {**arguments, "watcher": watcher_proposal}
 
     # Advisory chat shaping is a semantic choice, so it is resolved once here and the
     # advisor layer only formats. A Core-mapped request keeps its own owner.
