@@ -104,5 +104,89 @@ class VisualCoreDispatchTests(pr3b._RawDoorHarness):
         self.ctx._extra_commands.assert_not_called()
 
 
+
+class VisualNegativeAndParityRegressionTests(unittest.TestCase):
+    def test_negated_visual_summary_is_chat(self):
+        result = decide("süreç özeti istemiyorum")
+        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+
+    def test_passive_negated_visual_action_is_chat(self):
+        result = decide("bu infografik oluşturulmasın")
+        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+
+    def test_passive_negated_drawing_is_chat(self):
+        result = decide("akış şeması çizilmesin")
+        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+
+    def test_legacy_positive_visual_phrases_keep_their_type(self):
+        cases = (
+            ("zihin haritası çıkar", "mindmap"),
+            ("infografik istiyorum", "infographic"),
+            ("akış şeması yap", "flowchart"),
+            ("kronoloji oluştur", "timeline"),
+            ("el yazısı notu hazırla", "handwritten"),
+            ("teknik çizim tasarla", "blueprint"),
+        )
+        for phrase, expected in cases:
+            with self.subTest(phrase=phrase):
+                result = decide(phrase)
+                self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+                self.assertEqual(result.capability_hint, VISUAL_CAPABILITY)
+                self.assertEqual(result.arguments.get("kind"), expected)
+
+
+class VisualConversationRoundTripTests(pr3b._RawDoorHarness):
+    def test_brain_state_core_worker_round_trip_uses_the_bound_source_answer(self):
+        from modules.visual_commands import VisualResult
+
+        fake = VisualResult(kind="mindmap", label="zihin haritası", path="/x/mindmap.png")
+        with patch("modules.visual_commands.create_visual", return_value=fake) as generate, \
+             patch.object(self.ctx.history, "read", return_value=[
+                 {"text": "Birinci adım"}, {"text": "İkinci adım"},
+             ]) as history_read:
+            first, question, _handle, first_feedback = self.turn("zihin haritası oluştur")
+            self.assertEqual(first.understanding.capability_hint, VISUAL_CAPABILITY)
+            self.assertIn("sohbetten mi, dosyadan mı", question)
+            self.assertEqual(first_feedback.result_status, "needs_input")
+            self.assertIsNotNone(self.ctx._session().pending_visual)
+
+            second, output, _handle, second_feedback = self.turn("sohbetten")
+        self.assertTrue(second.state_gate.matched)
+        self.assertEqual(second.state_gate.protocol, "session.pending_visual.select")
+        self.assertEqual(second.state_gate.selection, "chat")
+        self.assertIn("/x/mindmap.png", output)
+        self.assertIsNone(self.ctx._session().pending_visual)
+        self.assertEqual(second_feedback.result_status, "handled")
+        generate.assert_called_once_with(
+            "zihin haritası oluştur", "Birinci adım\\nİkinci adım",
+            slug=self.owner, kind="mindmap",
+        )
+        history_read.assert_called_once()
+
+    def test_second_visual_request_does_not_overwrite_the_first_pending_source(self):
+        first, question, _handle, _feedback = self.turn("zihin haritası oluştur")
+        pending_before = dict(self.ctx._session().pending_visual)
+        second, reply, _handle, _feedback = self.turn("infografik hazırla")
+        self.assertEqual(second.understanding.capability_hint, VISUAL_CAPABILITY)
+        self.assertEqual(self.ctx._session().pending_visual, pending_before)
+        self.assertIn("önce", reply.casefold())
+        self.assertIn("zihin haritası", reply.casefold())
+        self.assertNotEqual(first.request_id, second.request_id)
+
+    def test_file_source_answer_uses_the_existing_explicit_file_button(self):
+        with patch("modules.visual_commands.create_visual") as generate:
+            self.turn("zihin haritası oluştur")
+            second, reply, _handle, feedback = self.turn("dosyadan olsun")
+        self.assertTrue(second.state_gate.matched)
+        self.assertEqual(second.state_gate.selection, "file")
+        self.assertIn("Dosyalar sayfasında", reply)
+        self.assertIsNone(self.ctx._session().pending_visual)
+        self.assertEqual(feedback.result_status, "handled")
+        generate.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
