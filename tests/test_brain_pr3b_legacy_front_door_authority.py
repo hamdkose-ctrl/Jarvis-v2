@@ -740,10 +740,12 @@ class DispatchArmPrecedenceTests(_RawDoorHarness):
         self.assertIsNone(self.ctx._session().pending_visual)
         self.assertIn("GÖREV AKIŞI", str(out))
 
-    def test_a_visual_request_without_an_admin_prefix_keeps_its_current_owner(self):
-        # Fence kör değil: açık admin öneki olmayan görsel isteği aynı kolunda kalır.
-        _entry, out, _handle, _ = self.turn("zihin haritası çıkar")
-        self.assertIn("visual", self.seen)
+    def test_a_visual_request_without_an_admin_prefix_is_owned_by_brain_core(self):
+        # PR3C-6: visual_chat no longer selects new requests; Brain proposal + Core opens source question.
+        entry, out, _handle, _ = self.turn("zihin haritası oluştur")
+        from modules.brain_understanding import VISUAL_CAPABILITY
+        self.assertEqual(entry.understanding.capability_hint, VISUAL_CAPABILITY)
+        self.assertNotIn("visual", self.seen)
         self.assertIsNotNone(self.ctx._session().pending_visual)
         self.assertIn("nereden gelsin", str(out))
 
