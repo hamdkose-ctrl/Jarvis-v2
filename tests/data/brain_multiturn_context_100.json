@@ -1,0 +1,2411 @@
+{
+  "format_version": 1,
+  "description": "100 unseen Turkish multi-turn contextual turns. Each row supplies at least two prior conversation turns; pending-state rows verify that an unrelated new request supersedes clarification and a city answer belongs to an open weather-location question.",
+  "senaryolar": [
+    {
+      "id": "s5-mt-001",
+      "group": "s5_multiturn_chat",
+      "text": "Bugün kafam biraz dağınık.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Dünkü toplantı için kısa bir not hazırlayalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Önce ana başlıkları belirleyebiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-002",
+      "group": "s5_multiturn_chat",
+      "text": "İnsan bazen aynı konuya farklı yaşlarda başka bakıyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Chrome'da sekmeleri nasıl düzenlerim?"
+          },
+          {
+            "role": "assistant",
+            "text": "Gruplar oluşturarak düzenleyebilirsin."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-003",
+      "group": "s5_multiturn_chat",
+      "text": "Bu fikrin güçlü tarafı kadar zayıf tarafı da var.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Yarınki planımı konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Öncelikleri birlikte sıralayabiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-004",
+      "group": "s5_multiturn_chat",
+      "text": "Sabah yürüyüşü günün geri kalanını değiştiriyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu dosya biçiminin farkı ne?"
+          },
+          {
+            "role": "assistant",
+            "text": "Kullanım amacına göre değişir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-005",
+      "group": "s5_multiturn_chat",
+      "text": "Bir karar vermeden önce biraz beklemek iyi geliyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Biraz önceki örnek aklıma takıldı."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi kısmını açmamı istersin?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-006",
+      "group": "s5_multiturn_chat",
+      "text": "Bu meselede acele etmek istemiyorum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bugün teknoloji hakkında konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Olur, hangi yönü ilgini çekiyor?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-007",
+      "group": "s5_multiturn_chat",
+      "text": "Geçen haftaki sohbetimiz aklıma geldi.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bir işi planlamanın püf noktası nedir?"
+          },
+          {
+            "role": "assistant",
+            "text": "Önce hedefi ve sınırları netleştirmek gerekir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-008",
+      "group": "s5_multiturn_chat",
+      "text": "Teknoloji ilerledikçe alışkanlıklarımız da değişiyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Geçen gün bir makale okudum."
+          },
+          {
+            "role": "assistant",
+            "text": "İlginç, hangi konudaydı?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-009",
+      "group": "s5_multiturn_chat",
+      "text": "Bazen en basit açıklama en anlaşılır olanı.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu konuda acele karar vermeyelim."
+          },
+          {
+            "role": "assistant",
+            "text": "Katılıyorum, önce seçenekleri değerlendirelim."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-010",
+      "group": "s5_multiturn_chat",
+      "text": "Bugün kendime biraz zaman ayıracağım.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bana kısa bir örnek verir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Tabii, basit bir örnekle başlayalım."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-011",
+      "group": "s5_multiturn_chat",
+      "text": "Bu konuyu konuşmak düşündüğümden daha keyifli.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Dünkü toplantı için kısa bir not hazırlayalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Önce ana başlıkları belirleyebiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-012",
+      "group": "s5_multiturn_chat",
+      "text": "İnsan her şeyi aynı anda çözmek zorunda değil.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Chrome'da sekmeleri nasıl düzenlerim?"
+          },
+          {
+            "role": "assistant",
+            "text": "Gruplar oluşturarak düzenleyebilirsin."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-013",
+      "group": "s5_multiturn_chat",
+      "text": "Şu sıralar yeni şeyler öğrenmek hoşuma gidiyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Yarınki planımı konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Öncelikleri birlikte sıralayabiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-014",
+      "group": "s5_multiturn_chat",
+      "text": "Bir fikri savunmak için önce karşı tarafı anlamak gerek.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu dosya biçiminin farkı ne?"
+          },
+          {
+            "role": "assistant",
+            "text": "Kullanım amacına göre değişir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-015",
+      "group": "s5_multiturn_chat",
+      "text": "Akşam olunca günün ayrıntıları daha net görünüyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Biraz önceki örnek aklıma takıldı."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi kısmını açmamı istersin?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-016",
+      "group": "s5_multiturn_chat",
+      "text": "Bu örnekte asıl mesele bence yaklaşım biçimi.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bugün teknoloji hakkında konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Olur, hangi yönü ilgini çekiyor?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-017",
+      "group": "s5_multiturn_chat",
+      "text": "Biraz mizah olunca zor konular daha kolay konuşuluyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bir işi planlamanın püf noktası nedir?"
+          },
+          {
+            "role": "assistant",
+            "text": "Önce hedefi ve sınırları netleştirmek gerekir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-018",
+      "group": "s5_multiturn_chat",
+      "text": "Her değişiklik mutlaka daha iyi sonuç vermiyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Geçen gün bir makale okudum."
+          },
+          {
+            "role": "assistant",
+            "text": "İlginç, hangi konudaydı?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-019",
+      "group": "s5_multiturn_chat",
+      "text": "Bugün sakin bir gün geçirmek istiyorum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu konuda acele karar vermeyelim."
+          },
+          {
+            "role": "assistant",
+            "text": "Katılıyorum, önce seçenekleri değerlendirelim."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-020",
+      "group": "s5_multiturn_chat",
+      "text": "Bu konuda senin yorumunu merak ediyorum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bana kısa bir örnek verir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Tabii, basit bir örnekle başlayalım."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-021",
+      "group": "s5_multiturn_chat",
+      "text": "Bir konuyu anlamak bazen doğru soruyu bulmakla başlıyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Dünkü toplantı için kısa bir not hazırlayalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Önce ana başlıkları belirleyebiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-022",
+      "group": "s5_multiturn_chat",
+      "text": "Geçmişteki deneyimler bugünkü kararları etkiliyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Chrome'da sekmeleri nasıl düzenlerim?"
+          },
+          {
+            "role": "assistant",
+            "text": "Gruplar oluşturarak düzenleyebilirsin."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-023",
+      "group": "s5_multiturn_chat",
+      "text": "İnsan fikrini değiştirebilir, bunda sorun yok.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Yarınki planımı konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Öncelikleri birlikte sıralayabiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-024",
+      "group": "s5_multiturn_chat",
+      "text": "Bu cümlenin içinde hafif bir alay var.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu dosya biçiminin farkı ne?"
+          },
+          {
+            "role": "assistant",
+            "text": "Kullanım amacına göre değişir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-025",
+      "group": "s5_multiturn_chat",
+      "text": "Biraz ara verince düşünceler toparlanıyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Biraz önceki örnek aklıma takıldı."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi kısmını açmamı istersin?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-026",
+      "group": "s5_multiturn_chat",
+      "text": "Her ayrıntıyı hemen çözmek gerekmiyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bugün teknoloji hakkında konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Olur, hangi yönü ilgini çekiyor?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-027",
+      "group": "s5_multiturn_chat",
+      "text": "Bu tasarımın sade olması hoşuma gitti.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bir işi planlamanın püf noktası nedir?"
+          },
+          {
+            "role": "assistant",
+            "text": "Önce hedefi ve sınırları netleştirmek gerekir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-028",
+      "group": "s5_multiturn_chat",
+      "text": "Farklı bakış açıları konuşmayı zenginleştiriyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Geçen gün bir makale okudum."
+          },
+          {
+            "role": "assistant",
+            "text": "İlginç, hangi konudaydı?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-029",
+      "group": "s5_multiturn_chat",
+      "text": "Bugün enerjim dünden daha iyi.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu konuda acele karar vermeyelim."
+          },
+          {
+            "role": "assistant",
+            "text": "Katılıyorum, önce seçenekleri değerlendirelim."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-030",
+      "group": "s5_multiturn_chat",
+      "text": "Bir şeyi merak etmek onu hemen yaptırmak anlamına gelmez.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bana kısa bir örnek verir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Tabii, basit bir örnekle başlayalım."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "chat",
+        "request_kind": "CHAT",
+        "capability_hint": null
+      }
+    },
+    {
+      "id": "s5-mt-031",
+      "group": "s5_multiturn_new_action",
+      "text": "notlarımı göster",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu dosya biçiminin farkı ne?"
+          },
+          {
+            "role": "assistant",
+            "text": "Kullanım amacına göre değişir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-032",
+      "group": "s5_multiturn_new_action",
+      "text": "hava nasıl",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Biraz önceki örnek aklıma takıldı."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi kısmını açmamı istersin?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-033",
+      "group": "s5_multiturn_new_action",
+      "text": "Chrome aç",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bugün teknoloji hakkında konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Olur, hangi yönü ilgini çekiyor?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-034",
+      "group": "s5_multiturn_new_action",
+      "text": "müzik çal",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bir işi planlamanın püf noktası nedir?"
+          },
+          {
+            "role": "assistant",
+            "text": "Önce hedefi ve sınırları netleştirmek gerekir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-035",
+      "group": "s5_multiturn_new_action",
+      "text": "dolar kaç",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Geçen gün bir makale okudum."
+          },
+          {
+            "role": "assistant",
+            "text": "İlginç, hangi konudaydı?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-036",
+      "group": "s5_multiturn_new_action",
+      "text": "son yapay zeka haberlerini araştır",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu konuda acele karar vermeyelim."
+          },
+          {
+            "role": "assistant",
+            "text": "Katılıyorum, önce seçenekleri değerlendirelim."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-037",
+      "group": "s5_multiturn_new_action",
+      "text": "yarın 9'da toplantıyı hatırlat",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bana kısa bir örnek verir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Tabii, basit bir örnekle başlayalım."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-038",
+      "group": "s5_multiturn_new_action",
+      "text": "sesi 50 yap",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Dünkü toplantı için kısa bir not hazırlayalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Önce ana başlıkları belirleyebiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-039",
+      "group": "s5_multiturn_new_action",
+      "text": "ekranı analiz et",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Chrome'da sekmeleri nasıl düzenlerim?"
+          },
+          {
+            "role": "assistant",
+            "text": "Gruplar oluşturarak düzenleyebilirsin."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-040",
+      "group": "s5_multiturn_new_action",
+      "text": "bugünün tarihi",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Yarınki planımı konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Öncelikleri birlikte sıralayabiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-041",
+      "group": "s5_multiturn_new_action",
+      "text": "masaüstünü düzenle",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu dosya biçiminin farkı ne?"
+          },
+          {
+            "role": "assistant",
+            "text": "Kullanım amacına göre değişir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-042",
+      "group": "s5_multiturn_new_action",
+      "text": "İndirilenler'i izle",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Biraz önceki örnek aklıma takıldı."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi kısmını açmamı istersin?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-043",
+      "group": "s5_multiturn_new_action",
+      "text": "İndirilenler klasörünü analiz et",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bugün teknoloji hakkında konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Olur, hangi yönü ilgini çekiyor?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-044",
+      "group": "s5_multiturn_new_action",
+      "text": "parlaklığı 30 yap",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bir işi planlamanın püf noktası nedir?"
+          },
+          {
+            "role": "assistant",
+            "text": "Önce hedefi ve sınırları netleştirmek gerekir."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-045",
+      "group": "s5_multiturn_new_action",
+      "text": "Chrome'u kapat",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Geçen gün bir makale okudum."
+          },
+          {
+            "role": "assistant",
+            "text": "İlginç, hangi konudaydı?"
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-046",
+      "group": "s5_multiturn_new_action",
+      "text": "yarın hava nasıl olacak",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bu konuda acele karar vermeyelim."
+          },
+          {
+            "role": "assistant",
+            "text": "Katılıyorum, önce seçenekleri değerlendirelim."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-047",
+      "group": "s5_multiturn_new_action",
+      "text": "İzlenen klasörleri listele",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Bana kısa bir örnek verir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Tabii, basit bir örnekle başlayalım."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-048",
+      "group": "s5_multiturn_new_action",
+      "text": "bekleyen dosyaları işle",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Dünkü toplantı için kısa bir not hazırlayalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Önce ana başlıkları belirleyebiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-049",
+      "group": "s5_multiturn_new_action",
+      "text": "notlarımı göster",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Chrome'da sekmeleri nasıl düzenlerim?"
+          },
+          {
+            "role": "assistant",
+            "text": "Gruplar oluşturarak düzenleyebilirsin."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-050",
+      "group": "s5_multiturn_new_action",
+      "text": "saat kaç",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Yarınki planımı konuşalım."
+          },
+          {
+            "role": "assistant",
+            "text": "Öncelikleri birlikte sıralayabiliriz."
+          }
+        ]
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-051",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Ankara",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-052",
+      "group": "s5_multiturn_pending_answer",
+      "text": "İzmir",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-053",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Bursa",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-054",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Antalya",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-055",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Konya",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-056",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Trabzon",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-057",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Eskişehir",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-058",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Adana",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-059",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Samsun",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-060",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Gaziantep",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-061",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Kayseri",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-062",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Mersin",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-063",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Muğla",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-064",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Edirne",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-065",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Kocaeli",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-066",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Diyarbakır",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-067",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Erzurum",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-068",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Balıkesir",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-069",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Sakarya",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-070",
+      "group": "s5_multiturn_pending_answer",
+      "text": "Tekirdağ",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Hava durumuna bakabilir misin?"
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi şehir için bakayım?"
+          }
+        ],
+        "session": {
+          "pending_weather_location": true
+        }
+      },
+      "expect": {
+        "conversation_relation": "ANSWER_TO_PENDING"
+      }
+    },
+    {
+      "id": "s5-mt-071",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Selam, bugün nasılsın?",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-072",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Şimdi başka bir şey konuşalım.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-073",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bununla ilgili fikrim değişti.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-074",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bugün biraz yoruldum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-075",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bence bu örnek yeterince açıklayıcı değil.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-076",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Birazdan dışarı çıkacağım.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-077",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bu konuya sonra tekrar döneriz.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-078",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Şu an sadece sohbet etmek istiyorum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-079",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bunu düşününce gülümsedim.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-080",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "İşler bazen planladığımız gibi gitmiyor.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-081",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Yeni bir konuya geçelim.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-082",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bu ayrıntı önemli ama şu an değil.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-083",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bugün hava gerçekten güzel.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-084",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Biraz kafamı dağıtmak istiyorum.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-085",
+      "group": "s5_multiturn_supersede_chat",
+      "text": "Bunu yapmak zorunda değiliz.",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "chat",
+        "conversation_relation": "NEW_REQUEST"
+      }
+    },
+    {
+      "id": "s5-mt-086",
+      "group": "s5_multiturn_supersede_action",
+      "text": "notlarımı göster",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-087",
+      "group": "s5_multiturn_supersede_action",
+      "text": "hava nasıl",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-088",
+      "group": "s5_multiturn_supersede_action",
+      "text": "Chrome aç",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-089",
+      "group": "s5_multiturn_supersede_action",
+      "text": "müzik çal",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-090",
+      "group": "s5_multiturn_supersede_action",
+      "text": "dolar kaç",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-091",
+      "group": "s5_multiturn_supersede_action",
+      "text": "son yapay zeka haberlerini araştır",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-092",
+      "group": "s5_multiturn_supersede_action",
+      "text": "yarın 9'da toplantıyı hatırlat",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-093",
+      "group": "s5_multiturn_supersede_action",
+      "text": "sesi 50 yap",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-094",
+      "group": "s5_multiturn_supersede_action",
+      "text": "ekranı analiz et",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-095",
+      "group": "s5_multiturn_supersede_action",
+      "text": "bugünün tarihi",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-096",
+      "group": "s5_multiturn_supersede_action",
+      "text": "masaüstünü düzenle",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-097",
+      "group": "s5_multiturn_supersede_action",
+      "text": "İndirilenler'i izle",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-098",
+      "group": "s5_multiturn_supersede_action",
+      "text": "İndirilenler klasörünü analiz et",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-099",
+      "group": "s5_multiturn_supersede_action",
+      "text": "parlaklığı 30 yap",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    },
+    {
+      "id": "s5-mt-100",
+      "group": "s5_multiturn_supersede_action",
+      "text": "Chrome'u kapat",
+      "setup": {
+        "history": [
+          {
+            "role": "user",
+            "text": "Rapor dosyasını aç."
+          },
+          {
+            "role": "assistant",
+            "text": "Hangi raporu açmamı istersin?"
+          }
+        ],
+        "session": {
+          "pending_action": {
+            "stage": "clarify",
+            "command": "rapor dosyasını aç",
+            "question": "Hangi rapor?",
+            "owner": "hamdi",
+            "expires": 4102444800
+          }
+        }
+      },
+      "expect": {
+        "outcome": "action"
+      }
+    }
+  ]
+}

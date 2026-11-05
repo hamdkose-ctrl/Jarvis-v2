@@ -370,8 +370,16 @@ def _is_correction(text: str) -> bool:
     return _replacement_parts(text) is not None
 
 
+_SEARCH_IDIOM = re.compile(r"(?<!\w)ara\s+ver\w*(?!\w)")
+
+
+def _is_search_verb_idiom(text: str) -> bool:
+    """'ara verince/ara verelim' is a pause idiom, not the search command."""
+    return _SEARCH_IDIOM.search(text) is not None
+
+
 def _looks_like_capability(text: str) -> bool:
-    if _is_meta_language(text) or _is_literal_command_usage(text):
+    if _is_meta_language(text) or _is_literal_command_usage(text) or _is_search_verb_idiom(text):
         return False
     return _contains_command_token(text)
 
@@ -1550,7 +1558,8 @@ _MEDIA_PREV = re.compile(
     r"(?:şarkıyı|parçayı|müziği)\s+geri\s+al|öncekine\s+dön)$")
 _MEDIA_TOGGLE = re.compile(
     r"^(?:(?:müziği|şarkıyı|videoyu|oynatmayı)\s+(?:kes|durdur|duraklat|oynat|başlat|çal)|"
-    r"müzik\s+(?:dursun|durdur))$")
+    r"müzik\s+(?:dursun|durdur|çal|oynat|başlat)|"
+    r"muzik\s+(?:dursun|durdur|cal|oynat|baslat))$")
 
 _SCREEN_CAPTURE_REQUEST = re.compile(
     r"^(?:(?:hey\s+)?jarvis[ ,]+)?(?:(?:ekran\s+(?:görüntüsü|görüntüsünü))\s*(?:al|çek|çıkar)?|"
@@ -2097,10 +2106,18 @@ def _pending_answer_owners(text: str, normalized: str, active_context: ActiveCon
     return next(iter(best)), False
 
 
+_ANAPHORIC_ACTION_REQUEST = re.compile(r"^(?:(?:peki|tamam)\s+)?(?:onu|bunu|şunu)\s+yap(?:\s|$)")
+
+
 def _ambiguity_for_references(text: str, references: tuple[ContextReference, ...]) -> tuple[str, ...]:
     if len(references) <= 1 or _plural_reference_intent(text) or _is_correction(text):
         return ()
     if _NOTE_BOUNDED_MUTATION.search(text) is not None:
+        return ()
+    # Historical references are not unresolved targets unless this turn proposes an operation.
+    if (not _looks_like_capability(text)
+            and _advisory_request(text) is None
+            and _ANAPHORIC_ACTION_REQUEST.search(text) is None):
         return ()
     return ("multiple target references",)
 
@@ -2194,6 +2211,7 @@ def understand(
     # Netleştirme cevabı / konu değişimi / düzeltme yeni bir icra isteği sayılmaz.
     execution_request = (not (context_control or topic_change or correction)
                          and not _is_meta_language(normalized) and not _is_literal_command_usage(normalized)
+                         and not _is_search_verb_idiom(normalized)
                          and (action_request(text) or ends_with_action(text)))
     # Ekran/pencere istekleri de birer yetenektir; sohbet olarak bırakılırsa Core planı hiç çalışmaz.
     screen_request = ({} if (context_control or topic_change or correction)
