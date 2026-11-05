@@ -20,6 +20,7 @@ PR #521 sohbetten gelen görsel talebinin erken `visual_chat` keyword kapısın�
 - Code/test head `a52808be95ae9fecba3382bfa6d9dd4f3bf30432`: Windows CI #1439 **SUCCESS**; 4.945 Python testi + 47 final validation testi geçti ve “Tüm test grupları başarılı.” kaydı alındı. Gerçek Windows PC watcher aynı SHA'da **Genel PASS / Validation PASS** verdi.
 - Gerçek Cloudflare API'ye canlı görsel üretim çağrısı bu kabulde yapılmadı; provider/credential kaynaklı canlı üretim kanıtı sayılmaz.
 - PR #521 Draft/açık ve henüz merge edilmedi. Kod/test SHA'sından sonra eklenecek doküman-only head için exact-SHA CI ve watcher yeniden doğrulanır.
+- [ ] **Sonraki gerçek cihaz testi:** Windows Jarvis'te mevcut kullanıcı Cloudflare Workers AI yapılandırmasıyla sohbetten görsel üretimini gerçekten çalıştır; `sohbetten` kaynağını seç, dönen içeriğin PNG imzasını/açılabilirliğini, mevcut Görseller klasörüne kaydını ve kullanıcıya teslimini doğrula. Kota, ağ ve kimlik doğrulama hatalarının güvenli sınıflandırıldığını; anahtarların log/çıktıya sızmadığını da kontrol et. Mock worker round-trip testi bu canlı kabulin yerine geçmez.
 
 ## Tarihsel karar notu — Görsel üretimi v1 (25 Ekim 2026)
 
