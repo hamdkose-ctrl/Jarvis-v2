@@ -161,7 +161,7 @@ class VisualConversationRoundTripTests(pr3b._RawDoorHarness):
         self.assertIsNone(self.ctx._session().pending_visual)
         self.assertEqual(second_feedback.result_status, "handled")
         generate.assert_called_once_with(
-            "zihin haritası oluştur", "Birinci adım\\nİkinci adım",
+            "zihin haritası oluştur", "Birinci adım\nİkinci adım",
             slug=self.owner, kind="mindmap",
         )
         history_read.assert_called_once()
