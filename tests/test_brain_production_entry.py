@@ -227,7 +227,7 @@ class BrainProductionEntryTests(unittest.TestCase):
         self.assertEqual(order, ["state", "fast", "candidates", "references", "understanding"])
         self.assertIs(result.understanding, semantic)
 
-    def test_model_refinement_runs_once_after_final_candidate_resolution(self):
+    def test_model_understanding_runs_once_after_final_candidate_resolution(self):
         module = self.module()
         order = []
         miss_state = GateObservation(OWNER, RID, "state", False, "NO_BOUNDED_STATE_MATCH")
@@ -244,14 +244,14 @@ class BrainProductionEntryTests(unittest.TestCase):
              patch.object(module, "build_candidates", side_effect=lambda **k: (order.append("candidates") or (candidate,))), \
              patch.object(module, "resolve_references", side_effect=lambda **k: (order.append("references") or (candidate,))), \
              patch.object(module, "understand", side_effect=lambda **k: (order.append("understand") or semantic)), \
-             patch.object(module, "apply_model_refinement", side_effect=lambda value, text: (order.append("model") or value)) as refine:
+             patch.object(module, "apply_model_understanding", side_effect=lambda value, text: (order.append("model") or value)) as propose:
             result = module.prepare(
                 self.runtime(), owner=OWNER, request_id=RID, text="şu raporu incele",
-                source="yazı", model_refinement=True,
+                source="yazı", model_understanding=True,
             )
         self.assertIs(result.understanding, semantic)
         self.assertEqual(order, ["candidates", "references", "understand", "model"])
-        refine.assert_called_once_with(semantic, "şu raporu incele")
+        propose.assert_called_once_with(semantic, "şu raporu incele")
 
     def test_needs_input_short_circuits_core_handler_and_worker_effects(self):
         module = self.module()
