@@ -370,7 +370,7 @@ def _is_correction(text: str) -> bool:
     return _replacement_parts(text) is not None
 
 
-_SEARCH_IDIOM = re.compile(r"(?<!\\w)ara\\s+ver\\w*(?!\\w)")
+_SEARCH_IDIOM = re.compile(r"(?<!\w)ara\s+ver\w*(?!\w)")
 
 
 def _is_search_verb_idiom(text: str) -> bool:
