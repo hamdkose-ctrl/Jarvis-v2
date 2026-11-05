@@ -1501,6 +1501,9 @@ EXECUTION_REQUEST_CODE = "EXECUTION_REQUEST"
 # Understanding "bu cümle açıklama/sohbet ister" hükmünü de yalnız burada verir: bir yüzey bu
 # kaydı okuyabilir, ama aynı hükmü ham metinden ikinci kez sınıflandırarak üretemez.
 EXPLANATION_REQUEST_CODE = "EXPLANATION_REQUEST"
+# Model zarfı doğrulandı ama bu işlemin yürütücüsü henüz üretim akışında değil (BRAIN-04/05).
+# Kayıt tanıdır: işlem yapılmış gibi göstermez, deterministik kararı da değiştirmez.
+MODEL_OPERATION_NOT_WIRED = "MODEL_OPERATION_NOT_WIRED"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -2521,16 +2524,20 @@ def understand(
     )
 
 
-def apply_model_refinement(result: UnderstandingResult, text: str) -> UnderstandingResult:
-    """Apply one bounded model proposal after deterministic candidates are resolved.
+def apply_model_understanding(result: UnderstandingResult, text: str) -> UnderstandingResult:
+    """Birincil model zarfını kanonikal anlama sonucuna işler.
 
-    Every non-State/Fast production turn reaches this single bounded proposal. Unsupported
-    proposals and unresolved ambiguities preserve the deterministic result. A reference choice
-    may select only an existing owner-bound file candidate; Core still revalidates the target.
+    State/Fast dışındaki her üretim turu bu tek bounded çağrıdan geçer. Zarf doğrulanamazsa ya
+    da kararı belirsizse deterministik sonuç olduğu gibi kalır. BRAIN-01'de yalnız `chat` ve
+    `direct_action` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
+    yürütücüleri BRAIN-04/BRAIN-05'te yazılır. Bir hedef seçimi yalnız owner-bound bir dosya
+    adayını seçebilir; hedefin gerçek yetkisini her durumda Core yeniden doğrular.
     """
     try:
-        from modules.brain_model_understanding import refine
-        refined = refine(
+        from modules.brain_model_understanding import (
+            ADOPTED_OPERATIONS, REQUEST_KIND_BY_OPERATION, propose,
+        )
+        proposal = propose(
             owner=result.owner,
             text=text,
             current=result,
@@ -2541,54 +2548,50 @@ def apply_model_refinement(result: UnderstandingResult, text: str) -> Understand
             ),
             file_operation_hint=_file_operation(_norm(text)),
         )
-        if refined is None:
+        if proposal is None:
             return result
-        # An explicit, typed visual request is deterministic product intent; the optional
-        # model may refine its context but may not turn the requested image into chat.
-        if result.capability_hint == VISUAL_CAPABILITY and refined.request_kind is not RequestKind.CAPABILITY:
+        if proposal.operation not in ADOPTED_OPERATIONS:
+            if MODEL_OPERATION_NOT_WIRED in result.reason_codes:
+                return result
+            return replace(result, reason_codes=result.reason_codes + (MODEL_OPERATION_NOT_WIRED,))
+        request_kind = REQUEST_KIND_BY_OPERATION[proposal.operation]
+        # Typed bir görsel isteği ürün niyetidir: model bağlamı yorumlayabilir ama onu
+        # istenen resmi sohbete çeviremez.
+        if result.capability_hint == VISUAL_CAPABILITY and request_kind is not RequestKind.CAPABILITY:
             return result
-        next_hint = refined.capability_hint
-        next_arguments = refined.arguments if refined.arguments is not None else result.arguments
+        action = proposal.actions[0] if proposal.actions else None
+        next_hint = None if action is None else action.capability_id
+        next_arguments = dict(action.arguments) if action is not None else {"original_text": text}
         next_preview = result.preview
-        next_references = refined.references if refined.references else result.references
+        next_references = proposal.references if proposal.references else result.references
         next_ambiguities = result.ambiguities
         next_reason_codes = result.reason_codes
-        next_confidence = refined.confidence
         next_needs_input = result.needs_input
 
-        if refined.references:
-            if result.ambiguities != ("multiple target references",) or result.capability_hint != "files.read":
-                return result
+        if proposal.references:
             next_ambiguities = ()
             next_needs_input = False
             next_reason_codes = tuple(
                 code for code in result.reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
             ) + ("MODEL_REFERENCE_RESOLVED",)
+        if request_kind is RequestKind.CAPABILITY and not next_ambiguities:
             next_preview = _preview_text(next_hint, next_arguments, next_references)
-        elif result.needs_input:
-            # Never erase an unresolved target ambiguity by reclassifying it as CHAT.
-            return result
-
-        if refined.request_kind is RequestKind.CHAT:
-            next_hint = None
-            next_arguments = {"original_text": text}
-            next_preview = None
         return replace(
             result,
-            request_kind=refined.request_kind,
-            conversation_relation=refined.conversation_relation,
-            temporal_need=refined.temporal_need,
+            request_kind=request_kind,
+            conversation_relation=proposal.conversation_relation,
+            temporal_need=proposal.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,
             references=next_references,
-            confidence=next_confidence,
+            confidence=proposal.confidence,
             ambiguities=next_ambiguities,
             reason_codes=next_reason_codes,
             needs_input=next_needs_input,
             preview=next_preview,
         )
     except Exception as exc:
-        _record_failure("modules/brain_understanding.py:apply_model_refinement")
+        _record_failure("modules/brain_understanding.py:apply_model_understanding")
         from modules import requests_state
         if isinstance(exc, requests_state.Cancelled):
             raise

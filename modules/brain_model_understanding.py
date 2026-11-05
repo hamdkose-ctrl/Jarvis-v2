@@ -1,7 +1,10 @@
-"""Bounded, non-authoritative semantic refinement through the existing free-tier router.
+"""Birincil anlamlandırma zarfı: kararı model üretir, yetkiyi yalnız Core verir.
 
-The model may refine only typed fields. It cannot supply arguments, targets, references,
-owners, approvals, or execution authority. Core revalidates every capability proposal.
+Her serbest turda tek bir bounded çağrı ``brain-understanding.v2`` zarfını döndürür. Zarf
+operation, eylem listesi, hedef kimlik yuvaları, hedef kartı, netleştirme, güven, ilişki ve
+gereklilik alanlarını taşır. Model hiçbir gerçek yol, hesap, alıcı, jeton, kimlik bilgisi veya
+onay kimliği yazamaz; yalnız kendisine sunulan yuva adlarını seçer. Core her alanı kendi
+doğrulayıcısından geçirir; izin ve etki yetkisi yine yalnız Core'a aittir.
 """
 from __future__ import annotations
 
@@ -14,33 +17,135 @@ from typing import Any, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
 
-from modules.brain_contracts import Confidence, ConversationRelation, RequestKind, TemporalNeed
+from modules.brain_contracts import (
+    Confidence, ConversationRelation, RequestKind, TemporalNeed,
+    _freeze_json, _reject_authority_argument_keys,
+)
 
 _PAID = frozenset({"openai", "anthropic"})
 _LOCAL = frozenset({"ollama"})
 
+SCHEMA_VERSION = "brain-understanding.v2"
+MAX_ACTIONS = 5
+MAX_TARGET_GOALS = 8
+_GOAL_TEXT_MAX = 200
+
+OPERATIONS = frozenset({
+    "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
+    "add_task", "pause_goal", "resume_goal", "cancel_goal", "prioritize_goal", "clarify",
+})
+GOAL_OPERATIONS = frozenset({
+    "create_goal", "continue_goal", "revise_goal", "add_task", "pause_goal",
+    "resume_goal", "cancel_goal", "prioritize_goal",
+})
+# BRAIN-01'de üretim akışına bağlanan işlemler. Diğerleri burada doğrulanır ama yürütücüleri
+# BRAIN-04/BRAIN-05'te yazılacak; bu paket onları çalışıyor gibi göstermez.
+ADOPTED_OPERATIONS = frozenset({"chat", "direct_action"})
+REQUEST_KIND_BY_OPERATION = {
+    "chat": RequestKind.CHAT,
+    "direct_action": RequestKind.CAPABILITY,
+}
+
+ENVELOPE_KEYS = frozenset({
+    "schema_version", "operation", "conversation_relation", "temporal_need",
+    "target_goal_ids", "goal", "actions", "clarification", "confidence",
+})
+ACTION_KEYS = frozenset({"action_id", "capability_id", "arguments", "reference_slots", "depends_on"})
+CLARIFICATION_KEYS = frozenset({"required", "question", "reason_code"})
+_GOAL_KEYS = frozenset({"kind", "title"})
+_GOAL_CARD_KINDS = frozenset({"goal", "task"})
+
+# Model hedef kimliği üretemez: Core'un kendi authority alanı yasağına ek olarak zarf
+# argümanlarında bu adlar geçtiği anda önerinin tamamı reddedilir.
+_MODEL_DENIED_ARGUMENT_KEYS = frozenset({
+    "path", "paths", "token", "credential", "approval", "approval_id",
+    "recipient", "account", "account_id",
+})
+
+_FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
+_REASON_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
+_CONFIDENCE_RANK = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
+
 
 @dataclass(frozen=True)
-class SemanticRefinement:
-    request_kind: RequestKind
+class ProposedAction:
+    action_id: str
+    capability_id: str
+    arguments: Mapping[str, Any]
+    reference_slots: tuple[str, ...]
+    depends_on: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class UnderstandingProposal:
+    operation: str
     conversation_relation: ConversationRelation
     temporal_need: TemporalNeed
-    capability_hint: str | None
     confidence: Confidence
-    arguments: Mapping[str, Any] | None = None
+    actions: tuple[ProposedAction, ...] = ()
+    target_goal_ids: tuple[str, ...] = ()
+    goal: Mapping[str, Any] | None = None
+    clarification_required: bool = False
+    clarification_reason_code: str | None = None
     references: tuple[Any, ...] = ()
 
 
 def _decode(raw: str) -> dict[str, Any]:
-    if not isinstance(raw, str) or len(raw) > 4000:
-        raise ValueError("Model proposal is not bounded text.")
+    if not isinstance(raw, str) or len(raw) > 6000:
+        raise ValueError("Model zarfı sınırlandırılmış metin değil.")
     value = json.loads(raw)
     if not isinstance(value, dict):
-        raise ValueError("Model proposal must be a JSON object.")
-    expected = {"request_kind", "conversation_relation", "temporal_need", "capability_hint", "confidence", "file_operation", "file_slots"}
-    if set(value) != expected:
-        raise ValueError("Model proposal schema mismatch.")
+        raise ValueError("Model zarfı JSON nesnesi olmalı.")
+    if set(value) != set(ENVELOPE_KEYS):
+        raise ValueError("Model zarfı şeması uyuşmuyor.")
+    if value["schema_version"] != SCHEMA_VERSION:
+        raise ValueError("Model zarfı sürümü uyuşmuyor.")
     return value
+
+
+def _deep_keys(value: Any) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str):
+                keys.add(key)
+            keys |= _deep_keys(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            keys |= _deep_keys(item)
+    return keys
+
+
+def _text_list(name: str, value: Any) -> tuple[str, ...] | None:
+    if not isinstance(value, list) or any(not isinstance(row, str) or not row for row in value):
+        return None
+    rows = tuple(value)
+    if len(set(rows)) != len(rows):
+        return None
+    return rows
+
+
+def _goal_payload(row: Any) -> Mapping[str, Any] | None:
+    if not isinstance(row, Mapping) or set(row) - set(_GOAL_KEYS):
+        return None
+    if row.get("kind") not in _GOAL_CARD_KINDS:
+        return None
+    title = row.get("title")
+    if not isinstance(title, str) or "\x00" in title or not 0 < len(title.strip()) <= _GOAL_TEXT_MAX:
+        return None
+    return {"kind": row["kind"], "title": title.strip()}
+
+
+def _supplied_schema(capability_id: str) -> dict[str, Any]:
+    """Modelin bu yetenek için doldurabileceği alanların biçimi; değer kümesini Core doğrular."""
+    from modules.brain_core_map import CORE_INTENTS
+    if capability_id not in CORE_INTENTS:
+        return {}
+    validator = CORE_INTENTS[capability_id][1]
+    if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
+        return {"nested": {"action": "kapalı eylem kümesi"}}
+    return {"freeform": True}
+
 
 
 _FOLDER_SIGNAL_ALIASES = {
@@ -107,13 +212,313 @@ def _selected_file_candidate_is_grounded(
     return False
 
 
-def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
-           protected_relation: bool = False,
-           file_operation_hint: str | None = None) -> SemanticRefinement | None:
-    """Ask only an already eligible free cloud route; fail closed on every error.
+def _file_slots(current: Any) -> tuple[list[dict[str, str]], list[tuple[str, Any]], dict[str, tuple[str, str]]]:
+    slot_rows: list[dict[str, str]] = []
+    slot_refs: list[tuple[str, Any]] = []
+    slot_labels: dict[str, tuple[str, str]] = {}
+    for reference in current.references:
+        if getattr(reference, "kind", None) != "file":
+            continue
+        path_value = reference.provenance.get("path")
+        if not isinstance(path_value, str) or not path_value.strip():
+            continue
+        name_value = reference.provenance.get("name")
+        if not isinstance(name_value, str) or not name_value.strip():
+            name_value = ntpath.basename(path_value)
+        parent_parts = [part for part in ntpath.dirname(path_value).replace("/", "\\").split("\\") if part]
+        folder_value = " / ".join(parent_parts[-2:])
+        slot = f"file_{len(slot_refs)}"
+        slot_rows.append({"slot": slot, "name": name_value[:180], "folder": folder_value[:100]})
+        slot_refs.append((slot, reference))
+        slot_labels[slot] = (name_value.casefold().strip(), folder_value.casefold().strip())
+    return slot_rows, slot_refs, slot_labels
 
-    The model cannot invent arguments. A changed capability is accepted only if the
-    existing Core allowlist validates the unchanged deterministic arguments.
+
+def _offered_goal_ids(current: Any) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(
+        str(reference.id) for reference in current.references
+        if getattr(reference, "kind", None) in _GOAL_CARD_KINDS
+    ))
+
+
+def _resolving_file_ambiguity(current: Any, *, file_operation_hint: str | None,
+                              protected_relation: bool, file_refs: list[Any]) -> bool:
+    return bool(
+        getattr(current, "needs_input", False)
+        and tuple(getattr(current, "ambiguities", ())) == ("multiple target references",)
+        and current.capability_hint == "files.read"
+        and file_operation_hint in {"summarize", "analyze", "locate"}
+        and current.conversation_relation is ConversationRelation.NEW_REQUEST
+        and current.pending_owner is None
+        and not protected_relation
+        and len(file_refs) >= 2
+    )
+
+
+def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple[str, ...],
+                         by_slot: Mapping[str, Any], slot_labels: Mapping[str, tuple[str, str]],
+                         current: Any, resolving_file_ambiguity: bool,
+                         file_operation_hint: str | None, file_refs: list[Any],
+                         owner: str) -> tuple[dict[str, Any], tuple[Any, ...]] | None:
+    """Dosya okuma önerisi yalnız sunulan yuvalardan ve deterministik kanıttan kurulur."""
+    if set(supplied) - {"operation"}:
+        return None
+    operation = supplied.get("operation")
+    if operation not in _FILE_OPERATIONS:
+        return None
+    current_operation = current.arguments.get("operation")
+    if current_operation is None and resolving_file_ambiguity:
+        current_operation = file_operation_hint
+    if current.capability_hint == "files.read" and current_operation != operation:
+        return None
+    if operation == "list":
+        if slots or current.capability_hint != "files.read":
+            return None
+        return {"original_text": text, "operation": "list"}, ()
+    if operation == "compare":
+        if not 2 <= len(slots) <= 10:
+            return None
+        arguments = {"original_text": text, "operation": "compare",
+                     "paths": [by_slot[slot].provenance.get("path") for slot in slots]}
+    else:
+        if len(slots) != 1:
+            return None
+        arguments = {"original_text": text, "operation": operation,
+                     "path": by_slot[slots[0]].provenance.get("path")}
+    if "path" in arguments and not (isinstance(arguments["path"], str) and arguments["path"].strip()):
+        return None
+    if "paths" in arguments and any(not isinstance(value, str) or not value.strip()
+                                    for value in arguments["paths"]):
+        return None
+    # Deterministik kanıt zaten bir hedef çözümlediyse model onu değiştiremez.
+    if current.capability_hint == "files.read":
+        current_path = current.arguments.get("path")
+        current_paths = current.arguments.get("paths")
+        if current_path is not None and arguments.get("path") != current_path:
+            return None
+        if current_paths is not None and arguments.get("paths") != list(current_paths):
+            return None
+    if not resolving_file_ambiguity:
+        return arguments, ()
+    if operation != file_operation_hint or len(slots) != 1:
+        return None
+    selected_label = slot_labels.get(slots[0])
+    if selected_label is None or not selected_label[0]:
+        return None
+    if sum(1 for label in slot_labels.values() if label == selected_label) != 1:
+        return None
+    selected = by_slot[slots[0]]
+    if selected.owner != owner:
+        return None
+    if not _selected_file_candidate_is_grounded(text, selected, file_refs):
+        return None
+    return arguments, (selected,)
+
+
+def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: str,
+                      deterministic_arguments: Mapping[str, Any], slots: tuple[str, ...],
+                      by_slot: Mapping[str, Any], slot_labels: Mapping[str, tuple[str, str]],
+                      current: Any, resolving_file_ambiguity: bool,
+                      file_operation_hint: str | None, file_refs: list[Any],
+                      owner: str) -> tuple[dict[str, Any], tuple[Any, ...]] | None:
+    if capability_id == "files.read":
+        return _file_read_arguments(
+            text=text, supplied=supplied, slots=slots, by_slot=by_slot,
+            slot_labels=slot_labels, current=current,
+            resolving_file_ambiguity=resolving_file_ambiguity,
+            file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
+    if slots:
+        return None
+    # Model alan doldurmadıysa payload deterministik kanıttan gelir; model hiç argüman uydurmaz.
+    payload = dict(supplied) if supplied else dict(deterministic_arguments)
+    if "original_text" not in payload:
+        payload = {"original_text": text, **payload}
+    return payload, ()
+
+
+def _action_count_matches(operation: str, action_rows: list[Any], goal: Mapping[str, Any] | None,
+                          target_ids: tuple[str, ...]) -> bool:
+    count = len(action_rows)
+    if operation in {"chat", "clarify"}:
+        return count == 0 and goal is None and not target_ids
+    if operation == "direct_action":
+        return count == 1 and goal is None and not target_ids
+    if operation == "action_batch":
+        return 2 <= count <= MAX_ACTIONS and goal is None and not target_ids
+    if operation == "create_goal":
+        return count == 0 and goal is not None and not target_ids
+    if operation not in GOAL_OPERATIONS:
+        return False
+    return count == 0 and goal is None and bool(target_ids)
+
+
+def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
+           deterministic_arguments: Mapping[str, Any], protected_relation: bool,
+           file_operation_hint: str | None) -> UnderstandingProposal | None:
+    from modules.brain_core_map import CORE_INTENTS, core_plan
+
+    operation = row["operation"]
+    if not isinstance(operation, str) or operation not in OPERATIONS:
+        return None
+    try:
+        relation = ConversationRelation(row["conversation_relation"])
+        temporal_need = TemporalNeed(row["temporal_need"])
+        confidence = Confidence(row["confidence"])
+    except ValueError:
+        return None
+
+    file_refs = [reference for reference in current.references
+                 if getattr(reference, "kind", None) == "file"]
+    _, slot_refs, slot_labels = _file_slots(current)
+    by_slot = dict(slot_refs)
+    resolving_file_ambiguity = _resolving_file_ambiguity(
+        current, file_operation_hint=file_operation_hint,
+        protected_relation=protected_relation, file_refs=file_refs)
+    offered_goals = set(_offered_goal_ids(current))
+
+    target_ids = _text_list("target_goal_ids", row["target_goal_ids"])
+    if (target_ids is None or len(target_ids) > MAX_TARGET_GOALS
+            or not set(target_ids) <= offered_goals):
+        return None
+    goal_row = row["goal"]
+    goal = None if goal_row is None else _goal_payload(goal_row)
+    if goal_row is not None and goal is None:
+        return None
+    if goal is not None and (_MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(goal)):
+        return None
+
+    clarification_row = row["clarification"]
+    if not isinstance(clarification_row, Mapping) or set(clarification_row) - set(CLARIFICATION_KEYS):
+        return None
+    required = clarification_row.get("required")
+    question = clarification_row.get("question")
+    reason_code = clarification_row.get("reason_code")
+    if not isinstance(required, bool) or required != (operation == "clarify"):
+        return None
+    if required:
+        if (not isinstance(question, str) or not question.strip() or len(question) > 600
+                or "\x00" in question or not isinstance(reason_code, str)
+                or _REASON_CODE.fullmatch(reason_code) is None):
+            return None
+    elif question is not None or reason_code is not None:
+        return None
+
+    action_rows = row["actions"]
+    if not isinstance(action_rows, list) or not _action_count_matches(
+            operation, action_rows, goal, target_ids):
+        return None
+
+    actions: list[ProposedAction] = []
+    grounded_references: list[Any] = []
+    seen_ids: set[str] = set()
+    for index, item in enumerate(action_rows):
+        if not isinstance(item, Mapping) or set(item) - set(ACTION_KEYS):
+            return None
+        action_id = item.get("action_id")
+        capability_id = item.get("capability_id")
+        supplied = item.get("arguments")
+        slots = _text_list("reference_slots", item.get("reference_slots"))
+        depends_on = _text_list("depends_on", item.get("depends_on"))
+        if (not isinstance(action_id, str) or action_id != f"a{index + 1}" or action_id in seen_ids
+                or not isinstance(capability_id, str) or capability_id not in CORE_INTENTS
+                or slots is None or depends_on is None or not set(slots) <= set(by_slot)
+                or not set(depends_on) <= seen_ids):
+            return None
+        if not isinstance(supplied, Mapping):
+            return None
+        try:
+            _reject_authority_argument_keys(supplied)
+            frozen = _freeze_json(supplied)
+        except ValueError:
+            return None
+        if _MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(frozen):
+            return None
+        resolved = _action_arguments(
+            capability_id=capability_id, supplied=dict(frozen), text=text,
+            deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
+            slot_labels=slot_labels, current=current,
+            resolving_file_ambiguity=resolving_file_ambiguity,
+            file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
+        if resolved is None or core_plan(capability_id, resolved[0]) is None:
+            return None
+        arguments, references = resolved
+        if any(reference.owner != owner for reference in references):
+            return None
+        grounded_references.extend(references)
+        seen_ids.add(action_id)
+        actions.append(ProposedAction(
+            action_id=action_id, capability_id=capability_id, arguments=_freeze_json(arguments),
+            reference_slots=slots, depends_on=depends_on))
+
+    proposed = UnderstandingProposal(
+        operation=operation,
+        conversation_relation=relation,
+        temporal_need=temporal_need,
+        confidence=confidence,
+        actions=tuple(actions),
+        target_goal_ids=target_ids,
+        goal=goal,
+        clarification_required=required,
+        clarification_reason_code=reason_code if required else None,
+        references=tuple(grounded_references),
+    )
+    return _apply_semantic_fences(
+        proposed, current, protected_relation=protected_relation,
+        resolving_file_ambiguity=resolving_file_ambiguity,
+        has_grounded_reference=bool(grounded_references))
+
+
+def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
+                           protected_relation: bool, resolving_file_ambiguity: bool,
+                           has_grounded_reference: bool) -> UnderstandingProposal | None:
+    if proposed.conversation_relation not in {current.conversation_relation,
+                                              ConversationRelation.NEW_REQUEST}:
+        return None
+    # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
+    # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
+    if protected_relation:
+        if proposed.operation not in ADOPTED_OPERATIONS:
+            return None
+        if proposed.conversation_relation is not current.conversation_relation:
+            return None
+        if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
+            return None
+    # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
+    if bool(getattr(current, "needs_input", False)) and not (
+            resolving_file_ambiguity and has_grounded_reference):
+        return None
+    if proposed.operation == "direct_action" and proposed.confidence is Confidence.LOW \
+            and not resolving_file_ambiguity:
+        return None
+    if resolving_file_ambiguity and not has_grounded_reference:
+        return None
+    # Deterministik kanıtın üzerinde güven üretilmez; belirsizlik çözümü LOW'u MEDIUM'a çekebilir.
+    if _CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]:
+        if not resolving_file_ambiguity:
+            return None
+        proposed = UnderstandingProposal(
+            operation=proposed.operation,
+            conversation_relation=proposed.conversation_relation,
+            temporal_need=proposed.temporal_need,
+            confidence=Confidence.MEDIUM,
+            actions=proposed.actions,
+            target_goal_ids=proposed.target_goal_ids,
+            goal=proposed.goal,
+            clarification_required=proposed.clarification_required,
+            clarification_reason_code=proposed.clarification_reason_code,
+            references=proposed.references,
+        )
+    return proposed
+
+
+def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
+            protected_relation: bool = False,
+            file_operation_hint: str | None = None) -> UnderstandingProposal | None:
+    """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
+
+    Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
+    kimliği, yol, hesap, alıcı, jeton veya onay asla modelden gelmez; her alan Core'un kendi
+    doğrulayıcısından geçmeden öneri sayılmaz.
     """
     if not owner or not isinstance(text, str) or not text.strip():
         return None
@@ -122,7 +527,7 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
         if llm.current_user() != owner:
             return None
         selected = llm.provider()
-        # Explicit paid/local selections are not silently overridden or used by Brain.
+        # Açıkça seçilmiş ücretli/yerel rotalar Brain tarafından kullanılmaz veya sessiz geçilmez.
         if selected in _PAID or selected in _LOCAL or llm.privacy.mode() == "yerel":
             return None
         route = provider_privacy.ROUTE_PRIVATE_GENERAL
@@ -131,40 +536,9 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             return None
 
         from modules.brain_core_map import CORE_INTENTS
-        allowed_hints = sorted(CORE_INTENTS)
-        file_refs = [ref for ref in current.references if getattr(ref, "kind", None) == "file"]
-        current_ambiguities = tuple(getattr(current, "ambiguities", ()))
-        resolving_file_ambiguity = bool(
-            getattr(current, "needs_input", False)
-            and current_ambiguities == ("multiple target references",)
-            and current.capability_hint == "files.read"
-            and file_operation_hint in {"summarize", "analyze", "locate"}
-            and current.conversation_relation is ConversationRelation.NEW_REQUEST
-            and current.pending_owner is None
-            and not protected_relation
-            and len(file_refs) >= 2
-        )
-        file_slots = []
-        slot_refs = []
-        slot_labels: dict[str, tuple[str, str]] = {}
-        for reference in file_refs:
-            path_value = reference.provenance.get("path")
-            if not isinstance(path_value, str) or not path_value.strip():
-                continue
-            name_value = reference.provenance.get("name")
-            if not isinstance(name_value, str) or not name_value.strip():
-                name_value = ntpath.basename(path_value)
-            parent_parts = [part for part in ntpath.dirname(path_value).replace("/", "\\").split("\\") if part]
-            folder_value = " / ".join(parent_parts[-2:])
-            slot = f"file_{len(slot_refs)}"
-            file_slots.append({
-                "slot": slot,
-                "name": name_value[:180],
-                "folder": folder_value[:100],
-            })
-            slot_refs.append((slot, reference))
-            slot_labels[slot] = (name_value.casefold().strip(), folder_value.casefold().strip())
+        slot_rows, _, _ = _file_slots(current)
         prompt = json.dumps({
+            "schema": SCHEMA_VERSION,
             "utterance": text[:2000],
             "current": {
                 "request_kind": current.request_kind.value,
@@ -172,34 +546,39 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
                 "temporal_need": current.temporal_need.value,
                 "capability_hint": current.capability_hint,
                 "needs_input": bool(getattr(current, "needs_input", False)),
-                "ambiguities": list(current_ambiguities),
+                "ambiguities": list(getattr(current, "ambiguities", ())),
                 "file_operation_hint": file_operation_hint,
             },
             "allowed": {
-                "request_kind": [
-                    RequestKind.CHAT.value, RequestKind.CAPABILITY.value,
-                    RequestKind.CLARIFY.value, RequestKind.CONTEXT_CONTROL.value,
-                ],
+                "operation": sorted(OPERATIONS),
+                "capability_id": sorted(CORE_INTENTS),
                 "conversation_relation": [item.value for item in ConversationRelation],
                 "temporal_need": [item.value for item in TemporalNeed],
-                "capability_hint": allowed_hints,
-                "file_operation": ["open", "summarize", "analyze", "locate", "list", "compare"],
+                "file_operation": list(_FILE_OPERATIONS),
+                "argument_schema": {name: _supplied_schema(name) for name in sorted(CORE_INTENTS)},
             },
-            "file_candidates": file_slots,
+            "file_candidates": slot_rows,
+            "goal_candidates": list(_offered_goal_ids(current)),
         }, ensure_ascii=False)
         system = (
-            "You are a semantic proposal component, not an agent. Return exactly one JSON object "
-            "with keys request_kind, conversation_relation, temporal_need, capability_hint, confidence, "
-            "file_operation, file_slots. file_slots may contain only supplied slot labels. You may propose "
-            "files.read only with one valid file slot for summarize/analyze/locate, 2-10 slots for "
-            "compare, or no slots for list. Do not output arguments, paths, filenames, recipients, "
-            "references, approvals, permissions, or execution claims. For other capabilities keep the "
-            "current capability and never invent arguments. If current.needs_input is true, preserve "
-            "CLARIFY unless the only ambiguity is multiple target references and one supplied file "
-            "candidate is clearly identified by the utterance using its name/folder. In that case, use "
-            "exactly file_operation_hint and one slot. If candidates cannot be distinguished, return "
-            "CLARIFY with no slots; never guess. For an ambiguous file target do not downgrade to CHAT. "
-            "Core revalidates."
+            "You are the primary semantic decider, not an agent. Return exactly one JSON object "
+            f"named {SCHEMA_VERSION} with keys schema_version, operation, conversation_relation, "
+            "temporal_need, target_goal_ids, goal, actions, clarification, confidence. Choose "
+            "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
+            "revise_goal, add_task, pause_goal, resume_goal, cancel_goal, prioritize_goal, clarify. "
+            "Each actions entry carries only action_id, capability_id, arguments, reference_slots, "
+            "depends_on with action_id a1, a2 in order; chat, clarify and goal operations carry no "
+            "action, direct_action exactly one, action_batch two to five. capability_id must be one "
+            "of allowed.capability_id. Write no file path, folder, account, recipient, token, "
+            "credential, approval id or permission claim: for files.read select only supplied "
+            "file_candidates slots (one for open/summarize/analyze/locate, two to ten for compare, "
+            "none for list) and put only the operation in arguments. Simple semantic values the "
+            "schema allows are yours to fill: query, city, number, closed action enum. A question, "
+            "negation or comment about the world is chat, not an action. If the target cannot be "
+            "decided choose clarify with a required reason_code and never guess. If "
+            "current.needs_input is true keep it unless the only ambiguity is multiple target "
+            "references and one supplied file candidate is clearly named by the utterance. Core "
+            "revalidates every field."
         )
         deadline = time.monotonic() + 12.0
 
@@ -207,156 +586,23 @@ def refine(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             requests_state.check()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise requests_state.Cancelled("Brain model refinement budget expired.")
+                raise requests_state.Cancelled("Brain model understanding budget expired.")
             return llm._send_provider(provider, prompt, system, remaining, None)
 
         with requests_state.budget(12):
-            # Smart Router remains the only provider selector. This call narrows its
-            # eligible pool to cloud providers and explicitly excludes local fallback.
+            # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.
             raw = smart_router.run(
                 owner, prompt + "\\n" + system, send, route=route,
                 exclude_providers={"ollama"},
             )
             requests_state.check()
-        row = _decode(raw)
-        proposed_kind = RequestKind(row["request_kind"])
-        proposed_hint = row["capability_hint"]
-        operation = row["file_operation"]
-        slots = row["file_slots"]
-        if not isinstance(slots, list) or any(not isinstance(slot, str) for slot in slots):
-            return None
-        proposed_arguments = None
-        resolved_references: tuple[Any, ...] = ()
-        if proposed_hint == "files.read":
-            if operation not in {"open", "summarize", "analyze", "locate", "list", "compare"}:
-                return None
-            current_operation = current.arguments.get("operation")
-            if current_operation is None and resolving_file_ambiguity:
-                current_operation = file_operation_hint
-            if current.capability_hint == "files.read" and current_operation != operation:
-                return None
-            by_slot = dict(slot_refs)
-            if len(set(slots)) != len(slots) or any(slot not in by_slot for slot in slots):
-                return None
-            if operation == "list":
-                if slots or current.capability_hint != "files.read":
-                    return None
-                proposed_arguments = {"original_text": text, "operation": "list"}
-            elif operation == "compare":
-                if not 2 <= len(slots) <= 10:
-                    return None
-                proposed_arguments = {
-                    "original_text": text,
-                    "operation": "compare",
-                    "paths": [by_slot[slot].provenance.get("path") for slot in slots],
-                }
-            else:
-                if len(slots) != 1:
-                    return None
-                proposed_arguments = {
-                    "original_text": text,
-                    "operation": operation,
-                    "path": by_slot[slots[0]].provenance.get("path"),
-                }
-            if not all(isinstance(value, str) and value.strip() for value in (
-                    proposed_arguments.get("path"),) if "path" in proposed_arguments):
-                return None
-            if "paths" in proposed_arguments and any(not isinstance(value, str) or not value.strip()
-                                                       for value in proposed_arguments["paths"]):
-                return None
-            if current.capability_hint == "files.read":
-                current_path = current.arguments.get("path")
-                current_paths = current.arguments.get("paths")
-                if current_path is not None and proposed_arguments.get("path") != current_path:
-                    return None
-                if current_paths is not None and proposed_arguments.get("paths") != list(current_paths):
-                    return None
-            if resolving_file_ambiguity:
-                if operation != file_operation_hint or len(slots) != 1:
-                    return None
-                selected_slot = slots[0]
-                selected_label = slot_labels.get(selected_slot)
-                if selected_label is None or not selected_label[0]:
-                    return None
-                if sum(1 for label in slot_labels.values() if label == selected_label) != 1:
-                    return None
-                selected_reference = dict(slot_refs).get(selected_slot)
-                if selected_reference is None or selected_reference.owner != owner:
-                    return None
-                if not _selected_file_candidate_is_grounded(text, selected_reference, file_refs):
-                    return None
-                resolved_references = (selected_reference,)
-        elif operation is not None or slots:
-            return None
-        proposed = SemanticRefinement(
-            request_kind=proposed_kind,
-            conversation_relation=ConversationRelation(row["conversation_relation"]),
-            temporal_need=TemporalNeed(row["temporal_need"]),
-            capability_hint=proposed_hint,
-            confidence=Confidence(row["confidence"]),
-            arguments=proposed_arguments,
-            references=resolved_references,
-        )
-        if proposed.request_kind in {RequestKind.CLARIFY, RequestKind.CONTEXT_CONTROL}:
-            return None
-        if proposed.request_kind not in {RequestKind.CHAT, RequestKind.CAPABILITY}:
-            return None
-        # An unresolved target may be cleared only by the bounded, owner-bound,
-        # read-only file-reference resolution above. The model cannot relabel it as CHAT.
-        if bool(getattr(current, "needs_input", False)) and not resolving_file_ambiguity:
-            return None
-        if resolving_file_ambiguity and not resolved_references:
-            return None
-        if proposed.capability_hint is not None and proposed.capability_hint not in CORE_INTENTS:
-            return None
-        # A model may not rewrite an owner-bound pending answer, correction, topic change,
-        # or active continuation established by the canonical deterministic evidence.
-        if protected_relation and proposed.conversation_relation is not current.conversation_relation:
-            return None
-        if proposed.conversation_relation not in {current.conversation_relation, ConversationRelation.NEW_REQUEST}:
-            return None
-        # Protected continuations/context controls cannot be reclassified by the optional model.
-        if protected_relation and proposed.request_kind is not current.request_kind:
-            return None
-        # The model cannot upgrade a chat into an executable capability unless Core accepts
-        # the unchanged, deterministic argument payload for that exact capability.
-        if proposed.request_kind is RequestKind.CAPABILITY:
-            if (proposed.confidence is Confidence.LOW and not resolving_file_ambiguity) or proposed.capability_hint is None:
-                return None
-            if current.capability_hint is not None and proposed.capability_hint != current.capability_hint:
-                return None
-            if current.capability_hint is None and not (
-                proposed.capability_hint == "files.read"
-                and current.request_kind in {RequestKind.CHAT, RequestKind.CAPABILITY}
-                and any(getattr(reference, "kind", None) == "file" for reference in current.references)
-            ):
-                return None
-            from modules.brain_core_map import core_plan
-            candidate_arguments = proposed.arguments if proposed.arguments is not None else arguments
-            if core_plan(proposed.capability_hint, candidate_arguments) is None:
-                return None
-        elif proposed.capability_hint is not None or proposed.arguments is not None:
-            return None
-        # Never upgrade confidence beyond the deterministic proposal.
-        rank = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
-        if rank[proposed.confidence] > rank[current.confidence]:
-            if not resolving_file_ambiguity:
-                return None
-            # Resolving the exact target ambiguity can raise LOW only to conservative MEDIUM.
-            proposed = SemanticRefinement(
-                request_kind=proposed.request_kind,
-                conversation_relation=proposed.conversation_relation,
-                temporal_need=proposed.temporal_need,
-                capability_hint=proposed.capability_hint,
-                confidence=Confidence.MEDIUM,
-                arguments=proposed.arguments,
-                references=proposed.references,
-            )
-        return proposed
+        return _build(
+            _decode(raw), owner=owner, text=text, current=current,
+            deterministic_arguments=arguments, protected_relation=protected_relation,
+            file_operation_hint=file_operation_hint)
     except Exception as exc:
-        _record_failure("modules/brain_model_understanding.py:refine")
-        # User cancellation must propagate to the request boundary; all other optional-model
-        # failures leave the deterministic proposal unchanged.
+        _record_failure("modules/brain_model_understanding.py:propose")
+        # Kullanıcı iptali istek sınırına kadar taşınır; diğer her hata deterministik kararı korur.
         from modules import requests_state
         if isinstance(exc, requests_state.Cancelled):
             raise

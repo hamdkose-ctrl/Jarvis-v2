@@ -944,24 +944,29 @@ class BrainModelIntegrationTests(unittest.TestCase):
         source = ref("file:rapor", "file", path="C:/Users/hamdi/Documents/rapor.pdf", name="rapor.pdf")
         result = self.call("rapor dosyasını özetle", candidates=(source,), references=(source,))
         with patch(
-            "modules.brain_model_understanding.refine",
+            "modules.brain_model_understanding.propose",
             side_effect=requests_state.Cancelled("cancelled"),
         ):
             with self.assertRaises(requests_state.Cancelled):
-                from modules.brain_understanding import apply_model_refinement
-                apply_model_refinement(result, "rapor dosyasını özetle")
+                from modules.brain_understanding import apply_model_understanding
+                apply_model_understanding(result, "rapor dosyasını özetle")
 
     def test_model_file_proposal_is_wired_into_canonical_understanding(self):
-        from modules.brain_model_understanding import SemanticRefinement
+        from modules.brain_model_understanding import ProposedAction, UnderstandingProposal
         source = ref('file:rapor', 'file', path='C:/Users/hamdi/Documents/rapor.pdf', name='rapor.pdf')
-        proposal = SemanticRefinement(RequestKind.CAPABILITY, ConversationRelation.NEW_REQUEST,
-                                      TemporalNeed.UNSURE, 'files.read', Confidence.LOW,
-                                      {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
-                                       'path': 'C:/Users/hamdi/Documents/rapor.pdf'})
+        proposal = UnderstandingProposal(
+            operation='direct_action',
+            conversation_relation=ConversationRelation.NEW_REQUEST,
+            temporal_need=TemporalNeed.UNSURE,
+            confidence=Confidence.MEDIUM,
+            actions=(ProposedAction('a1', 'files.read',
+                                    {'original_text': 'şu raporu bir incele', 'operation': 'analyze',
+                                     'path': 'C:/Users/hamdi/Documents/rapor.pdf'}, (), ()),),
+        )
         result = self.call('şu raporu bir incele', candidates=(source,), references=(source,))
-        with patch('modules.brain_model_understanding.refine', return_value=proposal):
-            from modules.brain_understanding import apply_model_refinement
-            result = apply_model_refinement(result, 'şu raporu bir incele')
+        with patch('modules.brain_model_understanding.propose', return_value=proposal):
+            from modules.brain_understanding import apply_model_understanding
+            result = apply_model_understanding(result, 'şu raporu bir incele')
         self.assertIs(result.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(result.capability_hint, 'files.read')
         self.assertEqual(result.arguments['operation'], 'analyze')

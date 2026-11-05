@@ -24,7 +24,7 @@ def _live_command(runtime, text: str, *, _pre_registered_rid: str | None = None,
             runtime._session().speech_override = None
             entry = brain_entry.prepare(
                 runtime, owner=owner, request_id=rid, text=text, source="ses",
-                model_refinement=True,
+                model_understanding=True,
             )
             from modules import brain_echo
             brain_echo.present(runtime, entry)

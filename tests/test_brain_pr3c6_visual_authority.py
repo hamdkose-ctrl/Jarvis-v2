@@ -15,7 +15,7 @@ from modules.brain_contracts import (
     ActiveContext, Confidence, ConversationRelation, RequestKind, TemporalNeed,
 )
 from modules.brain_core_map import core_plan
-from modules.brain_understanding import VISUAL_CAPABILITY, apply_model_refinement, understand
+from modules.brain_understanding import VISUAL_CAPABILITY, apply_model_understanding, understand
 
 
 OWNER = "hamdi"
@@ -50,19 +50,18 @@ class CanonicalVisualProposalTests(unittest.TestCase):
         self.assertEqual(core_plan(result.capability_hint, result.arguments),
                          ("visual_create", {"kind": "visualize"}))
 
-    def test_optional_model_cannot_downgrade_visual_creation_to_chat(self):
-        from modules.brain_model_understanding import SemanticRefinement
+    def test_primary_model_cannot_downgrade_visual_creation_to_chat(self):
+        from modules.brain_model_understanding import UnderstandingProposal
 
         result = decide("zihin haritası oluştur")
-        proposal = SemanticRefinement(
-            request_kind=RequestKind.CHAT,
+        proposal = UnderstandingProposal(
+            operation="chat",
             conversation_relation=ConversationRelation.NEW_REQUEST,
             temporal_need=TemporalNeed.UNSURE,
-            capability_hint=None,
             confidence=Confidence.MEDIUM,
         )
-        with patch("modules.brain_model_understanding.refine", return_value=proposal):
-            refined = apply_model_refinement(result, "zihin haritası oluştur")
+        with patch("modules.brain_model_understanding.propose", return_value=proposal):
+            refined = apply_model_understanding(result, "zihin haritası oluştur")
         self.assertIs(refined, result)
         self.assertEqual(refined.capability_hint, VISUAL_CAPABILITY)
         self.assertIs(refined.request_kind, RequestKind.CAPABILITY)

@@ -1,3 +1,9 @@
+"""BRAIN-01: birincil model zarfının sınırları (ücretsiz rota, tek çağrı, Core yeniden doğrulama).
+
+Zarf biçimi ``brain-understanding.v2``dir; eski "yalnız tipli alan cilalama" sözleşmesi
+BRAIN-01'de kaldırıldığı için bu dosyadaki beklentiler modelin karar üretebildiğini,
+yetkinin ise Core'da kaldığını birlikte doğrular.
+"""
 from __future__ import annotations
 
 import json
@@ -28,18 +34,36 @@ def current(**changes):
     return UnderstandingResult(**values)
 
 
+def action(capability_id, arguments=None, slots=None, *, action_id="a1"):
+    return {
+        "action_id": action_id,
+        "capability_id": capability_id,
+        "arguments": arguments or {},
+        "reference_slots": slots or [],
+        "depends_on": [],
+    }
+
+
 def answer(**changes):
     values = {
-        "request_kind": "CHAT",
+        "schema_version": model.SCHEMA_VERSION,
+        "operation": "chat",
         "conversation_relation": "NEW_REQUEST",
         "temporal_need": "STATIC",
-        "capability_hint": None,
+        "target_goal_ids": [],
+        "goal": None,
+        "actions": [],
+        "clarification": {"required": False, "question": None, "reason_code": None},
         "confidence": "LOW",
-        "file_operation": None,
-        "file_slots": [],
     }
     values.update(changes)
     return json.dumps(values)
+
+
+def direct(capability_id, arguments=None, slots=None, **changes):
+    changes.setdefault("confidence", "MEDIUM")
+    return answer(operation="direct_action",
+                  actions=[action(capability_id, arguments, slots)], **changes)
 
 
 class BrainModelUnderstandingTests(unittest.TestCase):
@@ -55,101 +79,85 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}),
         )
 
-    def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
+    def ask(self, raw, text="rapor dosyasını özetle", *, active=None, args=None, **kwargs):
+        active = current() if active is None else active
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=answer()):
-            result = model.refine(
-                owner=OWNER, text="rapor dosyasını özetle", current=current(),
-                arguments=current().arguments,
-            )
+        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
+            return model.propose(owner=OWNER, text=text, current=active,
+                                 arguments=(active.arguments if args is None else args), **kwargs)
+
+    def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
+        result = self.ask(answer())
         self.assertIsNotNone(result)
-        self.assertIs(result.request_kind, RequestKind.CHAT)
+        self.assertEqual(result.operation, "chat")
         self.assertIs(result.temporal_need, TemporalNeed.STATIC)
 
     def test_owner_mismatch_never_uses_another_profiles_provider_key(self):
         with patch("modules.llm.current_user", return_value="other"), \
                 patch("modules.smart_router.run") as run:
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+            result = model.propose(owner=OWNER, text="rapor", current=current(),
+                                   arguments=current().arguments)
         self.assertIsNone(result)
         run.assert_not_called()
 
-    def test_paid_provider_is_never_used_by_brain_refinement(self):
+    def test_paid_provider_is_never_used_by_brain_understanding(self):
         with patch("modules.llm.provider", return_value="openai"), patch("modules.smart_router.run") as ask:
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+            result = model.propose(owner=OWNER, text="rapor", current=current(),
+                                   arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_local_ollama_is_not_silently_started_or_selected(self):
         with patch("modules.llm.provider", return_value="ollama"), patch("modules.smart_router.run") as ask:
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+            result = model.propose(owner=OWNER, text="rapor", current=current(),
+                                   arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_no_verified_free_provider_means_no_model_call(self):
         p1, p2, _ = self.eligible()
-        with p1, p2, patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}), patch("modules.smart_router.run") as ask:
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+        with p1, p2, patch("modules.smart_router.selection", return_value={"candidates": ["ollama"]}), \
+                patch("modules.smart_router.run") as ask:
+            result = model.propose(owner=OWNER, text="rapor", current=current(),
+                                   arguments=current().arguments)
         self.assertIsNone(result)
         ask.assert_not_called()
 
     def test_unknown_capability_is_rejected(self):
-        p1, p2, p3 = self.eligible()
-        raw = answer(request_kind="CAPABILITY", capability_hint="shell.execute", confidence="LOW")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="çalıştır", current=current(), arguments=current().arguments)
-        self.assertIsNone(result)
+        self.assertIsNone(self.ask(direct("shell.execute", {"cmd": "dir"})))
 
     def test_capability_requires_independent_core_argument_validation(self):
-        p1, p2, p3 = self.eligible()
-        raw = answer(request_kind="CAPABILITY", capability_hint="files.read", confidence="LOW")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments={"execute": True})
-        self.assertIsNone(result)
+        self.assertIsNone(self.ask(direct("files.read"), args={"execute": True}))
 
     def test_model_cannot_upgrade_confidence_or_rewrite_pending_relation(self):
-        p1, p2, p3 = self.eligible()
-        raw = answer(confidence="HIGH")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
-        self.assertIsNone(result)
+        self.assertIsNone(self.ask(answer(confidence="HIGH")))
 
-        pending = current(
-            conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
-        )
-        raw = answer(conversation_relation="NEW_REQUEST")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="İstanbul", current=pending, arguments=pending.arguments,
-                                  protected_relation=True)
-        self.assertIsNone(result)
+        pending = current(conversation_relation=ConversationRelation.ANSWER_TO_PENDING)
+        self.assertIsNone(self.ask(answer(conversation_relation="NEW_REQUEST"),
+                                   active=pending, args=pending.arguments, protected_relation=True))
 
     def test_malformed_json_fails_closed(self):
-        p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", return_value="not json"):
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
-        self.assertIsNone(result)
-
+        self.assertIsNone(self.ask("not json"))
 
     def test_request_cancellation_propagates_instead_of_becoming_chat_fallback(self):
         from modules import requests_state
         p1, p2, p3 = self.eligible()
-        with p1, p2, p3, patch("modules.smart_router.run", side_effect=requests_state.Cancelled("cancelled")):
+        with p1, p2, p3, patch("modules.smart_router.run",
+                               side_effect=requests_state.Cancelled("cancelled")):
             with self.assertRaises(requests_state.Cancelled):
-                model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+                model.propose(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
 
     def test_model_timeout_fails_closed_without_changing_existing_proposal(self):
         p1, p2, p3 = self.eligible()
         with p1, p2, p3, patch("modules.smart_router.run", side_effect=TimeoutError("late")):
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
+            result = model.propose(owner=OWNER, text="rapor", current=current(),
+                                   arguments=current().arguments)
         self.assertIsNone(result)
-
 
     def test_model_cannot_create_a_clarification_without_a_typed_reason(self):
-        p1, p2, p3 = self.eligible()
-        raw = answer(request_kind="CLARIFY", capability_hint=None)
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="rapor", current=current(), arguments=current().arguments)
-        self.assertIsNone(result)
-
+        raw = answer(operation="clarify", confidence="MEDIUM",
+                     clarification={"required": True, "question": "Hangisini?", "reason_code": None})
+        self.assertIsNone(self.ask(raw))
 
     def test_model_maps_file_operation_only_through_supplied_reference_slot(self):
         from modules.brain_contracts import ContextReference
@@ -164,23 +172,20 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             arguments={"original_text": "şu raporu bir incele"},
             references=(file_ref,),
         )
-        p1, p2, p3 = self.eligible()
-        raw = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                     file_operation="analyze", file_slots=["file_0"], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw), \
-                patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
-            result = model.refine(owner=OWNER, text="şu raporu bir incele", current=active,
-                                  arguments=active.arguments)
+        raw = direct("files.read", {"operation": "analyze"}, ["file_0"])
+        with patch("modules.brain_core_map._validated_file_path", side_effect=lambda value: value):
+            result = self.ask(raw, text="şu raporu bir incele", active=active)
             self.assertIsNotNone(result)
-            self.assertEqual(result.capability_hint, "files.read")
-            self.assertEqual(result.arguments, {
+            self.assertEqual(result.actions[0].capability_id, "files.read")
+            self.assertEqual(dict(result.actions[0].arguments), {
                 "original_text": "şu raporu bir incele",
                 "operation": "analyze",
                 "path": "C:/Users/hamdi/Documents/rapor.pdf",
             })
-            self.assertEqual(core_plan(result.capability_hint, result.arguments),
-                             ("file_action", {"operation": "analyze",
-                                              "path": "C:/Users/hamdi/Documents/rapor.pdf"}))
+            self.assertEqual(
+                core_plan(result.actions[0].capability_id, result.actions[0].arguments),
+                ("file_action", {"operation": "analyze",
+                                 "path": "C:/Users/hamdi/Documents/rapor.pdf"}))
 
     def test_model_cannot_invent_file_slot_or_path(self):
         from modules.brain_contracts import ContextReference
@@ -190,29 +195,19 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         )
         active = current(request_kind=RequestKind.CHAT, capability_hint=None,
                          arguments={"original_text": "şu raporu incele"}, references=(file_ref,))
-        p1, p2, p3 = self.eligible()
-        unknown_slot = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                              file_operation="analyze", file_slots=["file_9"], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=unknown_slot):
-            self.assertIsNone(model.refine(owner=OWNER, text="şu raporu incele", current=active,
-                                           arguments=active.arguments))
-        invented_path = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                               file_operation="analyze", file_slots=["file_0"], path="C:/secret.txt")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=invented_path):
-            self.assertIsNone(model.refine(owner=OWNER, text="şu raporu incele", current=active,
-                                           arguments=active.arguments))
+        self.assertIsNone(self.ask(direct("files.read", {"operation": "analyze"}, ["file_9"]),
+                                   text="şu raporu incele", active=active))
+        self.assertIsNone(self.ask(
+            direct("files.read", {"operation": "analyze", "path": "C:/secret.txt"}, ["file_0"]),
+            text="şu raporu incele", active=active))
 
-
-    def test_model_cannot_switch_a_current_capability_to_another_domain(self):
-        p1, p2, p3 = self.eligible()
+    def test_model_can_move_an_established_capability_to_another_domain(self):
+        """BRAIN-01: `current.capability_hint` öneri ön koşulu değildir; Core argümanı doğrular."""
         active = current(capability_hint="notes.read", arguments={"original_text": "notları göster"})
-        raw = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                     file_operation="list", file_slots=[], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
-            result = model.refine(owner=OWNER, text="notları göster", current=active,
-                                  arguments=active.arguments)
-        self.assertIsNone(result)
-
+        result = self.ask(direct("pc.level.set", {"property": "volume", "level": 40}),
+                          text="notları göster", active=active)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actions[0].capability_id, "pc.level.set")
 
     def test_model_cannot_change_deterministic_file_operation_or_target(self):
         from modules.brain_contracts import ContextReference
@@ -230,28 +225,21 @@ class BrainModelUnderstandingTests(unittest.TestCase):
                        "path": "C:/Users/hamdi/Documents/rapor.pdf"},
             references=(first, second),
         )
-        p1, p2, p3 = self.eligible()
-        changed_operation = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                                  file_operation="analyze", file_slots=["file_0"], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=changed_operation):
-            self.assertIsNone(model.refine(owner=OWNER, text="rapor dosyasını özetle", current=active,
-                                           arguments=active.arguments))
-        wrong_target = answer(request_kind="CAPABILITY", capability_hint="files.read",
-                              file_operation="summarize", file_slots=["file_1"], confidence="MEDIUM")
-        with p1, p2, p3, patch("modules.smart_router.run", return_value=wrong_target):
-            self.assertIsNone(model.refine(owner=OWNER, text="rapor dosyasını özetle", current=active,
-                                           arguments=active.arguments))
+        self.assertIsNone(self.ask(direct("files.read", {"operation": "analyze"}, ["file_0"]),
+                                   active=active))
+        self.assertIsNone(self.ask(direct("files.read", {"operation": "summarize"}, ["file_1"]),
+                                   active=active))
 
+    def test_model_understanding_transport_timeout_is_bounded(self):
+        raw = answer(confidence="MEDIUM")
 
-    def test_model_refinement_transport_timeout_is_bounded(self):
-        p1, p2, p3 = self.eligible()
-        raw = answer(request_kind="CHAT", capability_hint=None, confidence="MEDIUM")
         def through_router(owner, prompt, callback, **kwargs):
             return callback("groq")
+        p1, p2, p3 = self.eligible()
         with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
                 patch("modules.llm._send_provider", return_value=raw) as send:
-            result = model.refine(owner=OWNER, text="rapor dosyasını özetle",
-                                  current=current(), arguments=current().arguments)
+            result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
+                                   current=current(), arguments=current().arguments)
         self.assertIsNotNone(result)
         self.assertGreater(send.call_args.args[3], 0)
         self.assertLessEqual(send.call_args.args[3], 12)
