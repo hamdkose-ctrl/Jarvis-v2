@@ -1556,15 +1556,16 @@ WEATHER_CITY_RESET_CAPABILITY = "weather.city.reset"
 # ("kural ekle: şehrimi sil" → ölçülen BLOCKER). Dolgu kümesi kapalıdır, kelime taraması değildir.
 _CITY_SET_LEADS = ("şehrim", "konumum", "yaşadığım şehir")
 _CITY_RESET_LEADS = ("şehrimi", "konumumu")
-_CITY_RESET_VERBS = ("sıfırla", "sil", "unut", "temizle")
+_CITY_RESET_VERBS = ("sil", "sıfırla", "unut", "temizle")
+# Sözcükleri ayrı soymak koşullu "rica edersem" cümlesini emir haline getirir.
+_CITY_RESET_PREFIXES = (("haydi",), ("hadi",), ("rica", "etsem"), ("ne", "olur"))
+_CITY_RESET_CONJUGATED = frozenset({"siler", "sıfırlar", "unutur", "temizler",
+                                    "silebilir", "sıfırlayabilir", "unutabilir", "temizleyebilir"})
+_CITY_RESET_AUXILIARIES = frozenset({"misin", "mısın", "musun", "misiniz", "mısınız", "musunuz"})
 _CITY_FILLERS = frozenset({"jarvis", "hey", "lütfen"})
 _CITY_COPULAS = frozenset({"olsun", "olur"})
-# Boşluklu yazılan geniş zaman eki: taban kalıbı `\s*(?:olsun|dır|dir)?$` idi, yani boşluklu
-# "İzmir dir"i DÜŞÜRÜYORDU ve pref "İzmir" oluyordu. Ekleri yalnız kesme işaretli saymak bu
-# doğru biçimi bozup "İzmir Dir" yazdırdı (denetimde ölçülen BLOCKER). Küme kapalıdır ve Türkçe
-# şehir adlarının hiçbiri bu biçimlerden biri değildir; BİRLEŞİK yazım ("Boludur", "Burdur")
-# adın parçası kalmaya devam eder — ayrım kesme işaretinde, kelime sınırındadır.
-_CITY_SPACED_COPULAS = _CITY_COPULAS | frozenset({"dır", "dir", "dur", "tur", "tır", "tir"})
+_CITY_SPACED_COPULAS = _CITY_COPULAS | frozenset({"dır", "dir", "dur", "tur", "tır", "tir", "oldu"})
+_CITY_SPACED_LOCATIVES = frozenset({"de", "da", "ta", "te"})
 # Kesme işaretli çekim ekleri ("İzmir'dir", "İzmir'de") ad gövdesinden ayrılır. Birleşik
 # yazımda kesme yoktur; bu yüzden ek YALNIZ kesme işaretli biçimde düşülür. Aksi kural
 # "Burdur"u "Bur"a çevirirdi ve tabanın "şehrim Iğdır"ı reddetmesi böyle oluyordu (ölçülen kusur).
@@ -1577,9 +1578,12 @@ _CITY_MAX_NAME_WORDS = 3
 _CITY_FUNCTION_WORDS = frozenset({"çok", "sıcak", "soğuk", "güzel", "kötü", "değil", "ve", "ile",
                                   "veya", "ya", "mi", "mı", "bu", "şu", "o", "bir", "daha", "en",
                                   "hiç", "için", "gibi", "acaba", "bugün", "yarın", "dün",
-                                  "burada", "orada", "senin", "onun", "benim"})
+                                  "burada", "orada", "senin", "onun", "benim",
+                                  "değişti", "değişir", "taşındı", "hava", "durumu",
+                                  "değildi", "olmaz", "değilse"})
 _CITY_INTERROGATIVE = frozenset({"ne", "nedir", "nerde", "nerede", "neresi", "nereye",
-                                 "nasıl", "niye", "neden", "kaç", "hangi", "kim"})
+                                 "nasıl", "niye", "neden", "kaç", "hangi", "kim",
+                                 "midir", "mıdır", "mudur", "müdür"})
 # Retire edilen kalıp tembel `(.+?)` + opsiyonel ek grubu yüzünden "şehrim nerede"yi "Nere"ye
 # kırpıyordu; soru hükmü artık gövde üzerinde ve kök kümesiyle verilir.
 _CITY_QUESTION_STEMS = ("ner", "nası", "niy", "niç", "hangi", "kaç", "kim")
@@ -1595,6 +1599,11 @@ def _city_name_tokens(tokens: list[str]) -> list[str]:
     """Kalanı şehir adı dizisine çevirir; kurallardan biri uymazsa boş liste."""
     if tokens and tokens[-1] in _CITY_SPACED_COPULAS:
         tokens = tokens[:-1]
+    if tokens and tokens[-1] in _CITY_SPACED_LOCATIVES:
+        # Ekli bir yüklemden sonraki "de", bulunma eki değil söyleme fiili olabilir.
+        if len(tokens) > 1 and "'" in tokens[-2]:
+            return []
+        tokens = tokens[:-1]
     if not 1 <= len(tokens) <= _CITY_MAX_NAME_WORDS:
         return []
     name: list[str] = []
@@ -1605,6 +1614,7 @@ def _city_name_tokens(tokens: list[str]) -> list[str]:
         if _CITY_NAME_TOKEN.fullmatch(base) is None:
             return []
         if (base in _CITY_FUNCTION_WORDS or base in _CITY_INTERROGATIVE
+                or base in _CITY_SPACED_COPULAS or base in _CITY_SPACED_LOCATIVES
                 or base.startswith(_CITY_QUESTION_STEMS)
                 or any(base.endswith(suffix) for suffix in _CITY_NON_NAME_SUFFIXES)):
             return []
@@ -1612,11 +1622,21 @@ def _city_name_tokens(tokens: list[str]) -> list[str]:
     return name
 
 
+def _city_reset_tail(tokens: list[str]) -> bool:
+    """Tek buyruk veya çekimli fiil ve soru yardımcı sözcüğü."""
+    if not tokens:
+        return False
+    verb, *rest = tokens
+    if verb in _CITY_RESET_CONJUGATED:
+        return len(rest) == 1 and rest[0] in _CITY_RESET_AUXILIARIES
+    if verb in _CITY_RESET_VERBS:
+        return not rest
+    return False
+
+
 def _city_request(normalized: str) -> tuple[str | None, tuple[str, ...]]:
     """(capability | None, ad tokenleri): şehir tercih cümlesinin tek biçim hükmü."""
     if _is_meta_language(normalized) or _is_literal_command_usage(normalized):
-        return None, ()
-    if normalized.rstrip().endswith("?"):
         return None, ()
     tokens = _city_tokens(normalized)
     while tokens and tokens[0] in _CITY_FILLERS:
@@ -1625,10 +1645,20 @@ def _city_request(normalized: str) -> tuple[str | None, tuple[str, ...]]:
         tokens.pop()
     if not tokens:
         return None, ()
-    if tokens[0] in _CITY_RESET_LEADS:
-        rest = tokens[1:]
-        if len(rest) == 1 and rest[0] in _CITY_RESET_VERBS:
+    reset_tokens = tokens
+    for prefix in _CITY_RESET_PREFIXES:
+        if tuple(tokens[:len(prefix)]) == prefix:
+            reset_tokens = tokens[len(prefix):]
+            break
+    if reset_tokens and reset_tokens[0] in _CITY_RESET_LEADS:
+        tail = reset_tokens[1:]
+        if "?" in normalized and (len(tail) != 2 or re.fullmatch(
+                r"[^?]+\?[\s?!.,;:]*(?:lütfen[\s?!.,;:]*)?", normalized) is None):
+            return None, ()
+        if _city_reset_tail(tail):
             return WEATHER_CITY_RESET_CAPABILITY, ()
+        return None, ()
+    if "?" in normalized:
         return None, ()
     for lead in _CITY_SET_LEADS:
         parts = lead.split()

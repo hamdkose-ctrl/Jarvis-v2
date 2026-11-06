@@ -254,6 +254,60 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
                     brain_core_map.core_plan(self._hint(text), self._arguments(text)),
                     ("city_set", {"location": expected}))
 
+    def test_a_spaced_locative_yields_the_city_the_base_wrote(self):
+        # DENETİM GERİLEMESİ (RED→GREEN): taban kalıbı `(.+?)(?:['’]?(?:da|de|ta|te))?` idi, yani
+        # boşluklu bulunma halini DÜŞÜRÜYORDU. İlk dilim denemesinde bu yoktu ve "şehrim İzmir de"
+        # hiç öneri üretmiyordu — tabanın tanıdığı bir biçimi bozan gerileme, burada RED pinlendi.
+        # Küme kapalıdır (`_CITY_SPACED_LOCATIVES`); kesme işaretli biçim zaten çalışıyordu.
+        for text, expected in (("şehrim İzmir de", "İzmir"), ("konumum İstanbul de", "İstanbul"),
+                               ("şehrim Bolu'da", "Bolu"), ("şehrim İzmir de olsun", "İzmir"),
+                               ("yaşadığım şehir Ankara'da", "Ankara")):
+            with self.subTest(text=text):
+                self.assertEqual(self._hint(text), understanding.WEATHER_CITY_SET_CAPABILITY)
+                self.assertEqual(
+                    brain_core_map.core_plan(self._hint(text), self._arguments(text)),
+                    ("city_set", {"location": expected}))
+
+    def test_a_polite_or_hedged_clear_request_is_still_a_reset(self):
+        # DENETİM GERİLEMESİ (RED→GREEN): taban `(şehrimi|konumumu)\s+(sıfırla|sil|unut)` ankonjenli
+        # `search`ti, yani "haydi şehrimi sil" ve "şehrimi siler misin" de tercihi siliyordu. Tüm-
+        # cümle kuralına geçiş bu biçimleri de düşürdü; kapalı baş-dolgu, fiil ve kibar-yardımcı
+        # kümeleriyle geri alınır — ankonjenlik geri gelmez (aşağıdaki negatif test pinler).
+        for text in ("şehrimi siler misin", "haydi şehrimi sil", "rica etsem konumumu unut",
+                     "şehrimi unutur musun", "hadi konumumu sıfırla", "şehrimi silebilir misin",
+                     "rica etsem şehrimi temizler misin", "haydi şehrimi sil lütfen"):
+            with self.subTest(text=text):
+                self.assertEqual(self._hint(text), understanding.WEATHER_CITY_RESET_CAPABILITY)
+
+    def test_a_hedge_does_not_reopen_the_anconjunct_clear_scan(self):
+        # Kibarlık kümeleri cümlenin BAŞINDA ve SONUNDA dizilir; ortada kalan fiil başka bir sahibin
+        # işidir. Genişleme ankonjen taramaya dönüşürse ölçülen BLOCKER geri gelir — negatif pin.
+        for text in ("kural ekle: haydi şehrimi sil", "yarın şehrimi siler misin",
+                     "telefonumdan konumumu siler misin", "rica etsem şehrimi silmeyi öğret",
+                     "haydi şehrimi silmemi söylüyor", "şehrimi siler misin bak",
+                     "diyor ki şehrimi sil"):
+            with self.subTest(text=text):
+                self.assertNotIn(self._hint(text),
+                                 (understanding.WEATHER_CITY_SET_CAPABILITY,
+                                  understanding.WEATHER_CITY_RESET_CAPABILITY))
+
+    def test_a_predicate_about_the_city_is_never_taken_as_its_name(self):
+        # Taban `(.+?)` yargıyı da adı da olduğu gibi pref'e yazıyordu; ölçülen üç biçim
+        # ("değişti", "oldu", "hava durumu") hâlâ geçiyordu ve denetimde yeniden ölçüldü. Kapalı
+        # kümeler bunları ayıklar: "oldu" ek, "midir" soru, ötekiler işlev sözcüğü.
+        self.assertEqual(brain_core_map.core_plan(
+            self._hint("şehrim Ankara oldu"), self._arguments("şehrim Ankara oldu")),
+            ("city_set", {"location": "Ankara"}))
+        for text in ("şehrim İzmir midir", "şehrim değişti", "şehrim Ankara hava durumu",
+                     "şehrim İstanbul mu", "konumum taşındı"):
+            with self.subTest(text=text):
+                # Ölçülen: "şehrim Ankara hava durumu" artık HAVA okuması önerir (tanıyıcının
+                # kendi sahibi); sözleşme hiçbir tercih yazma önerisi üretmemesidir.
+                self.assertNotIn(self._hint(text),
+                                 (understanding.WEATHER_CITY_SET_CAPABILITY,
+                                  understanding.WEATHER_CITY_RESET_CAPABILITY))
+                self.assertEqual(self._arguments(text), {})
+
     def test_the_proposal_the_brain_makes_is_always_the_one_core_accepts(self):
         # İKİ KATMANLI RED YÜZEYİ KORUMASI: Brain önerir, Core hükmünü bağımsız verir. Brain'in
         # kabul ettiği her biçim Core'da da doğrulanmalıdır; aksi hâlde kullanıcı "güvenli biçimde
@@ -261,8 +315,10 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
         corpus = ["şehrim İzmir", "şehrim İzmir.", "konumum Ankara olsun", "şehrim İzmir'dir",
                   "şehrim İzmir'de", "yaşadığım şehir Muğla", "şehrim Yeni Delhi",
                   "Jarvis, şehrim Uşak", "şehrim Iğdır", "şehrim Şırnak",
-                  "şehrim İzmir dir", "konumum Ankara dır",
-                  "şehrimi sıfırla", "konumumu sil", "şehrimi unut lütfen"]
+                  "şehrim Ordu", "şehrim Burdur", "şehrim Bolu de olsun",
+                  "şehrim İzmir dir", "konumum Ankara dır", "şehrim İzmir de",
+                  "şehrimi sıfırla", "konumumu sil", "şehrimi unut lütfen",
+                  "haydi şehrimi sil", "rica etsem konumumu unut", "şehrimi siler misin"]
         for text in corpus:
             with self.subTest(text=text):
                 normalized = understanding._norm(text)
@@ -295,6 +351,53 @@ class WeatherCityAuthorityHarnessTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(self.ctx.profile.data["prefs"].get("city"), "İzmir")
         self.turn_real("konumum Ankara dır")
         self.assertEqual(self.ctx.profile.data["prefs"].get("city"), "Ankara")
+
+    def test_the_spaced_locative_and_the_polite_clear_reach_the_same_effect(self):
+        # Gerileme kullanıcı görünüründe ölçülür: taban bu iki biçimde tercihi YAZIYORDU/SİLİYORDU;
+        # kanonical zincir de aynı etkiyi üretmeli, yoksa kapı daralmış olur.
+        entry, out, handle, _feedback = self.turn("şehrim İzmir de")
+        self.assertEqual(entry.understanding.capability_hint, understanding.WEATHER_CITY_SET_CAPABILITY)
+        handle.assert_not_called()
+        self.assertEqual(self.turn_real("şehrim İzmir de")[1], SET_REPLY.format(city="İzmir"))
+        self.assertEqual(self.ctx.profile.data["prefs"].get("city"), "İzmir")
+        self.turn_real("konumum Ankara")
+        self.turn_real("haydi şehrimi siler misin")
+        self.assertNotIn("city", self.ctx.profile.data["prefs"])
+
+    def test_conditional_prefixes_never_authorize_a_preference_effect(self):
+        for text in ("rica edersem şehrimi sil", "edersem şehrimi sil",
+                     "rica edersem şehrim İzmir olsun", "ne şehrimi sil",
+                     "rica şehrimi sil", "etsem şehrimi sil", "ne olur şehrim İzmir"):
+            with self.subTest(text=text):
+                self.ctx.profile.set_pref("city", "Ankara")
+                entry, _out, _handle, _feedback = self.turn(text)
+                plan = brain_entry.core_plan(entry)
+                self.assertTrue(plan is None or plan[0] not in {"city_set", "city_reset"})
+                self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
+
+    def test_reported_speech_questions_and_negation_write_no_preference(self):
+        for text in ("şehrim İzmir olsun de", "şehrim İzmir olsun olsun",
+                     "şehrim İzmir'dir de", "şehrim İzmir’dir de", "konumum Ankara'dır de",
+                     "şehrim İzmir?!", "şehrim İzmir? lütfen", "şehrim? İzmir",
+                     "şehrim İzmir değildi", "şehrim İzmir olmaz", "şehrim İzmir değilse"):
+            with self.subTest(text=text):
+                self.ctx.profile.set_pref("city", "Ankara")
+                entry, _out, _handle, _feedback = self.turn(text)
+                plan = brain_entry.core_plan(entry)
+                self.assertTrue(plan is None or plan[0] not in {"city_set", "city_reset"})
+                self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
+
+    def test_polite_reset_punctuation_preserves_the_explicit_request(self):
+        for text in ("haydi şehrimi siler misin?", "rica etsem şehrimi siler misin?",
+                     "ne olur konumumu unut", "şehrimi silebilir misin?!",
+                     "şehrimi siler misin? lütfen"):
+            with self.subTest(text=text):
+                self.ctx.profile.set_pref("city", "Ankara")
+                entry, out, handle, _feedback = self.turn(text)
+                self.assertEqual(brain_entry.core_plan(entry), ("city_reset", {}))
+                handle.assert_not_called()
+                self.assertEqual(out, CLEAR_REPLY)
+                self.assertNotIn("city", self.ctx.profile.data["prefs"])
 
     def test_clearing_the_city_is_a_canonical_plan_and_never_the_legacy_handler(self):
         entry, out, handle, feedback = self.turn("şehrimi sıfırla")
