@@ -54,6 +54,8 @@ from modules.brain_understanding import (
     SHUTDOWN_REQUEST_CAPABILITY,
     TRANSLATE_SOURCE_MISSING,
     WAKE_ENABLE_CAPABILITY,
+    WEATHER_CITY_RESET_CAPABILITY,
+    WEATHER_CITY_SET_CAPABILITY,
     WINDOW_LIST_CAPABILITY,
     WINDOW_OP_CAPABILITY,
     WATCHER_CAPABILITY,
@@ -113,6 +115,13 @@ def _level_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 _CITY = re.compile(r"[a-zçğıöşü]{3,30}")
+# Şehir adı en fazla üç kelimedir ("Yeni Delhi"); her kelime aynı `_CITY` biçim hükmünden geçer.
+_CITY_MAX_NAME_WORDS = 3
+
+
+def _city_title(token: str) -> str:
+    """Türkçe büyük harf hükmü: `token.title()` "İzmir"i "Izmir" yapardı (ölçülen taban kusuru)."""
+    return token[:1].replace("i", "İ").replace("ı", "I").upper() + token[1:]
 
 
 def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -122,7 +131,30 @@ def _weather_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(location, str) or _CITY.fullmatch(location) is None:
         return None
     # Same Turkish-aware capitalization the legacy city parser used.
-    return {"location": location[:1].replace("i", "İ").replace("ı", "I").upper() + location[1:]}
+    return {"location": _city_title(location)}
+
+
+def _city_set_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """BRAIN-03 dilim 1: önerilen şehir adı Core'da YALNIZ biçim hükmünden geçer.
+
+    Retire edilen yüzey kalıbı `(.+?)` ile her şeyi alıp `.title()` uyguluyordu; artık hem
+    biçim hem Türkçe büyük/küçük harf hükmü tek `_CITY` sözleşmesinden geçer. Anlam kararı
+    ("bu kelime şehir olabilir mi") Brain'indir: Core işlev sözcüğü listesi tutmaz, böylece
+    iki katman aynı hükmü iki kez üretmez. Biçim kurallarına uymayan hiçbir öneri zaten
+    Brain'den çıkmaz (koruma testi: `test_the_proposal_the_brain_makes_is_always_the_one_core_accepts`)."""
+    location = arguments.get("location")
+    if not isinstance(location, str):
+        return None
+    tokens = location.split(" ")
+    if not 1 <= len(tokens) <= _CITY_MAX_NAME_WORDS \
+            or any(_CITY.fullmatch(token) is None for token in tokens):
+        return None
+    return {"location": " ".join(_city_title(token) for token in tokens)}
+
+
+def _city_reset_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Silme isteğinin hedefi yoktur; bir şehir adı taşımaya çalışan öneri doğrulanmış değildir.
+    return None if "location" in arguments else {}
 
 
 def _validated_file_path(value: Any) -> str | None:
@@ -576,6 +608,10 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
+    # BRAIN-03 dilim 1: kayıtlı şehir tercihini yazma/silme kararı artık Brain önerisi,
+    # değer Core'da doğrulanır ve etki tek intent sahibinde (`engine_intents`) yürür.
+    WEATHER_CITY_SET_CAPABILITY: ("city_set", _city_set_args),
+    WEATHER_CITY_RESET_CAPABILITY: ("city_reset", _city_reset_args),
     # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
     "files.read": ("file_action", _file_args),
     FILE_MUTATE_CAPABILITY: ("file_mutate", _file_mutate_args),

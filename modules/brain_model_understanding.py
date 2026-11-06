@@ -64,6 +64,13 @@ _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
     "recipient", "account", "account_id",
 })
 
+# Kalıcı kullanıcı tercihi kullanıcının KENDİ cümlesinden doğar; modelin o cümlede olmayan bir
+# yazma/silme yeteneği önermesi bu zarfta yetenek düzeyinde reddedilir. Core yalnız BİÇİM
+# hükmeder (anlam listesi tutsa ikinci semantic authority olurdu), bu yüzden "çok sıcak" gibi
+# şeklen geçerli bir değeri ayırt edemez — ölçüldü: `core_plan("weather.city.set",
+# {"location": "çok sıcak"})` `("city_set", {"location": "Çok Sıcak"})` verir.
+_MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"})
+
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
 _REASON_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
 _CONFIDENCE_RANK = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
@@ -435,6 +442,8 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             return None
         if _MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(frozen):
             return None
+        if capability_id in _MODEL_DENIED_CAPABILITIES:
+            return None
         resolved = _action_arguments(
             capability_id=capability_id, supplied=dict(frozen), text=text,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
@@ -539,6 +548,9 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
 
         from modules.brain_core_map import CORE_INTENTS
         slot_rows, _, _ = _file_slots(current)
+        # Model, kendisine kapalı bir yeteneği de seçebilir sanmasın: önerilen katalog, yasak
+        # kümeyi taşımaz. Yetki yine `_build`deki fail-closed denetimidir, promptta değil.
+        offered_capabilities = sorted(set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES)
         prompt = json.dumps({
             "schema": SCHEMA_VERSION,
             "utterance": text[:2000],
@@ -553,11 +565,11 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             },
             "allowed": {
                 "operation": sorted(OPERATIONS),
-                "capability_id": sorted(CORE_INTENTS),
+                "capability_id": offered_capabilities,
                 "conversation_relation": [item.value for item in ConversationRelation],
                 "temporal_need": [item.value for item in TemporalNeed],
                 "file_operation": list(_FILE_OPERATIONS),
-                "argument_schema": {name: _supplied_schema(name) for name in sorted(CORE_INTENTS)},
+                "argument_schema": {name: _supplied_schema(name) for name in offered_capabilities},
             },
             "file_candidates": slot_rows,
             "goal_candidates": list(_offered_goal_ids(current)),

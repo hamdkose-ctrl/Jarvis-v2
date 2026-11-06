@@ -642,6 +642,9 @@ class EngineCommandsStructuralGuardTests(unittest.TestCase):
         "_weather", "_volume_step", "ask_clarification", "open_app",
         "media_control", "set_mute", "is_muted", "current_volume",
         "set_volume", "set_brightness_verified", "cancel_shutdown",
+        # BRAIN-03 dilim 1: tercih yazması ham cümleden seçilen bir etki olabilir; yüzey
+        # yalnız Core'un doğruladığı intent'e bırakıldı (`engine_intents.city_set`).
+        "set_pref",
     }
     # Exact branch-selector literals (`"x" in cmd_lower` / tuple membership). Response texts are
     # allowed to mention the same words; only the selector constants are forbidden.
@@ -656,6 +659,9 @@ class EngineCommandsStructuralGuardTests(unittest.TestCase):
         "screenshot", "sistem durumu", "sonraki", "önceki", "müzi", "şarkı",
         "bilgisayarı kapat", "pc kapat", "kapatma", "yağmur yağacak", "mikrofon",
         "saat", "günlerden", "hava",
+        # BRAIN-03 dilim 1: şehir set/reset kalıbı yüzeyden emekli oldu; tek sahibi
+        # `brain_understanding._weather_city_request`.
+        "şehrim", "konumum", "yaşadığım",
     }
 
     # Regex selectors carry pattern syntax (`\b`, groups, classes, alternation, anchors); a bare

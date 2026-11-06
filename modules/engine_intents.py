@@ -287,6 +287,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "weather":
             location = str(a.get("location") or "").strip()
             return runtime._weather(location or None)
+        case "city_set":
+            # BRAIN-03 dilim 1: hedef Brain'in önerisi, biçim Core'un hükmü; burası tek yazma yeri.
+            city = str(a.get("location") or "")
+            runtime.profile.set_pref("city", city)
+            return f"Şehrini {city} olarak kaydettim; hava durumuna bu şehre göre bakacağım."
+        case "city_reset":
+            runtime.profile.data["prefs"].pop("city", None)
+            runtime.profile.save()
+            return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
         case "photo_action":
             # Operation and path are Core-validated; the domain executor only applies them.
             from modules import main_documents
