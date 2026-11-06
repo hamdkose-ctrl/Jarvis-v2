@@ -43,8 +43,8 @@ _EFFECT_DEFAULTS = {"verify_sync": {"sync_state": "clean"}, "status": {"error": 
                     "run": {}, "summary": "ARIZA", "matches": False}
 
 # Ham cümleyi kapılarına soran yüzey kapıları: soru turunda hiçbiri çağrılmamalı (§28).
-RAW_DOORS = ("_file_command", "_planner_command", "_user_command", "_contact_command",
-             "_extra_commands")
+# `_contact_command` BRAIN-03 dilim 2'de emekli edildi (contacts.manage); listede yok.
+RAW_DOORS = ("_file_command", "_planner_command", "_user_command", "_extra_commands")
 
 
 class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
@@ -85,7 +85,6 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
         self.ctx._copy_text = Mock(return_value=True)
         self.ctx._web_search = Mock(return_value="ARAMA")
         self.ctx._file_command = Mock(return_value=None)
-        self.ctx._contact_command = Mock(return_value=None)
         self.ctx._study_intent = Mock(return_value=None)
         self.ctx._planner_command = Mock(return_value=None)
         self.ctx._user_command = Mock(return_value=None)
@@ -1003,9 +1002,10 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "watcher.handle": set(),
         "learning.handle": {"modules/engine_commands.py"},
         "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
-        "is_whatsapp_message": {"modules/engine_commands.py"},
-        "_contact_command": {"modules/engine_commands.py"},
-        "quick_parse": {"modules/engine_commands.py"},
+        # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
+        "is_whatsapp_message": set(),
+        "_contact_command": set(),
+        "quick_parse": set(),
         "selfctl.handle": {"modules/engine_commands.py"},
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},

@@ -251,23 +251,6 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
         raise
     return f"{name} kişisine gönderiyorum: \"{text}\". Klavye ve fareye birkaç saniye dokunma."
 
-def _contact_command(runtime, command: str, cmd_lower: str) -> str | None:
-    """Kişi numarası kaydetme: 'kişi ekle Ahmet 0532 123 45 67' / 'Ahmet'in numarası 0532...' / 'kişileri listele'."""
-    m = runtime.re.match(r"^(?:kişi ekle|rehbere ekle|numara kaydet)\s+([a-zçğıöşü ]+?)\s+(\+?\d[\d\s\-()]{8,})$", cmd_lower) \
-        or runtime.re.match(r"^([a-zçğıöşü]+)['’]?(?:in|ın|un|ün|nin|nın)\s+(?:numarası|telefonu)\s+(\+?\d[\d\s\-()]{8,})(?:\s+(?:kaydet|olarak kaydet))?$", cmd_lower)
-    if m:
-        phone = runtime.messaging.normalize_phone(m.group(2))
-        if not phone:
-            return "Numarayı anlayamadım, 0532 123 45 67 gibi söyler misin?"
-        name = " ".join(runtime.display_name(w) for w in m.group(1).split())
-        runtime.profile.data.setdefault("contacts", {})[name] = phone
-        runtime.profile.save()
-        return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
-    if runtime.re.search(r"kişileri (listele|göster)|rehberim", cmd_lower):
-        names = list(runtime.profile.data.get("contacts", {}))
-        return "Kayıtlı kişiler: " + ", ".join(names) + "." if names else "Kayıtlı kişi yok. \"kişi ekle Ahmet 0532 123 45 67\" diyebilirsin."
-    return None
-
 def _macro_key(runtime, text: str) -> str:
     from modules import main_planner
     return main_planner._macro_key(runtime, text)

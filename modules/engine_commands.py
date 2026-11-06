@@ -176,14 +176,9 @@ def handle(runtime, command: str):
             reply = runtime._message_step(command, cmd_lower)
             if reply is not None:
                 return reply
-    elif runtime.messaging.is_whatsapp_message(cmd_lower):
-        fast = runtime.messaging.quick_parse(cmd_lower, runtime.profile.data.get("contacts", {}))   # kayıtlı kişi: LLM beklemeden
-        to, text = fast if fast else runtime.messaging.extract(command, runtime.ask)
-        runtime._session().pending_msg = {"to": to, "text": text, "stage": "to"}
-        return runtime._message_step(None, "")
-    contact_reply = runtime._contact_command(command, cmd_lower)
-    if contact_reply is not None:
-        return contact_reply
+    # Yeni WhatsApp mesajı ve rehber cümleleri artık ham cümleden seçilmez: Understanding
+    # `message.send`/`contacts.manage` önerir, Core biçimi doğrular, etki `engine_intents`
+    # sahibinde yürür. Buradaki dal yalnız açık `pending_msg` oturumunun devamını tüketir.
 
     # Öğrenme: kurallar, onay bekleyen bilgiler, gelişim raporu ("kural ekle: …", "öğrendiklerini kaydet")
     from modules import learning

@@ -10,7 +10,6 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 import difflib
-import json
 import os
 import re
 import subprocess
@@ -20,40 +19,10 @@ from urllib.parse import quote
 
 from modules import system_control, requests_state
 
-WA_WORD = re.compile(r"\b(?:whats?\s?app|whatsap|wats?ap|vats?ap|vhatsap)\w*", re.I)
-SEND_VERB = re.compile(r"mesaj\w*\s+(?:at|gönder|yaz|ilet)|\byaz(?:sana|ar mısın)?\b|\bgönder\w*|\bat\b|\bilet\b", re.I)
-
-EXTRACT_SYSTEM = """Kullanıcının WhatsApp mesaj isteğini JSON'a çevir (yalnızca JSON):
-{"to": "alıcı adı ya da boş", "text": "gönderilecek mesaj metni ya da boş"}
-Kurallar: Alıcı adını yalın hâle getir ("Ahmet'e" -> "Ahmet", "anneme" -> "Annem", "Ayşe'ye" -> "Ayşe", "bitaneme" -> "Bitanem", "bi taneme" -> "Bi tanem").
-"bir kişiye", "birine" gibi belirsiz ifadelerde to boş kalsın. Mesaj metni yoksa text boş kalsın.
-Metni olduğu gibi, kullanıcının ağzından yaz; tırnak ve "diye" gibi bağlaçları atma ("nasılsın diye yaz" -> "nasılsın")."""
-
-
-def _strip_wa(cmd_lower: str) -> tuple[bool, str]:
-    """(WhatsApp geçiyor mu, WhatsApp sözcüğü çıkarılmış metin). Yanlış yazılmış 'wathsaap' gibi sözcükleri de yakalar."""
-    if WA_WORD.search(cmd_lower):
-        return True, WA_WORD.sub(" ", cmd_lower)
-    for tok in re.findall(r"[a-zçğıöşü]{6,}", cmd_lower):
-        if difflib.SequenceMatcher(None, tok, "whatsapp").ratio() >= 0.7:
-            return True, cmd_lower.replace(tok, " ")
-    return False, cmd_lower
-
-
-def is_whatsapp_message(cmd_lower: str) -> bool:
-    has, rest = _strip_wa(cmd_lower)
-    return has and bool(SEND_VERB.search(rest))
-
-
-def extract(command: str, ask) -> tuple[str, str]:
-    """(alıcı, metin) döndürür; bulunamayanlar boş string."""
-    try:
-        raw = ask(command, EXTRACT_SYSTEM)
-        data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
-        return str(data.get("to") or "").strip(), str(data.get("text") or "").strip()
-    except Exception:
-        _record_failure('modules/messaging.py:extract')
-        return "", ""
+# BRAIN-03 dilim 2: "bu bir WhatsApp mesajı mı" ve "alıcı/gövde nedir" hükümleri bu modülden
+# kaldırıldı. Anlam kararı `brain_understanding` (`message.send`), biçim hükmü `brain_core_map`,
+# oturum/onay mevcut `pending_msg` protokolüdür. Burada kalanlar yürütücüdür: numara
+# normalleştirme, kayıtlı kişi çözümlemesi ve gerçek gönderim.
 
 
 def normalize_phone(text: str) -> str | None:
@@ -205,25 +174,3 @@ def _send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
         _record_failure('modules/messaging.py:send_whatsapp')
         from modules.diagnostics import user_message
         return "Mesajı gönderemedim: " + user_message(exc)
-
-
-_NOISE = {"aç", "ve", "mesaj", "mesajı", "at", "yaz", "gönder", "diye", "ile", "ilet", "lütfen", "bir", "şunu", "şöyle"}
-
-
-def quick_parse(cmd_lower: str, contacts: dict) -> tuple[str, str] | None:
-    """Kayıtlı bir kişi adı geçiyorsa LLM'e sormadan (alıcı, metin) çıkarır; geçmiyorsa None."""
-    if not contacts:
-        return None
-    _, rest = _strip_wa(cmd_lower)
-    tokens = re.findall(r"[\w'’]+", rest)
-    names = {system_control._norm(k): k for k in contacts}
-    for i, tok in enumerate(tokens):
-        base = system_control._norm(tok.split("'")[0].split("’")[0])
-        if len(base) < 3:
-            continue
-        for n, orig in names.items():
-            if base == n or (base.startswith(n) and len(base) - len(n) <= 3) or (n.startswith(base) and len(n) - len(base) <= 1):
-                words = [t for j, t in enumerate(tokens) if j != i and t.strip("'’") not in _NOISE
-                         and not re.fullmatch(r"['’]?(?:tan|ten|ta|te|dan|den)", t)]
-                return orig, " ".join(words).strip()
-    return None

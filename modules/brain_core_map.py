@@ -19,6 +19,9 @@ from modules.brain_understanding import (
     APP_OPEN_CAPABILITY,
     APP_TARGET_MISSING,
     AUDIO_CAPABILITY,
+    CONTACTS_MANAGE_CAPABILITY,
+    MESSAGE_BODY_MAX,
+    MESSAGE_SEND_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
     FILE_CONVERSION_FORMAT_MISSING,
@@ -155,6 +158,57 @@ def _city_set_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 def _city_reset_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     # Silme isteğinin hedefi yoktur; bir şehir adı taşımaya çalışan öneri doğrulanmış değildir.
     return None if "location" in arguments else {}
+
+
+# BRAIN-03 dilim 2: alıcı adı ve gövde tek biçim sözleşmesidir. Anlam kararı ("bu alıcı gerçek
+# bir kişi mi") burada verilmez: kayıtlı kişi araması yürütücünün bounded defter sorgusudur
+# (`messaging.find_contact`) ve uydurma numara üretmez.
+_MESSAGE_RECIPIENT = re.compile(r"[a-zçğıöşü]{2,40}(?: [a-zçğıöşü]{1,25}){0,3}")
+_CONTACT_OPERATIONS = frozenset({"add", "list"})
+
+
+def _name_title(name: str) -> str:
+    """Türkçe büyük harf hükmü tek yerden (`str.title()` "İzmir"i "Izmir" yapardı)."""
+    return " ".join(_city_title(token) for token in name.split())
+
+
+def _message_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """BRAIN-03 dilim 2: alıcı/gövde slotlarını yalnız biçim hükmünden geçirir."""
+    if set(arguments) - {"original_text", "recipient", "body"}:
+        return None
+    recipient, body = arguments.get("recipient", ""), arguments.get("body", "")
+    if not isinstance(recipient, str) or not isinstance(body, str):
+        return None
+    recipient, body = recipient.strip(), body.strip()
+    if recipient:
+        if _MESSAGE_RECIPIENT.fullmatch(recipient) is None:
+            return None
+        recipient = _name_title(recipient)
+    if "\x00" in body or len(body) > MESSAGE_BODY_MAX:
+        return None
+    return {"recipient": recipient, "body": body}
+
+
+def _contacts_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Rehber önerisi: işlem kapalı kümeden, numara mevcut normalleştiriciden geçer."""
+    if set(arguments) - {"original_text", "operation", "name", "phone"}:
+        return None
+    operation = arguments.get("operation")
+    if operation not in _CONTACT_OPERATIONS:
+        return None
+    if operation == "list":
+        # Listeleme hedef taşımaz; ek alan taşıyan öneri doğrulanmış değildir.
+        return {"operation": "list"} if set(arguments) <= {"original_text", "operation"} else None
+    name, phone = arguments.get("name"), arguments.get("phone")
+    if not isinstance(name, str) or _MESSAGE_RECIPIENT.fullmatch(name.strip()) is None:
+        return None
+    if not isinstance(phone, str):
+        return None
+    from modules import messaging
+    normalized = messaging.normalize_phone(phone)
+    if normalized is None:
+        return None
+    return {"operation": "add", "name": _name_title(name.strip()), "phone": normalized}
 
 
 def _validated_file_path(value: Any) -> str | None:
@@ -612,6 +666,10 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # değer Core'da doğrulanır ve etki tek intent sahibinde (`engine_intents`) yürür.
     WEATHER_CITY_SET_CAPABILITY: ("city_set", _city_set_args),
     WEATHER_CITY_RESET_CAPABILITY: ("city_reset", _city_reset_args),
+    # BRAIN-03 dilim 2: mesaj gönderimi ve rehber yazma/listeleme de Brain önerisi, Core biçim
+    # hükmü; gönderim onayı ve kişi çözümlemesi mevcut `pending_msg`/`find_contact` sahiplerinde.
+    MESSAGE_SEND_CAPABILITY: ("message_send", _message_args),
+    CONTACTS_MANAGE_CAPABILITY: ("contacts_manage", _contacts_args),
     # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
     "files.read": ("file_action", _file_args),
     FILE_MUTATE_CAPABILITY: ("file_mutate", _file_mutate_args),

@@ -61,7 +61,9 @@ _GOAL_CARD_KINDS = frozenset({"goal", "task"})
 # PHOTO_TARGET_NOT_VALIDATED'a düşürürdü; bu yüzden öneri burada tümüyle reddedilir.
 _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
     "path", "paths", "photo", "token", "credential", "approval", "approval_id",
-    "recipient", "account", "account_id",
+    # BRAIN-03 dilim 2: mesaj alıcısı/gövdesi kullanıcının kendi cümlesinden doğar; modelin
+    # uydurduğu gövde, alıcıdan bağımsız ikinci bir gönderim yetkisi olurdu.
+    "recipient", "body", "account", "account_id",
 })
 
 # Kalıcı kullanıcı tercihi kullanıcının KENDİ cümlesinden doğar; modelin o cümlede olmayan bir
@@ -69,7 +71,12 @@ _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
 # hükmeder (anlam listesi tutsa ikinci semantic authority olurdu), bu yüzden "çok sıcak" gibi
 # şeklen geçerli bir değeri ayırt edemez — ölçüldü: `core_plan("weather.city.set",
 # {"location": "çok sıcak"})` `("city_set", {"location": "Çok Sıcak"})` verir.
-_MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"})
+# BRAIN-03 dilim 2: mesaj gönderme ve rehber yazma da kullanıcının KENDİ cümlesinden doğmalıdır.
+# Core yalnız biçim hükmeder (ad/telefon/gövde sınırı), "kullanıcı bunu söyledi mi" hükmünü veremez;
+# bu yüzden modelin uydurduğu alıcı+gövde çifti onay ekranında gerçek bir gönderim olabilirdi.
+# Rehber yazması ise kalıcı profil verisidir (şehir tercihiyle aynı sınıf).
+_MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset",
+                                        "message.send", "contacts.manage"})
 
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
 _REASON_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")

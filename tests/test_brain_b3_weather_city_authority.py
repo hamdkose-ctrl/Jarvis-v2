@@ -575,10 +575,14 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
     def test_the_denial_is_a_closed_capability_set_not_an_argument_key_rule(self):
         # `location` anahtarını yasaklamak hava OKUMASını da vururdu; yasak yetenek düzeyindedir
         # ve küme kapalıdır — kelime taraması, regex veya modelden gelen bir ad değildir.
+        # BRAIN-03 dilim 2 kümeye iki yetenek daha ekledi (`message.send`, `contacts.manage`):
+        # ikisi de kullanıcının KENDİ cümlesinden doğan etkidir. Küme kapalı kalır: yeni bir ad
+        # eklendiğinde bu satır RED verir ve karar açıkça yazılmak zorundadır.
         from modules import brain_model_understanding as model
         self.assertEqual(
             set(model._MODEL_DENIED_CAPABILITIES),
-            {understanding.WEATHER_CITY_SET_CAPABILITY, understanding.WEATHER_CITY_RESET_CAPABILITY})
+            {understanding.WEATHER_CITY_SET_CAPABILITY, understanding.WEATHER_CITY_RESET_CAPABILITY,
+             understanding.MESSAGE_SEND_CAPABILITY, understanding.CONTACTS_MANAGE_CAPABILITY})
 
     def test_a_model_proposed_weather_read_is_still_allowed(self):
         # Yasak yalnız tercih YAZMASI/SİLMESİ içindir: okuma zarf kararının normal yeteneğidir.
