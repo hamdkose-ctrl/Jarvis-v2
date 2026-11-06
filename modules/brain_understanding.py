@@ -914,6 +914,11 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
         return "notes.read"
     if _is_weather_request(text):
         return "weather.read.current" if temporal_need is TemporalNeed.CURRENT else "weather.read"
+    # BRAIN-03 dilim 1: "şehrim İzmir" / "şehrimi sıfırla" artık burada canonical capability'dir;
+    # ham cümleyi okuyan eski şehir regex'i yüzeyden silindi.
+    city = _weather_city_request(text)
+    if city is not None:
+        return city
     # Ekranı okuma ve pencere kontrolü: sözcük düzeyinde kesinse model'e sorulmadan canonical öneri olur.
     if _SCREEN_ANALYZE_CUE.search(text) is not None:
         return SCREEN_CAPABILITY
@@ -1540,6 +1545,104 @@ SCREEN_CAPTURE_CAPABILITY = "screen.capture"
 SHUTDOWN_REQUEST_CAPABILITY = "pc.shutdown.request"
 SHUTDOWN_CANCEL_CAPABILITY = "pc.shutdown.cancel"
 WAKE_ENABLE_CAPABILITY = "voice.wake.enable"
+# BRAIN-03 dilim 1: `engine_commands` içindeki ham şehir set/reset regex'lerinin tek tanıyıcısı.
+# Biçimler retire edilen kalıplardan alınmıştır; tek fark, önerilen değerin artık Core'da
+# doğrulanması ve yüzeyin bu turda hiçbir tercih yazmamasıdır.
+WEATHER_CITY_SET_CAPABILITY = "weather.city.set"
+WEATHER_CITY_RESET_CAPABILITY = "weather.city.reset"
+# PR3A convention'ı burada da geçerlidir: kalıp cümlenin TAMAMını ister. Emekli kapı set tarafında
+# `re.match` + `$` kullanıyordu; reset tarafı ankonjenli `search`ti. Kapı plan olarak cascade'in
+# önüne çıktığı için ankonjen tarama başka sahibin cümlesini çalıp tercihi sessizce siliyordu
+# ("kural ekle: şehrimi sil" → ölçülen BLOCKER). Dolgu kümesi kapalıdır, kelime taraması değildir.
+_CITY_SET_LEADS = ("şehrim", "konumum", "yaşadığım şehir")
+_CITY_RESET_LEADS = ("şehrimi", "konumumu")
+_CITY_RESET_VERBS = ("sıfırla", "sil", "unut", "temizle")
+_CITY_FILLERS = frozenset({"jarvis", "hey", "lütfen"})
+_CITY_COPULAS = frozenset({"olsun", "olur"})
+# Kesme işaretli çekim ekleri ("İzmir'dir", "İzmir'de") ad gövdesinden ayrılır. Birleşik
+# yazımda kesme yoktur; bu yüzden ek YALNIZ kesme işaretli biçimde düşülür. Aksi kural
+# "Burdur"u "Bur"a çevirirdi ve tabanın "şehrim Iğdır"ı reddetmesi böyle oluyordu (ölçülen kusur).
+_CITY_APOSTROPHE_TAILS = frozenset({"dir", "dır", "dur", "tir", "tır", "di", "du", "da", "de",
+                                    "ta", "te", "i", "in", "den", "dan"})
+_CITY_NAME_TOKEN = re.compile(r"[a-zçğıöşü]{3,30}")
+_CITY_MAX_NAME_WORDS = 3
+# Taban `(.+?)` her şeyi alıyordu: "şehrim çok sıcak" ve "şehrim güzel" pref'e yazıldı (ölçülen
+# kusur). Kapalı Türkçe işlev sözcüğü kümesi bunları reddeder; ad listesi yine yoktur.
+_CITY_FUNCTION_WORDS = frozenset({"çok", "sıcak", "soğuk", "güzel", "kötü", "değil", "ve", "ile",
+                                  "veya", "ya", "mi", "mı", "bu", "şu", "o", "bir", "daha", "en",
+                                  "hiç", "için", "gibi", "acaba", "bugün", "yarın", "dün",
+                                  "burada", "orada", "senin", "onun", "benim"})
+_CITY_INTERROGATIVE = frozenset({"ne", "nedir", "nerde", "nerede", "neresi", "nereye",
+                                 "nasıl", "niye", "neden", "kaç", "hangi", "kim"})
+# Retire edilen kalıp tembel `(.+?)` + opsiyonel ek grubu yüzünden "şehrim nerede"yi "Nere"ye
+# kırpıyordu; soru hükmü artık gövde üzerinde ve kök kümesiyle verilir.
+_CITY_QUESTION_STEMS = ("ner", "nası", "niy", "niç", "hangi", "kaç", "kim")
+_CITY_NON_NAME_SUFFIXES = ("yor", "acak", "ecek", "malı", "meli", "yım", "yim", "sam", "sem")
+
+
+def _city_tokens(normalized: str) -> list[str]:
+    raw = normalized.replace("’", "'").split()
+    return [token for token in (part.strip(" .,;:!?'\"") for part in raw) if token]
+
+
+def _city_name_tokens(tokens: list[str]) -> list[str]:
+    """Kalanı şehir adı dizisine çevirir; kurallardan biri uymazsa boş liste."""
+    if tokens and tokens[-1] in _CITY_COPULAS:
+        tokens = tokens[:-1]
+    if not 1 <= len(tokens) <= _CITY_MAX_NAME_WORDS:
+        return []
+    name: list[str] = []
+    for token in tokens:
+        base, apostrophe, tail = token.partition("'")
+        if apostrophe and tail not in _CITY_APOSTROPHE_TAILS:
+            return []
+        if _CITY_NAME_TOKEN.fullmatch(base) is None:
+            return []
+        if (base in _CITY_FUNCTION_WORDS or base in _CITY_INTERROGATIVE
+                or base.startswith(_CITY_QUESTION_STEMS)
+                or any(base.endswith(suffix) for suffix in _CITY_NON_NAME_SUFFIXES)):
+            return []
+        name.append(base)
+    return name
+
+
+def _city_request(normalized: str) -> tuple[str | None, tuple[str, ...]]:
+    """(capability | None, ad tokenleri): şehir tercih cümlesinin tek biçim hükmü."""
+    if _is_meta_language(normalized) or _is_literal_command_usage(normalized):
+        return None, ()
+    if normalized.rstrip().endswith("?"):
+        return None, ()
+    tokens = _city_tokens(normalized)
+    while tokens and tokens[0] in _CITY_FILLERS:
+        tokens.pop(0)
+    while tokens and tokens[-1] in _CITY_FILLERS:
+        tokens.pop()
+    if not tokens:
+        return None, ()
+    if tokens[0] in _CITY_RESET_LEADS:
+        rest = tokens[1:]
+        if len(rest) == 1 and rest[0] in _CITY_RESET_VERBS:
+            return WEATHER_CITY_RESET_CAPABILITY, ()
+        return None, ()
+    for lead in _CITY_SET_LEADS:
+        parts = lead.split()
+        if tokens[:len(parts)] != parts:
+            continue
+        name = _city_name_tokens(tokens[len(parts):])
+        return (WEATHER_CITY_SET_CAPABILITY, tuple(name)) if name else (None, ())
+    return None, ()
+
+
+def _weather_city_request(normalized: str) -> str | None:
+    return _city_request(normalized)[0]
+
+
+def _weather_city_arguments(normalized: str) -> dict[str, object]:
+    capability, name = _city_request(normalized)
+    if capability != WEATHER_CITY_SET_CAPABILITY:
+        return {}
+    return {"location": " ".join(name)}
+
 
 _APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"
 _APP_CLOSE_TAIL = r"(?:kapat|kapatır mısın|kapatsana|kapa)"
@@ -2256,6 +2359,8 @@ def understand(
             and _note_window_label(normalized) is None and _is_single_note_search(normalized)):
         ambiguities = (NOTE_SEARCH_QUERY_MISSING,)
     weather_request = _is_weather_request(normalized)
+    # BRAIN-03 dilim 1: şehir tercihini yazma/silme isteği de açık bir capability kararıdır.
+    city_request = _weather_city_request(normalized)
     research_request = _is_explicit_research_request(normalized)
     # Eylem fiili taşıyan icra isteği sohbet olarak bırakılamaz: hedef yürütücüsüne devredilir.
     # Çıplak deiktik ("onu sil") de icra isteğidir; kapıda hedef sorusuyla netleşir.
@@ -2306,6 +2411,7 @@ def understand(
     # opposite case: its target answers an open clarify, so it is not an independent request.
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
+        or city_request is not None
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
@@ -2437,6 +2543,8 @@ def understand(
         location = _weather_location(normalized)
         if location is not None:
             arguments = {**arguments, "location": location}
+    if capability_hint == WEATHER_CITY_SET_CAPABILITY:
+        arguments = {**arguments, **_weather_city_arguments(normalized)}
     if capability_hint == "reminder.propose":
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":
