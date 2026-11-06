@@ -33,12 +33,12 @@ SKIP = {".venv", "__pycache__", ".git", ".github", ".gradle", "build", ".idea"} 
 TIMEOUT = 4
 
 _UPDATE_INSTALL = re.compile(
-    r"(?:kendini\\s+güncelle|jarvis(?:['’]?i)?\\s+güncelle|"
-    r"güncelleme(?:ler(?:i)?|yi)?\\s+(?:al|yükle|kur))",
+    r"(?:kendini\s+güncelle|jarvis(?:['’]?i)?\s+güncelle|"
+    r"güncelleme(?:ler(?:i)?|yi)?\s+(?:al|yükle|kur))",
     re.I,
 )
 _UPDATE_CHECK = re.compile(
-    r"güncelleme(?:ye|yi|ler(?:i)?)?\\s+(?:var\\s*mı|kontrol(?:\\s+et)?|bak(?:ar\\s+mısın)?)",
+    r"güncelleme(?:ye|yi|ler(?:i)?)?\s+(?:var\s*mı|kontrol(?:\s+et)?|bak(?:ar\s+mısın)?)",
     re.I,
 )
 
