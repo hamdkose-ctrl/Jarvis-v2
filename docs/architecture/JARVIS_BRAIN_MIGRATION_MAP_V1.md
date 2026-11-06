@@ -449,3 +449,20 @@ Zarfın çitleri: capability yalnız `CORE_INTENTS` kataloğundan (`:141–:144`
 Bu turda silinmedi, eklenmedi ve status işareti değiştirilmedi: 13.1'deki hiçbir ham kapı (BRAIN-03) ve gerçek Cloudflare canlı görsel üretimi kabulü (BRAIN-11). Photo `model_understanding` boşluğu BRAIN-02'de kapatıldı (PR #525, squash `eb5ea39…`); 429/kota, ücretsiz rota yokluğu ve iptal photo dikişinde ayrıca ölçüldü, timeout ve bozuk şema reddi photo dikişinde ölçülmedi (zarf düzeyinde BRAIN-01 süitlerinde). Yeni migration satırı adayları (`_study_intent`, `plugins.handle`, `handoff.handle`, `brain_model_understanding`) backlog'tur ve BRAIN-03 kapsamlandırmasına devredilmiştir.
 
 **BRAIN-01'in kapattığı ve devrettiği (5 Kasım 2026, merge `f5132fb…`):** `brain_model_understanding` blocker'ı — `capability_hint` ön koşulu ve `refine`/`SemanticRefinement` yüzeyi kaldırıldı, yerini `propose`/`UnderstandingProposal` v2 zarfı aldı (satır `BRAIN-MIG-108`; kanıt head `f9f2b69…`, CI #1448 + aynı SHA watcher `passed`). BRAIN-01'in kapsamı dışında bırakılanlardan ikisi BRAIN-02 ile kapandı: photo turu birincil zarfı çalıştırıyor ve 429/kota + ücretsiz rota yokluğu + iptal photo dikişinde pinli (`tests/test_brain_photo_model_understanding.py`, 14 test). Açık kalanlar: `action_batch`/hedef işlemleri/`clarify` yürütücüleri (BRAIN-04/05), 13.1'deki 17 ham dil girişi (BRAIN-03), timeout ve bozuk şemanın photo dikişinde ayrı ölçümü ve canlı model + gerçek Cloudflare görsel üretimi kabulü (BRAIN-11).
+
+### 13.6 BRAIN-03 uygulama durumu — PR #527 (dalda, merge edilmedi)
+
+Bu alt bölüm yalnız `gpt/brain-03-legacy-semantic-authority` dalındaki in-flight değişiklikleri kaydeder; **main'in mevcut durumu veya BRAIN-03 kapanışı değildir**.
+
+| Migration satırı | Uygulanan karar | Kod değişikliği | Üretim/AST kilidi ve test kapsamı |
+|---|---|---|---|
+| BRAIN-MIG-099 | `KEEP_EXACT_DOMAIN` | Şehir set/reset komutları `engine_commands` regex kapısından kaldırıldı; yalnız ham özgün tam cümlede çalışan `command_manager._profile_city_admin` aktif kullanıcının kendi profilini günceller. | `profile.set_pref` caller kümesi; exact set/reset, uzun cümle, soru işareti, Türkçe I/İ testleri |
+| BRAIN-MIG-100 | `KEEP_EXACT_DOMAIN` | Son belgeyi kaydetme regex'i kaldırıldı; `_output_save_admin` yalnız kapalı tam komutla, yalnız aynı session'ın `last_doc` artifact'ını mevcut kayıt adapter'ına verir. | `output.save_text_result` caller kümesi; exact save, embedded phrase, açıklama sorusu, artifact yok ve dialog cancel testleri |
+| BRAIN-MIG-102 | `KEEP_EXACT_DOMAIN` | Git yayınlama artık `git_publish.requested(original_text)` fullmatch ile; typo/model tahmini yetki vermez. `verify_sync` fail-closed ve mevcut publish/PR sınırları korunur. | `git_publish.publish_worktree` caller kümesi; exact, embedded, typo, offline ve kapalı gramer testleri |
+| BRAIN-MIG-103 | `KEEP_EXACT_DOMAIN` | Updater check/install yalnız `updater.command_request(original_text)` fullmatch ile ayrılır; check salt-okuma, install açık tam komut. | `updater.install_latest` caller kümesi; check/install, embedded phrase ve kapalı gramer testleri |
+| BRAIN-MIG-104 | `KEEP_EXACT_DOMAIN` | `engine_commands.handle` içindeki geniş teşhis substring kolu kaldırıldı; mevcut `diagnose.requested` tam-cümleli salt-okuma kapısı kaldı. | `diagnose.run` caller kümesi; uzun cümlede “arıza” negative ve tam-cümle parity testleri |
+
+Testler önce eklendi. Bu PR head'inde **henüz yerel test, `modules.validation`, Windows CI veya PC watcher çalıştırılmış değildir**; eklenen test adları yürütülmüş test kanıtı sayılmaz. PR #527 açık ve draft'tır. Aşağıdaki BRAIN-00 baz sayımındaki KEEP/MOVE/RETIRE/NEEDS_DECISION adetleri BRAIN-03 dalındaki bu yeniden sınıflandırmaları henüz içermez.
+
+Açık BRAIN-03 iş listesi: BRAIN-MIG-092–098, 101, 105–107'in üretim caller ve gerçek davranış parity'siyle tek tek kararı; ayrıca BRAIN-MIG-052 `_extra_commands` alt kolları ile `command_manager.dispatch`, Hoca, plugin/handoff ve diğer domain yüzeyleri. Bu kayıtların satır sahibi, hedef sınıfı ve test guard'ı kanıtlanmadan BRAIN-03 tamamlanmış sayılmaz.
+
