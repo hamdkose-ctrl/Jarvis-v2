@@ -250,6 +250,7 @@ def main(runtime, ui=None):
                             entry = brain_entry.prepare(
                                 runtime, owner=owner, request_id=rid,
                                 text=question or "Fotoğraf", source=source, artifact=artifact,
+                                model_understanding=bool(question),
                             )
                             clarification = brain_entry.clarification(entry)
                             if clarification is not None:

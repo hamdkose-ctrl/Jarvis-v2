@@ -56,9 +56,11 @@ _GOAL_KEYS = frozenset({"kind", "title"})
 _GOAL_CARD_KINDS = frozenset({"goal", "task"})
 
 # Model hedef kimliği üretemez: Core'un kendi authority alanı yasağına ek olarak zarf
-# argümanlarında bu adlar geçtiği anda önerinin tamamı reddedilir.
+# argümanlarında bu adlar geçtiği anda önerinin tamamı reddedilir. `photo` da bir yol alanıdır:
+# photo turunda modelin uydurduğu yol, canonical artifact eşitliği çitinde tüm isteği
+# PHOTO_TARGET_NOT_VALIDATED'a düşürürdü; bu yüzden öneri burada tümüyle reddedilir.
 _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
-    "path", "paths", "token", "credential", "approval", "approval_id",
+    "path", "paths", "photo", "token", "credential", "approval", "approval_id",
     "recipient", "account", "account_id",
 })
 
