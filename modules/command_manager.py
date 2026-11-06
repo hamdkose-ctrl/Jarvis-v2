@@ -38,8 +38,8 @@ _CITY_RESET = re.compile(
 
 
 _OUTPUT_SAVE = re.compile(
-    r"(?:çıktı\\s+al|(?:son\\s+)?çıktıyı?\\s+kaydet|metni\\s+kaydet|bunu\\s+kaydet|kaydet)"
-    r"(?:\\s+lütfen)?",
+    r"(?:çıktı\s+al|(?:son\s+)?çıktıyı?\s+kaydet|metni\s+kaydet|bunu\s+kaydet|kaydet)"
+    r"(?:\s+lütfen)?",
     re.IGNORECASE,
 )
 
@@ -68,7 +68,6 @@ def _output_save_admin(context, text):
 def _profile_city_admin(context, text):
     """Only a whole raw sentence may update the active profile's weather city."""
     normalized = str(text).replace("’", "'").strip().strip(" .!")
-    normalized = normalized.strip().strip(" .!")
     reset = _CITY_RESET.fullmatch(normalized)
     if reset:
         try:
