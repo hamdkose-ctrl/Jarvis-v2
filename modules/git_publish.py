@@ -35,7 +35,7 @@ _PUBLISH_COMMAND = re.compile(
 def requested(text: str) -> bool:
     """Yayın yalnız açık admin komutunun tümü bu kapalı gramerse istenir."""
     normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
-    normalized = normalized.strip().strip(" .!?")
+    normalized = normalized.strip().strip(" .!")
     return bool(_PUBLISH_COMMAND.fullmatch(normalized))
 
 
