@@ -92,7 +92,8 @@ def handle(runtime, command: str):
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
         conversation_summary=runtime._conversation_summary,
-        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,\n        record_failure=runtime._record_failure)
+        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,
+        record_failure=runtime._record_failure)
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
