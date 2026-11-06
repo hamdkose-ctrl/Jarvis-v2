@@ -61,8 +61,10 @@ class BackgroundRequestTests(unittest.TestCase):
         tree = engine_source.tree()
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_message_step')
         session = SessionState(pending_msg={'to': 'Ebru', 'text': 'Merhaba', 'stage': 'confirm'})
-        owner = SimpleNamespace(slug='hamdi', data={'contacts': {}})
-        adapter = Mock();adapter.find_contact.return_value = None
+        owner = SimpleNamespace(slug='hamdi', data={'contacts': {'Ebru': '905551112233'}})
+        adapter = Mock()
+        adapter.contact_matches.return_value = [('Ebru', '905551112233')]
+        adapter.mask_phone.return_value = '…2233'
         ns = {'_session': lambda: session, 'load_approve': lambda: True, 're': re, 'profile': owner, 'messaging': adapter, 'threading': SimpleNamespace(Thread=Mock()), 'requests_state': state, 'privacy': Mock(), '_emit_for': Mock(), 'pc_profile': lambda: owner, 'events': queue.Queue(), 'secrets': SimpleNamespace(token_hex=lambda size: 'child'), '_record_failure': Mock()}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), 'real-background-message', 'exec'), ns)
         state.register('hamdi', 'parent')
@@ -105,12 +107,19 @@ class KeyboardBoundaryTests(unittest.TestCase):
         return SimpleNamespace(press=Mock(), hotkey=Mock(), FailSafeException=type('FailSafe', (Exception,), {}))
 
     def test_missing_window_never_types_or_presses_enter(self):
-        for phone in (None, '905551234567'):
-            with self.subTest(phone=phone):
-                keyboard = self.adapter()
-                with patch.dict(sys.modules, pyautogui=keyboard), patch.object(messaging.os, 'name', 'nt'), patch.object(messaging.os, 'startfile', create=True), patch.object(messaging.system_control, 'open_application'), patch.object(messaging, '_find_window', return_value=False), patch.object(messaging, '_wait_window', return_value=False), patch.object(messaging, '_paste') as paste:
-                    self.assertIn('penceresini bulamadım', messaging.send_whatsapp('Ebru', 'Merhaba', phone))
-                keyboard.press.assert_not_called();keyboard.hotkey.assert_not_called();paste.assert_not_called()
+        keyboard = self.adapter()
+        with patch.dict(sys.modules, pyautogui=keyboard), patch.object(messaging.os, 'name', 'nt'), patch.object(messaging.os, 'startfile', create=True), patch.object(messaging, '_find_window', return_value=False), patch.object(messaging, '_wait_window', return_value=False):
+            self.assertIn('penceresini bulamadım', messaging.send_whatsapp('Ebru', 'Merhaba', '905551234567'))
+        keyboard.press.assert_not_called();keyboard.hotkey.assert_not_called()
+
+    def test_a_recipient_without_a_number_never_touches_the_desktop(self):
+        # Eski GUI yolu (arama kutusu + ilk sonuç + Enter) kapalıdır: numara yoksa hiçbir şey açılmaz.
+        keyboard = self.adapter()
+        with patch.dict(sys.modules, pyautogui=keyboard), patch.object(messaging.os, 'name', 'nt'), patch.object(messaging.os, 'startfile', create=True) as startfile, patch.object(messaging, '_find_window') as window:
+            result = messaging.send_whatsapp('Ebru', 'Merhaba', None)
+        self.assertIn('kayıtlı bir numara yok', result)
+        startfile.assert_not_called();window.assert_not_called()
+        keyboard.press.assert_not_called();keyboard.hotkey.assert_not_called()
 
     def test_cancel_during_phone_wait_never_presses_send(self):
         keyboard = self.adapter()

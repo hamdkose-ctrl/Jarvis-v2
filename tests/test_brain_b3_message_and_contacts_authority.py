@@ -253,6 +253,20 @@ class MessageUnderstandingTests(unittest.TestCase):
         self.assertEqual(arguments.get("recipient"), "")
         self.assertEqual(arguments.get("body"), "")
 
+    def test_a_broadcast_or_group_word_is_never_a_recipient(self):
+        # "herkese"/"grubuna" kişi adı değildir: slot boş kalır, oturum alıcıyı sorar.
+        for text in ("whatsapp'tan herkese mesaj at", "whatsapp grubuna yaz",
+                     "whatsapp'tan herkese selam gönder", "whatsapp ile gruba yaz"):
+            with self.subTest(text=text):
+                self.assertEqual(understanding._message_arguments(understanding._norm(text)).get("recipient"), "")
+
+    def test_a_channel_word_never_leaks_into_the_body(self):
+        arguments = understanding._message_arguments(understanding._norm("anneme whatsapp'tan yaz"))
+        self.assertEqual(arguments.get("recipient"), "annem")
+        self.assertEqual(arguments.get("body"), "")
+        self.assertEqual(understanding._message_arguments(
+            understanding._norm("whatsapp'tan ahmet'e whatsapp yaz")).get("body"), "")
+
     def test_a_question_about_whatsapp_is_not_a_send_request(self):
         for text in ("whatsapp nasıl çalışır?", "whatsapp web telefonsuz çalışıyor mu",
                      "whatsapp'ta sabitlenmiş sohbetleri göster",
@@ -315,12 +329,20 @@ class RetiredMessageDoorsTests(unittest.TestCase):
 
 
 class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
-    """Üretim zinciri: Brain → Core → mevcut `pending_msg` oturumu; onay kullanıcının cevabı."""
+    """Üretim zinciri: Brain → Core → mevcut `pending_msg` oturumu; onay kullanıcının cevabı.
+
+    Alıcı güvenliği: gönderim yalnız **kayıtlı ve tekil** kişi için başlar; onay metni
+    çözümlenen kişiyi ve numarasının sonunu gösterir; rehberde olmayan ad hiçbir koşulda
+    gönderim çağrısına dönüşmez.
+    """
+
+    REGISTERED = {"Ahmet": "905321234567"}
 
     def setUp(self):
         super().setUp()
         # Onay okuması kullanıcının gerçek ayar dosyasına bağlı olmasın: testler kendi kararını verir.
         self.ctx.load_approve = Mock(return_value=True)
+        self.ctx.profile.data["contacts"] = dict(self.REGISTERED)
         self.send = Mock(return_value="GÖNDERİLDİ")
         sender = patch.object(messaging, "send_whatsapp", self.send)
         sender.start()
@@ -348,8 +370,7 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         self._threaded_turn("whatsapp'tan ahmet'e yarın geleceğim diye mesaj at")
         self.send.assert_not_called()
         self._threaded_turn("evet gönder")
-        self.assertEqual(self.send.call_args.args[0], "Ahmet")
-        self.assertEqual(self.send.call_args.args[1], "yarın geleceğim")
+        self.assertEqual(self.send.call_args.args, ("Ahmet", "yarın geleceğim", "905321234567"))
 
     def test_the_registered_contact_number_resolves_on_send(self):
         self.ctx.profile.data["contacts"] = {"Ahmet": "905321234567"}
@@ -357,10 +378,65 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         self._threaded_turn("evet gönder")
         self.assertEqual(self.send.call_args.args[2], "905321234567")
 
-    def test_an_unknown_recipient_never_gets_an_invented_number(self):
-        self._threaded_turn("whatsapp'tan zeynep'e selam gönder")
+    def test_an_unknown_recipient_never_reaches_the_sender(self):
+        # Eski test yalnız "numara uydurulmadı" diyordu: gönderim `phone=None` ile başlıyor ve
+        # GUI ilk arama sonucu seçiliyordu. Güvenlik koşulu bu değil: çağrı hiç başlamamalı.
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan zeynep'e selam gönder")
+        self.assertIn("rehber", str(out).casefold())
+        self.assertNotIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+        self.assertIsNone(self.ctx._session().pending_msg)
+        # Sonraki onay cümlesi de bir gönderim başlatamaz: akış kapanmıştır.
         self._threaded_turn("evet gönder")
-        self.assertIsNone(self.send.call_args.args[2])
+        self.send.assert_not_called()
+
+    def test_the_confirmation_names_the_resolved_contact_and_number(self):
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321234567"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e yarın geleceğim diye mesaj at")
+        self.assertIn("Ahmet Yılmaz", str(out))
+        self.assertIn("4567", str(out))
+        self.send.assert_not_called()
+
+    def test_a_typo_never_lands_on_a_different_contact(self):
+        # "ayse" yazımı "Aysel"e kaymamalı: Türkçe karakter eşlemesi doğru kişiye gider.
+        self.ctx.profile.data["contacts"] = {"Ayşe": "905324445566", "Aysel": "905321112233"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ayse'ye selam gönder")
+        self.assertIn("Ayşe", str(out))
+        self.assertNotIn("Aysel", str(out))
+        self._threaded_turn("evet gönder")
+        self.assertEqual(self.send.call_args.args, ("Ayşe", "selam", "905324445566"))
+
+    def test_a_fuzzy_only_match_is_not_a_recipient(self):
+        self.ctx.profile.data["contacts"] = {"Memet": "905321112233"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan mehmet'e selam gönder")
+        self.assertIn("rehber", str(out).casefold())
+        self.send.assert_not_called()
+
+    def test_two_matches_require_an_explicit_choice(self):
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "905321110002"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("Ahmet Yılmaz", str(out))
+        self.assertIn("Ahmet Demir", str(out))
+        self.assertIn("Hangisine", str(out))
+        self.assertEqual(self.ctx._session().pending_msg["text"], "selam")
+        self.send.assert_not_called()
+        _entry, out, _handle, _ = self._threaded_turn("Ahmet Demir")
+        self.assertIn("Ahmet Demir", str(out))
+        self.assertIn("0002", str(out))
+        self.assertIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+        self._threaded_turn("evet gönder")
+        self.assertEqual(self.send.call_args.args, ("Ahmet Demir", "selam", "905321110002"))
+
+    def test_a_name_outside_the_known_set_never_sends(self):
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "905321110002"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        _entry, out, _handle, _ = self._threaded_turn("Zeynep")
+        self.assertIn("rehber", str(out).casefold())
+        self.send.assert_not_called()
+        self.assertIsNone(self.ctx._session().pending_msg)
 
     def test_a_missing_body_is_asked_by_the_session_not_invented(self):
         _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e mesaj gönder")
@@ -392,6 +468,39 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         self.assertIsNone(self.ctx._session().pending_msg)
         self.assertEqual(self.send.call_count, 0)
         self.assertNotEqual(entry.understanding.capability_hint, understanding.MESSAGE_SEND_CAPABILITY)
+
+
+class RecipientResolutionTests(unittest.TestCase):
+    """Alıcı çözümlemesi ölçülebilir ve muhafazakâr: yalnız kayıtlı defter, yalnız tekil eşleşme."""
+
+    def test_the_contact_lookup_folds_turkish_letters_without_fuzzy_guessing(self):
+        contacts = {"Ayşe": "905324445566", "Aysel": "905321112233"}
+        self.assertEqual(messaging.contact_matches(contacts, "ayse"), [("Ayşe", "905324445566")])
+        self.assertEqual(messaging.contact_matches({"Memet": "905321112233"}, "mehmet"), [])
+        self.assertEqual(messaging.find_contact({"Memet": "905321112233"}, "mehmet"), None)
+
+    def test_a_multi_word_name_matches_by_its_whole_word_prefix(self):
+        contacts = {"Ahmet Yılmaz": "905321110001"}
+        self.assertEqual(messaging.find_contact(contacts, "ahmet"), ("Ahmet Yılmaz", "905321110001"))
+        self.assertEqual(messaging.find_contact(contacts, "ahm"), None)
+
+    def test_two_matches_are_reported_as_ambiguous_not_picked(self):
+        contacts = {"Ahmet Yılmaz": "905321110001", "Ahmet Demir": "905321110002"}
+        self.assertEqual(len(messaging.contact_matches(contacts, "ahmet")), 2)
+        self.assertIsNone(messaging.find_contact(contacts, "ahmet"))
+
+    def test_the_sender_refuses_a_recipient_without_a_number(self):
+        # GUI yolu kapalı: numara yoksa uygulama açılmaz, arama kutusu kullanılmaz, Enter basılmaz.
+        with patch.object(messaging, "_find_window") as window:
+            result = messaging._send_whatsapp("Zeynep", "selam", None)
+        self.assertIn("göndermedim", result)
+        window.assert_not_called()
+
+    def test_the_gui_first_result_path_is_retired(self):
+        source = MESSAGING.read_text(encoding="utf-8")
+        self.assertNotIn('press("down")', source)
+        self.assertNotIn('hotkey("ctrl", "f")', source)
+        self.assertNotIn("open_application", source)
 
 
 if __name__ == "__main__":

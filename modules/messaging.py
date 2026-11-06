@@ -1,23 +1,24 @@
 """WhatsApp mesajı gönderme (Windows masaüstü uygulaması).
 
-İki yol vardır:
-  1) Kişinin numarası kayıtlıysa  -> whatsapp://send?phone=...&text=... bağlantısı sohbeti mesaj yazılı açar, Enter gönderir.
-  2) Numara yoksa                 -> WhatsApp açılır, arama kutusuna ad yazılır, ilk sohbet seçilir, mesaj yapıştırılıp
-                                     Enter'a basılır (ekran/klavye otomasyonu; WhatsApp sürümüne göre değişebilir).
+Tek yol vardır: kişinin **kayıtlı numarası**. Numara yoksa gönderim başlamaz.
+
+Eski ikinci yol (numarasız: uygulamayı aç, arama kutusuna adı yaz, ilk sohbet sonucunu seç, metni
+yapıştır, Enter) bilinçli olarak kaldırıldı: arama sonucunun ilk satırı kullanıcının kastettiği kişi
+olabilir de olmayabilir de, ve onay ile gönderim arasındaki bu belirsizlik geri alınamaz bir dış
+etkiye (yanlış kişiye mesaj) dönüşüyordu. Alıcı çözümlemesi `contact_matches` ile yalnız kayıtlı
+defterde ve yalnız tekil eşleşmede yapılır (`find_contact`); numara yoksa çağrı hiç başlamaz.
 Gönderme sırasında klavye ve fareye dokunulmamalıdır. Fareyi ekranın köşesine sürmek işlemi durdurur (pyautogui güvenliği).
 """
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
-import difflib
 import os
 import re
-import subprocess
 import time
 import threading
 from urllib.parse import quote
 
-from modules import system_control, requests_state
+from modules import requests_state
 
 # BRAIN-03 dilim 2: "bu bir WhatsApp mesajı mı" ve "alıcı/gövde nedir" hükümleri bu modülden
 # kaldırıldı. Anlam kararı `brain_understanding` (`message.send`), biçim hükmü `brain_core_map`,
@@ -37,33 +38,52 @@ def normalize_phone(text: str) -> str | None:
     return digits if 10 <= len(digits) <= 15 else None
 
 
+_TURKISH_FOLD = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u",
+                              "â": "a", "î": "i", "û": "u"})
+
+
+def fold_name(text: str) -> str:
+    """Ad karşılaştırması için Türkçe-duyarlı katlama: "Ayşe" ve "ayse" aynı kişidir."""
+    if not isinstance(text, str):
+        return ""
+    lowered = text.casefold().translate(_TURKISH_FOLD)
+    cleaned = re.sub(r"[^a-z0-9 ]+", " ", lowered)
+    return " ".join(cleaned.split())
+
+
+def contact_matches(contacts: dict, name: str) -> list[tuple[str, str]]:
+    """Kayıtlı defterde adı `name`e uyan kişiler: birebir eşleşme ya da tam kelime öneki.
+
+    Bulanık (difflib) eşleştirme yoktur: "mehmet" kayıtlı "Memet"i seçmez. Yakınlık ölçüsü
+    tek bir kişiyi sessizce seçmenin aracı olamaz; eşleşme ya yazılan addır ya da o adla
+    başlayan tam kelimelerdir. Birden fazla kişi uyuyorsa karar kullanıcınındır.
+    """
+    query = fold_name(name)
+    if not query or not isinstance(contacts, dict):
+        return []
+    exact: list[tuple[str, str]] = []
+    prefixed: list[tuple[str, str]] = []
+    for stored, phone in contacts.items():
+        folded = fold_name(stored)
+        if not folded or not phone:
+            continue
+        if folded == query:
+            exact.append((stored, str(phone)))
+        elif folded.startswith(query + " "):
+            prefixed.append((stored, str(phone)))
+    return sorted(exact or prefixed, key=lambda row: fold_name(row[0]))
+
+
 def find_contact(contacts: dict, name: str) -> tuple[str, str] | None:
-    """Kayıtlı kişiler arasında ada en yakın olanı (ad, numara) döndürür."""
-    n = system_control._norm(name)
-    if not n or not contacts:
-        return None
-    by_norm = {system_control._norm(k): k for k in contacts}
-    if n in by_norm:
-        return by_norm[n], contacts[by_norm[n]]
-    close = difflib.get_close_matches(n, list(by_norm), n=1, cutoff=0.8)
-    return (by_norm[close[0]], contacts[by_norm[close[0]]]) if close else None
+    """Yalnız **tekil** eşleşmede (ad, numara); belirsizlikte None (karar kullanıcıya)."""
+    matches = contact_matches(contacts, name)
+    return matches[0] if len(matches) == 1 else None
 
 
-def _paste(text: str) -> None:
-    """Türkçe karakterler için panoya koyup Ctrl+V ile yapıştırır."""
-    import pyautogui
-    try:
-        import pyperclip
-        pyperclip.copy(text)
-        pyautogui.hotkey("ctrl", "v")
-    except ImportError:
-        if text.isascii():
-            pyautogui.write(text, interval=0.02)
-        else:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Set-Clipboard -Value $input"],
-                           input=text.encode("utf-8"), timeout=10,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            pyautogui.hotkey("ctrl", "v")
+def mask_phone(phone: str | None) -> str:
+    """Onay metninde gösterilecek kısa kimlik: numaranın son dört hanesi."""
+    digits = re.sub(r"\D", "", str(phone or ""))
+    return "…" + digits[-4:] if len(digits) >= 4 else ""
 
 
 def _find_window(part: str) -> bool:
@@ -129,42 +149,25 @@ def send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
 def _send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
     """Mesajı gönderir; kullanıcıya söylenecek sonucu döndürür. (Gönderimin alındığı doğrulanamaz.)
     Sabit uzun beklemeler yerine WhatsApp penceresi görünene kadar beklenir; açıksa neredeyse hemen gönderir."""
+    if not phone:
+        # Numara yoksa hiçbir uygulama açılmaz, arama kutusu kullanılmaz: ad benzerliğiyle
+        # hedef seçmek yanlış kişiye mesaj riskidir (kaldırılan GUI yolu).
+        return f"{name} için kayıtlı bir numara yok; mesajı göndermedim."
     if os.name != "nt":
         return "WhatsApp mesajı yalnızca Windows'ta gönderilebilir."
     import pyautogui
     try:
         requests_state.check()
         was_open = _find_window("whatsapp")
-        if phone:
-            os.startfile(f"whatsapp://send?phone={phone}&text={quote(text)}")   # type: ignore[attr-defined]
-            if was_open:
-                _pause(1.3)
-            else:
-                if not _wait_window("whatsapp"):
-                    return "WhatsApp penceresini bulamadım; mesajı göndermedim."
-                _pause(2.2)             # sohbet ve hazır metin yüklensin
-            requests_state.check()
-            pyautogui.press("enter")
+        os.startfile(f"whatsapp://send?phone={phone}&text={quote(text)}")   # type: ignore[attr-defined]
+        if was_open:
+            _pause(1.3)
         else:
-            system_control.open_application("whatsapp")
-            if was_open:
-                _pause(1.0)
-            else:
-                if not _wait_window("whatsapp"):
-                    return "WhatsApp penceresini bulamadım; mesajı göndermedim."
-                _pause(1.8)
-            pyautogui.hotkey("ctrl", "f")        # sohbet arama kutusu
-            _pause(0.4)
-            _paste(name)
-            _pause(1.2)
-            pyautogui.press("down")              # ilk sonucu seç
-            requests_state.check()
-            pyautogui.press("enter")
-            _pause(0.8)
-            _paste(text)
-            _pause(0.3)
-            requests_state.check()
-            pyautogui.press("enter")
+            if not _wait_window("whatsapp"):
+                return "WhatsApp penceresini bulamadım; mesajı göndermedim."
+            _pause(2.2)             # sohbet ve hazır metin yüklensin
+        requests_state.check()
+        pyautogui.press("enter")
         return f"{name} için WhatsApp’ta gönderme komutunu uyguladım. Mesajın teslimini doğrulayamıyorum."
     except requests_state.Cancelled:
         raise

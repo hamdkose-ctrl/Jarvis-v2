@@ -1712,6 +1712,12 @@ _MESSAGE_ADDRESS = re.compile(r"(?P<stem>[a-zçğıöşü]{2,30})(?:['’](?:ye|
 _MESSAGE_ADDRESS_FUNCTION = frozenset({"diye"})
 MESSAGE_BODY_MAX = 4000
 _MESSAGE_BODY_FILLERS = frozenset({"", "mesaj", "mesajı", "mesaji", "whatsapp", "whatsappı"})
+# "herkese"/"grubuna" bir kişi adı değildir; bu sözcükler alıcı slotuna yazılamaz.
+_NON_PERSON_RECIPIENTS = frozenset({"herkes", "herkese", "herkez", "herkeze", "hepsi", "hepsine",
+                                    "tum", "tumu", "tumune", "grup", "gruba", "grubu", "grubun",
+                                    "grubuna", "grupta", "grub", "topluluk", "topluluga",
+                                    "kanal", "kanala", "kanali", "liste", "listeye"})
+_RECIPIENT_FOLD = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
 _CONTACT_NAME = re.compile(r"[a-zçğıöşü]{1,40}(?: [a-zçğıöşü]{1,30}){0,3}")
 _CONTACT_PHONE = r"\+?[0-9][0-9\s\-()]{8,}"
 _CONTACTS_ADD_SHAPES = (
@@ -1764,7 +1770,11 @@ def _message_fields(remainder: str) -> tuple[str, str]:
         address, rest = words[-1], words[:-1]
     else:
         return "", ""
-    return _MESSAGE_ADDRESS.fullmatch(address).group("stem"), _message_body(" ".join(rest))
+    stem = _MESSAGE_ADDRESS.fullmatch(address).group("stem")
+    if stem.translate(_RECIPIENT_FOLD) in _NON_PERSON_RECIPIENTS:
+        # Toplu/kanal hedefi kişi adı değildir: uydurma alıcıya göndermek yerine oturum sorar.
+        return "", _message_body(" ".join(rest))
+    return stem, _message_body(" ".join(rest))
 
 
 def _message_request(normalized: str) -> dict[str, object] | None:
@@ -1779,6 +1789,9 @@ def _message_request(normalized: str) -> dict[str, object] | None:
     lead = _WA_LEAD.match(remainder)
     if lead is not None:
         remainder = remainder[lead.end():].strip()
+    # Kanal sözcüğü cümlenin her yerinde yapısal bir işarettir, gövde metni değildir:
+    # "anneme whatsapp'tan yaz" gövdesi "whatsapp'tan" olamaz.
+    remainder = " ".join(word for word in remainder.split() if _WA_CUE.fullmatch(word) is None)
     recipient, body = _message_fields(remainder)
     if len(body) > MESSAGE_BODY_MAX:
         return None
