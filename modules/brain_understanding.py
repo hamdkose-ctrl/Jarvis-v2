@@ -1559,6 +1559,12 @@ _CITY_RESET_LEADS = ("şehrimi", "konumumu")
 _CITY_RESET_VERBS = ("sıfırla", "sil", "unut", "temizle")
 _CITY_FILLERS = frozenset({"jarvis", "hey", "lütfen"})
 _CITY_COPULAS = frozenset({"olsun", "olur"})
+# Boşluklu yazılan geniş zaman eki: taban kalıbı `\s*(?:olsun|dır|dir)?$` idi, yani boşluklu
+# "İzmir dir"i DÜŞÜRÜYORDU ve pref "İzmir" oluyordu. Ekleri yalnız kesme işaretli saymak bu
+# doğru biçimi bozup "İzmir Dir" yazdırdı (denetimde ölçülen BLOCKER). Küme kapalıdır ve Türkçe
+# şehir adlarının hiçbiri bu biçimlerden biri değildir; BİRLEŞİK yazım ("Boludur", "Burdur")
+# adın parçası kalmaya devam eder — ayrım kesme işaretinde, kelime sınırındadır.
+_CITY_SPACED_COPULAS = _CITY_COPULAS | frozenset({"dır", "dir", "dur", "tur", "tır", "tir"})
 # Kesme işaretli çekim ekleri ("İzmir'dir", "İzmir'de") ad gövdesinden ayrılır. Birleşik
 # yazımda kesme yoktur; bu yüzden ek YALNIZ kesme işaretli biçimde düşülür. Aksi kural
 # "Burdur"u "Bur"a çevirirdi ve tabanın "şehrim Iğdır"ı reddetmesi böyle oluyordu (ölçülen kusur).
@@ -1587,7 +1593,7 @@ def _city_tokens(normalized: str) -> list[str]:
 
 def _city_name_tokens(tokens: list[str]) -> list[str]:
     """Kalanı şehir adı dizisine çevirir; kurallardan biri uymazsa boş liste."""
-    if tokens and tokens[-1] in _CITY_COPULAS:
+    if tokens and tokens[-1] in _CITY_SPACED_COPULAS:
         tokens = tokens[:-1]
     if not 1 <= len(tokens) <= _CITY_MAX_NAME_WORDS:
         return []

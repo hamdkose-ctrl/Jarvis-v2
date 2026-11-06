@@ -3,8 +3,13 @@
 Yasağın kendisi (mimari sözleşme §24/§25, ban 1 ve ban 2): ham doğal cümleyi okuyup capability /
 target / effect seçen ikinci bir otorite olamaz; anlam kararı Brain'de bir kez doğar, Core
 doğrular, etki kendi sahibinde yürür. Bu dosya o yüzeyi *ad + çağıran-dosya kümesi* olarak
-kilitler: yarın bir modül yeni bir ham kapı çağrısı eklerse veya mevcut bir kapı ikinci bir
-çağıran kazanırsa test RED verir; emeklilikte satır silmek ise PR'ın işidir.
+kilitler: sayılan bir kapı ikinci bir çağıran kazanırsa veya bir çağıran kümesi genişlerse test
+RED verir; emeklilikte satır silmek ise PR'ın işidir. Kapsam dürüstçe budur: defter **sayılmış
+kapıların** sahipliğini kilitler, yoksa yeni bir sembol altında yazılacak ham bir kapıyı keşfetmez.
+Yeni bir ham cümle kapısı eklemenin maliyeti süreç kuralıdır — migration map §14'e karar satırı
+yazılır ve §13.1 satırı eklenir; keşif ise ayrı nöbetçilerin işidir (`EngineCommandsStructuralGuardTests`
+yasak selector token'ları, `test_the_census_covers_every_front_gate_and_cascade_arm` zincir
+eşitliği, `BrainNeverDelegatesToARawDoorTests`).
 
 Denetim SHOULD FIX'i burada kapanır: taban `ea2f0b3` ölçümündeki `_source_calls` çıplak ad
 eşleştirmesi `from modules.messaging import is_whatsapp_message as probe` gibi bir takmaadı
@@ -62,7 +67,7 @@ _REPO_TREES: list[tuple[str, ast.AST, dict[str, str]]] | None = None
 
 
 def _repo_trees() -> list[tuple[str, ast.AST, dict[str, str]]]:
-    """Repo tozu bir kez ağaçlandırılır: otuz bir kapı için otuz bir kez parse CI süresidir."""
+    """Repo tozu bir kez ağaçlandırılır: otuz iki kapı için otuz iki kez parse CI süresidir."""
     global _REPO_TREES
     if _REPO_TREES is None:
         built = []

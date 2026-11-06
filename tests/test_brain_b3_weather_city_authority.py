@@ -17,6 +17,7 @@ cümlesi artık tercihi SİLMEZ — ikisi de tabanın ölçülen kusuruydu.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 import unittest
@@ -125,6 +126,33 @@ class WeatherCityPlanContractTests(unittest.TestCase):
             brain_core_map.core_plan(understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "izmir 12"}))
 
 
+    def test_core_judges_city_form_only_and_never_the_model_path_effect(self):
+        # Merge öncesi denetim NOTU (ikinci boşluk): BRAIN-01 zarfı `weather.city.set`'i
+        # `CORE_INTENTS` katalogundan ötüri önerebiliyor. Core ANLAM listesi tutmaz (tutsa
+        # ikinci semantic authority olurdu), bu yüzden biçim hükmü harfi/haneyi denetler ama
+        # "çok sıcak" gibi şeklen geçerli bir değeri reddetmez — ölçüldü. O hâlde kapanış
+        # doğru katmanda: tercih YAZMASI/SİLMESİ modelin önerebileceği bir yetenek değildir
+        # (`WeatherCityModelEnvelopeTests`), Core'un biçim hükmü ise aynen kalır.
+        from modules import brain_model_understanding
+        self.assertIn(understanding.WEATHER_CITY_SET_CAPABILITY, brain_core_map.CORE_INTENTS)
+        self.assertEqual(
+            brain_core_map.core_plan(understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "izmir"}),
+            ("city_set", {"location": "İzmir"}))
+        # Biçim hükmü reddettikleri (rakam/boş/apostroflü biçimler):
+        for malformed in ("İzmir 12", "", "İz'mir", "12"):
+            with self.subTest(location=malformed):
+                self.assertIsNone(
+                    brain_core_map.core_plan(understanding.WEATHER_CITY_SET_CAPABILITY,
+                                             {"location": malformed}))
+        # Biçim hükmü KABUL ettikleri: Core'un reddetme yetkisi anlamda değildir.
+        self.assertEqual(
+            brain_core_map.core_plan(understanding.WEATHER_CITY_SET_CAPABILITY,
+                                     {"location": "çok sıcak"}),
+            ("city_set", {"location": "Çok Sıcak"}))
+        self.assertTrue(brain_model_understanding._supplied_schema(
+            understanding.WEATHER_CITY_SET_CAPABILITY))
+
+
 class WeatherCityUnderstandingTests(unittest.TestCase):
     """Tanıyıcı, retire edilen iki regex ile birebir aynı biçimleri görür — fazlasını değil."""
 
@@ -135,13 +163,18 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
         for text in ("şehrim İzmir", "konumum Ankara", "yaşadığım şehir İzmir",
                      "şehrim İzmir olsun", "konumum Ankara olsun", "şehrim İzmir'dir",
                      "şehrim İzmir'de", "Şehrim İzmir", "şehrim    izmir",
-                     # Taban `(.+?)` çok kelimeli adı da alıyordu ("şehrim Yeni Delhi" kaydediliydi);
-                     # emeklilik bu biçimi korur, yalnız Türkçe büyük harf hükmünü düzeltir.
+                     # Taban `(.+?)` çok kelimeli adı da alıyordu ("şehrim Yeni Delhi"i olduğu gibi
+                     # yazıyordu); emeklilik bu biçimi korur, yalnız Türkçe büyük harf hükmünü düzeltir.
                      "şehrim Yeni Delhi", "konumum Kırıkkale",
                      # Sesli yüzey noktalama taşır: taban "izmir."i olduğu gibi pref'e yazıyordu.
                      # Hitap/dolgu kümesi kapalıdır (`_CITY_FILLERS`); taban `^` yüzünden "Jarvis,
                      # şehrim İzmir"i kaçırıyordu — bu genişleme bilinçlidir, kelime taraması değildir.
-                     "şehrim İzmir.", "Şehrim İzmir!", "şehrim: İzmir", "Jarvis, şehrim İzmir"):
+                     "şehrim İzmir.", "Şehrim İzmir!", "şehrim: İzmir", "Jarvis, şehrim İzmir",
+                     # Ölçülen denetim BLOCKER'ı: taban `\s*(?:olsun|dır|dir)?$` boşluklu aorist
+                     # ekini de düşürüyordu — "şehrim İzmir dir" tabanda "İzmir" yazdırdı. İlk
+                     # dilim denemesi ekleri yalnız kesme işaretli sanıp "İzmir Dir" üretti:
+                     # tabanın DOĞRU yaptığı bir biçimi bozan gerileme, burada RED olarak pinlendi.
+                     "şehrim İzmir dir", "konumum Ankara dır", "şehrim İzmir olur"):
             with self.subTest(text=text):
                 self.assertEqual(self._hint(text), understanding.WEATHER_CITY_SET_CAPABILITY)
 
@@ -184,6 +217,9 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
                      "şehrim nerede", "şehrim nerde", "şehrim nerelerde", "konumum 12"):
             with self.subTest(text=text):
                 self.assertIsNone(self._hint(text))
+                # `core_plan(None, …)` tek başına hiçbir şey iddia etmez; asıl sözleşme şu ki
+                # tanıyıcı ateşlenmediyse önerilen ARGÜMAN da yoktur, dolayısıyla plan kurulamaz.
+                self.assertEqual(self._arguments(text), {})
                 self.assertIsNone(brain_core_map.core_plan(self._hint(text), self._arguments(text)))
 
     def _arguments(self, text):
@@ -202,6 +238,22 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
         # Çok kelimeli ad tabanda kaydediliyordu; burada da tek öneri olarak taşınır.
         self.assertEqual(self._arguments("şehrim Yeni Delhi"), {"location": "yeni delhi"})
 
+    def test_a_spaced_copula_yields_the_city_the_base_wrote(self):
+        # DENETİM BLOCKER'ı (bu turda RED→GREEN): taban `\s*(?:olsun|dır|dir)?$` boşluklu aorist
+        # ekini de düşürüyordu, yani "şehrim İzmir dir" tabanda "İzmir" yazdırıyordu. İlk dilim
+        # denemesi eki yalnız kesme işaretli sanıp "İzmir Dir" yazdı — tabanın DOĞRU yaptığı bir
+        # biçimi bozan gerileme. Boşluklu ek düşürülür, BİRLEŞİK yazım adın parçası kalır
+        # ("Boludur" tabanla aynı sonuç; "Burdur"u "Bur"a çevirmemek bu ayrımın gerekçesidir).
+        for text, expected in (("şehrim İzmir dir", "İzmir"), ("konumum Ankara dır", "Ankara"),
+                               ("şehrim İzmir olur", "İzmir"),
+                               ("şehrim Yeni Delhi dir", "Yeni Delhi"),
+                               ("şehrim Boludur", "Boludur")):
+            with self.subTest(text=text):
+                self.assertEqual(self._hint(text), understanding.WEATHER_CITY_SET_CAPABILITY)
+                self.assertEqual(
+                    brain_core_map.core_plan(self._hint(text), self._arguments(text)),
+                    ("city_set", {"location": expected}))
+
     def test_the_proposal_the_brain_makes_is_always_the_one_core_accepts(self):
         # İKİ KATMANLI RED YÜZEYİ KORUMASI: Brain önerir, Core hükmünü bağımsız verir. Brain'in
         # kabul ettiği her biçim Core'da da doğrulanmalıdır; aksi hâlde kullanıcı "güvenli biçimde
@@ -209,6 +261,7 @@ class WeatherCityUnderstandingTests(unittest.TestCase):
         corpus = ["şehrim İzmir", "şehrim İzmir.", "konumum Ankara olsun", "şehrim İzmir'dir",
                   "şehrim İzmir'de", "yaşadığım şehir Muğla", "şehrim Yeni Delhi",
                   "Jarvis, şehrim Uşak", "şehrim Iğdır", "şehrim Şırnak",
+                  "şehrim İzmir dir", "konumum Ankara dır",
                   "şehrimi sıfırla", "konumumu sil", "şehrimi unut lütfen"]
         for text in corpus:
             with self.subTest(text=text):
@@ -234,6 +287,14 @@ class WeatherCityAuthorityHarnessTests(pr3a._CanonicalAuthorityHarness):
                 handle.assert_not_called()
                 self.assertEqual(feedback.result_status, "handled")
                 self.assertNotIn("HANDLER", str(out))
+
+    def test_the_spaced_copula_writes_the_same_preference_as_the_bare_statement(self):
+        # Kullanıcı görünüründe tek ölçüt: söylenen ek Pref'i bozmamalı. Taban "şehrim İzmir dir"
+        # için "İzmir" yazıyordu; emeklilikte "İzmir Dir" yazılması GERİLEME sayılır (BLOCKER).
+        self.turn_real("şehrim İzmir dir")
+        self.assertEqual(self.ctx.profile.data["prefs"].get("city"), "İzmir")
+        self.turn_real("konumum Ankara dır")
+        self.assertEqual(self.ctx.profile.data["prefs"].get("city"), "Ankara")
 
     def test_clearing_the_city_is_a_canonical_plan_and_never_the_legacy_handler(self):
         entry, out, handle, feedback = self.turn("şehrimi sıfırla")
@@ -352,3 +413,120 @@ class WeatherCityDoorRetirementGuardTests(unittest.TestCase):
         self.assertNotIn('set_pref("city"', source)
         self.assertNotIn("'city'", source)
         self.assertNotIn('pop("city"', source)
+
+
+class WeatherCityModelEnvelopeTests(unittest.TestCase):
+    """Kalıcı tercih yazması/silinmesi modelin önerdiği bir yetenek OLAMAZ.
+
+    Denetimde ölçülen ikinci gerçek boşluk: bu PR `weather.city.set`/`weather.city.reset`'i
+    `CORE_INTENTS` kataloğuna eklediği için BRAIN-01 zarfı o yeteneği artık önerebiliyor ve
+    modelin yazdığı "çok sıcak" gibi bir değer Core'un BİÇİM hükmünden geçiyordu
+    (`_city_set_args("çok sıcak")` → "Çok Sıcak") — ölçüldü: `core_plan(...) == ("city_set",
+    {"location": "Çok Sıcak"})`. Core anlam listesi tutmaz (tutsa ikinci semantic authority
+    olurdu), o hâlde yasak doğru yerde: tercih, kullanıcının kendi cümlesinden doğar.
+    """
+
+    OWNER = "b3-city-envelope"
+
+    def _current(self, text):
+        # Zarf testi Production'ın kendi satırı ile kurulur: `understand` güveni MEDIUM,
+        # ilişkisi NEW_REQUEST üretiyor (ölçüldü) — elle yazılmış bir fixture, yüksek güvenli
+        # bir zarfı `._apply_semantic_fences`teki güven tavanında düşürüp kontrolü sahte yapardı.
+        from modules.brain_contracts import ActiveContext
+        request_id = "r-city-envelope"
+        return understanding.understand(
+            owner=self.OWNER, request_id=request_id, text=text,
+            active_context=ActiveContext(owner=self.OWNER, request_id=request_id),
+            candidates=(), references=())
+
+    def _envelope(self, capability, arguments):
+        from modules.brain_model_understanding import SCHEMA_VERSION
+        return json.dumps({
+            "schema_version": SCHEMA_VERSION, "operation": "direct_action",
+            "conversation_relation": "NEW_REQUEST", "temporal_need": "STATIC",
+            "target_goal_ids": [], "goal": None, "clarification":
+                {"required": False, "question": None, "reason_code": None},
+            "confidence": "MEDIUM",
+            "actions": [{"action_id": "a1", "capability_id": capability,
+                         "arguments": arguments, "reference_slots": [], "depends_on": []}]})
+
+    def _ask(self, text, raw):
+        from modules import brain_model_understanding as model
+        current = self._current(text)
+        with patch("modules.llm.current_user", return_value=self.OWNER), \
+                patch("modules.llm.provider", return_value="groq"), \
+                patch("modules.llm.privacy.mode", return_value="normal"), \
+                patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
+                patch("modules.smart_router.run", return_value=raw):
+            return model.propose(owner=self.OWNER, text=understanding._norm(text),
+                                 current=current, arguments=dict(current.arguments))
+
+    def test_a_model_proposed_preference_write_is_not_a_valid_proposal(self):
+        for capability, arguments in (
+                (understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "çok sıcak"}),
+                (understanding.WEATHER_CITY_SET_CAPABILITY, {"location": "izmir"}),
+                (understanding.WEATHER_CITY_RESET_CAPABILITY, {})):
+            with self.subTest(capability=capability):
+                self.assertIsNone(self._ask("bugün hava nasıl", self._envelope(capability, arguments)))
+
+    def test_the_denial_is_a_closed_capability_set_not_an_argument_key_rule(self):
+        # `location` anahtarını yasaklamak hava OKUMASını da vururdu; yasak yetenek düzeyindedir
+        # ve küme kapalıdır — kelime taraması, regex veya modelden gelen bir ad değildir.
+        from modules import brain_model_understanding as model
+        self.assertEqual(
+            set(model._MODEL_DENIED_CAPABILITIES),
+            {understanding.WEATHER_CITY_SET_CAPABILITY, understanding.WEATHER_CITY_RESET_CAPABILITY})
+
+    def test_a_model_proposed_weather_read_is_still_allowed(self):
+        # Yasak yalnız tercih YAZMASI/SİLMESİ içindir: okuma zarf kararının normal yeteneğidir.
+        proposal = self._ask("yarın izmirde hava nasıl", self._envelope(
+            "weather.read", {"location": "izmir"}))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.actions[0].capability_id, "weather.read")
+
+    def test_denying_an_echoed_city_set_leaves_the_users_own_sentence_untouched(self):
+        # Yasağın kullanıcı yüzü: "şehrim İzmir"de deterministik satır ZATEN weather.city.set
+        # taşıyor. Model aynı yeteneği yankılarsa zarf öneriyi düşürür, `apply_model_understanding`
+        # deterministik sonucu olduğu gibi korur — yani gerçek cümlelerin etkisi değişmez.
+        text = "şehrim İzmir"
+        deterministic = self._current(text)
+        self.assertEqual(deterministic.capability_hint, understanding.WEATHER_CITY_SET_CAPABILITY)
+        echoed = self._envelope(understanding.WEATHER_CITY_SET_CAPABILITY,
+                                {"location": "İzmir"})
+        with patch("modules.llm.current_user", return_value=self.OWNER), \
+                patch("modules.llm.provider", return_value="groq"), \
+                patch("modules.llm.privacy.mode", return_value="normal"), \
+                patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
+                patch("modules.smart_router.run", return_value=echoed):
+            adopted = understanding.apply_model_understanding(deterministic, text)
+        self.assertEqual(adopted, deterministic)
+        self.assertEqual(adopted.capability_hint, understanding.WEATHER_CITY_SET_CAPABILITY)
+        self.assertEqual(adopted.arguments.get("location"), "izmir")
+
+    def test_the_prompt_catalogue_does_not_advertise_a_denied_capability(self):        # Zarf yasakları modelden GELSE bir değeri reddeder; prompt yasağı olmayan bir yeteneği
+        # "seçebilirsin" diye ilan ederse sözleşme içten tutarsız olur ve her seçim fail-closed
+        # düşer. Ölçülen katalog: yasak küme ilan edilmez, okuma yeteneği ilan edilmeye devam eder.
+        from modules import brain_model_understanding as model
+        from modules.brain_core_map import CORE_INTENTS
+        captured: dict[str, str] = {}
+
+        def fake_run(owner, text, send, *, route, exclude_providers):
+            captured["payload"] = text
+            return self._envelope("weather.read", {"location": "izmir"})
+
+        current = self._current("bugün hava nasıl")
+        with patch("modules.llm.current_user", return_value=self.OWNER), \
+                patch("modules.llm.provider", return_value="groq"), \
+                patch("modules.llm.privacy.mode", return_value="normal"), \
+                patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
+                patch("modules.smart_router.run", side_effect=fake_run):
+            self.assertIsNotNone(model.propose(
+                owner=self.OWNER, text="bugün hava nasıl", current=current,
+                arguments=dict(current.arguments)))
+        payload, _end = json.JSONDecoder().raw_decode(
+            captured["payload"][captured["payload"].index("{"):])
+        advertised = set(payload["allowed"]["capability_id"])
+        self.assertEqual(advertised & set(model._MODEL_DENIED_CAPABILITIES), set())
+        self.assertIn("weather.read", advertised)
+        self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES))
+        self.assertEqual(set(payload["allowed"]["argument_schema"]), advertised)
