@@ -784,7 +784,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_publish_admin_grammar_is_closed_and_whole_sentence_only(self):
         from modules import git_publish
-        for text in ("git yükle", "GitHub'a gönder", "değişiklikleri github'a yükle"):
+        for text in ("git yükle", "GIT YÜKLE", "GitHub'a gönder", "değişiklikleri github'a yükle"):
             with self.subTest(text=text):
                 self.assertTrue(git_publish.requested(text), text)
         for text in ("dün git yükle dedim", "github'a yüklemeden önce kontrol et",
@@ -809,7 +809,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_update_admin_grammar_preserves_check_and_install_variants(self):
         import updater
-        for text in ("güncelleme var mı", "güncellemeye bak", "güncellemeleri kontrol et"):
+        for text in ("güncelleme var mı", "GÜNCELLEME VAR MI", "güncellemeye bak", "güncellemeleri kontrol et"):
             with self.subTest(text=text):
                 self.assertEqual(updater.command_request(text), "check")
         for text in ("kendini güncelle", "Jarvis'i güncelle", "güncellemeleri kur"):
