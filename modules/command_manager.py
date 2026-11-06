@@ -15,6 +15,7 @@ class CommandContext:
     conversation_summary: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
+    record_failure: Callable | None = None
 
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
@@ -143,7 +144,7 @@ def dispatch(context, command, normalized):
     return result if result else None
 
 
-def exact_admin_view(context, corrected, speak_flag=None):
+def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None):
     """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
@@ -170,6 +171,45 @@ def exact_admin_view(context, corrected, speak_flag=None):
         # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
         # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
         return diagnose.summary(diagnose.run(speak_flag=speak_flag))
+
+    # Privileged write operations are exact raw-text admin protocols, never typo-rewritten
+    # or inferred from a substring/model suggestion.
+    if isinstance(original_text, str):
+        from modules import git_publish, updater
+        if git_publish.requested(original_text):
+            try:
+                verified = updater.verify_sync()
+                if verified.get("sync_state") in ("diverged", "unknown", "offline"):
+                    return "GitHub'a yüklemedim: " + str(
+                        verified.get("sync_msg") or "durum güvenli değil"
+                    )
+                return git_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
+            except Exception as exc:
+                if context.record_failure is not None:
+                    context.record_failure("main.py:handle")
+                return f"GitHub'a yükleyemedim: {exc}"
+
+        update_action = updater.command_request(original_text)
+        if update_action is not None:
+            try:
+                note = (updater.install_latest() if update_action == "install"
+                        else updater.check(apply_now=False, force=True))
+                if note:
+                    return note + (
+                        " Jarvis'i kapatıp açınca devreye girer."
+                        if update_action == "install"
+                        else " Kurmak için açıkça ‘güncellemeyi kur’ de."
+                    )
+                status = updater.status()
+                if status["error"] and not status["sha"]:
+                    return "Güncellemeye bakamadım: " + status["error"].split(" ", 2)[-1]
+                return "Zaten en güncel sürümdesin." + (
+                    f" ({status['msg']})" if status["msg"] else ""
+                )
+            except Exception as exc:
+                if context.record_failure is not None:
+                    context.record_failure("main.py:handle")
+                return f"Güncellemeye bakamadım: {exc}"
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):
