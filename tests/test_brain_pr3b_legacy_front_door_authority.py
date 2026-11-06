@@ -822,6 +822,39 @@ class ExactAdminEffectTests(_RawDoorHarness):
                 self.assertIsNone(updater.command_request(text), text)
 
 
+class ExactAdminProfileTests(_RawDoorHarness):
+    """Kayıtlı şehir tercihi yalnız tam cümleli, kullanıcının kendi profil komutuyla değişir."""
+
+    def test_an_exact_city_assignment_updates_only_the_active_profile(self):
+        _entry, out, _handle, _ = self.turn("şehrim İzmir olsun")
+        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "İzmir")
+        self.assertIn("İzmir", out)
+
+    def test_an_exact_city_reset_removes_only_the_active_profile_preference(self):
+        self.ctx.profile.set_pref("city", "Ankara")
+        _entry, out, _handle, _ = self.turn("şehrimi sıfırla")
+        self.assertNotIn("city", self.ctx.profile.data["prefs"])
+        self.assertIn("sildim", out)
+
+    def test_a_city_assignment_phrase_inside_a_larger_sentence_does_not_write(self):
+        self.ctx.profile.set_pref("city", "Ankara")
+        self.turn("dün şehrim İzmir olsun diye şaka yaptım")
+        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
+
+    def test_a_city_reset_phrase_inside_a_larger_sentence_does_not_delete(self):
+        self.ctx.profile.set_pref("city", "Ankara")
+        self.turn("şehrimi sıfırla komutunun ne yaptığını açıkla")
+        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
+
+    def test_city_admin_grammar_is_bounded_and_turkish_casefolded(self):
+        from modules import command_manager
+        context = SimpleNamespace(profile=self.ctx.profile, record_failure=None)
+        self.assertEqual(command_manager._profile_city_admin(context, "ŞEHRİM İZMİR OLSUN"),
+                         "Şehrini İzmir olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
+        self.assertIsNone(command_manager._profile_city_admin(context, "dün şehrim İzmir olsun dedim"))
+        self.assertIsNone(command_manager._profile_city_admin(context, "şehrimi sıfırla dedim"))
+
+
 class ExactAdminArmScopeTests(unittest.TestCase):
     """§3 kanıtı: exact admin kolları cümlenin *tamamı* üzerinde karar verir, içinde değil.
 
@@ -1093,6 +1126,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "diagnose.run": {"modules/command_manager.py", "web.py"},
         "git_publish.publish_worktree": {"modules/command_manager.py", "web.py"},
         "updater.install_latest": {"modules/command_manager.py", "web.py"},
+        "profile.set_pref": {"modules/command_manager.py", "modules/engine_context.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
