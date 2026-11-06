@@ -33,6 +33,7 @@ ENGINE_COMMANDS_SOURCE = (ROOT / "modules" / "engine_commands.py").read_text(enc
 EFFECT_SEAMS = (
     "updater.check", "updater.install_latest", "updater.verify_sync", "updater.status",
     "modules.diagnose.run", "modules.diagnose.summary",
+    "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
     "modules.finance_alert_commands.matches", "modules.selfctl.handle",
