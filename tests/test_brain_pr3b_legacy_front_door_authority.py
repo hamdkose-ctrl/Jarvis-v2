@@ -141,6 +141,10 @@ class MetaLanguageEffectFenceTests(_RawDoorHarness):
         self.turn("sistemi kontrol etmek ne demek?")
         self.assertEqual(self.silent("modules.diagnose"), [])
 
+    def test_a_fault_word_inside_a_longer_statement_does_not_trigger_diagnostics(self):
+        self.turn("rapordaki arıza kaydı dün eklenmiş")
+        self.assertEqual(self.silent("modules.diagnose"), [])
+
     def test_a_question_about_folder_watch_touches_no_watch_rule(self):
         self.turn("klasör izleme nedir?")
         self.assertEqual(self.silent("modules.watcher"), [])
@@ -768,6 +772,13 @@ class ExactAdminArmScopeTests(unittest.TestCase):
         for text in ("pc ses kontrolü değil", "sistem tanılama nedir", "arka planda sistem kontrolü yap"):
             self.assertIsNone(system_doctor.handle("alice", text), text)
 
+    def test_diagnosis_admin_grammar_matches_only_a_whole_bounded_sentence(self):
+        from modules import diagnose
+        self.assertTrue(diagnose.requested("neden çalışmıyor?"))
+        self.assertTrue(diagnose.requested("sistemi kontrol et"))
+        self.assertFalse(diagnose.requested("rapordaki arıza kaydı dün eklenmiş"))
+        self.assertFalse(diagnose.requested("arıza kelimesi nedir?"))
+
     def test_the_desktop_owner_gate_is_the_same_admin_family_as_the_early_arm(self):
         # Erken kolun öneki ile owner'ın kendi kapısı aynı aileyi tanımalı; aksi hâlde yüzey,
         # owner'ın sahiplenmediği bir cümleyi masaüstüne itiyor olur (ölçülen sapma riski).
@@ -1010,6 +1021,8 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        # Normal diagnostic requests must have a single bounded full-sentence owner.
+        "diagnose.run": {"modules/command_manager.py", "web.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
