@@ -16,6 +16,7 @@ class CommandContext:
     pc_owner: Callable | None = None
     source: str = 'yazı'
     record_failure: Callable | None = None
+    output: object | None = None
 
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
@@ -33,6 +34,35 @@ _CITY_RESET = re.compile(
     r"(?:şehrimi|konumumu)\s+(?:sıfırla|sil|unut)(?:\s+lütfen)?",
     re.IGNORECASE,
 )
+
+
+
+_OUTPUT_SAVE = re.compile(
+    r"(?:çıktı\\s+al|(?:son\\s+)?çıktıyı?\\s+kaydet|metni\\s+kaydet|bunu\\s+kaydet|kaydet)"
+    r"(?:\\s+lütfen)?",
+    re.IGNORECASE,
+)
+
+
+def _output_save_admin(context, text):
+    """Save only the current session's already-bound document on an exact command."""
+    normalized = str(text).replace("’", "'").strip().strip(" .!")
+    if _OUTPUT_SAVE.fullmatch(normalized) is None:
+        return None
+    document = getattr(context.session, "last_doc", None)
+    if document is None:
+        return None
+    try:
+        content, source, label = document
+        saver = getattr(context.output, "save_text_result", None)
+        if not callable(saver):
+            raise RuntimeError("output adapter unavailable")
+        saved = saver(content, source, label)
+        return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
+    except Exception:
+        if context.record_failure is not None:
+            context.record_failure("modules/command_manager.py:output_save")
+        return "Çıktıyı kaydedemedim; mevcut belgeyi değiştirmedim."
 
 
 def _profile_city_admin(context, text):
@@ -218,6 +248,12 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
         # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
         # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
         return diagnose.summary(diagnose.run(speak_flag=speak_flag))
+
+    # Artifact identity comes only from this user's existing session state.
+    if isinstance(original_text, str):
+        output_reply = _output_save_admin(context, original_text)
+        if output_reply is not None:
+            return output_reply
 
     # Profile mutations also require the original, whole user sentence.
     if isinstance(original_text, str):
