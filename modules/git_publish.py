@@ -26,8 +26,8 @@ LOCAL = STATE / "local_changes.json"
 PR_STATE = STATE / "github_pr.json"
 
 _PUBLISH_COMMAND = re.compile(
-    r"(?:git|github(?:'a|a)?)\\s+(?:yükle|gönder|yayınla)|"
-    r"değişiklikleri\\s+github(?:'a|a)?\\s+(?:yükle|gönder)",
+    r"(?:git|github(?:'a|a)?)\s+(?:yükle|gönder|yayınla)|"
+    r"değişiklikleri\s+github(?:'a|a)?\s+(?:yükle|gönder)",
     re.I,
 )
 
