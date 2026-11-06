@@ -789,7 +789,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
             with self.subTest(text=text):
                 self.assertTrue(git_publish.requested(text), text)
         for text in ("dün git yükle dedim", "github'a yüklemeden önce kontrol et",
-                     "git yükle ne demek?", "git yükle lütfen sonra"):
+                     "git yükle ne demek?", "git yükle?", "git yükle lütfen sonra"):
             with self.subTest(text=text):
                 self.assertFalse(git_publish.requested(text), text)
 
@@ -817,7 +817,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
             with self.subTest(text=text):
                 self.assertEqual(updater.command_request(text), "install")
         for text in ("kendini güncellemenin riskleri", "dün güncellemeleri kurdum",
-                     "güncelleme var mı diye sordum"):
+                     "güncelleme var mı diye sordum", "kendini güncelle?"):
             with self.subTest(text=text):
                 self.assertIsNone(updater.command_request(text), text)
 
@@ -853,6 +853,9 @@ class ExactAdminProfileTests(_RawDoorHarness):
                          "Şehrini İzmir olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
         self.assertIsNone(command_manager._profile_city_admin(context, "dün şehrim İzmir olsun dedim"))
         self.assertIsNone(command_manager._profile_city_admin(context, "şehrimi sıfırla dedim"))
+        self.assertIsNone(command_manager._profile_city_admin(context, "şehrimi sıfırla?"))
+        self.assertEqual(command_manager._profile_city_admin(context, "konumum Isparta'da"),
+                         "Şehrini Isparta olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
 
 
 class ExactAdminArmScopeTests(unittest.TestCase):
