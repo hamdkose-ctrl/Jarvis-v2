@@ -36,7 +36,7 @@ _CITY_RESET = re.compile(
 def _profile_city_admin(context, text):
     """Only a whole raw sentence may update the active profile's weather city."""
     normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
-    normalized = normalized.strip().strip(" .!?")
+    normalized = normalized.strip().strip(" .!")
     reset = _CITY_RESET.fullmatch(normalized)
     if reset:
         try:
