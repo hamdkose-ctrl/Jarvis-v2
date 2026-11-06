@@ -22,6 +22,49 @@ PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_c
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
                         'pending_app', 'pending_desktop', 'pending_visual')
 
+_CITY_NAME = re.compile(r"[a-zçğıöşü]{3,30}")
+_CITY_SET = re.compile(
+    r"(?:şehrim|konumum|yaşadığım\\s+şehir)\\s+"
+    r"(?P<city>[a-zçğıöşü]{3,30})(?:['’]?(?:da|de|ta|te))?"
+    r"(?:\\s+(?:olsun|dır|dir))?(?:\\s+lütfen)?"
+)
+_CITY_RESET = re.compile(
+    r"(?:şehrimi|konumumu)\\s+(?:sıfırla|sil|unut)(?:\\s+lütfen)?"
+)
+
+
+def _profile_city_admin(context, text):
+    """Only a whole raw sentence may update the active profile's weather city."""
+    normalized = str(text).replace("’", "'").casefold().replace("\\u0307", "")
+    normalized = normalized.strip().strip(" .!?")
+    reset = _CITY_RESET.fullmatch(normalized)
+    if reset:
+        try:
+            context.profile.data["prefs"].pop("city", None)
+            context.profile.save()
+            return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
+        except Exception:
+            if context.record_failure is not None:
+                context.record_failure("modules/command_manager.py:profile_city_reset")
+            return "Kayıtlı şehrini silemedim; profil değişikliğini tamamlayamadım."
+
+    match = _CITY_SET.fullmatch(normalized)
+    if not match:
+        return None
+    city = match.group("city")
+    if _CITY_NAME.fullmatch(city) is None:
+        return None
+    city = city[:1].replace("i", "İ").replace("ı", "I").upper() + city[1:]
+    try:
+        context.profile.set_pref("city", city)
+        return f"Şehrini {city} olarak kaydettim; hava durumuna bu şehre göre bakacağım."
+    except Exception:
+        if context.record_failure is not None:
+            context.record_failure("modules/command_manager.py:profile_city_set")
+        return "Şehrini kaydedemedim; profil değişikliğini tamamlayamadım."
+
+
+
 
 def awaiting_input(session):
     return any(getattr(session, name) is not None and getattr(session, name) is not False
@@ -173,6 +216,12 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
         # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
         # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
         return diagnose.summary(diagnose.run(speak_flag=speak_flag))
+
+    # Profile mutations also require the original, whole user sentence.
+    if isinstance(original_text, str):
+        city_reply = _profile_city_admin(context, original_text)
+        if city_reply is not None:
+            return city_reply
 
     # Privileged write operations are exact raw-text admin protocols, never typo-rewritten
     # or inferred from a substring/model suggestion.
