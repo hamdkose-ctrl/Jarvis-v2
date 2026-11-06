@@ -754,6 +754,39 @@ class DispatchArmPrecedenceTests(_RawDoorHarness):
         self.assertIn("nereden gelsin", str(out))
 
 
+class ExactAdminEffectTests(_RawDoorHarness):
+    """Git yayınlama ve güncelleme yalnız açık, tam-cümle admin komutuyla yürür."""
+
+    def test_an_exact_git_publish_command_reaches_the_existing_publish_owner_once(self):
+        self.seams["modules.git_publish.publish_worktree"].return_value = "YAYINLANDI"
+        _entry, out, _handle, _ = self.turn("git yükle")
+        self.assertEqual(out, "YAYINLANDI")
+        self.seams["updater.verify_sync"].assert_called_once()
+        self.seams["modules.git_publish.publish_worktree"].assert_called_once_with(
+            "kullanıcı 'git yükle' komutuyla yayınladı"
+        )
+
+    def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
+        self.turn("github'a yüklemeden önce bunun güvenli olup olmadığını anlat")
+        self.seams["updater.verify_sync"].assert_not_called()
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_an_exact_update_check_does_not_install(self):
+        self.turn("güncelleme var mı")
+        self.seams["updater.check"].assert_called_once_with(apply_now=False, force=True)
+        self.seams["updater.install_latest"].assert_not_called()
+
+    def test_an_exact_update_install_uses_the_existing_protected_installer(self):
+        self.turn("kendini güncelle")
+        self.seams["updater.install_latest"].assert_called_once_with()
+        self.seams["updater.check"].assert_not_called()
+
+    def test_an_update_phrase_inside_a_larger_request_does_not_install_or_check(self):
+        self.turn("kendini güncellemenin riskleri nelerdir?")
+        self.seams["updater.install_latest"].assert_not_called()
+        self.seams["updater.check"].assert_not_called()
+
+
 class ExactAdminArmScopeTests(unittest.TestCase):
     """§3 kanıtı: exact admin kolları cümlenin *tamamı* üzerinde karar verir, içinde değil.
 
@@ -1023,6 +1056,8 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/command_manager.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/command_manager.py", "web.py"},
+        "updater.install_latest": {"modules/command_manager.py", "web.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
