@@ -93,7 +93,7 @@ def handle(runtime, command: str):
         study_intent=lambda text: runtime._study_intent(text),
         conversation_summary=runtime._conversation_summary,
         pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,
-        record_failure=runtime._record_failure)
+        record_failure=runtime._record_failure, output=runtime.output)
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
@@ -267,13 +267,6 @@ def handle(runtime, command: str):
 
     # Hava durumu isteğini artık yalnız Understanding yakalar (`weather.read` / `weather.read.current`);
     # buradaki ham `\bhava\b` kalıbı başka alan cümlelerini de seçiyordu.
-
-    # Son analizi dosyaya kaydet ("çıktı al", "kaydet"); yeni analiz/çeviri isteği değilse
-    if runtime._session().last_doc is not None and runtime.re.search(r"\bçıktı\w*|\bkaydet\w*", cmd_lower) \
-            and not runtime.re.search(r"analiz|özet|çevir|ekran|görüntü", cmd_lower):
-        text, source, label = runtime._session().last_doc
-        saved = runtime.output.save_text_result(text, source, label)
-        return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
 
     # Nesnesi söylenmemiş "aç/kapat" ve hedefi söylenmemiş sayı soruları artık Understanding'in
     # typed eksikleri (APP_TARGET_MISSING / level target unspecified) üzerinden yazılır; buradan
