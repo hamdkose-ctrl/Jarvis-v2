@@ -329,12 +329,6 @@ def handle(runtime, command: str):
             runtime._record_failure('main.py:handle')
             return f"Güncellemeye bakamadım: {exc}"
 
-    # Arıza tespiti: "sistemi kontrol et", "her şey yolunda mı", "neden çalışmıyor"
-    if runtime.re.search(r"(?:sistem\w*|bağlantı\w*|jarvis\w*|kendin\w*)\s+(?:kontrol|tara|test)|arıza\w*|teşhis|"
-                 r"her şey yolunda mı|sorun var mı|neden çalışmıyor|ne bozuk|sistem taraması", cmd_lower):
-        from modules import diagnose
-        return diagnose.summary(diagnose.run(speak_flag=runtime.flags.get("speak")))
-
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
