@@ -148,12 +148,14 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
     """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
-    Buradaki altı tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
-    üyeliği veya sabit-olmayan `fullmatch` — ve ham cümle bu turn'de zaten reddedildiği için
-    efekt en çok bir kez çalışır. Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü,
-    görsel, Hoca, ek komutlar) listeye giremez: düzeltilmiş bir görünüm onların akışının sahibi
-    olamaz. Düzeltilmiş görünümün ikinci (ve son) yetkisi salt-okuma kurtarmasıdır:
-    `typo_read_recovery`. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`."""
+    Altı salt-okuma admin tanıyıcısı kararını *cümlenin tamamı* üzerinde verir — tam cümle
+    kümesi üyeliği veya \`fullmatch\`; düzeltilmiş görünüm yalnız bu bounded kolları görebilir.
+    Git yayınlama ve updater install/check ise ayrı, salt ham özgün cümlede \`fullmatch\` yapan
+    admin protokolleridir; typo düzeltmesi veya model önerisi onlara yetki veremez.
+    Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü, görsel, Hoca, ek komutlar)
+    listeye giremez. Salt-okuma typo kurtarması \`typo_read_recovery\` ile biter.
+    Kilidi \`tests/test_brain_pr3b_legacy_front_door_authority.py\`.
+"""
     from modules import brain_gates, diagnose, smart_router, system_doctor, usage_meter
     owner = context.profile.slug
     result = usage_meter.handle(owner, corrected)
