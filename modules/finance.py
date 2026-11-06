@@ -126,110 +126,35 @@ def _decimal(token: str):
     return value if value > 0 else None
 
 
-def _amount_before(low: str, start: int):
-    """Para biriminden hemen önceki miktar: "100", "1.500", "2,5", "10 bin", "iki yüz elli", "iki buçuk"."""
-    words, taken = low[:start].split(), []
-    while words and (words[-1] in _NUMBER_WORDS or words[-1] in ('yuz', 'bin', 'milyon', 'bucuk') or re.fullmatch(r'\d[\d.,]*', words[-1])):
-        taken.insert(0, words.pop())
-        if re.fullmatch(r'\d[\d.,]*', taken[0]):break
-    total = current = Decimal(0)
-    for word in taken:
-        if re.fullmatch(r'\d[\d.,]*', word):
-            value = _decimal(word)
-            if value is None:return None
-            current += value
-        elif word == 'yuz':current = (current or 1) * 100
-        elif word == 'bucuk':current += Decimal('0.5')
-        elif word in ('bin', 'milyon'):
-            total += (current or 1) * (1000 if word == 'bin' else 1_000_000);current = Decimal(0)
-        else:current += _NUMBER_WORDS[word]
-    return (total + current) or None
-
-
-def _asset(low: str):
-    """Kripto ya da altın fiyat sorusu: {'asset','kind','amount','target'}; değilse None."""
-    found = None
-    for code, _name_, stems in CRYPTO:
-        for stem in stems:
-            match = re.search(r'\b' + re.escape(stem) + _SUFFIX + r'\b', low)
-            if match and (found is None or match.start() < found[1]):found = (code, match.start(), match.end(), None)
-    gold = re.search(_GOLD, low)
-    if gold and re.search(_GOLD_CUE, low) and not re.search(_GOLD_OTHER, low) and (found is None or gold.start() < found[1]):
-        found = ('GOLD', gold.start(), gold.end(), gold.group('kind') or 'gram')
-    if found is None or (found[0] != 'GOLD' and not re.search(_CUE, low)):return None
-    code, start, end, kind = found
-    target = next((c for s_, _e, c in _mentions(low) if s_ >= end and c != 'TRY'), 'TRY')
-    return {'asset': code, 'kind': kind, 'amount': _amount_before(low, start), 'target': target,
-            'source': None, 'list': None}
-
-
-def _stock(text: str, low: str):
-    context = bool(re.search(r'\b(?:hisse\w*|borsa\w*|bist(?:100)?)\b', low))
-    cue = bool(re.search(r'\b(?:kac\w*|ne kadar|fiyat\w*)\b', low))
-    index = re.fullmatch(r'(?:jarvis )?(?:borsa|bist)(?: 100)? (?:kac(?: puan)?|ne durumda|ne kadar)', low.strip('.,'))
-    if index:return {'stock': 'XU100', 'amount': None, 'target': 'TRY', 'source': None, 'list': None}
-    if not cue:return None
-    for code, _name_, stems in STOCKS:
-        upper = len(code) == 5 and re.search(r'\b' + code + '(?i:' + _SUFFIX + r')\b', text)
-        if not context and not upper:continue
-        for stem in (code.lower(), *stems):
-            match = re.search(r'\b' + re.escape(stem) + _SUFFIX + r'\b', low)
-            if match:
-                return {'stock': code, 'amount': None if code == 'XU100' else _amount_before(low, match.start()),
-                        'target': 'TRY', 'source': None, 'list': None}
-    if re.search(r'\bhisse\w*\b', low):
-        for match in re.finditer(r'\b([A-Z]{4,5})(?=\b|[a-zçğıöşü])', text):
-            code = match[1]
-            found = re.search(r'\b' + code.lower() + _SUFFIX + r'\b', low)
-            if found:return {'stock': code, 'amount': _amount_before(low, found.start()),
-                              'target': 'TRY', 'source': None, 'list': None}
-    return None
-
-
-def _bare_amount(text, low):
-    # Do not let folding erase a percent sign or other words/punctuation.
-    if not isinstance(text, str) or not re.fullmatch(r"[\w\s.,']+", text):
-        return None
-    match = re.fullmatch(r"(\d+(?:[.,]\d+)*)\s+([a-z][a-z ']*?)\.?", low)
-    if not match:
-        return None
-    currency = match[2]
-    mentions = _mentions(currency)
-    if len(mentions) != 1 or mentions[0][:2] != (0, len(currency)) or mentions[0][2] == 'TRY':
-        return None
-    amount = _decimal(match[1])
-    if amount is None:
-        return None
-    return {'amount': amount, 'source': mentions[0][2], 'target': 'TRY', 'list': None}
+# BRAIN-03 dilim 3: fiyat sorusunun **anlam** hükmü artık Brain'dedir
+# (`brain_understanding.finance_request`). Buradaki public adlar yalnız sözlük ve biçim
+# yardımcılarıdır: capability seçmez, cümleyi yorumlamazlar.
+fold = _fold
+decimal_value = _decimal
+mentions = _mentions
+SUFFIX = _SUFFIX
+CUE = _CUE
+SKIP = _SKIP
+DEFINITION = _DEFINITION
+GOLD = _GOLD
+GOLD_CUE = _GOLD_CUE
+GOLD_OTHER = _GOLD_OTHER
+NUMBER_WORDS = _NUMBER_WORDS
+CURRENCY_CODES = frozenset(code for code, _name_, _stems, _inflects in CURRENCIES)
+CRYPTO_CODES = frozenset(code for code, _name_, _stems in CRYPTO)
+STOCK_CODES = frozenset(code for code, _name_, _stems in STOCKS)
+GOLD_KINDS = frozenset({'gram', 'ons', 'ceyrek', 'yarim', 'tam', 'cumhuriyet', 'resat', 'ata'})
+FINANCE_ASSETS = CRYPTO_CODES | frozenset({'GOLD'})
 
 
 def parse(text: str):
-    """Fiyat sorusu: kur alanları, kripto/altında 'asset', BIST'te 'stock'; değilse None."""
-    low = _fold(text)
-    if re.search(_SKIP, low):return None
-    if re.search(_DEFINITION, low) and not re.search(r'\bkur\w*', low):return None
-    asset = _asset(low)
-    if asset:return asset
-    stock = _stock(text, low)
-    if stock:return stock
-    if not re.search(_CUE, low):return _bare_amount(text, low)
-    mentions = _mentions(low)
-    if not mentions:return None
-    codes = [code for _s, _e, code in mentions]
-    amount = _amount_before(low, mentions[0][0])
-    unique = list(dict.fromkeys(codes))
-    if len(unique) == 1:
-        if unique[0] == 'TRY':return None
-        return {'amount': amount, 'source': unique[0], 'target': 'TRY', 'list': None}
-    second_start = mentions[codes.index(unique[1])][0]
-    between = low[mentions[0][1]:second_start]
-    after = low[second_start:second_start + 30]
-    is_target = (unique[1] == 'TRY' or amount is not None or re.search(r'\bkac\b|\bkac tane\b', between)
-                 or re.search(r'\b(?:olarak|cinsinden|cevir\w*)\b', after) or re.search(r'cevir', low))
-    if is_target and len(unique) == 2:
-        return {'amount': amount, 'source': unique[0], 'target': unique[1], 'list': None}
-    rest = [code for code in unique if code != 'TRY']
-    return {'amount': None, 'source': None, 'target': 'TRY', 'list': rest} if rest else None
+    """Geriye dönük köprü: fiyat sorusunun tek grameri Brain'dedir (`finance_request`).
+
+    Kalan iki çağıran (`translation_request.is_conversion`, `goal_executor._is_fast_command`)
+    yalnız "bu cümle fiyat sorusu mu" sorusunu sorar; capability seçmezler.
+    """
+    from modules import brain_understanding
+    return brain_understanding.finance_request(text)
 
 
 def is_conversion(text: str) -> bool:
@@ -504,10 +429,8 @@ def _asset_answer(request) -> str:
     return f'{note}{body}. Kaynak: {source}.{tail}'
 
 
-def answer(text: str) -> str | None:
-    """Kur/kripto/altın/BIST fiyat cevabı; değilse None (komut diğer yollara devam eder)."""
-    request = parse(text)
-    if request is None:return None
+def answer_request(request) -> str:
+    """Doğrulanmış isteği yanıtlar: yalnız veri çeker ve biçimlendirir; ham metin ayrıştırmaz."""
     if request.get('stock'):return _bist_answer(request)
     if request.get('asset'):return _asset_answer(request)
     from urllib3.exceptions import HTTPError
@@ -534,3 +457,28 @@ def answer(text: str) -> str | None:
         else:
             body = f'{_amount_text(amount)} {_name(source)} {_num(amount * cross)} {_name(target)} eder'
     return f'{body}. Kaynak: {label}. Banka ve döviz bürosu fiyatı farklı olabilir.'
+
+
+def request_from_slots(arguments) -> dict:
+    """Core'un doğruladığı tipli slotları domain isteğine çevirir (ham metin yoktur)."""
+    kind = arguments.get('kind')
+    amount = arguments.get('amount')
+    amount = None if amount is None else _decimal(str(amount))
+    if kind == 'stock':
+        return {'stock': str(arguments['stock']), 'amount': amount, 'target': 'TRY',
+                'source': None, 'list': None}
+    if kind == 'asset':
+        return {'asset': str(arguments['asset']), 'kind': arguments.get('gold_kind'), 'amount': amount,
+                'target': str(arguments.get('target') or 'TRY'), 'source': None, 'list': None}
+    codes = list(arguments.get('codes') or [])
+    if codes:
+        return {'amount': None, 'source': None, 'target': 'TRY', 'list': codes}
+    return {'amount': amount, 'source': str(arguments['source']), 'target': str(arguments['target']),
+            'list': None}
+
+
+def answer(text: str) -> str | None:
+    """Geriye dönük köprü (araç/diagnostik): gramer Brain'de, biçimlendirme burada."""
+    request = parse(text)
+    if request is None:return None
+    return answer_request(request)

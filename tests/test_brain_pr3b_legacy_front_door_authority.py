@@ -1001,11 +1001,13 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     RAW_PROBE_OWNERS = {
         "watcher.handle": set(),
         "learning.handle": {"modules/engine_commands.py"},
-        "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
         # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
         "is_whatsapp_message": set(),
         "_contact_command": set(),
         "quick_parse": set(),
+        # BRAIN-03 dilim 3: yüzeydeki `finance.answer(command)` dalı kalktı; kalan tek çağıran
+        # geliştirme tanısıdır (ayrıştırma Brain'de, biçimlendirme domain'de).
+        "finance.answer": {"scripts/finans_kaynak_testi.py"},
         "selfctl.handle": {"modules/engine_commands.py"},
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},

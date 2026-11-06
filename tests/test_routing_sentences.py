@@ -31,7 +31,11 @@ _ACTION_EQUIVALENT_CLAIMS = CORPUS_INTENTS - {'chat', 'clarify'}
 _PLAN_TO_CORPUS = {'screen_analyze': 'screen_analyze', 'task': 'task', 'weather': 'weather',
                    'translate': 'translate', 'app_action': 'app_action',
                    'notes_read': 'note', 'notes_write': 'note', 'reminder': 'work',
-                   'file_action': 'doc_summary', 'clarify': 'clarify'}
+                   'file_action': 'doc_summary', 'clarify': 'clarify',
+                   # BRAIN-03 dilim 3: korpusta finans sınıfı yok; bu sözlükte `task` "adlı yürütücü
+                   # yapar" demektir ve fiyat okuması da tipli canonical planla finans domain'ine
+                   # gider (`engine_intents.finance_read`).
+                   'finance_read': 'task'}
 # Eski doc_* intent'leri hedef dosya seçicisini boş path ile yürütürdü; canonical sınır aynı
 # durumda hedefi sorar. Bu satırlarda clarify, doc_* karşılığıdır.
 _FILE_TARGET_QUESTION_STANDS_FOR = frozenset({'doc_summary', 'doc_insight', 'doc_convert', 'doc_translate'})

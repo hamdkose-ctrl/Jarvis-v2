@@ -40,14 +40,20 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
 
     def test_explicit_freshness_beats_definition_phrasing(self):
         # "son/güncel/bugünkü" gibi açık tazelik işareti, "nedir" tanım kalıbını bastırır:
-        # soru güncel-görev yoluna gider, sade sohbete düşmez.
-        for text in ['son haber nedir', 'bugünkü dolar kuru nedir', 'güncel altın fiyatı nedir']:
+        # soru canlı veri yoluna gider, sade sohbete düşmez.
+        for text in ['son haber nedir', 'güncel altın fiyatı nedir']:
             with self.subTest(text=text):
                 semantic, decision = _door(text)
                 self.assertEqual(semantic.capability_hint, 'research.search', text)
                 self.assertEqual(decision['intent'], 'task', text)
                 self.assertEqual(brain_core_map.core_plan(semantic.capability_hint, semantic.arguments),
                                  ('task', {'query': text, 'route': 'PRIVATE'}), text)
+        # BRAIN-03 dilim 3: varlığı adlandıran kur sorusunun canlı veri sahibi finans domain'idir;
+        # tazelik işareti tanım kalıbını bastırır ama kanal hükmünü arama görevine çevirmez.
+        semantic, decision = _door('bugünkü dolar kuru nedir')
+        self.assertEqual(semantic.capability_hint, 'finance.read')
+        self.assertEqual(decision, {'intent': 'finance_read',
+                                    'args': {'kind': 'rate', 'source': 'USD', 'target': 'TRY'}})
 
     def test_pure_definition_without_freshness_stays_chat(self):
         # Tazelik işareti olmayan sade tanım soruları güncel-görev yoluna zorlanmaz.

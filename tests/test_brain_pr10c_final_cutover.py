@@ -844,11 +844,16 @@ class RetiredRouterDeterminismParityTests(unittest.TestCase):
         return semantic, brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
 
     def test_fresh_external_data_is_a_research_task_not_a_chat_promise(self):
-        for text in ("İstanbul son haberler neler?", "dolar ne kadar", "borsa son durum", "haberleri özetle"):
+        for text in ("İstanbul son haberler neler?", "borsa son durum", "haberleri özetle"):
             with self.subTest(text=text):
                 semantic, plan = self.decide(text)
                 self.assertEqual(semantic.capability_hint, "research.search", text)
                 self.assertEqual(plan, ("task", {"query": text, "route": "PRIVATE"}), text)
+        # BRAIN-03 dilim 3: varlığı adlandıran fiyat sorusu taze veriyi doğrudan finans
+        # domain'inden okur; chat sözüne de arama görevine de düşmez.
+        semantic, plan = self.decide("dolar ne kadar")
+        self.assertEqual(semantic.capability_hint, "finance.read")
+        self.assertEqual(plan, ("finance_read", {"kind": "rate", "source": "USD", "target": "TRY"}))
         for text in ("Haber nedir?", "kur nedir", "Haberlere bak", "son mailleri göster"):
             with self.subTest(static=text):
                 self.assertNotEqual(self.decide(text)[0].capability_hint, "research.search", text)
@@ -942,9 +947,11 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                 self.assertEqual(self.door(text)[1], {"intent": "chat", "args": {}}, text)
 
     def test_a_validated_plan_wins_over_the_generic_envelope(self):
+        # BRAIN-03 dilim 3: doğrulanmış plan generic zarfı yener; fiyat sorusunda planın sahibi
+        # finans okumasıdır (ticari/argo sözleşmesi: `finance_read` + tipli slotlar).
         _semantic, decision = self.door("Bugünkü dolar kuru kaç lira?")
-        self.assertEqual(decision["intent"], "task")
-        self.assertEqual(decision["args"], {"query": "Bugünkü dolar kuru kaç lira?", "route": "PRIVATE"})
+        self.assertEqual(decision["intent"], "finance_read")
+        self.assertEqual(decision["args"], {"kind": "rate", "source": "USD", "target": "TRY"})
 
     def test_the_envelope_needs_understandings_execution_verdict(self):
         # Capability biçimli ama icra isteği olmayan cümle ("belgeyi özetle" gibi hedefi belirsiz

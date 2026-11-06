@@ -282,11 +282,8 @@ def handle(runtime, command: str):
     # Core intent (pc.audio.action, pc.media.action, screen.capture, pc.shutdown.*) ve pc.level.set.
     # Bu yüzeyde ham cümleden seçilen tek bir etki kalmadı.
 
-    # Döviz kuru ve çevirisi (modelsiz); kur sorusu değilse None döner ve akış devam eder
-    from modules import finance
-    rate_reply = finance.answer(command)
-    if rate_reply is not None:
-        return rate_reply
+    # Fiyat/kur sorusu artık buradan seçilmez: Understanding `finance.read` önerir, Core
+    # biçimi doğrular, veri finans domain'inde çekilir.
 
     # GitHub'a yayın: Ev/İş fark etmez; yalnız açık "git yükle / GitHub'a gönder" komutuyla.
     if runtime.re.search(r"(?:^|\b)(?:git|github'?a?)\s+(?:yükle|gönder|yayınla)\b|değişiklikleri\s+github'?a?\s+(?:yükle|gönder)", cmd_lower):

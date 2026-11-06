@@ -387,9 +387,15 @@ class FinanceTest(unittest.TestCase):
             self.assertIn('THY (THYAO) 312,50 TL', self.ask('thy hissesi kaç lira'))
 
     def test_engine_uses_intent_check_not_substring(self):
-        source = Path(__file__).resolve().parents[1].joinpath('modules', 'engine_commands.py').read_text(encoding='utf-8')
+        root = Path(__file__).resolve().parents[1]
+        source = root.joinpath('modules', 'engine_commands.py').read_text(encoding='utf-8')
         self.assertFalse('"dolar" in cmd_lower' in source or 'get_live_rate' in source)
-        self.assertTrue('finance.answer(command)' in source)
+        # BRAIN-03 dilim 3 (BRAIN-MIG-101): yüzey ham cümleyi domain'e sormayı bıraktı. Fiyat
+        # sorusunu Brain `finance.read` ile seçer, Core biçimi doğrular; bu yüzden eski
+        # `finance.answer(command)` kapısı yüzeyde YOKTUR ve gramer Brain'dedir.
+        self.assertNotIn('finance.answer(', source)
+        self.assertIn('finance.read', root.joinpath('modules', 'brain_understanding.py')
+                      .read_text(encoding='utf-8'))
         self.assertNotIn('open.er-api', Path(finance.__file__).read_text(encoding='utf-8'))
 
 
