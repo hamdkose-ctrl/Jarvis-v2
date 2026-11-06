@@ -265,17 +265,6 @@ def handle(runtime, command: str):
     if tail is not None:
         return tail[1]
 
-    # Kayıtlı şehir: "şehrim İzmir" / "konumum Ankara" (hava durumu bu şehre göre bakar)
-    m = runtime.re.match(r"^(?:şehrim|konumum|yaşadığım şehir)\s+(.+?)(?:['’]?(?:da|de|ta|te))?\s*(?:olsun|dır|dir)?$", cmd_lower)
-    if m and len(m.group(1)) >= 3:
-        city = m.group(1).title()
-        runtime.profile.set_pref("city", city)
-        return f"Şehrini {city} olarak kaydettim; hava durumuna bu şehre göre bakacağım."
-    if runtime.re.search(r"(şehrimi|konumumu)\s+(sıfırla|sil|unut)", cmd_lower):
-        runtime.profile.data["prefs"].pop("city", None)
-        runtime.profile.save()
-        return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
-
     # Hava durumu isteğini artık yalnız Understanding yakalar (`weather.read` / `weather.read.current`);
     # buradaki ham `\bhava\b` kalıbı başka alan cümlelerini de seçiyordu.
 
