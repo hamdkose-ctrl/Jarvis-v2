@@ -38,14 +38,14 @@ _UPDATE_INSTALL = re.compile(
     re.I,
 )
 _UPDATE_CHECK = re.compile(
-    r"güncelleme(?:ye|yi|ler(?:i)?)?\s+(?:var\s*mı|kontrol(?:\s+et)?|bak(?:ar\s+mısın)?)",
+    r"güncelleme(?:ye|yi|ler(?:i)?)?\s+(?:var\s*m[ıi]|kontrol(?:\s+et)?|bak(?:ar\s+mısın)?)",
     re.I,
 )
 
 
 def command_request(text: str) -> str | None:
     """Tam-cümle açık güncelleme admin isteği: install, check veya None."""
-    normalized = str(text).replace("’", "'").replace("İ", "i").replace("I", "ı").casefold()
+    normalized = str(text).replace("’", "'").casefold().replace("i\\u0307", "i")
     normalized = normalized.strip().strip(" .!?")
     if _UPDATE_INSTALL.fullmatch(normalized):
         return "install"
