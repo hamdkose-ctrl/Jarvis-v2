@@ -92,7 +92,7 @@ def handle(runtime, command: str):
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
         conversation_summary=runtime._conversation_summary,
-        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source)
+        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,\n        record_failure=runtime._record_failure)
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
@@ -300,35 +300,6 @@ def handle(runtime, command: str):
     if rate_reply is not None:
         return rate_reply
 
-    # GitHub'a yayın: Ev/İş fark etmez; yalnız açık "git yükle / GitHub'a gönder" komutuyla.
-    if runtime.re.search(r"(?:^|\b)(?:git|github'?a?)\s+(?:yükle|gönder|yayınla)\b|değişiklikleri\s+github'?a?\s+(?:yükle|gönder)", cmd_lower):
-        try:
-            import updater
-            verified = updater.verify_sync()
-            if verified.get("sync_state") in ("diverged", "unknown", "offline"):
-                return "GitHub'a yüklemedim: " + str(verified.get("sync_msg") or "durum güvenli değil")
-            from modules import git_publish as sc_publish
-            return sc_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
-        except Exception as exc:
-            runtime._record_failure('main.py:handle')
-            return f"GitHub'a yükleyemedim: {exc}"
-
-    # Güncelleme: "güncelleme var mı", "kendini güncelle"
-    if runtime.re.search(r"güncelleme\w*\s+(?:var\s*mı|kontrol|bak)|kendini\s+güncelle|jarvis'?\w*\s+güncelle|güncellemeleri?\s+(?:al|yükle|kur)", cmd_lower):
-        try:
-            import updater
-            wants_install = bool(runtime.re.search(r"kendini\s+güncelle|güncellemeleri?\s+(?:al|yükle|kur)|jarvis'?\w*\s+güncelle", cmd_lower))
-            note = updater.install_latest() if wants_install else updater.check(apply_now=False, force=True)
-            if note:
-                return note + (" Jarvis'i kapatıp açınca devreye girer." if wants_install else " Kurmak için açıkça ‘güncellemeyi kur’ de.")
-            st = updater.status()
-            if st["error"] and not st["sha"]:
-                return "Güncellemeye bakamadım: " + st["error"].split(" ", 2)[-1]
-            return "Zaten en güncel sürümdesin." + (f" ({st['msg']})" if st["msg"] else "")
-        except Exception as exc:
-            runtime._record_failure('main.py:handle')
-            return f"Güncellemeye bakamadım: {exc}"
-
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
@@ -340,7 +311,7 @@ def handle(runtime, command: str):
     # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
     # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
     corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected, runtime.flags.get("speak"))
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command)
     if view is not None:
         return view
     if corrected != cmd_lower:
