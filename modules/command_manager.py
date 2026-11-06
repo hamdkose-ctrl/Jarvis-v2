@@ -26,16 +26,18 @@ _CITY_NAME = re.compile(r"[a-zçğıöşü]{3,30}")
 _CITY_SET = re.compile(
     r"(?:şehrim|konumum|yaşadığım\s+şehir)\s+"
     r"(?P<city>[a-zçğıöşü]{3,30})(?:['’]?(?:da|de|ta|te))?"
-    r"(?:\s+(?:olsun|dır|dir))?(?:\s+lütfen)?"
+    r"(?:\s+(?:olsun|dır|dir))?(?:\s+lütfen)?",
+    re.IGNORECASE,
 )
 _CITY_RESET = re.compile(
-    r"(?:şehrimi|konumumu)\s+(?:sıfırla|sil|unut)(?:\s+lütfen)?"
+    r"(?:şehrimi|konumumu)\s+(?:sıfırla|sil|unut)(?:\s+lütfen)?",
+    re.IGNORECASE,
 )
 
 
 def _profile_city_admin(context, text):
     """Only a whole raw sentence may update the active profile's weather city."""
-    normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
+    normalized = str(text).replace("’", "'").strip().strip(" .!")
     normalized = normalized.strip().strip(" .!")
     reset = _CITY_RESET.fullmatch(normalized)
     if reset:
@@ -51,7 +53,7 @@ def _profile_city_admin(context, text):
     match = _CITY_SET.fullmatch(normalized)
     if not match:
         return None
-    city = match.group("city")
+    city = match.group("city").replace("İ", "i").replace("I", "ı").lower()
     if _CITY_NAME.fullmatch(city) is None:
         return None
     city = city[:1].replace("i", "İ").replace("ı", "I").upper() + city[1:]
