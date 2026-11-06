@@ -24,18 +24,18 @@ PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_c
 
 _CITY_NAME = re.compile(r"[a-zçğıöşü]{3,30}")
 _CITY_SET = re.compile(
-    r"(?:şehrim|konumum|yaşadığım\\s+şehir)\\s+"
+    r"(?:şehrim|konumum|yaşadığım\s+şehir)\s+"
     r"(?P<city>[a-zçğıöşü]{3,30})(?:['’]?(?:da|de|ta|te))?"
-    r"(?:\\s+(?:olsun|dır|dir))?(?:\\s+lütfen)?"
+    r"(?:\s+(?:olsun|dır|dir))?(?:\s+lütfen)?"
 )
 _CITY_RESET = re.compile(
-    r"(?:şehrimi|konumumu)\\s+(?:sıfırla|sil|unut)(?:\\s+lütfen)?"
+    r"(?:şehrimi|konumumu)\s+(?:sıfırla|sil|unut)(?:\s+lütfen)?"
 )
 
 
 def _profile_city_admin(context, text):
     """Only a whole raw sentence may update the active profile's weather city."""
-    normalized = str(text).replace("’", "'").casefold().replace("\\u0307", "")
+    normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
     normalized = normalized.strip().strip(" .!?")
     reset = _CITY_RESET.fullmatch(normalized)
     if reset:
