@@ -858,6 +858,42 @@ class ExactAdminProfileTests(_RawDoorHarness):
                          "Şehrini Isparta olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
 
 
+
+class OutputSaveAdminTests(_RawDoorHarness):
+    """A previous document can be saved only by a whole explicit output command."""
+
+    def test_an_exact_output_command_saves_only_the_session_bound_document(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.ctx.output.save_text_result.return_value = "C:/out/ozet.docx"
+        _entry, out, _handle, _ = self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_called_once_with(
+            "RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet"
+        )
+        self.assertIn("C:/out/ozet.docx", str(out))
+
+    def test_an_embedded_output_phrase_does_not_save(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.turn("dün çıktıyı kaydet dedim")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_an_output_question_does_not_open_the_save_dialog(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.turn("çıktı al ne demek?")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_exact_output_command_without_a_bound_document_does_not_save(self):
+        self.ctx._session().last_doc = None
+        self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_a_cancelled_save_dialog_keeps_the_existing_cancel_response(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.ctx.output.save_text_result.return_value = None
+        _entry, out, _handle, _ = self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_called_once()
+        self.assertEqual(out, "Kaydetme iptal edildi.")
+
+
 class ExactAdminArmScopeTests(unittest.TestCase):
     """§3 kanıtı: exact admin kolları cümlenin *tamamı* üzerinde karar verir, içinde değil.
 
@@ -1130,6 +1166,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "git_publish.publish_worktree": {"modules/command_manager.py", "web.py"},
         "updater.install_latest": {"modules/command_manager.py", "web.py"},
         "profile.set_pref": {"modules/command_manager.py", "modules/engine_context.py"},
+        "output.save_text_result": {"modules/command_manager.py", "modules/engine_intents.py", "modules/translate.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
