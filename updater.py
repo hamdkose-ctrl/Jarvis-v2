@@ -45,7 +45,7 @@ _UPDATE_CHECK = re.compile(
 
 def command_request(text: str) -> str | None:
     """Tam-cümle açık güncelleme admin isteği: install, check veya None."""
-    normalized = str(text).replace("’", "'").casefold().replace("i\\u0307", "i")
+    normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
     normalized = normalized.strip().strip(" .!?")
     if _UPDATE_INSTALL.fullmatch(normalized):
         return "install"
