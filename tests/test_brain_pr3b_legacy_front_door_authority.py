@@ -767,9 +767,30 @@ class ExactAdminEffectTests(_RawDoorHarness):
         )
 
     def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
-        self.turn("github'a yüklemeden önce bunun güvenli olup olmadığını anlat")
+        self.turn("dün github'a yüklemeden önce bütün dosyaları kontrol ettim")
         self.seams["updater.verify_sync"].assert_not_called()
         self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_a_typo_corrected_phrase_cannot_authorise_git_publication(self):
+        self.turn("git yüklee")
+        self.seams["updater.verify_sync"].assert_not_called()
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_git_publication_fails_closed_when_sync_is_unknown(self):
+        self.seams["updater.verify_sync"].return_value = {"sync_state": "offline", "sync_msg": "OFFLINE"}
+        _entry, out, _handle, _ = self.turn("git yükle")
+        self.assertIn("OFFLINE", str(out))
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_publish_admin_grammar_is_closed_and_whole_sentence_only(self):
+        from modules import git_publish
+        for text in ("git yükle", "GitHub'a gönder", "değişiklikleri github'a yükle"):
+            with self.subTest(text=text):
+                self.assertTrue(git_publish.requested(text), text)
+        for text in ("dün git yükle dedim", "github'a yüklemeden önce kontrol et",
+                     "git yükle ne demek?", "git yükle lütfen sonra"):
+            with self.subTest(text=text):
+                self.assertFalse(git_publish.requested(text), text)
 
     def test_an_exact_update_check_does_not_install(self):
         self.turn("güncelleme var mı")
@@ -785,6 +806,19 @@ class ExactAdminEffectTests(_RawDoorHarness):
         self.turn("kendini güncellemenin riskleri nelerdir?")
         self.seams["updater.install_latest"].assert_not_called()
         self.seams["updater.check"].assert_not_called()
+
+    def test_update_admin_grammar_preserves_check_and_install_variants(self):
+        import updater
+        for text in ("güncelleme var mı", "güncellemeye bak", "güncellemeleri kontrol et"):
+            with self.subTest(text=text):
+                self.assertEqual(updater.command_request(text), "check")
+        for text in ("kendini güncelle", "Jarvis'i güncelle", "güncellemeleri kur"):
+            with self.subTest(text=text):
+                self.assertEqual(updater.command_request(text), "install")
+        for text in ("kendini güncellemenin riskleri", "dün güncellemeleri kurdum",
+                     "güncelleme var mı diye sordum"):
+            with self.subTest(text=text):
+                self.assertIsNone(updater.command_request(text), text)
 
 
 class ExactAdminArmScopeTests(unittest.TestCase):
