@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -30,6 +31,28 @@ STATE = DATA / "update-Jarvis-v2.json"
 TOKEN_FILE = DATA / "github_token.txt"
 SKIP = {".venv", "__pycache__", ".git", ".github", ".gradle", "build", ".idea"}   # generated build trees are excluded
 TIMEOUT = 4
+
+_UPDATE_INSTALL = re.compile(
+    r"(?:kendini\s+güncelle|jarvis(?:['’]?i)?\s+güncelle|"
+    r"güncelleme(?:ler(?:i)?|yi)?\s+(?:al|yükle|kur))",
+    re.I,
+)
+_UPDATE_CHECK = re.compile(
+    r"güncelleme(?:ye|yi|ler(?:i)?)?\s+(?:var\s*m[ıi]|kontrol(?:\s+et)?|bak(?:ar\s+mısın)?)",
+    re.I,
+)
+
+
+def command_request(text: str) -> str | None:
+    """Tam-cümle açık güncelleme admin isteği: install, check veya None."""
+    normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
+    normalized = normalized.strip().strip(" .!")
+    if _UPDATE_INSTALL.fullmatch(normalized):
+        return "install"
+    if _UPDATE_CHECK.fullmatch(normalized):
+        return "check"
+    return None
+
 
 
 def _settings() -> dict:
