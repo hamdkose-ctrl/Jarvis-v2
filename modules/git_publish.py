@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -23,6 +24,20 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = Path.home() / ".jarvis" / "selfcoder"
 LOCAL = STATE / "local_changes.json"
 PR_STATE = STATE / "github_pr.json"
+
+_PUBLISH_COMMAND = re.compile(
+    r"(?:git|github(?:'a|a)?)\s+(?:yükle|gönder|yayınla)|"
+    r"değişiklikleri\s+github(?:'a|a)?\s+(?:yükle|gönder)",
+    re.I,
+)
+
+
+def requested(text: str) -> bool:
+    """Yayın yalnız açık admin komutunun tümü bu kapalı gramerse istenir."""
+    normalized = str(text).replace("’", "'").casefold().replace("\u0307", "")
+    normalized = normalized.strip().strip(" .!")
+    return bool(_PUBLISH_COMMAND.fullmatch(normalized))
+
 
 
 def _sha(data: bytes) -> str:

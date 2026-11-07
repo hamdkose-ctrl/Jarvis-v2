@@ -110,7 +110,10 @@ class ContextTests(unittest.TestCase):
     def test_table_routes_before_translate_and_updates_export(self):
         ns={'emit':Mock(),'re':re,'profile':SimpleNamespace(slug='a'),'_llm':Mock(),'_tr_lower':str.lower,
             '_cur_source':'yazı','flags':{'sleep':False},'_close_jarvis':Mock(),'set_sleep':Mock(),
-            'pending_weather_location':False,'pending_confirm':None,'pending_level':None,'pending_msg':None,'pending_organize':None,'pending_voice':None,'pending_event_title':None,'last_doc':None,'speech_override':None}
+            '_record_failure':Mock(),'output':Mock(),'pending_weather_location':False,
+            'pending_confirm':None,'pending_level':None,
+            'pending_msg':None,'pending_organize':None,'pending_voice':None,'pending_event_title':None,
+            'last_doc':None,'speech_override':None}
         from modules.session_state import SessionState
         state=SessionState();ns['_session']=lambda:state
         tree=engine_source.tree();fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='handle')

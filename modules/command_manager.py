@@ -15,11 +15,48 @@ class CommandContext:
     conversation_summary: Callable
     pc_owner: Callable | None = None
     source: str = 'yazı'
+    record_failure: Callable | None = None
+    output: object | None = None
+
+
+def _record_failure(context, location):
+    callback = context.record_failure
+    if callback is not None:
+        callback(location)
+        return
+    from modules import diagnostics
+    diagnostics.record_failure(location)
 
 
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
                         'pending_app', 'pending_desktop', 'pending_visual')
+
+_OUTPUT_SAVE = re.compile(
+    r"(?:çıktı\s+al|(?:son\s+)?çıktıyı?\s+kaydet|metni\s+kaydet|bunu\s+kaydet|kaydet)"
+    r"(?:\s+lütfen)?",
+    re.IGNORECASE,
+)
+
+
+def _output_save_admin(context, text):
+    """Save only the current session's already-bound document on an exact command."""
+    normalized = str(text).replace("’", "'").strip().strip(" .!")
+    if _OUTPUT_SAVE.fullmatch(normalized) is None:
+        return None
+    document = getattr(context.session, "last_doc", None)
+    if document is None:
+        return None
+    try:
+        content, source, label = document
+        saver = getattr(context.output, "save_text_result", None)
+        if not callable(saver):
+            raise RuntimeError("output adapter unavailable")
+        saved = saver(content, source, label)
+        return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
+    except Exception:
+        _record_failure(context, "modules/command_manager.py:output_save")
+        return "Çıktıyı kaydedemedim; mevcut belgeyi değiştirmedim."
 
 
 def awaiting_input(session):
@@ -143,16 +180,18 @@ def dispatch(context, command, normalized):
     return result if result else None
 
 
-def exact_admin_view(context, corrected, speak_flag=None):
+def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None):
     """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
-    Buradaki altı tanıyıcının tamamı kararını *cümlenin tamamı* üzerinde verir — tam cümle kümesi
-    üyeliği veya sabit-olmayan `fullmatch` — ve ham cümle bu turn'de zaten reddedildiği için
-    efekt en çok bir kez çalışır. Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü,
-    görsel, Hoca, ek komutlar) listeye giremez: düzeltilmiş bir görünüm onların akışının sahibi
-    olamaz. Düzeltilmiş görünümün ikinci (ve son) yetkisi salt-okuma kurtarmasıdır:
-    `typo_read_recovery`. Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`."""
+    Altı salt-okuma admin tanıyıcısı kararını *cümlenin tamamı* üzerinde verir — tam cümle
+    kümesi üyeliği veya `fullmatch`; düzeltilmiş görünüm yalnız bu bounded kolları görebilir.
+    Git yayınlama ve updater install/check ise ayrı, salt ham özgün cümlede `fullmatch` yapan
+    admin protokolleridir; typo düzeltmesi veya model önerisi onlara yetki veremez.
+    Domain/akış kolları (görev, rehberlik, geliştirme, masaüstü, görsel, Hoca, ek komutlar)
+    listeye giremez. Salt-okuma typo kurtarması `typo_read_recovery` ile biter.
+    Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`.
+"""
     from modules import brain_gates, diagnose, smart_router, system_doctor, usage_meter
     owner = context.profile.slug
     result = usage_meter.handle(owner, corrected)
@@ -170,6 +209,50 @@ def exact_admin_view(context, corrected, speak_flag=None):
         # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
         # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
         return diagnose.summary(diagnose.run(speak_flag=speak_flag))
+
+    # Artifact identity comes only from this user's existing session state.
+    if isinstance(original_text, str):
+        output_reply = _output_save_admin(context, original_text)
+        if output_reply is not None:
+            return output_reply
+
+    # Privileged write operations are exact raw-text admin protocols, never typo-rewritten
+    # or inferred from a substring/model suggestion.
+    if isinstance(original_text, str):
+        from modules import git_publish
+        import updater
+        if git_publish.requested(original_text):
+            try:
+                verified = updater.verify_sync()
+                if verified.get("sync_state") in ("diverged", "unknown", "offline"):
+                    return "GitHub'a yüklemedim: " + str(
+                        verified.get("sync_msg") or "durum güvenli değil"
+                    )
+                return git_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
+            except Exception as exc:
+                _record_failure(context, "main.py:handle")
+                return f"GitHub'a yükleyemedim: {exc}"
+
+        update_action = updater.command_request(original_text)
+        if update_action is not None:
+            try:
+                note = (updater.install_latest() if update_action == "install"
+                        else updater.check(apply_now=False, force=True))
+                if note:
+                    return note + (
+                        " Jarvis'i kapatıp açınca devreye girer."
+                        if update_action == "install"
+                        else " Kurmak için açıkça ‘güncellemeyi kur’ de."
+                    )
+                status = updater.status()
+                if status["error"] and not status["sha"]:
+                    return "Güncellemeye bakamadım: " + status["error"].split(" ", 2)[-1]
+                return "Zaten en güncel sürümdesin." + (
+                    f" ({status['msg']})" if status["msg"] else ""
+                )
+            except Exception as exc:
+                _record_failure(context, "main.py:handle")
+                return f"Güncellemeye bakamadım: {exc}"
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):

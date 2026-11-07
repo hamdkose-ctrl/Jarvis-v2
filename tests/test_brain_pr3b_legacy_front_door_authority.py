@@ -33,6 +33,7 @@ ENGINE_COMMANDS_SOURCE = (ROOT / "modules" / "engine_commands.py").read_text(enc
 EFFECT_SEAMS = (
     "updater.check", "updater.install_latest", "updater.verify_sync", "updater.status",
     "modules.diagnose.run", "modules.diagnose.summary",
+    "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
     "modules.finance_alert_commands.matches", "modules.selfctl.handle",
@@ -140,6 +141,10 @@ class MetaLanguageEffectFenceTests(_RawDoorHarness):
         self.turn("sistemi kontrol etmek ne demek?")
         self.assertEqual(self.silent("modules.diagnose"), [])
 
+    def test_a_fault_word_inside_a_longer_statement_does_not_trigger_diagnostics(self):
+        self.turn("rapordaki arıza kaydı dün eklenmiş")
+        self.assertEqual(self.silent("modules.diagnose"), [])
+
     def test_a_question_about_folder_watch_touches_no_watch_rule(self):
         self.turn("klasör izleme nedir?")
         self.assertEqual(self.silent("modules.watcher"), [])
@@ -215,6 +220,11 @@ class TypoSinglePassTests(_RawDoorHarness):
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
                           "diagnose.requested", "diagnose.run", "diagnose.summary",
+                          "_output_save_admin", "isinstance", "git_publish.requested",
+                          "git_publish.publish_worktree", "updater.verify_sync",
+                          "updater.command_request", "updater.install_latest", "updater.check",
+                          "updater.status", "verified.get", "status['error'].split",
+                          "_record_failure", "str",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 
@@ -749,6 +759,108 @@ class DispatchArmPrecedenceTests(_RawDoorHarness):
         self.assertIn("nereden gelsin", str(out))
 
 
+class ExactAdminEffectTests(_RawDoorHarness):
+    """Git yayınlama ve güncelleme yalnız açık, tam-cümle admin komutuyla yürür."""
+
+    def test_an_exact_git_publish_command_reaches_the_existing_publish_owner_once(self):
+        self.seams["modules.git_publish.publish_worktree"].return_value = "YAYINLANDI"
+        _entry, out, _handle, _ = self.turn("git yükle")
+        self.assertEqual(out, "YAYINLANDI")
+        self.seams["updater.verify_sync"].assert_called_once()
+        self.seams["modules.git_publish.publish_worktree"].assert_called_once_with(
+            "kullanıcı 'git yükle' komutuyla yayınladı"
+        )
+
+    def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
+        self.turn("dün github'a yüklemeden önce bütün dosyaları kontrol ettim")
+        self.seams["updater.verify_sync"].assert_not_called()
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_a_typo_corrected_phrase_cannot_authorise_git_publication(self):
+        self.turn("git yüklee")
+        self.seams["updater.verify_sync"].assert_not_called()
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_git_publication_fails_closed_when_sync_is_unknown(self):
+        self.seams["updater.verify_sync"].return_value = {"sync_state": "offline", "sync_msg": "OFFLINE"}
+        _entry, out, _handle, _ = self.turn("git yükle")
+        self.assertIn("OFFLINE", str(out))
+        self.seams["modules.git_publish.publish_worktree"].assert_not_called()
+
+    def test_publish_admin_grammar_is_closed_and_whole_sentence_only(self):
+        from modules import git_publish
+        for text in ("git yükle", "GIT YÜKLE", "GitHub'a gönder", "değişiklikleri github'a yükle"):
+            with self.subTest(text=text):
+                self.assertTrue(git_publish.requested(text), text)
+        for text in ("dün git yükle dedim", "github'a yüklemeden önce kontrol et",
+                     "git yükle ne demek?", "git yükle?", "git yükle lütfen sonra"):
+            with self.subTest(text=text):
+                self.assertFalse(git_publish.requested(text), text)
+
+    def test_an_exact_update_check_does_not_install(self):
+        self.turn("güncelleme var mı")
+        self.seams["updater.check"].assert_called_once_with(apply_now=False, force=True)
+        self.seams["updater.install_latest"].assert_not_called()
+
+    def test_an_exact_update_install_uses_the_existing_protected_installer(self):
+        self.turn("kendini güncelle")
+        self.seams["updater.install_latest"].assert_called_once_with()
+        self.seams["updater.check"].assert_not_called()
+
+    def test_an_update_phrase_inside_a_larger_request_does_not_install_or_check(self):
+        self.turn("kendini güncellemenin riskleri nelerdir?")
+        self.seams["updater.install_latest"].assert_not_called()
+        self.seams["updater.check"].assert_not_called()
+
+    def test_update_admin_grammar_preserves_check_and_install_variants(self):
+        import updater
+        for text in ("güncelleme var mı", "GÜNCELLEME VAR MI", "güncellemeye bak", "güncellemeleri kontrol et"):
+            with self.subTest(text=text):
+                self.assertEqual(updater.command_request(text), "check")
+        for text in ("kendini güncelle", "Jarvis'i güncelle", "güncellemeleri kur"):
+            with self.subTest(text=text):
+                self.assertEqual(updater.command_request(text), "install")
+        for text in ("kendini güncellemenin riskleri", "dün güncellemeleri kurdum",
+                     "güncelleme var mı diye sordum", "kendini güncelle?"):
+            with self.subTest(text=text):
+                self.assertIsNone(updater.command_request(text), text)
+
+
+class OutputSaveAdminTests(_RawDoorHarness):
+    """A previous document can be saved only by a whole explicit output command."""
+
+    def test_an_exact_output_command_saves_only_the_session_bound_document(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.ctx.output.save_text_result.return_value = "C:/out/ozet.docx"
+        _entry, out, _handle, _ = self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_called_once_with(
+            "RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet"
+        )
+        self.assertIn("C:/out/ozet.docx", str(out))
+
+    def test_an_embedded_output_phrase_does_not_save(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.turn("dün çıktıyı kaydet dedim")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_an_output_question_does_not_open_the_save_dialog(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.turn("çıktı al ne demek?")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_exact_output_command_without_a_bound_document_does_not_save(self):
+        self.ctx._session().last_doc = None
+        self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_not_called()
+
+    def test_a_cancelled_save_dialog_keeps_the_existing_cancel_response(self):
+        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
+        self.ctx.output.save_text_result.return_value = None
+        _entry, out, _handle, _ = self.turn("çıktı al")
+        self.ctx.output.save_text_result.assert_called_once()
+        self.assertEqual(out, "Kaydetme iptal edildi.")
+
+
 class ExactAdminArmScopeTests(unittest.TestCase):
     """§3 kanıtı: exact admin kolları cümlenin *tamamı* üzerinde karar verir, içinde değil.
 
@@ -766,6 +878,13 @@ class ExactAdminArmScopeTests(unittest.TestCase):
             self.assertIsNone(smart_router.handle("alice", text), text)
         for text in ("pc ses kontrolü değil", "sistem tanılama nedir", "arka planda sistem kontrolü yap"):
             self.assertIsNone(system_doctor.handle("alice", text), text)
+
+    def test_diagnosis_admin_grammar_matches_only_a_whole_bounded_sentence(self):
+        from modules import diagnose
+        self.assertTrue(diagnose.requested("neden çalışmıyor?"))
+        self.assertTrue(diagnose.requested("sistemi kontrol et"))
+        self.assertFalse(diagnose.requested("rapordaki arıza kaydı dün eklenmiş"))
+        self.assertFalse(diagnose.requested("arıza kelimesi nedir?"))
 
     def test_the_desktop_owner_gate_is_the_same_admin_family_as_the_early_arm(self):
         # Erken kolun öneki ile owner'ın kendi kapısı aynı aileyi tanımalı; aksi hâlde yüzey,
@@ -1010,6 +1129,12 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        # Normal diagnostic requests must have a single bounded full-sentence owner.
+        "diagnose.run": {"modules/command_manager.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/command_manager.py"},
+        "updater.install_latest": {"modules/command_manager.py", "web.py"},
+        "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
+        "output.save_text_result": {"modules/engine_intents.py", "modules/translate.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):

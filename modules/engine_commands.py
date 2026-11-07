@@ -92,7 +92,8 @@ def handle(runtime, command: str):
         table_chat=runtime._table_chat, history_read=runtime.history.read,
         study_intent=lambda text: runtime._study_intent(text),
         conversation_summary=runtime._conversation_summary,
-        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source)
+        pc_owner=lambda: runtime.pc_profile().slug, source=runtime._cur_source,
+        record_failure=runtime._record_failure, output=runtime.output)
     early_result = dispatch(context, command, cmd_lower)
     if early_result is not None:
         return early_result
@@ -266,13 +267,6 @@ def handle(runtime, command: str):
     # Hava durumu isteğini artık yalnız Understanding yakalar (`weather.read` / `weather.read.current`);
     # buradaki ham `\bhava\b` kalıbı başka alan cümlelerini de seçiyordu.
 
-    # Son analizi dosyaya kaydet ("çıktı al", "kaydet"); yeni analiz/çeviri isteği değilse
-    if runtime._session().last_doc is not None and runtime.re.search(r"\bçıktı\w*|\bkaydet\w*", cmd_lower) \
-            and not runtime.re.search(r"analiz|özet|çevir|ekran|görüntü", cmd_lower):
-        text, source, label = runtime._session().last_doc
-        saved = runtime.output.save_text_result(text, source, label)
-        return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
-
     # Nesnesi söylenmemiş "aç/kapat" ve hedefi söylenmemiş sayı soruları artık Understanding'in
     # typed eksikleri (APP_TARGET_MISSING / level target unspecified) üzerinden yazılır; buradan
     # hiçbir netleştirme sorusu üretilmez.
@@ -288,41 +282,6 @@ def handle(runtime, command: str):
     if rate_reply is not None:
         return rate_reply
 
-    # GitHub'a yayın: Ev/İş fark etmez; yalnız açık "git yükle / GitHub'a gönder" komutuyla.
-    if runtime.re.search(r"(?:^|\b)(?:git|github'?a?)\s+(?:yükle|gönder|yayınla)\b|değişiklikleri\s+github'?a?\s+(?:yükle|gönder)", cmd_lower):
-        try:
-            import updater
-            verified = updater.verify_sync()
-            if verified.get("sync_state") in ("diverged", "unknown", "offline"):
-                return "GitHub'a yüklemedim: " + str(verified.get("sync_msg") or "durum güvenli değil")
-            from modules import git_publish as sc_publish
-            return sc_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
-        except Exception as exc:
-            runtime._record_failure('main.py:handle')
-            return f"GitHub'a yükleyemedim: {exc}"
-
-    # Güncelleme: "güncelleme var mı", "kendini güncelle"
-    if runtime.re.search(r"güncelleme\w*\s+(?:var\s*mı|kontrol|bak)|kendini\s+güncelle|jarvis'?\w*\s+güncelle|güncellemeleri?\s+(?:al|yükle|kur)", cmd_lower):
-        try:
-            import updater
-            wants_install = bool(runtime.re.search(r"kendini\s+güncelle|güncellemeleri?\s+(?:al|yükle|kur)|jarvis'?\w*\s+güncelle", cmd_lower))
-            note = updater.install_latest() if wants_install else updater.check(apply_now=False, force=True)
-            if note:
-                return note + (" Jarvis'i kapatıp açınca devreye girer." if wants_install else " Kurmak için açıkça ‘güncellemeyi kur’ de.")
-            st = updater.status()
-            if st["error"] and not st["sha"]:
-                return "Güncellemeye bakamadım: " + st["error"].split(" ", 2)[-1]
-            return "Zaten en güncel sürümdesin." + (f" ({st['msg']})" if st["msg"] else "")
-        except Exception as exc:
-            runtime._record_failure('main.py:handle')
-            return f"Güncellemeye bakamadım: {exc}"
-
-    # Arıza tespiti: "sistemi kontrol et", "her şey yolunda mı", "neden çalışmıyor"
-    if runtime.re.search(r"(?:sistem\w*|bağlantı\w*|jarvis\w*|kendin\w*)\s+(?:kontrol|tara|test)|arıza\w*|teşhis|"
-                 r"her şey yolunda mı|sorun var mı|neden çalışmıyor|ne bozuk|sistem taraması", cmd_lower):
-        from modules import diagnose
-        return diagnose.summary(diagnose.run(speak_flag=runtime.flags.get("speak")))
-
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.
 
@@ -334,7 +293,7 @@ def handle(runtime, command: str):
     # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
     # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
     corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected, runtime.flags.get("speak"))
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command)
     if view is not None:
         return view
     if corrected != cmd_lower:
