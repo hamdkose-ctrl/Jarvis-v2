@@ -330,8 +330,11 @@ class PhotoFollowupHandlerAuthorityTests(unittest.TestCase):
 
     def test_photo_of_another_owner_is_never_observed(self):
         runtime = self.context()
-        runtime._pending_photo["ebru"] = {"path": PHOTO_PATH, "t": runtime.time.time(), "origin_request_id": "x"}
         owner = runtime.profile.slug
+        foreign_owner = owner + "-other"
+        runtime._pending_photo[foreign_owner] = {
+            "path": PHOTO_PATH, "t": runtime.time.time(), "origin_request_id": "x",
+        }
         rid = "rid-photo-" + uuid.uuid4().hex[:12]
         self.assertTrue(requests_state.register(owner, rid))
         with requests_state.activate(owner, rid, complete=False):

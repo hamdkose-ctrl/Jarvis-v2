@@ -1,7 +1,8 @@
-import engine_source
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class V59GitPublishTests(unittest.TestCase):
@@ -21,9 +22,12 @@ class V59GitPublishTests(unittest.TestCase):
                 updater.apply({"sha": "new", "msg": "new", "date": "2026-10-05"})
 
     def test_git_yukle_command_exists(self):
-        src = engine_source.source()
-        self.assertIn("publish_worktree", src)
-        self.assertIn("git yükle", src.casefold())
+        from modules import git_publish
+        engine_commands = (ROOT / "modules" / "engine_commands.py").read_text(encoding="utf-8")
+        command_manager = (ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8")
+        self.assertIn("exact_admin_view", engine_commands)
+        self.assertIn("git_publish.publish_worktree", command_manager)
+        self.assertTrue(git_publish.requested("git yükle"))
 
 
 if __name__ == "__main__":
