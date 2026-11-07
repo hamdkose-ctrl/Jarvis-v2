@@ -225,7 +225,7 @@ class TypoSinglePassTests(_RawDoorHarness):
                           "git_publish.publish_worktree", "updater.verify_sync",
                           "updater.command_request", "updater.install_latest", "updater.check",
                           "updater.status", "verified.get", "status['error'].split",
-                          "context.record_failure", "str",
+                          "_record_failure", "str",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 

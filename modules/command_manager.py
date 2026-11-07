@@ -19,6 +19,15 @@ class CommandContext:
     output: object | None = None
 
 
+def _record_failure(context, location):
+    callback = context.record_failure
+    if callback is not None:
+        callback(location)
+        return
+    from modules import diagnostics
+    diagnostics.record_failure(location)
+
+
 PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_confirm', 'pending_msg',
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
                         'pending_app', 'pending_desktop', 'pending_visual')
@@ -46,8 +55,7 @@ def _output_save_admin(context, text):
         saved = saver(content, source, label)
         return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
     except Exception:
-        if context.record_failure is not None:
-            context.record_failure("modules/command_manager.py:output_save")
+        _record_failure(context, "modules/command_manager.py:output_save")
         return "Çıktıyı kaydedemedim; mevcut belgeyi değiştirmedim."
 
 
@@ -222,8 +230,7 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
                     )
                 return git_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
             except Exception as exc:
-                if context.record_failure is not None:
-                    context.record_failure("main.py:handle")
+                _record_failure(context, "main.py:handle")
                 return f"GitHub'a yükleyemedim: {exc}"
 
         update_action = updater.command_request(original_text)
@@ -244,8 +251,7 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
                     f" ({status['msg']})" if status["msg"] else ""
                 )
             except Exception as exc:
-                if context.record_failure is not None:
-                    context.record_failure("main.py:handle")
+                _record_failure(context, "main.py:handle")
                 return f"Güncellemeye bakamadım: {exc}"
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
