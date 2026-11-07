@@ -504,6 +504,68 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         self.assertIn("geçerli değil", str(out).casefold())
         self.send.assert_not_called()
 
+    def test_a_broken_number_does_not_hide_name_ambiguity(self):
+        # Bir geçerli + bir bozuk numaralı aynı isim: filtre yüzünden tek aday kalsa bile
+        # belirsizlik açıktır; geçerli aday otomatik seçilmez.
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("Ahmet Yılmaz", str(out))
+        self.assertIn("Ahmet Demir", str(out))
+        self.assertIn("numarası geçersiz", str(out))
+        self.assertIn("Hangisine", str(out))
+        self.assertEqual(self.ctx._session().pending_msg["text"], "selam")
+        self.send.assert_not_called()
+
+    def test_selecting_the_invalid_candidate_never_sends(self):
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        _entry, out, _handle, _ = self._threaded_turn("Ahmet Demir")
+        self.assertIn("geçerli değil", str(out).casefold())
+        self.assertIn("kişi ekle", str(out).casefold())
+        self.send.assert_not_called()
+        self.assertIsNone(self.ctx._session().pending_msg)
+
+    def test_selecting_the_valid_candidate_sends_after_approval(self):
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        _entry, out, _handle, _ = self._threaded_turn("Ahmet Yılmaz")
+        self.assertIn("Ahmet Yılmaz", str(out))
+        self.assertIn("0001", str(out))
+        self.assertIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+        self._threaded_turn("evet gönder")
+        self.assertEqual(self.send.call_args.args, ("Ahmet Yılmaz", "selam", "905321110001"))
+
+    def test_approval_off_still_surfaces_mixed_validity_ambiguity(self):
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("Hangisine", str(out))
+        self.assertIn("numarası geçersiz", str(out))
+        self.send.assert_not_called()
+
+    def test_approval_off_selecting_the_invalid_candidate_never_sends(self):
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        _entry, out, _handle, _ = self._threaded_turn("Ahmet Demir")
+        self.assertIn("geçerli değil", str(out).casefold())
+        self.send.assert_not_called()
+
+    def test_approval_off_selecting_the_valid_candidate_sends_without_asking(self):
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "123"}
+        self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        _entry, out, _handle, _ = self._threaded_turn("Ahmet Yılmaz")
+        self.assertNotIn(CONFIRM_QUESTION, str(out))
+        self.assertEqual(self.send.call_args.args, ("Ahmet Yılmaz", "selam", "905321110001"))
+
     def test_a_contact_is_saved_to_the_active_profile_only(self):
         self._threaded_turn("kişi ekle ahmet 0532 123 45 67")
         self.assertEqual(self.ctx.profile.data.get("contacts"), {"Ahmet": "905321234567"})
@@ -588,10 +650,14 @@ class PhoneRecordBoundaryTests(unittest.TestCase):
                 self.assertEqual(messaging.contact_matches({"Ahmet": raw}, "ahmet"),
                                  [("Ahmet", canonical)])
 
-    def test_invalid_number_matches_names_only_the_broken_record(self):
-        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "123"}, "ahmet"), ["Ahmet"])
-        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "905321234567"}, "ahmet"), [])
-        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "123"}, "zeynep"), [])
+    def test_name_matches_are_independent_of_phone_validity(self):
+        # Belirsizlik ad düzeyinde verilir: bozuk numaralı aday elenince kalan geçerli aday
+        # otomatik seçilmez; iki Ahmet varsa karar kullanıcınındır.
+        contacts = {"Ahmet Yılmaz": "905321110001", "Ahmet Demir": "123"}
+        self.assertEqual(messaging.name_matches(contacts, "ahmet"), ["Ahmet Demir", "Ahmet Yılmaz"])
+        self.assertIsNone(messaging.find_contact(contacts, "ahmet"))
+        self.assertEqual(messaging.contact_matches(contacts, "ahmet"),
+                         [("Ahmet Yılmaz", "905321110001")])
 
 
 class SenderPhoneBoundaryTests(unittest.TestCase):

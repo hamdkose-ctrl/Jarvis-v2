@@ -81,8 +81,9 @@ class ConfirmationTests(unittest.TestCase):
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_message_step')
         profile = SimpleNamespace(slug='hamdi', data={'contacts': {'Ebru': '905551112233'}})
         # Alıcı güvenliği: gönderim yalnız çözümlenmiş kişiyle başlar; bu asgari sözleşme mock'ta da
-        # temsil edilir (tek eşleşme + maskeli numara).
+        # temsil edilir (tek ad eşleşmesi + tek geçerli numara + maskeli numara).
         messaging = Mock()
+        messaging.name_matches.return_value = ['Ebru']
         messaging.contact_matches.return_value = [('Ebru', '905551112233')]
         messaging.mask_phone.return_value = '…2233'
         ns = {'_session': lambda: session, 'load_approve': lambda: True, 're': re, 'profile': profile, 'messaging': messaging, 'threading': SimpleNamespace(Thread=Mock()), 'requests_state': Mock(), 'privacy': Mock(), '_emit_for': Mock(), 'pc_profile': lambda: profile, 'events': queue.Queue(), 'secrets': SimpleNamespace(token_hex=lambda size: 'background-id')}

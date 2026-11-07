@@ -63,6 +63,7 @@ class BackgroundRequestTests(unittest.TestCase):
         session = SessionState(pending_msg={'to': 'Ebru', 'text': 'Merhaba', 'stage': 'confirm'})
         owner = SimpleNamespace(slug='hamdi', data={'contacts': {'Ebru': '905551112233'}})
         adapter = Mock()
+        adapter.name_matches.return_value = ['Ebru']
         adapter.contact_matches.return_value = [('Ebru', '905551112233')]
         adapter.mask_phone.return_value = '…2233'
         ns = {'_session': lambda: session, 'load_approve': lambda: True, 're': re, 'profile': owner, 'messaging': adapter, 'threading': SimpleNamespace(Thread=Mock()), 'requests_state': state, 'privacy': Mock(), '_emit_for': Mock(), 'pc_profile': lambda: owner, 'events': queue.Queue(), 'secrets': SimpleNamespace(token_hex=lambda size: 'child'), '_record_failure': Mock()}

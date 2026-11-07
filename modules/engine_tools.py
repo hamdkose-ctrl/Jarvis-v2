@@ -207,22 +207,27 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
         name, phone = p["to"], p["phone"]
     else:
         # Onaydan ÖNCE çözümleme: onay metni kullanıcının gerçekten göndereceği kişiyi göstermeli.
-        matches = runtime.messaging.contact_matches(contacts, p["to"])
-        if not matches:
+        # İsim belirsizliği numara geçerliliğinden bağımsızdır: adı eşleşen herkes karara girer;
+        # bir adayın numarası bozuk diye diğer aday otomatik seçilmez.
+        names = runtime.messaging.name_matches(contacts, p["to"])
+        if not names:
             runtime._session().pending_msg = None
-            if runtime.messaging.invalid_number_matches(contacts, p["to"]):
-                return (f"Rehberindeki “{p['to']}” kaydının numarası geçerli değil; mesajı göndermedim. "
-                        f"“kişi ekle {p['to']} 05xx xxx xx xx” ile numarayı düzeltebilirsin.")
             return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; mesajı göndermedim. "
                     f"Önce “kişi ekle {p['to']} 05xx xxx xx xx” de ya da kayıtlı kişinin tam adını söyle.")
-        if len(matches) > 1:
+        valid = dict(runtime.messaging.contact_matches(contacts, p["to"]))
+        if len(names) > 1:
             # Seçim kullanıcınındır ve açık olmalı: alıcı sorusu yeniden açılır, gövde korunur.
-            listed = ", ".join(f"{person} ({runtime.messaging.mask_phone(number)})"
-                               for person, number in matches)
+            listed = ", ".join(f"{person} ({runtime.messaging.mask_phone(valid[person])})"
+                               if person in valid else f"{person} (numarası geçersiz)"
+                               for person in names)
             p["stage"], p["to"] = "to", ""
             return (f"Rehberinde birkaç kişi eşleşiyor: {listed}. "
                     "Hangisine göndereyim? Kişinin tam adını yaz.")
-        name, phone = matches[0]
+        if names[0] not in valid:
+            runtime._session().pending_msg = None
+            return (f"Rehberindeki “{names[0]}” kaydının numarası geçerli değil; mesajı göndermedim. "
+                    f"“kişi ekle {names[0]} 05xx xxx xx xx” ile numarayı düzeltebilirsin.")
+        name, phone = names[0], valid[names[0]]
     if runtime.load_approve() and not p.get("confirmed"):
         if command is not None and p.get("stage") == "confirm":
             approval = decision(cmd_lower, extra=('gönder', 'gonder', 'evet gönder', 'evet gonder', 'gönder gitsin', 'gonder gitsin'))

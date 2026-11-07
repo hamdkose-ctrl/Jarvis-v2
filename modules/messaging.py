@@ -8,7 +8,9 @@ olabilir de olmayabilir de, ve onay ile gönderim arasındaki bu belirsizlik ger
 etkiye (yanlış kişiye mesaj) dönüşüyordu. Alıcı çözümlemesi `contact_matches` ile yalnız kayıtlı
 defterde ve yalnız tekil eşleşmede yapılır (`find_contact`); numara yoksa çağrı hiç başlamaz.
 Numara iki sınırda doğrulanır: çözümlemede `normalize_phone` (bozuk/metin/enjeksiyon kaydı
-eşleşme sayılmaz), yürütücüde yalnız kanonik biçim (ham telefon değeri URI'ye giremez).
+gönderim adayı sayılmaz), yürütücüde yalnız kanonik biçim (ham telefon değeri URI'ye giremez).
+İsim belirsizliği numara geçerliliğinden bağımsızdır: adı eşleşen herkes (`name_matches`)
+karara girer; bir adayın numarası bozuk diye diğer aday otomatik seçilmez.
 Gönderme sırasında klavye ve fareye dokunulmamalıdır. Fareyi ekranın köşesine sürmek işlemi durdurur (pyautogui güvenliği).
 """
 from __future__ import annotations
@@ -74,10 +76,14 @@ def contact_matches(contacts: dict, name: str) -> list[tuple[str, str]]:
     return matches
 
 
-def invalid_number_matches(contacts: dict, name: str) -> list[str]:
-    """Adı eşleşip numarası geçersiz/bozuk kayıtlar: ret gerekçesini doğru söylemek için."""
-    return [stored for stored, phone in _name_rows(contacts, name)
-            if _canonical_record_phone(phone) is None]
+def name_matches(contacts: dict, name: str) -> list[str]:
+    """Adı `name`e uyan kayıtlı kişilerin tamamı — numara geçerliliğine bakmadan.
+
+    İsim belirsizliği kararının tek girdisidir: iki "Ahmet" varsa biri bozuk numaralı
+    diye diğeri otomatik seçilmez. Gönderilebilir adaylar ayrıca `contact_matches`
+    ile süzülür; seçim kullanıcıya aittir.
+    """
+    return [stored for stored, _phone in _name_rows(contacts, name)]
 
 
 # Eski/elle düzenlenmiş profil kaydı yürütücüye ham taşınmaz: yalnız telefon biçimi
@@ -111,7 +117,13 @@ def _name_rows(contacts: dict, name: str) -> list[tuple[str, Any]]:
 
 
 def find_contact(contacts: dict, name: str) -> tuple[str, str] | None:
-    """Yalnız **tekil** eşleşmede (ad, numara); belirsizlikte None (karar kullanıcıya)."""
+    """Yalnız **tekil** ad eşleşmesinde ve numara geçerliyse (ad, numara); aksi hâlde None.
+
+    Tekillik ada göre ölçülür, numaraya göre değil: aynı ada iki kayıt varsa biri bozuk
+    numaralı olsa bile belirsizlik sürer (karar kullanıcıya).
+    """
+    if len(name_matches(contacts, name)) != 1:
+        return None
     matches = contact_matches(contacts, name)
     return matches[0] if len(matches) == 1 else None
 
