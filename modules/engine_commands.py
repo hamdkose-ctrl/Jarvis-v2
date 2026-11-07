@@ -265,6 +265,10 @@ def handle(runtime, command: str):
     if tail is not None:
         return tail[1]
 
+    # Kayıtlı şehir ("şehrim İzmir" / "şehrimi sıfırla") artık burada seçilmiyor: karar Understanding'in
+    # `weather.city.set`/`weather.city.reset` önerisi, değer hükmü Core'un, tercih yazması tek intent
+    # sahibinde (`engine_intents`). BRAIN-03 dilim 1, BRAIN-MIG-099.
+
     # Hava durumu isteğini artık yalnız Understanding yakalar (`weather.read` / `weather.read.current`);
     # buradaki ham `\bhava\b` kalıbı başka alan cümlelerini de seçiyordu.
 

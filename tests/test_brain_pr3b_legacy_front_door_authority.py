@@ -221,6 +221,11 @@ class TypoSinglePassTests(_RawDoorHarness):
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
                           "diagnose.requested", "diagnose.run", "diagnose.summary",
+                          "_output_save_admin", "isinstance", "git_publish.requested",
+                          "git_publish.publish_worktree", "updater.verify_sync",
+                          "updater.command_request", "updater.install_latest", "updater.check",
+                          "updater.status", "verified.get", "status['error'].split",
+                          "context.record_failure", "str",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 
@@ -822,43 +827,6 @@ class ExactAdminEffectTests(_RawDoorHarness):
                 self.assertIsNone(updater.command_request(text), text)
 
 
-class ExactAdminProfileTests(_RawDoorHarness):
-    """Kayıtlı şehir tercihi yalnız tam cümleli, kullanıcının kendi profil komutuyla değişir."""
-
-    def test_an_exact_city_assignment_updates_only_the_active_profile(self):
-        _entry, out, _handle, _ = self.turn("şehrim İzmir olsun")
-        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "İzmir")
-        self.assertIn("İzmir", out)
-
-    def test_an_exact_city_reset_removes_only_the_active_profile_preference(self):
-        self.ctx.profile.set_pref("city", "Ankara")
-        _entry, out, _handle, _ = self.turn("şehrimi sıfırla")
-        self.assertNotIn("city", self.ctx.profile.data["prefs"])
-        self.assertIn("sildim", out)
-
-    def test_a_city_assignment_phrase_inside_a_larger_sentence_does_not_write(self):
-        self.ctx.profile.set_pref("city", "Ankara")
-        self.turn("dün şehrim İzmir olsun diye şaka yaptım")
-        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
-
-    def test_a_city_reset_phrase_inside_a_larger_sentence_does_not_delete(self):
-        self.ctx.profile.set_pref("city", "Ankara")
-        self.turn("şehrimi sıfırla komutunun ne yaptığını açıkla")
-        self.assertEqual(self.ctx.profile.data["prefs"]["city"], "Ankara")
-
-    def test_city_admin_grammar_is_bounded_and_turkish_casefolded(self):
-        from modules import command_manager
-        context = SimpleNamespace(profile=self.ctx.profile, record_failure=None)
-        self.assertEqual(command_manager._profile_city_admin(context, "ŞEHRİM İZMİR OLSUN"),
-                         "Şehrini İzmir olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
-        self.assertIsNone(command_manager._profile_city_admin(context, "dün şehrim İzmir olsun dedim"))
-        self.assertIsNone(command_manager._profile_city_admin(context, "şehrimi sıfırla dedim"))
-        self.assertIsNone(command_manager._profile_city_admin(context, "şehrimi sıfırla?"))
-        self.assertEqual(command_manager._profile_city_admin(context, "konumum Isparta'da"),
-                         "Şehrini Isparta olarak kaydettim; hava durumuna bu şehre göre bakacağım.")
-
-
-
 class OutputSaveAdminTests(_RawDoorHarness):
     """A previous document can be saved only by a whole explicit output command."""
 
@@ -1163,10 +1131,10 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/command_manager.py", "web.py"},
-        "git_publish.publish_worktree": {"modules/command_manager.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/command_manager.py"},
         "updater.install_latest": {"modules/command_manager.py", "web.py"},
-        "profile.set_pref": {"modules/command_manager.py", "modules/engine_context.py"},
-        "output.save_text_result": {"modules/command_manager.py", "modules/engine_intents.py", "modules/translate.py"},
+        "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
+        "output.save_text_result": {"modules/engine_intents.py", "modules/translate.py"},
     }
 
     def test_a_raw_semantic_probe_has_only_its_pinned_production_owner(self):
