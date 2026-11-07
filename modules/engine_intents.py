@@ -296,6 +296,25 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             runtime.profile.data["prefs"].pop("city", None)
             runtime.profile.save()
             return "Kayıtlı şehrini sildim; artık bulunduğun konuma göre bakacağım."
+        case "message_send":
+            # BRAIN-03 dilim 2: alıcı/gövde Core'da doğrulandı; oturum ve gönderim onayı mevcut
+            # `pending_msg` protokolünde kalır. Onay kullanıcının KENDİ cevabıdır; burada
+            # gönderim başlamaz, gönderim onayı olmadan hiçbir efekt yürümez.
+            runtime._session().pending_msg = {"to": str(a.get("recipient") or ""),
+                                             "text": str(a.get("body") or ""), "stage": "to"}
+            return runtime._message_step(None, "") or "Mesaj isteğini anlayamadım; alıcıyı ve metni söyler misin?"
+        case "contacts_manage":
+            # Kişi defteri yalnız ETKİN kullanıcının profilidir; numara Core'da normalleşti.
+            contacts = runtime.profile.data.setdefault("contacts", {})
+            if a.get("operation") == "list":
+                return ("Kayıtlı kişiler: " + ", ".join(contacts) + "." if contacts
+                        else "Kayıtlı kişi yok. \"kişi ekle Ahmet 0532 123 45 67\" diyebilirsin.")
+            name, phone = str(a.get("name") or ""), str(a.get("phone") or "")
+            if not name or not phone:
+                return "Kişi kaydı doğrulanamadı; defter değişmedi."
+            contacts[name] = phone
+            runtime.profile.save()
+            return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
         case "photo_action":
             # Operation and path are Core-validated; the domain executor only applies them.
             from modules import main_documents

@@ -152,10 +152,13 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
     # ölçülmüş ama deftere yazılmamıştı — eksik satır, taşınmış bir "defter tam" iddiasıdır).
     RAW_SEMANTIC_DOORS: dict[str, set[str]] = {
         # main.py cascade kolları (engine_commands.handle içindeki ham doğal dil kapıları).
-        "messaging.is_whatsapp_message": {"modules/engine_commands.py"},
-        "messaging.quick_parse": {"modules/engine_commands.py"},
-        "messaging.extract": {"modules/engine_commands.py"},
-        "_contact_command": {"modules/engine_commands.py"},
+        # BRAIN-03 dilim 2 (emekli): üç kapı da yüzeyden fiziksel olarak silindi; anlam kararı
+        # `message.send`/`contacts.manage` önerisinde, biçim Core'da, oturum `pending_msg`'de.
+        # Satır silinmez, boş kümeye iner: geri yeni bir çağıran gelirse test RED verir.
+        "messaging.is_whatsapp_message": set(),
+        "messaging.quick_parse": set(),
+        "messaging.extract": set(),
+        "_contact_command": set(),
         "learning.handle": {"modules/engine_commands.py"},
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
@@ -218,8 +221,8 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
                 self.assertIn(gate_doors[gate], self.RAW_SEMANTIC_DOORS)
 
         # engine_commands.handle cascade'inin ham dil arm'ları (migration map §13.1 satırları).
-        cascade_arms = {"messaging.is_whatsapp_message", "messaging.quick_parse",
-                        "messaging.extract", "_contact_command", "learning.handle",
+        # Mesaj/rehber kolları dilim 2'de emekli edildi; kalan canlı kollar aşağıdadır.
+        cascade_arms = {"learning.handle",
                         "_file_command", "job_front.wants", "goal_executor.handle",
                         "continue_app", "_study_intent", "finance.answer", "_screen_ocr",
                         "_mail_handle"}

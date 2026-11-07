@@ -575,6 +575,11 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
     def test_the_denial_is_a_closed_capability_set_not_an_argument_key_rule(self):
         # `location` anahtarını yasaklamak hava OKUMASını da vururdu; yasak yetenek düzeyindedir
         # ve küme kapalıdır — kelime taraması, regex veya modelden gelen bir ad değildir.
+        # BRAIN-03 dilim 2: mesaj/rehber yetenekleri kümeden ÇIKTI. Onlar artık modelin önerebilir
+        # kararlarıdır; uydurma alan tehlikesi yetenek yasağıyla değil, kullanıcının kendi cümlesinden
+        # alıntılanmış DAYANAK denetimiyle kapatılır (`message.send` zarfı → `argument_sources`).
+        # Kalıcı şehir tercihi ise kullanıcı cümlesinin kendisiyle doğan bir yazmadır ve yasağı
+        # sürer. Küme kapalı kalır: yeni bir ad eklendiğinde/çıktığında bu satır RED verir.
         from modules import brain_model_understanding as model
         self.assertEqual(
             set(model._MODEL_DENIED_CAPABILITIES),

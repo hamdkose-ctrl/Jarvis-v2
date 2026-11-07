@@ -919,6 +919,8 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     city = _weather_city_request(text)
     if city is not None:
         return city
+    # BRAIN-03 dilim 2: `message.send` / `contacts.manage` burada SEÇİLMEZ. Sözleşme V2 §2:
+    # bu iki etki kullanıcının kendi cümlesinin anlamıdır; karar sahibi bounded model zarfıdır.
     # Ekranı okuma ve pencere kontrolü: sözcük düzeyinde kesinse model'e sorulmadan canonical öneri olur.
     if _SCREEN_ANALYZE_CUE.search(text) is not None:
         return SCREEN_CAPABILITY
@@ -1678,6 +1680,17 @@ def _weather_city_arguments(normalized: str) -> dict[str, object]:
     if capability != WEATHER_CITY_SET_CAPABILITY:
         return {}
     return {"location": " ".join(name)}
+
+
+# BRAIN-03 dilim 2 (§2/§3B): bu iki yetenek adı yalnız birer KİMLİKTİR — yetenek kararının
+# sahibi değildir. Ham cümleden `message.send`/`contacts.manage` seçen gramer (`_WA_*`,
+# `_MESSAGE_*`, `_CONTACTS_*`, `_message_*`, `_contacts_*`) yüzeyden silindi; kararı bounded
+# model zarfı verir (`brain_model_understanding`), alanların BİÇİMİ Core'da
+# (`brain_core_map._message_args`/`_contacts_args`), uydurma olmaması ise kullanıcının kendi
+# cümlesinden alıntılanan dayanakla (`argument_sources`) denetlenir. Oturum ve gönderim onayı
+# mevcut `pending_msg` protokolünde kalır.
+MESSAGE_SEND_CAPABILITY = "message.send"
+CONTACTS_MANAGE_CAPABILITY = "contacts.manage"
 
 
 _APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"

@@ -201,7 +201,33 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
     if not p["text"]:
         p["stage"] = "text"
         return f"{p['to']} kişisine ne yazayım?"
-    name, text = p["to"], p["text"]
+    text = p["text"]
+    contacts = runtime.profile.data.get("contacts", {}) or {}
+    if p.get("confirmed") and p.get("phone"):
+        name, phone = p["to"], p["phone"]
+    else:
+        # Onaydan ÖNCE çözümleme: onay metni kullanıcının gerçekten göndereceği kişiyi göstermeli.
+        # İsim belirsizliği numara geçerliliğinden bağımsızdır: adı eşleşen herkes karara girer;
+        # bir adayın numarası bozuk diye diğer aday otomatik seçilmez.
+        names = runtime.messaging.name_matches(contacts, p["to"])
+        if not names:
+            runtime._session().pending_msg = None
+            return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; mesajı göndermedim. "
+                    f"Önce “kişi ekle {p['to']} 05xx xxx xx xx” de ya da kayıtlı kişinin tam adını söyle.")
+        valid = dict(runtime.messaging.contact_matches(contacts, p["to"]))
+        if len(names) > 1:
+            # Seçim kullanıcınındır ve açık olmalı: alıcı sorusu yeniden açılır, gövde korunur.
+            listed = ", ".join(f"{person} ({runtime.messaging.mask_phone(valid[person])})"
+                               if person in valid else f"{person} (numarası geçersiz)"
+                               for person in names)
+            p["stage"], p["to"] = "to", ""
+            return (f"Rehberinde birkaç kişi eşleşiyor: {listed}. "
+                    "Hangisine göndereyim? Kişinin tam adını yaz.")
+        if names[0] not in valid:
+            runtime._session().pending_msg = None
+            return (f"Rehberindeki “{names[0]}” kaydının numarası geçerli değil; mesajı göndermedim. "
+                    f"“kişi ekle {names[0]} 05xx xxx xx xx” ile numarayı düzeltebilirsin.")
+        name, phone = names[0], valid[names[0]]
     if runtime.load_approve() and not p.get("confirmed"):
         if command is not None and p.get("stage") == "confirm":
             approval = decision(cmd_lower, extra=('gönder', 'gonder', 'evet gönder', 'evet gonder', 'gönder gitsin', 'gonder gitsin'))
@@ -215,12 +241,10 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
                 return None            # başka komut geldi: akış iptal, normal işlem sürer
         if not p.get("confirmed"):
             p["stage"] = "confirm"
-            return f"{name} kişisine şunu göndereyim mi: “{text}”? Evet ya da hayır de."
+            p["to"], p["phone"] = name, phone
+            return (f"{name} ({runtime.messaging.mask_phone(phone)}) kişisine şunu göndereyim mi: "
+                    f"“{text}”? Evet ya da hayır de.")
     runtime._session().pending_msg = None
-    found = runtime.messaging.find_contact(runtime.profile.data.get("contacts", {}), name)
-    phone = None
-    if found:
-        name, phone = found
 
     owner = runtime.profile
     task_id = runtime.secrets.token_hex(16)
@@ -250,23 +274,6 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
         runtime.requests_state.cancel(owner.slug, task_id)
         raise
     return f"{name} kişisine gönderiyorum: \"{text}\". Klavye ve fareye birkaç saniye dokunma."
-
-def _contact_command(runtime, command: str, cmd_lower: str) -> str | None:
-    """Kişi numarası kaydetme: 'kişi ekle Ahmet 0532 123 45 67' / 'Ahmet'in numarası 0532...' / 'kişileri listele'."""
-    m = runtime.re.match(r"^(?:kişi ekle|rehbere ekle|numara kaydet)\s+([a-zçğıöşü ]+?)\s+(\+?\d[\d\s\-()]{8,})$", cmd_lower) \
-        or runtime.re.match(r"^([a-zçğıöşü]+)['’]?(?:in|ın|un|ün|nin|nın)\s+(?:numarası|telefonu)\s+(\+?\d[\d\s\-()]{8,})(?:\s+(?:kaydet|olarak kaydet))?$", cmd_lower)
-    if m:
-        phone = runtime.messaging.normalize_phone(m.group(2))
-        if not phone:
-            return "Numarayı anlayamadım, 0532 123 45 67 gibi söyler misin?"
-        name = " ".join(runtime.display_name(w) for w in m.group(1).split())
-        runtime.profile.data.setdefault("contacts", {})[name] = phone
-        runtime.profile.save()
-        return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
-    if runtime.re.search(r"kişileri (listele|göster)|rehberim", cmd_lower):
-        names = list(runtime.profile.data.get("contacts", {}))
-        return "Kayıtlı kişiler: " + ", ".join(names) + "." if names else "Kayıtlı kişi yok. \"kişi ekle Ahmet 0532 123 45 67\" diyebilirsin."
-    return None
 
 def _macro_key(runtime, text: str) -> str:
     from modules import main_planner

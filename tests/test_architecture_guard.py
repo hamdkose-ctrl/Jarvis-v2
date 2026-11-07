@@ -208,6 +208,96 @@ class ArchitectureGuardTests(unittest.TestCase):
         )
         self.assertIn('ARCH-001', {row['rule'] for row in report['blockers']})
 
+    # -- BRAIN-03 dilim 2: semantik yetki (§7) -------------------------------
+    #
+    # Kural yetenek ADINI değil SAHİBİNİ denetler: ham cümleden yetenek seçen bir yüzey ya da
+    # modelden yasaklayan bir küme, hangi dosyada veya hangi adla durduğu fark etmeksizin blocker.
+    # Bu yüzden taşıma (`modules/xxx.py`'ya kopyalamak) ve yeniden adlandırma (`_pick_message`)
+    # ihlali silmez; öteki yandan biçim/güvenlik denetimleri (numara regex'i, kapalı enum)
+    # yetenek adı taşımadığı için hiç denetlenmez.
+
+    def _semantic_blockers(self, source, name='rogue.py'):
+        rows = self._scan_source(source, name=name)['blockers']
+        return [row for row in rows if row['rule'] == 'ARCH-008']
+
+    def test_a_word_list_that_picks_the_message_capability_is_a_blocker(self):
+        report = self._semantic_blockers(
+            "import re\n"
+            "def _pick_message(text):\n"
+            "    return 'message.send' if re.search(r'whatsapp|mesaj', text) else None\n"
+        )
+        self.assertEqual(len(report), 1, report)
+
+    def test_a_contact_grammar_in_a_renamed_helper_is_still_a_blocker(self):
+        # Dosya adı ve fonksiyon adı farklı: literalin sahibi denetlenir, adı değil.
+        report = self._semantic_blockers(
+            "import re\n"
+            "KALIP = re.compile(r'rehbere ekle')\n"
+            "def rehber_yorumu(text):\n"
+            "    return 'contacts.manage' if KALIP.search(text) else None\n"
+        )
+        self.assertEqual(len(report), 1, report)
+
+    def test_banning_the_model_from_a_user_owned_capability_is_a_blocker(self):
+        report = self._semantic_blockers(
+            "_DENIED = frozenset({'message.send', 'contacts.manage'})\n"
+        )
+        self.assertEqual(len(report), 2, report)
+
+    def test_carrying_the_canonical_constant_outside_its_owner_is_a_blocker(self):
+        # Taşımanın ikinci yolu: literal yerine sabiti import edip yüzeyde kullanmak.
+        report = self._semantic_blockers(
+            "from modules.brain_understanding import MESSAGE_SEND_CAPABILITY\n"
+            "def _pick(text):\n"
+            "    return MESSAGE_SEND_CAPABILITY if 'whatsapp' in text else None\n"
+        )
+        self.assertEqual(len(report), 1, report)
+
+    def test_the_owner_definition_of_the_capability_is_not_a_blocker(self):
+        self.assertEqual(self._semantic_blockers(
+            'MESSAGE_SEND_CAPABILITY = "message.send"\n'
+            'CONTACTS_MANAGE_CAPABILITY = "contacts.manage"\n',
+            name='brain_understanding.py',
+        ), [])
+
+    def test_the_core_intent_table_key_is_not_a_blocker(self):
+        self.assertEqual(self._semantic_blockers(
+            "from modules.brain_understanding import (\n"
+            "    CONTACTS_MANAGE_CAPABILITY, MESSAGE_SEND_CAPABILITY)\n"
+            "CORE_INTENTS = {\n"
+            "    MESSAGE_SEND_CAPABILITY: ('message_send', _message_args),\n"
+            "    CONTACTS_MANAGE_CAPABILITY: ('contacts_manage', _contacts_args),\n"
+            "}\n",
+            name='brain_core_map.py',
+        ), [])
+
+    def test_the_grounding_contract_table_is_not_a_blocker(self):
+        # Zarfın dayanak sözleşmesi de kapalı bir tablodur: yetenek ADI burada durur, karar değil.
+        self.assertEqual(self._semantic_blockers(
+            "_USER_OWNED_ARGUMENT_SLOTS = {\n"
+            "    'message.send': frozenset({'recipient', 'body'}),\n"
+            "    'contacts.manage': frozenset({'name', 'phone'}),\n"
+            "}\n",
+            name='brain_model_understanding.py',
+        ), [])
+
+    def test_a_renamed_denial_table_is_still_a_blocker(self):
+        # Tabloyu meşru bir ada benzetmek yetmez: yalnız kapalı sözleşme tablosu exemption alır.
+        self.assertEqual(len(self._semantic_blockers(
+            "_MODEL_YASAK_KUME = frozenset({'message.send'})\n",
+            name='brain_model_understanding.py',
+        )), 1)
+
+    def test_format_and_security_controls_are_not_blocked(self):
+        # İzin verilen deterministik denetimler: numara biçimi, kapalı enum, tip sınırı.
+        self.assertEqual(self._semantic_blockers(
+            "import re\n"
+            "_PHONE = re.compile(r'^90\\d{10}$')\n"
+            "_OPERATIONS = frozenset({'add', 'list'})\n"
+            "def _args(arguments):\n"
+            "    return {'phone': arguments['phone']} if _PHONE.fullmatch(arguments['phone']) else None\n"
+        ), [])
+
 
 if __name__ == '__main__':
     unittest.main()
