@@ -7,6 +7,8 @@ yapıştır, Enter) bilinçli olarak kaldırıldı: arama sonucunun ilk satırı
 olabilir de olmayabilir de, ve onay ile gönderim arasındaki bu belirsizlik geri alınamaz bir dış
 etkiye (yanlış kişiye mesaj) dönüşüyordu. Alıcı çözümlemesi `contact_matches` ile yalnız kayıtlı
 defterde ve yalnız tekil eşleşmede yapılır (`find_contact`); numara yoksa çağrı hiç başlamaz.
+Numara iki sınırda doğrulanır: çözümlemede `normalize_phone` (bozuk/metin/enjeksiyon kaydı
+eşleşme sayılmaz), yürütücüde yalnız kanonik biçim (ham telefon değeri URI'ye giremez).
 Gönderme sırasında klavye ve fareye dokunulmamalıdır. Fareyi ekranın köşesine sürmek işlemi durdurur (pyautogui güvenliği).
 """
 from __future__ import annotations
@@ -16,6 +18,7 @@ import os
 import re
 import time
 import threading
+from typing import Any
 from urllib.parse import quote
 
 from modules import requests_state
@@ -57,20 +60,53 @@ def contact_matches(contacts: dict, name: str) -> list[tuple[str, str]]:
     Bulanık (difflib) eşleştirme yoktur: "mehmet" kayıtlı "Memet"i seçmez. Yakınlık ölçüsü
     tek bir kişiyi sessizce seçmenin aracı olamaz; eşleşme ya yazılan addır ya da o adla
     başlayan tam kelimelerdir. Birden fazla kişi uyuyorsa karar kullanıcınındır.
+
+    Numara da eşleşmenin koşuludur: kayıt yalnız telefon biçimi taşıyorsa `normalize_phone`
+    ile doğrulanır ve **kanonik** numara döner. Bozuk, boş, metin içeren ya da URL parametresi
+    enjeksiyonu taşıyan kayıt eşleşme sayılmaz (normalize edip "kurtarmak" `&cc=90` gibi
+    eklerdeki rakamları hedefe ekleyerek yanlış numara üretebilir).
     """
+    matches: list[tuple[str, str]] = []
+    for stored, phone in _name_rows(contacts, name):
+        canonical = _canonical_record_phone(phone)
+        if canonical is not None:
+            matches.append((stored, canonical))
+    return matches
+
+
+def invalid_number_matches(contacts: dict, name: str) -> list[str]:
+    """Adı eşleşip numarası geçersiz/bozuk kayıtlar: ret gerekçesini doğru söylemek için."""
+    return [stored for stored, phone in _name_rows(contacts, name)
+            if _canonical_record_phone(phone) is None]
+
+
+# Eski/elle düzenlenmiş profil kaydı yürütücüye ham taşınmaz: yalnız telefon biçimi
+# karakterleri normalize edilir; harf, &, =, #, ? gibi URL/parametre karakterleri reddedilir.
+_PHONE_RECORD = re.compile(r"[+0-9(][0-9\s\-()]*")
+
+
+def _canonical_record_phone(phone: Any) -> str | None:
+    raw = str(phone).strip() if phone is not None else ""
+    if not raw or _PHONE_RECORD.fullmatch(raw) is None:
+        return None
+    return normalize_phone(raw)
+
+
+def _name_rows(contacts: dict, name: str) -> list[tuple[str, Any]]:
+    """Tek ad eşleşme otoritesi: birebir ya da tam kelime öneki, kararlı sırada."""
     query = fold_name(name)
     if not query or not isinstance(contacts, dict):
         return []
-    exact: list[tuple[str, str]] = []
-    prefixed: list[tuple[str, str]] = []
+    exact: list[tuple[str, Any]] = []
+    prefixed: list[tuple[str, Any]] = []
     for stored, phone in contacts.items():
         folded = fold_name(stored)
-        if not folded or not phone:
+        if not folded:
             continue
         if folded == query:
-            exact.append((stored, str(phone)))
+            exact.append((stored, phone))
         elif folded.startswith(query + " "):
-            prefixed.append((stored, str(phone)))
+            prefixed.append((stored, phone))
     return sorted(exact or prefixed, key=lambda row: fold_name(row[0]))
 
 
@@ -153,13 +189,19 @@ def _send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
         # Numara yoksa hiçbir uygulama açılmaz, arama kutusu kullanılmaz: ad benzerliğiyle
         # hedef seçmek yanlış kişiye mesaj riskidir (kaldırılan GUI yolu).
         return f"{name} için kayıtlı bir numara yok; mesajı göndermedim."
+    # Son güvenlik sınırı: çözümleme normalize etmiş olsa bile URI'ye yalnız KANONİK numara
+    # girer. Ham değer (boşluk, +, enjeksiyon karakteri, rakam dışı metin) burada reddedilir;
+    # böylece URL parametresine ham telefon değeri hiçbir yoldan geçemez.
+    canonical = normalize_phone(phone) if isinstance(phone, str) else None
+    if canonical is None or canonical != phone:
+        return f"{name} için geçerli bir numara yok; mesajı göndermedim."
     if os.name != "nt":
         return "WhatsApp mesajı yalnızca Windows'ta gönderilebilir."
     import pyautogui
     try:
         requests_state.check()
         was_open = _find_window("whatsapp")
-        os.startfile(f"whatsapp://send?phone={phone}&text={quote(text)}")   # type: ignore[attr-defined]
+        os.startfile(f"whatsapp://send?phone={canonical}&text={quote(text)}")   # type: ignore[attr-defined]
         if was_open:
             _pause(1.3)
         else:

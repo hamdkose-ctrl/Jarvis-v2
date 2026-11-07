@@ -210,6 +210,9 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
         matches = runtime.messaging.contact_matches(contacts, p["to"])
         if not matches:
             runtime._session().pending_msg = None
+            if runtime.messaging.invalid_number_matches(contacts, p["to"]):
+                return (f"Rehberindeki “{p['to']}” kaydının numarası geçerli değil; mesajı göndermedim. "
+                        f"“kişi ekle {p['to']} 05xx xxx xx xx” ile numarayı düzeltebilirsin.")
             return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; mesajı göndermedim. "
                     f"Önce “kişi ekle {p['to']} 05xx xxx xx xx” de ya da kayıtlı kişinin tam adını söyle.")
         if len(matches) > 1:

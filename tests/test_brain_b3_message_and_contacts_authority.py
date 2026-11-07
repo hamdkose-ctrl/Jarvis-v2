@@ -25,7 +25,9 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -444,6 +446,64 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(self.ctx._session().pending_msg["to"], "Ahmet")
         self.send.assert_not_called()
 
+    def test_a_corrupt_record_never_sends_and_the_refusal_names_the_number(self):
+        # Kayıt adı var ama numarası bozuk: eşleşme sayılmaz, gönderim başlamaz, gerekçe söylenir.
+        self.ctx.profile.data["contacts"] = {"Ahmet": "123"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("geçerli değil", str(out).casefold())
+        self.assertNotIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+        self.assertIsNone(self.ctx._session().pending_msg)
+
+    def test_an_injection_record_never_sends(self):
+        # Ham değer URL parametresi kaçışı taşıyor: normalize edip "kurtarmak" bile yanlış
+        # numara üretebilir (&cc=90 rakamları hedefe eklenir); kayıt tümden reddedilir.
+        self.ctx.profile.data["contacts"] = {"Ahmet": "905321234567&cc=90"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("geçerli değil", str(out).casefold())
+        self.send.assert_not_called()
+        self.assertIsNone(self.ctx._session().pending_msg)
+
+    def test_a_legacy_formatted_record_sends_the_canonical_number_after_approval(self):
+        # Eski profil biçimleri (boşuklu/alan kodlu) çözümlemede kanonikleşir; onay ve gönderim
+        # kullanıcının gördüğü kanonik numara üzerinden yürür.
+        self.ctx.profile.data["contacts"] = {"Ahmet": "0532 123 45 67"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("4567", str(out))
+        self.assertIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+        self._threaded_turn("evet gönder")
+        self.assertEqual(self.send.call_args.args, ("Ahmet", "selam", "905321234567"))
+
+    def test_approval_off_sends_a_registered_unique_contact_without_asking(self):
+        # approve_sensitive=False yalnız evet/hayır sorusunu kaldırır; alıcı sözleşmesi kalır.
+        self.ctx.load_approve.return_value = False
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertNotIn(CONFIRM_QUESTION, str(out))
+        self.assertEqual(self.send.call_args.args, ("Ahmet", "selam", "905321234567"))
+
+    def test_approval_off_still_refuses_an_unknown_recipient(self):
+        self.ctx.load_approve.return_value = False
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan zeynep'e selam gönder")
+        self.assertIn("rehber", str(out).casefold())
+        self.send.assert_not_called()
+
+    def test_approval_off_still_asks_for_an_explicit_choice_between_two_matches(self):
+        # Belirsizlik çözümü hassas işlem onayı değildir; ayar kapalıyken de karar kullanıcınındır.
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {"Ahmet Yılmaz": "905321110001",
+                                             "Ahmet Demir": "905321110002"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("Hangisine", str(out))
+        self.send.assert_not_called()
+
+    def test_approval_off_still_refuses_a_corrupt_number(self):
+        self.ctx.load_approve.return_value = False
+        self.ctx.profile.data["contacts"] = {"Ahmet": "123"}
+        _entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self.assertIn("geçerli değil", str(out).casefold())
+        self.send.assert_not_called()
+
     def test_a_contact_is_saved_to_the_active_profile_only(self):
         self._threaded_turn("kişi ekle ahmet 0532 123 45 67")
         self.assertEqual(self.ctx.profile.data.get("contacts"), {"Ahmet": "905321234567"})
@@ -501,6 +561,75 @@ class RecipientResolutionTests(unittest.TestCase):
         self.assertNotIn('press("down")', source)
         self.assertNotIn('hotkey("ctrl", "f")', source)
         self.assertNotIn("open_application", source)
+
+
+class PhoneRecordBoundaryTests(unittest.TestCase):
+    """Kayıtlı numara çözümlemede doğrulanır: bozuk/metin/enjeksiyon kaydı eşleşme değildir."""
+
+    def test_a_corrupt_empty_or_text_record_is_not_a_match(self):
+        for phone in ("", None, "123", "numara yok", "0", "abcdefghij"):
+            with self.subTest(phone=phone):
+                self.assertEqual(messaging.contact_matches({"Ahmet": phone}, "ahmet"), [])
+                self.assertIsNone(messaging.find_contact({"Ahmet": phone}, "ahmet"))
+
+    def test_a_url_parameter_injection_record_is_not_a_match(self):
+        for phone in ("905321234567&text=kötü", "905321234567&cc=90",
+                      "905321234567?x=1", "905321234567#frag", "905321234567%20"):
+            with self.subTest(phone=phone):
+                self.assertEqual(messaging.contact_matches({"Ahmet": phone}, "ahmet"), [])
+                self.assertIsNone(messaging.find_contact({"Ahmet": phone}, "ahmet"))
+
+    def test_a_legacy_formatted_record_resolves_to_the_canonical_number(self):
+        for raw, canonical in (("0532 123 45 67", "905321234567"),
+                               ("+90 532 111 22 33", "905321112233"),
+                               ("0532-123-45-67", "905321234567"),
+                               ("(0532) 123 45 67", "905321234567")):
+            with self.subTest(raw=raw):
+                self.assertEqual(messaging.contact_matches({"Ahmet": raw}, "ahmet"),
+                                 [("Ahmet", canonical)])
+
+    def test_invalid_number_matches_names_only_the_broken_record(self):
+        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "123"}, "ahmet"), ["Ahmet"])
+        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "905321234567"}, "ahmet"), [])
+        self.assertEqual(messaging.invalid_number_matches({"Ahmet": "123"}, "zeynep"), [])
+
+
+class SenderPhoneBoundaryTests(unittest.TestCase):
+    """Son sınır yürütücüdür: URI'ye yalnız kanonik numara girer, ham değer asla."""
+
+    def _keyboard(self):
+        return SimpleNamespace(press=Mock(), hotkey=Mock(),
+                               FailSafeException=type("FailSafe", (Exception,), {}))
+
+    def test_the_sender_refuses_a_non_canonical_number_without_touching_the_desktop(self):
+        keyboard = self._keyboard()
+        for phone in ("+90 532 111 22 33", "0532 123 45 67", "905321234567&cc=90",
+                      "905321234567&text=kötü", "123", "numara yok", 905321234567):
+            with self.subTest(phone=phone):
+                with patch.dict(sys.modules, pyautogui=keyboard), \
+                        patch.object(messaging.os, "name", "nt"), \
+                        patch.object(messaging.os, "startfile", create=True) as startfile, \
+                        patch.object(messaging, "_find_window") as window, \
+                        patch.object(messaging, "_pause"):
+                    result = messaging._send_whatsapp("Ahmet", "selam", phone)
+                self.assertIn("göndermedim", result)
+                startfile.assert_not_called()
+                window.assert_not_called()
+                keyboard.press.assert_not_called()
+                keyboard.hotkey.assert_not_called()
+
+    def test_the_uri_carries_only_the_canonical_number_and_quoted_body(self):
+        keyboard = self._keyboard()
+        with patch.dict(sys.modules, pyautogui=keyboard), \
+                patch.object(messaging.os, "name", "nt"), \
+                patch.object(messaging.os, "startfile", create=True) as startfile, \
+                patch.object(messaging, "_find_window", return_value=True), \
+                patch.object(messaging, "_pause"):
+            result = messaging._send_whatsapp("Ahmet", "selam & özel=yazı", "905321234567")
+        startfile.assert_called_once_with(
+            f"whatsapp://send?phone=905321234567&text={quote('selam & özel=yazı')}")
+        keyboard.press.assert_called_once_with("enter")
+        self.assertIn("gönderme komutunu uyguladım", result)
 
 
 if __name__ == "__main__":
