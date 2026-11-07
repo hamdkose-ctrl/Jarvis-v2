@@ -351,11 +351,13 @@ def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple
 
 
 # Dayanak kıyaslaması kelime/sayı SINIRI ölçer, alt dize değil. Katlama Türkçe İ/I kasımı ve
-# "0532 123 45 67" ile "053212345 67" ayraç farklarını taşır; noktalama/boşluk ayraçtır, token
-# değildir. Bir kelimenin İÇİNDEN kesilen parça veya iki ayrı kelimenin yapıştırılması token
-# üretmez, dolayısıyla dayanak olamaz. Sayısal yuvada alt dize yetmez: rakam dizisinin TAMAMI
+# "0532 123 45 67" ile "053212345 67" ayraç farklarını taşır; noktalama ve boşluk ayraçtır,
+# token değildir. Bir kelimenin İÇİNDEN kesilen parça veya iki ayrı kelimenin yapıştırılması
+# token üretmez, dolayısıyla dayanak olamaz. HARF ile RAKAMIN bitişik yazıldığı tek sözcük
+# (`ali123`, `gel123iyorum`) de BÖLÜNMEZ tek token SAYILIR: oradan `ali` veya `gel` kesmek
+# alt-dize açığının yeni varyantıdır. Sayısal yuvada alt dize yetmez: rakam dizisinin TAMAMI
 # eşit olmalıdır. Bu tablolarda tek bir doğal dil kelimesi bile yoktur — sınır biçimledir.
-_SPAN_TOKENS = re.compile(r"[0-9]+|[^\W\d_]+", re.UNICODE)
+_SPAN_TOKENS = re.compile(r"[^\W_]+", re.UNICODE)
 _DIGITS_ONLY = re.compile(r"[0-9]+")
 
 
