@@ -77,6 +77,11 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "contacts.manage": frozenset({"name", "phone"}),
 }
 
+# Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
+# yuvanın rakam dizisi olarak karşılaştırılacağının kapalı sözleşmesidir (telefon). Metin
+# alanları kelime dizisiyle, sayısal alanlar rakam dizisinin TAMAMIyla doğrulanır.
+_GROUNDING_NUMERIC_FIELDS = frozenset({"phone"})
+
 # Kalıcı kullanıcı tercihi kullanıcının KENDİ cümlesinden doğar; modelin o cümlede olmayan bir
 # yazma/silme yeteneği önermesi bu zarfta yetenek düzeyinde reddedilir. Core yalnız BİÇİM
 # hükmeder (anlam listesi tutsa ikinci semantic authority olurdu), bu yüzden "çok sıcak" gibi
@@ -345,16 +350,40 @@ def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple
     return arguments, (selected,)
 
 
-def _span_signal(value: str) -> str:
-    """Dayanak karşılaştırması için katlanır işaret: harf kasımı + tüm noktalama/boşluk silinir.
+# Dayanak kıyaslaması kelime/sayı SINIRI ölçer, alt dize değil. Katlama Türkçe İ/I kasımı ve
+# "0532 123 45 67" ile "053212345 67" ayraç farklarını taşır; noktalama/boşluk ayraçtır, token
+# değildir. Bir kelimenin İÇİNDEN kesilen parça veya iki ayrı kelimenin yapıştırılması token
+# üretmez, dolayısıyla dayanak olamaz. Sayısal yuvada alt dize yetmez: rakam dizisinin TAMAMI
+# eşit olmalıdır. Bu tablolarda tek bir doğal dil kelimesi bile yoktur — sınır biçimledir.
+_SPAN_TOKENS = re.compile(r"[0-9]+|[^\W\d_]+", re.UNICODE)
+_DIGITS_ONLY = re.compile(r"[0-9]+")
 
-    Tek bir katlama hem Türkçe İ/I hem de "0532 123 45 67" ile "053212345 67" gibi biçim
-    farklarını taşır; böylece alanda uydurmayı ayırt etmek için ayrı bir kelime/sayım listesi
-    gerekmez.
-    """
-    return "".join(character for character in
-                    value.replace("İ", "i").replace("I", "ı").casefold()
-                    if character.isalnum())
+
+def _span_tokens(value: str) -> tuple[str, ...]:
+    return tuple(_SPAN_TOKENS.findall(value.replace("İ", "i").replace("I", "ı").casefold()))
+
+
+def _is_contiguous_run(needle: tuple[str, ...], haystack: tuple[str, ...]) -> bool:
+    """`needle`, `haystack` içinde bitişik bir token dizisi olarak geçiyor mu."""
+    if not needle or len(needle) > len(haystack):
+        return False
+    return any(haystack[index:index + len(needle)] == needle
+               for index in range(len(haystack) - len(needle) + 1))
+
+
+def _field_is_grounded(field: str, value: str, span: str, spoken: tuple[str, ...]) -> bool:
+    """Alan, alıntının ve alıntı cümlenin bitişik token dizileri olmak zorundadır."""
+    tokens = _span_tokens(span)
+    target = _span_tokens(value)
+    if not _is_contiguous_run(tokens, spoken) or not target:
+        return False
+    if field in _GROUNDING_NUMERIC_FIELDS:
+        # Sayı yuvası: bitişik TAM rakam dizisinin tamamı eşittir; ayraç fark serbesttir,
+        # alt dize (uzun numaranın içinden kesim veya ön ek) değildir.
+        if not all(_DIGITS_ONLY.fullmatch(token) for token in tokens + target):
+            return False
+        return "".join(target) == "".join(tokens)
+    return _is_contiguous_run(target, tokens)
 
 
 def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
@@ -362,9 +391,10 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
     """§4: kullanıcı-sahibi alanlar yalnız kullanıcının kendi cümlesindeki alıntısıyla öneri olur.
 
     Kapalı sözleşme tablosu `_USER_OWNED_ARGUMENT_SLOTS`tur; burada hiçbir doğal dil hükmü
-    verilmez. Dolu bir alan dayanak taşımıyorsa, dayanak cümlede birebir geçmiyorsa ya da
-    alanını taşmıyorsa önerinin TAMAMI düşer (fail-closed). Boş slot dayanak istemez: eksik
-    alıcı/gövde oturumun kendi sorusudur, uydurulmaz.
+    verilmez. Dolu bir alan dayanak taşımıyorsa, dayanak cümlede bitişik kelime/sayı dizileri
+    olarak geçmiyorsa ya da alanı o alıntının tam dizileri değilse önerinin TAMAMI düşer
+    (fail-closed). Boş slot dayanak istemez: eksik alıcı/gövde oturumun kendi sorusudur,
+    uydurulmaz.
     """
     owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
     if owned is None:
@@ -377,7 +407,7 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
         return False
     if set(sources) - owned:
         return False
-    spoken = _span_signal(text)
+    spoken = _span_tokens(text)
     for field in owned:
         value = supplied.get(field)
         filled = isinstance(value, str) and bool(value.strip())
@@ -386,10 +416,7 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
             if filled:
                 return False
             continue
-        signal = _span_signal(span)
-        if not signal or signal not in spoken:
-            return False
-        if not filled or _span_signal(value) not in signal:
+        if not filled or not _field_is_grounded(field, value, span, spoken):
             return False
     return True
 
