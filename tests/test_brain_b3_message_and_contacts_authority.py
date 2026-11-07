@@ -1,26 +1,29 @@
 """BRAIN-03 dilim 2: mesaj gönderimi + rehber (BRAIN-MIG-092/093/094).
 
+Sözleşme V2 §2: **model birincil semantik karar sahibidir**; deterministik regex/kelime listesi
+onun önüne geçemez, kararını veto edemez ve model başarısız olduğunda yerine doğal dil kararı
+veremez. Bu dosya bu hükmü mesaj/rehber akışında sınar.
+
 Envanter yeri: `JARVIS_BRAIN_MIGRATION_MAP_V1.md` §13.1 mesaj satırı (092/093) ve
-`engine_tools._contact_command` satırı (094); karar tablosu §14 satır 1–3. Retire edilen
-yüzey kapıları `modules/engine_commands.py` içindeydi:
+`engine_tools._contact_command` satırı (094); karar tablosu §14 satır 1–3. Emekli edilen yüzey
+kapıları `modules/engine_commands.py` içindeydi (`is_whatsapp_message`, `quick_parse`,
+`extract`, `_contact_command`). Birinci turda bu gramer `brain_understanding`'a taşınmıştı;
+§3A/§3B gereği **oradan da kalkar**: `message.send`/`contacts.manage` artık ham cümleden
+seçilmez ve modelden de yasaklanmaz.
 
-    elif runtime.messaging.is_whatsapp_message(cmd_lower):
-        fast = runtime.messaging.quick_parse(cmd_lower, ...)
-        to, text = fast if fast else runtime.messaging.extract(command, runtime.ask)
-    contact_reply = runtime._contact_command(command, cmd_lower)
+Yeni zincir: kullanıcı cümlesi → model zarfı işlemi/yeteneyi/gövde-alıcı slotlarını ve
+**dayanak alıntılarını** (`argument_sources`) seçer → Core her alanı kendi biçim
+doğrulayıcısından ve dayanak eşitliğinden geçirir (uydurma/çelişen alan tüm öneriyi düşürür)
+→ eksik alıcı/gövde mevcut `pending_msg` protokolünde kullanıcıya sorulur → onay kullanıcının
+KENDİ cevabıdır → yürütücü yalnız kayıtlı ve tekil kişiye, kanonik numarayla gönderir.
 
-Üçü de ham cümleden capability/hedef/etki seçiyordu. Yeni zincir: Understanding
-`message.send` / `contacts.manage` önerisini üretir, Core alıcı-gövde-telefon **biçimini**
-doğrular, mesaj oturumu ve gönderim onayı mevcut `pending_msg` protokolünde kalır (onay
-kullanıcının kendi "evet gönder" cevabıdır). Kişi defteri yalnız etkin kullanıcının
-profilidir; alıcı çözümlemesi kayıtlı defterde bounded aramadır — uydurma numara üretilmez.
-
-Bu dosya RED olarak yazıldı: `message.send`/`contacts.manage` capability'si, Core
-validator'ı ve intent sahibi yoktur; yüzey kapıları hâlâ ham cümleyi okuyor.
+Mock model zarfları **bağlantı kanıtıdır**, modelin doğal dili anladığının kanıtı değildir;
+semantik kabul ayrıca gerçek sağlayıcıyla ölçülür (`scripts/brain_semantic_holdout.py`).
 """
 from __future__ import annotations
 
 import ast
+import json
 import sys
 import time
 import unittest
@@ -55,6 +58,100 @@ def _handle_body() -> ast.FunctionDef:
 
 def _hint(text: str) -> str | None:
     return understanding._capability_hint(understanding._norm(text), understanding.TemporalNeed.STATIC)
+
+
+# --------------------------------------------------------------------------- model zarf kızağı
+#
+# Bunlar BAĞLANTI kanıtıdır: sahte bir zarfın üretim zincirinin gerçek `_build` + Core +
+# oturum yolundan geçip geçmediğini ölçer. Modelin doğal dili anladığının kanıtı değildir;
+# semantik kabul ayrıca gerçek sağlayıcıyla ölçülür (`scripts/brain_semantic_holdout.py`).
+# Tablo bir gramer değildir: her satır testin kendi cümlesine karşılık gelir ve dayanak
+# alıntıları cümlenin kendisinden birebir alıntılandığı için dayanak denetiminden geçer.
+_MESSAGE = understanding.MESSAGE_SEND_CAPABILITY
+_CONTACTS = understanding.CONTACTS_MANAGE_CAPABILITY
+
+MODEL_STUB_REPLIES: dict[str, tuple[str, dict, dict]] = {
+    "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at": (
+        _MESSAGE, {"recipient": "ahmet", "body": "yarın geleceğim"},
+        {"recipient": "ahmet'e", "body": "yarın geleceğim diye"}),
+    "whatsapp'tan ahmet'e selam gönder": (
+        _MESSAGE, {"recipient": "ahmet", "body": "selam"},
+        {"recipient": "ahmet'e", "body": "selam"}),
+    "whatsapp'tan zeynep'e selam gönder": (
+        _MESSAGE, {"recipient": "zeynep", "body": "selam"},
+        {"recipient": "zeynep'e", "body": "selam"}),
+    "whatsapp'tan ayse'ye selam gönder": (
+        _MESSAGE, {"recipient": "ayse", "body": "selam"},
+        {"recipient": "ayse'ye", "body": "selam"}),
+    "whatsapp'tan mehmet'e selam gönder": (
+        _MESSAGE, {"recipient": "mehmet", "body": "selam"},
+        {"recipient": "mehmet'e", "body": "selam"}),
+    "whatsapp'tan ahmet'e mesaj gönder": (
+        _MESSAGE, {"recipient": "ahmet", "body": ""}, {"recipient": "ahmet'e"}),
+    "kişi ekle ahmet 0532 123 45 67": (
+        _CONTACTS, {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"},
+        {"name": "ahmet", "phone": "0532 123 45 67"}),
+    "rehberim": (_CONTACTS, {"operation": "list"}, {}),
+}
+
+
+def _envelope(capability, arguments, sources=None, *, operation="direct_action",
+              relation="NEW_REQUEST", confidence="MEDIUM", temporal="STATIC") -> str:
+    import json
+    from modules.brain_model_understanding import SCHEMA_VERSION
+    action_rows = []
+    if operation == "direct_action":
+        action = {"action_id": "a1", "capability_id": capability, "arguments": dict(arguments),
+                  "reference_slots": [], "depends_on": []}
+        if sources is not None:
+            action["argument_sources"] = dict(sources)
+        action_rows = [action]
+    return json.dumps({
+        "schema_version": SCHEMA_VERSION, "operation": operation,
+        "conversation_relation": relation, "temporal_need": temporal,
+        "target_goal_ids": [], "goal": None,
+        "clarification": {"required": False, "question": None, "reason_code": None},
+        "confidence": confidence, "actions": action_rows,
+    }, ensure_ascii=False)
+
+
+def _chat_envelope() -> str:
+    """Korunan bir devam turu için zarf: `protected_relation` çiti bunu reddeder."""
+    return _envelope(None, None, None, operation="chat")
+
+
+def _utterance_of(payload: str) -> str:
+    import json
+    row, _end = json.JSONDecoder().raw_decode(payload[payload.index("{"):])
+    return row["utterance"]
+
+
+def _stub_run(owner, payload, send, *, route, exclude_providers):
+    reply = MODEL_STUB_REPLIES.get(_utterance_of(payload))
+    return _chat_envelope() if reply is None else _envelope(*reply)
+
+
+class _ModelStubMixin:
+    """Üretim turundaki tek bounded model çağrısını sahte zarfla besler (ağ yok)."""
+
+    def _start_model_stub(self, run=None):
+        self.model_calls: list[str] = []
+        real_run = run or _stub_run
+
+        def counted(owner, payload, send, *, route, exclude_providers):
+            self.model_calls.append(_utterance_of(payload))
+            return real_run(owner, payload, send, route=route, exclude_providers=exclude_providers)
+
+        for target, value in (("modules.llm.current_user", lambda: self.owner),
+                              ("modules.llm.provider", lambda: "groq"),
+                              ("modules.llm.privacy.mode", lambda: "normal"),
+                              ("modules.smart_router.selection",
+                               lambda *a, **k: {"candidates": ["groq"]}),
+                              ("modules.smart_router.run", counted)):
+            stub = patch(target, value)
+            stub.start()
+            self.addCleanup(stub.stop)
+        return self.model_calls
 
 
 class MessageCapabilityContractTests(unittest.TestCase):
@@ -113,15 +210,18 @@ class MessageCapabilityContractTests(unittest.TestCase):
         self.assertIsNone(brain_core_map.core_plan("message.send", {"recipient": "ahmet 2", "body": ""}))
         self.assertTrue(brain_core_map.core_plan("message.send", {"recipient": "ahmet", "body": "selam"}))
 
-    def test_the_model_envelope_cannot_invent_a_message_body(self):
-        # Gönderim onayı kullanıcının kendi cevabıdır; modelin uydurduğu gövde alıcıdan bağımsız
-        # bir yetki olurdu. Alıcı anahtarı zaten yasaktı, gövde anahtarı da kapalı kümeye girer.
+    def test_a_message_field_is_a_typed_slot_not_a_denied_key(self):
+        # §3A: alıcı ve gövde artık modelin önerebileceği tipli yuvalardır. Yetki yasağı anahtar
+        # düzeyinde değil, DAYANAK düzeyindedir: her dolu alan kullanıcının kendi cümlesinden
+        # alıntılanmış bir aralıkla gelmek zorundadır.
         from modules import brain_model_understanding as model
-        self.assertIn("body", model._MODEL_DENIED_ARGUMENT_KEYS)
+        self.assertNotIn("recipient", model._MODEL_DENIED_ARGUMENT_KEYS)
+        self.assertNotIn("body", model._MODEL_DENIED_ARGUMENT_KEYS)
+        self.assertIn("argument_sources", model.ACTION_KEYS)
 
 
-class MessageEnvelopeDenialTests(unittest.TestCase):
-    """Model zarfı kullanıcının söylemediği bir gönderimi/rehber kaydını öneremez."""
+class _ZarfHarness(unittest.TestCase):
+    """Tek bounded zarf çağrısı: `_build` + Core kapısı gerçekten yürür (ağ yok)."""
 
     OWNER = "u-b3-dilim2"
 
@@ -133,18 +233,6 @@ class MessageEnvelopeDenialTests(unittest.TestCase):
             active_context=ActiveContext(owner=self.OWNER, request_id=request_id),
             candidates=(), references=())
 
-    def _envelope(self, capability, arguments):
-        import json
-        from modules.brain_model_understanding import SCHEMA_VERSION
-        return json.dumps({
-            "schema_version": SCHEMA_VERSION, "operation": "direct_action",
-            "conversation_relation": "NEW_REQUEST", "temporal_need": "STATIC",
-            "target_goal_ids": [], "goal": None,
-            "clarification": {"required": False, "question": None, "reason_code": None},
-            "confidence": "MEDIUM",
-            "actions": [{"action_id": "a1", "capability_id": capability,
-                         "arguments": arguments, "reference_slots": [], "depends_on": []}]})
-
     def _ask(self, text, raw):
         from modules import brain_model_understanding as model
         current = self._current(text)
@@ -153,29 +241,37 @@ class MessageEnvelopeDenialTests(unittest.TestCase):
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
                 patch("modules.smart_router.run", return_value=raw):
-            return model.propose(owner=self.OWNER, text=understanding._norm(text),
-                                 current=current, arguments=dict(current.arguments))
+            return model.propose(owner=self.OWNER, text=text, current=current,
+                                 arguments=dict(current.arguments))
 
-    def test_a_model_proposed_send_or_contact_write_is_not_a_valid_proposal(self):
-        # Alıcı ve gövde kullanıcının kendi cümlesinden doğar; Core yalnız BİÇİM hükmeder, yani
-        # şeklen geçerli ama uydurulmuş bir çifti ayıramaz. Red bu yüzden yetenek düzeyindedir.
-        for capability, arguments in (
-                (understanding.MESSAGE_SEND_CAPABILITY, {"recipient": "ahmet", "body": "selam"}),
-                (understanding.CONTACTS_MANAGE_CAPABILITY,
-                 {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"}),
-                (understanding.CONTACTS_MANAGE_CAPABILITY, {"operation": "list"})):
-            with self.subTest(capability=capability, arguments=arguments):
-                self.assertIsNone(self._ask("bugün hava nasıl", self._envelope(capability, arguments)))
 
-    def test_the_denial_is_a_closed_capability_set(self):
-        from modules import brain_model_understanding as model
-        self.assertEqual(set(model._MODEL_DENIED_CAPABILITIES),
-                         {understanding.WEATHER_CITY_SET_CAPABILITY,
-                          understanding.WEATHER_CITY_RESET_CAPABILITY,
-                          understanding.MESSAGE_SEND_CAPABILITY,
-                          understanding.CONTACTS_MANAGE_CAPABILITY})
+class MessageModelAuthorityTests(_ZarfHarness):
+    """Sözleşme §2: yetenek kararının sahibi modeldir; gramer onu seçemez de veto edemez de."""
 
-    def test_the_prompt_catalogue_does_not_advertise_the_denied_capabilities(self):
+    SEND = "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at"
+
+    def test_the_model_can_propose_a_message_send(self):
+        proposal = self._ask(self.SEND, _envelope(
+            _MESSAGE, {"recipient": "ahmet", "body": "yarın geleceğim"},
+            {"recipient": "ahmet'e", "body": "yarın geleceğim diye"}))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.actions[0].capability_id, _MESSAGE)
+
+    def test_the_model_can_propose_a_contact_write(self):
+        text = "kişi ekle ahmet 0532 123 45 67"
+        proposal = self._ask(text, _envelope(
+            _CONTACTS, {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"},
+            {"name": "ahmet", "phone": "0532 123 45 67"}))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(proposal.actions[0].capability_id, _CONTACTS)
+
+    def test_the_model_can_propose_a_contact_list(self):
+        proposal = self._ask("rehberim", _envelope(_CONTACTS, {"operation": "list"}, {}))
+        self.assertIsNotNone(proposal)
+        self.assertEqual(dict(proposal.actions[0].arguments).get("operation"), "list")
+
+    def test_the_message_and_contact_capabilities_are_advertised_to_the_model(self):
+        # §3A: kapalı yasak küme yalnız kalıcı şehir tercihidir; katalogda mesaj/rehber durur.
         import json
         from modules import brain_model_understanding as model
         from modules.brain_core_map import CORE_INTENTS
@@ -183,7 +279,7 @@ class MessageEnvelopeDenialTests(unittest.TestCase):
 
         def fake_run(owner, text, send, *, route, exclude_providers):
             captured["payload"] = text
-            return self._envelope("weather.read", {"location": "izmir"})
+            return _envelope("weather.read", {"location": "izmir"})
 
         current = self._current("bugün hava nasıl")
         with patch("modules.llm.current_user", return_value=self.OWNER), \
@@ -197,111 +293,258 @@ class MessageEnvelopeDenialTests(unittest.TestCase):
         payload, _end = json.JSONDecoder().raw_decode(
             captured["payload"][captured["payload"].index("{"):])
         advertised = set(payload["allowed"]["capability_id"])
+        self.assertEqual(set(model._MODEL_DENIED_CAPABILITIES),
+                         {understanding.WEATHER_CITY_SET_CAPABILITY,
+                          understanding.WEATHER_CITY_RESET_CAPABILITY})
+        self.assertIn(_MESSAGE, advertised)
+        self.assertIn(_CONTACTS, advertised)
         self.assertEqual(advertised & set(model._MODEL_DENIED_CAPABILITIES), set())
-        self.assertIn("weather.read", advertised)
         self.assertEqual(advertised, set(CORE_INTENTS) - set(model._MODEL_DENIED_CAPABILITIES))
 
-    def test_the_users_own_message_sentence_is_untouched_by_the_denial(self):
-        # Yasağın kullanıcı yüzü: gerçek cümlede deterministik satır zaten `message.send` taşır.
-        text = "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at"
-        deterministic = self._current(text)
-        self.assertEqual(deterministic.capability_hint, understanding.MESSAGE_SEND_CAPABILITY)
+    def test_no_deterministic_veto_keeps_the_models_message_decision(self):
+        # §1/§3B: cümlede hiçbir deterministik yetenek seçimi kalmamalı ve modelin kararı
+        # yine de benimsenmeli — eski hâlde yasağın kullanıcı yüzü "gramer zaten seçmişti" idi.
+        deterministic = self._current(self.SEND)
+        self.assertIsNone(deterministic.capability_hint)
+        raw = _envelope(_MESSAGE, {"recipient": "ahmet", "body": "yarın geleceğim"},
+                        {"recipient": "ahmet'e", "body": "yarın geleceğim diye"})
         with patch("modules.llm.current_user", return_value=self.OWNER), \
                 patch("modules.llm.provider", return_value="groq"), \
                 patch("modules.llm.privacy.mode", return_value="normal"), \
                 patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
-                patch("modules.smart_router.run",
-                      return_value=self._envelope(understanding.MESSAGE_SEND_CAPABILITY,
-                                                  {"recipient": "ahmet", "body": "başka metin"})):
-            adopted = understanding.apply_model_understanding(deterministic, text)
-        self.assertEqual(adopted.capability_hint, understanding.MESSAGE_SEND_CAPABILITY)
+                patch("modules.smart_router.run", return_value=raw):
+            adopted = understanding.apply_model_understanding(deterministic, self.SEND)
+        self.assertEqual(adopted.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(adopted.capability_hint, _MESSAGE)
+        self.assertEqual(adopted.arguments.get("recipient"), "ahmet")
         self.assertEqual(adopted.arguments.get("body"), "yarın geleceğim")
 
 
-class MessageUnderstandingTests(unittest.TestCase):
-    """Tanıyıcı: WhatsApp mesaj cümlesi tek biçim hükmünden geçer; soru/geçmiş zaman değildir."""
+class MessageGroundingTests(_ZarfHarness):
+    """§4: alanlar kullanıcının KENDİ cümlesinden doğar; Core dayanak eşitliğini doğrular."""
 
-    def test_a_whatsapp_send_sentence_is_the_message_capability(self):
-        for text in ("whatsapp'tan ahmet'e mesaj gönder", "WhatsApp ile Ali'ye yaz",
-                     "whatsapptan ayşe'ye yarın geleceğim diye mesaj at",
-                     "wathsaap'tan anneme geliyorum yaz", "vatsap üzerinden mehmet'e ilet"):
-            with self.subTest(text=text):
-                self.assertEqual(_hint(text), understanding.MESSAGE_SEND_CAPABILITY)
+    SEND = "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at"
 
-    def test_the_typed_slots_are_split_once(self):
-        cases = {
-            "whatsapp'tan ahmet'e mesaj gönder": ("ahmet", ""),
-            "whatsapp ile ali'ye yarın geleceğim diye mesaj at": ("ali", "yarın geleceğim"),
-            "whatsapp'tan anneme geliyorum yaz": ("annem", "geliyorum"),
-            "whatsapptan ayşe'ye toplantı iptal diye yaz": ("ayşe", "toplantı iptal"),
-            # Alıcı söylenmediyse slot boş kalır: uydurma alıcı yazılmaz, oturum kendisi sorar.
-            "whatsapp'tan mesaj at": ("", ""),
-            # Türkçe'de adres sonda da durabilir; gövde adresin dışında kalır (taban LLM
-            # çıkarıcısı bu sırayı çözüyordu, yeni gramer de çözüyor).
-            "whatsapp'tan yarın geleceğim diye ahmet'e mesaj at": ("ahmet", "yarın geleceğim"),
-            "whatsapp ile toplantı iptal diye mehmet'e yaz": ("mehmet", "toplantı iptal"),
-        }
-        for text, (recipient, body) in cases.items():
-            with self.subTest(text=text):
-                arguments = understanding._message_arguments(understanding._norm(text))
-                self.assertEqual(arguments.get("recipient"), recipient)
-                self.assertEqual(arguments.get("body"), body)
+    def _send(self, arguments, sources):
+        return self._ask(self.SEND, _envelope(_MESSAGE, arguments, sources))
 
-    def test_an_ambiguous_address_yields_no_slots_rather_than_a_wrong_body(self):
-        # İki dative adayı varsa ("eve" gövdenin parçası, "anneme" alıcı) hangisinin ad olduğu
-        # hükme bağlanmaz: yanlış gövdeyi onaya sunmak, kullanıcıya yanlış metin göndertir.
-        arguments = understanding._message_arguments(
-            understanding._norm("whatsapp'tan yarın eve geleceğim diye anneme mesaj at"))
+    def test_grounded_slots_are_accepted_exactly_as_spoken(self):
+        proposal = self._send({"recipient": "ahmet", "body": "yarın geleceğim"},
+                              {"recipient": "ahmet'e", "body": "yarın geleceğim diye"})
+        self.assertIsNotNone(proposal)
+        arguments = dict(proposal.actions[0].arguments)
+        self.assertEqual(arguments.get("recipient"), "ahmet")
+        self.assertEqual(arguments.get("body"), "yarın geleceğim")
+
+    def test_a_field_without_a_source_is_not_a_valid_proposal(self):
+        # §6: uydurma alıcı/gövde reddedilir — anahtar yokluğu dayanak yokluğu sayılmaz.
+        for arguments, sources in (
+                ({"recipient": "ahmet", "body": "yarın geleceğim"}, None),
+                ({"recipient": "ahmet", "body": "yarın geleceğim"}, {"body": "yarın geleceğim diye"}),
+                ({"recipient": "ahmet", "body": "yarın geleceğim"}, {"recipient": "ahmet'e"}),
+                ({"recipient": "ahmet", "body": "yarın geleceğim"}, {})):
+            with self.subTest(sources=sources):
+                self.assertIsNone(self._send(arguments, sources))
+
+    def test_a_recipient_absent_from_the_utterance_is_rejected(self):
+        self.assertIsNone(self._send({"recipient": "mehmet", "body": "yarın geleceğim"},
+                                     {"recipient": "mehmet'e", "body": "yarın geleceğim diye"}))
+
+    def test_a_body_absent_from_the_utterance_is_rejected(self):
+        self.assertIsNone(self._send({"recipient": "ahmet", "body": "toplantıya katılmayacağım"},
+                                     {"recipient": "ahmet'e",
+                                      "body": "toplantıya katılmayacağım"}))
+
+    def test_a_field_may_not_exceed_its_source_span(self):
+        # Dayanak, alanı taşımıyor: "Ahmet Yılmaz" cümlede yok; alıcı uydurulmuş soyadla uzuyor.
+        self.assertIsNone(self._send({"recipient": "ahmet yılmaz", "body": "yarın geleceğim"},
+                                     {"recipient": "ahmet'e", "body": "yarın geleceğim diye"}))
+
+    def test_a_source_may_not_be_quoted_from_another_sentence(self):
+        # Alıntı yalnız İSTEK CÜMLESİNDEN olur: önceki turdan bir metin gövde olamaz.
+        proposal = self._ask("tamam", _envelope(
+            _MESSAGE, {"recipient": "ahmet", "body": "yarın geleceğim"},
+            {"recipient": "ahmet'e", "body": "yarın geleceğim diye"}))
+        self.assertIsNone(proposal)
+
+    def test_empty_slots_are_valid_and_left_to_the_session(self):
+        # §4: eksik alıcı/gövde uydurulmaz; boş slot geçerli öneridir ve oturum kullanıcıya sorar.
+        proposal = self._send({"recipient": "", "body": ""}, {})
+        self.assertIsNotNone(proposal)
+        arguments = dict(proposal.actions[0].arguments)
         self.assertEqual(arguments.get("recipient"), "")
         self.assertEqual(arguments.get("body"), "")
 
-    def test_a_broadcast_or_group_word_is_never_a_recipient(self):
-        # "herkese"/"grubuna" kişi adı değildir: slot boş kalır, oturum alıcıyı sorar.
-        for text in ("whatsapp'tan herkese mesaj at", "whatsapp grubuna yaz",
-                     "whatsapp'tan herkese selam gönder", "whatsapp ile gruba yaz"):
-            with self.subTest(text=text):
-                self.assertEqual(understanding._message_arguments(understanding._norm(text)).get("recipient"), "")
+    def test_an_unknown_source_key_is_rejected(self):
+        self.assertIsNone(self._send({"recipient": "ahmet", "body": ""},
+                                     {"recipient": "ahmet'e", "query": "ahmet"}))
 
-    def test_a_channel_word_never_leaks_into_the_body(self):
-        arguments = understanding._message_arguments(understanding._norm("anneme whatsapp'tan yaz"))
-        self.assertEqual(arguments.get("recipient"), "annem")
-        self.assertEqual(arguments.get("body"), "")
-        self.assertEqual(understanding._message_arguments(
-            understanding._norm("whatsapp'tan ahmet'e whatsapp yaz")).get("body"), "")
+    def test_grounding_is_required_only_for_the_user_owned_fields(self):
+        # Başka bir yetenekte dayanak alanı yok: taşıyan öneri doğrulanmış değildir.
+        proposal = self._ask("yarın izmirde hava nasıl", _envelope(
+            "weather.read", {"location": "izmir"}, {"location": "izmirde"}))
+        self.assertIsNone(proposal)
 
-    def test_a_question_about_whatsapp_is_not_a_send_request(self):
-        for text in ("whatsapp nasıl çalışır?", "whatsapp web telefonsuz çalışıyor mu",
-                     "whatsapp'ta sabitlenmiş sohbetleri göster",
-                     "whatsapp'tan ahmet'e mesaj attım", "whatsapp'tan ahmet'e mesaj attın mı?",
-                     "whatsapp mesajı göndermek ne demek",
-                     # WhatsApp geçmiyorsa alan seçilmez: başka bir mesaj kanalı tahmin edilmez.
-                     "telegram'dan ahmet'e mesaj at", "ahmet'e mesaj at"):
+    def test_an_invented_phone_number_is_rejected_and_a_spoken_one_is_not(self):
+        spoken = "kişi ekle ahmet 0532 123 45 67"
+        grounded = self._ask(spoken, _envelope(
+            _CONTACTS, {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"},
+            {"name": "ahmet", "phone": "0532 123 45 67"}))
+        self.assertIsNotNone(grounded)
+        for phone in ("0532 999 99 99", "905321234567"):
+            with self.subTest(phone=phone):
+                self.assertIsNone(self._ask(spoken, _envelope(
+                    _CONTACTS, {"operation": "add", "name": "ahmet", "phone": phone},
+                    {"name": "ahmet", "phone": phone})))
+
+    def test_an_invented_contact_name_is_rejected(self):
+        self.assertIsNone(self._ask("kişi ekle mehmet 0532 123 45 67", _envelope(
+            _CONTACTS, {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"},
+            {"name": "ahmet", "phone": "0532 123 45 67"})))
+
+
+class MessageModelFailureTests(_ZarfHarness):
+    """§11 kör fallback yok: model yoksa/bozuksa etki yok, gramer kararı da yok."""
+
+    SEND = "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at"
+
+    def _grounded(self):
+        return _envelope(_MESSAGE, {"recipient": "ahmet", "body": "yarın geleceğim"},
+                         {"recipient": "ahmet'e", "body": "yarın geleceğim diye"})
+
+    def test_a_provider_exception_leaves_the_deterministic_decision_untouched(self):
+        current = self._current(self.SEND)
+        with patch("modules.llm.current_user", return_value=self.OWNER), \
+                patch("modules.llm.provider", return_value="groq"), \
+                patch("modules.llm.privacy.mode", return_value="normal"), \
+                patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}), \
+                patch("modules.smart_router.run", side_effect=RuntimeError("sağlayıcı yok")):
+            adopted = understanding.apply_model_understanding(current, self.SEND)
+        self.assertIsNone(adopted.capability_hint)
+        self.assertNotEqual(adopted.request_kind, RequestKind.CAPABILITY)
+
+    def test_a_malformed_envelope_is_rejected_without_a_fallback(self):
+        current = self._current(self.SEND)
+        for raw in ("", "not json", "{", json.dumps({"schema_version": "brain-understanding.v1"}),
+                    json.dumps({key: None for key in ("schema_version", "operation")}),
+                    self._grounded().replace('"arguments"', '"argumanlar"')):
+            with self.subTest(raw=raw[:40]):
+                with patch("modules.llm.current_user", return_value=self.OWNER), \
+                        patch("modules.llm.provider", return_value="groq"), \
+                        patch("modules.llm.privacy.mode", return_value="normal"), \
+                        patch("modules.smart_router.selection",
+                              return_value={"candidates": ["groq"]}), \
+                        patch("modules.smart_router.run", return_value=raw):
+                    adopted = understanding.apply_model_understanding(current, self.SEND)
+                self.assertIsNone(adopted.capability_hint)
+
+    def test_a_local_or_paid_route_is_not_used_for_the_message_decision(self):
+        # §11: ücretli/yerel rota Brain tarafından sessizce kullanılmaz; regex yedeği de yoktur.
+        current = self._current(self.SEND)
+        for provider, privacy in (("ollama", "normal"), ("groq", "yerel"), ("openai", "normal")):
+            with self.subTest(provider=provider, privacy=privacy):
+                with patch("modules.llm.current_user", return_value=self.OWNER), \
+                        patch("modules.llm.provider", return_value=provider), \
+                        patch("modules.llm.privacy.mode", return_value=privacy), \
+                        patch("modules.smart_router.selection",
+                              return_value={"candidates": ["groq"]}), \
+                        patch("modules.smart_router.run", return_value=self._grounded()) as run:
+                    adopted = understanding.apply_model_understanding(current, self.SEND)
+                run.assert_not_called()
+                self.assertIsNone(adopted.capability_hint)
+
+
+class NoDeterministicMessageCapabilityTests(unittest.TestCase):
+    """§3B: hiçbir ham cümle `message.send`/`contacts.manage` yeteneğini deterministik seçemez.
+
+    Beklenen tek doğru sonuç None'dır. Eski testler bu satırların message.send seçmesini
+    istiyordu; o davranış sözleşme §15/1'in birinci yasak örneğidir ve burada tersine çevrildi.
+    """
+
+    MESSAGE_SENTENCES = (
+        # Eski gramerin tanıdığı biçimler: artık hiçbiri yetenek seçmez.
+        "whatsapp'tan ahmet'e mesaj gönder", "WhatsApp ile Ali'ye yaz",
+        "whatsapptan ayşe'ye yarın geleceğim diye mesaj at", "wathsaap'tan anneme geliyorum yaz",
+        "vatsap üzerinden mehmet'e ilet", "whatsapp'tan mesaj at",
+        "whatsapp'tan yarın geleceğim diye ahmet'e mesaj at",
+        "whatsapp ile toplantı iptal diye mehmet'e yaz",
+        "anneme whatsapp'tan yaz", "whatsapp'tan herkese mesaj at", "whatsapp grubuna yaz",
+        # Eski gramerin tanımadığı, modeli zorlayacak görülmeyen yeniden anlatımlar.
+        "Ahmet'e whatsapptan ulaşır mısın", "numarası kayıtlı Ahmet'e whatsaptan yazıver",
+        "lütfen whatsappdan anneme toplantı iptal ilet",
+        "whatsapp uygulamasından ayşe hanıma selam iletir misin",
+        "whatsapp'tan mehmet'e şu mesajı yolla: görüşürüz",
+        # Soru / geçmiş zaman / olumsuz / alıntı: etki isteği değil.
+        "whatsapp nasıl çalışır?", "whatsapp web telefonsuz çalışıyor mu",
+        "whatsapp'ta sabitlenmiş sohbetleri göster", "whatsapp'tan ahmet'e mesaj attım",
+        "whatsapp'tan ahmet'e mesaj attın mı?", "whatsapp mesajı göndermek ne demek",
+        "telegram'dan ahmet'e mesaj at", "ahmet'e mesaj at",
+        "whatsapp'tan mesaj gönderme", "yarın whatsapp'tan mesaj atmayı unutma",
+        '"whatsapp\'tan mesaj gönder" demek zorunda mısın',
+    )
+
+    CONTACT_SENTENCES = (
+        "kişi ekle ahmet 0532 123 45 67", "rehbere ekle ayşe +90 532 111 22 33",
+        "ahmet'in numarası 0532 123 45 67", "kişileri listele", "kişileri göster",
+        "rehberim", "Rehberim.", "numarasını kaydet mehmet 0532 111 22 33",
+        "rehberimde kaç kişi var", "rehber nedir?", "kişileri listeleme nasıl yapılır",
+        "kişi ekle ahmet 123",
+    )
+
+    def _semantic(self, text):
+        from modules.brain_contracts import ActiveContext
+        owner, request_id = "u-b3-dilim2", "r-b3-dilim2"
+        return understanding.understand(
+            owner=owner, request_id=request_id, text=text,
+            active_context=ActiveContext(owner=owner, request_id=request_id),
+            candidates=(), references=())
+
+    def test_no_message_sentence_selects_the_message_capability(self):
+        for text in self.MESSAGE_SENTENCES:
             with self.subTest(text=text):
                 self.assertIsNone(_hint(text))
+                self.assertIsNone(self._semantic(text).capability_hint)
 
-
-class ContactsUnderstandingTests(unittest.TestCase):
-    """Rehber yazma/listeleme de tipli bir öneridir; ham cümleden etki seçilmez."""
-
-    def test_the_contact_add_shapes_are_understood(self):
-        self.assertEqual(_hint("kişi ekle ahmet 0532 123 45 67"), understanding.CONTACTS_MANAGE_CAPABILITY)
-        self.assertEqual(_hint("rehbere ekle ayşe +90 532 111 22 33"), understanding.CONTACTS_MANAGE_CAPABILITY)
-        self.assertEqual(_hint("ahmet'in numarası 0532 123 45 67"), understanding.CONTACTS_MANAGE_CAPABILITY)
-        self.assertEqual(understanding._contacts_arguments(understanding._norm("kişi ekle ahmet 0532 123 45 67")),
-                         {"operation": "add", "name": "ahmet", "phone": "0532 123 45 67"})
-
-    def test_the_contact_list_shapes_are_understood(self):
-        for text in ("kişileri listele", "kişileri göster", "rehberim", "Rehberim."):
+    def test_no_message_sentence_carries_slots_invented_by_the_surface(self):
+        for text in self.MESSAGE_SENTENCES:
             with self.subTest(text=text):
-                self.assertEqual(_hint(text), understanding.CONTACTS_MANAGE_CAPABILITY)
-                self.assertEqual(understanding._contacts_arguments(understanding._norm(text)),
-                                 {"operation": "list"})
+                arguments = self._semantic(text).arguments
+                for owned in ("recipient", "body"):
+                    self.assertNotIn(owned, arguments)
 
-    def test_a_chat_sentence_about_the_directory_is_not_a_contact_write(self):
-        for text in ("rehber nedir?", "kişileri listeleme nasıl yapılır",
-                     "kişi ekle ahmet 123", "rehberimde kaç kişi var"):
+    def test_no_contact_sentence_selects_the_contacts_capability(self):
+        for text in self.CONTACT_SENTENCES:
             with self.subTest(text=text):
                 self.assertIsNone(_hint(text))
+                self.assertIsNone(self._semantic(text).capability_hint)
+
+    def test_no_contact_sentence_carries_slots_invented_by_the_surface(self):
+        for text in self.CONTACT_SENTENCES:
+            with self.subTest(text=text):
+                arguments = self._semantic(text).arguments
+                for owned in ("operation", "name", "phone"):
+                    self.assertNotIn(owned, arguments)
+
+    def test_the_message_and_contact_grammars_are_retired_not_renamed(self):
+        tree = ast.parse(Path(understanding.__file__).read_text(encoding="utf-8"),
+                         filename=str(understanding.__file__))
+        functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+        for retired in ("_message_request", "_message_arguments", "_message_fields",
+                        "_message_body", "_message_remainder", "_contacts_request",
+                        "_contacts_arguments"):
+            with self.subTest(function=retired):
+                self.assertNotIn(retired, functions)
+                self.assertFalse(hasattr(understanding, retired))
+        constants = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                constants |= {target.id for target in node.targets if isinstance(target, ast.Name)}
+        for retired in ("_WA_WORD", "_WA_CUE", "_WA_LEAD", "_MESSAGE_TAILS", "_MESSAGE_ADDRESS",
+                        "_MESSAGE_ADDRESS_FUNCTION", "_MESSAGE_BODY_FILLERS",
+                        "_NON_PERSON_RECIPIENTS", "_RECIPIENT_FOLD", "_CONTACT_NAME",
+                        "_CONTACT_PHONE", "_CONTACTS_ADD_SHAPES", "_CONTACTS_LIST_REQUEST"):
+            with self.subTest(constant=retired):
+                self.assertNotIn(retired, constants)
 
 
 class RetiredMessageDoorsTests(unittest.TestCase):
@@ -330,13 +573,8 @@ class RetiredMessageDoorsTests(unittest.TestCase):
                                  msg=f"ham WhatsApp kalıbı yüzeyde: {node.value[:60]}")
 
 
-class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
-    """Üretim zinciri: Brain → Core → mevcut `pending_msg` oturumu; onay kullanıcının cevabı.
-
-    Alıcı güvenliği: gönderim yalnız **kayıtlı ve tekil** kişi için başlar; onay metni
-    çözümlenen kişiyi ve numarasının sonunu gösterir; rehberde olmayan ad hiçbir koşulda
-    gönderim çağrısına dönüşmez.
-    """
+class _MessageTurnHarness(pr3a._CanonicalAuthorityHarness, _ModelStubMixin):
+    """Üretim zincirini model yolundan süren ortak tur kızağı (ağ yok, yan etiz mock)."""
 
     REGISTERED = {"Ahmet": "905321234567"}
 
@@ -349,17 +587,30 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
         sender = patch.object(messaging, "send_whatsapp", self.send)
         sender.start()
         self.addCleanup(sender.stop)
+        self._start_model_stub()
 
     def _threaded_turn(self, text):
         thread = Mock()
         self.ctx.threading = Mock(Thread=thread)
-        entry, out, handle, feedback = self.turn_real(text)
+        entry, out, handle, feedback = self.turn_real(text, model_understanding=True)
         if thread.called:
             thread.call_args.kwargs["target"]()
         return entry, out, handle, feedback
 
+
+class MessageTurnTests(_MessageTurnHarness):
+    """Üretim zinciri: kullanıcı cümlesi → model zarfı → Core → mevcut `pending_msg` oturumu.
+
+    Onay kullanıcının kendi cevabıdır. Alıcı güvenliği: gönderim yalnız **kayıtlı ve tekil**
+    kişi için başlar; onay metni çözümlenen kişiyi ve numarasının sonunu gösterir; rehberde
+    olmayan ad hiçbir koşulda gönderim çağrısına dönüşmez.
+    """
+
     def test_a_whatsapp_request_opens_the_existing_session_from_typed_slots(self):
-        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e yarın geleceğim diye mesaj at")
+        text = "whatsapp'tan ahmet'e yarın geleceğim diye mesaj at"
+        entry, out, _handle, _ = self._threaded_turn(text)
+        # §2: yetenek kararının sahibi modeldir — karar yüzeyde değil, zarfta doğar.
+        self.assertIn(text, self.model_calls)
         self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.capability_hint, understanding.MESSAGE_SEND_CAPABILITY)
         session = self.ctx._session()
@@ -586,10 +837,91 @@ class MessageTurnTests(pr3a._CanonicalAuthorityHarness):
             self.assertNotIn(retired, source)
 
     def test_a_question_about_whatsapp_opens_no_session(self):
-        entry, _out, _handle, _ = self.turn_real("whatsapp nasıl çalışır?")
+        text = "whatsapp nasıl çalışır?"
+        entry, _out, _handle, _ = self.turn_real(text, model_understanding=True)
+        self.assertIn(text, self.model_calls)
         self.assertIsNone(self.ctx._session().pending_msg)
         self.assertEqual(self.send.call_count, 0)
         self.assertNotEqual(entry.understanding.capability_hint, understanding.MESSAGE_SEND_CAPABILITY)
+
+
+def _reply(capability, arguments, sources=None):
+    """Sabit bir zarfla cevap veren sahte sağlayıcı (dayanak/uydurma senaryoları için)."""
+    def run(owner, payload, send, *, route, exclude_providers):
+        return _envelope(capability, arguments, sources)
+    return run
+
+
+class MessageSideEffectTests(_MessageTurnHarness):
+    """§6: yetki değişimi güvenliği gevşetmez — yanıtlar yan etkiyi de ölçer.
+
+    Her testte gönderim çağrısının **hiç başlamadığı** (`send_whatsapp.assert_not_called()`) ve
+    oturumun açık kalmadığı (`pending_msg is None`) doğrulanır; sadece cevap metni yetmez.
+    """
+
+    def _assert_no_send_side_effect(self, out, entry, capability):
+        self.assertNotEqual(entry.understanding.capability_hint, capability)
+        self.assertIsNone(self.ctx._session().pending_msg)
+        self.assertNotIn(CONFIRM_QUESTION, str(out))
+        self.send.assert_not_called()
+
+    def test_a_model_invented_recipient_and_body_never_reach_the_sender(self):
+        # §4: alanlar kullanıcının kendi cümlesinden doğar. Dayanağı başka bir cümleden
+        # alıntılanmış (bu testte: cümlede hiç geçmeyen) alıcı+gövde tüm öneriyi düşürür.
+        self._start_model_stub(run=_reply(
+            _MESSAGE, {"recipient": "hasan", "body": "yarın buluşalım"},
+            {"recipient": "hasan", "body": "yarın buluşalım"}))
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+        self._threaded_turn("evet gönder")
+        self.send.assert_not_called()
+
+    def test_a_message_proposal_without_grounding_sources_sends_nothing(self):
+        # §4: dayanak zorunludur. Biçimce geçerli ("ahmet"/"selam" gerçekten söylemiş gibi)
+        # ama alıntısı olmayan bir öneri de yürümez — biçim doğrulaması yetkinin yerini tutmaz.
+        self._start_model_stub(run=_reply(_MESSAGE, {"recipient": "ahmet", "body": "selam"}))
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+
+    def test_a_provider_failure_does_not_fall_back_to_a_word_pattern(self):
+        # §2: model başarısız olduğunda regex/kelime listesi onun yerine NL kararı veremez.
+        def failing(owner, payload, send, *, route, exclude_providers):
+            raise RuntimeError("sağlayıcı yanıt vermedi")
+
+        self._start_model_stub(run=failing)
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+
+    def test_a_malformed_envelope_sends_nothing(self):
+        self._start_model_stub(run=lambda owner, payload, send, *, route, exclude_providers: "{bozuk")
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+
+    def test_approval_off_does_not_open_the_gate_for_an_ungrounded_proposal(self):
+        # `approve_sensitive=False` yalnız kullanıcının kendi onay sorusunu kaldırır; dayanak
+        # denetimi ve alıcı sözleşmesi aşılamaz.
+        self.ctx.load_approve.return_value = False
+        self._start_model_stub(run=_reply(_MESSAGE, {"recipient": "ahmet", "body": "selam"}))
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+
+    def test_approval_off_does_not_send_on_a_provider_failure(self):
+        self.ctx.load_approve.return_value = False
+
+        def failing(owner, payload, send, *, route, exclude_providers):
+            raise RuntimeError("sağlayıcı yanıt vermedi")
+
+        self._start_model_stub(run=failing)
+        entry, out, _handle, _ = self._threaded_turn("whatsapp'tan ahmet'e selam gönder")
+        self._assert_no_send_side_effect(out, entry, _MESSAGE)
+
+    def test_an_invented_contact_number_is_never_saved(self):
+        # Rehber yazması kalıcı profil verisidir: dayanağı cümlede olmayan numara kaydedilmez.
+        self._start_model_stub(run=_reply(
+            _CONTACTS, {"operation": "add", "name": "hasan", "phone": "0555 111 22 33"},
+            {"name": "hasan", "phone": "0555 111 22 33"}))
+        self._threaded_turn("kişi ekle ahmet 0532 123 45 67")
+        self.assertEqual(self.ctx.profile.data.get("contacts"), dict(self.REGISTERED))
 
 
 class RecipientResolutionTests(unittest.TestCase):

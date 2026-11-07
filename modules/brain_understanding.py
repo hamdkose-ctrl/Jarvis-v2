@@ -919,12 +919,8 @@ def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     city = _weather_city_request(text)
     if city is not None:
         return city
-    # BRAIN-03 dilim 2: WhatsApp gönderme ve rehber cümleleri de canonical capability'dir;
-    # ham cümleyi okuyan yüzey kapıları emekli edildi.
-    if _message_request(text) is not None:
-        return MESSAGE_SEND_CAPABILITY
-    if _contacts_request(text) is not None:
-        return CONTACTS_MANAGE_CAPABILITY
+    # BRAIN-03 dilim 2: `message.send` / `contacts.manage` burada SEÇİLMEZ. Sözleşme V2 §2:
+    # bu iki etki kullanıcının kendi cümlesinin anlamıdır; karar sahibi bounded model zarfıdır.
     # Ekranı okuma ve pencere kontrolü: sözcük düzeyinde kesinse model'e sorulmadan canonical öneri olur.
     if _SCREEN_ANALYZE_CUE.search(text) is not None:
         return SCREEN_CAPABILITY
@@ -1686,145 +1682,15 @@ def _weather_city_arguments(normalized: str) -> dict[str, object]:
     return {"location": " ".join(name)}
 
 
-# BRAIN-03 dilim 2: `engine_commands` içindeki ham WhatsApp kapıları (`is_whatsapp_message`,
-# `quick_parse`) ve rehber grameri (`_contact_command`) emekli edildi; ikinci semantic authority
-# yoktur. Anlam hükmü ("bu bir gönderme isteği mi", "alıcı ne, gövde ne") burada, biçim hükmü
-# (alıcı adı/telefon) Core'da, oturum ve gönderim onayı mevcut `pending_msg` protokolünde kalır.
+# BRAIN-03 dilim 2 (§2/§3B): bu iki yetenek adı yalnız birer KİMLİKTİR — yetenek kararının
+# sahibi değildir. Ham cümleden `message.send`/`contacts.manage` seçen gramer (`_WA_*`,
+# `_MESSAGE_*`, `_CONTACTS_*`, `_message_*`, `_contacts_*`) yüzeyden silindi; kararı bounded
+# model zarfı verir (`brain_model_understanding`), alanların BİÇİMİ Core'da
+# (`brain_core_map._message_args`/`_contacts_args`), uydurma olmaması ise kullanıcının kendi
+# cümlesinden alıntılanan dayanakla (`argument_sources`) denetlenir. Oturum ve gönderim onayı
+# mevcut `pending_msg` protokolünde kalır.
 MESSAGE_SEND_CAPABILITY = "message.send"
 CONTACTS_MANAGE_CAPABILITY = "contacts.manage"
-_CONTACTS_ADD = "add"
-_CONTACTS_LIST = "list"
-
-# WhatsApp sözcüğü ZORUNLUDUR: başka bir kanal (SMS/Telegram) tahmin edilmez. Yanlış yazım ailesi
-# emekli `WA_WORD` kümesiyle aynı düşük riskli listedir, kelime taraması değildir.
-_WA_WORD = r"(?:whats? ?app|whatsa+p|whatsha?ap|wathsaap|whatsap|wats?ap|vats?ap|vhatsap)"
-_WA_CUE = re.compile(rf"(?<![\w]){_WA_WORD}[a-zçğıöşü'’]*(?![\w])")
-_WA_LEAD = re.compile(
-    rf"^(?:lütfen\s+)?{_WA_WORD}[a-zçğıöşü'’]*(?:\s+(?:ile|üzerinden|uzerinden))?(?:\s+|$)")
-# Gönderim fiili yalnız emir/rica biçimidir: "attım"/"attın mı" bir istek değildir.
-_MESSAGE_TAILS = ("mesaj at", "mesaj gönder", "mesaj yaz", "mesaj ilet",
-                  "atar mısın", "atabilir misin", "atsana", "at",
-                  "gönderir misin", "gönderebilir misin", "göndersene", "gönder",
-                  "yazar mısın", "yazabilir misin", "yazsana", "yaz",
-                  "iletir misin", "iletsene", "ilet",
-                  "yollar mısın", "yollasana")
-_MESSAGE_ADDRESS = re.compile(r"(?P<stem>[a-zçğıöşü]{2,30})(?:['’](?:ye|ya|e|a)|(?:ye|ya|e|a))$")
-_MESSAGE_ADDRESS_FUNCTION = frozenset({"diye"})
-MESSAGE_BODY_MAX = 4000
-_MESSAGE_BODY_FILLERS = frozenset({"", "mesaj", "mesajı", "mesaji", "whatsapp", "whatsappı"})
-# "herkese"/"grubuna" bir kişi adı değildir; bu sözcükler alıcı slotuna yazılamaz.
-_NON_PERSON_RECIPIENTS = frozenset({"herkes", "herkese", "herkez", "herkeze", "hepsi", "hepsine",
-                                    "tum", "tumu", "tumune", "grup", "gruba", "grubu", "grubun",
-                                    "grubuna", "grupta", "grub", "topluluk", "topluluga",
-                                    "kanal", "kanala", "kanali", "liste", "listeye"})
-_RECIPIENT_FOLD = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
-_CONTACT_NAME = re.compile(r"[a-zçğıöşü]{1,40}(?: [a-zçğıöşü]{1,30}){0,3}")
-_CONTACT_PHONE = r"\+?[0-9][0-9\s\-()]{8,}"
-_CONTACTS_ADD_SHAPES = (
-    re.compile(rf"^(?:lütfen\s+)?(?:kişi ekle|rehbere ekle|numara kaydet)\s+(?P<name>[a-zçğıöşü ]{{2,60}}?)\s+(?P<phone>{_CONTACT_PHONE})$"),
-    re.compile(rf"^(?:lütfen\s+)?(?P<name>[a-zçğıöşü]+)['’]?(?:in|ın|un|ün|nin|nın)\s+"
-               rf"(?:numarası|telefonu)\s+(?P<phone>{_CONTACT_PHONE})(?:\s+(?:kaydet|olarak kaydet))?$"),
-)
-_CONTACTS_LIST_REQUEST = re.compile(r"^(?:kişileri (?:listele|göster)|rehberim)$")
-
-
-def _message_remainder(normalized: str) -> str | None:
-    """Cümle sonundaki gönderim fiilini ayırır; fiil yoksa None."""
-    text = normalized.strip(" .!,")
-    for tail in sorted(_MESSAGE_TAILS, key=len, reverse=True):
-        if text == tail:
-            return ""
-        if text.endswith(" " + tail):
-            return text[: -len(tail)].strip()
-    return None
-
-
-def _message_body(text: str) -> str:
-    body = text.strip(" \t\"'“”‘’«»")
-    if body.casefold().endswith(" diye"):
-        body = body[: -len(" diye")].strip()
-    return "" if body.casefold() in _MESSAGE_BODY_FILLERS else body
-
-
-def _message_fields(remainder: str) -> tuple[str, str]:
-    """Adres (dative) biçiminden (alıcı, gövde); adres yoksa alıcı boş kalır.
-
-    Türkçe'de iki sıra da yaygındır: adres başta ("ahmet'e yarın geleceğim") veya sonda
-    ("yarın geleceğim diye ahmet'e"). İkisi de tek adres token'ı taşır. Birden çok aday varsa
-    ("yarın eve geleceğim diye anneme") hüküm verilmez: slotlar boş kalır ve oturum kendi
-    sorusunu sorar — yanlış gövdeyi onaya sunmak uydurma numaradan daha ağır bir kusurdur.
-    """
-    words = remainder.split()
-    if not words:
-        return "", ""
-    # `diye` gönderilecek sözün bağlacıdır; kapalı ek hükmü onu da "-e hâlinde bir sözcük"
-    # sayar. Adres adayları bu işlev sözcüğü çıkarılarak sayılır (sözlük değil, tek bağlaç).
-    candidates = [i for i, word in enumerate(words)
-                  if word not in _MESSAGE_ADDRESS_FUNCTION
-                  and _MESSAGE_ADDRESS.fullmatch(word) is not None]
-    if not candidates:
-        return "", _message_body(remainder)
-    if candidates[0] == 0:
-        address, rest = words[0], words[1:]
-    elif len(candidates) == 1 and candidates[0] == len(words) - 1:
-        address, rest = words[-1], words[:-1]
-    else:
-        return "", ""
-    stem = _MESSAGE_ADDRESS.fullmatch(address).group("stem")
-    if stem.translate(_RECIPIENT_FOLD) in _NON_PERSON_RECIPIENTS:
-        # Toplu/kanal hedefi kişi adı değildir: uydurma alıcıya göndermek yerine oturum sorar.
-        return "", _message_body(" ".join(rest))
-    return stem, _message_body(" ".join(rest))
-
-
-def _message_request(normalized: str) -> dict[str, object] | None:
-    """WhatsApp gönderme cümlesinin tek biçim hükmü; alıcı/gövde slotları tiplidir."""
-    if _is_meta_language(normalized) or _is_literal_command_usage(normalized):
-        return None
-    if _WA_CUE.search(normalized) is None:
-        return None
-    remainder = _message_remainder(normalized)
-    if remainder is None:
-        return None
-    lead = _WA_LEAD.match(remainder)
-    if lead is not None:
-        remainder = remainder[lead.end():].strip()
-    # Kanal sözcüğü cümlenin her yerinde yapısal bir işarettir, gövde metni değildir:
-    # "anneme whatsapp'tan yaz" gövdesi "whatsapp'tan" olamaz.
-    remainder = " ".join(word for word in remainder.split() if _WA_CUE.fullmatch(word) is None)
-    recipient, body = _message_fields(remainder)
-    if len(body) > MESSAGE_BODY_MAX:
-        return None
-    return {"recipient": recipient, "body": body}
-
-
-def _message_arguments(normalized: str) -> dict[str, object]:
-    request = _message_request(normalized)
-    return {} if request is None else dict(request)
-
-
-def _contacts_request(normalized: str) -> tuple[str, dict[str, object]] | None:
-    """(işlem, tipli alanlar) — rehber yazma/listeleme cümlesinin tek hükmü."""
-    text = normalized.strip(" .!,")
-    if _CONTACTS_LIST_REQUEST.fullmatch(text):
-        return _CONTACTS_LIST, {}
-    for shape in _CONTACTS_ADD_SHAPES:
-        match = shape.fullmatch(text)
-        if match is None:
-            continue
-        name = " ".join(match.group("name").split())
-        if _CONTACT_NAME.fullmatch(name) is None:
-            return None
-        return _CONTACTS_ADD, {"name": name, "phone": match.group("phone")}
-    return None
-
-
-def _contacts_arguments(normalized: str) -> dict[str, object]:
-    request = _contacts_request(normalized)
-    if request is None:
-        return {}
-    operation, payload = request
-    return {"operation": operation, **payload}
 
 
 _APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"
@@ -2544,11 +2410,6 @@ def understand(
     weather_request = _is_weather_request(normalized)
     # BRAIN-03 dilim 1: şehir tercihini yazma/silme isteği de açık bir capability kararıdır.
     city_request = _weather_city_request(normalized)
-    # BRAIN-03 dilim 2: mesaj ve rehber istekleri de tek kanonical karar turuna girer.
-    message_request = (None if (photo_targeted or context_control or topic_change or correction)
-                       else _message_request(normalized))
-    contacts_request = (None if (photo_targeted or context_control or topic_change or correction)
-                        else _contacts_request(normalized))
     research_request = _is_explicit_research_request(normalized)
     # Eylem fiili taşıyan icra isteği sohbet olarak bırakılamaz: hedef yürütücüsüne devredilir.
     # Çıplak deiktik ("onu sil") de icra isteğidir; kapıda hedef sorusuyla netleşir.
@@ -2599,7 +2460,7 @@ def understand(
     # opposite case: its target answers an open clarify, so it is not an independent request.
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
-        or city_request is not None or message_request is not None or contacts_request is not None
+        or city_request is not None
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
@@ -2733,10 +2594,6 @@ def understand(
             arguments = {**arguments, "location": location}
     if capability_hint == WEATHER_CITY_SET_CAPABILITY:
         arguments = {**arguments, **_weather_city_arguments(normalized)}
-    if capability_hint == MESSAGE_SEND_CAPABILITY and message_request is not None:
-        arguments = {**arguments, **message_request}
-    if capability_hint == CONTACTS_MANAGE_CAPABILITY and contacts_request is not None:
-        arguments = {**arguments, **_contacts_arguments(normalized)}
     if capability_hint == "reminder.propose":
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":

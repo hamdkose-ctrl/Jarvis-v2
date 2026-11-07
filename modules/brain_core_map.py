@@ -20,7 +20,6 @@ from modules.brain_understanding import (
     APP_TARGET_MISSING,
     AUDIO_CAPABILITY,
     CONTACTS_MANAGE_CAPABILITY,
-    MESSAGE_BODY_MAX,
     MESSAGE_SEND_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
@@ -165,6 +164,9 @@ def _city_reset_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 # (`messaging.find_contact`) ve uydurma numara üretmez.
 _MESSAGE_RECIPIENT = re.compile(r"[a-zçğıöşü]{2,40}(?: [a-zçğıöşü]{1,25}){0,3}")
 _CONTACT_OPERATIONS = frozenset({"add", "list"})
+# Gövde uzunluğu bir BİÇİM sınırıdır (Core hükmü); anlam kararı modeldedir. Yetenek grameriyle
+# birlikte brain_understanding'den taşındı: yüzeyde kalan tek kalıntı bu sayıydı.
+MESSAGE_BODY_MAX = 4000
 
 
 def _name_title(name: str) -> str:

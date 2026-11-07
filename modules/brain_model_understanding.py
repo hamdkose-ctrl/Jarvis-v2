@@ -2,9 +2,11 @@
 
 Her serbest turda tek bir bounded çağrı ``brain-understanding.v2`` zarfını döndürür. Zarf
 operation, eylem listesi, hedef kimlik yuvaları, hedef kartı, netleştirme, güven, ilişki ve
-gereklilik alanlarını taşır. Model hiçbir gerçek yol, hesap, alıcı, jeton, kimlik bilgisi veya
-onay kimliği yazamaz; yalnız kendisine sunulan yuva adlarını seçer. Core her alanı kendi
-doğrulayıcısından geçirir; izin ve etki yetkisi yine yalnız Core'a aittir.
+gereklilik alanlarını taşır. Model hiçbir gerçek yol, hesap, jeton, kimlik bilgisi veya onay
+kimliği yazamaz ve yalnız kendisine sunulan yuva adlarını seçer. Kullanıcının kendi cümlesinden
+doğması gereken alanlar (`_USER_OWNED_ARGUMENT_SLOTS`) modelin doldurabilir, ama her dolu alan
+cümleden birebir alıntılanmış bir dayanakla (`argument_sources`) gelmek zorundadır. Core her
+alanı kendi doğrulayıcısından geçirir; izin ve etki yetkisi yine yalnız Core'a aittir.
 """
 from __future__ import annotations
 
@@ -50,7 +52,8 @@ ENVELOPE_KEYS = frozenset({
     "schema_version", "operation", "conversation_relation", "temporal_need",
     "target_goal_ids", "goal", "actions", "clarification", "confidence",
 })
-ACTION_KEYS = frozenset({"action_id", "capability_id", "arguments", "reference_slots", "depends_on"})
+ACTION_KEYS = frozenset({"action_id", "capability_id", "arguments", "reference_slots",
+                         "depends_on", "argument_sources"})
 CLARIFICATION_KEYS = frozenset({"required", "question", "reason_code"})
 _GOAL_KEYS = frozenset({"kind", "title"})
 _GOAL_CARD_KINDS = frozenset({"goal", "task"})
@@ -61,22 +64,29 @@ _GOAL_CARD_KINDS = frozenset({"goal", "task"})
 # PHOTO_TARGET_NOT_VALIDATED'a düşürürdü; bu yüzden öneri burada tümüyle reddedilir.
 _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
     "path", "paths", "photo", "token", "credential", "approval", "approval_id",
-    # BRAIN-03 dilim 2: mesaj alıcısı/gövdesi kullanıcının kendi cümlesinden doğar; modelin
-    # uydurduğu gövde, alıcıdan bağımsız ikinci bir gönderim yetkisi olurdu.
-    "recipient", "body", "account", "account_id",
+    "account", "account_id",
 })
+
+# BRAIN-03 dilim 2 (§4): `recipient`/`body` artık yasak anahtar değil, modelin doldurabildiği
+# tipli yuvalardır. Yetki yasağının yerini DAYANAK denetimi aldı: model bir kullanıcı-sahibi
+# alanı dolduruyorsa o alanı kullanıcının kendi cümlesinden birebir alıntılamak zorundadır.
+# Bu tablo bir kelime listesi değildir — hangi ALANLARIN kullanıcının cümlesinden doğması
+# gerektiğinin kapalı sözleşmesidir; değerlerin doğru olup olmadığına yine Core biçim hükmeder.
+_USER_OWNED_ARGUMENT_SLOTS = {
+    "message.send": frozenset({"recipient", "body"}),
+    "contacts.manage": frozenset({"name", "phone"}),
+}
 
 # Kalıcı kullanıcı tercihi kullanıcının KENDİ cümlesinden doğar; modelin o cümlede olmayan bir
 # yazma/silme yeteneği önermesi bu zarfta yetenek düzeyinde reddedilir. Core yalnız BİÇİM
 # hükmeder (anlam listesi tutsa ikinci semantic authority olurdu), bu yüzden "çok sıcak" gibi
 # şeklen geçerli bir değeri ayırt edemez — ölçüldü: `core_plan("weather.city.set",
 # {"location": "çok sıcak"})` `("city_set", {"location": "Çok Sıcak"})` verir.
-# BRAIN-03 dilim 2: mesaj gönderme ve rehber yazma da kullanıcının KENDİ cümlesinden doğmalıdır.
-# Core yalnız biçim hükmeder (ad/telefon/gövde sınırı), "kullanıcı bunu söyledi mi" hükmünü veremez;
-# bu yüzden modelin uydurduğu alıcı+gövde çifti onay ekranında gerçek bir gönderim olabilirdi.
-# Rehber yazması ise kalıcı profil verisidir (şehir tercihiyle aynı sınıf).
-_MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset",
-                                        "message.send", "contacts.manage"})
+# BRAIN-03 dilim 2: `message.send` ve `contacts.manage` bu kümeden ÇIKTI — onlar modelin
+# önerebilir kararlarıdır; uydurma alan tehlikesi artık dayanak denetimiyle kapatılır. Küme
+# kapalı kalır: yeni bir ad eklemek açık bir karardır (`architecture_guard` ARCH-008 ayrıca
+# yüzeyde yeniden belirmesini blocker sayar).
+_MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"})
 
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
 _REASON_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
@@ -157,6 +167,10 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
+    if owned:
+        # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
+        return {"freeform": True, "argument_sources": sorted(owned)}
     validator = CORE_INTENTS[capability_id][1]
     if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
         return {"nested": {"action": "kapalı eylem kümesi"}}
@@ -331,6 +345,55 @@ def _file_read_arguments(*, text: str, supplied: Mapping[str, Any], slots: tuple
     return arguments, (selected,)
 
 
+def _span_signal(value: str) -> str:
+    """Dayanak karşılaştırması için katlanır işaret: harf kasımı + tüm noktalama/boşluk silinir.
+
+    Tek bir katlama hem Türkçe İ/I hem de "0532 123 45 67" ile "053212345 67" gibi biçim
+    farklarını taşır; böylece alanda uydurmayı ayırt etmek için ayrı bir kelime/sayım listesi
+    gerekmez.
+    """
+    return "".join(character for character in
+                    value.replace("İ", "i").replace("I", "ı").casefold()
+                    if character.isalnum())
+
+
+def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
+                           sources: Any, text: str) -> bool:
+    """§4: kullanıcı-sahibi alanlar yalnız kullanıcının kendi cümlesindeki alıntısıyla öneri olur.
+
+    Kapalı sözleşme tablosu `_USER_OWNED_ARGUMENT_SLOTS`tur; burada hiçbir doğal dil hükmü
+    verilmez. Dolu bir alan dayanak taşımıyorsa, dayanak cümlede birebir geçmiyorsa ya da
+    alanını taşmıyorsa önerinin TAMAMI düşer (fail-closed). Boş slot dayanak istemez: eksik
+    alıcı/gövde oturumun kendi sorusudur, uydurulmaz.
+    """
+    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
+    if owned is None:
+        # Dayanak alanı olmayan bir yetenekte bu anahtar taşımak sözleşme ihlalidir.
+        return sources is None
+    if sources is None:
+        sources = {}
+    if not isinstance(sources, Mapping) or any(not isinstance(key, str) or not isinstance(value, str)
+                                              for key, value in sources.items()):
+        return False
+    if set(sources) - owned:
+        return False
+    spoken = _span_signal(text)
+    for field in owned:
+        value = supplied.get(field)
+        filled = isinstance(value, str) and bool(value.strip())
+        span = sources.get(field)
+        if span is None:
+            if filled:
+                return False
+            continue
+        signal = _span_signal(span)
+        if not signal or signal not in spoken:
+            return False
+        if not filled or _span_signal(value) not in signal:
+            return False
+    return True
+
+
 def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: str,
                       deterministic_arguments: Mapping[str, Any], slots: tuple[str, ...],
                       by_slot: Mapping[str, Any], slot_labels: Mapping[str, tuple[str, str]],
@@ -451,6 +514,9 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             return None
         if capability_id in _MODEL_DENIED_CAPABILITIES:
             return None
+        if not _arguments_are_grounded(capability_id=capability_id, supplied=frozen,
+                                      sources=item.get("argument_sources"), text=text):
+            return None
         resolved = _action_arguments(
             capability_id=capability_id, supplied=dict(frozen), text=text,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
@@ -535,8 +601,9 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
     Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
-    kimliği, yol, hesap, alıcı, jeton veya onay asla modelden gelmez; her alan Core'un kendi
-    doğrulayıcısından geçmeden öneri sayılmaz.
+    kimliği, yol, hesap, jeton veya onay asla modelden gelmez; her alan Core'un kendi
+    doğrulayıcısından geçmeden öneri sayılmaz. Kullanıcı-sahibi alanlar (alıcı, gövde, kişi adı,
+    telefon) modelden gelebilir ama ancak cümlenin kendisinden alıntılanmış bir dayanakla.
     """
     if not owner or not isinstance(text, str) or not text.strip():
         return None
@@ -588,18 +655,23 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
             "revise_goal, add_task, pause_goal, resume_goal, cancel_goal, prioritize_goal, clarify. "
             "Each actions entry carries only action_id, capability_id, arguments, reference_slots, "
-            "depends_on with action_id a1, a2 in order; chat, clarify and goal operations carry no "
-            "action, direct_action exactly one, action_batch two to five. capability_id must be one "
-            "of allowed.capability_id. Write no file path, folder, account, recipient, token, "
-            "credential, approval id or permission claim: for files.read select only supplied "
-            "file_candidates slots (one for open/summarize/analyze/locate, two to ten for compare, "
-            "none for list) and put only the operation in arguments. Simple semantic values the "
-            "schema allows are yours to fill: query, city, number, closed action enum. A question, "
-            "negation or comment about the world is chat, not an action. If the target cannot be "
-            "decided choose clarify with a required reason_code and never guess. If "
-            "current.needs_input is true keep it unless the only ambiguity is multiple target "
-            "references and one supplied file candidate is clearly named by the utterance. Core "
-            "revalidates every field."
+            "depends_on, argument_sources with action_id a1, a2 in order; chat, clarify and goal "
+            "operations carry no action, direct_action exactly one, action_batch two to five. "
+            "capability_id must be one of allowed.capability_id. Write no file path, folder, "
+            "account, token, credential, approval id or permission claim: for files.read select "
+            "only supplied file_candidates slots (one for open/summarize/analyze/locate, two to "
+            "ten for compare, none for list) and put only the operation in arguments. Simple "
+            "semantic values the schema allows are yours to fill: query, city, number, closed "
+            "action enum, and for the capabilities listed in allowed.argument_schema."
+            "argument_sources the recipient, body, contact name and phone the user actually said. "
+            "For each such field argument_sources must quote the exact words of this utterance "
+            "carrying it; a value the utterance does not contain, a quote taken from another "
+            "sentence, or a missing quote drops the whole proposal, so leave a field empty instead "
+            "of inventing it and Core will ask the user. A question, negation or comment about the "
+            "world is chat, not an action. If the target cannot be decided choose clarify with a "
+            "required reason_code and never guess. If current.needs_input is true keep it unless "
+            "the only ambiguity is multiple target references and one supplied file candidate is "
+            "clearly named by the utterance. Core revalidates every field."
         )
         deadline = time.monotonic() + 12.0
 

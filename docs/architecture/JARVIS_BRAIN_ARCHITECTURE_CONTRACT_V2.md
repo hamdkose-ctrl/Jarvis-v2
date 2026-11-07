@@ -129,7 +129,7 @@ Model şunları anlamlandırır:
 - Gerekli alan/parametre eksik mi; hangi açıklama sorusu gerekli?
 - Eylemler bağımsız mı, sıralı mı, birbirine bağımlı mı?
 
-Candidate Builder yalnız mevcut kaynaklardan aday/provenance çıkarır; bu bir semantik karar değildir. Model yalnız kendisine sunulan opaque candidate/reference slotlarını seçebilir. Dosya yolu, hesap, alıcı, görev kimliği veya dış hedef uyduramaz.
+Candidate Builder yalnız mevcut kaynaklardan aday/provenance çıkarır; bu bir semantik karar değildir. Model yalnız kendisine sunulan opaque candidate/reference slotlarını seçebilir. Dosya yolu, hesap, görev kimliği veya dış hedef uyduramaz. Kullanıcının kendi cümlesinin parçası olan semantik alanlar (mesaj alıcısı/gövdesi, kişi adı/numarası) modelden **alıntıyla** gelir: §5.4.
 
 ### 5.2 Önerilen düz JSON sözleşmesi
 
@@ -198,7 +198,7 @@ Kurallar:
 - Goal işlemleri: yalnız ilgili kısa Goal kimlik kartlarıyla anlamlandırılır. Ayrıntılı DAG ilk tur zarfına gömülmez.
 - `target_goal_ids`: yalnız modele verilen mevcut kimliklerden seçilebilir. Kimlik verilmediyse yeni kimlik üretilemez.
 - `reference_slots`: yalnız context'te sunulan, owner-bound ve provenance'lı adaylardan seçilebilir.
-- `arguments`: capability şemasına bağlıdır. Basit semantic değerler (arama sorgusu, şehir, sayı, tarih ifadesi) önerilebilir; gerçek dosya yolu, token, credential, approval id veya başka owner verisi modelden kabul edilmez.
+- `arguments`: capability şemasına bağlıdır. Basit semantic değerler (arama sorgusu, şehir, sayı, tarih ifadesi) önerilebilir; gerçek dosya yolu, token, credential, approval id veya başka owner verisi modelden kabul edilmez. Kullanıcı-sahibi alanlar (§5.4) ancak aynı isteğin cümlesinden alıntılanmış bir dayanakla kabul edilir.
 - Düz/bozuk/eksik/fazla alanlı JSON reddedilir. Otomatik serbest metin onarımı veya ikinci regex yorumu yapılmaz.
 - Güven düşükse, ilişki/target belirsizse veya birden fazla eşit hedef varsa `clarify`; model uydurmasıyla hedef seçilmez.
 
@@ -212,6 +212,20 @@ Modele bütün DAG, tüm ExecutionRecord geçmişi veya tüm kullanıcı hafıza
 - İzinli capability kataloğu ve ilgili parametre şemaları.
 
 Ayrıntı gerekirse Goal Manager/Core kaynağından yüklenir. Modelin prompt'u gerçek verinin veya canonical state'in ikinci kopyası değildir.
+
+### 5.4 Kullanıcı-sahibi alanlar ve dayanak (argument_sources)
+
+Bazı alanların anlamı kullanıcının **kendi cümlesidir**: mesaj alıcısı ve gövdesi, kişi adı ve numarası. Bu alanlar için model hem yetenek kararına hem de alan değerlerine sahiptir; hiçbir yüzey (regex, kelime listesi, ikinci sınıflandırıcı) bu kararı modelin önünden veya ardından veremez. Karar ile yan etki arasındaki sınır değişmez:
+
+- Zarf, kullanıcı-sahibi alan başına o alanı taşıyan **sözcükleri olduğu gibi** `argument_sources` içinde alıntılar. Alıntı yalnız bu isteğin cümlesinden gelir; önceki turdan veya modelin kendi üretimi bir metin dayanak sayılmaz.
+- Core alıntıyı ve alanı aynı normalization ile (Türkçe İ/I katlaması, yalnız harf/rakam sinyali) doğrular: dayanak cümlede bulunmalı, alan değerini taşımalı ve alan değerinin kendisi de cümlede bulunmalıdır. Dayanaksız, taşan, çelişen ya da başka cümleden alıntılanan öneri **tamamen** reddedilir; kısmi kabul yoktur.
+- Alan boş bırakılabilir ve boşsa dayanak gerekmez: eksik alıcı/gövde uydurulmaz, oturum kullanıcıya sorar. Yetki kararın sahibi olmayan bir yüzey tarafından "eksik" gerekçesiyle de verilmez.
+- Biçim hükmü yine Core'dadır (numara normalleşmesi, ad sınırları, gövde tavanı, kapalı enum), **kimlik** hükmü defter sahibindedir (`messaging.find_contact` yalnız kayıtlı ve tekil eşleşmede kişi verir), onay mevcut `pending_msg` protokolündedir. Dayanak, "kullanıcı bunu söyledi" kanıtıdır; "böyle bir kişi var ve bu o" kanıtı değildir.
+- Bir yeteneği bu nedenle modelden yasaklamak (deny-list) mimariyi tersine çevirir: yasağın yerini ham cümle grameri alır. Yasak kümesi yalnız **kullanıcı-sahibi alanı olmayan** ve tehlikesi başka biçimde kapatılamayan dar durumlar için vardır (bugün: `weather.city.set` / `weather.city.reset`).
+
+### 5.5 Ölçüm ayrımı
+
+Mock/fixture zarflı testler **bağlantı (wiring) ve yetki** kanıtıdır: zincirin doğru kapıdan geçtiğini, uydurma alanın reddedildiğini ve yan etki oluşmadığını ölçer. Modelin doğal dili gerçekten anlayıp anlamadığı ayrı, gerçek sağlayıcıyla ve önceden öğretilmemiş holdout cümleleriyle ölçülür (§16). İkisi birbirinin yerine geçmez.
 
 ## 6. Üç yürütme seviyesi
 
@@ -384,8 +398,12 @@ Aşağıdakiler Brain mimarisine aykırıdır ve PR review'da blocker sayılır:
 10. Kapsamı belirsiz bir refactor ile legacy handler'ları parity/invariant testi olmadan topluca silmek.
 11. Sadece unit test veya mocked model testiyle gerçek model semantiğini/Windows görev kabulünü tamamlandı saymak.
 12. Örnek kullanıcı cümlelerini regex kurallarına dönüştürmek.
+13. Kullanıcı-sahibi alanı olan bir yeteneği (`message.send`, `contacts.manage`) modelden yasaklayıp kararı ham cümle gramerine bırakmak; ya da tam tersi, yasağı kaldırıp grameri "geçici" olarak başka dosyaya/ada taşımak.
+14. §5.4 dayanağını ikinci bir semantik sınıflandırıcıyla değiştirmek: Core'da kelime listesi/eş anlamlı havuzuyla "kullanıcı bunu söyledi mi" hükmü vermek.
 
 **Regex nerede kalabilir?** Exact State/Fast protokolleri, kapalı enum/schema parsing, URL/path/JSON doğrulaması, güvenlik invariant'ı, domain'in capability seçildikten sonra kullandığı bounded syntax grammar ve metin normalizasyonu. Bu kullanımlar genel kullanıcı niyeti seçemez.
+
+**Guard:** bu iki madde sözel değildir. `modules/architecture_guard.py` ARCH-008 ile capability **adinin** değil **sahibinin** modül-düzeyi sabit atamasını denetler: `message.send` / `contacts.manage` literalleri ve kanonik sabitleri yalnız sahibi modülde (`brain_understanding`) ve Core'un kapalı sözleşme tablolarında (`CORE_INTENTS`, `_USER_OWNED_ARGUMENT_SLOTS`, guard'ın kendi kümesi) görünebilir. Dosyaya taşıma, yeniden adlandırma veya sabiti import etme denetimi kapatmaz; numara regex'i, kapalı enum ve tip sınırları gibi biçim/güvenlik denetimleri yetenek adı taşımadığı için kapsam dışıdır.
 
 ## 16. Kabul ve ölçüm standardı
 
@@ -397,7 +415,7 @@ Aşağıdakiler Brain mimarisine aykırıdır ve PR review'da blocker sayılır:
 - Model unavailable/429/malformed JSON/timeout/cancel senaryoları.
 - Modelin hayali capability, path, recipient, goal id, approval, permission, provider üretememesi.
 
-Mevcut `tests/data/yonlendirme_cumleleri.json`, 465 Brain baseline, #516 ve #520 korpusları **evaluation/regression verisidir; regex kural kitabı değildir.** Korpus büyütülebilir, fakat model prompt'unda deterministik eşleştirme tablosu olarak kullanılmaz; train/evaluation ayrımı ve daha önce görülmemiş holdout cümleleri korunur.
+Mevcut `tests/data/yonlendirme_cumleleri.json`, 465 Brain baseline, #516 ve #520 korpusları **evaluation/regression verisidir; regex kural kitabı değildir.** Korpus büyütülebilir, fakat model prompt'unda deterministik eşleştirme tablosu olarak kullanılmaz; train/evaluation ayrımı ve daha önce görülmemiş holdout cümleleri korunur. Kullanıcı-sahibi alanların (§5.4) holdout'u `tests/data/brain_semantic_holdout_dilim2.json` dosyasındadır ve `scripts/brain_semantic_holdout.py` ile **yalnız üretimle aynı ücretsiz bulut rotası üzerinden** ölçülür: rota uygun değilse script ölçümü yapmaz ve elenme gerekçeleriyle `ÖLÇÜLEMEDİ` döner; kapıyı gevşetmek, yerel/ücretli rotaya ya da deterministik kapıya düşmek bu ölçümün kanıt değeri yoktur.
 
 Plan hedefi: semantik niyet + hedef seçiminde en az %95 doğruluk; kritik yanlış effect **0**. Bu eşik sadece aggregate skorla geçilemez: kritik test sınıfları ayrı ayrı raporlanır ve her sınıf için false-positive/false-negative incelenir.
 

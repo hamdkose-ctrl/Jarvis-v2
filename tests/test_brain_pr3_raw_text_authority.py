@@ -131,17 +131,19 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
         dialog_patch.start()
         self.addCleanup(dialog_patch.stop)
 
-    def turn(self, text, handler=None, source="yazı"):
+    def turn(self, text, handler=None, source="yazı", model_understanding=False):
         rid = "pr3a-" + uuid.uuid4().hex[:8]
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
-            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text, source=source)
+            entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid, text=text,
+                                        source=source, model_understanding=model_understanding)
             handle = handler or Mock(return_value="HANDLER")
             out, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, text)
         return entry, out, handle, feedback
 
-    def turn_real(self, text, source="yazı"):
-        return self.turn(text, handler=self.ctx.handle, source=source)
+    def turn_real(self, text, source="yazı", model_understanding=False):
+        return self.turn(text, handler=self.ctx.handle, source=source,
+                         model_understanding=model_understanding)
 
 
 class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
