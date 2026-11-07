@@ -795,6 +795,9 @@ class _CanonicalTurnHarness(unittest.TestCase):
         self.ctx._message_step = self.message_step
         # Mesaj gönderimi arka plan iş parçacığında çalışır; test effect'i başlatmaz.
         self.ctx.threading = Mock()
+        # Alıcı güvenliği: gönderim yalnız KAYITLI kişiye başlar. Bu süitlerin açık taslağı
+        # "Ebru"; kişi defteri kayıtlı olmadan onay sorusu değil "rehberde yok" cevabı gelir.
+        self.ctx.profile.data["contacts"] = {"Ebru": "905551112233"}
 
         goals = Path(self.temp.name) / "goals"
         history_root = Path(self.temp.name) / "history"
@@ -996,7 +999,8 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
 
         entry, out = self.turn("Yarın geliyorum")
-        self.assertEqual(out, "Ebru kişisine şunu göndereyim mi: “Yarın geliyorum”? Evet ya da hayır de.")
+        # Onay metni çözümlenen kişiyi ve numaranın sonunu gösterir (alıcı güvenliği).
+        self.assertEqual(out, "Ebru (…2233) kişisine şunu göndereyim mi: “Yarın geliyorum”? Evet ya da hayır de.")
 
         entry, out = self.turn("evet")
         self.assertEqual(entry.state_gate.protocol, "session.pending_msg.confirm")

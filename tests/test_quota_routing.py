@@ -48,12 +48,11 @@ class SimpleQuestionRoutingTests(unittest.TestCase):
                 self.assertEqual(decision['intent'], 'task', text)
                 self.assertEqual(brain_core_map.core_plan(semantic.capability_hint, semantic.arguments),
                                  ('task', {'query': text, 'route': 'PRIVATE'}), text)
-        # BRAIN-03 dilim 3: varlığı adlandıran kur sorusunun canlı veri sahibi finans domain'idir;
-        # tazelik işareti tanım kalıbını bastırır ama kanal hükmünü arama görevine çevirmez.
+        # Finance data is no longer selected by deterministic vocabulary rules. Its production
+        # model-proposal and typed-Core path is covered by test_brain_b3_finance_authority.
         semantic, decision = _door('bugünkü dolar kuru nedir')
-        self.assertEqual(semantic.capability_hint, 'finance.read')
-        self.assertEqual(decision, {'intent': 'finance_read',
-                                    'args': {'kind': 'rate', 'source': 'USD', 'target': 'TRY'}})
+        self.assertNotEqual(semantic.capability_hint, 'finance.read')
+        self.assertNotEqual(decision['intent'], 'finance_read')
 
     def test_pure_definition_without_freshness_stays_chat(self):
         # Tazelik işareti olmayan sade tanım soruları güncel-görev yoluna zorlanmaz.

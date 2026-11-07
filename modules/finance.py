@@ -1,12 +1,4 @@
-"""Döviz, kripto, gram altın ve BIST fiyatı: modelsiz, kaynak ve tarih söyleyerek.
-
-Yalnız açık kur soruları yakalanır ("dolar kaç lira", "100 dolar kaç TL", "euro kaç dolar"); geçmiş tarih,
-yorum/tahmin, alarm/hatırlatma ve "euro 2024" gibi para birimi olmayan kullanımlar None döner ve diğer
-yollara bırakılır. Birincil kaynak TCMB today.xml (resmî gösterge, döviz satış), TCMB'de olmayan para birimi
-veya TCMB'ye ulaşılamazsa Frankfurter v2. Kripto ve gram altın CoinGecko'dan, olmazsa BtcTurk genel API'sinden (altın PAXG/TRY'den
-hesaplanır). BIST için Yahoo Finance gecikmeli TRY fiyatı okunur. Kaynak yanıtından yalnız sayı
-ve tarih okunur, metin modele gitmez.
-"""
+"""Typed, read-only finance data access with source and date attribution."""
 from __future__ import annotations
 
 import hashlib
@@ -32,86 +24,51 @@ _CACHE: dict = {}
 TR = timezone(timedelta(hours=3))
 _LOCK = threading.Lock()
 
-# (kod, söylenen ad, katlanmış metinde aranan kökler, Türkçe ek alır mı). Çok sözcüklüler önce aranır.
 CURRENCIES = (
-    ('CAD', 'Kanada doları', ('kanada dolar',), True),
-    ('AUD', 'Avustralya doları', ('avustralya dolar',), True),
-    ('GBP', 'sterlin', ('ingiliz lira', 'sterlin', 'pound', 'gbp'), True),
-    ('JPY', 'yen', ('japon yeni', 'japon yen', 'jpy', 'yen'), False),
-    ('AZN', 'manat', ('manat', 'azn'), True),
-    ('USD', 'dolar', ('amerikan dolar', 'dolar', 'usd'), True),
-    ('EUR', 'euro', ('euro', 'avro', 'eur'), True),
-    ('CHF', 'frank', ('isvicre frang', 'frank', 'frang', 'chf'), True),
-    ('SAR', 'riyal', ('riyal',), True),
-    ('RUB', 'ruble', ('ruble', 'rub'), True),
-    ('CNY', 'yuan', ('yuan', 'cny'), True),
-    ('TRY', 'TL', ('turk lira', 'lira', 'tl'), True),
+    ('CAD', 'Kanada doları'),
+    ('AUD', 'Avustralya doları'),
+    ('GBP', 'sterlin'),
+    ('JPY', 'yen'),
+    ('AZN', 'manat'),
+    ('USD', 'dolar'),
+    ('EUR', 'euro'),
+    ('CHF', 'frank'),
+    ('SAR', 'riyal'),
+    ('RUB', 'ruble'),
+    ('CNY', 'yuan'),
+    ('TRY', 'TL'),
 )
-# Kripto (CoinGecko, yedek BtcTurk TRY çifti) ve altın (PAXG/TRY: 1 PAXG = 1 ons altın). "sol" Türkçe sözcük olduğu için yok.
 CRYPTO = (
-    ('BTC', 'bitcoin', ('bitcoin', 'btc')),
-    ('ETH', 'ethereum', ('ethereum', 'ether', 'eth')),
-    ('USDT', 'tether', ('tether', 'usdt')),
-    ('XRP', 'ripple', ('ripple', 'xrp')),
-    ('SOL', 'solana', ('solana',)),
-    ('DOGE', 'dogecoin', ('dogecoin', 'doge')),
-    ('AVAX', 'avalanche', ('avalanche', 'avax')),
-    ('ADA', 'cardano', ('cardano',)),
+    ('BTC', 'bitcoin'),
+    ('ETH', 'ethereum'),
+    ('USDT', 'tether'),
+    ('XRP', 'ripple'),
+    ('SOL', 'solana'),
+    ('DOGE', 'dogecoin'),
+    ('AVAX', 'avalanche'),
+    ('ADA', 'cardano'),
 )
 STOCKS = (
-    ('THYAO', 'THY', ('turk hava yollari', 'thy')),
-    ('GARAN', 'Garanti', ('garanti bankasi', 'garanti')),
-    ('AKBNK', 'Akbank', ('akbank',)),
-    ('ISCTR', 'İş Bankası', ('is bankasi', 'isbank')),
-    ('YKBNK', 'Yapı Kredi', ('yapi kredi',)),
-    ('HALKB', 'Halkbank', ('halkbank', 'halk bankasi')),
-    ('VAKBN', 'VakıfBank', ('vakifbank', 'vakif bankasi')),
-    ('ASELS', 'Aselsan', ('aselsan',)),
-    ('TUPRS', 'Tüpraş', ('tupras',)),
-    ('EREGL', 'Ereğli', ('eregli', 'erdemir')),
-    ('BIMAS', 'BİM', ('bim',)),
-    ('KCHOL', 'Koç Holding', ('koc holding', 'koc')),
-    ('SAHOL', 'Sabancı Holding', ('sabanci holding', 'sabanci')),
-    ('FROTO', 'Ford Otosan', ('ford otosan', 'ford')),
-    ('SISE', 'Şişecam', ('sisecam', 'sise')),
-    ('TCELL', 'Turkcell', ('turkcell',)),
-    ('PGSUS', 'Pegasus', ('pegasus',)),
-    ('SASA', 'Sasa', ('sasa',)),
-    ('XU100', 'BIST 100', ('bist 100', 'bist100')),
+    ('THYAO', 'THY'),
+    ('GARAN', 'Garanti'),
+    ('AKBNK', 'Akbank'),
+    ('ISCTR', 'İş Bankası'),
+    ('YKBNK', 'Yapı Kredi'),
+    ('HALKB', 'Halkbank'),
+    ('VAKBN', 'VakıfBank'),
+    ('ASELS', 'Aselsan'),
+    ('TUPRS', 'Tüpraş'),
+    ('EREGL', 'Ereğli'),
+    ('BIMAS', 'BİM'),
+    ('KCHOL', 'Koç Holding'),
+    ('SAHOL', 'Sabancı Holding'),
+    ('FROTO', 'Ford Otosan'),
+    ('SISE', 'Şişecam'),
+    ('TCELL', 'Turkcell'),
+    ('PGSUS', 'Pegasus'),
+    ('SASA', 'Sasa'),
+    ('XU100', 'BIST 100'),
 )
-_GOLD_CUE = r'\b(?:fiyat\w*|ne kadar|kac (?:lira|tl|dolar|euro|para)|kur\w*|eder|kac$|kacta)\b|\b(?:gram|ons) altin'
-_GOLD_OTHER = r'\baltin\w*\s+(?:madalya|top|oran|kural|cag|gun|vurus|saat|kelebek|portakal|kalp|kupa|yildiz|kitap|yumurta|sarisi)'
-_SUFFIX = r"(?:'?(?:[iu]|y[iu]|[ae]|y[ae]|n[iu]n|[iu]n|l[ae]|yl[ae]|d[ae]n?|t[ae]n?|[iu]m|lar[iu]?|s[iu]))?"
-_GOLD = r'\b(?:(?P<kind>gram|ons|ceyrek|yarim|tam|cumhuriyet|resat|ata)\s+)?altin' + _SUFFIX + r'\b'
-_CUE = r'\b(?:kac\w*|ne kadar|kur\w*|fiyat\w*|eder|ediyor|ne oldu|cevir\w*|degeri\w*|olarak|cinsinden)\b'
-# Geçmiş, tahmin/yorum, alarm ve takip istekleri bu kısa yolun işi değil.
-_SKIP = (r'\b(?:hatirlat\w*|haber ver\w*|alarm\w*|takip\w*|bildir\w*|olunca|gecince|dusunce|neden|niye|nicin|'
-         r'sence|tahmin\w*|yorum\w*|analiz\w*|grafik\w*|dun|gecen|onceki|hafta\w*|aylik|yillik|ay|yil|olur mu|olur|'
-         r'olacak\w*|kadardi|kacti|ortalama\w*)\b')
-_DEFINITION = r'\b(?:nedir|ne demek)\b'
-_NUMBER_WORDS = {'bir': 1, 'iki': 2, 'uc': 3, 'dort': 4, 'bes': 5, 'alti': 6, 'yedi': 7, 'sekiz': 8, 'dokuz': 9,
-                 'on': 10, 'yirmi': 20, 'otuz': 30, 'kirk': 40, 'elli': 50, 'altmis': 60, 'yetmis': 70,
-                 'seksen': 80, 'doksan': 90}
-
-
-def _fold(text: str) -> str:
-    text = str(text or '').replace('I', 'ı').replace('İ', 'i').lower()
-    text = text.translate(str.maketrans('çğıöşüâî', 'cgiosuai')).replace('̇', '')
-    text = text.replace('$', ' dolar ').replace('€', ' euro ').replace('£', ' sterlin ').replace('₺', ' tl ')
-    return ' '.join(re.sub(r"[^\w.,' ]", ' ', text).split())
-
-
-def _mentions(low: str):
-    """Para birimi geçişleri, metindeki sırasıyla: (başlangıç, bitiş, kod)."""
-    found, taken = [], []
-    for code, _name, stems, inflects in CURRENCIES:
-        for stem in stems:
-            pattern = r'\b' + re.escape(stem) + (_SUFFIX if inflects else '') + r'\b'
-            for match in re.finditer(pattern, low):
-                if any(match.start() < end and start < match.end() for start, end in taken):continue
-                if code == 'EUR' and re.match(r"\s*'?\d{4}\b", low[match.end():]):continue  # euro 2024
-                taken.append(match.span());found.append((match.start(), match.end(), code))
-    return sorted(found)
 
 
 def _decimal(token: str):
@@ -126,45 +83,26 @@ def _decimal(token: str):
     return value if value > 0 else None
 
 
-# BRAIN-03 dilim 3: fiyat sorusunun **anlam** hükmü artık Brain'dedir
-# (`brain_understanding.finance_request`). Buradaki public adlar yalnız sözlük ve biçim
-# yardımcılarıdır: capability seçmez, cümleyi yorumlamazlar.
-fold = _fold
-decimal_value = _decimal
-mentions = _mentions
-SUFFIX = _SUFFIX
-CUE = _CUE
-SKIP = _SKIP
-DEFINITION = _DEFINITION
-GOLD = _GOLD
-GOLD_CUE = _GOLD_CUE
-GOLD_OTHER = _GOLD_OTHER
-NUMBER_WORDS = _NUMBER_WORDS
-CURRENCY_CODES = frozenset(code for code, _name_, _stems, _inflects in CURRENCIES)
-CRYPTO_CODES = frozenset(code for code, _name_, _stems in CRYPTO)
-STOCK_CODES = frozenset(code for code, _name_, _stems in STOCKS)
+CURRENCY_CODES = frozenset(code for code, _name in CURRENCIES)
+CRYPTO_CODES = frozenset(code for code, _name in CRYPTO)
+STOCK_CODES = frozenset(code for code, _name in STOCKS)
 GOLD_KINDS = frozenset({'gram', 'ons', 'ceyrek', 'yarim', 'tam', 'cumhuriyet', 'resat', 'ata'})
 FINANCE_ASSETS = CRYPTO_CODES | frozenset({'GOLD'})
 
 
-def parse(text: str):
-    """Geriye dönük köprü: fiyat sorusunun tek grameri Brain'dedir (`finance_request`).
-
-    Kalan iki çağıran (`translation_request.is_conversion`, `goal_executor._is_fast_command`)
-    yalnız "bu cümle fiyat sorusu mu" sorusunu sorar; capability seçmezler.
-    """
-    from modules import brain_understanding
-    return brain_understanding.finance_request(text)
-
-
-def is_conversion(text: str) -> bool:
-    """"50 euroyu dolara çevir" para çevirisidir, metin çevirisi değil ("bu metni euroya çevir" değildir)."""
-    request = parse(text)
-    if request and request.get('stock'):return False
-    if request and request.get('asset'):
-        return request['amount'] is not None or request['target'] != 'TRY'
-    return bool(request and not request['list'] and (request['amount'] is not None or request['target'] != 'TRY'
-                                                       or len(_mentions(_fold(text))) > 1))
+def _decimal(token: str):
+    token = token.strip('.,')
+    if not token:
+        return None
+    if ',' in token:
+        token = token.replace('.', '').replace(',', '.')
+    elif token.count('.') > 1 or re.fullmatch(r'\d{1,3}\.\d{3}', token):
+        token = token.replace('.', '')
+    try:
+        value = Decimal(token)
+    except InvalidOperation:
+        return None
+    return value if value > 0 else None
 
 
 def _safe_xml(body: bytes):
@@ -355,7 +293,7 @@ def _bist_answer(request) -> str:
     code, amount = request['stock'], request['amount']
     try:
         row = _cached('bist:' + code, lambda: _yahoo(code), MARKET_TTL)
-        name = next((name for item, name, _stems in STOCKS if item == code), code)
+        name = next((name for item, name in STOCKS if item == code), code)
         shown = name if code == 'XU100' or name == code else f'{name} ({code})'
         if amount is None:body = f'{shown} {_num(row["last"])} ' + ('puan' if code == 'XU100' else 'TL')
         else:body = f'{_amount_text(amount)} {shown} hissesi {_num(amount * row["last"])} TL eder'
@@ -389,7 +327,7 @@ def _rate_text(value: Decimal) -> str:
 
 
 def _name(code: str) -> str:
-    return next(name for item_code, name, _s, _i in CURRENCIES if item_code == code)
+    return next(name for item_code, name in CURRENCIES if item_code == code)
 
 
 def _asset_answer(request) -> str:
@@ -412,7 +350,7 @@ def _asset_answer(request) -> str:
         if not ollama_hint.internet_up():return ollama_hint.NO_INTERNET
         return 'Fiyat kaynağına (CoinGecko ve BtcTurk' + (', TCMB ve Frankfurter' if target != 'TRY' else '') + ') şu an ulaşamadım, biraz sonra tekrar dene.'
     price = row['last'] / (TROY_OUNCE_GRAMS if kind == 'gram' else 1) / table[target]
-    name = (kind + ' altın') if code == 'GOLD' else next(n for c, n, _s in CRYPTO if c == code)
+    name = (kind + ' altın') if code == 'GOLD' else next(n for c, n in CRYPTO if c == code)
     unit = _name(target)
     if amount is None:
         body = f'{name[0].upper()}{name[1:]} {_num(price)} {unit}'
@@ -475,10 +413,3 @@ def request_from_slots(arguments) -> dict:
         return {'amount': None, 'source': None, 'target': 'TRY', 'list': codes}
     return {'amount': amount, 'source': str(arguments['source']), 'target': str(arguments['target']),
             'list': None}
-
-
-def answer(text: str) -> str | None:
-    """Geriye dönük köprü (araç/diagnostik): gramer Brain'de, biçimlendirme burada."""
-    request = parse(text)
-    if request is None:return None
-    return answer_request(request)

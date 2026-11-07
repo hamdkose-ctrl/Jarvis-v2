@@ -1,4 +1,4 @@
-"""BRAIN-03 dilim 3: finans fiyat okuması (BRAIN-MIG-101).
+"""BRAIN-03 dilim 3: model-owned finance price requests (BRAIN-MIG-101).
 
 Envanter yeri: `JARVIS_BRAIN_MIGRATION_MAP_V1.md` §13.1 `finance.answer` satırı; karar
 tablosu §14 satır 17. Retire edilen yüzey kapısı `modules/engine_commands.py` içindeydi:
@@ -9,16 +9,17 @@ tablosu §14 satır 17. Retire edilen yüzey kapısı `modules/engine_commands.p
         return rate_reply
 
 Yani kur/kripto/altın/BIST cümlesini **domain modülü** ham metinden ayırıp capability'yi
-kendisi seçiyordu. Yeni zincir: anlam kararı Brain'de (`finance_request`), biçim hükmü
+kendisi seçiyordu. Yeni zincir: anlam kararı birincil model zarfında, biçim hükmü
 Core'da (kapalı para birimi/hisse/altın kümeleri, pozitif sonlu miktar), etki tek
 `finance_read` intent'inde; domain yalnız **veri çeker ve biçimlendirir** (`answer_request`).
 
-Bu dosya RED olarak yazıldı: `finance.read` capability'si, Core validator'ı, intent sahibi
-ve Brain tanıyıcısı yoktur; yüzey kapısı hâlâ ham cümleyi finance'a veriyor.
+Testler model zarfının üretim zincirine bağlandığını doğrular; modelin semantik doğruluğu
+yerel taklitlerle kanıtlanmış sayılmaz.
 """
 from __future__ import annotations
 
 import ast
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -38,9 +39,7 @@ FINANCE = ROOT / "modules" / "finance.py"
 
 
 def _hint(text: str) -> str | None:
-    # `original` büyük/küçük harfe duyarlı sözlük için (BIST kodu `THYAO`).
-    return understanding._capability_hint(understanding._norm(text), understanding.TemporalNeed.STATIC,
-                                          original=text)
+    return understanding._capability_hint(understanding._norm(text), understanding.TemporalNeed.STATIC)
 
 
 def _calls(path: Path, marker: str) -> set[str]:
@@ -108,43 +107,24 @@ class FinanceCapabilityContractTests(unittest.TestCase):
                                                                   "target": "TRY"}))
 
 
-class FinanceUnderstandingTests(unittest.TestCase):
-    """Tanıyıcı: kur/kripto/altın/BIST fiyat sorusu tek biçim hükmünden geçer."""
+class FinanceModelContractTests(unittest.TestCase):
+    """Finance values are model-proposed and Core-validated, never phrase-classified."""
 
-    def test_rate_questions_are_the_finance_capability(self):
-        for text in ("dolar kaç lira", "100 dolar kaç TL", "euro kaç dolar",
-                     "dolar ne kadar", "sterlin kaç lira"):
+    def test_deterministic_understanding_does_not_classify_finance_phrases(self):
+        for text in ("dolar kaç lira", "100 dolar kaç TL", "bitcoin kaç TL",
+                     "gram altın ne kadar", "THYAO kaç lira", "bist 100 kaç puan"):
             with self.subTest(text=text):
-                self.assertEqual(_hint(text), understanding.FINANCE_READ_CAPABILITY)
+                self.assertNotEqual(_hint(text), understanding.FINANCE_READ_CAPABILITY)
+        self.assertFalse(hasattr(understanding, "finance_request"))
+        self.assertFalse(hasattr(understanding, "_finance_arguments"))
 
-    def test_asset_and_stock_questions_are_the_finance_capability(self):
-        for text in ("bitcoin kaç TL", "gram altın ne kadar", "çeyrek altın fiyatı",
-                     "THYAO kaç lira", "bist 100 kaç puan"):
-            with self.subTest(text=text):
-                self.assertEqual(_hint(text), understanding.FINANCE_READ_CAPABILITY)
-
-    def test_definition_forecast_alarm_and_other_meanings_stay_out(self):
-        for text in ("dolar nedir", "kur ne demek", "euro 2024", "dolar dün kaçtı",
-                     "dolar yarın ne olur", "dolar 30 olunca haber ver", "bitcoin analizi",
-                     "borsa nasıl çalışır"):
-            with self.subTest(text=text):
-                self.assertIsNone(_hint(text))
-        # "altın madalyası" altın fiyatı değildir; bu cümle tabanda da fiyat sorusu sayılmıyor.
-        self.assertNotEqual(_hint("altın madalyası kaç lira"), understanding.FINANCE_READ_CAPABILITY)
-
-    def test_the_typed_slots_mirror_the_domain_request(self):
-        arguments = understanding._finance_arguments(understanding._norm("100 dolar kaç TL"))
-        self.assertEqual(arguments.get("kind"), "rate")
-        self.assertEqual(arguments.get("amount"), "100")
-        self.assertEqual(arguments.get("source"), "USD")
-        self.assertEqual(arguments.get("target"), "TRY")
-        asset = understanding._finance_arguments(understanding._norm("gram altın ne kadar"))
-        self.assertEqual(asset.get("asset"), "GOLD")
-        self.assertEqual(asset.get("gold_kind"), "gram")
-        # BIST kodu büyük harfle söylenir; slot çıkarımı orijinal metni görür (normalize edilmiş
-        # metinde kod küçülür ve taban grameri de onu tanımaz).
-        stock = understanding._finance_arguments("THYAO kaç lira")
-        self.assertEqual(stock.get("stock"), "THYAO")
+    def test_finance_model_schema_exposes_only_typed_domain_values(self):
+        from modules.brain_model_understanding import _supplied_schema
+        schema = _supplied_schema("finance.read")
+        self.assertEqual(set(schema["kind"]), {"rate", "asset", "stock"})
+        self.assertIn("USD", schema["rate"]["source"])
+        self.assertIn("BTC", schema["asset"]["asset"])
+        self.assertIn("THYAO", schema["stock"]["stock"])
 
 
 class FinanceRetirementTests(unittest.TestCase):
@@ -157,28 +137,23 @@ class FinanceRetirementTests(unittest.TestCase):
                 self.assertNotEqual(ast.unparse(node), "finance.answer",
                                     msg="ham finans kapısı yüzeyde")
 
-    def test_the_only_remaining_answer_caller_is_the_diagnostic_script(self):
+    def test_no_runtime_or_diagnostic_answer_parser_remains(self):
         owners: set[str] = set()
         for path in [*ROOT.glob("modules/*.py"), *ROOT.glob("scripts/*.py")]:
             owners |= _calls(path, "finance.answer")
-        self.assertEqual(owners, {"scripts/finans_kaynak_testi.py"})
+        self.assertEqual(owners, set())
+        self.assertFalse(hasattr(finance, "answer"))
+        self.assertFalse(hasattr(finance, "parse"))
+        self.assertFalse(hasattr(finance, "is_conversion"))
 
-    def test_the_grammar_is_no_longer_owned_by_the_domain(self):
+    def test_the_runtime_has_no_finance_phrase_parser(self):
         source = FINANCE.read_text(encoding="utf-8")
-        self.assertNotIn("def _asset(", source)
-        self.assertNotIn("def _stock(", source)
-        self.assertNotIn("def _bare_amount(", source)
-        self.assertNotIn("def _amount_before(", source)
-        # `parse` tek gramerin sahibine devreder; kendi gövdesinde kalıp yoktur.
-        tree = ast.parse(source, filename=str(FINANCE))
-        parse_fn = next(node for node in tree.body
-                        if isinstance(node, ast.FunctionDef) and node.name == "parse")
-        self.assertLessEqual(len(parse_fn.body), 4,
-                             msg=f"parse hâlâ kendi gramerini taşıyor: {ast.unparse(parse_fn)[:120]}")
-
-    def test_the_brain_owns_the_recognizer(self):
-        source = (ROOT / "modules" / "brain_understanding.py").read_text(encoding="utf-8")
-        self.assertIn("def finance_request(", source)
+        for retired in ("def parse(", "def is_conversion(", "def answer(", "_GOLD_CUE",
+                        "_GOLD_OTHER", "_NUMBER_WORDS", "def _mentions("):
+            self.assertNotIn(retired, source)
+        brain = (ROOT / "modules" / "brain_understanding.py").read_text(encoding="utf-8")
+        self.assertNotIn("finance_request", brain)
+        self.assertNotIn("_finance_arguments", brain)
 
 
 class FinanceTurnTests(pr3a._CanonicalAuthorityHarness):
@@ -190,15 +165,39 @@ class FinanceTurnTests(pr3a._CanonicalAuthorityHarness):
         patcher = patch.object(finance, "answer_request", self.answer)
         patcher.start()
         self.addCleanup(patcher.stop)
+        self.model = Mock(return_value=_model_envelope("chat"))
+        for target, value in (
+                ("modules.llm.current_user", lambda: self.owner),
+                ("modules.llm.provider", lambda: "groq"),
+                ("modules.llm.privacy.mode", lambda: "normal"),
+                ("modules.smart_router.selection", lambda *a, **k: {"candidates": ["groq"]}),
+                ("modules.smart_router.run", self.model)):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _propose(self, arguments):
+        self.model.return_value = _model_envelope(
+            "direct_action", arguments, capability=understanding.FINANCE_READ_CAPABILITY)
 
     def test_a_rate_question_reaches_the_domain_through_the_typed_plan(self):
-        entry, out, _handle, _ = self.turn_real("dolar kaç lira")
+        self._propose({"kind": "rate", "source": "USD", "target": "TRY"})
+        entry, out, _handle, _ = self.turn_real("dolar kaç lira", model_understanding=True)
         self.assertIs(entry.understanding.request_kind, RequestKind.CAPABILITY)
         self.assertEqual(entry.understanding.capability_hint, understanding.FINANCE_READ_CAPABILITY)
         self.assertIn("KUR TEST", str(out))
+        self.model.assert_called_once()
+
+    def test_currency_conversion_is_model_owned_not_text_translation(self):
+        self._propose({"kind": "rate", "amount": "50", "source": "EUR", "target": "USD"})
+        entry, _out, _handle, _ = self.turn_real("50 euroyu dolara çevir", model_understanding=True)
+        self.assertEqual(entry.understanding.capability_hint, understanding.FINANCE_READ_CAPABILITY)
+        self.assertEqual(self.answer.call_args.args[0]["source"], "EUR")
+        self.assertEqual(self.answer.call_args.args[0]["target"], "USD")
 
     def test_the_executor_receives_validated_slots_not_the_sentence(self):
-        self.turn_real("100 dolar kaç TL")
+        self._propose({"kind": "rate", "amount": "100", "source": "USD", "target": "TRY"})
+        self.turn_real("100 dolar kaç TL", model_understanding=True)
         self.assertEqual(self.answer.call_count, 1)
         request = self.answer.call_args.args[0]
         self.assertEqual(request.get("source"), "USD")
@@ -207,24 +206,48 @@ class FinanceTurnTests(pr3a._CanonicalAuthorityHarness):
         self.assertNotIn("100 dolar kaç TL", str(request))
 
     def test_the_asset_path_is_typed_the_same_way(self):
-        self.turn_real("gram altın ne kadar")
+        self._propose({"kind": "asset", "asset": "GOLD", "gold_kind": "gram", "target": "TRY"})
+        self.turn_real("gram altın ne kadar", model_understanding=True)
         self.assertEqual(self.answer.call_args.args[0].get("asset"), "GOLD")
 
     def test_a_capitalised_ticker_reaches_the_domain_as_a_closed_enum(self):
-        entry, _out, _handle, _ = self.turn_real("THYAO kaç lira")
+        self._propose({"kind": "stock", "stock": "THYAO"})
+        entry, _out, _handle, _ = self.turn_real("THYAO kaç lira", model_understanding=True)
         self.assertEqual(entry.understanding.capability_hint, understanding.FINANCE_READ_CAPABILITY)
         self.assertEqual(self.answer.call_args.args[0].get("stock"), "THYAO")
 
     def test_a_definition_question_never_reaches_the_domain(self):
-        entry, _out, _handle, _ = self.turn_real("dolar nedir")
+        entry, _out, _handle, _ = self.turn_real("dolar nedir", model_understanding=True)
         self.assertNotEqual(entry.understanding.capability_hint, understanding.FINANCE_READ_CAPABILITY)
         self.answer.assert_not_called()
+        self.model.assert_called_once()
 
     def test_the_finance_answer_is_not_a_second_semantic_authority(self):
         # `engine_intents` yürütücüsü yalnız doğrulanmış tipli alanları domain sözleşmesine çevirir.
         source = Path(engine_intents.__file__).read_text(encoding="utf-8")
         self.assertIn('case "finance_read"', source)
         self.assertNotIn("finance.answer(", source)
+
+
+def _model_envelope(operation, arguments=None, *, capability=None):
+    from modules.brain_model_understanding import SCHEMA_VERSION
+    actions = []
+    if operation == "direct_action":
+        actions = [{
+            "action_id": "a1", "capability_id": capability, "arguments": arguments or {},
+            "reference_slots": [], "depends_on": [],
+        }]
+    return json.dumps({
+        "schema_version": SCHEMA_VERSION,
+        "operation": operation,
+        "conversation_relation": "NEW_REQUEST",
+        "temporal_need": "STATIC",
+        "target_goal_ids": [],
+        "goal": None,
+        "actions": actions,
+        "clarification": {"required": False, "question": None, "reason_code": None},
+        "confidence": "MEDIUM",
+    })
 
 
 if __name__ == "__main__":

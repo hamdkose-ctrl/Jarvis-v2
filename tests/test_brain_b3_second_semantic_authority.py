@@ -180,9 +180,6 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "continue_app": {"modules/engine_commands.py"},
         "_study_intent": {"modules/engine_commands.py"},
         "hoca.handle": {"modules/engine_tools.py"},
-        # BRAIN-03 dilim 3: `finance.answer` üretim kapısı değildir — fiyat sorusunu Brain
-        # `finance.read` ile seçer. Kalan tek çağıran geliştirme tanısıdır.
-        "finance.answer": {"scripts/finans_kaynak_testi.py"},
         # `_extra_commands` zincirinin kolları: tek üretim çağıranı zincirin kendisidir.
         "plugins.handle": {"modules/engine_tools.py"},
         "handoff.handle": {"modules/engine_tools.py"},
@@ -227,7 +224,6 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
                         "_file_command", "job_front.wants", "goal_executor.handle",
                         "continue_app", "_study_intent", "_screen_ocr",
                         "_mail_handle"}
-        # `finance.answer` (dilim 3) cascade'den çıktı: defterde yalnız tanı çağıranı kalır.
         self.assertTrue(cascade_arms <= set(self.RAW_SEMANTIC_DOORS),
                         msg=str(sorted(cascade_arms - set(self.RAW_SEMANTIC_DOORS))))
 

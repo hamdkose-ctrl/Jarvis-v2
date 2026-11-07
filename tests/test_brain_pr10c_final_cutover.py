@@ -849,11 +849,6 @@ class RetiredRouterDeterminismParityTests(unittest.TestCase):
                 semantic, plan = self.decide(text)
                 self.assertEqual(semantic.capability_hint, "research.search", text)
                 self.assertEqual(plan, ("task", {"query": text, "route": "PRIVATE"}), text)
-        # BRAIN-03 dilim 3: varlığı adlandıran fiyat sorusu taze veriyi doğrudan finans
-        # domain'inden okur; chat sözüne de arama görevine de düşmez.
-        semantic, plan = self.decide("dolar ne kadar")
-        self.assertEqual(semantic.capability_hint, "finance.read")
-        self.assertEqual(plan, ("finance_read", {"kind": "rate", "source": "USD", "target": "TRY"}))
         for text in ("Haber nedir?", "kur nedir", "Haberlere bak", "son mailleri göster"):
             with self.subTest(static=text):
                 self.assertNotEqual(self.decide(text)[0].capability_hint, "research.search", text)
@@ -947,11 +942,11 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                 self.assertEqual(self.door(text)[1], {"intent": "chat", "args": {}}, text)
 
     def test_a_validated_plan_wins_over_the_generic_envelope(self):
-        # BRAIN-03 dilim 3: doğrulanmış plan generic zarfı yener; fiyat sorusunda planın sahibi
-        # finans okumasıdır (ticari/argo sözleşmesi: `finance_read` + tipli slotlar).
-        _semantic, decision = self.door("Bugünkü dolar kuru kaç lira?")
-        self.assertEqual(decision["intent"], "finance_read")
-        self.assertEqual(decision["args"], {"kind": "rate", "source": "USD", "target": "TRY"})
+        # A validated capability plan wins over the generic task envelope. Finance is
+        # intentionally absent here: its semantic selection belongs to the model proposal path.
+        _semantic, decision = self.door("ekranı analiz et")
+        self.assertEqual(decision["intent"], "screen_analyze")
+        self.assertEqual(decision["args"], {"question": ""})
 
     def test_the_envelope_needs_understandings_execution_verdict(self):
         # Capability biçimli ama icra isteği olmayan cümle ("belgeyi özetle" gibi hedefi belirsiz

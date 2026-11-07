@@ -821,8 +821,7 @@ def cancel_job(owner,identity):
 
 def _is_fast_command(command):
     """Modelsiz hızlı yolların (bugünün planı, mail listeleri) açık yeni komutu: bekleyen soruya cevap sayılmaz."""
-    from modules import google_api,main_planner,when,finance
-    if finance.parse(command) is not None:return True
+    from modules import google_api,main_planner,when
     low=command.casefold().strip(' .!?');forms={low,when._turkish(low),main_planner._fold(low)}
     return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
 
@@ -897,4 +896,3 @@ def handle(runtime,command):
             superseded=ends_with_action(command)
         if not superseded and not _is_fast_command(command):return run(runtime,command,resume=True)
     return None
-

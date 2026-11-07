@@ -1,23 +1,29 @@
 """WhatsApp mesajı gönderme (Windows masaüstü uygulaması).
 
-İki yol vardır:
-  1) Kişinin numarası kayıtlıysa  -> whatsapp://send?phone=...&text=... bağlantısı sohbeti mesaj yazılı açar, Enter gönderir.
-  2) Numara yoksa                 -> WhatsApp açılır, arama kutusuna ad yazılır, ilk sohbet seçilir, mesaj yapıştırılıp
-                                     Enter'a basılır (ekran/klavye otomasyonu; WhatsApp sürümüne göre değişebilir).
+Tek yol vardır: kişinin **kayıtlı numarası**. Numara yoksa gönderim başlamaz.
+
+Eski ikinci yol (numarasız: uygulamayı aç, arama kutusuna adı yaz, ilk sohbet sonucunu seç, metni
+yapıştır, Enter) bilinçli olarak kaldırıldı: arama sonucunun ilk satırı kullanıcının kastettiği kişi
+olabilir de olmayabilir de, ve onay ile gönderim arasındaki bu belirsizlik geri alınamaz bir dış
+etkiye (yanlış kişiye mesaj) dönüşüyordu. Alıcı çözümlemesi `contact_matches` ile yalnız kayıtlı
+defterde ve yalnız tekil eşleşmede yapılır (`find_contact`); numara yoksa çağrı hiç başlamaz.
+Numara iki sınırda doğrulanır: çözümlemede `normalize_phone` (bozuk/metin/enjeksiyon kaydı
+gönderim adayı sayılmaz), yürütücüde yalnız kanonik biçim (ham telefon değeri URI'ye giremez).
+İsim belirsizliği numara geçerliliğinden bağımsızdır: adı eşleşen herkes (`name_matches`)
+karara girer; bir adayın numarası bozuk diye diğer aday otomatik seçilmez.
 Gönderme sırasında klavye ve fareye dokunulmamalıdır. Fareyi ekranın köşesine sürmek işlemi durdurur (pyautogui güvenliği).
 """
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
-import difflib
 import os
 import re
-import subprocess
 import time
 import threading
+from typing import Any
 from urllib.parse import quote
 
-from modules import system_control, requests_state
+from modules import requests_state
 
 # BRAIN-03 dilim 2: "bu bir WhatsApp mesajı mı" ve "alıcı/gövde nedir" hükümleri bu modülden
 # kaldırıldı. Anlam kararı `brain_understanding` (`message.send`), biçim hükmü `brain_core_map`,
@@ -37,33 +43,95 @@ def normalize_phone(text: str) -> str | None:
     return digits if 10 <= len(digits) <= 15 else None
 
 
-def find_contact(contacts: dict, name: str) -> tuple[str, str] | None:
-    """Kayıtlı kişiler arasında ada en yakın olanı (ad, numara) döndürür."""
-    n = system_control._norm(name)
-    if not n or not contacts:
+_TURKISH_FOLD = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u",
+                              "â": "a", "î": "i", "û": "u"})
+
+
+def fold_name(text: str) -> str:
+    """Ad karşılaştırması için Türkçe-duyarlı katlama: "Ayşe" ve "ayse" aynı kişidir."""
+    if not isinstance(text, str):
+        return ""
+    lowered = text.casefold().translate(_TURKISH_FOLD)
+    cleaned = re.sub(r"[^a-z0-9 ]+", " ", lowered)
+    return " ".join(cleaned.split())
+
+
+def contact_matches(contacts: dict, name: str) -> list[tuple[str, str]]:
+    """Kayıtlı defterde adı `name`e uyan kişiler: birebir eşleşme ya da tam kelime öneki.
+
+    Bulanık (difflib) eşleştirme yoktur: "mehmet" kayıtlı "Memet"i seçmez. Yakınlık ölçüsü
+    tek bir kişiyi sessizce seçmenin aracı olamaz; eşleşme ya yazılan addır ya da o adla
+    başlayan tam kelimelerdir. Birden fazla kişi uyuyorsa karar kullanıcınındır.
+
+    Numara da eşleşmenin koşuludur: kayıt yalnız telefon biçimi taşıyorsa `normalize_phone`
+    ile doğrulanır ve **kanonik** numara döner. Bozuk, boş, metin içeren ya da URL parametresi
+    enjeksiyonu taşıyan kayıt eşleşme sayılmaz (normalize edip "kurtarmak" `&cc=90` gibi
+    eklerdeki rakamları hedefe ekleyerek yanlış numara üretebilir).
+    """
+    matches: list[tuple[str, str]] = []
+    for stored, phone in _name_rows(contacts, name):
+        canonical = _canonical_record_phone(phone)
+        if canonical is not None:
+            matches.append((stored, canonical))
+    return matches
+
+
+def name_matches(contacts: dict, name: str) -> list[str]:
+    """Adı `name`e uyan kayıtlı kişilerin tamamı — numara geçerliliğine bakmadan.
+
+    İsim belirsizliği kararının tek girdisidir: iki "Ahmet" varsa biri bozuk numaralı
+    diye diğeri otomatik seçilmez. Gönderilebilir adaylar ayrıca `contact_matches`
+    ile süzülür; seçim kullanıcıya aittir.
+    """
+    return [stored for stored, _phone in _name_rows(contacts, name)]
+
+
+# Eski/elle düzenlenmiş profil kaydı yürütücüye ham taşınmaz: yalnız telefon biçimi
+# karakterleri normalize edilir; harf, &, =, #, ? gibi URL/parametre karakterleri reddedilir.
+_PHONE_RECORD = re.compile(r"[+0-9(][0-9\s\-()]*")
+
+
+def _canonical_record_phone(phone: Any) -> str | None:
+    raw = str(phone).strip() if phone is not None else ""
+    if not raw or _PHONE_RECORD.fullmatch(raw) is None:
         return None
-    by_norm = {system_control._norm(k): k for k in contacts}
-    if n in by_norm:
-        return by_norm[n], contacts[by_norm[n]]
-    close = difflib.get_close_matches(n, list(by_norm), n=1, cutoff=0.8)
-    return (by_norm[close[0]], contacts[by_norm[close[0]]]) if close else None
+    return normalize_phone(raw)
 
 
-def _paste(text: str) -> None:
-    """Türkçe karakterler için panoya koyup Ctrl+V ile yapıştırır."""
-    import pyautogui
-    try:
-        import pyperclip
-        pyperclip.copy(text)
-        pyautogui.hotkey("ctrl", "v")
-    except ImportError:
-        if text.isascii():
-            pyautogui.write(text, interval=0.02)
-        else:
-            subprocess.run(["powershell", "-NoProfile", "-Command", "Set-Clipboard -Value $input"],
-                           input=text.encode("utf-8"), timeout=10,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            pyautogui.hotkey("ctrl", "v")
+def _name_rows(contacts: dict, name: str) -> list[tuple[str, Any]]:
+    """Tek ad eşleşme otoritesi: birebir ya da tam kelime öneki, kararlı sırada."""
+    query = fold_name(name)
+    if not query or not isinstance(contacts, dict):
+        return []
+    exact: list[tuple[str, Any]] = []
+    prefixed: list[tuple[str, Any]] = []
+    for stored, phone in contacts.items():
+        folded = fold_name(stored)
+        if not folded:
+            continue
+        if folded == query:
+            exact.append((stored, phone))
+        elif folded.startswith(query + " "):
+            prefixed.append((stored, phone))
+    return sorted(exact or prefixed, key=lambda row: fold_name(row[0]))
+
+
+def find_contact(contacts: dict, name: str) -> tuple[str, str] | None:
+    """Yalnız **tekil** ad eşleşmesinde ve numara geçerliyse (ad, numara); aksi hâlde None.
+
+    Tekillik ada göre ölçülür, numaraya göre değil: aynı ada iki kayıt varsa biri bozuk
+    numaralı olsa bile belirsizlik sürer (karar kullanıcıya).
+    """
+    if len(name_matches(contacts, name)) != 1:
+        return None
+    matches = contact_matches(contacts, name)
+    return matches[0] if len(matches) == 1 else None
+
+
+def mask_phone(phone: str | None) -> str:
+    """Onay metninde gösterilecek kısa kimlik: numaranın son dört hanesi."""
+    digits = re.sub(r"\D", "", str(phone or ""))
+    return "…" + digits[-4:] if len(digits) >= 4 else ""
 
 
 def _find_window(part: str) -> bool:
@@ -129,42 +197,31 @@ def send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
 def _send_whatsapp(name: str, text: str, phone: str | None = None) -> str:
     """Mesajı gönderir; kullanıcıya söylenecek sonucu döndürür. (Gönderimin alındığı doğrulanamaz.)
     Sabit uzun beklemeler yerine WhatsApp penceresi görünene kadar beklenir; açıksa neredeyse hemen gönderir."""
+    if not phone:
+        # Numara yoksa hiçbir uygulama açılmaz, arama kutusu kullanılmaz: ad benzerliğiyle
+        # hedef seçmek yanlış kişiye mesaj riskidir (kaldırılan GUI yolu).
+        return f"{name} için kayıtlı bir numara yok; mesajı göndermedim."
+    # Son güvenlik sınırı: çözümleme normalize etmiş olsa bile URI'ye yalnız KANONİK numara
+    # girer. Ham değer (boşluk, +, enjeksiyon karakteri, rakam dışı metin) burada reddedilir;
+    # böylece URL parametresine ham telefon değeri hiçbir yoldan geçemez.
+    canonical = normalize_phone(phone) if isinstance(phone, str) else None
+    if canonical is None or canonical != phone:
+        return f"{name} için geçerli bir numara yok; mesajı göndermedim."
     if os.name != "nt":
         return "WhatsApp mesajı yalnızca Windows'ta gönderilebilir."
     import pyautogui
     try:
         requests_state.check()
         was_open = _find_window("whatsapp")
-        if phone:
-            os.startfile(f"whatsapp://send?phone={phone}&text={quote(text)}")   # type: ignore[attr-defined]
-            if was_open:
-                _pause(1.3)
-            else:
-                if not _wait_window("whatsapp"):
-                    return "WhatsApp penceresini bulamadım; mesajı göndermedim."
-                _pause(2.2)             # sohbet ve hazır metin yüklensin
-            requests_state.check()
-            pyautogui.press("enter")
+        os.startfile(f"whatsapp://send?phone={canonical}&text={quote(text)}")   # type: ignore[attr-defined]
+        if was_open:
+            _pause(1.3)
         else:
-            system_control.open_application("whatsapp")
-            if was_open:
-                _pause(1.0)
-            else:
-                if not _wait_window("whatsapp"):
-                    return "WhatsApp penceresini bulamadım; mesajı göndermedim."
-                _pause(1.8)
-            pyautogui.hotkey("ctrl", "f")        # sohbet arama kutusu
-            _pause(0.4)
-            _paste(name)
-            _pause(1.2)
-            pyautogui.press("down")              # ilk sonucu seç
-            requests_state.check()
-            pyautogui.press("enter")
-            _pause(0.8)
-            _paste(text)
-            _pause(0.3)
-            requests_state.check()
-            pyautogui.press("enter")
+            if not _wait_window("whatsapp"):
+                return "WhatsApp penceresini bulamadım; mesajı göndermedim."
+            _pause(2.2)             # sohbet ve hazır metin yüklensin
+        requests_state.check()
+        pyautogui.press("enter")
         return f"{name} için WhatsApp’ta gönderme komutunu uyguladım. Mesajın teslimini doğrulayamıyorum."
     except requests_state.Cancelled:
         raise

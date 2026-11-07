@@ -63,7 +63,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
                                     (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
-                                    (learning, "handle", None), (finance, "answer", None)):
+                                    (learning, "handle", None), (finance, "answer_request", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -1005,9 +1005,6 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "is_whatsapp_message": set(),
         "_contact_command": set(),
         "quick_parse": set(),
-        # BRAIN-03 dilim 3: yüzeydeki `finance.answer(command)` dalı kalktı; kalan tek çağıran
-        # geliştirme tanısıdır (ayrıştırma Brain'de, biçimlendirme domain'de).
-        "finance.answer": {"scripts/finans_kaynak_testi.py"},
         "selfctl.handle": {"modules/engine_commands.py"},
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},

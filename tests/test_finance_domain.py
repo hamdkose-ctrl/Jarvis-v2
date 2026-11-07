@@ -98,7 +98,7 @@ class FinanceDomainContractTests(unittest.TestCase):
             self.assertNotIn('FIN-003', {row['rule'] for row in finance_domain.check(td)})
 
     def test_check_does_not_import_or_run_finance_code(self):
-        with patch('modules.finance.answer', side_effect=AssertionError('Canlı finans yasak')), \
+        with patch('modules.finance.answer_request', side_effect=AssertionError('Canlı finans yasak')), \
                 patch('modules.public_sources.fetch', side_effect=AssertionError('Ağ yasak')):
             self.assertEqual(finance_domain.check(), [])
 

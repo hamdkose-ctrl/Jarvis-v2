@@ -29,9 +29,8 @@ BRANCHES = {
         'permission_class': 'read',
         'effect_policy': 'read_only',
         'modules': ('modules/finance.py', 'modules/tool_finance.py'),
-        'entry_points': ('modules/finance.py:answer', 'modules/finance.py:parse',
-                         'modules/finance.py:rates', 'modules/finance.py:dated_rate',
-                         'modules/finance.py:is_conversion'),
+        'entry_points': ('modules/finance.py:request_from_slots', 'modules/finance.py:answer_request',
+                         'modules/finance.py:rates', 'modules/finance.py:dated_rate'),
         'invariants': (
             'Yalnız kamuya açık, anahtarsız ve ücretsiz kaynak okunur; okuma public_sources.fetch üzerinden yapılır.',
             'Kaynak yanıtından yalnız sayı ve tarih alınır; kaynak metni modele gitmez.',

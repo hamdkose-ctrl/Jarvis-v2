@@ -40,12 +40,10 @@ class FreshResearchRoutingTests(unittest.TestCase):
                 self.assertIsNone(plan, text)
                 self.assertIs(semantic.request_kind, RequestKind.CHAT, text)
 
-    def test_an_explicitly_fresh_how_question_still_gets_live_data(self):
-        # Tazelik işareti ("bugünkü", "son") açıklama sorusunu bastırır: kullanıcı güncel veriyi ister.
-        # BRAIN-03 dilim 3: kur/fiyat sorusunun canlı veri sahibi finans domain'idir; cevap oradan
-        # gelir, arama görevi açılmaz. Araştırma kanalı ancak kullanıcı "araştır" derse seçilir.
-        self.assertEqual(decide('bugünkü dolar kuruna nasıl bakılır')[1],
-                         ("finance_read", {"kind": "rate", "source": "USD", "target": "TRY"}))
+    def test_a_fresh_how_question_is_not_a_deterministic_finance_shortcut(self):
+        # Model-owned finance semantics are covered by the end-to-end typed proposal tests.
+        self.assertNotEqual(decide('bugünkü dolar kuruna nasıl bakılır')[0].capability_hint,
+                            "finance.read")
         self.assertEqual(decide('bugünkü dolar kuruna nasıl bakılır araştır')[1][0], "task")
         self.assertEqual(decide('son haberlerdeki gelişmeyi nasıl özetlersin')[1][0], "task")
 

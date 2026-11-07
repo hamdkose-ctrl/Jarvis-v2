@@ -85,6 +85,88 @@ _UI_AUTHORITY_MODULES = frozenset({
 # intentionally empty; any future UI dependency on the modules above is ARCH-006.
 _UI_AUTHORITY_BASELINE = {}
 
+# BRAIN-03 dilim 2 (§7): bu iki etki kullanıcının KENDİ cümlesinin anlamıdır; karar sahibi
+# bounded model zarfıdır. Ham cümleden yetenek seçen bir yüzey (regex/kelime listesi) ya da
+# modelden bu yeteneği yasaklayan bir küme ikinci bir semantic authority'dir.
+#
+# Kural yetenek ADİNİ değil SAHİBİNİ ve SÖZLEŞME TABLOSUNU denetler: ad yalnız aşağıdaki
+# kapalı sözleşme tablolarının içinde taşınabilir (sabitin tanımı, Core'un niyet tablosu,
+# zarfın dayanak tablosu, bu guardın ihlal kümesi). Bir fonksiyonun içinde, bir yasak
+# kümesinde, kıyaslamada veya bu adların dışında bırakılmış bir tabloda görünmesi blocker'dır.
+# Bu yüzden ihlali başka bir dosyaya taşımak, tanıyıcıyı/sabiti yeniden adlandırmak veya
+# literal yerine kanonik sabiti import etmek denetimi kapatmaz: her yol ya sahibisiz bir
+# literal ya da sözleşme tablosu dışında bir kanonik ad üretir.
+#
+# Denetim yetenek KİMLİĞİNE bakar, biçim/güvenlik denetimlerine (numara regex'i, kapalı enum,
+# tip sınırı) dokunmaz: onlar bir yetenek adı taşımadığı için hiç ele alınmaz.
+_SEMANTIC_MODEL_CAPABILITIES = {
+    'message.send': 'MESSAGE_SEND_CAPABILITY',
+    'contacts.manage': 'CONTACTS_MANAGE_CAPABILITY',
+}
+# Dosya → yetenek adının meşren görünebileceği modül-düzeyi sözleşme tabloları.
+_SEMANTIC_CAPABILITY_CONTRACT_TABLES = {
+    'modules/brain_understanding.py': ('MESSAGE_SEND_CAPABILITY', 'CONTACTS_MANAGE_CAPABILITY'),
+    'modules/brain_core_map.py': ('CORE_INTENTS',),
+    'modules/brain_model_understanding.py': ('_USER_OWNED_ARGUMENT_SLOTS',),
+    'modules/architecture_guard.py': ('_SEMANTIC_MODEL_CAPABILITIES',),
+}
+
+
+def _assignment_target_names(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Assign):
+        return tuple(target.id for target in node.targets if isinstance(target, ast.Name))
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return (node.target.id,)
+    return ()
+
+
+def _authorized_semantic_nodes(tree: ast.AST, relative: str) -> set[int]:
+    """Yalnız kapalı sözleşme tablolarının düğümleri: başka hiçbir konum meşru değildir."""
+    tables = _SEMANTIC_CAPABILITY_CONTRACT_TABLES.get(relative, ())
+    if not tables:
+        return set()
+    literals = set(_SEMANTIC_MODEL_CAPABILITIES)
+    constants = set(_SEMANTIC_MODEL_CAPABILITIES.values())
+    nodes: set[int] = set()
+    for node in tree.body:
+        names = set(_assignment_target_names(node))
+        if not names & set(tables):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Constant) and inner.value in literals) or (
+                    isinstance(inner, ast.Name) and inner.id in constants):
+                nodes.add(id(inner))
+    return nodes
+
+
+def _semantic_authority_issues(tree: ast.AST, relative: str) -> list[dict]:
+    literals = set(_SEMANTIC_MODEL_CAPABILITIES)
+    constants = set(_SEMANTIC_MODEL_CAPABILITIES.values())
+    if not any((isinstance(node, ast.Constant) and node.value in literals)
+               or (isinstance(node, ast.Name) and node.id in constants)
+               for node in ast.walk(tree)):
+        return []
+    authorized = _authorized_semantic_nodes(tree, relative)
+    issues = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and node.value in literals:
+            if id(node) in authorized:
+                continue
+            issues.append(_issue(
+                'ARCH-008', 'BLOCKER', relative, node.lineno,
+                f'Yetenek adı {node.value!r} kapalı sözleşme tablosu dışında kullanıldı: ham '
+                'cümleden yetenek seçilemez ve modelden yasaklanamaz; karar bounded model zarfınındır.',
+            ))
+        elif isinstance(node, ast.Name) and node.id in constants:
+            if id(node) in authorized:
+                continue
+            issues.append(_issue(
+                'ARCH-008', 'BLOCKER', relative, node.lineno,
+                f'Kanonik yetenek sabiti {node.id} kapalı sözleşme tablosu dışında taşındı: '
+                'yeniden adlandırma veya dosya taşıma semantik yetkiyi geri vermez.',
+            ))
+    return issues
+
 
 def _call_name(node: ast.Call, module_alias: dict | None = None, func_alias: dict | None = None) -> str | None:
     module_alias = module_alias or {}
@@ -241,6 +323,8 @@ def scan(root=None) -> dict:
             fixed_attempt_one = True
 
         module_alias, func_alias = _collect_aliases(tree)
+
+        blockers.extend(_semantic_authority_issues(tree, relative))
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

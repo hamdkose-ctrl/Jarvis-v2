@@ -13,9 +13,8 @@ FRESH = ["son haberler neler", "güncel kur",
          "skor kaç", "yeni haberler", "borsa son durum", "en son gelişmeler",
          "yapay zeka haberlerini anlat", "borsa durumu ne", "haberleri özetle", "altın durumu",
          "şimdi piyasa", "fiyat kaç"]
-# BRAIN-03 dilim 3: taze dış veri isteği tek başına kanal hükmü değildir. Varlığı adlandıran
-# kur/fiyat soruları tazelik kuralından önce finans okumasına çözülür (BRAIN-MIG-101): cevap
-# zaten canlı TCMB/CoinGecko/BIST kaynağından gelir, web aramasına çıkmaz.
+# Finance selection is a model-owned semantic decision (BRAIN-MIG-101), not a deterministic
+# vocabulary rule. These pure Understanding tests only verify the independent freshness route.
 FINANCE = ["bugün dolar kaç", "dolar ne kadar", "altın fiyatı ne kadar", "euro ne kadar"]
 NOT_FRESH = ["dolar nedir", "haber tarihçesi", "kur nedir", "bugün ne var", "son dosyam", "Haberlere bak",
              "hava nasıl",
@@ -40,16 +39,11 @@ class FreshnessRuleTests(unittest.TestCase):
                 self.assertEqual(hint, "research.search")
                 self.assertEqual(plan, ("task", {"query": text, "route": "PRIVATE"}))
 
-    def test_price_questions_are_the_finance_capability_not_research(self):
-        # Finans domain'i zaten canlı kaynak okuyor; bu cümleler tek canonical planda kalır ve
-        # arama görevine düşmez (kanal hükmü kullanıcının kendi fiilindedir: "… araştır").
+    def test_price_questions_are_not_selected_by_a_deterministic_finance_lexicon(self):
         for text in FINANCE:
             with self.subTest(text=text):
-                hint, plan = decide(text)
-                self.assertEqual(hint, "finance.read")
-                self.assertIsNotNone(plan)
-                self.assertEqual(plan[0], "finance_read")
-                self.assertNotEqual(plan[0], "task")
+                hint, _plan = decide(text)
+                self.assertNotEqual(hint, "finance.read")
 
     def test_non_fresh_requests_stay_chat(self):
         for text in NOT_FRESH:
@@ -74,11 +68,10 @@ class FreshnessRuleTests(unittest.TestCase):
         for text in static:
             with self.subTest(static=text):
                 self.assertNotEqual(decide(text)[0], "research.search")
-        # Varlığı adlandıran kur soruları artık finans okumasıdır; "nedir" kalıbını tazelik değil
-        # BRAIN-03 dilim 3'ün tipli okuması bastırır.
+        # Finance `finance.read` selection is left to the model proposal path.
         for text in ("bugünkü dolar kuru nedir", "şu an dolar kuru nedir"):
             with self.subTest(fresh=text):
-                self.assertEqual(decide(text)[0], "finance.read")
+                self.assertNotEqual(decide(text)[0], "finance.read")
         for text in ("güncel altın fiyatı nedir", "son nvidia haberi nedir", "mevcut altın fiyatı nedir"):
             with self.subTest(fresh=text):
                 self.assertEqual(decide(text)[0], "research.search")

@@ -535,22 +535,6 @@ def _needs_fresh_external_data(text: str) -> bool:
     return True
 
 
-def _research_verb_request(text: str) -> bool:
-    """Kullanıcının KENDİ söylediği araştırma fiili ("ara/bul/araştır") + web ipucu.
-
-    Tazelik işaretinden (`_needs_fresh_external_data`) ayrıdır: "dolar kaç lira" taze veri
-    ister ama kanalı söylemez, "dolar kaç lira araştır" kanalı söyler. Kanal hükmü finans
-    domain'inin okumasıyla değiştirilemez (BRAIN-03 dilim 3).
-    """
-    if _is_meta_language(text) or _is_literal_command_usage(text):
-        return False
-    if _RESEARCH_PRIVATE_TARGET.search(text) is not None:
-        return False
-    if _RESEARCH_WEB_CUE.search(text) is None:
-        return False
-    return _contains_command_token(text, ("ara", "bul", "araştır", "arastir"))
-
-
 def _is_explicit_research_request(text: str) -> bool:
     """True for an explicit public-web research ask or a fresh external-data request; private/deictic targets stay with their owner."""
     if _is_meta_language(text) or _is_literal_command_usage(text):
@@ -559,7 +543,9 @@ def _is_explicit_research_request(text: str) -> bool:
         return False
     if _needs_fresh_external_data(text):
         return True
-    return _research_verb_request(text)
+    if _RESEARCH_WEB_CUE.search(text) is None:
+        return False
+    return _contains_command_token(text, ("ara", "bul", "araştır", "arastir"))
 
 
 def _research_arguments(original: str, normalized: str) -> dict[str, object]:
@@ -919,11 +905,7 @@ def _visual_kind(text: str) -> str | None:
     return kind
 
 
-def _capability_hint(text: str, temporal_need: TemporalNeed, *,
-                    original: str | None = None) -> str | None:
-    """Kanonical capability ipucu; `original` yalnız büyük/küçük harfe duyarlı
-    sözlükler içindir (BIST kodu `THYAO` normalize metinde küçülür).
-    """
+def _capability_hint(text: str, temporal_need: TemporalNeed) -> str | None:
     if _is_meta_language(text) or _is_literal_command_usage(text):
         return None
     if _note_write_request(text) is not None:
@@ -937,12 +919,8 @@ def _capability_hint(text: str, temporal_need: TemporalNeed, *,
     city = _weather_city_request(text)
     if city is not None:
         return city
-    # BRAIN-03 dilim 2: WhatsApp gönderme ve rehber cümleleri de canonical capability'dir;
-    # ham cümleyi okuyan yüzey kapıları emekli edildi.
-    if _message_request(text) is not None:
-        return MESSAGE_SEND_CAPABILITY
-    if _contacts_request(text) is not None:
-        return CONTACTS_MANAGE_CAPABILITY
+    # BRAIN-03 dilim 2: `message.send` / `contacts.manage` burada SEÇİLMEZ. Sözleşme V2 §2:
+    # bu iki etki kullanıcının kendi cümlesinin anlamıdır; karar sahibi bounded model zarfıdır.
     # Ekranı okuma ve pencere kontrolü: sözcük düzeyinde kesinse model'e sorulmadan canonical öneri olur.
     if _SCREEN_ANALYZE_CUE.search(text) is not None:
         return SCREEN_CAPABILITY
@@ -962,15 +940,6 @@ def _capability_hint(text: str, temporal_need: TemporalNeed, *,
     if any(_bounded_token(text, token) for token in ("hatırlat", "hatirlat", "uyar")):
         return "reminder.propose"
     # New canonical path: explicit public-web research, including the Turkish verb "araştır".
-    # Açık araştırma FİİLİ fiyat okumasından ÖNCE gelir: "dolar kaç tl araştır" bir web aramasıdır,
-    # kullanıcının kendi söylediği kanal hükmü finans domain'inin okumasıyla değiştirilemez.
-    # Tazelik işareti tek başına kanal hükmü değildir: o yüzden sıra fiil → finans → tazelik.
-    if _research_verb_request(text):
-        return "research.search"
-    # BRAIN-03 dilim 3: fiyat/kur sorusu artık domain'in ham metin ayrıştırmasına bırakılmaz;
-    # tazelik kuralından önce gelir çünkü "dolar kaç lira" bir arama değil fiyat okumasıdır.
-    if _finance_arguments(original or text):
-        return FINANCE_READ_CAPABILITY
     if _is_explicit_research_request(text):
         return "research.search"
     # Preserve the pre-B4d advisory hint for generic ara/bul phrases. Without validated
@@ -1713,312 +1682,16 @@ def _weather_city_arguments(normalized: str) -> dict[str, object]:
     return {"location": " ".join(name)}
 
 
-# BRAIN-03 dilim 2: `engine_commands` içindeki ham WhatsApp kapıları (`is_whatsapp_message`,
-# `quick_parse`) ve rehber grameri (`_contact_command`) emekli edildi; ikinci semantic authority
-# yoktur. Anlam hükmü ("bu bir gönderme isteği mi", "alıcı ne, gövde ne") burada, biçim hükmü
-# (alıcı adı/telefon) Core'da, oturum ve gönderim onayı mevcut `pending_msg` protokolünde kalır.
+# BRAIN-03 dilim 2 (§2/§3B): bu iki yetenek adı yalnız birer KİMLİKTİR — yetenek kararının
+# sahibi değildir. Ham cümleden `message.send`/`contacts.manage` seçen gramer (`_WA_*`,
+# `_MESSAGE_*`, `_CONTACTS_*`, `_message_*`, `_contacts_*`) yüzeyden silindi; kararı bounded
+# model zarfı verir (`brain_model_understanding`), alanların BİÇİMİ Core'da
+# (`brain_core_map._message_args`/`_contacts_args`), uydurma olmaması ise kullanıcının kendi
+# cümlesinden alıntılanan dayanakla (`argument_sources`) denetlenir. Oturum ve gönderim onayı
+# mevcut `pending_msg` protokolünde kalır.
 MESSAGE_SEND_CAPABILITY = "message.send"
 CONTACTS_MANAGE_CAPABILITY = "contacts.manage"
-_CONTACTS_ADD = "add"
-_CONTACTS_LIST = "list"
-
-# WhatsApp sözcüğü ZORUNLUDUR: başka bir kanal (SMS/Telegram) tahmin edilmez. Yanlış yazım ailesi
-# emekli `WA_WORD` kümesiyle aynı düşük riskli listedir, kelime taraması değildir.
-_WA_WORD = r"(?:whats? ?app|whatsa+p|whatsha?ap|wathsaap|whatsap|wats?ap|vats?ap|vhatsap)"
-_WA_CUE = re.compile(rf"(?<![\w]){_WA_WORD}[a-zçğıöşü'’]*(?![\w])")
-_WA_LEAD = re.compile(
-    rf"^(?:lütfen\s+)?{_WA_WORD}[a-zçğıöşü'’]*(?:\s+(?:ile|üzerinden|uzerinden))?(?:\s+|$)")
-# Gönderim fiili yalnız emir/rica biçimidir: "attım"/"attın mı" bir istek değildir.
-_MESSAGE_TAILS = ("mesaj at", "mesaj gönder", "mesaj yaz", "mesaj ilet",
-                  "atar mısın", "atabilir misin", "atsana", "at",
-                  "gönderir misin", "gönderebilir misin", "göndersene", "gönder",
-                  "yazar mısın", "yazabilir misin", "yazsana", "yaz",
-                  "iletir misin", "iletsene", "ilet",
-                  "yollar mısın", "yollasana")
-_MESSAGE_ADDRESS = re.compile(r"(?P<stem>[a-zçğıöşü]{2,30})(?:['’](?:ye|ya|e|a)|(?:ye|ya|e|a))$")
-_MESSAGE_ADDRESS_FUNCTION = frozenset({"diye"})
-MESSAGE_BODY_MAX = 4000
-_MESSAGE_BODY_FILLERS = frozenset({"", "mesaj", "mesajı", "mesaji", "whatsapp", "whatsappı"})
-_CONTACT_NAME = re.compile(r"[a-zçğıöşü]{1,40}(?: [a-zçğıöşü]{1,30}){0,3}")
-_CONTACT_PHONE = r"\+?[0-9][0-9\s\-()]{8,}"
-_CONTACTS_ADD_SHAPES = (
-    re.compile(rf"^(?:lütfen\s+)?(?:kişi ekle|rehbere ekle|numara kaydet)\s+(?P<name>[a-zçğıöşü ]{{2,60}}?)\s+(?P<phone>{_CONTACT_PHONE})$"),
-    re.compile(rf"^(?:lütfen\s+)?(?P<name>[a-zçğıöşü]+)['’]?(?:in|ın|un|ün|nin|nın)\s+"
-               rf"(?:numarası|telefonu)\s+(?P<phone>{_CONTACT_PHONE})(?:\s+(?:kaydet|olarak kaydet))?$"),
-)
-_CONTACTS_LIST_REQUEST = re.compile(r"^(?:kişileri (?:listele|göster)|rehberim)$")
-
-
-def _message_remainder(normalized: str) -> str | None:
-    """Cümle sonundaki gönderim fiilini ayırır; fiil yoksa None."""
-    text = normalized.strip(" .!,")
-    for tail in sorted(_MESSAGE_TAILS, key=len, reverse=True):
-        if text == tail:
-            return ""
-        if text.endswith(" " + tail):
-            return text[: -len(tail)].strip()
-    return None
-
-
-def _message_body(text: str) -> str:
-    body = text.strip(" \t\"'“”‘’«»")
-    if body.casefold().endswith(" diye"):
-        body = body[: -len(" diye")].strip()
-    return "" if body.casefold() in _MESSAGE_BODY_FILLERS else body
-
-
-def _message_fields(remainder: str) -> tuple[str, str]:
-    """Adres (dative) biçiminden (alıcı, gövde); adres yoksa alıcı boş kalır.
-
-    Türkçe'de iki sıra da yaygındır: adres başta ("ahmet'e yarın geleceğim") veya sonda
-    ("yarın geleceğim diye ahmet'e"). İkisi de tek adres token'ı taşır. Birden çok aday varsa
-    ("yarın eve geleceğim diye anneme") hüküm verilmez: slotlar boş kalır ve oturum kendi
-    sorusunu sorar — yanlış gövdeyi onaya sunmak uydurma numaradan daha ağır bir kusurdur.
-    """
-    words = remainder.split()
-    if not words:
-        return "", ""
-    # `diye` gönderilecek sözün bağlacıdır; kapalı ek hükmü onu da "-e hâlinde bir sözcük"
-    # sayar. Adres adayları bu işlev sözcüğü çıkarılarak sayılır (sözlük değil, tek bağlaç).
-    candidates = [i for i, word in enumerate(words)
-                  if word not in _MESSAGE_ADDRESS_FUNCTION
-                  and _MESSAGE_ADDRESS.fullmatch(word) is not None]
-    if not candidates:
-        return "", _message_body(remainder)
-    if candidates[0] == 0:
-        address, rest = words[0], words[1:]
-    elif len(candidates) == 1 and candidates[0] == len(words) - 1:
-        address, rest = words[-1], words[:-1]
-    else:
-        return "", ""
-    return _MESSAGE_ADDRESS.fullmatch(address).group("stem"), _message_body(" ".join(rest))
-
-
-def _message_request(normalized: str) -> dict[str, object] | None:
-    """WhatsApp gönderme cümlesinin tek biçim hükmü; alıcı/gövde slotları tiplidir."""
-    if _is_meta_language(normalized) or _is_literal_command_usage(normalized):
-        return None
-    if _WA_CUE.search(normalized) is None:
-        return None
-    remainder = _message_remainder(normalized)
-    if remainder is None:
-        return None
-    lead = _WA_LEAD.match(remainder)
-    if lead is not None:
-        remainder = remainder[lead.end():].strip()
-    recipient, body = _message_fields(remainder)
-    if len(body) > MESSAGE_BODY_MAX:
-        return None
-    return {"recipient": recipient, "body": body}
-
-
-def _message_arguments(normalized: str) -> dict[str, object]:
-    request = _message_request(normalized)
-    return {} if request is None else dict(request)
-
-
-def _contacts_request(normalized: str) -> tuple[str, dict[str, object]] | None:
-    """(işlem, tipli alanlar) — rehber yazma/listeleme cümlesinin tek hükmü."""
-    text = normalized.strip(" .!,")
-    if _CONTACTS_LIST_REQUEST.fullmatch(text):
-        return _CONTACTS_LIST, {}
-    for shape in _CONTACTS_ADD_SHAPES:
-        match = shape.fullmatch(text)
-        if match is None:
-            continue
-        name = " ".join(match.group("name").split())
-        if _CONTACT_NAME.fullmatch(name) is None:
-            return None
-        return _CONTACTS_ADD, {"name": name, "phone": match.group("phone")}
-    return None
-
-
-def _contacts_arguments(normalized: str) -> dict[str, object]:
-    request = _contacts_request(normalized)
-    if request is None:
-        return {}
-    operation, payload = request
-    return {"operation": operation, **payload}
-# BRAIN-03 dilim 3: fiyat/kur sorusunun tek grameri buradadır. Sözlük (para birimi, kripto,
-# hisse, altın türü, sayı sözcükleri) ve biçim yardımcıları finans domain'inin verisidir;
-# "bu cümle fiyat sorusu mu, hangi varlık, hangi yön, ne kadar" hükmü Brain'de verilir.
-# Domain artık ham cümleyi ayrıştırmaz: `finance.parse` bu tek gramere devreder.
 FINANCE_READ_CAPABILITY = "finance.read"
-
-
-def _finance_domain():
-    """Sözlük ve biçim yardımcılarının tek sahibi (lazy: import döngüsü yok)."""
-    from modules import finance
-    return finance
-
-
-def _finance_amount_before(fin, low: str, start: int):
-    """Para biriminden hemen önceki miktar: "100", "1.500", "2,5", "10 bin", "iki yüz elli"."""
-    words, taken = low[:start].split(), []
-    while words and (words[-1] in fin.NUMBER_WORDS or words[-1] in ("yuz", "bin", "milyon", "bucuk")
-                     or re.fullmatch(r"\d[\d.,]*", words[-1])):
-        taken.insert(0, words.pop())
-        if re.fullmatch(r"\d[\d.,]*", taken[0]):
-            break
-    total = current = fin.Decimal(0)
-    for word in taken:
-        if re.fullmatch(r"\d[\d.,]*", word):
-            value = fin.decimal_value(word)
-            if value is None:
-                return None
-            current += value
-        elif word == "yuz":
-            current = (current or 1) * 100
-        elif word == "bucuk":
-            current += fin.Decimal("0.5")
-        elif word in ("bin", "milyon"):
-            total += (current or 1) * (1000 if word == "bin" else 1_000_000)
-            current = fin.Decimal(0)
-        else:
-            current += fin.Decimal(fin.NUMBER_WORDS[word])
-    return (total + current) or None
-
-
-def _finance_asset(fin, low: str):
-    """Kripto ya da altın fiyat sorusu: {'asset','kind','amount','target'}; değilse None."""
-    found = None
-    for code, _name_, stems in fin.CRYPTO:
-        for stem in stems:
-            match = re.search(r"\b" + re.escape(stem) + fin.SUFFIX + r"\b", low)
-            if match and (found is None or match.start() < found[1]):
-                found = (code, match.start(), match.end(), None)
-    gold = re.search(fin.GOLD, low)
-    if gold and re.search(fin.GOLD_CUE, low) and not re.search(fin.GOLD_OTHER, low) \
-            and (found is None or gold.start() < found[1]):
-        found = ("GOLD", gold.start(), gold.end(), gold.group("kind") or "gram")
-    if found is None or (found[0] != "GOLD" and not re.search(fin.CUE, low)):
-        return None
-    code, start, end, kind = found
-    target = next((c for s_, _e, c in fin.mentions(low) if s_ >= end and c != "TRY"), "TRY")
-    return {"asset": code, "kind": kind, "amount": _finance_amount_before(fin, low, start),
-            "target": target, "source": None, "list": None}
-
-
-def _finance_stock(fin, text: str, low: str):
-    """BIST hissesi/endeksi; hisse bağlamı ya da büyük harfli kod ister."""
-    context = bool(re.search(r"\b(?:hisse\w*|borsa\w*|bist(?:100)?)\b", low))
-    cue = bool(re.search(r"\b(?:kac\w*|ne kadar|fiyat\w*)\b", low))
-    index = re.fullmatch(r"(?:jarvis )?(?:borsa|bist)(?: 100)? (?:kac(?: puan)?|ne durumda|ne kadar)",
-                         low.strip(".,"))
-    if index:
-        return {"stock": "XU100", "amount": None, "target": "TRY", "source": None, "list": None}
-    if not cue:
-        return None
-    for code, _name_, stems in fin.STOCKS:
-        upper = len(code) == 5 and re.search(r"\b" + code + "(?i:" + fin.SUFFIX + r")\b", text)
-        if not context and not upper:
-            continue
-        for stem in (code.lower(), *stems):
-            match = re.search(r"\b" + re.escape(stem) + fin.SUFFIX + r"\b", low)
-            if match:
-                return {"stock": code, "amount": None if code == "XU100" else
-                        _finance_amount_before(fin, low, match.start()),
-                        "target": "TRY", "source": None, "list": None}
-    if re.search(r"\bhisse\w*\b", low):
-        for match in re.finditer(r"\b([A-Z]{4,5})(?=\b|[a-zçğıöşü])", text):
-            code = match[1]
-            found = re.search(r"\b" + code.lower() + fin.SUFFIX + r"\b", low)
-            if found:
-                return {"stock": code, "amount": _finance_amount_before(fin, low, found.start()),
-                        "target": "TRY", "source": None, "list": None}
-    return None
-
-
-def _finance_bare_amount(fin, text, low: str):
-    """Yalın "100 dolar" biçimi; cümlede soru eki yoksa da miktar okunur (taban paritesi)."""
-    if not isinstance(text, str) or not re.fullmatch(r"[\w\s.,']+", text):
-        return None
-    match = re.fullmatch(r"(\d+(?:[.,]\d+)*)\s+([a-z][a-z ']*?)\.?", low)
-    if not match:
-        return None
-    currency = match[2]
-    mentions = fin.mentions(currency)
-    if len(mentions) != 1 or mentions[0][:2] != (0, len(currency)) or mentions[0][2] == "TRY":
-        return None
-    amount = fin.decimal_value(match[1])
-    if amount is None:
-        return None
-    return {"amount": amount, "source": mentions[0][2], "target": "TRY", "list": None}
-
-
-def finance_request(text: str):
-    """Fiyat sorusu: kur alanları, kripto/altında 'asset', BIST'te 'stock'; değilse None.
-
-    Bu fonksiyon tek gramerdir: `finance.parse` buraya devreder, yüzey artık cümleyi
-    domain'e sormaz.
-    """
-    fin = _finance_domain()
-    low = fin.fold(text)
-    if re.search(fin.SKIP, low):
-        return None
-    if re.search(fin.DEFINITION, low) and not re.search(r"\bkur\w*", low):
-        return None
-    asset = _finance_asset(fin, low)
-    if asset:
-        return asset
-    stock = _finance_stock(fin, text, low)
-    if stock:
-        return stock
-    if not re.search(fin.CUE, low):
-        return _finance_bare_amount(fin, text, low)
-    mentions = fin.mentions(low)
-    if not mentions:
-        return None
-    codes = [code for _start, _end, code in mentions]
-    amount = _finance_amount_before(fin, low, mentions[0][0])
-    unique = list(dict.fromkeys(codes))
-    if len(unique) == 1:
-        if unique[0] == "TRY":
-            return None
-        return {"amount": amount, "source": unique[0], "target": "TRY", "list": None}
-    second_start = mentions[codes.index(unique[1])][0]
-    between = low[mentions[0][1]:second_start]
-    after = low[second_start:second_start + 30]
-    is_target = (unique[1] == "TRY" or amount is not None
-                 or re.search(r"\bkac\b|\bkac tane\b", between)
-                 or re.search(r"\b(?:olarak|cinsinden|cevir\w*)\b", after)
-                 or re.search(r"cevir", low))
-    if is_target and len(unique) == 2:
-        return {"amount": amount, "source": unique[0], "target": unique[1], "list": None}
-    rest = [code for code in unique if code != "TRY"]
-    return {"amount": None, "source": None, "target": "TRY", "list": rest} if rest else None
-
-
-def _finance_amount_text(value) -> str:
-    """Decimal miktarı tipli slot metnine çevirir: 100 → "100", 2.5 → "2.5"."""
-    text = format(value, "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
-
-
-def _finance_arguments(text: str) -> dict[str, object]:
-    """Tek gramerin tipli slot çıktısı; Core bu slotların **biçimini** doğrular."""
-    request = finance_request(text)
-    if request is None:
-        return {}
-    if request.get("stock"):
-        arguments: dict[str, object] = {"kind": "stock", "stock": request["stock"]}
-        if request.get("amount") is not None:
-            arguments["amount"] = _finance_amount_text(request["amount"])
-        return arguments
-    if request.get("asset"):
-        arguments = {"kind": "asset", "asset": request["asset"],
-                     "target": request.get("target") or "TRY"}
-        if request.get("kind"):
-            arguments["gold_kind"] = request["kind"]
-        if request.get("amount") is not None:
-            arguments["amount"] = _finance_amount_text(request["amount"])
-        return arguments
-    if request.get("list"):
-        return {"kind": "rate", "codes": list(request["list"])}
-    arguments = {"kind": "rate", "source": request["source"], "target": request["target"]}
-    if request.get("amount") is not None:
-        arguments["amount"] = _finance_amount_text(request["amount"])
-    return arguments
 
 
 _APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"
@@ -2738,14 +2411,6 @@ def understand(
     weather_request = _is_weather_request(normalized)
     # BRAIN-03 dilim 1: şehir tercihini yazma/silme isteği de açık bir capability kararıdır.
     city_request = _weather_city_request(normalized)
-    # BRAIN-03 dilim 2: mesaj ve rehber istekleri de tek kanonical karar turuna girer.
-    message_request = (None if (photo_targeted or context_control or topic_change or correction)
-                       else _message_request(normalized))
-    contacts_request = (None if (photo_targeted or context_control or topic_change or correction)
-                        else _contacts_request(normalized))
-    # BRAIN-03 dilim 3: fiyat sorusunun tipli slotları da tek kanonical karar turunda doğar.
-    finance_slots = ({} if (photo_targeted or context_control or topic_change or correction)
-                     else _finance_arguments(text))
     research_request = _is_explicit_research_request(normalized)
     # Eylem fiili taşıyan icra isteği sohbet olarak bırakılamaz: hedef yürütücüsüne devredilir.
     # Çıplak deiktik ("onu sil") de icra isteğidir; kapıda hedef sorusuyla netleşir.
@@ -2796,8 +2461,7 @@ def understand(
     # opposite case: its target answers an open clarify, so it is not an independent request.
     explicit_capability_request = (
         level is not None or notes_read_request or note_write is not None or weather_request
-        or city_request is not None or message_request is not None or contacts_request is not None
-        or city_request is not None or bool(finance_slots)
+        or city_request is not None
         or research_request or screen_request or window_request or execution_request
         or translation is not None or file_operation is not None or file_mutation is not None or photo_proposal is not None
         or device is not None or bool(organize_targets) or folder_analysis is not None
@@ -2912,8 +2576,7 @@ def understand(
     )
     capability_hint = FILE_MUTATE_CAPABILITY if file_mutation is not None else (
         WATCHER_CAPABILITY if watcher_proposal is not None else (
-            VISUAL_CAPABILITY if visual_kind is not None
-            else _capability_hint(normalized, temporal_need, original=text)
+            VISUAL_CAPABILITY if visual_kind is not None else _capability_hint(normalized, temporal_need)
         )
     )
     if typed_pending_capability is not None:
@@ -2932,12 +2595,6 @@ def understand(
             arguments = {**arguments, "location": location}
     if capability_hint == WEATHER_CITY_SET_CAPABILITY:
         arguments = {**arguments, **_weather_city_arguments(normalized)}
-    if capability_hint == MESSAGE_SEND_CAPABILITY and message_request is not None:
-        arguments = {**arguments, **message_request}
-    if capability_hint == CONTACTS_MANAGE_CAPABILITY and contacts_request is not None:
-        arguments = {**arguments, **_contacts_arguments(normalized)}
-    if capability_hint == FINANCE_READ_CAPABILITY and finance_slots:
-        arguments = {**arguments, **finance_slots}
     if capability_hint == "reminder.propose":
         arguments = {**arguments, **_reminder_arguments(text)}
     if capability_hint == "files.read":

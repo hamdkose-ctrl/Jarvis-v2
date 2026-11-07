@@ -24,7 +24,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import test_brain_pr3b_legacy_front_door_authority as b3b
-from modules import brain_core_map, brain_entry, finance, requests_state
+from modules import brain_core_map, brain_entry, requests_state
 from modules.brain_contracts import RequestKind
 from modules.brain_understanding import EXPLANATION_REQUEST_CODE, EXECUTION_REQUEST_CODE
 
@@ -191,20 +191,17 @@ class ExplanationRequestAuthorityTests(_Pr3c2Harness):
         self.assertEqual(brain_core_map.core_plan(entry.understanding.capability_hint,
                                                   entry.understanding.arguments)[0], "reminder")
 
-    def test_an_explicit_freshness_request_keeps_its_live_data_owner(self):
-        # "güncel/bugünkü" açık tazelik işaretidir; "nedir" tanım kalıbı bunu bastırmaz.
-        # BRAIN-03 dilim 3: tazelik tek başına kanal hükmü değildir. Varlığı adlandıran kur
-        # sorusunun canlı veri sahibi finans domain'idir (BRAIN-MIG-101); tur arama görevine düşmez.
+    def test_an_explicit_freshness_request_is_not_demoted_to_explanation(self):
+        # Pure Understanding keeps the freshness route; the model-owned finance override is
+        # exercised through the production proposal path in test_brain_b3_finance_authority.
         for text in ("güncel dolar kuru nedir?", "bugünkü dolar kuru nedir?"):
             with self.subTest(text=text):
                 self.reset()
-                with patch.object(finance, "answer_request", return_value="KUR") as answer:
-                    entry, out, _handle, _ = self.turn(text)
+                entry, out, _handle, _ = self.turn(text)
                 self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
-                self.assertEqual(entry.understanding.capability_hint, "finance.read")
-                self.assertEqual(out, "KUR")
-                self.run_goal.assert_not_called()
-                self.assertEqual(answer.call_count, 1)
+                self.assertEqual(entry.understanding.capability_hint, "research.search")
+                self.assertEqual(out, "GOAL_RUN")
+                self.run_goal.assert_called_once()
 
     def test_a_fresh_news_tell_request_is_not_an_explanation(self):
         # "haberleri anlat" bir açıklama fiiliyle biter ama taze dış veri isteğidir; tek

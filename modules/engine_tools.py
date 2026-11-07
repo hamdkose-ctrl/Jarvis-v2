@@ -201,7 +201,33 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
     if not p["text"]:
         p["stage"] = "text"
         return f"{p['to']} kişisine ne yazayım?"
-    name, text = p["to"], p["text"]
+    text = p["text"]
+    contacts = runtime.profile.data.get("contacts", {}) or {}
+    if p.get("confirmed") and p.get("phone"):
+        name, phone = p["to"], p["phone"]
+    else:
+        # Onaydan ÖNCE çözümleme: onay metni kullanıcının gerçekten göndereceği kişiyi göstermeli.
+        # İsim belirsizliği numara geçerliliğinden bağımsızdır: adı eşleşen herkes karara girer;
+        # bir adayın numarası bozuk diye diğer aday otomatik seçilmez.
+        names = runtime.messaging.name_matches(contacts, p["to"])
+        if not names:
+            runtime._session().pending_msg = None
+            return (f"Rehberinde “{p['to']}” diye kayıtlı bir kişi yok; mesajı göndermedim. "
+                    f"Önce “kişi ekle {p['to']} 05xx xxx xx xx” de ya da kayıtlı kişinin tam adını söyle.")
+        valid = dict(runtime.messaging.contact_matches(contacts, p["to"]))
+        if len(names) > 1:
+            # Seçim kullanıcınındır ve açık olmalı: alıcı sorusu yeniden açılır, gövde korunur.
+            listed = ", ".join(f"{person} ({runtime.messaging.mask_phone(valid[person])})"
+                               if person in valid else f"{person} (numarası geçersiz)"
+                               for person in names)
+            p["stage"], p["to"] = "to", ""
+            return (f"Rehberinde birkaç kişi eşleşiyor: {listed}. "
+                    "Hangisine göndereyim? Kişinin tam adını yaz.")
+        if names[0] not in valid:
+            runtime._session().pending_msg = None
+            return (f"Rehberindeki “{names[0]}” kaydının numarası geçerli değil; mesajı göndermedim. "
+                    f"“kişi ekle {names[0]} 05xx xxx xx xx” ile numarayı düzeltebilirsin.")
+        name, phone = names[0], valid[names[0]]
     if runtime.load_approve() and not p.get("confirmed"):
         if command is not None and p.get("stage") == "confirm":
             approval = decision(cmd_lower, extra=('gönder', 'gonder', 'evet gönder', 'evet gonder', 'gönder gitsin', 'gonder gitsin'))
@@ -215,12 +241,10 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
                 return None            # başka komut geldi: akış iptal, normal işlem sürer
         if not p.get("confirmed"):
             p["stage"] = "confirm"
-            return f"{name} kişisine şunu göndereyim mi: “{text}”? Evet ya da hayır de."
+            p["to"], p["phone"] = name, phone
+            return (f"{name} ({runtime.messaging.mask_phone(phone)}) kişisine şunu göndereyim mi: "
+                    f"“{text}”? Evet ya da hayır de.")
     runtime._session().pending_msg = None
-    found = runtime.messaging.find_contact(runtime.profile.data.get("contacts", {}), name)
-    phone = None
-    if found:
-        name, phone = found
 
     owner = runtime.profile
     task_id = runtime.secrets.token_hex(16)
