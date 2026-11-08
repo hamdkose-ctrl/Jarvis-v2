@@ -209,7 +209,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
-
-- Brain BRAIN-03 dilim4 branch kaydı: çıktı/teşhis niyeti yalnız birincil modelin `documents.export` / `system.diagnose` önerisinden Core'a geçer. Eski `_OUTPUT_SAVE`/`_output_save_admin`/`diagnose.requested` kalıplarını geri ekleme. Kayıt mevcut owner session artifact'ına bağlıdır; model yol/içerik/digest üretemez. Mock wiring gerçek model semantik kabulü değildir; migration map §14.4 ve roadmap branch kaydı kapanış durumunu ayırır.
-
-- Brain dilim4 gerçek semantik kabulü `scripts/brain_output_diagnose_holdout.py --run --json <rapor>` ile mevcut üretim rotasında ölçülür; varsayılan komut yalnız plan gösterir. 20 holdout örneği değerlendirme verisidir, tanıyıcı/prompt cevap tablosu değildir. Windows CI yalnız kabul scripti değişmiş PR'da bu adımı exact head üzerinde çalıştırır. Efekt çağrıları engellidir; eksik erişim `unmeasured`/exit2, yanlış model kararı `failed`/exit1; mock test yeşili canlı kabul değildir.
+- Brain çıktı/teşhis akışı ve gerçek model kabulü: `docs/agents/gorev-cekirdegi.md`.
