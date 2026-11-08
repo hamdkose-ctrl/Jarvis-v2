@@ -25,3 +25,7 @@ Token/süre düzeltmesi: 41 ilgili test ve tam validation başarılı (5.228 Pyt
 PC deneme tekrarını azaltma: scripts/Run-BrainCheck.ps1 tek seferlik kurulum ve masaüstü Quick/Full kısayolları sağlar. Quick tek çağrı; Full20 örnek, ilk bozuk/yanıtsız yanıt sonrası tekrar yok. Sonuçlar commit/korpus/kapsam ile kalıcı arşivlenir. Mevcut kullanıcı Free kaydı değiştirilmez. Yeni PowerShell çalıştırması bu Linux ortamında doğrulanmadı; gerçek PC/model sonucu açık kalır.
 
 Quick/Full operatör paketi doğrulaması: 42 ilgili runner/model/index testi başarılı; Ruff F821/F822/F823, diff ve iki roadmap kontrolü temiz. Uygulama modülleri değişmedi; bu paket için yerel tam validation tekrarlanmadı. Yeni SHA Windows CI/watcher ve PowerShell kısayol kabulü bekleniyor.
+
+Kullanıcı ad36ca1 tam PC raporunu paylaştı:20 gerçek yanıt/20 geçersiz proposal; başarısızlık şema/sürüm katmanında, anlam başarısı ayrıştırılamadı. 66fcd34 Quick/Full kısayol kurulumu Windows kullanıcısında başarılı. Yeni model koşusu henüz yok. Prompt çıktı sözleşmesi açık JSON schema ile sunuldu ve metinsiz yanıt şekli tanısı eklendi; parser kabul koşulları aynı kaldı. Yeni Quick yanıtı gerekli; toplu test tekrarlanmadı.
+
+Yanıt sözleşmesi paketi:39 ilgili test ve tam yerel validation başarılı (5.233 Python testi,1 platform skip;tüm JS/smoke ve son47 test). Ruff temiz. Son prompt alan açıklaması sonrası ilgili39 test yeniden geçti. Windows/model kabulü yeni Quick raporuna bağlıdır.

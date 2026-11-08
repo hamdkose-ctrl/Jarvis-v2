@@ -140,6 +140,12 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_malformed_json_fails_closed(self):
         self.assertIsNone(self.ask("not json"))
 
+    def test_protocol_still_rejects_named_wrapper_and_wrong_version(self):
+        with self.assertRaises(ValueError):
+            model._decode(json.dumps({model.SCHEMA_VERSION:json.loads(answer())}))
+        with self.assertRaises(ValueError):
+            model._decode(answer(schema_version='invented-version'))
+
     def test_request_cancellation_propagates_instead_of_becoming_chat_fallback(self):
         from modules import requests_state
         p1, p2, p3 = self.eligible()
@@ -260,6 +266,15 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             body = kwargs['json']
             self.assertIs(type(body['max_tokens']), int)
             self.assertEqual(body['max_tokens'], 2048)
+            prompt=json.loads(body['messages'][-1]['content'])
+            schema=prompt['response_schema']
+            self.assertEqual(set(schema['required']),model.ENVELOPE_KEYS)
+            self.assertEqual(set(schema['properties']),model.ENVELOPE_KEYS)
+            self.assertEqual(schema['properties']['schema_version'],{'const':model.SCHEMA_VERSION})
+            self.assertFalse(schema['additionalProperties'])
+            self.assertEqual(set(schema['properties']['actions']['items']['required']),model.ACTION_KEYS)
+            self.assertIn('without a named wrapper',body['messages'][0]['content'])
+            self.assertIn('Set argument_sources to null',body['messages'][0]['content'])
             return response
 
         p1, p2, p3 = self.eligible()

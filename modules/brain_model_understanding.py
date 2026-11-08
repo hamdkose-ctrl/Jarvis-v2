@@ -135,6 +135,41 @@ def _decode(raw: str) -> dict[str, Any]:
     return value
 
 
+def _response_schema(capabilities: list[str]) -> dict[str, Any]:
+    """Expose the wire contract, without supplying an intent or an expected answer."""
+    strings = {"type": "array", "items": {"type": "string"}}
+    return {
+        "type": "object", "additionalProperties": False,
+        "required": sorted(ENVELOPE_KEYS),
+        "properties": {
+            "schema_version": {"const": SCHEMA_VERSION},
+            "operation": {"enum": sorted(OPERATIONS)},
+            "conversation_relation": {"enum": [v.value for v in ConversationRelation]},
+            "temporal_need": {"enum": [v.value for v in TemporalNeed]},
+            "confidence": {"enum": [v.value for v in Confidence]},
+            "target_goal_ids": strings,
+            "goal": {"anyOf": [{"type": "null"}, {
+                "type": "object", "additionalProperties": False,
+                "required": sorted(_GOAL_KEYS), "properties": {
+                    "kind": {"enum": sorted(_GOAL_CARD_KINDS)},
+                    "title": {"type": "string", "maxLength": _GOAL_TEXT_MAX}}}]},
+            "actions": {"type": "array", "maxItems": MAX_ACTIONS, "items": {
+                "type": "object", "additionalProperties": False,
+                "required": sorted(ACTION_KEYS), "properties": {
+                    "action_id": {"type": "string"},
+                    "capability_id": {"enum": capabilities},
+                    "arguments": {"type": "object"},
+                    "reference_slots": strings, "depends_on": strings,
+                    "argument_sources": {"type": ["object", "null"]}}}},
+            "clarification": {"type": "object", "additionalProperties": False,
+                "required": sorted(CLARIFICATION_KEYS), "properties": {
+                    "required": {"type": "boolean"},
+                    "question": {"type": ["string", "null"]},
+                    "reason_code": {"type": ["string", "null"]}}},
+        },
+    }
+
+
 def _deep_keys(value: Any) -> set[str]:
     keys: set[str] = set()
     if isinstance(value, Mapping):
@@ -697,6 +732,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         offered_capabilities = sorted(set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES)
         prompt = json.dumps({
             "schema": SCHEMA_VERSION,
+            "response_schema": _response_schema(offered_capabilities),
             "utterance": text[:2000],
             "current": {
                 "request_kind": current.request_kind.value,
@@ -720,8 +756,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "session_artifacts": list(session_artifacts),
         }, ensure_ascii=False)
         system = (
-            "You are the primary semantic decider, not an agent. Return exactly one JSON object "
-            f"named {SCHEMA_VERSION} with keys schema_version, operation, conversation_relation, "
+            "You are the primary semantic decider, not an agent. Return exactly one bare JSON object "
+            "matching response_schema, without a named wrapper or Markdown. "
+            f'The schema_version field must equal the literal string "{SCHEMA_VERSION}". '
+            "The top-level keys are schema_version, operation, conversation_relation, "
             "temporal_need, target_goal_ids, goal, actions, clarification, confidence. Choose "
             "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
             "revise_goal, add_task, pause_goal, resume_goal, cancel_goal, prioritize_goal, clarify. "
@@ -731,10 +769,14 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "capability_id must be one of allowed.capability_id. Write no file path, folder, "
             "account, token, credential, approval id or permission claim: for files.read select "
             "only supplied file_candidates slots (one for open/summarize/analyze/locate, two to "
-            "ten for compare, none for list) and put only the operation in arguments. Simple "
-            "semantic values the schema allows are yours to fill: query, city, number, closed "
-            "action enum, and for the capabilities listed in allowed.argument_schema."
-            "argument_sources the recipient, body, contact name and phone the user actually said. "
+            "ten for compare, none for list) and put only the operation in arguments. "
+            "reference_slots are only for files.read; for every other capability use an empty array. "
+            "Simple semantic values the schema allows are yours to fill: query, city, number, closed "
+            "action enum, and for the capabilities listed in allowed.argument_schema. "
+            "Set argument_sources to null except for message.send and contacts.manage; for those "
+            "use an object mapping each filled recipient, body, contact name or phone field to "
+            "the exact words the user said. Use goal=null when no goal card is proposed. "
+            "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
             "sentence, or a missing quote drops the whole proposal, so leave a field empty instead "

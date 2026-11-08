@@ -98,6 +98,21 @@ def reset_seconds(value):
     return sum(float(p.group(1))*units[p.group(2)] for p in parts)
 
 
+def response_shape(raw):
+    """Protocol metadata only: never retain response text, values or unknown keys."""
+    from modules.brain_model_understanding import ENVELOPE_KEYS, SCHEMA_VERSION
+    try:
+        value = json.loads(raw)
+    except (ValueError, TypeError):
+        return {'json_object':False}
+    if not isinstance(value,dict):
+        return {'json_object':False}
+    return {'json_object':True, 'missing_fields':sorted(ENVELOPE_KEYS-set(value)),
+            'extra_field_count':len(set(value)-ENVELOPE_KEYS),
+            'version_matches':value.get('schema_version') == SCHEMA_VERSION,
+            'named_wrapper':SCHEMA_VERSION in value}
+
+
 def measure(owner, cases, *, interval_seconds=35):
     calls = Counter()
     def denied(name):
@@ -107,11 +122,14 @@ def measure(owner, cases, *, interval_seconds=35):
         return stop
     from modules import llm, requests_state
     provider = Counter()
+    shape = None
     send = llm._send_provider
     def observed_send(*args, **kwargs):
+        nonlocal shape
         provider['requests'] += 1
         result = send(*args, **kwargs)
         provider['responses'] += 1
+        shape = response_shape(result)
         return result
     rows = []
     stop_reason = None
@@ -133,6 +151,7 @@ def measure(owner, cases, *, interval_seconds=35):
                 time.sleep(delay)
             print(f'Semantic case {index+1}/{len(cases)}',flush=True)
             before = provider['responses']
+            shape = None
             error_class = None
             try:
                 result = ask(owner, case, index)
@@ -144,6 +163,8 @@ def measure(owner, cases, *, interval_seconds=35):
             row = judge(case, result, response_received=provider['responses'] > before)
             if error_class:
                 row['error_class'] = error_class
+            if shape is not None:
+                row['response_shape'] = shape
             rows.append(row)
             if not row['responded']:
                 stop_reason = 'provider_no_response'
@@ -198,7 +219,7 @@ def main(argv=None):
                 for key in ('accuracy', 'groups', 'incorrect_action_proposals'):
                     report.pop(key, None)
                 report['results'] = [{k:v for k,v in row.items()
-                                     if k in {'id','responded','valid_proposal','error_class'}}
+                                     if k in {'id','responded','valid_proposal','error_class','response_shape'}}
                                     for row in report.get('results', [])]
             else:
                 report['semantic_acceptance'] = report['state'] == 'passed'

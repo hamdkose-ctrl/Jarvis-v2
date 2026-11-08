@@ -20,6 +20,14 @@ def proposal(operation='chat', capability=None):
 
 
 class LiveHoldoutRunnerTests(unittest.TestCase):
+    def test_response_metadata_does_not_retain_unknown_keys_or_values(self):
+        from modules.brain_model_understanding import SCHEMA_VERSION
+        data=runner.response_shape(json.dumps({SCHEMA_VERSION:{'SECRET_KEY':'SECRET_TEXT'}}))
+        self.assertTrue(data['named_wrapper']);self.assertFalse(data['version_matches'])
+        self.assertEqual(data['extra_field_count'],1)
+        self.assertNotIn('SECRET',repr(data))
+        self.assertEqual(runner.response_shape('not json SECRET'),{'json_object':False})
+
     def case(self, expected, output=True):
         return {'id':'c1','group':'test','text':'synthetic','expected':expected,'has_output':output}
 
