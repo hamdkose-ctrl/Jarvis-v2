@@ -8,6 +8,7 @@ yazıldı: dallar henüz retire edilmediği için canonical effect testleri dü�
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 import inspect
 import tempfile
 import unittest
@@ -144,6 +145,39 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
     def turn_real(self, text, source="yazı", model_understanding=False):
         return self.turn(text, handler=self.ctx.handle, source=source,
                          model_understanding=model_understanding)
+
+
+class ActionBatchProductionTests(_CanonicalAuthorityHarness):
+    """BRAIN-04: gerçek canonical prepare → handoff → Core batch dikişi."""
+
+    def _batch(self, semantic):
+        return replace(
+            semantic, request_kind=RequestKind.CAPABILITY, capability_hint=None,
+            arguments={"original_text": semantic.arguments.get("original_text", "")},
+            actions=(
+                {"action_id": "a1", "capability_id": "pc.level.set",
+                 "arguments": {"property": "volume", "level": 30},
+                 "reference_slots": [], "depends_on": []},
+                {"action_id": "a2", "capability_id": "pc.audio.action",
+                 "arguments": {"audio": {"action": "mute"}},
+                 "reference_slots": [], "depends_on": []},
+                {"action_id": "a3", "capability_id": "pc.media.action",
+                 "arguments": {"media": {"action": "next"}},
+                 "reference_slots": [], "depends_on": []},
+            ),
+        )
+
+    def test_three_typed_actions_reach_existing_core_adapters(self):
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=self._batch):
+            entry, _out, handler, feedback = self.turn(
+                "önce sesi azalt sonra sessize al ve sonraki müzik",
+                handler=self.ctx.handle, model_understanding=True)
+        self.assertEqual(len(entry.understanding.actions), 3)
+        self.ctx.system_control.set_volume.assert_called_once_with(30)
+        self.ctx.system_control.set_mute.assert_called_once_with(True)
+        self.ctx.system_control.media_control.assert_called_once_with("next")
+        handler.assert_not_called()
+        self.assertEqual(feedback.result_status, "handled")
 
 
 class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
