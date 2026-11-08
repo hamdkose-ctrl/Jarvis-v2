@@ -68,6 +68,13 @@ class NewsAcceptanceHelperTests(unittest.TestCase):
         self.assertEqual(run.call_count,3)
         self.assertIn('Türkiye AI sohbet: failed',detail)
         self.assertTrue(run.call_args_list[-1].kwargs['file_report'])
+        self.assertEqual(
+            [call.args[1] for call in run.call_args_list],
+            ['Son 7 gün güncel haberleri araştır',
+             'Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır',
+             'Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır ve raporu dosyaya kaydet'],
+        )
+        self.assertFalse(run.call_args_list[0].kwargs['file_report'])
 
     def test_all_scenarios_must_pass_and_exceptions_do_not_skip_file_case(self):
         with patch.object(acceptance_checks,'_news_scenario',return_value=('passed','2/2')):
