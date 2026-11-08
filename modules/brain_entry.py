@@ -1092,6 +1092,60 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
     return None
 
 
+
+def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
+    """Run each adopted action through the existing Core intent path, never raw text."""
+    semantic = entry.understanding
+    actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
+    outcomes: dict[str, str] = {}
+    lines: list[str] = []
+    from modules import requests_state
+    from modules.engine_intents import dispatch
+    for action in actions:
+        action_id = str(action["action_id"])
+        if any(outcomes.get(dep) != "succeeded" for dep in action["depends_on"]):
+            outcomes[action_id] = "skipped_dependency"
+            lines.append(f"{action_id}: önkoşul başarılı olmadığı için atlandı.")
+            continue
+        try:
+            requests_state.check()
+            plan = brain_core_map.core_plan(action["capability_id"], action["arguments"])
+            if plan is None:
+                outcomes[action_id] = "failed_core_validation"
+                lines.append(f"{action_id}: Core doğrulaması reddetti.")
+                continue
+            before = _open_core_pending(runtime)
+            output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
+            opened = _open_core_pending(runtime) - before
+            if opened:
+                outcomes[action_id] = "awaiting_input"
+                lines.append(f"{action_id}: {output}")
+                # Existing Core owns this pending state; do not let a sibling overwrite it.
+                for later in actions:
+                    later_id = str(later["action_id"])
+                    if later_id not in outcomes:
+                        outcomes[later_id] = "deferred_core_pending"
+                break
+            outcomes[action_id] = "succeeded"
+            lines.append(f"{action_id}: {output}")
+        except requests_state.Cancelled:
+            outcomes[action_id] = "cancelled"
+            for later in actions:
+                later_id = str(later["action_id"])
+                if later_id not in outcomes:
+                    outcomes[later_id] = "cancelled"
+            raise
+        except Exception:
+            outcomes[action_id] = "failed"
+            lines.append(f"{action_id}: yürütme başarısız oldu.")
+            _record_failure("modules/brain_entry.py:batch_action")
+    status = "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial"
+    row = feedback(entry, result_status=status,
+                   reason_code="CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL")
+    _LAST_FEEDBACK.set(row)
+    return "\n".join(lines), row, _correlated_job_id(entry)
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -1101,6 +1155,11 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         if entry.understanding is not None:
             brain_core_map.clarification_effect(runtime, entry.understanding.ambiguities, entry.understanding.arguments)
         return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
+    if entry.understanding is not None and getattr(entry.understanding, "actions", ()):
+        if not callable(handler):
+            raise ValueError("Core handler callable olmalı.")
+        _install_core_guards(runtime)
+        return _batch_handoff(runtime, entry, command)
     refusal = _file_access_refusal(entry)
     if refusal is not None:
         row = feedback(entry, result_status="failed", reason_code="FILE_TARGET_NOT_ACCESSIBLE")
