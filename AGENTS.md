@@ -68,6 +68,10 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
+## BRAIN-04 action_batch
+
+- `action_batch` yalnız model zarfındaki 2–5 typed action ile gelir; action kimliği ve bağımlılıkları Understanding boyunca korunur. Her child mevcut `brain_entry.core_plan → handoff → Core` yolundan geçer; batch child için sequence veto yalnız dahili typed bağlamda kalkar, ham metin yeniden sınıflandırılmaz. Bir child `needs_input` açarsa Core pending sahibi kalır ve kardeşler çalışmaz; bağımlılık yalnız `handled` child sonrası başlar. İptal kalan child’ları durdurur, kısmi batch tam başarı sayılmaz. Yeni Scheduler/Core/store kurulmaz.
+
 ## Testler
 
 - Finance alarm fiyatları `finance.quote` ortak girişini kullanır; watcher kaynak sağlayıcıların özel fonksiyonlarını çağırmaz. Göç durumu `docs/agents/finans.md` içindedir.
