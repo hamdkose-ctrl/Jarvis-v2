@@ -844,7 +844,7 @@ class RetiredRouterDeterminismParityTests(unittest.TestCase):
         return semantic, brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
 
     def test_fresh_external_data_is_a_research_task_not_a_chat_promise(self):
-        for text in ("İstanbul son haberler neler?", "dolar ne kadar", "borsa son durum", "haberleri özetle"):
+        for text in ("İstanbul son haberler neler?", "borsa son durum", "haberleri özetle"):
             with self.subTest(text=text):
                 semantic, plan = self.decide(text)
                 self.assertEqual(semantic.capability_hint, "research.search", text)
@@ -942,9 +942,11 @@ class GenericExecutionEnvelopeTests(unittest.TestCase):
                 self.assertEqual(self.door(text)[1], {"intent": "chat", "args": {}}, text)
 
     def test_a_validated_plan_wins_over_the_generic_envelope(self):
-        _semantic, decision = self.door("Bugünkü dolar kuru kaç lira?")
-        self.assertEqual(decision["intent"], "task")
-        self.assertEqual(decision["args"], {"query": "Bugünkü dolar kuru kaç lira?", "route": "PRIVATE"})
+        # A validated capability plan wins over the generic task envelope. Finance is
+        # intentionally absent here: its semantic selection belongs to the model proposal path.
+        _semantic, decision = self.door("ekranı analiz et")
+        self.assertEqual(decision["intent"], "screen_analyze")
+        self.assertEqual(decision["args"], {"question": ""})
 
     def test_the_envelope_needs_understandings_execution_verdict(self):
         # Capability biçimli ama icra isteği olmayan cümle ("belgeyi özetle" gibi hedefi belirsiz

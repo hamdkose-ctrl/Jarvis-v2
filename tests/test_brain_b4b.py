@@ -50,9 +50,9 @@ class UnderstandingTests(unittest.TestCase):
         self.assertEqual(brain_core_map.clarification_question(r.ambiguities, r.arguments),
                          "Bu sohbette çevrilecek metni bulamadım. Metni buraya yapıştırabilirsin.")
 
-    def test_money_and_file_conversion_are_not_text_translation(self):
-        for text in ("50 euroyu dolara çevir", "rapor.pdf dosyasını çevir"):
-            self.assertNotEqual(self.understand(text).capability_hint, "text.translate", text)
+    def test_file_conversion_is_not_text_translation(self):
+        text = "rapor.pdf dosyasını çevir"
+        self.assertNotEqual(self.understand(text).capability_hint, "text.translate", text)
 
     def test_stale_turn_beyond_two_hours_is_not_a_source(self):
         r = self.understand("çevir", [turn("t1", "user", "eski metin", ts="2020-01-01 10:00:00")])
@@ -76,8 +76,18 @@ class EndToEndTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        root_logger = engine_runtime.logging.getLogger()
+        previous_handlers = set(root_logger.handlers)
         with patch.object(engine_runtime, "DATA_DIR", Path(self.temp.name)):
             self.ctx = engine_runtime.EngineContext()
+
+        def close_test_handlers():
+            for handler in list(root_logger.handlers):
+                if handler not in previous_handlers:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+
+        self.addCleanup(close_test_handlers)
         self.addCleanup(self.ctx._prefetch_pool.shutdown, wait=False, cancel_futures=True)
         self.owner = self.ctx.profile.slug
         self.ctx.system_control = Mock(windows_settings=Mock(return_value=None))

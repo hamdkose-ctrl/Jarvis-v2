@@ -276,11 +276,8 @@ def handle(runtime, command: str):
     # Core intent (pc.audio.action, pc.media.action, screen.capture, pc.shutdown.*) ve pc.level.set.
     # Bu yüzeyde ham cümleden seçilen tek bir etki kalmadı.
 
-    # Döviz kuru ve çevirisi (modelsiz); kur sorusu değilse None döner ve akış devam eder
-    from modules import finance
-    rate_reply = finance.answer(command)
-    if rate_reply is not None:
-        return rate_reply
+    # Fiyat/kur sorusu artık buradan seçilmez: Understanding `finance.read` önerir, Core
+    # biçimi doğrular, veri finans domain'inde çekilir.
 
     # Uygulama açma/kapatma artık yalnız Understanding'in `<ad> aç/kapat` gramerinden ve
     # doğrulanmış Core `open_app` / `close_app` intent'lerinden yürür. Ham hedef burada seçilmez.

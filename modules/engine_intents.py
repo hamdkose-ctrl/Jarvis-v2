@@ -315,6 +315,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             contacts[name] = phone
             runtime.profile.save()
             return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
+        case "finance_read":
+            # Core yalnız biçim hükmü verdi; veri çekme ve biçimlendirme finans domain'inindir.
+            from modules import finance
+            return finance.answer_request(finance.request_from_slots(a)) or ""
         case "photo_action":
             # Operation and path are Core-validated; the domain executor only applies them.
             from modules import main_documents

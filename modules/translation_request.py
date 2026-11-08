@@ -64,9 +64,6 @@ def parse(command):
     if not found:
         return None
     instruction, inline = found
-    from modules import finance
-    if finance.is_conversion(command):
-        return None
     low = unicodedata.normalize('NFKD', lower(instruction).replace('ı', 'i')).encode('ascii', 'ignore').decode()
     if re.search(r'\b(?:dosya\w*|belge\w*|pdf|word|excel|docx|xlsx)\b', lower(inline)) and len(inline) < 100:
         return None

@@ -9,10 +9,13 @@ import unittest
 from modules import brain_core_map, brain_understanding
 from modules.brain_contracts import ActiveContext
 
-FRESH = ["son haberler neler", "bugün dolar kaç", "dolar ne kadar", "altın fiyatı ne kadar", "güncel kur",
-         "skor kaç", "euro ne kadar", "yeni haberler", "borsa son durum", "en son gelişmeler",
+FRESH = ["son haberler neler", "güncel kur",
+         "skor kaç", "yeni haberler", "borsa son durum", "en son gelişmeler",
          "yapay zeka haberlerini anlat", "borsa durumu ne", "haberleri özetle", "altın durumu",
          "şimdi piyasa", "fiyat kaç"]
+# Finance selection is a model-owned semantic decision (BRAIN-MIG-101), not a deterministic
+# vocabulary rule. These pure Understanding tests only verify the independent freshness route.
+FINANCE = ["bugün dolar kaç", "dolar ne kadar", "altın fiyatı ne kadar", "euro ne kadar"]
 NOT_FRESH = ["dolar nedir", "haber tarihçesi", "kur nedir", "bugün ne var", "son dosyam", "Haberlere bak",
              "hava nasıl",
              # "kur" burada fiildir: hatırlatma/masaüstü kurma sahibine gitmeli, taze döviz verisi değil.
@@ -35,6 +38,12 @@ class FreshnessRuleTests(unittest.TestCase):
                 hint, plan = decide(text)
                 self.assertEqual(hint, "research.search")
                 self.assertEqual(plan, ("task", {"query": text, "route": "PRIVATE"}))
+
+    def test_price_questions_are_not_selected_by_a_deterministic_finance_lexicon(self):
+        for text in FINANCE:
+            with self.subTest(text=text):
+                hint, _plan = decide(text)
+                self.assertNotEqual(hint, "finance.read")
 
     def test_non_fresh_requests_stay_chat(self):
         for text in NOT_FRESH:
@@ -59,14 +68,18 @@ class FreshnessRuleTests(unittest.TestCase):
         for text in static:
             with self.subTest(static=text):
                 self.assertNotEqual(decide(text)[0], "research.search")
-        for text in fresh:
+        # Finance `finance.read` selection is left to the model proposal path.
+        for text in ("bugünkü dolar kuru nedir", "şu an dolar kuru nedir"):
+            with self.subTest(fresh=text):
+                self.assertNotEqual(decide(text)[0], "finance.read")
+        for text in ("güncel altın fiyatı nedir", "son nvidia haberi nedir", "mevcut altın fiyatı nedir"):
             with self.subTest(fresh=text):
                 self.assertEqual(decide(text)[0], "research.search")
 
     def test_the_fresh_rule_has_one_owner(self):
         # Aynı cümle hem research hem başka bir capability olarak önerilemez: tanıyıcı tek yerde.
         from modules import brain_gates
-        for text in FRESH:
+        for text in FRESH + FINANCE:
             with self.subTest(text=text):
                 self.assertFalse(brain_gates.deterministic_fast_gate(
                     owner="hamdi", request_id="rid-freshness", text=text,

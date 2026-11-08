@@ -21,6 +21,7 @@ from modules.brain_understanding import (
     AUDIO_CAPABILITY,
     CONTACTS_MANAGE_CAPABILITY,
     MESSAGE_SEND_CAPABILITY,
+    FINANCE_READ_CAPABILITY,
     FILE_ANALYZE,
     FILE_COMPARE,
     FILE_CONVERSION_FORMAT_MISSING,
@@ -211,6 +212,85 @@ def _contacts_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if normalized is None:
         return None
     return {"operation": "add", "name": _name_title(name.strip()), "phone": normalized}
+# BRAIN-03 dilim 3: finans slotları **kapalı kümelerden** doğrulanır — para birimi, kripto,
+# BIST kodu, altın türü. Anlam hükmü Brain'dedir; Core yalnız "bu kod gerçek mi, miktar geçerli
+# mi" sorusunu yanıtlar, böylece uydurma varlık plana giremez.
+FINANCE_KINDS = frozenset({"rate", "asset", "stock"})
+_FINANCE_AMOUNT = re.compile(r"\d{1,15}(?:[.,]\d{1,6})?")
+_FINANCE_ARGUMENT_KEYS = frozenset({"original_text", "kind", "amount", "source", "target",
+                                    "codes", "asset", "gold_kind", "stock"})
+
+
+def _finance_enums():
+    """Kapalı kümelerin tek sahibi finans domain'i (lazy: import döngüsü yok)."""
+    from modules import finance
+    return finance
+
+
+def _finance_amount_is_valid(amount) -> bool:
+    if amount is None:
+        return True
+    if not isinstance(amount, str) or _FINANCE_AMOUNT.fullmatch(amount) is None:
+        return False
+    return float(amount.replace(",", ".")) > 0
+
+
+def _finance_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Biçim hükmü: tipli slotlar kapalı enumlardan, miktar pozitif sonlu ondalıktan geçer."""
+    if set(arguments) - _FINANCE_ARGUMENT_KEYS:
+        return None
+    kind = arguments.get("kind")
+    if kind not in FINANCE_KINDS or not _finance_amount_is_valid(arguments.get("amount")):
+        return None
+    fin = _finance_enums()
+    amount = arguments.get("amount")
+    if kind == "rate":
+        codes = arguments.get("codes")
+        source, target = arguments.get("source"), arguments.get("target")
+        if codes is not None:
+            if source is not None or target is not None or amount is not None:
+                return None
+            if not isinstance(codes, (list, tuple)) or not codes or len(set(codes)) != len(codes):
+                return None
+            if any(not isinstance(code, str) or code not in fin.CURRENCY_CODES for code in codes):
+                return None
+            return {"kind": "rate", "codes": list(codes)}
+        if not isinstance(source, str) or source not in fin.CURRENCY_CODES:
+            return None
+        if not isinstance(target, str) or target not in fin.CURRENCY_CODES or target == source:
+            return None
+        result: dict[str, Any] = {"kind": "rate", "source": source, "target": target}
+        if amount is not None:
+            result["amount"] = amount
+        return result
+    if kind == "asset":
+        if arguments.get("codes") is not None or arguments.get("source") is not None:
+            return None
+        asset = arguments.get("asset")
+        if not isinstance(asset, str) or asset not in fin.FINANCE_ASSETS:
+            return None
+        target = arguments.get("target", "TRY")
+        if not isinstance(target, str) or target not in fin.CURRENCY_CODES:
+            return None
+        gold_kind = arguments.get("gold_kind")
+        if gold_kind is not None and (asset != "GOLD" or gold_kind not in fin.GOLD_KINDS):
+            return None
+        result = {"kind": "asset", "asset": asset, "target": target}
+        if gold_kind is not None:
+            result["gold_kind"] = gold_kind
+        if amount is not None:
+            result["amount"] = amount
+        return result
+    if arguments.get("codes") is not None or arguments.get("source") is not None \
+            or arguments.get("asset") is not None or arguments.get("gold_kind") is not None:
+        return None
+    stock = arguments.get("stock")
+    if not isinstance(stock, str) or stock not in fin.STOCK_CODES:
+        return None
+    result = {"kind": "stock", "stock": stock}
+    if amount is not None:
+        result["amount"] = amount
+    return result
 
 
 def _validated_file_path(value: Any) -> str | None:
@@ -672,6 +752,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # hükmü; gönderim onayı ve kişi çözümlemesi mevcut `pending_msg`/`find_contact` sahiplerinde.
     MESSAGE_SEND_CAPABILITY: ("message_send", _message_args),
     CONTACTS_MANAGE_CAPABILITY: ("contacts_manage", _contacts_args),
+    # BRAIN-03 dilim 3: fiyat/kur okuması da Brain önerisi, Core biçim hükmü; veri çekme ve
+    # metin biçimlendirme finans domain'inde (`finance.answer_request`) kalır.
+    FINANCE_READ_CAPABILITY: ("finance_read", _finance_args),
     # Natural-language file target/operation is Brain-proposed and Core-validated; exact UI file buttons remain a front gate.
     "files.read": ("file_action", _file_args),
     FILE_MUTATE_CAPABILITY: ("file_mutate", _file_mutate_args),

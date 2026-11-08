@@ -64,7 +64,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
                                     (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
-                                    (learning, "handle", None), (finance, "answer", None)):
+                                    (learning, "handle", None), (finance, "answer_request", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -1120,7 +1120,6 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     RAW_PROBE_OWNERS = {
         "watcher.handle": set(),
         "learning.handle": {"modules/engine_commands.py"},
-        "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
         # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
         "is_whatsapp_message": set(),
         "_contact_command": set(),

@@ -11,7 +11,7 @@ Bu belge karar kaydını uygulanabilir bir sözleşmeye çevirir: Finance'in dö
 
 | Dal | Kapsam | İzin / etki | Sahip modüller | Giriş noktaları |
 |---|---|---|---|---|
-| `data` | Kur, piyasa, kripto, gram altın, BIST | `read` / `read_only` | `finance.py`, `tool_finance.py` | `finance.answer`, `parse`, `rates`, `is_conversion` |
+| `data` | Kur, piyasa, kripto, gram altın, BIST | `read` / `read_only` | `finance.py`, `tool_finance.py` | Brain `finance.read` → Core `finance_read`; `finance.request_from_slots`, `finance.answer_request`, `finance.quote`, `finance.dated_rate` |
 | `alarm` | Fiyat alarmı ve takip listesi | `local_reversible` / `local_reversible` | `finance_alerts.py`, `finance_alert_store.py`, `finance_alert_schedule.py`, `finance_alert_runner.py`, `finance_alert_commands.py`, `finance_watchlist.py` | `finance_alerts.evaluate`, `finance_alert_runner.run_once`, `finance_alert_commands.handle`, `finance_alert_schedule.notification_text` |
 | `analysis` | Hesaplama, karşılaştırma, CSV gelir/gider özeti | `read` / `read_only` | `finance_analysis.py` | `finance_analysis.csv_summary` |
 | `source_verification` | Kaynak, tarih ve evidence doğrulaması | `read` / `read_only` | `finance.py` | `finance.dated_rate`, `finance._safe_xml` |
@@ -73,7 +73,7 @@ Finance kodu tek yerde değil. Taşınması gereken parçalar:
 - **Bildirim teslimi:** `watcher.loop` içindeki `emit` alarm metnini ekrana ve ntfy telefon bildirimine "Jarvis klasör izleme" başlığıyla gönderiyor. Teslim Communication'da kalmalı ama finans alarmı olarak ayrışmalı.
 - **`domain_tools.py`:** Tarihli kur (`exchange`) ve CSV gelir/gider özeti (`csv_analysis` içindeki `kind='finance'` kolu) mağaza/haber/sosyal araçlarıyla aynı dosyada.
 
-Komut yönlendirme noktaları (`engine_commands.handle` → `finance.answer`, `engine_tools._extra_commands` → `finance_alert_commands`, `translation_request.parse` → `finance.is_conversion`, `goal_executor` → `finance.parse`) taşınmaz; motor yalnız Finance girişini çağırır.
+Üretim finans verisi girişi BRAIN-03 dilim 3'te taşındı: model Brain `finance.read` için tipli öneri üretir, Core doğrular ve `engine_intents` yalnız slotları Finance'e verir. Finance doğal dil niyeti seçmez. Alarm komutları `engine_tools._extra_commands` → `finance_alert_commands` yolunda kalır; finans verisi için `finance.answer`/`parse` veya çeviri/Goal parser'larından Finance'e ham metin geçişi yoktur.
 
 ## 5. Tamamlanan kod göçü kaydı
 

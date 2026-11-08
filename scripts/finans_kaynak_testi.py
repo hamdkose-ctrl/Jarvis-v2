@@ -22,8 +22,14 @@ CHECKS = (
     ('Yahoo Finance THYAO.IS', lambda: _bist('THYAO')),
     ('Yahoo Finance XU100.IS', lambda: _bist('XU100')),
 )
-SENTENCES = ('dolar kaç lira', '100 euro kaç TL', 'bitcoin kaç lira', 'gram altın ne kadar',
-             'thy hissesi kaç lira', 'bist 100 kaç puan')
+SAMPLE_REQUESTS = (
+    ('USD/TRY', {'kind': 'rate', 'source': 'USD', 'target': 'TRY'}),
+    ('EUR/TRY amount 100', {'kind': 'rate', 'amount': '100', 'source': 'EUR', 'target': 'TRY'}),
+    ('BTC/TRY', {'kind': 'asset', 'asset': 'BTC', 'target': 'TRY'}),
+    ('Gold gram/TRY', {'kind': 'asset', 'asset': 'GOLD', 'gold_kind': 'gram', 'target': 'TRY'}),
+    ('THYAO', {'kind': 'stock', 'stock': 'THYAO'}),
+    ('XU100', {'kind': 'stock', 'stock': 'XU100'}),
+)
 
 
 def _tcmb():
@@ -50,8 +56,9 @@ def main() -> int:
             failed += 1
             print(f'BAŞARISIZ  {label}: {type(exc).__name__}: {str(exc)[:160]}')
     finance._CACHE.clear()
-    for sentence in SENTENCES:
-        print(f'\n> {sentence}\n{finance.answer(sentence)}')
+    for label, arguments in SAMPLE_REQUESTS:
+        request = finance.request_from_slots(arguments)
+        print(f'\n> {label}\n{finance.answer_request(request)}')
     return 1 if failed else 0
 
 

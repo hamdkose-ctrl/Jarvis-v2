@@ -1691,6 +1691,7 @@ def _weather_city_arguments(normalized: str) -> dict[str, object]:
 # mevcut `pending_msg` protokolünde kalır.
 MESSAGE_SEND_CAPABILITY = "message.send"
 CONTACTS_MANAGE_CAPABILITY = "contacts.manage"
+FINANCE_READ_CAPABILITY = "finance.read"
 
 
 _APP_OPEN_TAIL = r"(?:aç|açar mısın|açsana|başlat|çalıştır)"

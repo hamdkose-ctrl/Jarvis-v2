@@ -180,8 +180,6 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "continue_app": {"modules/engine_commands.py"},
         "_study_intent": {"modules/engine_commands.py"},
         "hoca.handle": {"modules/engine_tools.py"},
-        # scripts/finans_kaynak_testi.py geliştirme tanısıdır; üretim kapısı yine engine_commands'tır.
-        "finance.answer": {"modules/engine_commands.py", "scripts/finans_kaynak_testi.py"},
         # `_extra_commands` zincirinin kolları: tek üretim çağıranı zincirin kendisidir.
         "plugins.handle": {"modules/engine_tools.py"},
         "handoff.handle": {"modules/engine_tools.py"},
@@ -224,7 +222,7 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         # Mesaj/rehber kolları dilim 2'de emekli edildi; kalan canlı kollar aşağıdadır.
         cascade_arms = {"learning.handle",
                         "_file_command", "job_front.wants", "goal_executor.handle",
-                        "continue_app", "_study_intent", "finance.answer", "_screen_ocr",
+                        "continue_app", "_study_intent", "_screen_ocr",
                         "_mail_handle"}
         self.assertTrue(cascade_arms <= set(self.RAW_SEMANTIC_DOORS),
                         msg=str(sorted(cascade_arms - set(self.RAW_SEMANTIC_DOORS))))

@@ -10,7 +10,7 @@ from modules import tool_news, tool_finance
 class NewsFinanceContractsTests(unittest.TestCase):
     def test_valid_discoverable_contracts_match_existing_entry_points(self):
         loaded = tool_contract.load_all()
-        for module, existing in ((tool_news, domain_tools), (tool_finance, finance)):
+        for module, existing in ((tool_news, domain_tools), (tool_finance, tool_finance)):
             with self.subTest(tool=module.CONTRACT['id']):
                 self.assertEqual(tool_contract.validate(module.CONTRACT), [])
                 self.assertIn(module.CONTRACT['id'], loaded)
@@ -24,7 +24,7 @@ class NewsFinanceContractsTests(unittest.TestCase):
 
     def test_status_does_not_fetch_prices_news_or_call_models(self):
         with patch.object(domain_tools, 'headlines', side_effect=AssertionError('Canlı haber yasak')), \
-                patch.object(finance, 'answer', side_effect=AssertionError('Canlı finans yasak')), \
+                patch.object(finance, 'answer_request', side_effect=AssertionError('Canlı finans yasak')), \
                 patch('modules.llm.ask', side_effect=AssertionError('Model yasak')):
             for module in (tool_news, tool_finance):
                 self.assertEqual(module.status()['state'], 'ready')
@@ -35,8 +35,19 @@ class NewsFinanceContractsTests(unittest.TestCase):
                 self.assertEqual(module.cancel()['cancelled'], False)
             cancel.assert_not_called()
 
+    def test_finance_tool_accepts_only_core_validated_typed_json(self):
+        arguments = {'kind': 'rate', 'source': 'USD', 'target': 'TRY'}
+        request = finance.request_from_slots(arguments)
+        with patch.object(finance, 'answer_request', return_value='KUR') as answer:
+            self.assertEqual(tool_finance.read(json.dumps(arguments)), 'KUR')
+            answer.assert_called_once_with(request)
+            with self.assertRaises(ValueError):
+                tool_finance.read(json.dumps({'kind': 'rate', 'source': 'XXX', 'target': 'TRY'}))
+            answer.assert_called_once()
+
     def test_missing_entry_reports_error_and_records_failure(self):
-        for module, existing, entry in ((tool_news, domain_tools, 'headlines'), (tool_finance, finance, 'answer')):
+        for module, existing, entry in ((tool_news, domain_tools, 'headlines'),
+                                        (tool_finance, finance, 'answer_request')):
             with patch.object(existing, entry, None), patch.object(module, '_record_failure') as record:
                 self.assertEqual(module.status()['state'], 'error')
                 record.assert_called_once()

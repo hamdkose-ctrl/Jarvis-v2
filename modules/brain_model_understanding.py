@@ -176,6 +176,27 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
     if owned:
         # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
         return {"freeform": True, "argument_sources": sorted(owned)}
+    if capability_id == "finance.read":
+        from modules import finance
+        return {
+            "kind": ["rate", "asset", "stock"],
+            "rate": {
+                "source": sorted(finance.CURRENCY_CODES),
+                "target": sorted(finance.CURRENCY_CODES),
+                "codes": sorted(finance.CURRENCY_CODES),
+                "amount": "optional positive decimal string",
+            },
+            "asset": {
+                "asset": sorted(finance.FINANCE_ASSETS),
+                "target": sorted(finance.CURRENCY_CODES),
+                "gold_kind": sorted(finance.GOLD_KINDS),
+                "amount": "optional positive decimal string",
+            },
+            "stock": {
+                "stock": sorted(finance.STOCK_CODES),
+                "amount": "optional positive decimal string",
+            },
+        }
     validator = CORE_INTENTS[capability_id][1]
     if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
         return {"nested": {"action": "kapalı eylem kümesi"}}
@@ -438,8 +459,13 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
     if slots:
         return None
     # Model alan doldurmadıysa payload deterministik kanıttan gelir; model hiç argüman uydurmaz.
-    payload = dict(supplied) if supplied else dict(deterministic_arguments)
-    if "original_text" not in payload:
+    if capability_id == "finance.read":
+        payload = dict(supplied)
+    elif supplied:
+        payload = dict(supplied)
+    else:
+        payload = dict(deterministic_arguments)
+    if capability_id != "finance.read" and "original_text" not in payload:
         payload = {"original_text": text, **payload}
     return payload, ()
 

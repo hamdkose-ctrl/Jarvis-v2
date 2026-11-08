@@ -40,11 +40,12 @@ class FreshResearchRoutingTests(unittest.TestCase):
                 self.assertIsNone(plan, text)
                 self.assertIs(semantic.request_kind, RequestKind.CHAT, text)
 
-    def test_an_explicitly_fresh_how_question_still_researches(self):
-        # Tazelik işareti ("bugünkü", "son") açıklama sorusunu bastırır: kullanıcı güncel veriyi ister.
-        for text in ('bugünkü dolar kuruna nasıl bakılır', 'son haberlerdeki gelişmeyi nasıl özetlersin'):
-            with self.subTest(text=text):
-                self.assertEqual(decide(text)[1][0], "task", text)
+    def test_a_fresh_how_question_is_not_a_deterministic_finance_shortcut(self):
+        # Model-owned finance semantics are covered by the end-to-end typed proposal tests.
+        self.assertNotEqual(decide('bugünkü dolar kuruna nasıl bakılır')[0].capability_hint,
+                            "finance.read")
+        self.assertEqual(decide('bugünkü dolar kuruna nasıl bakılır araştır')[1][0], "task")
+        self.assertEqual(decide('son haberlerdeki gelişmeyi nasıl özetlersin')[1][0], "task")
 
     def test_the_research_prompt_carries_no_chat_escape_hint(self):
         # Eski SYSTEM prompt'u kaldırıldı; taze dış veri hükmü artık kanonik tanıyıcıda yaşıyor.

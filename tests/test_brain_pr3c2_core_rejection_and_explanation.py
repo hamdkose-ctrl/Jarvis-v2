@@ -191,8 +191,9 @@ class ExplanationRequestAuthorityTests(_Pr3c2Harness):
         self.assertEqual(brain_core_map.core_plan(entry.understanding.capability_hint,
                                                   entry.understanding.arguments)[0], "reminder")
 
-    def test_an_explicit_freshness_request_keeps_its_research_plan(self):
-        # "güncel/bugünkü" açık tazelik işaretidir; "nedir" tanım kalıbı bunu bastırmaz.
+    def test_an_explicit_freshness_request_is_not_demoted_to_explanation(self):
+        # Pure Understanding keeps the freshness route; the model-owned finance override is
+        # exercised through the production proposal path in test_brain_b3_finance_authority.
         for text in ("güncel dolar kuru nedir?", "bugünkü dolar kuru nedir?"):
             with self.subTest(text=text):
                 self.reset()
@@ -200,6 +201,7 @@ class ExplanationRequestAuthorityTests(_Pr3c2Harness):
                 self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
                 self.assertEqual(entry.understanding.capability_hint, "research.search")
                 self.assertEqual(out, "GOAL_RUN")
+                self.run_goal.assert_called_once()
 
     def test_a_fresh_news_tell_request_is_not_an_explanation(self):
         # "haberleri anlat" bir açıklama fiiliyle biter ama taze dış veri isteğidir; tek
