@@ -313,7 +313,7 @@ class PreservedFencesTests(unittest.TestCase):
             result = apply_model_understanding(ambiguous, text)
         self.assertIs(result, ambiguous)
 
-    def test_unwired_operation_keeps_deterministic_decision_and_records_reason(self):
+    def test_action_batch_preserves_every_validated_action_for_brain04_handoff(self):
         text = "müziği durdur sesi azalt"
         one = action(capability_id="pc.media.action", arguments={"media": {"action": "play_pause"}},
                     action_id="a1")
@@ -329,12 +329,14 @@ class PreservedFencesTests(unittest.TestCase):
             self.assertEqual([item.capability_id for item in proposal.actions],
                              ["pc.media.action", "pc.level.set"])
             result = apply_model_understanding(base, text)
-        # Zarf doğrulandı ama yürütücü BRAIN-04'te: karar alanları deterministik kalır,
-        # yalnız tanı kaydı eklenir.
-        self.assertIs(result.request_kind, base.request_kind)
-        self.assertEqual(result.capability_hint, base.capability_hint)
-        self.assertEqual(dict(result.arguments), dict(base.arguments))
-        self.assertIn("MODEL_OPERATION_NOT_WIRED", result.reason_codes)
+        self.assertIs(result.request_kind, RequestKind.CAPABILITY)
+        self.assertIsNone(result.capability_hint)
+        self.assertEqual(dict(result.arguments), {"original_text": text})
+        self.assertEqual(
+            [(row["action_id"], row["capability_id"], tuple(row["depends_on"])) for row in result.actions],
+            [("a1", "pc.media.action", ()), ("a2", "pc.level.set", ())],
+        )
+        self.assertNotIn("MODEL_OPERATION_NOT_WIRED", result.reason_codes)
 
     def test_provider_independent_understand_signature_is_unchanged(self):
         import inspect
