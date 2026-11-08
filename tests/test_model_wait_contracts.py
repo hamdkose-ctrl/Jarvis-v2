@@ -183,3 +183,57 @@ class ModelWaitTests(unittest.TestCase):
         self.assertNotIsInstance(caught.exception,requests_state.LocalDeadline)
         self.assertEqual(failure_policy.classify(caught.exception),failure_policy.TIMEOUT)
         self.assertGreater(failure_policy.cooldown_seconds('groq',caught.exception),0)
+
+    def test_a_late_key_rejection_is_not_buried_under_our_local_deadline(self):
+        # Denetim bulgusu P2-1: bütçe dolduktan sonra gelen 401/403 taşımanın KESIN bulgusudur.
+        # LocalDeadline'e çevrilirse router kimlik yolunu hiç işlemez, bozuk anahtar sıradaki
+        # turda yeniden denenir ve kullanıcıya yanlış "bekleme süresi doldu" tanısı görünür.
+        from modules import failure_policy
+        late_401=llm.CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+        def raiser():
+            time.sleep(.08)
+            raise late_401
+        with requests_state.budget(.02):
+            with self.assertRaises(llm.CloudError) as caught:llm._timed('groq',raiser)
+        self.assertIs(caught.exception,late_401)
+        self.assertNotIsInstance(caught.exception,requests_state.LocalDeadline)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.AUTH)
+        self.assertGreater(failure_policy.cooldown_seconds('groq',caught.exception),0)
+
+    def test_a_late_rate_limit_keeps_the_quota_diagnosis_and_its_wait(self):
+        # 429 da kesin bir yanıttır: bekleme/kota müdahalesi yerel bütçe kararının altında kaybolmaz.
+        from modules import failure_policy
+        late_429=llm.CloudError('Groq yanıt vermedi (HTTP 429, bekleme süresi dolmadı)')
+        def raiser():
+            time.sleep(.08)
+            raise late_429
+        with requests_state.budget(.02):
+            with self.assertRaises(llm.CloudError) as caught:llm._timed('groq',raiser)
+        self.assertIs(caught.exception,late_429)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.RATE_LIMIT)
+        self.assertGreater(failure_policy.cooldown_seconds('groq',caught.exception),0)
+
+    def test_a_late_plain_wait_still_ends_as_our_local_deadline(self):
+        # Ayıran regresyon: beklemenin kendisi bütçeyi aştıysa hüküm yerel deadline'dır ve
+        # sağlıklı sağlayıcı ceza almaz. Kimlik/kota bulgusundan farkı burada test edilir.
+        from modules import failure_policy
+        def raiser():
+            time.sleep(.08)
+            raise llm.CloudError('Groq bağlantısı kurulamadı (ReadTimeout)')
+        with requests_state.budget(.02):
+            with self.assertRaises(requests_state.LocalDeadline) as caught:llm._timed('groq',raiser)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.LOCAL_TIMEOUT)
+        self.assertEqual(failure_policy.cooldown_seconds('groq',caught.exception),0)
+
+    def test_the_budget_check_never_reinterprets_process_control_signals(self):
+        # Yakalama bilerek Exception ile sınırlı: SystemExit/KeyboardInterrupt bir model
+        # bulgusu değildir, bütçe dolmuş olsa bile kendi gibi yukarı çıkar.
+        for signal in (KeyboardInterrupt('iptal'),SystemExit(2)):
+            with self.subTest(signal=type(signal).__name__):
+                def raiser():
+                    time.sleep(.08)
+                    raise signal
+                with requests_state.budget(.02):
+                    with self.assertRaises(type(signal)) as caught:llm._timed('groq',raiser)
+                self.assertIs(caught.exception.__class__,type(signal))
+                self.assertNotIsInstance(caught.exception,requests_state.LocalDeadline)

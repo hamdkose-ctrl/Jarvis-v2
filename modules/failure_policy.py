@@ -86,6 +86,18 @@ def quota_exhausted_text(text) -> bool:
     return bool(_QUOTA_EXHAUSTED_RE.search(str(text or '')))
 
 
+# Kesin sağlayıcı/hesap bulguları: taşıma bir yanıt ALDI, yalnız geç kaldı. Bu bilgi yerel bütçe
+# kararının altında kalırsa anahtar/kota müdahalesi hiç işlenmez ve bozuk anahtar sıradaki turda
+# yeniden denenir. Bekleme/ağ sınıfı (TIMEOUT, NETWORK, DNS) buraya girmez; o durumda hüküm
+# yerel deadline'ındır ve sağlıklı sağlayıcı ceza almaz.
+DEFINITIVE_PROVIDER_FINDINGS = frozenset({AUTH, RATE_LIMIT, QUOTA_EXHAUSTED})
+
+
+def is_definitive_provider_finding(exc: BaseException) -> bool:
+    """401/403, geçici hız sınırı veya açık günlük kota: saklanması gereken somut sağlayıcı bilgisi mi?"""
+    return classify(exc) in DEFINITIVE_PROVIDER_FINDINGS
+
+
 def classify(exc: BaseException) -> str:
     if isinstance(exc, ProviderExhaustedError):
         return PROVIDER_EXHAUSTED

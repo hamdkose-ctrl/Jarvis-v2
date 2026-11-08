@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,24 @@ def contract_errors(status: dict) -> list[str]:
     return errors
 
 
+def _wait_for(page, condition: str, timeout_ms: int, what: str) -> None:
+    """CSP ile uyumlu bekleme: aynı koşul, aynı eşik, sayfa dünyasında derleme yok.
+
+    `page.wait_for_function("<string>")` koşulu ilk yoklamada doğruysa CDP üzerinden
+    derlemeden yanıt veriyor; ilk yoklama yanlışsa predicate'i `new Function` ile sayfa
+    dünyasında derliyor ve ürün CSP'si (`script-src 'self' 'unsafe-inline'`, 'unsafe-eval'
+    yok) bunu EvalError ile kesiyor. Yani bekleme, arayüz ne kadar hızlı açıldığına bağlı
+    olarak geçiyor ya da düşüyordu. Tek seferlik `page.evaluate` derleme yoluna girmediği
+    için koşul Python tarafında yoklanır: CSP gevşemez, kontrol atlanmaz, eşik değişmez."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        if page.evaluate(condition):
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"{what} {timeout_ms} ms içinde hazır olmadı: {condition}")
+        time.sleep(.05)
+
+
 def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
     """Gerçek nx.html'yi gerçek Jarvis HTTP sunucusunda Chromium ile açıp DOM'u doğrula."""
     try:
@@ -55,11 +74,10 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
             page = browser.new_page(viewport={"width": 1594, "height": 900})
             page.on("pageerror", lambda exc: errors.append(str(exc)[:240]))
             page.goto(url, wait_until="domcontentloaded", timeout=20_000)
-            page.wait_for_function("typeof S !== 'undefined' && !!S.snap", timeout=15_000)
-            page.wait_for_function(
-                "typeof ACT !== 'undefined' && typeof ACT.localmodelsave === 'function'",
-                timeout=15_000,
-            )
+            _wait_for(page, "typeof S !== 'undefined' && !!S.snap", 15_000, "nx.js oturum durumu")
+            _wait_for(page,
+                      "typeof ACT !== 'undefined' && typeof ACT.localmodelsave === 'function'",
+                      15_000, "Yapay zekâ ayar eylemi")
             browser_status = page.evaluate("api('llm_status')")
 
             # Gerçek kullanıcı yolu: ana menüyü aç, ardından canlı nx.html'deki
@@ -75,12 +93,11 @@ def _browser_check(root: Path, status: dict) -> tuple[bool, str]:
             page.wait_for_selector("#spane", state="attached", timeout=15_000)
             page.evaluate("SX.aiSel='ollama'; drawSettings()")
             page.wait_for_selector("#local-model-select", timeout=15_000)
-            page.wait_for_function(
-                "document.querySelector('#local-model-select') && "
-                "document.querySelector('#local-model-select').options.length > 0 && "
-                "document.body.innerText.includes('Aktif Model')",
-                timeout=15_000,
-            )
+            _wait_for(page,
+                      "document.querySelector('#local-model-select') && "
+                      "document.querySelector('#local-model-select').options.length > 0 && "
+                      "document.body.innerText.includes('Aktif Model')",
+                      15_000, "kurulu model listesi ve Aktif Model satırı")
             page.wait_for_timeout(500)
             observed = page.evaluate("""() => {
                 const row=[...document.querySelectorAll('.srow2')].find(x=>x.querySelector('b')?.textContent.trim()==='Aktif Model');

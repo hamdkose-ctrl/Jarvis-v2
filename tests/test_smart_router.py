@@ -93,6 +93,31 @@ class SmartRouterTests(unittest.TestCase):
         self.assertEqual(router._HEALTH,{})
         self.assertIsInstance(caught.exception.__cause__,llm.CloudError)
 
+    def test_a_late_key_rejection_still_gets_its_own_cooldown_without_a_second_attempt(self):
+        # Denetim bulgusunun router yüzü: 401 gibi kesin bir kimlik bulgusu bütçe dolduktan sonra
+        # gelirse bilgi LocalDeadline altında kalmaz; router kendi anahtar yolunu işler ve bozuk
+        # adayı cooldown'a düşürür. Yine de sıradaki aday denemez: döngü başındaki bütçe denetimi
+        # LocalDeadline ile keser, görünen kök neden ve kota/bekeleme müdahalesi ayrıdır.
+        from types import SimpleNamespace
+        clock={'t':1000.0}
+        stub=SimpleNamespace(monotonic=lambda:clock['t'])
+        calls=[]
+        def late():
+            clock['t']+=5.0
+            raise llm.CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+        def callback(provider):
+            calls.append(provider)
+            return llm._timed(provider,late)
+        with patch.object(requests_state,'time',stub), \
+                patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
+            with requests_state.budget(1):
+                with self.assertRaises(requests_state.LocalDeadline):
+                    router.run('alice','merhaba dünya',callback)
+        self.assertEqual(calls,['groq'])
+        self.assertEqual([p for (u,p) in router._HEALTH],['groq'])
+        self.assertGreater(router._HEALTH[('alice','groq')]['until'],router.time.monotonic())
+        self.assertEqual(router._HEALTH[('alice','groq')]['error'],'CloudError')
+
     def test_status_shows_owner_cooldown_without_claiming_live_success(self):
         router.configure('alice',True)
         router._HEALTH[('alice','gemini')]={'until':router.time.monotonic()+300}

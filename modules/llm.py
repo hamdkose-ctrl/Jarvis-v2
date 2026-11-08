@@ -881,15 +881,22 @@ def _timed(name: str, fn):
     _route.model = None
     try:
         out = fn()
-    except BaseException as error:
-        # Hata çıkışında da aynı denetim: kendi bütçemiz ya da kullanıcı iptali hükmünü verdiyse
-        # kök neden odur, sağlayıcının HTTP hatası değil. Yerel deadline/iptal yukarı çıkar ve
-        # smart_router bunu cooldown yazmadan, sıradaki adayı denemeden yeniden fırlatır.
-        # Bütçe duruyorsa asıl hata türü ve mesajıyla aynen korunur; yutulmaz, dönüştürülmez.
+    except Exception as error:
+        # Hata çıkışında da aynı denetim, ama kapsam bilerek dar: SystemExit/KeyboardInterrupt gibi
+        # süreç kontrol sinyalleri burada yakalanmaz, kendi gibi yukarı çıkar.
+        # Bütçe ya da kullanıcı iptali hükmünü verdiyse kök neden odur, sağlayıcının HTTP hatası
+        # değil. Tek istisna yerel deadline'dır: taşıma kesin bir kimlik/kota bulgusu getirdiyse
+        # (401/403, 429, açık günlük kota) o bilgi LocalDeadline'ın altında kalmaz, aksi hâlde
+        # anahtar/kota müdahalesi hiç işlenmez ve sıradaki tur aynı kapıya yeniden çarpar.
+        # Gerçek bekleme/ağ hattında hüküm yerel deadline'ındır: smart_router cooldown yazmaz ve
+        # sıradaki adayı denemez. Bütçe duruyorsa asıl hata türü ve mesajıyla aynen korunur.
         try:
             requests_state.check()
-        except (requests_state.LocalDeadline, requests_state.Cancelled) as verdict:
-            raise verdict from error
+        except requests_state.Cancelled as verdict:
+            raise verdict from error    # kullanıcı iptali her bulgunun üstündür
+        except requests_state.LocalDeadline as verdict:
+            if not failure_policy.is_definitive_provider_finding(error):
+                raise verdict from error
         raise
     requests_state.check()
     LAST_SEC[name] = round(time.time() - t0, 1)
