@@ -60,6 +60,25 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
         self.save.assert_called_once_with(*self.doc)
         self.assertIn(str(self.saved), out)
 
+    def test_model_chat_overrides_the_save_guess_in_the_real_handoff(self):
+        envelope=json.loads(_model_envelope('chat'))
+        envelope['confidence']='HIGH'
+        self.model.return_value=json.dumps(envelope)
+        entry, *_=self.turn_real('Raporu dosyaya yazmanı istemedim.',model_understanding=True)
+        self.assertEqual(entry.understanding.request_kind.value,'CHAT')
+        self.save.assert_not_called();self.probes.assert_not_called()
+
+    def test_model_question_is_delivered_without_executing_an_action(self):
+        self.ctx._session().last_doc=None
+        envelope=json.loads(_model_envelope('clarify'))
+        envelope.update(confidence='HIGH',clarification={
+            'required':True,'question':'Hangi sonucu saklamamı istiyorsun?','reason_code':'OUTPUT_MISSING'})
+        self.model.return_value=json.dumps(envelope)
+        entry,out,*_=self.turn_real('Sonucu bilgisayarımda tut.',model_understanding=True)
+        self.assertEqual(entry.understanding.request_kind.value,'CLARIFY')
+        self.assertEqual(out,'Hangi sonucu saklamamı istiyorsun?')
+        self.save.assert_not_called();self.probes.assert_not_called()
+
     def test_a_deterministic_low_guess_cannot_veto_the_model(self):
         from modules.brain_contracts import Confidence
         self.proposal('documents.export')

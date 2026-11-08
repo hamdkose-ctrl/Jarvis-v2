@@ -28,6 +28,18 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertNotIn('SECRET',repr(data))
         self.assertEqual(runner.response_shape('not json SECRET'),{'json_object':False})
 
+    def test_a_rejected_raw_wrong_action_is_still_a_critical_proposal(self):
+        from modules import llm, brain_model_understanding as model
+        def rejected(*args):
+            llm._send_provider('groq','synthetic','synthetic',2048,None)
+            model._proposal_diagnostic.set({'status':'rejected','reason_code':'CORE_ARGUMENTS_INVALID',
+                'operation':'direct_action','capabilities':['documents.export']})
+            return None
+        with patch('modules.llm._send_provider',return_value='{}'),patch.object(runner,'ask',side_effect=rejected):
+            result=runner.measure('owner',[self.case(['chat'])])
+        self.assertEqual(result['state'],'failed')
+        self.assertEqual(result['incorrect_action_proposals'],1)
+
     def case(self, expected, output=True):
         return {'id':'c1','group':'test','text':'synthetic','expected':expected,'has_output':output}
 

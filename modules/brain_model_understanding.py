@@ -15,6 +15,7 @@ import ntpath
 import re
 import time
 from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Any, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
@@ -43,11 +44,26 @@ GOAL_OPERATIONS = frozenset({
 })
 # BRAIN-01'de üretim akışına bağlanan işlemler. Diğerleri burada doğrulanır ama yürütücüleri
 # BRAIN-04/BRAIN-05'te yazılacak; bu paket onları çalışıyor gibi göstermez.
-ADOPTED_OPERATIONS = frozenset({"chat", "direct_action"})
+ADOPTED_OPERATIONS = frozenset({"chat", "direct_action", "clarify"})
 REQUEST_KIND_BY_OPERATION = {
     "chat": RequestKind.CHAT,
     "direct_action": RequestKind.CAPABILITY,
+    "clarify": RequestKind.CLARIFY,
 }
+
+_proposal_diagnostic = ContextVar('brain_proposal_diagnostic', default=None)
+
+
+def proposal_diagnostic(*, clear: bool = False) -> dict[str, Any]:
+    """Per-call protocol/rejection codes only; no text, arguments or owner data."""
+    if clear:
+        _proposal_diagnostic.set(None)
+    return dict(_proposal_diagnostic.get() or {})
+
+
+def _reject(code: str):
+    _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'rejected', 'reason_code':code})
+    return None
 
 ENVELOPE_KEYS = frozenset({
     "schema_version", "operation", "conversation_relation", "temporal_need",
@@ -119,18 +135,27 @@ class UnderstandingProposal:
     goal: Mapping[str, Any] | None = None
     clarification_required: bool = False
     clarification_reason_code: str | None = None
+    clarification_question: str | None = None
     references: tuple[Any, ...] = ()
 
 
 def _decode(raw: str) -> dict[str, Any]:
     if not isinstance(raw, str) or len(raw) > 6000:
+        _reject('ENVELOPE_TEXT_LIMIT')
         raise ValueError("Model zarfı sınırlandırılmış metin değil.")
-    value = json.loads(raw)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        _reject('ENVELOPE_JSON_INVALID')
+        raise
     if not isinstance(value, dict):
+        _reject('ENVELOPE_NOT_OBJECT')
         raise ValueError("Model zarfı JSON nesnesi olmalı.")
     if set(value) != set(ENVELOPE_KEYS):
+        _reject('ENVELOPE_FIELDS_INVALID')
         raise ValueError("Model zarfı şeması uyuşmuyor.")
     if value["schema_version"] != SCHEMA_VERSION:
+        _reject('ENVELOPE_VERSION_INVALID')
         raise ValueError("Model zarfı sürümü uyuşmuyor.")
     return value
 
@@ -165,7 +190,8 @@ def _response_schema(capabilities: list[str]) -> dict[str, Any]:
                 "required": sorted(CLARIFICATION_KEYS), "properties": {
                     "required": {"type": "boolean"},
                     "question": {"type": ["string", "null"]},
-                    "reason_code": {"type": ["string", "null"]}}},
+                    "reason_code": {"anyOf": [{"type":"null"},
+                        {"type":"string", "pattern":_REASON_CODE.pattern}]}}},
         },
     }
 
@@ -531,13 +557,13 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
 
     operation = row["operation"]
     if not isinstance(operation, str) or operation not in OPERATIONS:
-        return None
+        return _reject('OPERATION_INVALID')
     try:
         relation = ConversationRelation(row["conversation_relation"])
         temporal_need = TemporalNeed(row["temporal_need"])
         confidence = Confidence(row["confidence"])
     except ValueError:
-        return None
+        return _reject('ENUM_VALUE_INVALID')
 
     file_refs = [reference for reference in current.references
                  if getattr(reference, "kind", None) == "file"]
@@ -551,41 +577,41 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
     target_ids = _text_list("target_goal_ids", row["target_goal_ids"])
     if (target_ids is None or len(target_ids) > MAX_TARGET_GOALS
             or not set(target_ids) <= offered_goals):
-        return None
+        return _reject('GOAL_TARGET_NOT_OFFERED')
     goal_row = row["goal"]
     goal = None if goal_row is None else _goal_payload(goal_row)
     if goal_row is not None and goal is None:
-        return None
+        return _reject('GOAL_CARD_INVALID')
     if goal is not None and (_MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(goal)):
-        return None
+        return _reject('GOAL_AUTHORITY_FIELD')
 
     clarification_row = row["clarification"]
     if not isinstance(clarification_row, Mapping) or set(clarification_row) - set(CLARIFICATION_KEYS):
-        return None
+        return _reject('CLARIFICATION_SHAPE_INVALID')
     required = clarification_row.get("required")
     question = clarification_row.get("question")
     reason_code = clarification_row.get("reason_code")
     if not isinstance(required, bool) or required != (operation == "clarify"):
-        return None
+        return _reject('CLARIFICATION_FLAG_MISMATCH')
     if required:
         if (not isinstance(question, str) or not question.strip() or len(question) > 600
                 or "\x00" in question or not isinstance(reason_code, str)
                 or _REASON_CODE.fullmatch(reason_code) is None):
-            return None
+            return _reject('CLARIFICATION_DETAIL_INVALID')
     elif question is not None or reason_code is not None:
-        return None
+        return _reject('CLARIFICATION_UNUSED_DETAIL')
 
     action_rows = row["actions"]
     if not isinstance(action_rows, list) or not _action_count_matches(
             operation, action_rows, goal, target_ids):
-        return None
+        return _reject('ACTION_COUNT_MISMATCH')
 
     actions: list[ProposedAction] = []
     grounded_references: list[Any] = []
     seen_ids: set[str] = set()
     for index, item in enumerate(action_rows):
         if not isinstance(item, Mapping) or set(item) - set(ACTION_KEYS):
-            return None
+            return _reject('ACTION_SHAPE_INVALID')
         action_id = item.get("action_id")
         capability_id = item.get("capability_id")
         supplied = item.get("arguments")
@@ -595,21 +621,21 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
                 or not isinstance(capability_id, str) or capability_id not in CORE_INTENTS
                 or slots is None or depends_on is None or not set(slots) <= set(by_slot)
                 or not set(depends_on) <= seen_ids):
-            return None
+            return _reject('ACTION_REFERENCE_INVALID')
         if not isinstance(supplied, Mapping):
-            return None
+            return _reject('ARGUMENTS_NOT_OBJECT')
         try:
             _reject_authority_argument_keys(supplied)
             frozen = _freeze_json(supplied)
         except ValueError:
-            return None
+            return _reject('ARGUMENTS_INVALID')
         if _MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(frozen):
-            return None
+            return _reject('ARGUMENT_AUTHORITY_FIELD')
         if capability_id in _MODEL_DENIED_CAPABILITIES:
-            return None
+            return _reject('CAPABILITY_NOT_MODEL_OWNED')
         if not _arguments_are_grounded(capability_id=capability_id, supplied=frozen,
                                       sources=item.get("argument_sources"), text=text):
-            return None
+            return _reject('ARGUMENT_SOURCE_INVALID')
         resolved = _action_arguments(
             capability_id=capability_id, supplied=dict(frozen), text=text,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
@@ -617,10 +643,10 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             resolving_file_ambiguity=resolving_file_ambiguity,
             file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
         if resolved is None or core_plan(capability_id, resolved[0]) is None:
-            return None
+            return _reject('CORE_ARGUMENTS_INVALID')
         arguments, references = resolved
         if any(reference.owner != owner for reference in references):
-            return None
+            return _reject('REFERENCE_OWNER_MISMATCH')
         grounded_references.extend(references)
         seen_ids.add(action_id)
         actions.append(ProposedAction(
@@ -637,6 +663,7 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
         goal=goal,
         clarification_required=required,
         clarification_reason_code=reason_code if required else None,
+        clarification_question=question if required else None,
         references=tuple(grounded_references),
     )
     return _apply_semantic_fences(
@@ -650,40 +677,43 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
                            has_grounded_reference: bool) -> UnderstandingProposal | None:
     if proposed.conversation_relation not in {current.conversation_relation,
                                               ConversationRelation.NEW_REQUEST}:
-        return None
+        return _reject('RELATION_NOT_CURRENT')
     # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
     # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
-    artifact_continuation = bool(
-        proposed.actions and proposed.actions[0].capability_id == "documents.export"
-        and current.pending_owner is None
+    artifact_context = bool(
+        current.pending_owner is None
         and current.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
         and any(ref.kind == "artifact" and ref.id == "last_doc" and ref.owner == current.owner
                 for ref in current.references)
+        and not any(ref.kind in _GOAL_CARD_KINDS for ref in current.references)
     )
-    if protected_relation and not artifact_continuation:
-        if proposed.operation not in ADOPTED_OPERATIONS:
-            return None
-        if proposed.conversation_relation is not current.conversation_relation:
-            return None
-        if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
-            return None
-    # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
-    if bool(getattr(current, "needs_input", False)) and not (
-            resolving_file_ambiguity and has_grounded_reference):
-        return None
-    if proposed.operation == "direct_action" and proposed.confidence is Confidence.LOW \
-            and not resolving_file_ambiguity:
-        return None
-    if resolving_file_ambiguity and not has_grounded_reference:
-        return None
-    # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
-    # a deterministic LOW guess is not semantic authority over the validated model decision.
+    free_context = current.pending_owner is None and (
+        current.conversation_relation is ConversationRelation.NEW_REQUEST or artifact_context)
     model_owned_action = bool(proposed.actions and proposed.actions[0].capability_id
                               in {"documents.export", "system.diagnose"})
+    model_owned_decision = proposed.operation in {'chat','clarify'} or model_owned_action
+    if protected_relation and not (free_context and model_owned_decision):
+        if proposed.operation not in ADOPTED_OPERATIONS:
+            return _reject('PROTECTED_OPERATION')
+        if proposed.conversation_relation is not current.conversation_relation:
+            return _reject('PROTECTED_RELATION')
+        if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
+            return _reject('PROTECTED_REQUEST_KIND')
+    # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
+    if proposed.operation != 'clarify' and bool(getattr(current, "needs_input", False)) and not (
+            resolving_file_ambiguity and has_grounded_reference):
+        return _reject('UNRESOLVED_TARGET')
+    if proposed.operation == "direct_action" and proposed.confidence is Confidence.LOW \
+            and not resolving_file_ambiguity:
+        return _reject('ACTION_CONFIDENCE_LOW')
+    if proposed.operation != 'clarify' and resolving_file_ambiguity and not has_grounded_reference:
+        return _reject('FILE_REFERENCE_UNRESOLVED')
+    # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
+    # a deterministic LOW guess is not semantic authority over the validated model decision.
     if (_CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]
-            and not model_owned_action):
+            and not (free_context and model_owned_decision)):
         if not resolving_file_ambiguity:
-            return None
+            return _reject('LEGACY_CONFIDENCE_VETO')
         proposed = UnderstandingProposal(
             operation=proposed.operation,
             conversation_relation=proposed.conversation_relation,
@@ -694,6 +724,7 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
             goal=proposed.goal,
             clarification_required=proposed.clarification_required,
             clarification_reason_code=proposed.clarification_reason_code,
+            clarification_question=proposed.clarification_question,
             references=proposed.references,
         )
     return proposed
@@ -710,20 +741,21 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
     doğrulayıcısından geçmeden öneri sayılmaz. Kullanıcı-sahibi alanlar (alıcı, gövde, kişi adı,
     telefon) modelden gelebilir ama ancak cümlenin kendisinden alıntılanmış bir dayanakla.
     """
+    proposal_diagnostic(clear=True)
     if not owner or not isinstance(text, str) or not text.strip():
-        return None
+        return _reject('INPUT_INVALID')
     try:
         from modules import llm, provider_privacy, requests_state, smart_router
         if llm.current_user() != owner:
-            return None
+            return _reject('PROFILE_OWNER_MISMATCH')
         selected = llm.provider()
         # Açıkça seçilmiş ücretli/yerel rotalar Brain tarafından kullanılmaz veya sessiz geçilmez.
         if selected in _PAID or selected in _LOCAL or llm.privacy.mode() == "yerel":
-            return None
+            return _reject('PROVIDER_ROUTE_DISABLED')
         route = provider_privacy.ROUTE_PRIVATE_GENERAL
         eligible = smart_router.selection(owner, "analysis", route=route).get("candidates", [])
         if not any(name in {"groq", "cloudflare"} for name in eligible):
-            return None
+            return _reject('PROVIDER_UNAVAILABLE')
 
         from modules.brain_core_map import CORE_INTENTS
         slot_rows, _, _ = _file_slots(current)
@@ -804,14 +836,34 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 exclude_providers={"ollama"},
             )
             requests_state.check()
-        return _build(
-            _decode(raw), owner=owner, text=text, current=current,
+        row = _decode(raw)
+        # Retain only closed protocol enums, never arbitrary response fields/arguments.
+        detail = {}
+        for key, allowed in (('operation', OPERATIONS),
+                             ('conversation_relation', {v.value for v in ConversationRelation}),
+                             ('confidence', {v.value for v in Confidence})):
+            if isinstance(row.get(key), str) and row[key] in allowed:
+                detail[key] = row[key]
+        action_rows = row.get('actions')
+        if isinstance(action_rows, list):
+            detail['action_count'] = len(action_rows)
+            detail['capabilities'] = [a['capability_id'] for a in action_rows
+                if isinstance(a,dict) and isinstance(a.get('capability_id'),str)
+                and a['capability_id'] in CORE_INTENTS]
+        _proposal_diagnostic.set(detail)
+        result = _build(
+            row, owner=owner, text=text, current=current,
             deterministic_arguments=arguments, protected_relation=protected_relation,
             file_operation_hint=file_operation_hint)
+        if result is not None:
+            _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
+        return result
     except Exception as exc:
         _record_failure("modules/brain_model_understanding.py:propose")
         # Kullanıcı iptali istek sınırına kadar taşınır; diğer her hata deterministik kararı korur.
         from modules import requests_state
+        if proposal_diagnostic().get('status') != 'rejected':
+            _reject('REQUEST_CANCELLED' if isinstance(exc, requests_state.Cancelled) else 'MODEL_CALL_OR_VALIDATION_ERROR')
         if isinstance(exc, requests_state.Cancelled):
             raise
         return None

@@ -121,6 +121,7 @@ def measure(owner, cases, *, interval_seconds=35):
             raise RuntimeError('Acceptance must not execute effects: '+name)
         return stop
     from modules import llm, requests_state
+    from modules.brain_model_understanding import proposal_diagnostic
     provider = Counter()
     shape = None
     send = llm._send_provider
@@ -152,6 +153,7 @@ def measure(owner, cases, *, interval_seconds=35):
             print(f'Semantic case {index+1}/{len(cases)}',flush=True)
             before = provider['responses']
             shape = None
+            proposal_diagnostic(clear=True)
             error_class = None
             try:
                 result = ask(owner, case, index)
@@ -165,6 +167,13 @@ def measure(owner, cases, *, interval_seconds=35):
                 row['error_class'] = error_class
             if shape is not None:
                 row['response_shape'] = shape
+            diagnostic = proposal_diagnostic()
+            if diagnostic:
+                row['proposal_diagnostic'] = diagnostic
+                if result is None and diagnostic.get('operation') in {'direct_action','action_batch'}:
+                    caps = diagnostic.get('capabilities', [])
+                    candidate = caps[0] if len(caps) == 1 and diagnostic['operation'] == 'direct_action' else None
+                    row['incorrect_action_proposal'] = candidate not in case['expected']
             rows.append(row)
             if not row['responded']:
                 stop_reason = 'provider_no_response'
@@ -219,7 +228,7 @@ def main(argv=None):
                 for key in ('accuracy', 'groups', 'incorrect_action_proposals'):
                     report.pop(key, None)
                 report['results'] = [{k:v for k,v in row.items()
-                                     if k in {'id','responded','valid_proposal','error_class','response_shape'}}
+                                     if k in {'id','responded','valid_proposal','error_class','response_shape','proposal_diagnostic'}}
                                     for row in report.get('results', [])]
             else:
                 report['semantic_acceptance'] = report['state'] == 'passed'

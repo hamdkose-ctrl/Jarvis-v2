@@ -505,6 +505,10 @@ def clarification(entry: EntryResult) -> str | None:
     specific = brain_core_map.clarification_question(semantic.ambiguities, semantic.arguments)
     if specific is not None:
         return specific
+    if "MODEL_CLARIFICATION_REQUIRED" in semantic.reason_codes and semantic.pending_owner is None:
+        question = semantic.arguments.get("question")
+        if isinstance(question, str) and question.strip() and len(question) <= 600 and "\x00" not in question:
+            return question
     if "multiple target references" in semantic.ambiguities:
         return "Birden fazla hedef eşleşti; hangisini kastettiğini netleştir."
     return "İsteğini güvenli biçimde sürdürebilmem için neyi kastettiğini netleştir."

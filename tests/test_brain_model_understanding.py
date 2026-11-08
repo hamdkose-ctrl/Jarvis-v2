@@ -130,8 +130,8 @@ class BrainModelUnderstandingTests(unittest.TestCase):
     def test_capability_requires_independent_core_argument_validation(self):
         self.assertIsNone(self.ask(direct("files.read"), args={"execute": True}))
 
-    def test_model_cannot_upgrade_confidence_or_rewrite_pending_relation(self):
-        self.assertIsNone(self.ask(answer(confidence="HIGH")))
+    def test_model_chat_confidence_does_not_override_pending_ownership(self):
+        self.assertIsNotNone(self.ask(answer(confidence="HIGH")))
 
         pending = current(conversation_relation=ConversationRelation.ANSWER_TO_PENDING)
         self.assertIsNone(self.ask(answer(conversation_relation="NEW_REQUEST"),

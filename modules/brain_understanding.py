@@ -2687,8 +2687,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
     """Birincil model zarfını kanonikal anlama sonucuna işler.
 
     State/Fast dışındaki her üretim turu bu tek bounded çağrıdan geçer. Zarf doğrulanamazsa ya
-    da kararı belirsizse deterministik sonuç olduğu gibi kalır. BRAIN-01'de yalnız `chat` ve
-    `direct_action` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
+    da kararı belirsizse deterministik sonuç olduğu gibi kalır. `chat`, `direct_action` ve `clarify` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
     yürütücüleri BRAIN-04/BRAIN-05'te yazılır. Bir hedef seçimi yalnız owner-bound bir dosya
     adayını seçebilir; hedefin gerçek yetkisini her durumda Core yeniden doğrular.
     """
@@ -2733,7 +2732,13 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         next_reason_codes = result.reason_codes
         next_needs_input = result.needs_input
 
-        if proposal.references:
+        if request_kind is RequestKind.CLARIFY:
+            next_arguments = {"original_text":text, "question":proposal.clarification_question}
+            next_ambiguities = result.ambiguities or ("MODEL_CLARIFICATION_REQUIRED",)
+            next_reason_codes = result.reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
+            next_needs_input = True
+
+        if proposal.references and request_kind is not RequestKind.CLARIFY:
             next_ambiguities = ()
             next_needs_input = False
             next_reason_codes = tuple(
