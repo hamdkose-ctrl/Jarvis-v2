@@ -7,6 +7,7 @@ yetkinin ise Core'da kaldığını birlikte doğrular.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -358,6 +359,24 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIs(type(send.call_args.args[3]), int)
         self.assertEqual(send.call_args.args[3], 2048)
         budget.assert_called_once_with(12)
+
+    def test_a_provider_answer_late_to_the_local_budget_is_never_adopted(self):
+        # Yerel bütçe dolmuşsa biçimi doğru bir yanıt bile benimsenmez ve işlem başlatmaz;
+        # tanı da "sağlayıcı yanıt vermedi" değil kendi kök nedenini taşır.
+        from modules import requests_state
+        raw = direct("documents.export", confidence="HIGH")
+
+        def late_run(owner, prompt, callback, **kwargs):
+            time.sleep(.08)
+            return raw
+
+        p1, p2, p3 = self.eligible()
+        with requests_state.budget(.02), p1, p2, p3, \
+                patch("modules.smart_router.run", side_effect=late_run):
+            result = model.propose(owner=OWNER, text="sonucu belge olarak sakla",
+                                   current=current(), arguments=current().arguments)
+        self.assertIsNone(result)
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "LOCAL_DEADLINE_EXCEEDED")
 
     def test_production_groq_http_payload_accepts_brain_token_limit(self):
         raw = answer(confidence="MEDIUM")

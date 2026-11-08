@@ -916,9 +916,9 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             requests_state.check()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise requests_state.Cancelled("Brain model understanding budget expired.")
-            # Transport's fourth argument is an integer token limit, not seconds.
-            # The independent requests_state budget still bounds elapsed time.
+                raise requests_state.LocalDeadline("Brain model understanding budget expired.")
+            # Dördüncü argüman saniye değil token limiti; süre yalnız requests_state bütçesinden
+            # gelir ve Groq okuma zaman aşımı llm.transport_timeout ile bu bütçeye iner.
             return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None)
 
         with requests_state.budget(12):
@@ -954,8 +954,15 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         _record_failure("modules/brain_model_understanding.py:propose")
         # Kullanıcı iptali istek sınırına kadar taşınır; diğer her hata deterministik kararı korur.
         from modules import requests_state
+        if isinstance(exc, requests_state.Cancelled):
+            code = 'REQUEST_CANCELLED'
+        elif isinstance(exc, requests_state.LocalDeadline):
+            # Yerel süre aşımı ile sağlayıcının yanıt vermemesi ayrı kök nedenlerdir.
+            code = 'LOCAL_DEADLINE_EXCEEDED'
+        else:
+            code = 'MODEL_CALL_OR_VALIDATION_ERROR'
         if proposal_diagnostic().get('status') != 'rejected':
-            _reject('REQUEST_CANCELLED' if isinstance(exc, requests_state.Cancelled) else 'MODEL_CALL_OR_VALIDATION_ERROR')
+            _reject(code)
         if isinstance(exc, requests_state.Cancelled):
             raise
         return None

@@ -71,6 +71,24 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertFalse(data['semantic_acceptance'])
         self.assertNotIn('accuracy',data);self.assertNotIn('correct',data['results'][0])
 
+    def test_local_deadline_and_a_silent_provider_get_different_stop_reasons(self):
+        # Aynı 'yanıt yok' görünümü iki ayrı kök nedeni saklamaz: kendi süremiz dolduysa
+        # ölçüm local_deadline_exceeded ile durur, sağlayıcı susmuşsa provider_no_response.
+        from modules import brain_model_understanding as model
+        for code, expected in [('LOCAL_DEADLINE_EXCEEDED','local_deadline_exceeded'),
+                               ('MODEL_CALL_OR_VALIDATION_ERROR','provider_no_response')]:
+            with self.subTest(reason_code=code):
+                def expired(*args):
+                    model._proposal_diagnostic.set({'status':'rejected','reason_code':code})
+                    return None
+                with patch.object(runner,'ask',side_effect=expired):
+                    report=runner.measure('owner',[self.case(['chat'])]*20,interval_seconds=0)
+                self.assertEqual(report['stop_reason'],expected)
+                self.assertEqual(report['state'],'unmeasured')
+                self.assertIsNone(report['accuracy'])
+                self.assertEqual(report['incorrect_action_proposals'],0)
+                self.assertEqual(report['attempted_effects'],0)
+
     def test_invalid_first_real_response_stops_the_full_run_as_failed(self):
         from modules import llm
         def invalid(*args):

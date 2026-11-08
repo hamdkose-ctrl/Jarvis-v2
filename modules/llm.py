@@ -529,6 +529,18 @@ class CloudError(RuntimeError):
 
 
 
+def transport_timeout(default: float) -> float:
+    """Okuma süresi üst sınırı: etkin bir yerel bütçe varsa sınır bütçenin kendisidir.
+
+    Bütçe yoksa (ör. arka plan işleri) eski sabit değer kalır. Böylece taşıma, çağıranın
+    süresinden uzun yaşayamaz: 12 sn'lik bir bütçe varken 30 sn okumaya izin vermek, gelmiş
+    bir yanıtı çöpe çevirip sağlayıcı hatası gibi raporlatıyordu."""
+    remaining = requests_state.budget_remaining()
+    if remaining is None:
+        return default
+    return min(default, max(1.0, remaining))
+
+
 def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
     """Groq OpenAI-uyumlu Chat Completions API."""
     key = user_groq_key(current_user())
@@ -553,7 +565,8 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
         for attempt in range(1, 3):
             requests_state.check()
             try:
-                r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=(5, 30))
+                r = requests.post(_GROQ_URL, headers=headers, json=body,
+                                  timeout=(5, transport_timeout(30)))
             except requests.RequestException as e:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e

@@ -80,6 +80,19 @@ def budget(seconds, *, cancel=None):
 class Cancelled(RuntimeError):
     pass
 
+
+class LocalDeadline(TimeoutError):
+    """Yerel süre bütçesi doldu; sağlayıcı hatası değildir.
+
+    TimeoutError alt sınıfıdır, böylece eski `except TimeoutError` yolları çalışmaya devam eder.
+    Yanıt gelmiş olsa bile sonuç uygulanmaz; sağlayıcı bu yüzden cezalandırılmaz (cooldown yok)."""
+
+
+def budget_remaining():
+    """Etkin yerel bütçenin kalan saniyesi; bütçe yoksa None. Taşıma süresi bu sınırdan büyük olamaz."""
+    deadline = _budget_deadline.get()
+    return None if deadline is None else deadline - time.monotonic()
+
 def register(user, rid, seconds=90):
     key = (user, rid)
     with _lock:
@@ -137,7 +150,7 @@ def check():
     if cancelled is not None and cancelled.is_set():raise Cancelled('Model beklemesi bitti; yeni deneme başlatılmadı.')
     deadline=_budget_deadline.get()
     if deadline is not None and time.monotonic()>=deadline:
-        raise TimeoutError('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
+        raise LocalDeadline('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
     key = _current.get()
     with _lock:
         record = _records.get(key)

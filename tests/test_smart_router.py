@@ -57,6 +57,19 @@ class SmartRouterTests(unittest.TestCase):
             self.assertIn('anahtarı eksik',policy('alice','groq'))
         self.assertNotIn('gem-key',json.dumps(router.status('alice')))
 
+    def test_local_deadline_ends_the_pool_without_punishing_the_provider(self):
+        # Yerel süre bütçesi dolduğunda yeni aday boşuna denenmez ve sağlıklı sağlayıcı
+        # cooldown'a düşürülmez: kök neden taşıma değil, çağıranın kendi sınırıdır.
+        calls=[]
+        def callback(provider):
+            calls.append(provider)
+            raise requests_state.LocalDeadline('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
+        with patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
+            with self.assertRaises(requests_state.LocalDeadline):
+                router.run('alice','merhaba dünya',callback)
+        self.assertEqual(calls,['groq'])
+        self.assertEqual(router._HEALTH,{})
+
     def test_status_shows_owner_cooldown_without_claiming_live_success(self):
         router.configure('alice',True)
         router._HEALTH[('alice','gemini')]={'until':router.time.monotonic()+300}

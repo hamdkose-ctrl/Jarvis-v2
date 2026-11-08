@@ -71,3 +71,56 @@ class ModelWaitTests(unittest.TestCase):
             requests_state.check();stop.set()
             with self.assertRaises(requests_state.Cancelled):requests_state.check()
         requests_state.check()
+
+    def test_local_budget_expiry_is_its_own_cause_and_keeps_timeout_compatibility(self):
+        # Yerel süre aşımı kullanıcı iptali de sağlayıcı zaman aşımı da değildir; fakat eski
+        # `except TimeoutError` yollarını kırmamak için o türün alt sınıfı olarak kalır.
+        with requests_state.budget(0):
+            with self.assertRaises(requests_state.LocalDeadline) as caught:
+                requests_state.check()
+        self.assertIsInstance(caught.exception,TimeoutError)
+        self.assertNotIsInstance(caught.exception,requests_state.Cancelled)
+
+    def test_budget_remaining_is_visible_only_while_a_budget_is_active_and_nests_tighter(self):
+        self.assertIsNone(requests_state.budget_remaining())
+        with requests_state.budget(30):
+            self.assertLess(requests_state.budget_remaining(),30)
+            self.assertGreater(requests_state.budget_remaining(),20)
+            with requests_state.budget(5):
+                self.assertLessEqual(requests_state.budget_remaining(),5)
+        self.assertIsNone(requests_state.budget_remaining())
+
+    def test_transport_read_timeout_is_capped_by_the_active_budget_never_waisted(self):
+        # Bütçe yoksa taşıma kendi sınırında kalır; bütçe varsa okuma o sınırın üstüne çıkamaz.
+        self.assertEqual(llm.transport_timeout(30),30)
+        with requests_state.budget(12):
+            self.assertLessEqual(llm.transport_timeout(30),12)
+            self.assertEqual(llm.transport_timeout(5),5)
+        with requests_state.budget(.1):
+            self.assertEqual(llm.transport_timeout(30),1.0)
+
+    def test_groq_is_posted_with_the_budgeted_read_timeout(self):
+        seen=[]
+        def post(url,**kwargs):
+            seen.append(kwargs['timeout']);raise llm.requests.ConnectionError('test: ağ yok')
+        with patch.object(llm,'user_groq_key',return_value='test-only'), \
+                patch.object(llm,'groq_model',return_value='test-model'), \
+                patch.object(llm,'_limited',return_value=None), \
+                patch.object(llm,'_fallback_states',{}), \
+                patch('modules.smart_router.settings',return_value={}), \
+                patch('modules.usage_meter.record'),patch('modules.usage_meter.observe_limits'), \
+                patch('modules.failure_policy.backoff_sleep'), \
+                patch.object(llm.requests,'post',side_effect=post), \
+                requests_state.budget(3):
+            with self.assertRaises(llm.CloudError):llm._groq([{'role':'user','content':'x'}],'',8)
+        self.assertTrue(seen)
+        for connect,read in seen:
+            self.assertEqual(connect,5);self.assertLessEqual(read,3.0)
+
+    def test_a_response_arriving_after_the_budget_is_dropped_not_applied(self):
+        # Hatanın gerçek yeri: taşıma yanıtı döndürdükten SONRAKI kontrol. Geç yanıt kullanılmaz.
+        def late():
+            time.sleep(.08)
+            return '{"operation":"direct_action","actions":[{"capability_id":"documents.export"}]}'
+        with requests_state.budget(.02):
+            with self.assertRaises(requests_state.LocalDeadline):llm._timed('groq',late)

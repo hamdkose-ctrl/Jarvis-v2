@@ -176,7 +176,11 @@ def measure(owner, cases, *, interval_seconds=35):
                     row['incorrect_action_proposal'] = candidate not in case['expected']
             rows.append(row)
             if not row['responded']:
-                stop_reason = 'provider_no_response'
+                # Two different root causes must not share one label: the provider may have been
+                # silent, or our own finite budget may have ended while it was still answering.
+                stop_reason = ('local_deadline_exceeded'
+                               if (diagnostic or {}).get('reason_code') == 'LOCAL_DEADLINE_EXCEEDED'
+                               else 'provider_no_response')
                 break  # Do not repeat requests against an unavailable provider.
             if index == 0 and not row['valid_proposal']:
                 stop_reason = 'model_response_invalid'
