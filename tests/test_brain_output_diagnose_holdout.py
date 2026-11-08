@@ -37,6 +37,46 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertEqual(data['state'],'unmeasured');run.assert_not_called()
         self.assertNotIn('owner',data)
 
+    def test_connection_probe_spends_one_case_without_claiming_semantic_acceptance(self):
+        measured=runner.verdict([runner.judge(self.case(['chat']),proposal('direct_action','system.diagnose'))],0)
+        measured.update(provider_requests=1,provider_responses=1,
+                        results=[runner.judge(self.case(['chat']),proposal('direct_action','system.diagnose'))])
+        with tempfile.TemporaryDirectory() as td:
+            report=Path(td)/'report.json'
+            with patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured) as run, redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.main(['--run','--connection-only','--json',str(report)]),0)
+            data=json.loads(report.read_text())
+        self.assertEqual(len(run.call_args.args[1]),1)
+        self.assertEqual(data['scope'],'connection');self.assertTrue(data['connection_ok'])
+        self.assertFalse(data['semantic_acceptance'])
+        self.assertNotIn('accuracy',data);self.assertNotIn('correct',data['results'][0])
+
+    def test_invalid_first_real_response_stops_the_full_run_as_failed(self):
+        from modules import llm
+        def invalid(*args):
+            llm._send_provider('groq','synthetic','synthetic',2048,None)
+            return None
+        with patch('modules.llm._send_provider',return_value='invalid JSON'), patch.object(runner,'ask',side_effect=invalid) as ask:
+            report=runner.measure('owner',[self.case(['chat'])]*20,interval_seconds=0)
+        ask.assert_called_once()
+        self.assertEqual(report['state'],'failed');self.assertIsNone(report['accuracy'])
+        self.assertEqual(report['stop_reason'],'model_response_invalid')
+        self.assertEqual(report['planned_cases'],20)
+
+    def test_connection_probe_distinguishes_no_response_from_invalid_response(self):
+        for responded, expected in [(False,'unmeasured'),(True,'failed')]:
+            row=runner.judge(self.case(['chat']),None,response_received=responded)
+            measured=runner.verdict([row],0)
+            measured.update(provider_requests=1,provider_responses=int(responded),results=[row])
+            with self.subTest(responded=responded), tempfile.TemporaryDirectory() as td:
+                report=Path(td)/'report.json'
+                with patch.object(runner,'preflight',return_value=('owner',True,'ready')), patch.object(runner,'measure',return_value=measured), redirect_stdout(io.StringIO()):
+                    exit_code=runner.main(['--run','--connection-only','--json',str(report)])
+                data=json.loads(report.read_text())
+                self.assertEqual(data['state'],expected)
+                self.assertEqual(exit_code,2 if not responded else 1)
+                self.assertFalse(data['connection_ok']);self.assertFalse(data['semantic_acceptance'])
+
     def test_raw_model_proposal_is_required_for_a_score(self):
         row=runner.judge(self.case(['chat']),None)
         report=runner.verdict([row],0)

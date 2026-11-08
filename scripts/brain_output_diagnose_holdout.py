@@ -114,6 +114,7 @@ def measure(owner, cases, *, interval_seconds=35):
         provider['responses'] += 1
         return result
     rows = []
+    stop_reason = None
     # Observe actual sends without replacing the model, route, response or credentials.
     with ExitStack() as stack:
         stack.enter_context(patch.object(llm, '_send_provider', side_effect=observed_send))
@@ -126,6 +127,7 @@ def measure(owner, cases, *, interval_seconds=35):
                 reset=reset_seconds(seen.get('tok_reset'))
                 delay=max(interval_seconds, 0 if reset is None else reset+1)
                 if delay>120:
+                    stop_reason = 'quota_wait_too_long'
                     break  # Report incomplete measurement, never ignore a long quota wait.
                 print(f'Waiting {delay:.1f}s for the token budget',flush=True)
                 time.sleep(delay)
@@ -144,37 +146,62 @@ def measure(owner, cases, *, interval_seconds=35):
                 row['error_class'] = error_class
             rows.append(row)
             if not row['responded']:
+                stop_reason = 'provider_no_response'
                 break  # Do not repeat requests against an unavailable provider.
+            if index == 0 and not row['valid_proposal']:
+                stop_reason = 'model_response_invalid'
+                break  # Validate the first response before spending the rest of the quota.
     summary=verdict(rows,sum(calls.values()))
     if len(rows)<len(cases):
-        critical=summary['incorrect_action_proposals'] or summary['attempted_effects']
+        critical=(summary['incorrect_action_proposals'] or summary['attempted_effects']
+                  or any(row['responded'] and not row['valid_proposal'] for row in rows))
         summary.update(state='failed' if critical else 'unmeasured',accuracy=None)
     return {**summary, 'results':rows,
             'provider_requests':provider['requests'], 'provider_responses':provider['responses'],
-            'planned_cases':len(cases)}
+            'planned_cases':len(cases), 'stop_reason':stop_reason}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run',action='store_true')
+    parser.add_argument('--connection-only',action='store_true',help='One real proposal; never a semantic acceptance result.')
     parser.add_argument('--json',type=Path)
     parser.add_argument('--interval-seconds',type=float,default=35,help='Spacing outside each request budget; default35 for Free-tier token limits.')
     args = parser.parse_args(argv)
     if not 0 <= args.interval_seconds <= 120:
         parser.error('--interval-seconds must be between0 and120')
     cases = json.loads(CORPUS.read_text(encoding='utf-8'))['cases']
+    if args.connection_only:
+        cases = cases[:1]
     if not args.run:
         print(f'PLAN: {len(cases)} bounded semantic requests, synthetic context, no effects. Use --run on the configured Windows PC.')
         return 0
     head = subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     report = {'head':head,'corpus_sha256':hashlib.sha256(CORPUS.read_bytes()).hexdigest(),
-              'generated_at':datetime.now(timezone.utc).isoformat(),'state':'unmeasured'}
+              'generated_at':datetime.now(timezone.utc).isoformat(),'state':'unmeasured',
+              'scope':'connection' if args.connection_only else 'holdout',
+              'semantic_acceptance':False}
     try:
         owner, ok, reason = preflight()
         if not ok:
             report['reason'] = reason
+            report['reason_code'] = 'route_unavailable'
         else:
             report.update(measure(owner,cases,interval_seconds=args.interval_seconds))
+            if args.connection_only:
+                valid = bool(report.get('provider_responses') and report.get('results')
+                             and report['results'][0]['valid_proposal']
+                             and not report.get('attempted_effects'))
+                if report.get('provider_responses'):
+                    report['state'] = 'passed' if valid else 'failed'
+                report['connection_ok'] = valid
+                for key in ('accuracy', 'groups', 'incorrect_action_proposals'):
+                    report.pop(key, None)
+                report['results'] = [{k:v for k,v in row.items()
+                                     if k in {'id','responded','valid_proposal','error_class'}}
+                                    for row in report.get('results', [])]
+            else:
+                report['semantic_acceptance'] = report['state'] == 'passed'
     except Exception as exc:
         # Do not publish traceback, SDK messages, profile or credentials in the artifact.
         report.update(state='unmeasured',reason='measurement interrupted: '+type(exc).__name__)

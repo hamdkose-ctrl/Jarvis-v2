@@ -21,3 +21,7 @@ Groq kurulum/pacing doğrulaması: 65 ilgili test ve tam yerel validation geçti
 2a09914 gerçek Windows sonucu: Free kayıt başarılı, ilk Groq HTTP400; 1 istek/0 yanıt, semantik ölçülmedi. Kaynakta süre/token parametre karışıklığı düzeltildi; HTTP JSON gövdesini denetleyen regresyon testinde hata önce üretildi. Yeni Windows/model sonucu henüz yok.
 
 Token/süre düzeltmesi: 41 ilgili test ve tam validation başarılı (5.228 Python testi, 1 platform skip; tüm JS/smoke, son47 test). Ruff ve roadmap kontrolleri temiz. HTTP400 giderildiği gerçek sağlayıcı yanıtıyla henüz doğrulanmadı.
+
+PC deneme tekrarını azaltma: scripts/Run-BrainCheck.ps1 tek seferlik kurulum ve masaüstü Quick/Full kısayolları sağlar. Quick tek çağrı; Full20 örnek, ilk bozuk/yanıtsız yanıt sonrası tekrar yok. Sonuçlar commit/korpus/kapsam ile kalıcı arşivlenir. Mevcut kullanıcı Free kaydı değiştirilmez. Yeni PowerShell çalıştırması bu Linux ortamında doğrulanmadı; gerçek PC/model sonucu açık kalır.
+
+Quick/Full operatör paketi doğrulaması: 42 ilgili runner/model/index testi başarılı; Ruff F821/F822/F823, diff ve iki roadmap kontrolü temiz. Uygulama modülleri değişmedi; bu paket için yerel tam validation tekrarlanmadı. Yeni SHA Windows CI/watcher ve PowerShell kısayol kabulü bekleniyor.
