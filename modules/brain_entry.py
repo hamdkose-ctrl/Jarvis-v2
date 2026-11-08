@@ -1109,7 +1109,13 @@ def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
             continue
         try:
             requests_state.check()
-            plan = brain_core_map.core_plan(action["capability_id"], action["arguments"])
+            # Reuse the normal entry Core path, including owner/reference/pending fences;
+            # only the already-validated typed action replaces the single-action fields.
+            action_semantic = replace(
+                semantic, capability_hint=action["capability_id"],
+                arguments=action["arguments"], actions=(),
+            )
+            plan = core_plan(replace(entry, understanding=action_semantic))
             if plan is None:
                 outcomes[action_id] = "failed_core_validation"
                 lines.append(f"{action_id}: Core doğrulaması reddetti.")
