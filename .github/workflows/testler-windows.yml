@@ -97,3 +97,27 @@ jobs:
           } else {
             Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor.'
           }
+      - name: Brain çıktı/teşhis gerçek model semantik kabulü
+        if: github.event_name == 'pull_request'
+        env:
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          $changed = git diff --name-only origin/main...$env:JARVIS_PR_HEAD_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($changed -contains 'scripts/brain_output_diagnose_holdout.py') {
+            git checkout --detach $env:JARVIS_PR_HEAD_SHA
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            # No JARVIS_DATA_DIR override: use this PC account's existing Jarvis profile.
+            # The runner measures proposals only; it never runs workers or repairs.
+            py -3.13 -X utf8 scripts/brain_output_diagnose_holdout.py --run --json "${{ runner.temp }}/brain-d4-${{ github.run_id }}-${{ github.run_attempt }}.json"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Host 'Brain dilim4 canlı semantik kabulü bu PR için uygulanmıyor.'
+          }
+      - name: Brain semantik kabul raporu
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: brain-d4-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brain-d4-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: ignore
