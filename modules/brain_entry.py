@@ -57,6 +57,7 @@ class EntryResult:
     candidates: tuple[ContextReference, ...] = ()
     references: tuple[ContextReference, ...] = ()
     understanding: Any = None
+    batch_child: bool = False
 
     @property
     def stage(self) -> str:
@@ -955,7 +956,7 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    if is_sequenced(entry.text):
+    if is_sequenced(entry.text) and not entry.batch_child:
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     photo_plan = plan is not None and plan[0] == "photo_action"
@@ -1093,7 +1094,7 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
 
 
 
-def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
+def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Run each adopted action through the existing Core intent path, never raw text."""
     semantic = entry.understanding
     actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
@@ -1111,7 +1112,7 @@ def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
             # Re-enter the existing single-action Core handoff with typed fields only:
             # this preserves Core's own result status instead of classifying reply text.
             action_entry = replace(
-                entry,
+                entry, batch_child=True,
                 understanding=replace(
                     semantic, capability_hint=action["capability_id"],
                     arguments=action["arguments"], actions=(),
@@ -1161,7 +1162,7 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         if not callable(handler):
             raise ValueError("Core handler callable olmalı.")
         _install_core_guards(runtime)
-        return _batch_handoff(runtime, entry, command)
+        return _batch_handoff(runtime, entry, handler, command)
     refusal = _file_access_refusal(entry)
     if refusal is not None:
         row = feedback(entry, result_status="failed", reason_code="FILE_TARGET_NOT_ACCESSIBLE")
