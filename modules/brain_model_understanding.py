@@ -31,6 +31,7 @@ SCHEMA_VERSION = "brain-understanding.v2"
 MAX_ACTIONS = 5
 MAX_TARGET_GOALS = 8
 _GOAL_TEXT_MAX = 200
+_RESPONSE_MAX_TOKENS = 2048
 
 OPERATIONS = frozenset({
     "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
@@ -750,7 +751,9 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise requests_state.Cancelled("Brain model understanding budget expired.")
-            return llm._send_provider(provider, prompt, system, remaining, None)
+            # Transport's fourth argument is an integer token limit, not seconds.
+            # The independent requests_state budget still bounds elapsed time.
+            return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None)
 
         with requests_state.budget(12):
             # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.

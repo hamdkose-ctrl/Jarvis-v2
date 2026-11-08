@@ -17,3 +17,7 @@ Dilim4 gerçek model kabulü Windows hesabında çalıştırılmak üzere aynı 
 Gerçek Windows kullanıcı koşusu da unmeasured döndü: Groq FREE_TIER_EVIDENCE_MISSING. Kullanıcı Groq hesabının Free olduğunu ve ödeme yöntemi eklemediğini açıkça doğruladı. Opt-in `confirm_groq_free_plan.py` mevcut per-owner/model evidence kaydını kaynaklı olarak tamamlar; güncel kaynak bilgisi en geç2026-11-15'e kadardır, kota miktarı icat edilmez. Bu işlem gerçek kullanıcının oturumunda yapılmalı; CI servis hesabına profil/anahtar aktarılmaz. Yeni semantik sonuç henüz alınmadı.
 
 Groq kurulum/pacing doğrulaması: 65 ilgili test ve tam yerel validation geçti (5.227 Python testi, 1 platform skip; tüm JS/smoke ve son47 kararlılık testi başarılı). Ruff F821/F822/F823 ve roadmap kontrolleri temiz. Yeni sürümün gerçek Windows/semantik sonucu henüz yoktur.
+
+2a09914 gerçek Windows sonucu: Free kayıt başarılı, ilk Groq HTTP400; 1 istek/0 yanıt, semantik ölçülmedi. Kaynakta süre/token parametre karışıklığı düzeltildi; HTTP JSON gövdesini denetleyen regresyon testinde hata önce üretildi. Yeni Windows/model sonucu henüz yok.
+
+Token/süre düzeltmesi: 41 ilgili test ve tam validation başarılı (5.228 Python testi, 1 platform skip; tüm JS/smoke, son47 test). Ruff ve roadmap kontrolleri temiz. HTTP400 giderildiği gerçek sağlayıcı yanıtıyla henüz doğrulanmadı.

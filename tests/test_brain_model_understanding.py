@@ -7,6 +7,7 @@ yetkinin ise Core'da kaldığını birlikte doğrular.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -230,19 +231,51 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(self.ask(direct("files.read", {"operation": "summarize"}, ["file_1"]),
                                    active=active))
 
-    def test_model_understanding_transport_timeout_is_bounded(self):
+    def test_model_understanding_token_limit_is_separate_from_time_budget(self):
+        from modules import requests_state
         raw = answer(confidence="MEDIUM")
 
         def through_router(owner, prompt, callback, **kwargs):
             return callback("groq")
         p1, p2, p3 = self.eligible()
         with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
+                patch.object(requests_state, "budget", wraps=requests_state.budget) as budget, \
                 patch("modules.llm._send_provider", return_value=raw) as send:
             result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
                                    current=current(), arguments=current().arguments)
         self.assertIsNotNone(result)
-        self.assertGreater(send.call_args.args[3], 0)
-        self.assertLessEqual(send.call_args.args[3], 12)
+        self.assertIs(type(send.call_args.args[3]), int)
+        self.assertEqual(send.call_args.args[3], 2048)
+        budget.assert_called_once_with(12)
+
+    def test_production_groq_http_payload_accepts_brain_token_limit(self):
+        raw = answer(confidence="MEDIUM")
+        response = SimpleNamespace(status_code=200, headers={},
+            json=lambda: {"choices": [{"message": {"content": raw}}]})
+
+        def through_router(owner, prompt, callback, **kwargs):
+            return callback("groq")
+
+        def accept_request(url, **kwargs):
+            body = kwargs['json']
+            self.assertIs(type(body['max_tokens']), int)
+            self.assertEqual(body['max_tokens'], 2048)
+            return response
+
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch("modules.smart_router.run", side_effect=through_router), \
+                patch("modules.llm.user_groq_key", return_value="test-only"), \
+                patch("modules.llm.groq_model", return_value="openai/gpt-oss-120b"), \
+                patch("modules.smart_router.settings", return_value={}), \
+                patch("modules.llm._fallback_states", {}), \
+                patch("modules.llm._limited", return_value=None), \
+                patch("modules.llm._timed", side_effect=lambda name, fn: fn()), \
+                patch("modules.usage_meter.record"), patch("modules.usage_meter.observe_limits"), \
+                patch("modules.llm.requests.post", side_effect=accept_request) as post:
+            result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
+                                   current=current(), arguments=current().arguments)
+        self.assertIsNotNone(result)
+        post.assert_called_once()
 
 
 if __name__ == "__main__":
