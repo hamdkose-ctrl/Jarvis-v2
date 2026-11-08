@@ -882,8 +882,11 @@ def _timed(name: str, fn):
     try:
         out = fn()
     except Exception as error:
+        _record_failure('modules/llm.py:_timed')
         # Hata çıkışında da aynı denetim, ama kapsam bilerek dar: SystemExit/KeyboardInterrupt gibi
         # süreç kontrol sinyalleri burada yakalanmaz, kendi gibi yukarı çıkar.
+        # Geniş yakalamanın ilk ifadesi tanıdır: hata hangi yolla çıkarsa çıksın iz bırakılmış olur,
+        # mesaj redakte edilir ve aynı yer/tür/konum 60 sn boyunca tekrar yazılmaz.
         # Bütçe ya da kullanıcı iptali hükmünü verdiyse kök neden odur, sağlayıcının HTTP hatası
         # değil. Tek istisna yerel deadline'dır: taşıma kesin bir kimlik/kota bulgusu getirdiyse
         # (401/403, 429, açık günlük kota) o bilgi LocalDeadline'ın altında kalmaz, aksi hâlde
