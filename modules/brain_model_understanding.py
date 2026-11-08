@@ -42,10 +42,11 @@ GOAL_OPERATIONS = frozenset({
 })
 # BRAIN-01'de üretim akışına bağlanan işlemler. Diğerleri burada doğrulanır ama yürütücüleri
 # BRAIN-04/BRAIN-05'te yazılacak; bu paket onları çalışıyor gibi göstermez.
-ADOPTED_OPERATIONS = frozenset({"chat", "direct_action"})
+ADOPTED_OPERATIONS = frozenset({"chat", "direct_action", "action_batch"})
 REQUEST_KIND_BY_OPERATION = {
     "chat": RequestKind.CHAT,
     "direct_action": RequestKind.CAPABILITY,
+    "action_batch": RequestKind.CAPABILITY,
 }
 
 ENVELOPE_KEYS = frozenset({
