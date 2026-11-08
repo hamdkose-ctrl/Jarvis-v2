@@ -600,3 +600,5 @@ Durum **uygulama branch'inde; kapanmadı**. Exact-head Windows CI, aynı-SHA ger
 
 
 Dilim4 canlı kabul hazırlığı (aynı branch): Windows CI'ye yalnız `scripts/brain_output_diagnose_holdout.py` değişmiş PR'da çalışan 20 örnekli gerçek model kabul adımı eklendi. Çıktı/teşhis, olumsuzlama, alıntı/açıklama, kinaye ve eksik artifact sınıfları ayrı raporlanır; beklenen yanıtlar modele verilmez. Öneri katmanında >=%95 doğru sonuç ve yanlış action proposal=0 aranır; efekt çağrı girişimi de koşuyu düşürür. Uygun rota/yanıt yoksa ölçüm yapılmış sayılmaz; gerçek Windows sonucu henüz bu kayıtla iddia edilmez.
+
+Dilim4 canlı kabul önkoşulu: gerçek kullanıcı profilinde Groq anahtarı ve ücretsiz hesap onayı geçmesine rağmen exact-model evidence yoktu. Kullanıcının açık Free/no-payment beyanı için `confirm_groq_free_plan.py` operatör yolu eklendi; kaynak ve beyan ayrı, geçerlilik sınırlı, gerçek kota uydurulmadan mevcut router kaydı kullanılır. Rota/policy değişikliği veya bilinmeyen hesabı otomatik ücretsiz sayma yoktur. Semantik runner token reset'ini dikkate alarak aralık verir ve yanıt alınamazsa kalan denemeleri tekrarlamaz. Canlı kabul sonucu hâlâ beklenir.

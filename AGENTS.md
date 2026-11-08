@@ -209,4 +209,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
-- Brain çıktı/teşhis akışı ve gerçek model kabulü: `docs/agents/gorev-cekirdegi.md`.
+- Brain çıktı/teşhis, semantik kabul ve Groq Free doğrulaması: `docs/agents/gorev-cekirdegi.md`.

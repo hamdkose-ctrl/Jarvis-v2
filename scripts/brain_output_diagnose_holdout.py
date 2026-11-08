@@ -15,6 +15,8 @@ import hashlib
 from pathlib import Path
 import subprocess
 import sys
+import time
+import re
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +88,17 @@ def verdict(rows, attempted_effects):
             'incorrect_action_proposals':critical,'attempted_effects':attempted_effects,'groups':groups}
 
 
-def measure(owner, cases):
+def reset_seconds(value):
+    if not isinstance(value,str) or len(value)>50:
+        return None
+    parts=list(re.finditer(r"(\d+(?:\.\d+)?)(ms|s|m|h)",value))
+    if not parts or ''.join(p.group(0) for p in parts)!=value:
+        return None
+    units={'ms':.001,'s':1,'m':60,'h':3600}
+    return sum(float(p.group(1))*units[p.group(2)] for p in parts)
+
+
+def measure(owner, cases, *, interval_seconds=35):
     calls = Counter()
     def denied(name):
         def stop(*args, **kwargs):
@@ -108,6 +120,16 @@ def measure(owner, cases):
         for target in ('modules.engine_intents.dispatch','modules.output.save_text_result','modules.diagnose.run'):
             stack.enter_context(patch(target, side_effect=denied(target)))
         for index, case in enumerate(cases):
+            if index and interval_seconds:
+                from modules import usage_meter
+                seen=usage_meter.limits(owner).get('groq',{}).get(llm.groq_model(),{})
+                reset=reset_seconds(seen.get('tok_reset'))
+                delay=max(interval_seconds, 0 if reset is None else reset+1)
+                if delay>120:
+                    break  # Report incomplete measurement, never ignore a long quota wait.
+                print(f'Waiting {delay:.1f}s for the token budget',flush=True)
+                time.sleep(delay)
+            print(f'Semantic case {index+1}/{len(cases)}',flush=True)
             before = provider['responses']
             error_class = None
             try:
@@ -121,15 +143,25 @@ def measure(owner, cases):
             if error_class:
                 row['error_class'] = error_class
             rows.append(row)
-    return {**verdict(rows,sum(calls.values())), 'results':rows,
-            'provider_requests':provider['requests'], 'provider_responses':provider['responses']}
+            if not row['responded']:
+                break  # Do not repeat requests against an unavailable provider.
+    summary=verdict(rows,sum(calls.values()))
+    if len(rows)<len(cases):
+        critical=summary['incorrect_action_proposals'] or summary['attempted_effects']
+        summary.update(state='failed' if critical else 'unmeasured',accuracy=None)
+    return {**summary, 'results':rows,
+            'provider_requests':provider['requests'], 'provider_responses':provider['responses'],
+            'planned_cases':len(cases)}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run',action='store_true')
     parser.add_argument('--json',type=Path)
+    parser.add_argument('--interval-seconds',type=float,default=35,help='Spacing outside each request budget; default35 for Free-tier token limits.')
     args = parser.parse_args(argv)
+    if not 0 <= args.interval_seconds <= 120:
+        parser.error('--interval-seconds must be between0 and120')
     cases = json.loads(CORPUS.read_text(encoding='utf-8'))['cases']
     if not args.run:
         print(f'PLAN: {len(cases)} bounded semantic requests, synthetic context, no effects. Use --run on the configured Windows PC.')
@@ -142,7 +174,7 @@ def main(argv=None):
         if not ok:
             report['reason'] = reason
         else:
-            report.update(measure(owner,cases))
+            report.update(measure(owner,cases,interval_seconds=args.interval_seconds))
     except Exception as exc:
         # Do not publish traceback, SDK messages, profile or credentials in the artifact.
         report.update(state='unmeasured',reason='measurement interrupted: '+type(exc).__name__)

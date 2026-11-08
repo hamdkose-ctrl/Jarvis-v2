@@ -88,6 +88,34 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertNotIn('SECRET_EXPECTATION',repr(model.call_args))
         self.assertEqual(model.call_args.kwargs['text'],'synthetic')
 
+    def test_provider_reset_header_is_a_duration_not_an_utterance_rule(self):
+        self.assertEqual(runner.reset_seconds('1m2.5s'),62.5)
+        self.assertEqual(runner.reset_seconds('500ms'),.5)
+        self.assertIsNone(runner.reset_seconds('unknown'))
+        self.assertIsNone(runner.reset_seconds('-1s'))
+
+    def test_real_response_observation_and_token_reset_spacing(self):
+        from modules import llm
+        def fake_response(*args):
+            llm._send_provider('groq','synthetic','synthetic',1,None)
+            return proposal()
+        with patch('modules.llm._send_provider',return_value='{}'), patch.object(runner,'ask',side_effect=fake_response), patch('modules.usage_meter.limits',return_value={'groq':{'test-model':{'tok_reset':'1m'}}}), patch('modules.llm.groq_model',return_value='test-model'), patch.object(runner.time,'sleep') as sleep:
+            r=runner.measure('owner',[self.case(['chat']),self.case(['chat'])])
+        self.assertEqual(r['state'],'passed');self.assertEqual(r['provider_responses'],2)
+        sleep.assert_called_once_with(61)
+
+    def test_quota_stop_keeps_the_planned_count_without_a_success_rate(self):
+        from modules import llm
+        def response(owner,case,index):
+            if index==0:
+                llm._send_provider('groq','synthetic','synthetic',1,None)
+                return proposal()
+            return None
+        with patch('modules.llm._send_provider',return_value='{}'), patch.object(runner,'ask',side_effect=response):
+            r=runner.measure('owner',[self.case(['chat'])]*3,interval_seconds=0)
+        self.assertEqual(r['state'],'unmeasured');self.assertIsNone(r['accuracy'])
+        self.assertEqual(r['cases'],2);self.assertEqual(r['planned_cases'],3)
+
     def test_corpus_is_twenty_distinct_synthetic_eval_cases(self):
         rows=json.loads(runner.CORPUS.read_text(encoding='utf-8'))['cases']
         self.assertEqual(len(rows),20);self.assertEqual(len({r['id'] for r in rows}),20)
