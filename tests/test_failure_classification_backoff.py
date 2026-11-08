@@ -71,6 +71,24 @@ class ClassificationTests(unittest.TestCase):
     def test_non_provider_error_keeps_specific_message(self):
         self.assertEqual(fp.user_message(ValueError('Desteklenmeyen görüntü biçimi.')), 'Desteklenmeyen görüntü biçimi.')
 
+    def test_local_deadline_is_its_own_category_and_never_cools_a_provider_down(self):
+        # requests_state.LocalDeadline unknown sayılmaz ve sağlıklı sağlayıcıyı cezalandırmaz;
+        # sağladıcının kendi zaman aşımı (TimeoutError) eski yerinde kalır.
+        from modules import requests_state
+        late = requests_state.LocalDeadline('Model bekleme süresi doldu; geç yanıt uygulanmadı.')
+        self.assertEqual(fp.classify(late), fp.LOCAL_TIMEOUT)
+        self.assertNotEqual(fp.classify(late), fp.UNKNOWN)
+        self.assertEqual(fp.reason_code(late), 'LOCAL_DEADLINE_EXCEEDED')
+        self.assertEqual(fp.recovery_class(late), 'fail_closed')
+        self.assertEqual(fp.recovery_action(fp.LOCAL_TIMEOUT), 'stop')
+        self.assertEqual(fp.cooldown_seconds('groq', late), 0)
+        self.assertFalse(fp.network_unavailable(late))
+        self.assertIn('süre', fp.user_message(late))
+        provider_timeout = TimeoutError('upstream timed out')
+        self.assertEqual(fp.classify(provider_timeout), fp.TIMEOUT)
+        self.assertGreater(fp.cooldown_seconds('groq', provider_timeout), 0)
+        self.assertEqual(fp.reason_code(provider_timeout), 'PROVIDER_TIMEOUT')
+
     def test_ask_image_soft_failure_does_not_leak_raw_provider_text(self):
         with patch.object(llm, 'provider', return_value='gemini'), \
              patch.object(llm.privacy, 'mode', return_value='normal'), \

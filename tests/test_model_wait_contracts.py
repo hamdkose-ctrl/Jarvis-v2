@@ -90,16 +90,25 @@ class ModelWaitTests(unittest.TestCase):
                 self.assertLessEqual(requests_state.budget_remaining(),5)
         self.assertIsNone(requests_state.budget_remaining())
 
-    def test_transport_read_timeout_is_capped_by_the_active_budget_never_waisted(self):
-        # Bütçe yoksa taşıma kendi sınırında kalır; bütçe varsa okuma o sınırın üstüne çıkamaz.
-        self.assertEqual(llm.transport_timeout(30),30)
+    def test_socket_timeouts_follow_the_remaining_budget_without_beating_the_deadline(self):
+        # Soket zaman aşımları toplam deadline değildir: bütçe yoksa kendi sabitleri kalır,
+        # bütçe varsa hiçbiri kalan sürenin üstüne çıkmaz. 30 sn'lik ortak politika varken
+        # okuma, gerçek koşuda kanıtlanan 13 sn'lik yanıtı kesmeyecek kadar geniştir.
+        self.assertEqual(llm.transport_timeouts(5,30),(5,30))
+        with requests_state.budget(30):
+            remaining=requests_state.budget_remaining()
+            connect,read=llm.transport_timeouts(5,30)
+            self.assertGreaterEqual(read,13)
+            self.assertLessEqual(connect,remaining)
+            self.assertLessEqual(read,remaining)
         with requests_state.budget(12):
-            self.assertLessEqual(llm.transport_timeout(30),12)
-            self.assertEqual(llm.transport_timeout(5),5)
-        with requests_state.budget(.1):
-            self.assertEqual(llm.transport_timeout(30),1.0)
+            connect,read=llm.transport_timeouts(5,30)
+            self.assertLessEqual(max(connect,read),12)
+        with requests_state.budget(.01):
+            connect,read=llm.transport_timeouts(5,30)
+            self.assertGreater(connect,0);self.assertGreater(read,0)
 
-    def test_groq_is_posted_with_the_budgeted_read_timeout(self):
+    def test_groq_is_posted_with_socket_timeouts_inside_the_active_budget(self):
         seen=[]
         def post(url,**kwargs):
             seen.append(kwargs['timeout']);raise llm.requests.ConnectionError('test: ağ yok')
@@ -115,7 +124,27 @@ class ModelWaitTests(unittest.TestCase):
             with self.assertRaises(llm.CloudError):llm._groq([{'role':'user','content':'x'}],'',8)
         self.assertTrue(seen)
         for connect,read in seen:
-            self.assertEqual(connect,5);self.assertLessEqual(read,3.0)
+            self.assertLessEqual(connect,3.0);self.assertLessEqual(read,3.0)
+
+    def test_a_provider_http_timeout_is_not_turned_into_our_local_deadline(self):
+        # Sağlayıcının soketi gerçekten zaman aşımına uğrarsa hatanın türü CloudError kalır;
+        # kendi bütçemizin dolmasıyla aynı kök neden gibi etiketlenmez.
+        from modules import failure_policy
+        def post(url,**kwargs):
+            raise llm.requests.exceptions.ReadTimeout('simulated provider read timeout')
+        with patch.object(llm,'user_groq_key',return_value='test-only'), \
+                patch.object(llm,'groq_model',return_value='test-model'), \
+                patch.object(llm,'_limited',return_value=None), \
+                patch.object(llm,'_fallback_states',{}), \
+                patch('modules.smart_router.settings',return_value={}), \
+                patch('modules.usage_meter.record'),patch('modules.usage_meter.observe_limits'), \
+                patch('modules.failure_policy.backoff_sleep'), \
+                patch.object(llm.requests,'post',side_effect=post), \
+                requests_state.budget(30):
+            with self.assertRaises(llm.CloudError) as caught:
+                llm._groq([{'role':'user','content':'x'}],'',8)
+        self.assertNotIsInstance(caught.exception,requests_state.LocalDeadline)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.TIMEOUT)
 
     def test_a_response_arriving_after_the_budget_is_dropped_not_applied(self):
         # Hatanın gerçek yeri: taşıma yanıtı döndürdükten SONRAKI kontrol. Geç yanıt kullanılmaz.
@@ -124,3 +153,33 @@ class ModelWaitTests(unittest.TestCase):
             return '{"operation":"direct_action","actions":[{"capability_id":"documents.export"}]}'
         with requests_state.budget(.02):
             with self.assertRaises(requests_state.LocalDeadline):llm._timed('groq',late)
+
+    def test_an_error_raised_after_the_budget_is_named_by_our_deadline_not_the_transport(self):
+        # Denetim bulgusu: bütçe/iptal kontrolü yalnız başarılı dönüşteydi, hata çıkışında yoktu.
+        # Bütçe dolduktan sonra patlayan bir taşıma hatası eskisi gibi sağlayıcı hatası olarak
+        # çıkıyor ve sağlayıcıyı cooldown + sıradaki aday yoluna sokuyordu.
+        from modules import failure_policy
+        def late_failure():
+            time.sleep(.08)
+            raise llm.CloudError('Groq bağlantısı kurulamadı (ReadTimeout)')
+        with requests_state.budget(.02):
+            with self.assertRaises(requests_state.LocalDeadline) as caught:llm._timed('groq',late_failure)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.LOCAL_TIMEOUT)
+        self.assertEqual(failure_policy.cooldown_seconds('groq',caught.exception),0)
+        self.assertFalse(failure_policy.network_unavailable(caught.exception))
+        # Asıl HTTP hatası kaybolmaz: kök nedenin altında türü ve mesajıyla durur.
+        self.assertIsInstance(caught.exception.__cause__,llm.CloudError)
+        self.assertEqual(str(caught.exception.__cause__),'Groq bağlantısı kurulamadı (ReadTimeout)')
+
+    def test_a_provider_error_inside_a_live_budget_keeps_its_own_type_and_message(self):
+        # Bütçe dolmamışsa hata çıkışı hükmü vermez: gerçek HTTP hatası aynen yukarı çıkar,
+        # LocalDeadline'e dönüştürülmez ve yutulmaz.
+        from modules import failure_policy
+        boom=llm.CloudError('Groq bağlantısı kurulamadı (ReadTimeout)')
+        def raiser():raise boom
+        with requests_state.budget(30):
+            with self.assertRaises(llm.CloudError) as caught:llm._timed('groq',raiser)
+        self.assertIs(caught.exception,boom)
+        self.assertNotIsInstance(caught.exception,requests_state.LocalDeadline)
+        self.assertEqual(failure_policy.classify(caught.exception),failure_policy.TIMEOUT)
+        self.assertGreater(failure_policy.cooldown_seconds('groq',caught.exception),0)

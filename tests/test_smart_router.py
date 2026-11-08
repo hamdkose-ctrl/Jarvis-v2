@@ -70,6 +70,29 @@ class SmartRouterTests(unittest.TestCase):
         self.assertEqual(calls,['groq'])
         self.assertEqual(router._HEALTH,{})
 
+    def test_a_provider_error_that_arrives_after_the_budget_uses_the_same_no_cooldown_path(self):
+        # Yalnız callback'in kendi deadline'i değil: taşıma hatası bütçe dolduktan SONRA
+        # çıkarsa llm._timed'in hata çıkışı onu LocalDeadline'e çevirir ve router bu kök nedeni
+        # taşıma hatası saymaz — sağlıklı aday cezalanmaz, sıradaki aday boşuna denenmez.
+        from types import SimpleNamespace
+        clock={'t':1000.0}
+        stub=SimpleNamespace(monotonic=lambda:clock['t'])
+        calls=[]
+        def late():
+            clock['t']+=5.0    # taşıma bütçeden uzun yaşadı: hata bütçe dolduktan sonra çıktı
+            raise llm.CloudError('Groq bağlantısı kurulamadı (ReadTimeout)')
+        def callback(provider):
+            calls.append(provider)
+            return llm._timed(provider,late)
+        with patch.object(requests_state,'time',stub), \
+                patch.object(router,'selection',return_value={'candidates':['groq','gemini'],'skipped':[]}):
+            with requests_state.budget(1):
+                with self.assertRaises(requests_state.LocalDeadline) as caught:
+                    router.run('alice','merhaba dünya',callback)
+        self.assertEqual(calls,['groq'])
+        self.assertEqual(router._HEALTH,{})
+        self.assertIsInstance(caught.exception.__cause__,llm.CloudError)
+
     def test_status_shows_owner_cooldown_without_claiming_live_success(self):
         router.configure('alice',True)
         router._HEALTH[('alice','gemini')]={'until':router.time.monotonic()+300}

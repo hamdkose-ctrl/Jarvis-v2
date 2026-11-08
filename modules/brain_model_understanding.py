@@ -33,6 +33,9 @@ MAX_ACTIONS = 5
 MAX_TARGET_GOALS = 8
 _GOAL_TEXT_MAX = 200
 _RESPONSE_MAX_TOKENS = 2048
+# Brain'in ortak süre politikası (sn): üretim ve ölçüm aynı sınırı kullanır, daha kısa bir dış
+# bütçe varsa requests_state.budget onu korur (iç içe bütçe en sıkı olanı seçer).
+_MODEL_BUDGET_SECONDS = 30.0
 
 OPERATIONS = frozenset({
     "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
@@ -910,18 +913,20 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "the only ambiguity is multiple target references and one supplied file candidate is "
             "clearly named by the utterance. Core revalidates every field."
         )
-        deadline = time.monotonic() + 12.0
+        deadline = time.monotonic() + _MODEL_BUDGET_SECONDS
 
         def send(provider: str) -> str:
             requests_state.check()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise requests_state.LocalDeadline("Brain model understanding budget expired.")
-            # Dördüncü argüman saniye değil token limiti; süre yalnız requests_state bütçesinden
-            # gelir ve Groq okuma zaman aşımı llm.transport_timeout ile bu bütçeye iner.
+            # Dördüncü argüman saniye değil token limiti. Süre tek yerden gelir:
+            # requests_state bütçesi (yukarıdaki deadline ile aynı _MODEL_BUDGET_SECONDS);
+            # llm.transport_timeouts soket zaman aşımlarını o bütçenin üstüne çıkarmaz,
+            # ama asıl sınır bütçenin kendisidir — soket süresi toplam deadline değildir.
             return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None)
 
-        with requests_state.budget(12):
+        with requests_state.budget(_MODEL_BUDGET_SECONDS):
             # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.
             raw = smart_router.run(
                 owner, prompt + "\\n" + system, send, route=route,

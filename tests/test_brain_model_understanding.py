@@ -358,7 +358,8 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertIs(type(send.call_args.args[3]), int)
         self.assertEqual(send.call_args.args[3], 2048)
-        budget.assert_called_once_with(12)
+        budget.assert_called_once_with(model._MODEL_BUDGET_SECONDS)
+        self.assertEqual(model._MODEL_BUDGET_SECONDS, 30.0)
 
     def test_a_provider_answer_late_to_the_local_budget_is_never_adopted(self):
         # Yerel bütçe dolmuşsa biçimi doğru bir yanıt bile benimsenmez ve işlem başlatmaz;
@@ -374,6 +375,50 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         with requests_state.budget(.02), p1, p2, p3, \
                 patch("modules.smart_router.run", side_effect=late_run):
             result = model.propose(owner=OWNER, text="sonucu belge olarak sakla",
+                                   current=current(), arguments=current().arguments)
+        self.assertIsNone(result)
+        self.assertEqual(model.proposal_diagnostic()["reason_code"], "LOCAL_DEADLINE_EXCEEDED")
+
+    def test_a_valid_answer_at_thirteen_seconds_is_adopted_by_the_shared_thirty_second_policy(self):
+        # Ortak süre politikası 30 sn: 13 sn'de gelen geçerli yanıt eski 12 sn duvarına çarpıp
+        # düşmez. Saat ileri sarılır, ağ beklenmez; ölçülen yalnız sürenin kendisidir.
+        from modules import requests_state
+        clock = {'t': 1000.0}
+        stub = SimpleNamespace(monotonic=lambda: clock['t'])
+
+        def slow_run(owner, prompt, callback, **kwargs):
+            raw = callback('groq')
+            clock['t'] += 13.0
+            return raw
+
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), \
+                patch("modules.smart_router.run", side_effect=slow_run), \
+                patch("modules.llm._send_provider", return_value=answer(confidence="HIGH")):
+            result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
+                                   current=current(), arguments=current().arguments)
+        self.assertIsNotNone(result)
+        self.assertEqual(model.proposal_diagnostic()['status'], 'accepted')
+
+    def test_a_shorter_outer_budget_still_bounds_the_thirty_second_policy(self):
+        # İç içe bütçe en sıkı olanı korur: 6 sn'lik dış bütçe varken 30 sn'lik politikaya
+        # çıkılmaz; 8 sn'de dönen yanıt uygulanmaz ve kendi kök nedenini yazar.
+        from modules import requests_state
+        clock = {'t': 1000.0}
+        stub = SimpleNamespace(monotonic=lambda: clock['t'])
+
+        def slow_run(owner, prompt, callback, **kwargs):
+            raw = callback('groq')
+            clock['t'] += 8.0
+            return raw
+
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, \
+                patch.object(requests_state, 'time', stub), patch.object(model, 'time', stub), \
+                patch("modules.smart_router.run", side_effect=slow_run), \
+                patch("modules.llm._send_provider", return_value=answer(confidence="HIGH")), \
+                requests_state.budget(6):
+            result = model.propose(owner=OWNER, text="rapor dosyasını özetle",
                                    current=current(), arguments=current().arguments)
         self.assertIsNone(result)
         self.assertEqual(model.proposal_diagnostic()["reason_code"], "LOCAL_DEADLINE_EXCEEDED")

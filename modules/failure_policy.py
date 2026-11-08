@@ -16,6 +16,7 @@ QUOTA_EXHAUSTED = 'quota_exhausted'  # kalıcı: günlük/hesap kotası bitti, b
 LOCAL_MODEL = 'local_model'          # Ollama kurulu/çalışır değil ya da istenen model indirilmemiş
 DNS = 'dns'
 TIMEOUT = 'timeout'
+LOCAL_TIMEOUT = 'local_timeout'      # kendi süre bütçemiz doldu; sağlayıcı susmadı, cezalandırılmaz
 NETWORK = 'network'
 PROVIDER_DOWN = 'provider_down'
 PROVIDER_EXHAUSTED = 'provider_exhausted'
@@ -34,6 +35,7 @@ _PROVIDER_REASON_CODES = {
     DNS: 'PROVIDER_DNS',
     NETWORK: 'PROVIDER_NETWORK',
     TIMEOUT: 'PROVIDER_TIMEOUT',
+    LOCAL_TIMEOUT: 'LOCAL_DEADLINE_EXCEEDED',
     PROVIDER_DOWN: 'PROVIDER_DOWN',
     ENVIRONMENT: 'PROVIDER_ENVIRONMENT',
     PROVIDER_EXHAUSTED: 'PROVIDER_POOL_EXHAUSTED',
@@ -47,6 +49,7 @@ _PROVIDER_RECOVERY_CLASSES = {
     DNS: 'retryable',
     NETWORK: 'retryable',
     TIMEOUT: 'retryable',
+    LOCAL_TIMEOUT: 'fail_closed',    # bütçe dolmuşken yeni deneme aynı duvara döner: otomatik retry yok
     PROVIDER_DOWN: 'fallback_possible',
     ENVIRONMENT: 'user_action_required',
     PROVIDER_EXHAUSTED: 'fail_closed',
@@ -91,6 +94,10 @@ def classify(exc: BaseException) -> str:
     code = status_code(exc)
     if name == 'cancelled':
         return CANCELLED
+    if getattr(exc, 'local_deadline', False) is True:
+        # requests_state.LocalDeadline: TimeoutError alt sınıfı olduğu için aşağıdaki timeout
+        # dalına düşer ve sağlayıcı gibi 60 sn cooldown yerdi; açık işaret onu kendi sınıfına alır.
+        return LOCAL_TIMEOUT
     if code == 429 or re.search(r'\b429\b|resource_exhausted|quota|rate[ _-]?limit|token sınır', text, re.I):
         return QUOTA_EXHAUSTED if _QUOTA_EXHAUSTED_RE.search(text) else RATE_LIMIT
     if code in (401, 403) or re.search(r'api[_ -]?key|unauthenticated|invalid[_ -]?grant|revoked|kimlik|yetkisiz'
@@ -177,11 +184,15 @@ def recovery_action(category: str, *, context: str = '') -> str:
         return 'fix_input_or_code'
     if category == CANCELLED:
         return 'stop'
+    if category == LOCAL_TIMEOUT:
+        return 'stop'    # yeni aday/sağlayıcı aynı bitmiş bütçeye döner; kararı çağıran verir
     return 'stop'
 
 
 def cooldown_seconds(provider: str, exc: BaseException) -> int:
     category = classify(exc)
+    if category == LOCAL_TIMEOUT:
+        return 0    # kendi süremiz doldu; sağlıklı sağlayıcı ceza almaz
     if category == AUTH:
         return 1800
     if category == QUOTA_EXHAUSTED:
@@ -232,6 +243,7 @@ def failure_detail(provider: str, exc: BaseException) -> str:
         LOCAL_MODEL: 'yerel model yok',
         DNS: 'DNS çözümlemesi başarısız',
         TIMEOUT: 'zaman aşımı',
+        LOCAL_TIMEOUT: 'bekleme süremiz doldu (sağlayıcı hatası değil)',
         NETWORK: 'bağlantı kurulamadı veya kesildi',
         PROVIDER_DOWN: 'servis geçici olarak kullanılamıyor',
         PROVIDER_EXHAUSTED: 'uygun sağlayıcı kalmadı',
@@ -251,6 +263,7 @@ def short_text(exc: BaseException) -> str:
         LOCAL_MODEL: 'yerel model kullanılamadı',
         DNS: 'DNS üzerinden sunucuya ulaşamadı',
         TIMEOUT: 'zaman aşımına uğradı',
+        LOCAL_TIMEOUT: 'kendi bekleme süresi doldu (sağlayıcı susmadı)',
         NETWORK: 'ağ bağlantısı kurulamadı',
         PROVIDER_DOWN: 'servis geçici olarak yanıt vermedi',
         PROVIDER_EXHAUSTED: 'uygun ücretsiz sağlayıcı kalmadı',

@@ -85,7 +85,12 @@ class LocalDeadline(TimeoutError):
     """Yerel süre bütçesi doldu; sağlayıcı hatası değildir.
 
     TimeoutError alt sınıfıdır, böylece eski `except TimeoutError` yolları çalışmaya devam eder.
-    Yanıt gelmiş olsa bile sonuç uygulanmaz; sağlayıcı bu yüzden cezalandırılmaz (cooldown yok)."""
+    Yanıt gelmiş olsa bile sonuç uygulanmaz; sağlayıcı bu yüzden cezalandırılmaz (cooldown yok).
+
+    `local_deadline` işareti sınıflandırmanın sınıf adı eşleşmesine değil açık bir niteliğe
+    dayanır: failure_policy bunu unknown saymaz, sağlayıcı zaman aşımı da saymaz."""
+    local_deadline = True
+    reason_code = 'LOCAL_DEADLINE_EXCEEDED'
 
 
 def budget_remaining():
