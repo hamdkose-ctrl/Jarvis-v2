@@ -1136,9 +1136,9 @@ def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
                     outcomes[later_id] = "cancelled"
             raise
         except Exception:
+            _record_failure("modules/brain_entry.py:batch_action")
             outcomes[action_id] = "failed"
             lines.append(f"{action_id}: yürütme başarısız oldu.")
-            _record_failure("modules/brain_entry.py:batch_action")
     status = "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial"
     row = feedback(entry, result_status=status,
                    reason_code="CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL")
