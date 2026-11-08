@@ -68,6 +68,10 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
+## BRAIN-04 action_batch
+
+- 2–5 typed action Core guardlarından geçer. Bağımlılık açık domain başarısı ister; onay ve iptal kalan işlemleri durdurur. Doğrulanmamış sonuç kısmi kalır. Ayrıntı `docs/agents/gorev-cekirdegi.md`.
+
 ## Testler
 
 - Finance alarm fiyatları `finance.quote` ortak girişini kullanır; watcher kaynak sağlayıcıların özel fonksiyonlarını çağırmaz. Göç durumu `docs/agents/finans.md` içindedir.

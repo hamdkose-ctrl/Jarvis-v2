@@ -57,6 +57,7 @@ class EntryResult:
     candidates: tuple[ContextReference, ...] = ()
     references: tuple[ContextReference, ...] = ()
     understanding: Any = None
+    batch_child: bool = False
 
     @property
     def stage(self) -> str:
@@ -955,7 +956,7 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     semantic = entry.understanding
     if semantic is None or semantic.request_kind is not RequestKind.CAPABILITY:
         return None
-    if is_sequenced(entry.text):
+    if is_sequenced(entry.text) and not entry.batch_child:
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
     photo_plan = plan is not None and plan[0] == "photo_action"
@@ -1092,6 +1093,70 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
     return None
 
 
+
+def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
+    """Run each adopted action through the existing Core intent path, never raw text."""
+    semantic = entry.understanding
+    actions = tuple(getattr(semantic, "actions", ())) if semantic is not None else ()
+    outcomes: dict[str, str] = {}
+    lines: list[str] = []
+    from modules import requests_state
+    for action in actions:
+        action_id = str(action["action_id"])
+        if any(outcomes.get(dep) != "succeeded" for dep in action["depends_on"]):
+            outcomes[action_id] = "skipped_dependency"
+            lines.append(f"{action_id}: önkoşul başarılı olmadığı için atlandı.")
+            continue
+        try:
+            requests_state.check()
+            # Re-enter the existing single-action Core handoff with typed fields only:
+            # this preserves Core's own result status instead of classifying reply text.
+            action_entry = replace(
+                entry, batch_child=True,
+                understanding=replace(
+                    semantic, capability_hint=action["capability_id"],
+                    arguments=action["arguments"], actions=(),
+                ),
+            )
+            output, action_feedback, _ = handoff(runtime, action_entry, handler, command)
+            lines.append(f"{action_id}: {output}")
+            if action_feedback.result_status == "handled":
+                # Routing acknowledgement is not domain success. Only explicit domain evidence
+                # can unlock a dependent action; uninstrumented results remain unknown.
+                ok = getattr(output, "ok", None)
+                outcomes[action_id] = "succeeded" if ok is True else "failed" if ok is False else "unknown"
+                continue
+            outcomes[action_id] = action_feedback.result_status
+            # Existing Core owns any pending/onay state; no sibling may overwrite it.
+            if action_feedback.result_status == "needs_input":
+                for later in actions:
+                    later_id = str(later["action_id"])
+                    if later_id not in outcomes:
+                        outcomes[later_id] = "deferred_core_pending"
+                break
+        except requests_state.Cancelled:
+            outcomes[action_id] = "cancelled"
+            for later in actions:
+                later_id = str(later["action_id"])
+                if later_id not in outcomes:
+                    outcomes[later_id] = "cancelled"
+            raise
+        except Exception:
+            _record_failure("modules/brain_entry.py:batch_action")
+            outcomes[action_id] = "failed"
+            lines.append(f"{action_id}: yürütme başarısız oldu.")
+    status = ("needs_input" if "needs_input" in outcomes.values() else
+              "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial")
+    if status == "partial":
+        lines.append("İşlemlerin tamamı başarılı olarak doğrulanamadı; sonuç kısmi.")
+    row = feedback(entry, result_status=status,
+                   reason_code=("CORE_AWAITING_INPUT" if status == "needs_input" else
+                                "CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL"),
+                   core_ambiguities=("core pending: batch action",) if status == "needs_input" else ())
+    _LAST_FEEDBACK.set(row)
+    return "\n".join(lines), row, _correlated_job_id(entry)
+
+
 def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     """Hand the proposal to existing Core/domain code and correlate BrainFeedback."""
     if _runtime_owner(runtime) != entry.owner:
@@ -1101,6 +1166,11 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         if entry.understanding is not None:
             brain_core_map.clarification_effect(runtime, entry.understanding.ambiguities, entry.understanding.arguments)
         return question, feedback(entry, result_status="needs_input", reason_code="BRAIN_CLARIFICATION_REQUIRED"), None
+    if entry.understanding is not None and getattr(entry.understanding, "actions", ()):
+        if not callable(handler):
+            raise ValueError("Core handler callable olmalı.")
+        _install_core_guards(runtime)
+        return _batch_handoff(runtime, entry, handler, command)
     refusal = _file_access_refusal(entry)
     if refusal is not None:
         row = feedback(entry, result_status="failed", reason_code="FILE_TARGET_NOT_ACCESSIBLE")
@@ -1108,6 +1178,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         return refusal, row, None
     plan = core_plan(entry)
     lane_plan = None if plan is not None else _lane_plan(runtime, entry)
+    if entry.batch_child and plan is None:
+        row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")
+        _LAST_FEEDBACK.set(row)
+        return "Bu işlemi güvenli biçimde doğrulayamadım; işlem başlatılmadı.", row, None
     if (plan is None and entry.understanding is not None
             and entry.understanding.capability_hint == PHOTO_CAPABILITY):
         # No validated Core photo plan means no photo effect, and no legacy raw-text fallback.

@@ -8,6 +8,7 @@ yazıldı: dallar henüz retire edilmediği için canonical effect testleri dü�
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 import inspect
 import tempfile
 import unittest
@@ -144,6 +145,112 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
     def turn_real(self, text, source="yazı", model_understanding=False):
         return self.turn(text, handler=self.ctx.handle, source=source,
                          model_understanding=model_understanding)
+
+
+class ActionBatchProductionTests(_CanonicalAuthorityHarness):
+    """BRAIN-04: gerçek canonical prepare → handoff → Core batch dikişi."""
+
+    def _batch(self, semantic, text):
+        return replace(
+            semantic, request_kind=RequestKind.CAPABILITY, capability_hint=None,
+            arguments={"original_text": semantic.arguments.get("original_text", "")},
+            actions=(
+                {"action_id": "a1", "capability_id": "pc.level.set",
+                 "arguments": {"property": "volume", "level": 30},
+                 "reference_slots": [], "depends_on": []},
+                {"action_id": "a2", "capability_id": "pc.audio.action",
+                 "arguments": {"audio": {"action": "mute"}},
+                 "reference_slots": [], "depends_on": []},
+                {"action_id": "a3", "capability_id": "app.open",
+                 "arguments": {"app": "chrome"},
+                 "reference_slots": [], "depends_on": ["a2"]},
+            ),
+        )
+
+    def test_three_typed_actions_reach_existing_core_adapters(self):
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=self._batch):
+            entry, _out, _handler, feedback = self.turn(
+                "önce sesi azalt sonra sessize al ve sonraki müzik",
+                handler=self.ctx.handle, model_understanding=True)
+        self.assertEqual(len(entry.understanding.actions), 3)
+        self.ctx.system_control.set_volume.assert_called_once_with(30)
+        self.ctx.system_control.set_mute.assert_called_once_with(True)
+        self.ctx.system_control.open_application.assert_called_once_with("chrome")
+        self.assertEqual(feedback.result_status, "handled")
+
+    def test_model_proposal_reaches_core_through_prepare(self):
+        from test_brain_primary_understanding import action, eligible, envelope
+        actions = [action(capability_id="pc.level.set", arguments={"property": "volume", "level": 30},
+                          action_id="a1"),
+                   action(capability_id="pc.audio.action", arguments={"audio": {"action": "mute"}},
+                          action_id="a2"),
+                   action(capability_id="app.open", arguments={"app": "chrome"}, action_id="a3")]
+        raw = envelope(operation="action_batch", actions=actions)
+        p1, p2, p3, p4 = eligible()
+        with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
+            entry, _, _, feedback = self.turn_real("önce sesi yüzde 30 yap sonra sessize al ve chrome aç",
+                                                   model_understanding=True)
+        self.assertEqual(len(entry.understanding.actions), 3)
+        self.ctx.system_control.set_volume.assert_called_once_with(30)
+        self.ctx.system_control.set_mute.assert_called_once_with(True)
+        self.ctx.system_control.open_application.assert_called_once_with("chrome")
+        self.assertEqual(feedback.result_status, "handled")
+
+    def test_exception_does_not_stop_independent_action(self):
+        self.ctx.system_control.set_volume.side_effect = RuntimeError("device failure")
+        actions = (self._action("a1", "pc.level.set", {"property": "volume", "level": 30}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}))
+        _, _, _, result = self._turn_actions(actions)
+        self.ctx.system_control.set_mute.assert_called_once_with(True)
+        self.assertEqual(result.result_status, "partial")
+
+    def _turn_actions(self, actions):
+        def adopt(semantic, text):
+            return replace(semantic, request_kind=RequestKind.CAPABILITY, capability_hint=None,
+                           actions=actions)
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=adopt):
+            return self.turn("önce sesi ayarla sonra müzik", handler=self.ctx.handle, model_understanding=True)
+
+    @staticmethod
+    def _action(ident, capability, arguments, depends=()):
+        return {"action_id": ident, "capability_id": capability, "arguments": arguments,
+                "reference_slots": [], "depends_on": list(depends)}
+
+    def test_failed_domain_result_skips_dependent_and_runs_independent(self):
+        self.ctx.system_control.set_volume.return_value = False
+        actions = (self._action("a1", "pc.level.set", {"property": "volume", "level": 30}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)),
+                   self._action("a3", "pc.media.action", {"media": {"action": "next"}}))
+        _, out, _, result = self._turn_actions(actions)
+        self.ctx.system_control.set_mute.assert_not_called()
+        self.ctx.system_control.media_control.assert_called_once_with("next")
+        self.assertIn("önkoşul", out)
+        self.assertEqual(result.result_status, "partial")
+
+    def test_pending_approval_stops_all_later_actions(self):
+        actions = (self._action("a1", "app.close", {"app": "chrome"}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
+        _, out, _, result = self._turn_actions(actions)
+        self.assertEqual(result.result_status, "needs_input", out)
+        self.assertEqual(self.ctx._session().pending_confirm["name"], "chrome")
+        self.ctx.system_control.set_mute.assert_not_called()
+
+    def test_cancellation_stops_later_actions(self):
+        actions = (self._action("a1", "pc.level.set", {"property": "volume", "level": 30}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}))
+        self.ctx.system_control.set_volume.side_effect = requests_state.Cancelled()
+        with self.assertRaises(requests_state.Cancelled):
+            self._turn_actions(actions)
+        self.ctx.system_control.set_mute.assert_not_called()
+
+    def test_unknown_domain_result_cannot_unlock_dependency(self):
+        actions = (self._action("a1", "pc.media.action", {"media": {"action": "next"}}),
+                   self._action("a2", "pc.audio.action", {"audio": {"action": "mute"}}, ("a1",)))
+        _, out, _, result = self._turn_actions(actions)
+        self.ctx.system_control.media_control.assert_called_once_with("next")
+        self.ctx.system_control.set_mute.assert_not_called()
+        self.assertEqual(result.result_status, "partial")
+        self.assertIn("sonuç kısmi", out)
 
 
 class AppTargetAuthorityTests(_CanonicalAuthorityHarness):

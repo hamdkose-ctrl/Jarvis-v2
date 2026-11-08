@@ -2718,8 +2718,17 @@ def apply_model_understanding(result: UnderstandingResult, text: str) -> Underst
         if result.capability_hint == VISUAL_CAPABILITY and request_kind is not RequestKind.CAPABILITY:
             return result
         action = proposal.actions[0] if proposal.actions else None
-        next_hint = None if action is None else action.capability_id
-        next_arguments = dict(action.arguments) if action is not None else {"original_text": text}
+        batch = proposal.operation == "action_batch"
+        # A batch never collapses into its first action: Core receives every validated action,
+        # identity and dependency edge unchanged.
+        next_actions = tuple({
+            "action_id": item.action_id, "capability_id": item.capability_id,
+            "arguments": dict(item.arguments), "reference_slots": list(item.reference_slots),
+            "depends_on": list(item.depends_on),
+        } for item in proposal.actions) if batch else ()
+        next_hint = None if batch or action is None else action.capability_id
+        next_arguments = {"original_text": text} if batch else (
+            dict(action.arguments) if action is not None else {"original_text": text})
         next_preview = result.preview
         next_references = proposal.references if proposal.references else result.references
         next_ambiguities = result.ambiguities
@@ -2741,6 +2750,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str) -> Underst
             temporal_need=proposal.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,
+            actions=next_actions,
             references=next_references,
             confidence=proposal.confidence,
             ambiguities=next_ambiguities,
