@@ -181,9 +181,18 @@ class LiveHoldoutRunnerTests(unittest.TestCase):
         self.assertEqual(len(rows),20);self.assertEqual(len({r['id'] for r in rows}),20)
         self.assertEqual({r['group'] for r in rows},{'export','diagnose','negation','explanation_or_quote','irony','missing_output'})
 
-    def test_windows_workflow_runs_this_acceptance_only_for_its_changed_script(self):
+    def test_windows_workflow_declares_live_acceptance_instead_of_measuring_it(self):
         source=(ROOT/'.github/workflows/testler-windows.yml').read_text(encoding='utf-8')
-        self.assertIn("$changed -contains 'scripts/brain_output_diagnose_holdout.py'",source)
-        self.assertIn('brain_output_diagnose_holdout.py --run --json',source)
-        self.assertIn('actions/upload-artifact@v4',source)
-        self.assertIn('git checkout --detach $env:JARVIS_PR_HEAD_SHA',source)
+        # Bu iş makinesinde canlı ölçüm hiç yapılmaz: otomatik çağrı, exit kodu eşlemesi ve
+        # CI'da üretilmiş rapor artifact'ı yok. exit2'yi yeşile çevirmek ayrım değil,
+        # aynı kanıtı iki kez saymaktır.
+        self.assertNotIn('utf8 scripts/brain_output_diagnose_holdout.py',source)
+        self.assertNotIn('--run --json',source)
+        self.assertNotIn('$Exit',source)
+        self.assertNotIn('brain-d4-',source)
+        self.assertNotIn('upload-artifact',source)
+        self.assertNotIn('continue-on-error',source)
+        # Kalan beyan: kapanış için aynı SHA'nın gerçek kullanıcı Full raporu ayrıca gerekir.
+        self.assertIn('GITHUB_STEP_SUMMARY',source)
+        self.assertIn('state=passed',source)
+        self.assertIn('Run-BrainCheck.ps1',source)

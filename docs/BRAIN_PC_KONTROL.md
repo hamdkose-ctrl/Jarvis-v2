@@ -35,3 +35,24 @@ kapsamıdır; bütün Brain'in veya çoklu iş yeteneğinin kabulü değildir.
 Kurulum yalnız script ve kısayol oluşturur; Groq plan beyanını yenilemez,
 modeli değiştirmez ve test/CI/watch çağrısı başlatmaz. Kaldırmak için iki
 kısayolu ve `%LOCALAPPDATA%\Jarvis\brain-check` klasörünü silmek yeterlidir.
+
+## Windows CI ile bu menünün ayrımı
+
+Yeşil `testler-windows` işi kod doğrulaması kanıtıdır; canlı Brain kabulü
+değildir. CI artık canlı semantik ölçümü **hiç denemez**: otomatik `--run`
+çağrısı, exit kodu eşlemesi ve rapor artifact adımı zorunlu kod
+doğrulamasından çıkarıldı. Bir CI adımının `unmeasured` (exit 2) sonucunu
+yeşile çevirmek ayrım üretmiyordu, aynı kanıtı iki kez sayıyordu. Kalan beyin
+adımı model çağırmaz; yalnız bu ayrımı ve gereken kapanış kanıtını CI özetine
+yazar. `continue-on-error` yoktur.
+
+Canlı ölçüm bu menünün işidir: scriptin kendi sözleşmesi (0 passed, 1 ölçülmüş
+başarısızlık, 2 ölçülemedi), 20 örneklik korpus, %95 doğruluk ve sıfır
+yanlış-action şartı olduğu gibi durur; koşul yalnız bu PC'de ve kullanıcı
+başlattığında olur.
+
+Kabulün kapanış kanıtı bu menüden üretilir: aynı commit'i hedefleyen
+`Jarvis Brain Full` kısayolu ve masaüstü `Jarvis-Brain-Acceptance` klasöründeki
+`brain-holdout-<SHA>-<tarih>.json` raporunun `state=passed` sonucu (20 örneğin
+tümü yanıtlı, doğruluk en az %95, sıfır yanlış işlem önerisi, sıfır efekt
+girişimi). CI adım özetinde bu ayrım ve gereken rapor açıkça yazılır.

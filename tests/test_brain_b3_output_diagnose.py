@@ -12,6 +12,7 @@ import test_engine_modular  # supplies the repository's headless hardware fixtur
 import test_brain_pr3_raw_text_authority as fixtures
 from test_brain_b3_finance_authority import _model_envelope
 from modules import brain_core_map, brain_entry, diagnose, engine_intents
+from modules.brain_contracts import ConversationRelation, RequestKind
 
 
 class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
@@ -147,6 +148,19 @@ class OutputDiagnoseTests(fixtures._CanonicalAuthorityHarness):
                 self.proposal(capability, args)
                 self.turn_real('Lütfen ilgilen.', model_understanding=True)
         self.save.assert_not_called(); self.probes.assert_not_called()
+
+    def test_a_correction_chat_turn_keeps_its_relation_and_runs_no_effect(self):
+        envelope = json.loads(_model_envelope('chat'))
+        envelope['conversation_relation'] = 'CORRECTION'
+        self.model.return_value = json.dumps(envelope)
+        entry, out, *_ = self.turn_real('Onu ben istememiştim.', model_understanding=True)
+        # Modelin anlamı prepare/handoff yoluna olduğu gibi iner: bağımsız düzeltme turu.
+        self.assertEqual(entry.understanding.conversation_relation,
+                         ConversationRelation.CORRECTION)
+        self.assertEqual(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertIsNone(entry.understanding.capability_hint)
+        self.save.assert_not_called()
+        self.probes.assert_not_called()
 
     def test_missing_document_requests_a_target_without_opening_a_dialog(self):
         self.ctx._session().last_doc = None

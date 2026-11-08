@@ -16,6 +16,45 @@ class ModelDecisionAuthorityTests(unittest.TestCase):
         self.assertEqual(result.confidence,Confidence.HIGH)
         self.assertIsNone(result.capability_hint)
 
+    def test_a_chat_correction_in_a_free_artifact_turn_is_adopted(self):
+        result = asked_apply(model_answer(confidence='HIGH', conversation_relation='CORRECTION'),
+                             'Onu ben istememiştim.', self.artifact_context())
+        self.assertEqual(result.request_kind, RequestKind.CHAT)
+        self.assertIsNone(result.capability_hint)
+        # Modelin anlamı korunur: sahipliği olmayan serbest turda CORRECTION etiketi
+        # kanonikal değere yazılmaz, bağımsız düzeltme turu olarak kalır.
+        self.assertEqual(result.conversation_relation, ConversationRelation.CORRECTION)
+
+    def test_a_real_pending_owner_still_rejects_a_correction_label(self):
+        from modules.brain_model_understanding import proposal_diagnostic
+        pending = make_result(conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
+                              pending_owner=PendingOwner.APP_CLARIFY)
+        self.assertIsNone(asked(model_answer(confidence='HIGH', conversation_relation='CORRECTION'),
+                                'Onu ben istememiştim.', pending, protected_relation=True))
+        self.assertEqual(proposal_diagnostic()['reason_code'], 'RELATION_NOT_CURRENT')
+
+    def test_an_open_goal_card_still_rejects_a_correction_label(self):
+        from modules.brain_model_understanding import proposal_diagnostic
+        owned = make_result(request_kind=RequestKind.CAPABILITY,
+            conversation_relation=ConversationRelation.CONTINUE_ACTIVE,
+            references=(ContextReference(id='last_doc', kind='artifact', source='session_state',
+                                         owner='hamdi'),
+                        ContextReference(id='goal-1', kind='goal', source='goal_state', owner='hamdi')))
+        self.assertIsNone(asked(model_answer(confidence='HIGH', conversation_relation='CORRECTION'),
+                                'Onu ben istememiştim.', owned, protected_relation=True))
+        self.assertEqual(proposal_diagnostic()['reason_code'], 'RELATION_NOT_CURRENT')
+
+    def test_an_action_proposal_cannot_use_the_free_correction_path(self):
+        from modules.brain_model_understanding import proposal_diagnostic
+        raw = model_answer(operation='direct_action', confidence='HIGH',
+                           conversation_relation='CORRECTION',
+                           actions=[{'action_id': 'a1', 'capability_id': 'system.diagnose',
+                                     'arguments': {}, 'reference_slots': [], 'depends_on': [],
+                                     'argument_sources': None}])
+        self.assertIsNone(asked(raw, 'Onu ben istememiştim.', self.artifact_context(),
+                                protected_relation=True))
+        self.assertEqual(proposal_diagnostic()['reason_code'], 'RELATION_NOT_CURRENT')
+
     def test_clarification_is_adopted_instead_of_silently_returning_the_guess(self):
         raw=model_answer(operation='clarify',confidence='HIGH',
             clarification={'required':True,'question':'Hangi sonucu kastettin?','reason_code':'TARGET_MISSING'})

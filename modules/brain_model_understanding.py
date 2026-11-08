@@ -229,7 +229,7 @@ def _goal_payload(row: Any) -> Mapping[str, Any] | None:
     return {"kind": row["kind"], "title": title.strip()}
 
 
-def _supplied_schema(capability_id: str) -> dict[str, Any]:
+def _argument_shape(capability_id: str) -> dict[str, Any]:
     """Modelin bu yetenek için doldurabileceği alanların biçimi; değer kümesini Core doğrular."""
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
@@ -239,7 +239,8 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
         # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
         return {"freeform": True, "argument_sources": sorted(owned)}
     if capability_id in {"documents.export", "system.diagnose"}:
-        return {"arguments": {}, "target": "current owner's session output" if capability_id == "documents.export" else "read-only system checks"}
+        return {"arguments": {}, "target": "current.current_output"
+                if capability_id == "documents.export" else "read-only system checks"}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -266,6 +267,73 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
         return {"nested": {"action": "kapalı eylem kümesi"}}
     return {"freeform": True}
 
+
+# Yetenek amaçlarının tek sahibi: model hangi işlemin hangi nesneye uygulandığını kelimelerden
+# değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
+# tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
+_CAPABILITY_PURPOSES = {
+    "documents.export": (
+        "keeps the result this conversation already produced as a document the user can open later",
+        "requires current.current_output.available true; Core alone binds the document, its path and format",
+    ),
+    "notes.write": (
+        "changes or deletes one note that already exists",
+        "targets an existing note; it never stores the conversation's current result",
+    ),
+    "files.mutate": (
+        "renames or moves a file that already exists on disk, or undoes a previous file action",
+        "targets an existing file; it never creates a document from the conversation's current result",
+    ),
+    "files.read": (
+        "opens, summarizes, analyzes, locates, lists or compares files",
+        "targets only the supplied file_candidates slots; Core resolves the real path",
+    ),
+    "system.diagnose": (
+        "runs Jarvis's own health checks and reports which parts are failing",
+        "performs no repair, no setting change and no write, so a request that forbids repairing "
+        "still asks for this check",
+    ),
+}
+
+
+def _supplied_schema(capability_id: str) -> dict[str, Any]:
+    """Biçim sözleşmesine yeteneğin amaç/önkoşul tanimini da ekler; değer kümesini Core doğrular."""
+    shape = _argument_shape(capability_id)
+    purpose = _CAPABILITY_PURPOSES.get(capability_id)
+    if purpose is None or not shape:
+        return shape
+    return {**shape, "purpose": purpose[0], "precondition": purpose[1]}
+
+
+# Core'un bu turda bağlayabildiği tek tanınmış oturum çıktısı; başka bir slot çıktı değildir.
+_KNOWN_OUTPUT_SLOTS = ("last_doc",)
+
+
+def _current_output(session_artifacts: Any) -> dict[str, Any]:
+    """Oturum çıktısının var/yok hükmü: yalnız tanınmış last_doc kaydı, tek ve owner-bound.
+
+    Yalnız slot/etiket görünür; belge içeriği veya parmak izi modele gitmez. Hüküm yalnız
+    üretilmiş oturum çıktısını anlatır: dosya adaylarının var/yokluğu ayrı bildirilir, bilinmeyen
+    bir slot çıktı sayılmaz ve tek başına hedef uydurulmaz."""
+    rows = [row for row in session_artifacts if isinstance(row, Mapping)]
+    outputs = [row for row in rows if row.get("slot") in _KNOWN_OUTPUT_SLOTS]
+    labels = [str(row.get("label")) for row in outputs
+              if isinstance(row.get("label"), str) and row.get("label")]
+    available = len(rows) == 1 and len(outputs) == 1
+    return {
+        "available": available,
+        "slot": _KNOWN_OUTPUT_SLOTS[0] if available else None,
+        "label": labels[0] if available and labels else None,
+        "meaning": ("this is the result this conversation produced and Core can save; a request to "
+                    "keep, save or export refers to it, and an explicit candidate the user chose from "
+                    "file_candidates or reference_slots is judged by that capability's own target "
+                    "contract rather than turning into a question; clarify only when the target "
+                    "genuinely cannot be decided"
+                    if available else
+                    "this conversation has no produced result for Core to save, export or attach "
+                    "yet; this says nothing about file_candidates, which still describe the files "
+                    "the user named"),
+    }
 
 
 _FOLDER_SIGNAL_ALIASES = {
@@ -675,9 +743,6 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
 def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
                            protected_relation: bool, resolving_file_ambiguity: bool,
                            has_grounded_reference: bool) -> UnderstandingProposal | None:
-    if proposed.conversation_relation not in {current.conversation_relation,
-                                              ConversationRelation.NEW_REQUEST}:
-        return _reject('RELATION_NOT_CURRENT')
     # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
     # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
     artifact_context = bool(
@@ -692,6 +757,16 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
     model_owned_action = bool(proposed.actions and proposed.actions[0].capability_id
                               in {"documents.export", "system.diagnose"})
     model_owned_decision = proposed.operation in {'chat','clarify'} or model_owned_action
+    # Gerçek sahipliği olmayan serbest turda (pending owner yok, hedef/görev kartı yok) model bir
+    # düzeltmeyi sohbet/netleştirme olarak CORRECTION ile adlandırabilir. Etiket kendi anlamıyla
+    # kalır, kanonikal değere yazılmaz: CONTINUE_ACTIVE bekleyen bir etkileşimin sahipliğidir ve
+    # brain_entry._pending_owns_turn CORRECTION turunu bağımsız sayar. Sahiplik yokken bu yalnız
+    # anlam bildirimidir; hiçbir efekt veya yetki taşımaz.
+    if proposed.conversation_relation not in {current.conversation_relation,
+                                              ConversationRelation.NEW_REQUEST}:
+        if not (free_context and proposed.operation in {'chat', 'clarify'}
+                and proposed.conversation_relation is ConversationRelation.CORRECTION):
+            return _reject('RELATION_NOT_CURRENT')
     if protected_relation and not (free_context and model_owned_decision):
         if proposed.operation not in ADOPTED_OPERATIONS:
             return _reject('PROTECTED_OPERATION')
@@ -774,6 +849,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "needs_input": bool(getattr(current, "needs_input", False)),
                 "ambiguities": list(getattr(current, "ambiguities", ())),
                 "file_operation_hint": file_operation_hint,
+                "current_output": _current_output(session_artifacts),
             },
             "allowed": {
                 "operation": sorted(OPERATIONS),
@@ -804,7 +880,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "ten for compare, none for list) and put only the operation in arguments. "
             "reference_slots are only for files.read; for every other capability use an empty array. "
             "Simple semantic values the schema allows are yours to fill: query, city, number, closed "
-            "action enum, and for the capabilities listed in allowed.argument_schema. "
+            "action enum, and for the capabilities listed in allowed.argument_schema. Each "
+            "allowed.argument_schema entry also carries that capability's purpose and precondition: "
+            "choose the capability whose purpose matches what the user wants to happen, and treat a "
+            "failed precondition as a reason to clarify, never as a reason to pick another capability. "
             "Set argument_sources to null except for message.send and contacts.manage; for those "
             "use an object mapping each filled recipient, body, contact name or phone field to "
             "the exact words the user said. Use goal=null when no goal card is proposed. "
@@ -812,8 +891,21 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
             "sentence, or a missing quote drops the whole proposal, so leave a field empty instead "
-            "of inventing it and Core will ask the user. A question, negation or comment about the "
-            "world is chat, not an action. If the target cannot be decided choose clarify with a "
+            "of inventing it and Core will ask the user. current.current_output states whether this "
+            "conversation has a produced result Core can still save: when available is false that "
+            "result does not exist yet, so a request to keep, save or export it must clarify instead "
+            "of naming one - this says nothing about file_candidates, which still describe files the "
+            "user named and stay usable; when available is true that result is the standing target of "
+            "such a request, so do not ask for it again. An explicit target the user chose from "
+            "file_candidates or reference_slots is judged by the selected capability's own contract: "
+            "for the capability it names, that choice decides the target and is not an ambiguity; "
+            "choose clarify only when the target genuinely cannot be decided. Judge the operation the "
+            "utterance asks Jarvis to perform, not its surface form: a polite or interrogative "
+            "request to carry something out is that operation, while a question about what a word, "
+            "phrase or capability means, a quotation and a comment about the world are chat. A "
+            "negation withdraws only the step it governs: refusing an operation makes the turn chat "
+            "about that refusal, and limiting a later step leaves the requested step standing. If "
+            "the target cannot be decided choose clarify with a "
             "required reason_code and never guess. If current.needs_input is true keep it unless "
             "the only ambiguity is multiple target references and one supplied file candidate is "
             "clearly named by the utterance. Core revalidates every field."

@@ -7,12 +7,13 @@ yetkinin ise Core'da kaldığını birlikte doğrular.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from modules.brain_contracts import (
-    Confidence, ConversationRelation, RequestKind, TemporalNeed, UnderstandingResult,
+    Confidence, ContextReference, ConversationRelation, RequestKind, TemporalNeed, UnderstandingResult,
 )
 from modules import brain_model_understanding as model
 
@@ -86,6 +87,110 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         with p1, p2, p3, patch("modules.smart_router.run", return_value=raw):
             return model.propose(owner=OWNER, text=text, current=active,
                                  arguments=(active.arguments if args is None else args), **kwargs)
+
+    def payload(self, text="Metni ileride okuyabilmek için saklamak istiyorum.", *, active=None, **kwargs):
+        """Modelin gerçekten gördüğü yükü yakalar: sözleşme metni burada denetlenir."""
+        captured = {}
+
+        def run(owner, combined, callback, **router):
+            captured["payload"], _ = json.JSONDecoder().raw_decode(combined)
+            self.model_input = combined
+            return answer()
+
+        active = current() if active is None else active
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch("modules.smart_router.run", side_effect=run):
+            model.propose(owner=OWNER, text=text, current=active,
+                          arguments=active.arguments, **kwargs)
+        return captured["payload"]
+
+    def test_prompt_states_whether_a_session_output_actually_exists(self):
+        present = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},))
+        self.assertIs(present["current"]["current_output"]["available"], True)
+        self.assertEqual(present["current"]["current_output"]["slot"], "last_doc")
+        absent = self.payload(session_artifacts=())
+        self.assertIs(absent["current"]["current_output"]["available"], False)
+        self.assertIsNone(absent["current"]["current_output"]["slot"])
+        self.assertIsNone(absent["current"]["current_output"]["label"])
+        # Core yalnız tek bir çıktıyı bağlayabilir: iki kayıt belirsizdir, uydurma hedef değildir.
+        two = self.payload(session_artifacts=({"slot": "last_doc", "label": "rapor"},
+                                              {"slot": "older_doc", "label": "önceki"}))
+        self.assertIs(two["current"]["current_output"]["available"], False)
+
+    def test_an_unrecognised_slot_is_never_a_session_output(self):
+        # Tanınmış last_doc dışı bir tek kayıt çıktı sayılmaz; hükmün kaynağı Core'un
+        # bağlayabildiği attır, herhangi bir slotun varlığı değil.
+        only_other = self.payload(session_artifacts=({"slot": "older_doc", "label": "önceki"},))
+        self.assertIs(only_other["current"]["current_output"]["available"], False)
+        self.assertIsNone(only_other["current"]["current_output"]["slot"])
+
+    def test_absent_output_still_leaves_named_file_candidates_intact(self):
+        # current_output.available false yalnız üretilmiş oturum çıktısını anlatır;
+        # dosya adaylarının yokluğu değildir ve netleştirmeyi engellemez.
+        named = current(references=(
+            ContextReference(id="file_0", kind="file", source="scan", owner=OWNER,
+                             provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf"}),
+            ContextReference(id="file_1", kind="file", source="scan", owner=OWNER,
+                             provenance={"path": "C:/Users/hamdi/Documents/ozet.docx"})))
+        payload = self.payload(active=named, session_artifacts=())
+        self.assertIs(payload["current"]["current_output"]["available"], False)
+        self.assertEqual([row["slot"] for row in payload["file_candidates"]], ["file_0", "file_1"])
+        self.assertIn("file_candidates", payload["current"]["current_output"]["meaning"])
+        adopted = self.ask(answer(operation="clarify", confidence="HIGH",
+                                  clarification={"required": True,
+                                                 "question": "Hangi dosyayı saklayayım?",
+                                                 "reason_code": "TARGET_MISSING"}),
+                          active=current(needs_input=True, references=named.references),
+                          session_artifacts=())
+        self.assertIsNotNone(adopted)
+        self.assertEqual(adopted.clarification_reason_code, "TARGET_MISSING")
+
+    def test_present_output_describes_a_chosen_target_by_the_capability_not_a_question(self):
+        # Çıktı varken hüküm "başka hedef gösterilirse sor" demek değildir: kullanıcının aday
+        # listelerinden açıkça seçtiği hedef, o yeteneğin kendi sözleşmesiyle yargılanır.
+        rows = ({"slot": "last_doc", "label": "rapor"},)
+        payload = self.payload(session_artifacts=rows)
+        self.assertIs(payload["current"]["current_output"]["available"], True)
+        meaning = payload["current"]["current_output"]["meaning"]
+        self.assertIn("reference_slots", meaning)
+        self.assertIn("genuinely cannot be decided", meaning)
+        self.assertIn("is judged by the selected capability's own contract", self.model_input)
+        self.assertIn("rather than turning into a question", meaning)
+        # Kaldırılan aşırı hüküm: rakip hedef gösterildi diye seçimi soruya zorlamak.
+        self.assertNotIn("competing target", self.model_input)
+        self.assertNotIn("must not be asked for again unless", self.model_input)
+
+    def test_present_output_leaves_clarify_open_for_a_genuinely_undecided_target(self):
+        # Hedef gerçekten bağlanamıyorsa soru yolu açıktır: çıktıların varlığı netleştirmeyi kapatmaz.
+        rows = ({"slot": "last_doc", "label": "rapor"},)
+        named = current(needs_input=True, references=(
+            ContextReference(id="last_doc", kind="artifact", source="session_state", owner=OWNER),
+            ContextReference(id="file_0", kind="file", source="scan", owner=OWNER,
+                             provenance={"path": "C:/Users/hamdi/Documents/rapor.pdf"}),
+            ContextReference(id="file_1", kind="file", source="scan", owner=OWNER,
+                             provenance={"path": "C:/Users/hamdi/Documents/ozet.docx"})))
+        self.assertIsNotNone(self.ask(answer(operation="clarify", confidence="HIGH",
+                                            clarification={"required": True,
+                                                           "question": "Hangisini saklayayım?",
+                                                           "reason_code": "TARGET_MISSING"}),
+                                      active=named, session_artifacts=rows))
+
+    def test_prompt_never_carries_document_content_or_fingerprint(self):
+        payload = json.dumps(self.payload(
+            session_artifacts=({"slot": "last_doc", "label": "rapor"},)), ensure_ascii=False)
+        self.assertNotIn("document_digest", payload)
+        self.assertNotIn("Rapor içeriği", payload)
+
+    def test_prompt_advertises_capability_purposes_without_an_answer_table(self):
+        schema = self.payload()["allowed"]["argument_schema"]
+        for capability in ("documents.export", "notes.write", "files.mutate", "system.diagnose"):
+            self.assertIn("purpose", schema[capability])
+            self.assertIn("precondition", schema[capability])
+        corpus = json.loads((Path(__file__).resolve().parents[1]
+                             / "tests/data/brain_output_diagnose_holdout.json").read_text(encoding="utf-8"))
+        serialized = json.dumps(self.payload(), ensure_ascii=False).casefold()
+        for case in corpus["cases"]:
+            self.assertNotIn(case["text"].casefold(), serialized)
 
     def test_model_can_conservatively_downgrade_false_capability_to_chat(self):
         result = self.ask(answer())
