@@ -218,7 +218,7 @@ def _news_external_discovery(owner):
 
 def _news_chat_resume(owner):
     """All cases are required; a generic PASS cannot hide a topic or file failure."""
-    cases=[('genel sohbet','son dakika haberleri',False),
+    cases=[('genel sohbet','Son 7 gün güncel haberleri araştır',False),
            ('Türkiye AI sohbet','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır',False),
            ('Türkiye AI dosya','Son 7 gündeki Türkiye yapay zekâ gelişmelerini araştır ve raporu dosyaya kaydet',True)]
     summaries=[];failed=False
@@ -356,4 +356,3 @@ def main():
     return 1 if any(r['state']=='failed' for r in report['checks']) else 0
 
 if __name__=='__main__':raise SystemExit(main())
-
