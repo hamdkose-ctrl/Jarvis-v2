@@ -1100,7 +1100,6 @@ def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
     outcomes: dict[str, str] = {}
     lines: list[str] = []
     from modules import requests_state
-    from modules.engine_intents import dispatch
     for action in actions:
         action_id = str(action["action_id"])
         if any(outcomes.get(dep) != "succeeded" for dep in action["depends_on"]):
@@ -1109,31 +1108,28 @@ def _batch_handoff(runtime: Any, entry: EntryResult, command: str):
             continue
         try:
             requests_state.check()
-            # Reuse the normal entry Core path, including owner/reference/pending fences;
-            # only the already-validated typed action replaces the single-action fields.
-            action_semantic = replace(
-                semantic, capability_hint=action["capability_id"],
-                arguments=action["arguments"], actions=(),
+            # Re-enter the existing single-action Core handoff with typed fields only:
+            # this preserves Core's own result status instead of classifying reply text.
+            action_entry = replace(
+                entry,
+                understanding=replace(
+                    semantic, capability_hint=action["capability_id"],
+                    arguments=action["arguments"], actions=(),
+                ),
             )
-            plan = core_plan(replace(entry, understanding=action_semantic))
-            if plan is None:
-                outcomes[action_id] = "failed_core_validation"
-                lines.append(f"{action_id}: Core doğrulaması reddetti.")
+            output, action_feedback, _ = handoff(runtime, action_entry, handler, command)
+            lines.append(f"{action_id}: {output}")
+            if action_feedback.result_status == "handled":
+                outcomes[action_id] = "succeeded"
                 continue
-            before = _open_core_pending(runtime)
-            output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
-            opened = _open_core_pending(runtime) - before
-            if opened:
-                outcomes[action_id] = "awaiting_input"
-                lines.append(f"{action_id}: {output}")
-                # Existing Core owns this pending state; do not let a sibling overwrite it.
+            outcomes[action_id] = action_feedback.result_status
+            # Existing Core owns any pending/onay state; no sibling may overwrite it.
+            if action_feedback.result_status == "needs_input":
                 for later in actions:
                     later_id = str(later["action_id"])
                     if later_id not in outcomes:
                         outcomes[later_id] = "deferred_core_pending"
                 break
-            outcomes[action_id] = "succeeded"
-            lines.append(f"{action_id}: {output}")
         except requests_state.Cancelled:
             outcomes[action_id] = "cancelled"
             for later in actions:
