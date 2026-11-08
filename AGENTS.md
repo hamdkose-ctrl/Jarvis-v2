@@ -70,7 +70,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 ## BRAIN-04 action_batch
 
-- `action_batch` yalnız model zarfındaki 2–5 typed action ile gelir; action kimliği ve bağımlılıkları Understanding boyunca korunur. Her child mevcut `brain_entry.core_plan → handoff → Core` yolundan geçer; batch child için sequence veto yalnız dahili typed bağlamda kalkar, ham metin yeniden sınıflandırılmaz. Bir child `needs_input` açarsa Core pending sahibi kalır ve kardeşler çalışmaz; bağımlılık yalnız `handled` child sonrası başlar. İptal kalan child’ları durdurur, kısmi batch tam başarı sayılmaz. Yeni Scheduler/Core/store kurulmaz.
+- 2–5 typed action Core guardlarından geçer. Bağımlılık açık domain başarısı ister; onay ve iptal kalan işlemleri durdurur. Doğrulanmamış sonuç kısmi kalır. Ayrıntı `docs/agents/gorev-cekirdegi.md`.
 
 ## Testler
 

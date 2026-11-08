@@ -1121,7 +1121,10 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
             output, action_feedback, _ = handoff(runtime, action_entry, handler, command)
             lines.append(f"{action_id}: {output}")
             if action_feedback.result_status == "handled":
-                outcomes[action_id] = "succeeded"
+                # Routing acknowledgement is not domain success. Only explicit domain evidence
+                # can unlock a dependent action; uninstrumented results remain unknown.
+                ok = getattr(output, "ok", None)
+                outcomes[action_id] = "succeeded" if ok is True else "failed" if ok is False else "unknown"
                 continue
             outcomes[action_id] = action_feedback.result_status
             # Existing Core owns any pending/onay state; no sibling may overwrite it.
@@ -1142,9 +1145,14 @@ def _batch_handoff(runtime: Any, entry: EntryResult, handler: Any, command: str)
             _record_failure("modules/brain_entry.py:batch_action")
             outcomes[action_id] = "failed"
             lines.append(f"{action_id}: yürütme başarısız oldu.")
-    status = "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial"
+    status = ("needs_input" if "needs_input" in outcomes.values() else
+              "handled" if outcomes and all(value == "succeeded" for value in outcomes.values()) else "partial")
+    if status == "partial":
+        lines.append("İşlemlerin tamamı başarılı olarak doğrulanamadı; sonuç kısmi.")
     row = feedback(entry, result_status=status,
-                   reason_code="CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL")
+                   reason_code=("CORE_AWAITING_INPUT" if status == "needs_input" else
+                                "CORE_BATCH_HANDOFF_RETURNED" if status == "handled" else "CORE_BATCH_PARTIAL"),
+                   core_ambiguities=("core pending: batch action",) if status == "needs_input" else ())
     _LAST_FEEDBACK.set(row)
     return "\n".join(lines), row, _correlated_job_id(entry)
 
@@ -1170,6 +1178,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         return refusal, row, None
     plan = core_plan(entry)
     lane_plan = None if plan is not None else _lane_plan(runtime, entry)
+    if entry.batch_child and plan is None:
+        row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")
+        _LAST_FEEDBACK.set(row)
+        return "Bu işlemi güvenli biçimde doğrulayamadım; işlem başlatılmadı.", row, None
     if (plan is None and entry.understanding is not None
             and entry.understanding.capability_hint == PHOTO_CAPABILITY):
         # No validated Core photo plan means no photo effect, and no legacy raw-text fallback.
