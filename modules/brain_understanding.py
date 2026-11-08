@@ -2682,7 +2682,8 @@ def understand(
     )
 
 
-def apply_model_understanding(result: UnderstandingResult, text: str) -> UnderstandingResult:
+def apply_model_understanding(result: UnderstandingResult, text: str, *,
+                              active_context: ActiveContext | None = None) -> UnderstandingResult:
     """Birincil model zarfını kanonikal anlama sonucuna işler.
 
     State/Fast dışındaki her üretim turu bu tek bounded çağrıdan geçer. Zarf doğrulanamazsa ya
@@ -2705,6 +2706,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str) -> Underst
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
             file_operation_hint=_file_operation(_norm(text)),
+            session_artifacts=tuple(
+                {"slot": "last_doc", "label": str(ref.provenance.get("label") or "")[:120]}
+                for ref in (() if active_context is None else active_context.active_artifacts)
+                if ref.owner == result.owner and ref.id == "last_doc"
+                and ref.source == "session_state" and ref.provenance.get("document_digest")
+            ),
         )
         if proposal is None:
             return result

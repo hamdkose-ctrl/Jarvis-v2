@@ -212,12 +212,12 @@ class ExplanationRequestAuthorityTests(_Pr3c2Harness):
         self.assertEqual(entry.understanding.capability_hint, "research.search")
         self.assertEqual(out, "GOAL_RUN")
 
-    def test_a_troubleshooting_question_keeps_its_diagnose_owner(self):
+    def test_a_troubleshooting_phrase_without_model_authority_does_not_probe(self):
         # Soru işareti tek başına açıklama yetkisi değildir: teşhis sahibi çalışmaya devam eder.
         self.reset()
         _entry, out, _handle, _ = self.turn("neden çalışmıyor?")
-        self.assertEqual(out, "ARIZA")
-        self.seams["modules.diagnose.run"].assert_called_once()
+        self.assertNotEqual(out, "ARIZA")
+        self.seams["modules.diagnose.run"].assert_not_called()
 
 
 class DomainOwnerRegressionTests(_Pr3c2Harness):

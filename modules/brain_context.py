@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 import math
+import hashlib
+import json
 import time
 from typing import Any, Callable, Iterable, Mapping
 
@@ -147,6 +149,18 @@ def _clarify_active(owner: str, value: Any) -> bool | None:
     return expires >= time.time()
 
 
+def document_fingerprint(document: Any) -> str | None:
+    """Identity of an existing session result; no document content leaves this adapter."""
+    if not isinstance(document, (tuple, list)) or len(document) != 3:
+        return None
+    text, source, label = document
+    if not isinstance(text, str) or not text.strip() or not isinstance(label, str):
+        return None
+    if source is not None and not isinstance(source, str):
+        return None
+    return hashlib.sha256(json.dumps([text, source, label], ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
 def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[ContextReference], list[ContextReference]]:
     pending: list[ContextReference] = []
     artifacts: list[ContextReference] = []
@@ -177,7 +191,8 @@ def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[
             ident="last_doc",
             kind="artifact",
             source="session_state",
-            provenance={"field": "last_doc", "path": last_doc[1], "label": last_doc[2]},
+            provenance={"field": "last_doc", "path": last_doc[1], "label": last_doc[2],
+                        "document_digest": document_fingerprint(last_doc)},
         ))
 
     last_visual = getattr(state, "last_visual", None)

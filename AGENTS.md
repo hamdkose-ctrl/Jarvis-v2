@@ -34,7 +34,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları (19 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları (20 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
@@ -208,3 +208,6 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Provider/Hoca tanısı: yerel timeout, sunucu yokluğundan ayrılır; Hoca güvenli exhausted nedeni ve reason-code/recovery bilgisini korur. Router tablosu backend effective modelini gösterir; çağrı özeti tablodan önce gelir. Tanı düzeltmesi canlı model kabulü değildir.
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
+
+
+- Brain BRAIN-03 dilim4 branch kaydı: çıktı/teşhis niyeti yalnız birincil modelin `documents.export` / `system.diagnose` önerisinden Core'a geçer. Eski `_OUTPUT_SAVE`/`_output_save_admin`/`diagnose.requested` kalıplarını geri ekleme. Kayıt mevcut owner session artifact'ına bağlıdır; model yol/içerik/digest üretemez. Mock wiring gerçek model semantik kabulü değildir; migration map §14.4 ve roadmap branch kaydı kapanış durumunu ayırır.

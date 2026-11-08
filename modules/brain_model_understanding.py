@@ -176,6 +176,8 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
     if owned:
         # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
         return {"freeform": True, "argument_sources": sorted(owned)}
+    if capability_id in {"documents.export", "system.diagnose"}:
+        return {"arguments": {}, "target": "current owner's session output" if capability_id == "documents.export" else "read-only system checks"}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -459,7 +461,7 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
     if slots:
         return None
     # Model alan doldurmadıysa payload deterministik kanıttan gelir; model hiç argüman uydurmaz.
-    if capability_id == "finance.read":
+    if capability_id in {"finance.read", "documents.export", "system.diagnose"}:
         payload = dict(supplied)
     elif supplied:
         payload = dict(supplied)
@@ -615,7 +617,14 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
         return None
     # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
     # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
-    if protected_relation:
+    artifact_continuation = bool(
+        proposed.actions and proposed.actions[0].capability_id == "documents.export"
+        and current.pending_owner is None
+        and current.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
+        and any(ref.kind == "artifact" and ref.id == "last_doc" and ref.owner == current.owner
+                for ref in current.references)
+    )
+    if protected_relation and not artifact_continuation:
         if proposed.operation not in ADOPTED_OPERATIONS:
             return None
         if proposed.conversation_relation is not current.conversation_relation:
@@ -631,8 +640,12 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
         return None
     if resolving_file_ambiguity and not has_grounded_reference:
         return None
-    # Deterministik kanıtın üzerinde güven üretilmez; belirsizlik çözümü LOW'u MEDIUM'a çekebilir.
-    if _CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]:
+    # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
+    # a deterministic LOW guess is not semantic authority over the validated model decision.
+    model_owned_action = bool(proposed.actions and proposed.actions[0].capability_id
+                              in {"documents.export", "system.diagnose"})
+    if (_CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]
+            and not model_owned_action):
         if not resolving_file_ambiguity:
             return None
         proposed = UnderstandingProposal(
@@ -652,7 +665,8 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
 
 def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             protected_relation: bool = False,
-            file_operation_hint: str | None = None) -> UnderstandingProposal | None:
+            file_operation_hint: str | None = None,
+            session_artifacts: tuple[dict[str, str], ...] = ()) -> UnderstandingProposal | None:
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
     Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
@@ -702,6 +716,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             },
             "file_candidates": slot_rows,
             "goal_candidates": list(_offered_goal_ids(current)),
+            "session_artifacts": list(session_artifacts),
         }, ensure_ascii=False)
         system = (
             "You are the primary semantic decider, not an agent. Return exactly one JSON object "

@@ -244,14 +244,14 @@ class BrainProductionEntryTests(unittest.TestCase):
              patch.object(module, "build_candidates", side_effect=lambda **k: (order.append("candidates") or (candidate,))), \
              patch.object(module, "resolve_references", side_effect=lambda **k: (order.append("references") or (candidate,))), \
              patch.object(module, "understand", side_effect=lambda **k: (order.append("understand") or semantic)), \
-             patch.object(module, "apply_model_understanding", side_effect=lambda value, text: (order.append("model") or value)) as propose:
+             patch.object(module, "apply_model_understanding", side_effect=lambda value, text, **kwargs: (order.append("model") or value)) as propose:
             result = module.prepare(
                 self.runtime(), owner=OWNER, request_id=RID, text="şu raporu incele",
                 source="yazı", model_understanding=True,
             )
         self.assertIs(result.understanding, semantic)
         self.assertEqual(order, ["candidates", "references", "understand", "model"])
-        propose.assert_called_once_with(semantic, "şu raporu incele")
+        propose.assert_called_once_with(semantic, "şu raporu incele", active_context=context())
 
     def test_needs_input_short_circuits_core_handler_and_worker_effects(self):
         module = self.module()
