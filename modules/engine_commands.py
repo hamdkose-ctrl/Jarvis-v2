@@ -192,14 +192,8 @@ def handle(runtime, command: str):
     # Mikrofon açma/kapama ve uyandırma kurulumu artık yalnız Fast Gate (`fast.mic.toggle`)
     # ve Core `voice.wake.enable` intent'i üzerinden yürür; burada ham cümle kalıbı yoktur.
 
-    # Jarvis'in kendi işlemleri: sayfa aç, güvenli ayarlar, yeniden başlat ("hafıza sayfasını aç", "cevap hızını sabırlı yap")
-    windows_reply = runtime.system_control.windows_settings(cmd_lower)   # "wifi ayarlarını aç": Windows Ayarlar sayfası, Jarvis'in değil
-    if windows_reply is not None:
-        return windows_reply
-    from modules import selfctl
-    self_reply = selfctl.handle(cmd_lower, runtime.emit)
-    if self_reply is not None:
-        return self_reply
+    # Windows Settings and Jarvis self-control are Core-validated typed proposals.
+    # The old natural-language owners must not reinterpret the same utterance.
 
     # Onay bekleyen işlem (örn. bilgisayarı kapatma)
     if runtime._session().pending_confirm:

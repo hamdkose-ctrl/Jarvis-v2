@@ -59,6 +59,18 @@ def execute(action: Mapping[str, Any], emit: Callable[[str, str], Any]) -> str:
         except OSError:
             return "Jarvis veri yolunu açamadım."
         return "Log dosyasını açtım." if target.suffix else "Jarvis veri klasörünü açtım."
+    if kind == "setting_read":
+        current = load_settings()
+        key = action.get("key")
+        if key == "wake_sensitivity":
+            return f"Uyanma hassasiyeti şu an {int(current.get('wake_sensitivity') or 3)} (1 zor uyanır, 5 çok kolay uyanır)."
+        if key == "response_speed":
+            value = int(current.get("live_silence_ms") or 1100)
+            name = next((label for _key, (ms, label) in SPEEDS.items() if ms == value), f"{value} ms")
+            return f"Cevap hızı şu an {name}."
+        if key == "idle_seconds":
+            return f"Açık kalma süresi şu an {int(current.get('live_idle_seconds') or 90)} saniye."
+        return "Bu Jarvis ayarı okunabilir değil."
     if kind == "setting":
         return _setting(action, emit)
     if kind == "ui":
