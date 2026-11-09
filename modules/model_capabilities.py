@@ -1,7 +1,8 @@
 """Developer-controlled, model-specific native feature evidence for Router plans.
 
-No network calls, no user-editable capability claims. The registry is intentionally
-empty until developers review official model specs, pin exact IDs and write tests.
+No network calls, no user-editable capability claims. Only exact model IDs with
+official source pages and bounded expiry appear in the registry; native API
+features remain disabled until their transport adapter is explicitly verified.
 Unverified, expired and unknown data cannot turn on native schemas, tool calling
 or a promised context length. Ordinary text and validator-based JSON parsing do
 not require native support and retain their established routes.
@@ -18,7 +19,25 @@ NATIVE_FEATURES = frozenset({'native_json_schema', 'native_tool_calling', 'verif
 # ('provider','exact-id'): {'features': frozenset({'native_json_schema'}),
 #     'context_limit': 32768, 'output_limit': 4096, 'source_url': 'https://...',
 #     'verified_at': 1794000000, 'expires_at': 1795000000}
-CATALOG: dict[tuple[str, str], dict] = {}
+_GROQ_REVIEWED_AT = 1794225600  # 9 Nov 2026 12:00 UTC
+_GROQ_EXPIRES_AT = 1794830400   # 16 Nov 2026 12:00 UTC
+# Only context/output capacities are asserted. Although Groq docs describe
+# native structured outputs, our transport has not implemented schema-bearing
+# API requests, so NO native JSON/tool capability is advertised here.
+CATALOG: dict[tuple[str, str], dict] = {
+    ('groq', 'openai/gpt-oss-120b'): {
+        'features': frozenset(),
+        'context_limit': 131072, 'output_limit': 65536,
+        'source_url': 'https://console.groq.com/docs/model/openai/gpt-oss-120b',
+        'verified_at': _GROQ_REVIEWED_AT, 'expires_at': _GROQ_EXPIRES_AT,
+    },
+    ('groq', 'openai/gpt-oss-20b'): {
+        'features': frozenset(),
+        'context_limit': 131072, 'output_limit': 65536,
+        'source_url': 'https://console.groq.com/docs/model/openai/gpt-oss-20b',
+        'verified_at': _GROQ_REVIEWED_AT, 'expires_at': _GROQ_EXPIRES_AT,
+    },
+}
 
 
 def _valid_entry(raw, *, now: float) -> bool:
