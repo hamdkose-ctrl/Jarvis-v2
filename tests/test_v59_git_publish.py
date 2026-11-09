@@ -26,7 +26,11 @@ class V59GitPublishTests(unittest.TestCase):
         engine_commands = (ROOT / "modules" / "engine_commands.py").read_text(encoding="utf-8")
         command_manager = (ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8")
         self.assertIn("exact_admin_view", engine_commands)
-        self.assertIn("git_publish.publish_worktree", command_manager)
+        engine_intents = (ROOT / "modules" / "engine_intents.py").read_text(encoding="utf-8")
+        self.assertIn("git_publish.requested", command_manager)
+        self.assertIn("return dispatch(runtime, intent,", command_manager)
+        self.assertIn("git_publish.publish_worktree", engine_intents)
+        self.assertNotIn("git_publish.publish_worktree", command_manager)
         self.assertTrue(git_publish.requested("git yükle"))
 
 

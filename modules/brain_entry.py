@@ -58,6 +58,7 @@ class EntryResult:
     references: tuple[ContextReference, ...] = ()
     understanding: Any = None
     batch_child: bool = False
+    state_references: tuple[ContextReference, ...] = ()
 
     @property
     def stage(self) -> str:
@@ -135,7 +136,6 @@ def _append_artifact(active: ActiveContext, artifact: ContextReference | None) -
         request_id=active.request_id,
         topic=active.topic,
         active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
         active_task_references=active.active_task_references,
         recent_references=active.recent_references,
         active_artifacts=artifacts,
@@ -158,7 +158,6 @@ def _append_pending(active: ActiveContext, pending: ContextReference | None) -> 
         request_id=active.request_id,
         topic=active.topic,
         active_goal_references=active.active_goal_references,
-        goal_candidates=active.goal_candidates,
         active_task_references=active.active_task_references,
         recent_references=active.recent_references,
         active_artifacts=active.active_artifacts,
@@ -436,7 +435,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         active_context=active, state_references=state_refs,
     )
     if state.matched or state.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
-        return EntryResult(owner, request_id, source, text, active, state)
+        return EntryResult(owner, request_id, source, text, active, state, state_references=state_refs)
 
     fast = deterministic_fast_gate(
         owner=owner, request_id=request_id, text=text, active_context=active,
@@ -618,15 +617,7 @@ def execution_metadata(owner: str) -> dict[str, object] | None:
 def _correlated_job_id(entry: EntryResult) -> str | None:
     try:
         from modules import goal_executor
-        # BRAIN-05: bir hedef işlemi çıplak kontrollerin duran hedefi `latest.json`ı
-        # taşımayabilir; hedef kendi kimliğiyle anılır. Tek hedefli turlarda o kimlik
-        # okunur, çok hedefli turlarda tek bir kayıt korrelate edilemez.
-        selected = tuple(getattr(entry.understanding, "goal_target_ids", ()) or ()) \
-            if entry.understanding is not None else ()
-        if len(selected) == 1:
-            row = goal_executor.read_job(entry.owner, selected[0])
-        else:
-            row = goal_executor.latest(entry.owner)
+        row = goal_executor.latest(entry.owner)
     except Exception:
         _record_failure("modules/brain_entry.py:goal_correlation")
         return None
@@ -642,11 +633,6 @@ def _correlated_job_id(entry: EntryResult) -> str | None:
 _TYPO_UNVERIFIED_QUESTION = ("Cümlenin Türkçe karakterleri tamamlanmış hâli doğrulanmış bir yetenekte karşılık "
                              "bulmadı; genel hedef yürütmesi başlatılmadı, işlem başlatılmadı. İsteği tek tek de söyleyebilirsin.")
 
-# Bu cümle yalnız kapının kendisi için bir tanıdır: hedef işleminin karar sahibi Goal
-# Resolver'dır ve o sahibe ulaşılamayan bir turda hiçbir efekt başlamaz.
-_GOAL_CONTROL_DOOR_QUESTION = ("Hedef işlemi bu turda Goal Resolver'a ulaştırılamadı; hiçbir hedef kaydı "
-                               "değiştirilmedi, işlem başlatılmadı.")
-
 
 def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     """Build a legacy-dispatch-shaped result without invoking the legacy classifier."""
@@ -658,11 +644,6 @@ def _legacy_route_projection(entry: EntryResult) -> dict[str, object]:
     semantic = entry.understanding
     if semantic is None:
         return {"intent": "clarify", "args": {"question": "Canonical Brain sonucu üretilemedi; işlem başlatılmadı."}}
-    if semantic.request_kind is RequestKind.GOAL_CONTROL:
-        # BRAIN-05: hedef işleminin yürütme kapısı Goal Resolver'dır. Bu kapı bir hedef
-        # işlemi turunda cümleyi yeniden sınıflandıramaz — özellikle `task` üretip yeni
-        # GoalState açamaz (hedef uydurma) ve sohbete düşüremez.
-        return {"intent": "clarify", "args": {"question": _GOAL_CONTROL_DOOR_QUESTION}}
     if semantic.request_kind is RequestKind.CAPABILITY:
         plan = core_plan(entry)
         if plan is not None:
@@ -748,14 +729,11 @@ def _install_goal_save_guard() -> None:
         return
     original = goal_executor._save
 
-    def guarded(job, **options):
+    def guarded(job):
         entry = current()
         if entry is not None and isinstance(job, dict) and job.get("owner") == entry.owner:
             job["brain"] = execution_metadata(entry.owner)
-        # `move_pointer` gibi seçenekler ilkeli çağıran taraftan gelir ve buradan geçmelidir:
-        # BRAIN-05 hedef ilkelleri çıplak kontrol seçicisini devralmamak için pointer'ı
-        # taşımayan kayıtlar yazar.
-        return original(job, **options)
+        return original(job)
 
     goal_executor._brain_legacy_save = original
     goal_executor._save = guarded
@@ -1123,7 +1101,15 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
             except Exception:
                 _record_failure("modules/brain_entry.py:pending_level_snapshot")
                 return None
-        return brain_core_map.state_plan(gate.protocol, gate.selection, level)
+        pending_snapshot = None
+        if gate.protocol == "learning.pending_facts.select":
+            refs = [ref for ref in entry.state_references
+                    if ref.source == "learning" and ref.id == "pending_facts"
+                    and ref.owner == entry.owner]
+            if len(refs) != 1:
+                return None
+            pending_snapshot = refs[0].provenance.get("value")
+        return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)
     fast = entry.fast_gate
     if fast is not None and fast.matched:
         return brain_core_map.fast_plan(fast.protocol, fast.selection)
@@ -1244,39 +1230,28 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     _install_core_guards(runtime)
     _LAST_FEEDBACK.set(None)
     before = _open_core_pending(runtime)
-    goal_resolution = None
     try:
         with bind(entry):
             if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             _photo_lifecycle(runtime, entry)
-            if entry.understanding is not None and entry.understanding.request_kind is RequestKind.GOAL_CONTROL:
-                # BRAIN-05: hedef işleminin tek yürütme kapısı Goal Resolver'dır ve bu dal
-                # claim/dispatch/handler zincirinden ÖNCE gelir. `brain_precedence.claim` yalnız bir
-                # plan ile çalıştığı için legacy `_planner_command`'a hedef cümlesi hiç ulaşmaz;
-                # handler'ın ham metin yorumu da aynı cümleye ikinci kez bakamaz (BRAIN-MIG-098).
-                # Efekt yine yalnız mevcut `goal_executor` ilkellerindedir — ikinci bir depo yok.
-                from modules import goal_resolver
-                goal_resolution = goal_resolver.resolve(runtime, entry)
-                output = goal_resolution.message
+            claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
+            if claimed is not None:
+                output = claimed[1]
+            elif plan is not None:
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
+            elif lane_plan is not None:
+                # Protokol cevapları tek sahibine gider: cümlenin kendisi hiçbir yerde yeniden sınıflandırılmaz.
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, lane_plan[0], dict(lane_plan[1]), command, command.casefold())
+            elif _use_existing_handler(entry):
+                output = handler(command)
+            elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
+                output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
             else:
-                claimed = brain_precedence.claim(runtime, command, plan) if plan is not None else None
-                if claimed is not None:
-                    output = claimed[1]
-                elif plan is not None:
-                    from modules.engine_intents import dispatch
-                    output = dispatch(runtime, plan[0], dict(plan[1]), command, command.casefold())
-                elif lane_plan is not None:
-                    # Protokol cevapları tek sahibine gider: cümlenin kendisi hiçbir yerde yeniden sınıflandırılmaz.
-                    from modules.engine_intents import dispatch
-                    output = dispatch(runtime, lane_plan[0], dict(lane_plan[1]), command, command.casefold())
-                elif _use_existing_handler(entry):
-                    output = handler(command)
-                elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:
-                    output = "Tamam. Yeni isteğini mevcut business state'i değiştirmeden ayrı bağlamda ele alacağım."
-                else:
-                    from modules.engine_intents import dispatch
-                    output = dispatch(runtime, "chat", {}, command, command.casefold())
+                from modules.engine_intents import dispatch
+                output = dispatch(runtime, "chat", {}, command, command.casefold())
     except BaseException as exc:
         from modules import failure_policy, requests_state
         cancelled = isinstance(exc, requests_state.Cancelled)
@@ -1293,17 +1268,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     if opened:
         result = feedback(entry, result_status="needs_input", reason_code="CORE_AWAITING_INPUT",
                           core_ambiguities=tuple(f"core pending: {field}" for field in opened))
-    elif goal_resolution is not None:
-        # Hedef turunun sonucu resolver'ın Core doğrulamasından dönen gözlemidir; generic
-        # CORE_HANDOFF_RETURNED onun yerine geçmez (etki mi, ret mi, soru mu ayrımı kaybolur).
-        result = feedback(entry, result_status=goal_resolution.result_status,
-                          reason_code=goal_resolution.reason_code)
     else:
         result = feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
     _LAST_FEEDBACK.set(result)
-    # `create_goal` yeni kimliğini resolver'da taşımaz (henüz önerilmemiş bir kayıttı); onu mevcut
-    # korelasyon taraması kendi yazdığı kayıttan bulur.
-    job_id = (goal_resolution.job_id if goal_resolution is not None else None) or _correlated_job_id(entry)
+    job_id = _correlated_job_id(entry)
     return output, result, job_id
 
 

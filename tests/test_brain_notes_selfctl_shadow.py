@@ -31,12 +31,12 @@ class NotesSelfctlBoundaryTests(unittest.TestCase):
             self.assertIsNone(claimed, text)
             runtime.emit.assert_not_called()
 
-    def test_explicit_notes_page_navigation_still_works_without_data_plan(self):
+    def test_explicit_notes_page_navigation_has_no_legacy_claim_without_core_plan(self):
         for text in ("notlar sayfasını aç", "notlar sekmesini göster", "not ekranını aç"):
             runtime = _Runtime()
             claimed = brain_precedence.claim(runtime, text, None)
-            self.assertEqual(claimed, ("selfctl", "Notlar sayfasını açıyorum."), text)
-            runtime.emit.assert_called_once_with("nav", "tools|takvim")
+            self.assertIsNone(claimed, text)
+            runtime.emit.assert_not_called()
 
 
 if __name__ == "__main__":
