@@ -986,7 +986,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "matching response_schema, without a named wrapper or Markdown. "
             f'The schema_version field must equal the literal string "{SCHEMA_VERSION}". '
             "The top-level keys are schema_version, operation, conversation_relation, "
-            "temporal_need, target_goal_ids, goal, actions, clarification, confidence. Choose "
+            "temporal_need, target_goal_ids, goal, actions, clarification, confidence. "
+            "Do a FINAL JSON CONTRACT CHECK: include these nine keys exactly once, "
+            "use the required schema_version literal, always include temporal_need, "
+            "never add extra fields, and output no wrapper. Choose "
             "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
             "revise_goal, add_task, pause_goal, resume_goal, cancel_goal, prioritize_goal, clarify. "
             "Each actions entry carries only action_id, capability_id, arguments, reference_slots, "
@@ -1007,9 +1010,22 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "to null. For macro.teach every action must itself quote a contiguous part of the "
             "utterance. Use goal=null when no goal card is proposed. "
             "goal_candidates contains this owner's own Core-observed open goals, with id, title, state, progress and priority. "
-            "Use only the offered id in target_goal_ids for continue, revise, add_task, pause, resume, cancel or prioritize; "
-            "choose clarify if the target is ambiguous. For create_goal supply a goal card and no target_goal_ids. "
-            "A goal operation carries no actions and no arbitrary arguments; the user's original words supply the goal text. "
+            "GOAL OUTPUT CONTRACT: For continue_goal, revise_goal, add_task, pause_goal, "
+            "resume_goal, cancel_goal and prioritize_goal, set goal=null, actions=[], "
+            "and target_goal_ids to an array containing the exact id of the named "
+            "goal from goal_candidates (typically ONE id). A revise_goal or add_task "
+            "MUST NOT supply a new goal card: the user's original utterance is the "
+            "revision/task text and the Core resolver owns it. For create_goal only, "
+            "set a goal card with kind=goal and title from the utterance, "
+            "target_goal_ids=[], actions=[]. For chat or clarify use goal=null, "
+            "target_goal_ids=[], actions=[]. Never invent a goal id; clarify when "
+            "the target cannot be selected. CRUCIAL: the operation continue_goal "
+            "or resume_goal describes an EXISTING GOAL, NOT the conversation relation. "
+            "For ALL goal operations COPY current.conversation_relation exactly. "
+            "If current.conversation_relation=NEW_REQUEST, keep NEW_REQUEST even for "
+            "continue_goal, resume_goal or add_task; CONTINUE_ACTIVE is only valid "
+            "when current.conversation_relation itself is CONTINUE_ACTIVE. "
+            "A goal operation has no capability actions or arbitrary arguments. "
             "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
@@ -1064,6 +1080,9 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         action_rows = row.get('actions')
         if isinstance(action_rows, list):
             detail['action_count'] = len(action_rows)
+            detail['goal_card_present'] = row.get('goal') is not None
+            goal_ids = row.get('target_goal_ids')
+            detail['target_goal_count'] = len(goal_ids) if isinstance(goal_ids, list) else None
             detail['capabilities'] = [a['capability_id'] for a in action_rows
                 if isinstance(a,dict) and isinstance(a.get('capability_id'),str)
                 and a['capability_id'] in CORE_INTENTS]

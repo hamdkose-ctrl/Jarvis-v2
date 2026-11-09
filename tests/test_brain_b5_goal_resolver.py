@@ -257,6 +257,33 @@ class GoalEnvelopeFenceTests(unittest.TestCase):
                                    text="yarınki sunumu hazırla"))
         self.assertEqual(envelope.proposal_diagnostic()["reason_code"], "GOAL_CARD_INVALID")
 
+    def test_goal_operation_is_distinct_from_conversation_continuation(self):
+        offered = (card(CARD), card(OTHER))
+        text = "sunum taslağı hedefinden devam et"
+        correct = self.envelope(operation="continue_goal", targets=(CARD,),
+                                relation="NEW_REQUEST")
+        self.assertEqual(self.ask(correct, cards=offered, text=text).target_goal_ids, (CARD,))
+        # Only deterministic context may establish CONTINUE_ACTIVE. A model
+        # cannot claim to own an active turn merely from the word "devam".
+        forged = self.envelope(operation="continue_goal", targets=(CARD,),
+                               relation="CONTINUE_ACTIVE")
+        self.assertIsNone(self.ask(forged, cards=offered, text=text))
+        self.assertEqual(envelope.proposal_diagnostic()["reason_code"], "RELATION_NOT_CURRENT")
+
+    def test_revise_and_add_task_require_an_id_and_no_model_card(self):
+        offered = (card(CARD), card(OTHER))
+        for operation in ("revise_goal", "add_task"):
+            with self.subTest(operation=operation):
+                good = self.envelope(operation=operation, targets=(CARD,))
+                self.assertEqual(self.ask(good, cards=offered).target_goal_ids, (CARD,))
+                wrong = self.envelope(operation=operation, targets=(CARD,),
+                                      goal={"kind":"goal","title":"model-written title"})
+                self.assertIsNone(self.ask(wrong, cards=offered))
+                detail = envelope.proposal_diagnostic()
+                self.assertEqual(detail["reason_code"], "ACTION_COUNT_MISMATCH")
+                self.assertTrue(detail["goal_card_present"])
+                self.assertEqual(detail["target_goal_count"], 1)
+
     def test_the_model_may_raise_confidence_for_a_goal_operation(self):
         # Deterministik katmanın hedef anlamı hakkında kararı yoktur; LOW tahmini modeli
         # susturmaz. Dayanak yine sunulmuş kimliktir.

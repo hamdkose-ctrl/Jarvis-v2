@@ -53,6 +53,21 @@ class GoalHoldoutTests(unittest.TestCase):
         self.assertTrue(all(c.owner=='alice' for c in cards))
         self.assertEqual(cards[0].provenance['title'], 'sunum taslağı')
 
+    def test_goal_prompt_separates_goal_operation_from_turn_relation(self):
+        from modules import brain_model_understanding as model, llm, smart_router
+        case = json.loads(goal.CORPUS.read_text(encoding='utf-8'))['cases'][2]
+        with patch.object(llm, 'current_user', return_value='alice'), \
+             patch.object(llm, 'provider', return_value='groq'), \
+             patch.object(llm.privacy, 'mode', return_value='normal'), \
+             patch.object(smart_router, 'selection', return_value={'candidates':['groq']}), \
+             patch.object(smart_router, 'run', return_value='{}') as fake:
+            self.assertIsNone(goal.ask('alice', case, 3))
+        sent = fake.call_args.args[1]
+        self.assertIn('GOAL OUTPUT CONTRACT', sent)
+        self.assertIn('COPY current.conversation_relation exactly', sent)
+        self.assertIn('For continue_goal, revise_goal, add_task', sent)
+        self.assertIn('FINAL JSON CONTRACT CHECK', sent)
+
     def test_dry_run_never_checks_credentials_or_sends_models(self):
         with patch.object(goal.base,'preflight',side_effect=AssertionError('should not run')), \
              patch.object(goal,'measure',side_effect=AssertionError('should not run')):
