@@ -96,6 +96,10 @@ _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
 _USER_OWNED_ARGUMENT_SLOTS = {
     "message.send": frozenset({"recipient", "body"}),
     "contacts.manage": frozenset({"name", "phone"}),
+    "user.manage": frozenset({"name", "old", "text"}),
+    "macro.teach": frozenset({"trigger"}),
+    "macro.manage": frozenset({"trigger"}),
+    "learning.manage": frozenset({"text"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -266,6 +270,17 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "amount": "optional positive decimal string",
             },
         }
+    if capability_id == "user.manage":
+        return {"operation": ["rename", "delete", "create", "list", "identify", "switch",
+                                "goals_list", "goals_clear", "goal_add", "fact_add"],
+                "name": "quoted user name when needed", "old": "quoted existing user name when needed",
+                "text": "quoted goal or fact when needed", "argument_sources": ["name", "old", "text"]}
+    if capability_id == "macro.teach":
+        return {"trigger": "quoted shortcut phrase", "actions": ["one or more executable steps"],
+                "argument_sources": ["trigger"]}
+    if capability_id == "macro.manage":
+        return {"operation": ["list", "delete"], "trigger": "quoted shortcut phrase for delete",
+                "argument_sources": ["trigger"]}
     validator = CORE_INTENTS[capability_id][1]
     if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
         return {"nested": {"action": "kapalı eylem kümesi"}}
@@ -276,6 +291,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "user.manage": ("changes, selects, lists or records data in the current user's own profile", "Core validates a closed operation and bounded supplied fields"),
+    "macro.teach": ("stores a user-requested named shortcut with its proposed steps", "Core validates a bounded trigger and non-empty steps; it does not infer an operation from raw text"),
+    "macro.manage": ("lists or deletes a saved shortcut for the current user", "Core validates the closed operation and a bounded trigger for deletion"),
     "documents.export": (
         "keeps the result this conversation already produced as a document the user can open later",
         "requires current.current_output.available true; Core alone binds the document, its path and format",

@@ -181,11 +181,8 @@ def handle(runtime, command: str):
     # `message.send`/`contacts.manage` önerir, Core biçimi doğrular, etki `engine_intents`
     # sahibinde yürür. Buradaki dal yalnız açık `pending_msg` oturumunun devamını tüketir.
 
-    # Öğrenme: kurallar, onay bekleyen bilgiler, gelişim raporu ("kural ekle: …", "öğrendiklerini kaydet")
-    from modules import learning
-    learn_reply = learning.handle(cmd_lower, command, runtime.profile)
-    if learn_reply is not None:
-        return learn_reply
+    # Öğrenme/rule/fact cümlesi burada seçilmez: Understanding `learning.manage` önerir,
+    # Core operation + kullanıcı verisini doğrular, yazma `engine_intents` sahibindedir.
 
     # Dosyalar ekranındaki düğmeler: '"C:\...\x.pdf" dosyasını özetle' -> yapay zekâya sormadan doğrudan o dosyada
     file_reply = runtime._file_command(command)
@@ -244,10 +241,6 @@ def handle(runtime, command: str):
             return core_dispatch(runtime, "weather", {"location": command}, command, cmd_lower)
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
-
-    user_reply = runtime._user_command(command, cmd_lower)
-    if user_reply is not None:
-        return user_reply
 
     plan_reply = runtime._planner_command(command, cmd_lower)
     if plan_reply is not None:

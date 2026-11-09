@@ -176,43 +176,6 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
     result = system_doctor.handle(owner, corrected)
     if result is not None:
         return result
-    # Privileged write operations are exact raw-text admin protocols, never typo-rewritten
-    # or inferred from a substring/model suggestion.
-    if isinstance(original_text, str):
-        from modules import git_publish
-        import updater
-        if git_publish.requested(original_text):
-            try:
-                verified = updater.verify_sync()
-                if verified.get("sync_state") in ("diverged", "unknown", "offline"):
-                    return "GitHub'a yüklemedim: " + str(
-                        verified.get("sync_msg") or "durum güvenli değil"
-                    )
-                return git_publish.publish_worktree("kullanıcı 'git yükle' komutuyla yayınladı")
-            except Exception as exc:
-                _record_failure(context, "main.py:handle")
-                return f"GitHub'a yükleyemedim: {exc}"
-
-        update_action = updater.command_request(original_text)
-        if update_action is not None:
-            try:
-                note = (updater.install_latest() if update_action == "install"
-                        else updater.check(apply_now=False, force=True))
-                if note:
-                    return note + (
-                        " Jarvis'i kapatıp açınca devreye girer."
-                        if update_action == "install"
-                        else " Kurmak için açıkça ‘güncellemeyi kur’ de."
-                    )
-                status = updater.status()
-                if status["error"] and not status["sha"]:
-                    return "Güncellemeye bakamadım: " + status["error"].split(" ", 2)[-1]
-                return "Zaten en güncel sürümdesin." + (
-                    f" ({status['msg']})" if status["msg"] else ""
-                )
-            except Exception as exc:
-                _record_failure(context, "main.py:handle")
-                return f"Güncellemeye bakamadım: {exc}"
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):

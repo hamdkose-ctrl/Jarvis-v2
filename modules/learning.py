@@ -440,47 +440,29 @@ def short_summary(text: str) -> str:
 
 
 # ------------------------------------------------------------------ sesli/yazılı komutlar
-def handle(cmd_lower: str, command: str, profile) -> str | None:
-    t = cmd_lower.strip(" .!?")
-    if t in ('hafızamı göster','hafızayı göster','hafızamdaki bilgileri listele'):
-        facts=profile.data.get('facts',[])
-        return '\n'.join(f'{i}. {f}' for i,f in enumerate(facts,1)) or 'Hafızada onaylı bilgi yok.'
-    memory=re.fullmatch(r'hafıza\s+(düzelt|unut)\s*:\s*(.+)',command.strip(),re.I|re.S)
-    if memory:
-        value=memory[2].strip();text=None
-        if _low(memory[1])=='düzelt':
-            if '|' not in value:return 'Kullanım: hafıza düzelt: eski bilginin tamamı | yeni bilgi'
-            value,text=(v.strip() for v in value.split('|',1))
-        matches=[i for i,f in enumerate(profile.data.get('facts',[])) if f==value]
-        if len(matches)!=1:return 'Kesin ve tek bir bilgi seçilemedi; önce “hafızamı göster” de ve kaydın tamamını yaz.'
-        profile.edit_fact(matches[0],value,text)
-        return 'Bilgiyi düzelttim.' if text is not None else 'Seçtiğin bilgiyi unuttum.'
-    # gelişim raporu
-    if re.search(r"gelişim raporu|kendini (?:değerlendir|geliştir|analiz)|neleri? yapamadın|nerede hata yaptın", t):
+def execute_typed(profile, action: dict) -> str:
+    """Apply a Core-validated learning operation without classifying raw user text."""
+    operation = action.get("operation")
+    index = action.get("index")
+    if operation == "report.read":
         return short_summary(report())
-    # onay bekleyen bilgiler
-    if re.search(r"öğrendi(?:k)?lerini(?:n)?\s+(?:hepsini\s+)?(?:kaydet|onayla|hatırla|sakla)\b|hepsini (?:kaydet|onayla|hatırla)\b", t):
-        n = approve(profile)
-        return f"{n} bilgiyi hafızama kaydettim." if n else "Onay bekleyen bir şey yok."
-    if re.search(r"öğrendi(?:k)?lerini(?:n)?\s+(?:hepsini\s+)?(?:kaydetme|sil|unut|at|onaylama)|hiçbirini (?:kaydetme|hatırlama)", t):
-        n = reject(profile)
-        return f"Tamam, {n} bilgiyi kaydetmeden sildim." if n else "Onay bekleyen bir şey yok."
-    m = re.search(r"öğrendiğin\s+(\d+)\s*\.?\s*(?:bilgiyi|maddeyi|şeyi)?\s*(kaydetme|kaydet|onayla|hatırla|sil|unut)\b", t)
-    if m:
-        idx = int(m.group(1)) - 1
-        if m.group(2) in ("kaydet", "onayla", "hatırla"):
-            return "Kaydettim." if approve(profile, idx) else "O numarada onay bekleyen bir bilgi yok."
-        return "Sildim." if reject(profile, idx) else "O numarada onay bekleyen bir bilgi yok."
-    m = re.match(r"^(?:şunu öğren|bunu öğren|öğren|hafızana kaydet)\s*[:,]?\s+(.+)$", command.strip(), re.I)
-    if m:
-        fact = _clean(m.group(1))
-        if len(fact) < 6: return "Öğrenmemi istediğin bilgiyi bir cümleyle söyle."
+    if operation == "pending.approve":
+        n = approve(profile, None if index is None else index - 1)
+        return (f"{n} bilgiyi hafızama kaydettim." if index is None else
+                ("Kaydettim." if n else "O numarada onay bekleyen bir bilgi yok."))
+    if operation == "pending.reject":
+        n = reject(profile, None if index is None else index - 1)
+        return (f"Tamam, {n} bilgiyi kaydetmeden sildim." if index is None else
+                ("Sildim." if n else "O numarada onay bekleyen bir bilgi yok."))
+    if operation == "fact.add":
+        fact = _clean(str(action.get("text") or ""))
+        if len(fact) < 6:
+            return "Öğrenmemi istediğin bilgiyi bir cümleyle söyle."
         profile.add_fact(fact)
         return "Hafızama kaydettim: " + fact
-    m = re.match(r"^bundan sonra\s+(.+)$", command.strip(), re.I)
-    if m: return add_rule(profile, m.group(1))
-    # kurallar
-    if re.search(r"(?:kurallarını|kurallarımı|öğrettiklerimi|öğrendiklerini)\s+(?:say|söyle|oku|listele|göster)|neler öğrendin", t):
+    if operation == "rule.add":
+        return add_rule(profile, str(action.get("text") or ""))
+    if operation == "facts.list":
         rs, pf = rules(profile), pending(profile)
         parts = []
         if profile.data.get("facts"):
@@ -490,18 +472,19 @@ def handle(cmd_lower: str, command: str, profile) -> str | None:
         if pf:
             parts.append("Onay bekleyen bilgiler: " + " ".join(f"{i}) {f}" for i, f in enumerate(pf, 1)))
         return " ".join(parts) if parts else "Henüz bana öğrettiğin bir kural ya da onay bekleyen bir bilgi yok."
-    m = re.search(r"(?:(\d+)\s*\.?\s*kuralı|(.+?)\s+kuralını)\s+(?:unut|sil|kaldır)", t)
-    if m:
-        idx = int(m.group(1)) - 1 if m.group(1) else _find_rule(profile, m.group(2))
-        if idx is not None and 0 <= idx < len(rules(profile)):
-            gone = rules(profile)[idx]
-            delete_rule(profile, idx)
+    if operation == "rules.list":
+        rs = rules(profile)
+        return "Öğrettiğin kurallar: " + " ".join(f"{i}) {r}" for i, r in enumerate(rs, 1)) if rs else "Henüz öğrettiğin bir kural yok."
+    if operation == "rule.delete":
+        if index is None:
+            return "Silinecek kuralın numarasını söyle."
+        rs = rules(profile)
+        if 0 <= index - 1 < len(rs):
+            gone = rs[index - 1]
+            delete_rule(profile, index - 1)
             return f"Bu kuralı unuttum: {gone}"
-        return "Böyle bir kural bulamadım. 'Kurallarını söyle' dersen listeyi okurum."
-    m = re.match(r"^(?:kural ekle|kural öğren)\s*[:,]?\s+(.+)$", t)
-    if m:
-        return add_rule(profile, command.split(None, 2)[-1] if len(command.split()) > 2 else m.group(1))
-    return None
+        return "O numarada bir kural bulamadım."
+    return "Öğrenme işlemi Core tarafından doğrulanmadı."
 
 
 def startup_notice(profile) -> str | None:
