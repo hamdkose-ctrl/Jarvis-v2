@@ -21,6 +21,7 @@ from modules.brain_contracts import (
     ContextAction,
     ContextReference,
     ConversationRelation,
+    GoalOperation,
     EchoPreview,
     PendingOwner,
     RequestKind,
@@ -1508,9 +1509,9 @@ EXECUTION_REQUEST_CODE = "EXECUTION_REQUEST"
 # Understanding "bu cümle açıklama/sohbet ister" hükmünü de yalnız burada verir: bir yüzey bu
 # kaydı okuyabilir, ama aynı hükmü ham metinden ikinci kez sınıflandırarak üretemez.
 EXPLANATION_REQUEST_CODE = "EXPLANATION_REQUEST"
-# Model zarfı doğrulandı ama bu işlemin yürütücüsü henüz üretim akışında değil (BRAIN-04/05).
-# Kayıt tanıdır: işlem yapılmış gibi göstermez, deterministik kararı da değiştirmez.
-MODEL_OPERATION_NOT_WIRED = "MODEL_OPERATION_NOT_WIRED"
+# Model zarfı hedef işlemi taşıyor: GOAL_CONTROL kanalı, yürütme yetkisi değil öneridir.
+# Kayıt tanıdır; hedefin gerçek geçişini goal_resolver Core'dan yeniden doğrular.
+MODEL_GOAL_OPERATION = "MODEL_GOAL_OPERATION"
 LEVEL_UNSPECIFIED = "level target unspecified"
 
 
@@ -2687,14 +2688,14 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
     """Birincil model zarfını kanonikal anlama sonucuna işler.
 
     State/Fast dışındaki her üretim turu bu tek bounded çağrıdan geçer. Zarf doğrulanamazsa ya
-    da kararı belirsizse deterministik sonuç olduğu gibi kalır. `chat`, `direct_action` ve `clarify` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
-    yürütücüleri BRAIN-04/BRAIN-05'te yazılır. Bir hedef seçimi yalnız owner-bound bir dosya
-    adayını seçebilir; hedefin gerçek yetkisini her durumda Core yeniden doğrular.
+    da kararı belirsizse deterministik sonuç olduğu gibi kalır. Tüm on iki işlem üretim
+    akışına bağlıdır: `chat`/`direct_action`/`action_batch`/`clarify` Core plan ve sohbet
+    yollarına, hedef işlemleri GOAL_CONTROL taşıyıcısıyla goal_resolver'a gider. Bir hedef
+    seçimi yalnız owner-bound bir dosya adayını seçebilir; hedefin gerçek yetkisini her
+    durumda Core yeniden doğrular.
     """
     try:
-        from modules.brain_model_understanding import (
-            ADOPTED_OPERATIONS, REQUEST_KIND_BY_OPERATION, propose,
-        )
+        from modules.brain_model_understanding import REQUEST_KIND_BY_OPERATION, propose
         proposal = propose(
             owner=result.owner,
             text=text,
@@ -2705,6 +2706,13 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
             file_operation_hint=_file_operation(_norm(text)),
+            # BRAIN-05: modelin adresleyebileceği tek hedef kümesi, Core'un bu tur için
+            # owner'ın kendi kayıtlarından gözlemlediği açık kartlardır; resolver aynı
+            # ActiveContext alanını sonradan yeniden doğrular.
+            goal_candidates=tuple(
+                ref for ref in (() if active_context is None else active_context.goal_candidates)
+                if ref.owner == result.owner
+            ),
             session_artifacts=tuple(
                 {"slot": "last_doc", "label": str(ref.provenance.get("label") or "")[:120]}
                 for ref in (() if active_context is None else active_context.active_artifacts)
@@ -2714,11 +2722,8 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         )
         if proposal is None:
             return result
-        if proposal.operation not in ADOPTED_OPERATIONS:
-            if MODEL_OPERATION_NOT_WIRED in result.reason_codes:
-                return result
-            return replace(result, reason_codes=result.reason_codes + (MODEL_OPERATION_NOT_WIRED,))
         request_kind = REQUEST_KIND_BY_OPERATION[proposal.operation]
+        goal_control = request_kind is RequestKind.GOAL_CONTROL
         # Typed bir görsel isteği ürün niyetidir: model bağlamı yorumlayabilir ama onu
         # istenen resmi sohbete çeviremez.
         if result.capability_hint == VISUAL_CAPABILITY and request_kind is not RequestKind.CAPABILITY:
@@ -2755,6 +2760,11 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             ) + ("MODEL_REFERENCE_RESOLVED",)
         if request_kind is RequestKind.CAPABILITY and not next_ambiguities:
             next_preview = _preview_text(next_hint, next_arguments, next_references)
+        if goal_control:
+            # Hedef önerisi kendi kapalı kanalında taşınır: işlem adı, hedeflenen offered
+            # kimlikler ve (yalnız create) kart etiketi. Yürütme yetkisi burada değil,
+            # goal_resolver'ın Core'dan yeniden doğruladığı yerde.
+            next_reason_codes = next_reason_codes + (MODEL_GOAL_OPERATION,)
         return replace(
             result,
             request_kind=request_kind,
@@ -2769,6 +2779,9 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             reason_codes=next_reason_codes,
             needs_input=next_needs_input,
             preview=next_preview,
+            goal_operation=GoalOperation(proposal.operation) if goal_control else None,
+            goal_target_ids=proposal.target_goal_ids if goal_control else (),
+            goal_card=proposal.goal if goal_control else None,
         )
     except Exception as exc:
         _record_failure("modules/brain_understanding.py:apply_model_understanding")

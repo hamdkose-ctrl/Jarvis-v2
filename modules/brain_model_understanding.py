@@ -21,7 +21,8 @@ from typing import Any, Mapping
 from modules.diagnostics import record_failure as _record_failure
 
 from modules.brain_contracts import (
-    Confidence, ConversationRelation, RequestKind, TemporalNeed,
+    Confidence, ConversationRelation, GOAL_CARD_KEYS, GOAL_CARD_KINDS, GOAL_CARD_TITLE_MAX,
+    GoalOperation, RequestKind, TemporalNeed,
     _freeze_json, _reject_authority_argument_keys,
 )
 
@@ -31,7 +32,7 @@ _LOCAL = frozenset({"ollama"})
 SCHEMA_VERSION = "brain-understanding.v2"
 MAX_ACTIONS = 5
 MAX_TARGET_GOALS = 8
-_GOAL_TEXT_MAX = 200
+_GOAL_TEXT_MAX = GOAL_CARD_TITLE_MAX
 _RESPONSE_MAX_TOKENS = 2048
 # Brain'in ortak süre politikası (sn): üretim ve ölçüm aynı sınırı kullanır, daha kısa bir dış
 # bütçe varsa requests_state.budget onu korur (iç içe bütçe en sıkı olanı seçer).
@@ -41,18 +42,16 @@ OPERATIONS = frozenset({
     "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
     "add_task", "pause_goal", "resume_goal", "cancel_goal", "prioritize_goal", "clarify",
 })
-GOAL_OPERATIONS = frozenset({
-    "create_goal", "continue_goal", "revise_goal", "add_task", "pause_goal",
-    "resume_goal", "cancel_goal", "prioritize_goal",
-})
-# BRAIN-01'de üretim akışına bağlanan işlemler. Diğerleri burada doğrulanır ama yürütücüleri
-# BRAIN-04/BRAIN-05'te yazılacak; bu paket onları çalışıyor gibi göstermez.
-ADOPTED_OPERATIONS = frozenset({"chat", "direct_action", "clarify", "action_batch"})
+# Kapalı hedef işlemi sözlüğü tek yerden (brain_contracts.GoalOperation) gelir: zarf bu adları
+# doğrular, taşıyıcı aynı enum'ı taşır, yürütücü (goal_resolver) aynı enum'ı Core lifecycle'ına
+# eşler. Üçü ayrıştığında ölü bir dal doğar.
+GOAL_OPERATIONS = frozenset(operation.value for operation in GoalOperation)
 REQUEST_KIND_BY_OPERATION = {
     "chat": RequestKind.CHAT,
     "direct_action": RequestKind.CAPABILITY,
     "clarify": RequestKind.CLARIFY,
     "action_batch": RequestKind.CAPABILITY,
+    **{operation.value: RequestKind.GOAL_CONTROL for operation in GoalOperation},
 }
 
 _proposal_diagnostic = ContextVar('brain_proposal_diagnostic', default=None)
@@ -76,8 +75,9 @@ ENVELOPE_KEYS = frozenset({
 ACTION_KEYS = frozenset({"action_id", "capability_id", "arguments", "reference_slots",
                          "depends_on", "argument_sources"})
 CLARIFICATION_KEYS = frozenset({"required", "question", "reason_code"})
-_GOAL_KEYS = frozenset({"kind", "title"})
-_GOAL_CARD_KINDS = frozenset({"goal", "task"})
+# Hedef kartının kapalı biçimi sözleşmede yaşar (brain_contracts); zarf onu burada kullanır.
+_GOAL_KEYS = GOAL_CARD_KEYS
+_GOAL_CARD_KINDS = GOAL_CARD_KINDS
 
 # Model hedef kimliği üretemez: Core'un kendi authority alanı yasağına ek olarak zarf
 # argümanlarında bu adlar geçtiği anda önerinin tamamı reddedilir. `photo` da bir yol alanıdır:
@@ -426,11 +426,42 @@ def _file_slots(current: Any) -> tuple[list[dict[str, str]], list[tuple[str, Any
     return slot_rows, slot_refs, slot_labels
 
 
-def _offered_goal_ids(current: Any) -> tuple[str, ...]:
+def _offered_goal_ids(candidates: Any) -> tuple[str, ...]:
     return tuple(dict.fromkeys(
-        str(reference.id) for reference in current.references
+        str(reference.id) for reference in candidates
         if getattr(reference, "kind", None) in _GOAL_CARD_KINDS
     ))
+
+
+def _offered_goal_cards(candidates: Any) -> list[dict[str, Any]]:
+    """Modele sunulan hedef kartları: kullanıcıya ait kimlik + sınırlı bağlam, başka bir şey değil.
+
+    Kartın her alanı referansın kendi provenance'ından gelir (Core'un gözlemi); durum geçişi,
+    izin veya yürütme bilgisi taşımaz. Sınır zarftaki hedef kimliği sınırıyla aynı sayıdır.
+    Model bir kartı `target_goal_ids` içinde kullanmadan önce görür. Hedef işlemi olmayan bir
+    önerinin bu küme dışına çıkması bütün öneriyi düşürür (`GOAL_TARGET_NOT_OFFERED`); hedef
+    işleminde denetimin durağı yürütücüdür — orada uydurma kimlik efekt değil soru üretir."""
+    cards: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for reference in candidates:
+        if getattr(reference, "kind", None) not in _GOAL_CARD_KINDS:
+            continue
+        ident = str(reference.id)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        card: dict[str, Any] = {"id": ident, "kind": reference.kind}
+        provenance = getattr(reference, "provenance", None)
+        if isinstance(provenance, Mapping):
+            for field in ("state", "title", "progress"):
+                value = provenance.get(field)
+                if isinstance(value, str) and value.strip():
+                    card[field] = value.strip()[:_GOAL_TEXT_MAX]
+            priority = provenance.get("priority")
+            if isinstance(priority, int) and not isinstance(priority, bool):
+                card["priority"] = priority
+        cards.append(card)
+    return cards[:MAX_TARGET_GOALS]
 
 
 def _resolving_file_ambiguity(current: Any, *, file_operation_hint: str | None,
@@ -624,7 +655,8 @@ def _action_count_matches(operation: str, action_rows: list[Any], goal: Mapping[
 
 def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
            deterministic_arguments: Mapping[str, Any], protected_relation: bool,
-           file_operation_hint: str | None) -> UnderstandingProposal | None:
+           file_operation_hint: str | None,
+           goal_candidates: tuple[Any, ...] = ()) -> UnderstandingProposal | None:
     from modules.brain_core_map import CORE_INTENTS, core_plan
 
     operation = row["operation"]
@@ -644,18 +676,22 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
     resolving_file_ambiguity = _resolving_file_ambiguity(
         current, file_operation_hint=file_operation_hint,
         protected_relation=protected_relation, file_refs=file_refs)
-    offered_goals = set(_offered_goal_ids(current))
+    offered_goals = set(_offered_goal_ids(goal_candidates))
 
     target_ids = _text_list("target_goal_ids", row["target_goal_ids"])
-    if (target_ids is None or len(target_ids) > MAX_TARGET_GOALS
-            or not set(target_ids) <= offered_goals):
+    if target_ids is None or len(target_ids) > MAX_TARGET_GOALS:
+        return _reject('GOAL_TARGET_NOT_OFFERED')
+    # BRAIN-05: hedef işlemi olmayan bir önerinin hedef kimliği taşıması zaten uydurmadır.
+    # Hedef işleminde ise sunılmamış kimliği burada düşürmeyiz: öneri kaybolursa cümle legacy
+    # planner'a düşer ve YENİ bir GoalState açar — kaçınılması gereken "hedef uydurma". Kimlik
+    # olduğu gibi yürütücüye taşınır; `goal_resolver` onu yalnız owner'ın kendi açık
+    # kayıtlarında arar, bulamazsa efekt yerine soru üretir (`GOAL_TARGET_NOT_OFFERED`).
+    if not set(target_ids) <= offered_goals and row["operation"] not in GOAL_OPERATIONS:
         return _reject('GOAL_TARGET_NOT_OFFERED')
     goal_row = row["goal"]
     goal = None if goal_row is None else _goal_payload(goal_row)
     if goal_row is not None and goal is None:
         return _reject('GOAL_CARD_INVALID')
-    if goal is not None and (_MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(goal)):
-        return _reject('GOAL_AUTHORITY_FIELD')
 
     clarification_row = row["clarification"]
     if not isinstance(clarification_row, Mapping) or set(clarification_row) - set(CLARIFICATION_KEYS):
@@ -772,11 +808,19 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
                 and proposed.conversation_relation is ConversationRelation.CORRECTION):
             return _reject('RELATION_NOT_CURRENT')
     if protected_relation and not (free_context and model_owned_decision):
-        if proposed.operation not in ADOPTED_OPERATIONS:
-            return _reject('PROTECTED_OPERATION')
+        # BRAIN-05: hedef işlemleri artık yürütücüsüne bağlıdır, dolayısıyla "henüz bağlanmamış
+        # işlem" kapısı kalktı. Korunan turda bağlayıcı olan şey işlemin ADI değil, tura kimin
+        # sahip olduğudur: ilişki yerinde kalmalı ve bir pending slotun cevabını hedef işlemi
+        # devralamaz. REQUEST_KIND_BY_OPERATION hedef işlemlerini GOAL_CONTROL'e eşler; bu kind
+        # deterministik katmanların ürettiği bir karar değildir, bu yüzden hedef önerisinde kind
+        # eşitliği aranamaz — bağdaşıklık denetimi offered kart kimlikleri üzerinden yapılır.
+        goal_proposal = proposed.operation in GOAL_OPERATIONS
         if proposed.conversation_relation is not current.conversation_relation:
             return _reject('PROTECTED_RELATION')
-        if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
+        if goal_proposal:
+            if current.pending_owner is not None:
+                return _reject('PROTECTED_PENDING_OWNER')
+        elif REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
             return _reject('PROTECTED_REQUEST_KIND')
     # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
     if proposed.operation != 'clarify' and bool(getattr(current, "needs_input", False)) and not (
@@ -789,8 +833,13 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
         return _reject('FILE_REFERENCE_UNRESOLVED')
     # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
     # a deterministic LOW guess is not semantic authority over the validated model decision.
+    # BRAIN-05 hedef işlemi de model-owned'dır: deterministik katmanın hedef anlamı hakkında
+    # hiçbir kararı yoktur (eski sahibi yalnız front-gate grameriydi, o da plan ile yürür).
+    # Dayanak veto yerine geçmez — `target_goal_ids` sunulmuş kartların alt kümesi olmak
+    # zorundadır ve hedefin sözü kullanıcının cümlesidir.
+    goal_operation = proposed.operation in GOAL_OPERATIONS
     if (_CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]
-            and not (free_context and model_owned_decision)):
+            and not (free_context and model_owned_decision) and not goal_operation):
         if not resolving_file_ambiguity:
             return _reject('LEGACY_CONFIDENCE_VETO')
         proposed = UnderstandingProposal(
@@ -812,6 +861,7 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
 def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             protected_relation: bool = False,
             file_operation_hint: str | None = None,
+            goal_candidates: tuple[Any, ...] = (),
             session_artifacts: tuple[dict[str, str], ...] = ()) -> UnderstandingProposal | None:
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
@@ -864,7 +914,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "argument_schema": {name: _supplied_schema(name) for name in offered_capabilities},
             },
             "file_candidates": slot_rows,
-            "goal_candidates": list(_offered_goal_ids(current)),
+            "goal_candidates": _offered_goal_cards(goal_candidates),
             "session_artifacts": list(session_artifacts),
         }, ensure_ascii=False)
         system = (
@@ -890,7 +940,17 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "failed precondition as a reason to clarify, never as a reason to pick another capability. "
             "Set argument_sources to null except for message.send and contacts.manage; for those "
             "use an object mapping each filled recipient, body, contact name or phone field to "
-            "the exact words the user said. Use goal=null when no goal card is proposed. "
+            "the exact words the user said. goal_candidates lists this owner's goals Core still "
+            "considers open, each by its own id and, when Core observed one, its state, title, "
+            "progress and priority; they are the only goals you may address. For create_goal set "
+            "goal to the card you propose and leave target_goal_ids empty. For every other goal "
+            "operation leave goal null and put in target_goal_ids exactly the ids of the goals "
+            "this turn is about, chosen from goal_candidates: one id for an operation on one goal, "
+            "several only when the user's words plainly cover each of them. The words of a goal "
+            "are the user's, never yours - Core reads an added or corrected result from the "
+            "utterance itself, which is why a goal operation carries no actions and no arguments. "
+            "When two candidates could both be meant and the utterance does not settle which, "
+            "choose clarify instead of picking one. Use goal=null when no goal card is proposed. "
             "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
@@ -952,7 +1012,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         result = _build(
             row, owner=owner, text=text, current=current,
             deterministic_arguments=arguments, protected_relation=protected_relation,
-            file_operation_hint=file_operation_hint)
+            file_operation_hint=file_operation_hint, goal_candidates=goal_candidates)
         if result is not None:
             _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
         return result
