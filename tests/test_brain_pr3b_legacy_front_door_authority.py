@@ -36,7 +36,7 @@ EFFECT_SEAMS = (
     "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
-    "modules.finance_alert_commands.matches", "modules.selfctl.handle",
+    "modules.finance_alert_commands.matches",
     "modules.media.handle", "modules.filesend.handle",
     "modules.pc_guide.handle", "modules.developer.handle", "modules.task_agents.handle",
 )
@@ -322,9 +322,6 @@ class TypoReadRecoveryTests(_RawDoorHarness):
         self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
         self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops",
                                      "modules.media", "modules.notify", "modules.worktrack"), [])
-        seen = [arg for call in self.seams["modules.selfctl.handle"].call_args_list for arg in call.args]
-        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
-                         "salt-okuma kurtarması düzeltilmiş metni hiçbir efekt kapısına taşımaz")
         seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
         self.assertNotIn(typo.fix("notlarımı göstr"), seen,
                          "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
@@ -977,14 +974,11 @@ class CascadeOrderContractTests(unittest.TestCase):
                                              "planner_command", "emit"}))
 
     def test_the_full_contract_still_runs_every_gate_from_the_front(self):
-        from modules import brain_precedence, selfctl
+        from modules import brain_precedence
         runtime = self._runtime()
-        # selfctl bir modül sınırıdır (runtime._x değil), bu yüzden çağrı defterinde adı geçmez;
-        # efektsiz olması için burada patch'lenir.
-        with patch.object(selfctl, "handle", lambda lowered, emit: None):
-            self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
+        self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
         self.assertEqual([name for name, _ in runtime.calls],
-                         [name for name in brain_precedence.FRONT_GATES if name != "selfctl"])
+                         list(brain_precedence.FRONT_GATES))
 
 
 class CascadeRootTests(_RawDoorHarness):
@@ -1095,10 +1089,10 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "is_whatsapp_message": set(),
         "_contact_command": set(),
         "quick_parse": set(),
-        "selfctl.handle": {"modules/engine_commands.py"},
+        "selfctl.handle": set(),
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
-        "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        "windows_settings": set(),
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/engine_intents.py", "web.py"},
         "git_publish.publish_worktree": {"modules/engine_intents.py"},
