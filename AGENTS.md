@@ -15,7 +15,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 - **Anahtarlar kullanıcıya özeldir:** Her kullanıcı kendi Gemini/Groq anahtarını kullanır, kullanıcılar arasında yedeğe düşülmez (`docs/MIMARI_KURALLAR_v5.7.md`). Ücretli sağlayıcılar otomatik havuza girmez.
 - **Ses değişikliklerinde temkinli ol:** Gürültü, TV/YouTube ve hoparlör yankısı gerçek ortamda kolay ters teper. Yeni davranış ayarla açılır olmalı. Gereksiz Gemini çağrısı eklenmez (kota).
 - **Kota çalışma tercihleri:** Model kotasını gereksiz harcama; aşağıdakiler yukarıdaki kuralların yerine geçmez, onlarla birlikte uygulanır.
-  - İlgili dosyalara odaklan; konuyla ilgisiz dosyaları okuma veya tarama.
+  - İlgili dosyalara odaklan.
   - Uzun çıktılarda hataları ve başarısız adımları göster, başarıları kısa özetle.
   - Başarılı bir kontrolü yeni bir neden (kod değişti, hata düzeldi) olmadan tekrarlama.
   - Alt ajanları yalnız ihtiyaç olduğunda kullan. `jarvis-kural-denetcisi` yalnız Hamdi açıkça isterse veya PR öncesi son incelemede çalışır (`docs/GELISTIRME_ORTAMI.md`).
@@ -213,4 +213,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
-- Brain model kararı/netleştirme, çıktı/teşhis ve semantik kabul: `docs/agents/gorev-cekirdegi.md`.
+- Brain model kararı/netleştirme, çıktı/teşhis ve semantik kabul: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro ve ses/paylaşım: alan notu.

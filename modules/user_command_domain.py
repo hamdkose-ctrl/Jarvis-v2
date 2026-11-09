@@ -20,24 +20,27 @@ def user_manage(runtime, args: dict) -> str:
         return runtime._switch_user(args["name"])
     if operation == "rename":
         old, new = args.get("old") or runtime.profile.name, args["name"]
+        old_slug, new_slug = runtime.slugify(old), runtime.slugify(new)
         err = runtime.rename_user(old, new)
         if err:
             return err
         try:
             key = runtime._llm.user_key(runtime.slugify(old))
-            if key:
+            if key and old_slug != new_slug:
                 runtime._llm.set_user_key(runtime.slugify(new), key)
                 runtime._llm.set_user_key(runtime.slugify(old), None)
         except Exception:
             runtime._record_failure("modules.user_command_domain:user_manage.rename")
-        if old.casefold() == runtime.profile.name.casefold():
+        if old_slug == runtime.profile.slug:
             runtime._profiles.pop(runtime.profile.slug, None)
             runtime.profile = runtime._get_profile(new)
             runtime._llm.set_user_context(runtime.profile.slug)
+            runtime._sessions.reset(runtime.profile.slug)
+            runtime._sessions._owner.set(runtime.profile.slug)
         return f"Tamam, {old} adını {new} yaptım."
     if operation == "delete":
         victim = args["name"]
-        if victim.casefold() == runtime.profile.name.casefold():
+        if runtime.slugify(victim) == runtime.profile.slug:
             return "Aktif kullanıcıyı silemem; önce başka bir kullanıcıya geç."
         return runtime.delete_user(victim) or f"{victim} kullanıcısını sildim (yedeği 'silinenler' klasöründe)."
     if operation == "goals_list":
@@ -59,7 +62,10 @@ def user_manage(runtime, args: dict) -> str:
 
 def macro_teach(runtime, args: dict) -> str:
     trigger, actions = args["trigger"], args["actions"]
-    runtime.profile.data.setdefault("macros", {})[runtime._macro_key(trigger)] = {
+    key = runtime._macro_key(trigger)
+    if not key:
+        return "Kısayol adı geçersiz; kayıt yapılmadı."
+    runtime.profile.data.setdefault("macros", {})[key] = {
         "title": trigger, "actions": list(actions)}
     runtime.profile.save()
     return f"Kısayolu kaydettim: “{trigger}” dediğinde şunları yapacağım: " + ", ".join(actions) + "."

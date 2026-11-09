@@ -99,7 +99,6 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "user.manage": frozenset({"name", "old", "text"}),
     "macro.teach": frozenset({"trigger"}),
     "macro.manage": frozenset({"trigger"}),
-    "learning.manage": frozenset({"text"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -242,10 +241,6 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
-    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
-    if owned:
-        # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
-        return {"freeform": True, "argument_sources": sorted(owned)}
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
                 if capability_id == "documents.export" else "read-only system checks"}
@@ -276,11 +271,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "name": "quoted user name when needed", "old": "quoted existing user name when needed",
                 "text": "quoted goal or fact when needed", "argument_sources": ["name", "old", "text"]}
     if capability_id == "macro.teach":
-        return {"trigger": "quoted shortcut phrase", "actions": ["one or more executable steps"],
+        return {"trigger": "quoted shortcut phrase", "actions": ["verbatim executable steps from the utterance"],
                 "argument_sources": ["trigger"]}
     if capability_id == "macro.manage":
         return {"operation": ["list", "delete"], "trigger": "quoted shortcut phrase for delete",
                 "argument_sources": ["trigger"]}
+    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
+    if owned:
+        return {"freeform": True, "argument_sources": sorted(owned)}
     validator = CORE_INTENTS[capability_id][1]
     if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
         return {"nested": {"action": "kapalı eylem kümesi"}}
@@ -585,6 +583,12 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
     if set(sources) - owned:
         return False
     spoken = _span_tokens(text)
+    if capability_id == "macro.teach":
+        actions = supplied.get("actions")
+        if (not isinstance(actions, (tuple, list)) or not actions
+                or any(not isinstance(action, str) or not _span_tokens(action)
+                       or not _is_contiguous_run(_span_tokens(action), spoken) for action in actions)):
+            return False
     for field in owned:
         value = supplied.get(field)
         filled = isinstance(value, str) and bool(value.strip())
@@ -906,9 +910,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "allowed.argument_schema entry also carries that capability's purpose and precondition: "
             "choose the capability whose purpose matches what the user wants to happen, and treat a "
             "failed precondition as a reason to clarify, never as a reason to pick another capability. "
-            "Set argument_sources to null except for message.send and contacts.manage; for those "
-            "use an object mapping each filled recipient, body, contact name or phone field to "
-            "the exact words the user said. Use goal=null when no goal card is proposed. "
+            "For capabilities whose allowed.argument_schema lists argument_sources, use an object "
+            "mapping each filled named field to the exact words the user said; otherwise set it "
+            "to null. For macro.teach every action must itself quote a contiguous part of the "
+            "utterance. Use goal=null when no goal card is proposed. "
             "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "

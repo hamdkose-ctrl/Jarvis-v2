@@ -46,6 +46,7 @@ FRONT_GATES: tuple[str, ...] = (
     "file_command",
     "windows_settings",
     "selfctl",
+    "user_controls",
     "planner_command",
     "macro_run",
     "extra_commands",
@@ -108,6 +109,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         "file_command": lambda: runtime._file_command(command),
         "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
         "selfctl": selfctl,
+        "user_controls": lambda: runtime._user_controls(command, lowered),
         "planner_command": planner_gate,
         "macro_run": lambda: runtime._macro_run(lowered),
         "extra_commands": extra_commands,
@@ -116,7 +118,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
 def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
     """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
-    if plan is not None and plan[0] == "photo_action":
+    if plan is not None and plan[0] in {"photo_action", "user_manage", "macro_teach", "macro_manage"}:
         # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
         # mutation gates must not reinterpret the same utterance.
         return None
@@ -159,7 +161,7 @@ def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...
 
 _ATTRS = {
     "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",),
-    "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
+    "user_controls": ("_user_controls",), "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
 }
 
 

@@ -86,42 +86,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "macro_manage":
             from modules import user_command_domain
             return user_command_domain.macro_manage(runtime, a)
-        case "learning_manage":
-            from modules import learning
-            return learning.execute_typed(runtime.profile, a)
-        case "git_publish":
-            # Exact admin protocol is a domain safety boundary, not an intent recognizer.
-            from modules import git_publish, updater
-            if not git_publish.requested(command):
-                return "GitHub yayını için açık ve tam ‘git yükle’ komutunu yaz."
-            try:
-                verified = updater.verify_sync()
-                if verified.get("sync_state") in ("diverged", "unknown", "offline"):
-                    return "GitHub'a yüklemedim: " + str(verified.get("sync_msg") or "durum güvenli değil")
-                return git_publish.publish_worktree("kullanıcının onaylı GitHub yayın isteği")
-            except Exception as exc:
-                runtime._record_failure("modules.engine_intents:git_publish")
-                return f"GitHub'a yükleyemedim: {exc}"
-        case "system_update":
-            # The check/install spelling is still an exact updater-owned protocol.  The model
-            # proposes only the capability; it cannot turn a paraphrase into an installation.
-            import updater
-            action = updater.command_request(command)
-            if action is None:
-                return "Güncelleme için açık ve tam bir kontrol ya da kurulum komutu yaz."
-            try:
-                note = (updater.install_latest() if action == "install"
-                        else updater.check(apply_now=False, force=True))
-                if note:
-                    return note + (" Jarvis'i kapatıp açınca devreye girer." if action == "install"
-                                   else " Kurmak için açıkça ‘güncellemeyi kur’ de.")
-                status = updater.status()
-                if status["error"] and not status["sha"]:
-                    return "Güncellemeye bakamadım: " + status["error"].split(" ", 2)[-1]
-                return "Zaten en güncel sürümdesin." + (f" ({status['msg']})" if status["msg"] else "")
-            except Exception as exc:
-                runtime._record_failure("modules.engine_intents:system_update")
-                return f"Güncellemeye bakamadım: {exc}"
         case "app_action":
             result=app_actions.voice(a, runtime._session(), runtime.profile, runtime.emit, command)
             if 'bu işlem kayıtlı değil' in str(result).casefold():
