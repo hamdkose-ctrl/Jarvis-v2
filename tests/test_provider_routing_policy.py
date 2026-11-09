@@ -29,6 +29,10 @@ class RoutingPolicyTests(unittest.TestCase):
             p = patch.object(router.privacy, name, side_effect=fn); p.start(); self.addCleanup(p.stop)
         p = patch.object(router.time, 'time', return_value=self.now); p.start(); self.addCleanup(p.stop)
         fresh_bundle(self)
+        # The CI/test owner is synthetic; never read a real account's stored
+        # provider-limit observations in routing policy unit tests.
+        p = patch('modules.usage_meter.observed_exhaustion', return_value=None)
+        p.start(); self.addCleanup(p.stop)
         router.configure('alice', True)
         for provider, model in (('gemini', 'gem-model'), ('groq', 'groq-model'), ('cloudflare', cloudflare_chat.MODEL)):
             router.set_free_tier_evidence('alice', provider=provider, model=model, free_tier_verified=True,

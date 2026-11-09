@@ -47,6 +47,8 @@ class ObservedQuotaTests(unittest.TestCase):
             self.assertIsNone(usage_meter.observed_exhaustion('alice','groq','m1',now=self.stamp))
         self.assertIsNone(usage_meter.observed_exhaustion('bob','groq','m1',now=self.stamp))
         self.assertIsNone(usage_meter.observed_exhaustion('alice','groq','other',now=self.stamp))
+        with patch.object(usage_meter, 'limits', return_value={'groq':[] }):
+            self.assertIsNone(usage_meter.observed_exhaustion('alice','groq','m1',now=self.stamp))
 
     def test_reset_parser_requires_closed_durations(self):
         self.assertEqual(usage_meter._reset_duration_seconds('1m30s'),90)
