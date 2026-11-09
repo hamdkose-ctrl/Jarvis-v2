@@ -1042,7 +1042,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "is a cancel_goal request if the goal is uniquely identified. Questions "
             "ABOUT how an operation works are chat, not actions; if the request is "
             "genuinely ambiguous choose clarify instead of making any change. "
-            "When clarification is not required use required=false, question=null, reason_code=null. 
+            "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
             "sentence, or a missing quote drops the whole proposal, so leave a field empty instead "
