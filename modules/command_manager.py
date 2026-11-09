@@ -32,33 +32,6 @@ PENDING_INPUT_FIELDS = ('pending_action', 'pending_weather_location', 'pending_c
                         'pending_organize', 'pending_level', 'pending_voice', 'pending_event_title',
                         'pending_app', 'pending_desktop', 'pending_visual')
 
-_OUTPUT_SAVE = re.compile(
-    r"(?:çıktı\s+al|(?:son\s+)?çıktıyı?\s+kaydet|metni\s+kaydet|bunu\s+kaydet|kaydet)"
-    r"(?:\s+lütfen)?",
-    re.IGNORECASE,
-)
-
-
-def _output_save_admin(context, text):
-    """Save only the current session's already-bound document on an exact command."""
-    normalized = str(text).replace("’", "'").strip().strip(" .!")
-    if _OUTPUT_SAVE.fullmatch(normalized) is None:
-        return None
-    document = getattr(context.session, "last_doc", None)
-    if document is None:
-        return None
-    try:
-        content, source, label = document
-        saver = getattr(context.output, "save_text_result", None)
-        if not callable(saver):
-            raise RuntimeError("output adapter unavailable")
-        saved = saver(content, source, label)
-        return f"Çıktıyı kaydettim: {saved}" if saved else "Kaydetme iptal edildi."
-    except Exception:
-        _record_failure(context, "modules/command_manager.py:output_save")
-        return "Çıktıyı kaydedemedim; mevcut belgeyi değiştirmedim."
-
-
 def awaiting_input(session):
     return any(getattr(session, name) is not None and getattr(session, name) is not False
                for name in PENDING_INPUT_FIELDS)
@@ -192,7 +165,7 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
     listeye giremez. Salt-okuma typo kurtarması `typo_read_recovery` ile biter.
     Kilidi `tests/test_brain_pr3b_legacy_front_door_authority.py`.
 """
-    from modules import brain_gates, diagnose, smart_router, system_doctor, usage_meter
+    from modules import brain_gates, smart_router, system_doctor, usage_meter
     owner = context.profile.slug
     result = usage_meter.handle(owner, corrected)
     if result is not None:
@@ -203,19 +176,6 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
     result = system_doctor.handle(owner, corrected)
     if result is not None:
         return result
-    if diagnose.requested(corrected):
-        # Tam-cümle arıza tespiti (`sistemi kontrol et`): teşhis salt-okunurdur, sahibi ve tek
-        # yürütmesi `modules.diagnose`dır. Ham cümle bu turn'de düz-metin kapısını kendi yazımıyla
-        # zaten geçemediği için tarama en çok bir kez koşar; domain akış kollarının aksine burada
-        # bir akışın sahibi olmaz, yalnız kendi sorusunun cevabını üretir.
-        return diagnose.summary(diagnose.run(speak_flag=speak_flag))
-
-    # Artifact identity comes only from this user's existing session state.
-    if isinstance(original_text, str):
-        output_reply = _output_save_admin(context, original_text)
-        if output_reply is not None:
-            return output_reply
-
     # Privileged write operations are exact raw-text admin protocols, never typo-rewritten
     # or inferred from a substring/model suggestion.
     if isinstance(original_text, str):

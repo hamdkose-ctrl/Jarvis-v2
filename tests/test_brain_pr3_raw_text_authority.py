@@ -150,7 +150,7 @@ class _CanonicalAuthorityHarness(unittest.TestCase):
 class ActionBatchProductionTests(_CanonicalAuthorityHarness):
     """BRAIN-04: gerçek canonical prepare → handoff → Core batch dikişi."""
 
-    def _batch(self, semantic, text):
+    def _batch(self, semantic, text, *, active_context=None):
         return replace(
             semantic, request_kind=RequestKind.CAPABILITY, capability_hint=None,
             arguments={"original_text": semantic.arguments.get("original_text", "")},
@@ -205,7 +205,7 @@ class ActionBatchProductionTests(_CanonicalAuthorityHarness):
         self.assertEqual(result.result_status, "partial")
 
     def _turn_actions(self, actions):
-        def adopt(semantic, text):
+        def adopt(semantic, text, *, active_context=None):
             return replace(semantic, request_kind=RequestKind.CAPABILITY, capability_hint=None,
                            actions=actions)
         with patch.object(brain_entry, "apply_model_understanding", side_effect=adopt):

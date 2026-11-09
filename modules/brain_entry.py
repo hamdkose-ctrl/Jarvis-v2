@@ -462,7 +462,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         )
     if model_understanding:
         # Exactly one bounded proposal runs after final candidate/reference enrichment.
-        semantic = apply_model_understanding(semantic, text)
+        semantic = apply_model_understanding(semantic, text, active_context=active)
         references = semantic.references
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
@@ -506,6 +506,10 @@ def clarification(entry: EntryResult) -> str | None:
     specific = brain_core_map.clarification_question(semantic.ambiguities, semantic.arguments)
     if specific is not None:
         return specific
+    if "MODEL_CLARIFICATION_REQUIRED" in semantic.reason_codes and semantic.pending_owner is None:
+        question = semantic.arguments.get("question")
+        if isinstance(question, str) and question.strip() and len(question) <= 600 and "\x00" not in question:
+            return question
     if "multiple target references" in semantic.ambiguities:
         return "Birden fazla hedef eşleşti; hangisini kastettiğini netleştir."
     return "İsteğini güvenli biçimde sürdürebilmem için neyi kastettiğini netleştir."
@@ -959,6 +963,16 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
     if is_sequenced(entry.text) and not entry.batch_child:
         return None
     plan = brain_core_map.core_plan(semantic.capability_hint, semantic.arguments)
+    if plan is not None and plan[0] == "document_export":
+        artifacts = [ref for ref in entry.active_context.active_artifacts
+                     if ref.owner == entry.owner and ref.kind == "artifact"
+                     and ref.source == "session_state" and ref.id == "last_doc"]
+        if len(artifacts) != 1:
+            return None
+        digest = artifacts[0].provenance.get("document_digest")
+        if not isinstance(digest, str) or len(digest) != 64:
+            return None
+        plan = (plan[0], {"document_owner": entry.owner, "document_digest": digest})
     photo_plan = plan is not None and plan[0] == "photo_action"
     if photo_plan:
         selected, ambiguous = _canonical_photo_path(entry)
@@ -1177,6 +1191,12 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         _LAST_FEEDBACK.set(row)
         return refusal, row, None
     plan = core_plan(entry)
+    if (plan is None and entry.understanding is not None
+            and entry.understanding.capability_hint == "documents.export"):
+        message = "Kaydedilecek bir çıktı bulamadım. Hangi çıktıyı kaydetmemi istiyorsun?"
+        row = feedback(entry, result_status="needs_input", reason_code="DOCUMENT_OUTPUT_UNAVAILABLE")
+        _LAST_FEEDBACK.set(row)
+        return message, row, None
     lane_plan = None if plan is not None else _lane_plan(runtime, entry)
     if entry.batch_child and plan is None:
         row = feedback(entry, result_status="failed", reason_code="CORE_PROPOSAL_REJECTED")

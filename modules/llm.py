@@ -406,7 +406,7 @@ def _openai_local(messages: list[dict], system: str, max_tokens: int, images: li
             {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b}} for b in images]}
     sent = usage_meter.size(messages) + len(system or "")
     try:
-        r = requests.post(c["url"] + "/chat/completions", timeout=(5, 45),
+        r = requests.post(c["url"] + "/chat/completions", timeout=transport_timeouts(5, 45),
                           json={"model": model, "messages": msgs, "stream": False, "max_tokens": max_tokens})
     except requests.RequestException as e:
         usage_meter.record(backend, model, sent, 0, 'baglanti')
@@ -458,7 +458,7 @@ def _ollama(messages: list[dict], system: str, max_tokens: int, images: list[str
     if images:
         msgs[-1] = {**msgs[-1], "images": images}
     try:
-        r = requests.post(c["url"] + "/api/chat", timeout=(5, 45),
+        r = requests.post(c["url"] + "/api/chat", timeout=transport_timeouts(5, 45),
                           json={"model": model, "messages": msgs, "stream": False,
                                 "options": {"num_predict": max_tokens}})
     except requests.Timeout as e:
@@ -529,6 +529,22 @@ class CloudError(RuntimeError):
 
 
 
+def transport_timeouts(connect: float, read: float) -> tuple[float, float]:
+    """Kalan yerel bütçeyi aşmayan (bağlantı, okuma) soket zaman aşımları.
+
+    Bunlar toplam deadline DEĞİLDİR. Asıl sınır requests_state bütçesidir: `llm._timed` hem
+    her denemeden önce, hem yanıt döndükten sonra, hem de taşıma hata çıkışında denetler. Burada
+    amaç yalnızca taşımanın o sınırın kat kat üstünde yaşamamasıdır — 12 sn'lik bir bütçe
+    varken 30 sn okumaya izin vermek, gelmiş bir yanıtı çöpe çevirip "sağlayıcı yanıt
+    vermedi" diye raporlatıyordu. Bütçe yoksa (ör. arka plan işleri) kendi sabitleri kalır;
+    değerler tabana iner, sıfıra düşmez (0 anında zaman aşımı demek olurdu)."""
+    remaining = requests_state.budget_remaining()
+    if remaining is None:
+        return (connect, read)
+    ceiling = max(0.05, remaining)
+    return (min(connect, ceiling), min(read, ceiling))
+
+
 def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
     """Groq OpenAI-uyumlu Chat Completions API."""
     key = user_groq_key(current_user())
@@ -553,7 +569,8 @@ def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
         for attempt in range(1, 3):
             requests_state.check()
             try:
-                r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=(5, 30))
+                r = requests.post(_GROQ_URL, headers=headers, json=body,
+                                  timeout=transport_timeouts(5, 30))
             except requests.RequestException as e:
                 usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
                 if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
@@ -862,7 +879,28 @@ def _timed(name: str, fn):
     t0 = time.time()
     requests_state.check()
     _route.model = None
-    out = fn()
+    try:
+        out = fn()
+    except Exception as error:
+        _record_failure('modules/llm.py:_timed')
+        # Hata çıkışında da aynı denetim, ama kapsam bilerek dar: SystemExit/KeyboardInterrupt gibi
+        # süreç kontrol sinyalleri burada yakalanmaz, kendi gibi yukarı çıkar.
+        # Geniş yakalamanın ilk ifadesi tanıdır: hata hangi yolla çıkarsa çıksın iz bırakılmış olur,
+        # mesaj redakte edilir ve aynı yer/tür/konum 60 sn boyunca tekrar yazılmaz.
+        # Bütçe ya da kullanıcı iptali hükmünü verdiyse kök neden odur, sağlayıcının HTTP hatası
+        # değil. Tek istisna yerel deadline'dır: taşıma kesin bir kimlik/kota bulgusu getirdiyse
+        # (401/403, 429, açık günlük kota) o bilgi LocalDeadline'ın altında kalmaz, aksi hâlde
+        # anahtar/kota müdahalesi hiç işlenmez ve sıradaki tur aynı kapıya yeniden çarpar.
+        # Gerçek bekleme/ağ hattında hüküm yerel deadline'ındır: smart_router cooldown yazmaz ve
+        # sıradaki adayı denemez. Bütçe duruyorsa asıl hata türü ve mesajıyla aynen korunur.
+        try:
+            requests_state.check()
+        except requests_state.Cancelled as verdict:
+            raise verdict from error    # kullanıcı iptali her bulgunun üstündür
+        except requests_state.LocalDeadline as verdict:
+            if not failure_policy.is_definitive_provider_finding(error):
+                raise verdict from error
+        raise
     requests_state.check()
     LAST_SEC[name] = round(time.time() - t0, 1)
     model = getattr(_route, "model", None)

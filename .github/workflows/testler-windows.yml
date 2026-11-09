@@ -97,3 +97,42 @@ jobs:
           } else {
             Write-Host 'Yerel model canlı kabulü bu PR için uygulanmıyor.'
           }
+      # AYRI KANITLAR, AYRI YERLERDE. (1) Windows kod doğrulaması = bu işin önceki adımları
+      # (üretim kodu, tam testler ve runner mock testleri); model çağırmaz ve tek başına
+      # semantik kabul üretmez. (2) Canlı Brain semantik kabulü BU İŞTE HİÇ ÖLÇÜLMEZ: otomatik
+      # `--run` çağrısı zorunlu kod doğrulamasından çıkarıldı, çünkü exit 2'yi yeşile çevirmek
+      # ayrım değil aynı kanıtı iki kez saymaktır ve bu hesabın rotası kabul kanıtı olamaz.
+      # Çağrı tamamen kaldırıldığı için burada exit kodu eşlemesi, uyarı veya kapı yoktur;
+      # `scripts/brain_output_diagnose_holdout.py` sözleşmesi (0=passed, 1=ölçülmüş başarısızlık,
+      # 2=ölçülemedi), 20 örneklik korpusu, %95 doğruluk ve sıfır yanlış-action şartı değişmeden
+      # manuel Quick/Full koşulunda geçerlidir. Kapanış kanıtı yalnız aynı SHA'nın Jarvis
+      # hesabının bağlı olduğu gerçek Windows kullanıcısında üretilmiş Full raporu (state=passed).
+      - name: Brain canlı semantik kabulü (bu işte ölçülmez; aynı SHA'da gerçek kullanıcı Full'ü gerekir)
+        if: github.event_name == 'pull_request'
+        env:
+          JARVIS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Windows PowerShell varsayılan kod sayfasında yazar; CI günlüğünde Türkçe bozulmasın
+          # diye adım çıktısı UTF-8'e çevrilir. Olmazsa olmaz değildir: asıl beyan UTF-8 yazılan
+          # GITHUB_STEP_SUMMARY içinde kalır.
+          try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+          $ozet = @(
+            '## Brain: Windows kod doğrulaması ile canlı semantik kabul ayrı kanıtlardır',
+            '',
+            '| Kanıt | Ne ölçer | Nerede |',
+            '|---|---|---|',
+            '| Windows kod doğrulaması (bu işin önceki adımları) | Üretim kodu, tam testler ve runner mock testleri; model çağırmaz | Bu koşu |',
+            '| Canlı Brain semantik kabulü | `scripts/brain_output_diagnose_holdout.py --run`: 20 sentetik örnekte öneri doğruluğu, %95 eşik ve sıfır yanlış-action | **Bu işte çalışmaz**; gerçek kullanıcı PC''sinde manuel Quick/Full |',
+            '',
+            '- Yeşil Windows CI **canlı Brain kabulü değildir**; mock test yeşili kabul üretmez ve bu iş makinesinin hesabı kabul kanıtı sayılmaz.',
+            '- Bu adımda model çağrısı, `--run` koşusu, exit kodu eşlemesi veya kapı gevşetmesi yoktur; kabul kanıtı buraya hiçbir şey yazmaz.',
+            '- Kapanış kanıtı: **aynı SHA** üzerinde, Jarvis hesabının bağlı olduğu gerçek Windows kullanıcısında çalıştırılmış **Full** raporu (`state=passed`).',
+            '- Kapanış komutu: `scripts/Run-BrainCheck.ps1 -Install -RepoRoot <repo> -Ref refs/pull/${{ github.event.pull_request.number }}/head` ardından masaüstü "Jarvis Brain Full" kısayolu; rapor `Desktop/Jarvis-Brain-Acceptance/brain-holdout-<SHA>-<tarih>.json`.',
+            "- Bu PR'ın head SHA'sı: $env:JARVIS_PR_HEAD_SHA",
+            ''
+          )
+          if ($env:GITHUB_STEP_SUMMARY) {
+            [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, ($ozet -join "`n"), (New-Object System.Text.UTF8Encoding($false)))
+          }
+          Write-Host ($ozet -join "`n")
+          Write-Host '::notice title=Canlı Brain kabulü burada ölçülmez::Kapanış için aynı SHA''nın gerçek kullanıcı Full raporu (state=passed) ayrıca çalıştırılmalıdır'

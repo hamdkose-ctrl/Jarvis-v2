@@ -329,7 +329,7 @@ Model/provider hatası:
 - Serbest doğal dilin semantiği modelden gelmelidir; model erişilemezse regex/keyword ile tahmini capability seçilip effect başlatılmaz.
 - Kullanıcı isteği owner/request id ve güvenli şekilde gerekli provenance ile bekleyen semantic request olarak korunabilir.
 - Model geri geldiğinde yeniden değerlendirilir; eski bağlam, hedef, izin ve approval tazeliği kontrol edilir.
-- Ücretli sağlayıcıya sessiz geçiş yoktur. Mevcut ücretsiz/private route, privacy, quota, 12 saniye timeout ve cancellation sınırları korunur; politika değişikliği ayrı karardır.
+- Ücretli sağlayıcıya sessiz geçiş yoktur. Mevcut ücretsiz/private route, privacy, quota ve cancellation sınırları korunur; politika değişikliği ayrı karardır. Model bekleme sınırının kendisi de ayrı karardır: 12 sn'lik eski Brain bütçesi, 8 Kasım 2026 denetiminde Hamdi'nin açık hükmüyle **ortak 30 sn** politikaya çıkarıldı (tek sabit `brain_model_understanding._MODEL_BUDGET_SECONDS`; daha kısa dış bütçe iç içe `requests_state.budget` ile korunur). Soket zaman aşımları kalan bütçeyle sınırlanır ama toplam deadline değildir; yerel süre aşımı `LocalDeadline` / `local_timeout` olarak sağlayıcının kendi timeout'undan ayrılır ve cooldown üretmez.
 
 Worker/process hatası:
 - Heartbeat/lease expire olunca stale worker fencing ile etkisizleştirilir.

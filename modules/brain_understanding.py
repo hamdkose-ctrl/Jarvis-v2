@@ -2682,12 +2682,12 @@ def understand(
     )
 
 
-def apply_model_understanding(result: UnderstandingResult, text: str) -> UnderstandingResult:
+def apply_model_understanding(result: UnderstandingResult, text: str, *,
+                              active_context: ActiveContext | None = None) -> UnderstandingResult:
     """Birincil model zarfını kanonikal anlama sonucuna işler.
 
     State/Fast dışındaki her üretim turu bu tek bounded çağrıdan geçer. Zarf doğrulanamazsa ya
-    da kararı belirsizse deterministik sonuç olduğu gibi kalır. BRAIN-01'de yalnız `chat` ve
-    `direct_action` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
+    da kararı belirsizse deterministik sonuç olduğu gibi kalır. `chat`, `direct_action` ve `clarify` üretim akışına bağlıdır; diğer işlemler doğrulanmış olarak kaydedilir,
     yürütücüleri BRAIN-04/BRAIN-05'te yazılır. Bir hedef seçimi yalnız owner-bound bir dosya
     adayını seçebilir; hedefin gerçek yetkisini her durumda Core yeniden doğrular.
     """
@@ -2705,6 +2705,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str) -> Underst
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
             file_operation_hint=_file_operation(_norm(text)),
+            session_artifacts=tuple(
+                {"slot": "last_doc", "label": str(ref.provenance.get("label") or "")[:120]}
+                for ref in (() if active_context is None else active_context.active_artifacts)
+                if ref.owner == result.owner and ref.id == "last_doc"
+                and ref.source == "session_state" and ref.provenance.get("document_digest")
+            ),
         )
         if proposal is None:
             return result
@@ -2735,7 +2741,13 @@ def apply_model_understanding(result: UnderstandingResult, text: str) -> Underst
         next_reason_codes = result.reason_codes
         next_needs_input = result.needs_input
 
-        if proposal.references:
+        if request_kind is RequestKind.CLARIFY:
+            next_arguments = {"original_text":text, "question":proposal.clarification_question}
+            next_ambiguities = result.ambiguities or ("MODEL_CLARIFICATION_REQUIRED",)
+            next_reason_codes = result.reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
+            next_needs_input = True
+
+        if proposal.references and request_kind is not RequestKind.CLARIFY:
             next_ambiguities = ()
             next_needs_input = False
             next_reason_codes = tuple(

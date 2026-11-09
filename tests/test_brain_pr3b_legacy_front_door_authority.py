@@ -219,8 +219,7 @@ class TypoSinglePassTests(_RawDoorHarness):
                    if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
-                          "diagnose.requested", "diagnose.run", "diagnose.summary",
-                          "_output_save_admin", "isinstance", "git_publish.requested",
+                          "isinstance", "git_publish.requested",
                           "git_publish.publish_worktree", "updater.verify_sync",
                           "updater.command_request", "updater.install_latest", "updater.check",
                           "updater.status", "verified.get", "status['error'].split",
@@ -826,39 +825,15 @@ class ExactAdminEffectTests(_RawDoorHarness):
                 self.assertIsNone(updater.command_request(text), text)
 
 
-class OutputSaveAdminTests(_RawDoorHarness):
-    """A previous document can be saved only by a whole explicit output command."""
+class OutputLegacyRetirementTests(_RawDoorHarness):
+    """Dilim4: no output phrase may bypass the primary model/Core plan."""
 
-    def test_an_exact_output_command_saves_only_the_session_bound_document(self):
-        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
-        self.ctx.output.save_text_result.return_value = "C:/out/ozet.docx"
-        _entry, out, _handle, _ = self.turn("çıktı al")
-        self.ctx.output.save_text_result.assert_called_once_with(
-            "RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet"
-        )
-        self.assertIn("C:/out/ozet.docx", str(out))
-
-    def test_an_embedded_output_phrase_does_not_save(self):
-        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
-        self.turn("dün çıktıyı kaydet dedim")
+    def test_old_output_commands_without_a_model_plan_do_not_save(self):
+        self.ctx._session().last_doc = ("İÇERİK", None, "rapor")
+        for text in ("çıktı al", "kaydet", "çıktıyı kaydet", "dün çıktıyı kaydet dedim", "çıktı al ne demek?"):
+            with self.subTest(text=text):
+                self.turn(text)
         self.ctx.output.save_text_result.assert_not_called()
-
-    def test_an_output_question_does_not_open_the_save_dialog(self):
-        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
-        self.turn("çıktı al ne demek?")
-        self.ctx.output.save_text_result.assert_not_called()
-
-    def test_exact_output_command_without_a_bound_document_does_not_save(self):
-        self.ctx._session().last_doc = None
-        self.turn("çıktı al")
-        self.ctx.output.save_text_result.assert_not_called()
-
-    def test_a_cancelled_save_dialog_keeps_the_existing_cancel_response(self):
-        self.ctx._session().last_doc = ("RAPOR İÇERİĞİ", "C:/docs/report.docx", "ozet")
-        self.ctx.output.save_text_result.return_value = None
-        _entry, out, _handle, _ = self.turn("çıktı al")
-        self.ctx.output.save_text_result.assert_called_once()
-        self.assertEqual(out, "Kaydetme iptal edildi.")
 
 
 class ExactAdminArmScopeTests(unittest.TestCase):
@@ -879,12 +854,9 @@ class ExactAdminArmScopeTests(unittest.TestCase):
         for text in ("pc ses kontrolü değil", "sistem tanılama nedir", "arka planda sistem kontrolü yap"):
             self.assertIsNone(system_doctor.handle("alice", text), text)
 
-    def test_diagnosis_admin_grammar_matches_only_a_whole_bounded_sentence(self):
+    def test_diagnosis_text_grammar_has_been_retired(self):
         from modules import diagnose
-        self.assertTrue(diagnose.requested("neden çalışmıyor?"))
-        self.assertTrue(diagnose.requested("sistemi kontrol et"))
-        self.assertFalse(diagnose.requested("rapordaki arıza kaydı dün eklenmiş"))
-        self.assertFalse(diagnose.requested("arıza kelimesi nedir?"))
+        self.assertFalse(hasattr(diagnose, 'requested'))
 
     def test_the_desktop_owner_gate_is_the_same_admin_family_as_the_early_arm(self):
         # Erken kolun öneki ile owner'ın kendi kapısı aynı aileyi tanımalı; aksi hâlde yüzey,
@@ -1129,7 +1101,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
                           "modules/engine_tools.py", "modules/main_documents.py"},
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         # Normal diagnostic requests must have a single bounded full-sentence owner.
-        "diagnose.run": {"modules/command_manager.py", "web.py"},
+        "diagnose.run": {"modules/engine_intents.py", "web.py"},
         "git_publish.publish_worktree": {"modules/command_manager.py"},
         "updater.install_latest": {"modules/command_manager.py", "web.py"},
         "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
@@ -1271,67 +1243,16 @@ class EpistemicQuestionInventoryTests(_RawDoorHarness):
             getattr(self.ctx, name).assert_not_called()
 
 
-class DiagnoseTypoViewTests(_RawDoorHarness):
-    """Regresyon 1 (`sistemi kotrol et`): teşhis yüzeyi düzeltilmiş görünümde de sahibine yürür.
+class DiagnoseLegacyRetirementTests(_RawDoorHarness):
+    """Dilim4: spelling correction cannot create diagnosis authority."""
 
-    Ölçülen taban (`ea2f0b3` probe koşusu, satır p486): base ikinci bir `handle()` geçişinde ham
-    regex arıza kapısını düzeltilmiş cümleyle çalıştırdı — owner `none`, `passes=2`, `effect_total=34`
-    (`diagnose.run` gerçekten koştu; mock olduğu için outcome kaydı boş). Head: owner `chat`,
-    `passes=1`, `effect_total=16`, outcome `CHAT`. Kayıp, kullanıcının gördüğü teşhis çıktısıdır.
-    Düzeltme ikinci geçiş veya ham regex yetkisi değildir: düzeltilmiş görünümün kapalı tam-cümle
-    admin setine, sahibi `modules.diagnose` olan bir tanıyıcı daha girer (§25 A).
-    """
-
-    def test_correctly_spelled_diagnosis_runs_the_diagnose_owner(self):
-        self.door.reset_mock()
-        _entry, out, _handle, _ = self.turn("sistemi kontrol et")
-        self.assertEqual(out, "ARIZA")
-        self.seams["modules.diagnose.run"].assert_called_once()
-        self.assertEqual(self.turn_texts, ["sistemi kontrol et"])
-        self.run_goal.assert_not_called()
-
-    def test_misspelled_diagnosis_reaches_the_same_owner_exactly_once(self):
-        self.door.reset_mock()
-        _entry, out, _handle, _ = self.turn("sistemi kotrol et")
-        self.assertEqual(out, "ARIZA")
-        self.seams["modules.diagnose.run"].assert_called_once()
-        self.seams["modules.diagnose.summary"].assert_called_once()
-        self.assertEqual(self.turn_texts, ["sistemi kotrol et"],
-                         "düzeltilmiş metin legacy kapıya ikinci kez giremez")
-
-    def test_misspelled_diagnosis_never_becomes_a_goal_run(self):
-        self.turn("sistemi kotrol et")
-        self.run_goal.assert_not_called()
-
-    def test_the_closed_recognizer_owns_the_whole_sentence_only(self):
-        # Tanıyıcı tam-cümledir: cümlenin bir kesitinde geçen teşhis sözcüğü etki yetkisi almaz.
-        from modules import diagnose
-        for text in ("sistem taraması nedir", "arıza tespiti nasıl çalışır",
-                     "sistem çökmeleri neden olur", "bunu kontrol et", "sistem durumu",
-                     "sistem tanılama", "pc ses kontrolü"):
+    def test_neither_old_phrases_nor_corrected_spelling_run_probes(self):
+        for text in ("sistemi kontrol et", "sistemi kotrol et", "neden çalışmıyor", "arıza tespiti yap",
+                     "sistem taraması nedir", "arıza tespiti nasıl çalışır"):
             with self.subTest(text=text):
-                self.assertFalse(diagnose.requested(text), text)
-        for text in ("sistemi kontrol et", "sistem kontrol", "bağlantıyı kontrol et",
-                     "kendini test et", "her şey yolunda mı", "sorun var mı", "neden çalışmıyor",
-                     "ne bozuk", "sistem taraması", "arıza tespiti yap", "jarvis sistemi kontrol et"):
-            with self.subTest(text=text):
-                self.assertTrue(diagnose.requested(text), text)
-
-    def test_an_explanation_question_about_diagnosis_produces_no_effect(self):
-        for text in ("sistem taraması nedir", "arıza tespiti nasıl çalışır"):
-            with self.subTest(text=text):
-                self.seams["modules.diagnose.run"].reset_mock()
                 self.turn(text)
-                self.seams["modules.diagnose.run"].assert_not_called()
-
-    def test_a_misspelled_domain_sentence_still_does_not_diagnose(self):
-        # Yeni tanıyıcı hiçbir domain akışının yerine geçmez: düzeltilmiş görünümde de yalnız
-        # tam-cümle teşhis kalıbı etki alır.
-        for text in ("klasörleri duzenle", "masaüstünü duzenle", "takvimimi kotrol et"):
-            with self.subTest(text=text):
-                self.seams["modules.diagnose.run"].reset_mock()
-                self.turn(text)
-                self.seams["modules.diagnose.run"].assert_not_called()
+        self.seams["modules.diagnose.run"].assert_not_called()
+        self.seams["modules.diagnose.summary"].assert_not_called()
 
 
 class MisspelledExecutionFailsClosedTests(_RawDoorHarness):

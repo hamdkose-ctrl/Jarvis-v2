@@ -740,7 +740,18 @@ def _translate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
+def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # No model-supplied target, diagnosis options or document content.
+    if set(arguments) - {"original_text"}:
+        return None
+    if "original_text" in arguments and not isinstance(arguments["original_text"], str):
+        return None
+    return {}
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
+    "documents.export": ("document_export", _empty_action_args),
+    "system.diagnose": ("system_diagnose", _empty_action_args),
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),

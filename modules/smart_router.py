@@ -348,7 +348,9 @@ def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=(
             answer = callback(provider)
             requests_state.check()
             if not isinstance(answer,str) or not answer.strip(): raise ValueError('Boş model yanıtı.')
-        except requests_state.Cancelled:
+        except (requests_state.Cancelled, requests_state.LocalDeadline):
+            # İptal ve yerel süre bütçesi sağlayıcı hatası değildir: cooldown yok, sonraki
+            # aday boşuna denenmez (bütçe dolmuşken her deneme aynı sınırdan döner).
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run')

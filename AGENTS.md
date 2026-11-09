@@ -34,7 +34,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları (19 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları (20 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
@@ -70,7 +70,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 ## BRAIN-04 action_batch
 
-- 2–5 typed action Core guardlarından geçer. Bağımlılık açık domain başarısı ister; onay ve iptal kalan işlemleri durdurur. Doğrulanmamış sonuç kısmi kalır. Ayrıntı `docs/agents/gorev-cekirdegi.md`.
+- `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
 ## Testler
 
@@ -212,3 +212,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Provider/Hoca tanısı: yerel timeout, sunucu yokluğundan ayrılır; Hoca güvenli exhausted nedeni ve reason-code/recovery bilgisini korur. Router tablosu backend effective modelini gösterir; çağrı özeti tablodan önce gelir. Tanı düzeltmesi canlı model kabulü değildir.
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
+
+- Brain model kararı/netleştirme, çıktı/teşhis ve semantik kabul: `docs/agents/gorev-cekirdegi.md`.

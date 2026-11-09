@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "description": "Evaluation only; never a recognizer or prompt answer table. Synthetic context, real model proposals, no effects.",
+  "cases": [
+    {
+      "id": "d4-01",
+      "group": "export",
+      "text": "Hazırladığın sonucu bilgisayarımda tutmak istiyorum.",
+      "has_output": true,
+      "expected": [
+        "documents.export"
+      ]
+    },
+    {
+      "id": "d4-02",
+      "group": "export",
+      "text": "Az önceki özeti sonra da açabileceğim bir belgeye koy.",
+      "has_output": true,
+      "expected": [
+        "documents.export"
+      ]
+    },
+    {
+      "id": "d4-03",
+      "group": "export",
+      "text": "Bu sonucu kapatınca kaybetmeyelim, bir dosyam olsun.",
+      "has_output": true,
+      "expected": [
+        "documents.export"
+      ]
+    },
+    {
+      "id": "d4-04",
+      "group": "export",
+      "text": "Son çıkardığın metin elimde bir Word belgesi olarak kalsın.",
+      "has_output": true,
+      "expected": [
+        "documents.export"
+      ]
+    },
+    {
+      "id": "d4-05",
+      "group": "export",
+      "text": "Bunu kaydet.",
+      "has_output": true,
+      "expected": [
+        "documents.export"
+      ]
+    },
+    {
+      "id": "d4-06",
+      "group": "diagnose",
+      "text": "Bir süredir aksıyorsun, nerede sorun olduğunu incelemeni istiyorum.",
+      "has_output": false,
+      "expected": [
+        "system.diagnose"
+      ]
+    },
+    {
+      "id": "d4-07",
+      "group": "diagnose",
+      "text": "Bağlantıların ve ses tarafının durumuna bir bakabilir misin?",
+      "has_output": false,
+      "expected": [
+        "system.diagnose"
+      ]
+    },
+    {
+      "id": "d4-08",
+      "group": "diagnose",
+      "text": "Önce neyin çalışmadığını tespit et, hiçbir şeyi düzeltme.",
+      "has_output": false,
+      "expected": [
+        "system.diagnose"
+      ]
+    },
+    {
+      "id": "d4-09",
+      "group": "diagnose",
+      "text": "Jarvis, çalışma durumunu gerçekten denetleyip aksaklıkları bildir.",
+      "has_output": false,
+      "expected": [
+        "system.diagnose"
+      ]
+    },
+    {
+      "id": "d4-10",
+      "group": "diagnose",
+      "text": "Sorunun nereden kaynaklandığını bulmak için mevcut kontrollerini çalıştır.",
+      "has_output": false,
+      "expected": [
+        "system.diagnose"
+      ]
+    },
+    {
+      "id": "d4-11",
+      "group": "negation",
+      "text": "Son çıktıyı kaydetme, yalnız ekranda dursun.",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-12",
+      "group": "negation",
+      "text": "Şimdi sistem taraması istemiyorum.",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-13",
+      "group": "negation",
+      "text": "Raporu dosyaya yazmanı istemedim.",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-14",
+      "group": "explanation_or_quote",
+      "text": "“Çıktı al” ifadesi ne demek?",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-15",
+      "group": "explanation_or_quote",
+      "text": "Sistem taraması hangi kontrolleri kapsıyor?",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-16",
+      "group": "explanation_or_quote",
+      "text": "Dün ona “sistemi kontrol et” dedim, ama o dinlemedi.",
+      "has_output": true,
+      "expected": [
+        "chat"
+      ]
+    },
+    {
+      "id": "d4-17",
+      "group": "irony",
+      "text": "Harika, yine her şey bozuk; ne kadar da kusursuz çalışıyorsun!",
+      "has_output": true,
+      "expected": [
+        "chat",
+        "needs_input"
+      ]
+    },
+    {
+      "id": "d4-18",
+      "group": "irony",
+      "text": "Şahane, hiçbir şeyi kaydetmeden bütün sonuçları kaybetmek tam da istediğim şeydi!",
+      "has_output": true,
+      "expected": [
+        "chat",
+        "needs_input"
+      ]
+    },
+    {
+      "id": "d4-19",
+      "group": "missing_output",
+      "text": "Son hazırladığın sonucu bilgisayarıma kaydet.",
+      "has_output": false,
+      "expected": [
+        "needs_input"
+      ]
+    },
+    {
+      "id": "d4-20",
+      "group": "missing_output",
+      "text": "Bunu daha sonra açabileceğim şekilde sakla.",
+      "has_output": false,
+      "expected": [
+        "needs_input"
+      ]
+    }
+  ]
+}

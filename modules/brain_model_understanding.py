@@ -15,6 +15,7 @@ import ntpath
 import re
 import time
 from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Any, Mapping
 
 from modules.diagnostics import record_failure as _record_failure
@@ -31,6 +32,10 @@ SCHEMA_VERSION = "brain-understanding.v2"
 MAX_ACTIONS = 5
 MAX_TARGET_GOALS = 8
 _GOAL_TEXT_MAX = 200
+_RESPONSE_MAX_TOKENS = 2048
+# Brain'in ortak süre politikası (sn): üretim ve ölçüm aynı sınırı kullanır, daha kısa bir dış
+# bütçe varsa requests_state.budget onu korur (iç içe bütçe en sıkı olanı seçer).
+_MODEL_BUDGET_SECONDS = 30.0
 
 OPERATIONS = frozenset({
     "chat", "direct_action", "action_batch", "create_goal", "continue_goal", "revise_goal",
@@ -42,12 +47,27 @@ GOAL_OPERATIONS = frozenset({
 })
 # BRAIN-01'de üretim akışına bağlanan işlemler. Diğerleri burada doğrulanır ama yürütücüleri
 # BRAIN-04/BRAIN-05'te yazılacak; bu paket onları çalışıyor gibi göstermez.
-ADOPTED_OPERATIONS = frozenset({"chat", "direct_action", "action_batch"})
+ADOPTED_OPERATIONS = frozenset({"chat", "direct_action", "clarify", "action_batch"})
 REQUEST_KIND_BY_OPERATION = {
     "chat": RequestKind.CHAT,
     "direct_action": RequestKind.CAPABILITY,
+    "clarify": RequestKind.CLARIFY,
     "action_batch": RequestKind.CAPABILITY,
 }
+
+_proposal_diagnostic = ContextVar('brain_proposal_diagnostic', default=None)
+
+
+def proposal_diagnostic(*, clear: bool = False) -> dict[str, Any]:
+    """Per-call protocol/rejection codes only; no text, arguments or owner data."""
+    if clear:
+        _proposal_diagnostic.set(None)
+    return dict(_proposal_diagnostic.get() or {})
+
+
+def _reject(code: str):
+    _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'rejected', 'reason_code':code})
+    return None
 
 ENVELOPE_KEYS = frozenset({
     "schema_version", "operation", "conversation_relation", "temporal_need",
@@ -119,20 +139,65 @@ class UnderstandingProposal:
     goal: Mapping[str, Any] | None = None
     clarification_required: bool = False
     clarification_reason_code: str | None = None
+    clarification_question: str | None = None
     references: tuple[Any, ...] = ()
 
 
 def _decode(raw: str) -> dict[str, Any]:
     if not isinstance(raw, str) or len(raw) > 6000:
+        _reject('ENVELOPE_TEXT_LIMIT')
         raise ValueError("Model zarfı sınırlandırılmış metin değil.")
-    value = json.loads(raw)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        _reject('ENVELOPE_JSON_INVALID')
+        raise
     if not isinstance(value, dict):
+        _reject('ENVELOPE_NOT_OBJECT')
         raise ValueError("Model zarfı JSON nesnesi olmalı.")
     if set(value) != set(ENVELOPE_KEYS):
+        _reject('ENVELOPE_FIELDS_INVALID')
         raise ValueError("Model zarfı şeması uyuşmuyor.")
     if value["schema_version"] != SCHEMA_VERSION:
+        _reject('ENVELOPE_VERSION_INVALID')
         raise ValueError("Model zarfı sürümü uyuşmuyor.")
     return value
+
+
+def _response_schema(capabilities: list[str]) -> dict[str, Any]:
+    """Expose the wire contract, without supplying an intent or an expected answer."""
+    strings = {"type": "array", "items": {"type": "string"}}
+    return {
+        "type": "object", "additionalProperties": False,
+        "required": sorted(ENVELOPE_KEYS),
+        "properties": {
+            "schema_version": {"const": SCHEMA_VERSION},
+            "operation": {"enum": sorted(OPERATIONS)},
+            "conversation_relation": {"enum": [v.value for v in ConversationRelation]},
+            "temporal_need": {"enum": [v.value for v in TemporalNeed]},
+            "confidence": {"enum": [v.value for v in Confidence]},
+            "target_goal_ids": strings,
+            "goal": {"anyOf": [{"type": "null"}, {
+                "type": "object", "additionalProperties": False,
+                "required": sorted(_GOAL_KEYS), "properties": {
+                    "kind": {"enum": sorted(_GOAL_CARD_KINDS)},
+                    "title": {"type": "string", "maxLength": _GOAL_TEXT_MAX}}}]},
+            "actions": {"type": "array", "maxItems": MAX_ACTIONS, "items": {
+                "type": "object", "additionalProperties": False,
+                "required": sorted(ACTION_KEYS), "properties": {
+                    "action_id": {"type": "string"},
+                    "capability_id": {"enum": capabilities},
+                    "arguments": {"type": "object"},
+                    "reference_slots": strings, "depends_on": strings,
+                    "argument_sources": {"type": ["object", "null"]}}}},
+            "clarification": {"type": "object", "additionalProperties": False,
+                "required": sorted(CLARIFICATION_KEYS), "properties": {
+                    "required": {"type": "boolean"},
+                    "question": {"type": ["string", "null"]},
+                    "reason_code": {"anyOf": [{"type":"null"},
+                        {"type":"string", "pattern":_REASON_CODE.pattern}]}}},
+        },
+    }
 
 
 def _deep_keys(value: Any) -> set[str]:
@@ -168,7 +233,7 @@ def _goal_payload(row: Any) -> Mapping[str, Any] | None:
     return {"kind": row["kind"], "title": title.strip()}
 
 
-def _supplied_schema(capability_id: str) -> dict[str, Any]:
+def _argument_shape(capability_id: str) -> dict[str, Any]:
     """Modelin bu yetenek için doldurabileceği alanların biçimi; değer kümesini Core doğrular."""
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
@@ -177,6 +242,9 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
     if owned:
         # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
         return {"freeform": True, "argument_sources": sorted(owned)}
+    if capability_id in {"documents.export", "system.diagnose"}:
+        return {"arguments": {}, "target": "current.current_output"
+                if capability_id == "documents.export" else "read-only system checks"}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -203,6 +271,73 @@ def _supplied_schema(capability_id: str) -> dict[str, Any]:
         return {"nested": {"action": "kapalı eylem kümesi"}}
     return {"freeform": True}
 
+
+# Yetenek amaçlarının tek sahibi: model hangi işlemin hangi nesneye uygulandığını kelimelerden
+# değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
+# tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
+_CAPABILITY_PURPOSES = {
+    "documents.export": (
+        "keeps the result this conversation already produced as a document the user can open later",
+        "requires current.current_output.available true; Core alone binds the document, its path and format",
+    ),
+    "notes.write": (
+        "changes or deletes one note that already exists",
+        "targets an existing note; it never stores the conversation's current result",
+    ),
+    "files.mutate": (
+        "renames or moves a file that already exists on disk, or undoes a previous file action",
+        "targets an existing file; it never creates a document from the conversation's current result",
+    ),
+    "files.read": (
+        "opens, summarizes, analyzes, locates, lists or compares files",
+        "targets only the supplied file_candidates slots; Core resolves the real path",
+    ),
+    "system.diagnose": (
+        "runs Jarvis's own health checks and reports which parts are failing",
+        "performs no repair, no setting change and no write, so a request that forbids repairing "
+        "still asks for this check",
+    ),
+}
+
+
+def _supplied_schema(capability_id: str) -> dict[str, Any]:
+    """Biçim sözleşmesine yeteneğin amaç/önkoşul tanimini da ekler; değer kümesini Core doğrular."""
+    shape = _argument_shape(capability_id)
+    purpose = _CAPABILITY_PURPOSES.get(capability_id)
+    if purpose is None or not shape:
+        return shape
+    return {**shape, "purpose": purpose[0], "precondition": purpose[1]}
+
+
+# Core'un bu turda bağlayabildiği tek tanınmış oturum çıktısı; başka bir slot çıktı değildir.
+_KNOWN_OUTPUT_SLOTS = ("last_doc",)
+
+
+def _current_output(session_artifacts: Any) -> dict[str, Any]:
+    """Oturum çıktısının var/yok hükmü: yalnız tanınmış last_doc kaydı, tek ve owner-bound.
+
+    Yalnız slot/etiket görünür; belge içeriği veya parmak izi modele gitmez. Hüküm yalnız
+    üretilmiş oturum çıktısını anlatır: dosya adaylarının var/yokluğu ayrı bildirilir, bilinmeyen
+    bir slot çıktı sayılmaz ve tek başına hedef uydurulmaz."""
+    rows = [row for row in session_artifacts if isinstance(row, Mapping)]
+    outputs = [row for row in rows if row.get("slot") in _KNOWN_OUTPUT_SLOTS]
+    labels = [str(row.get("label")) for row in outputs
+              if isinstance(row.get("label"), str) and row.get("label")]
+    available = len(rows) == 1 and len(outputs) == 1
+    return {
+        "available": available,
+        "slot": _KNOWN_OUTPUT_SLOTS[0] if available else None,
+        "label": labels[0] if available and labels else None,
+        "meaning": ("this is the result this conversation produced and Core can save; a request to "
+                    "keep, save or export refers to it, and an explicit candidate the user chose from "
+                    "file_candidates or reference_slots is judged by that capability's own target "
+                    "contract rather than turning into a question; clarify only when the target "
+                    "genuinely cannot be decided"
+                    if available else
+                    "this conversation has no produced result for Core to save, export or attach "
+                    "yet; this says nothing about file_candidates, which still describe the files "
+                    "the user named"),
+    }
 
 
 _FOLDER_SIGNAL_ALIASES = {
@@ -460,7 +595,7 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
     if slots:
         return None
     # Model alan doldurmadıysa payload deterministik kanıttan gelir; model hiç argüman uydurmaz.
-    if capability_id == "finance.read":
+    if capability_id in {"finance.read", "documents.export", "system.diagnose"}:
         payload = dict(supplied)
     elif supplied:
         payload = dict(supplied)
@@ -494,13 +629,13 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
 
     operation = row["operation"]
     if not isinstance(operation, str) or operation not in OPERATIONS:
-        return None
+        return _reject('OPERATION_INVALID')
     try:
         relation = ConversationRelation(row["conversation_relation"])
         temporal_need = TemporalNeed(row["temporal_need"])
         confidence = Confidence(row["confidence"])
     except ValueError:
-        return None
+        return _reject('ENUM_VALUE_INVALID')
 
     file_refs = [reference for reference in current.references
                  if getattr(reference, "kind", None) == "file"]
@@ -514,41 +649,41 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
     target_ids = _text_list("target_goal_ids", row["target_goal_ids"])
     if (target_ids is None or len(target_ids) > MAX_TARGET_GOALS
             or not set(target_ids) <= offered_goals):
-        return None
+        return _reject('GOAL_TARGET_NOT_OFFERED')
     goal_row = row["goal"]
     goal = None if goal_row is None else _goal_payload(goal_row)
     if goal_row is not None and goal is None:
-        return None
+        return _reject('GOAL_CARD_INVALID')
     if goal is not None and (_MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(goal)):
-        return None
+        return _reject('GOAL_AUTHORITY_FIELD')
 
     clarification_row = row["clarification"]
     if not isinstance(clarification_row, Mapping) or set(clarification_row) - set(CLARIFICATION_KEYS):
-        return None
+        return _reject('CLARIFICATION_SHAPE_INVALID')
     required = clarification_row.get("required")
     question = clarification_row.get("question")
     reason_code = clarification_row.get("reason_code")
     if not isinstance(required, bool) or required != (operation == "clarify"):
-        return None
+        return _reject('CLARIFICATION_FLAG_MISMATCH')
     if required:
         if (not isinstance(question, str) or not question.strip() or len(question) > 600
                 or "\x00" in question or not isinstance(reason_code, str)
                 or _REASON_CODE.fullmatch(reason_code) is None):
-            return None
+            return _reject('CLARIFICATION_DETAIL_INVALID')
     elif question is not None or reason_code is not None:
-        return None
+        return _reject('CLARIFICATION_UNUSED_DETAIL')
 
     action_rows = row["actions"]
     if not isinstance(action_rows, list) or not _action_count_matches(
             operation, action_rows, goal, target_ids):
-        return None
+        return _reject('ACTION_COUNT_MISMATCH')
 
     actions: list[ProposedAction] = []
     grounded_references: list[Any] = []
     seen_ids: set[str] = set()
     for index, item in enumerate(action_rows):
         if not isinstance(item, Mapping) or set(item) - set(ACTION_KEYS):
-            return None
+            return _reject('ACTION_SHAPE_INVALID')
         action_id = item.get("action_id")
         capability_id = item.get("capability_id")
         supplied = item.get("arguments")
@@ -558,21 +693,21 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
                 or not isinstance(capability_id, str) or capability_id not in CORE_INTENTS
                 or slots is None or depends_on is None or not set(slots) <= set(by_slot)
                 or not set(depends_on) <= seen_ids):
-            return None
+            return _reject('ACTION_REFERENCE_INVALID')
         if not isinstance(supplied, Mapping):
-            return None
+            return _reject('ARGUMENTS_NOT_OBJECT')
         try:
             _reject_authority_argument_keys(supplied)
             frozen = _freeze_json(supplied)
         except ValueError:
-            return None
+            return _reject('ARGUMENTS_INVALID')
         if _MODEL_DENIED_ARGUMENT_KEYS & _deep_keys(frozen):
-            return None
+            return _reject('ARGUMENT_AUTHORITY_FIELD')
         if capability_id in _MODEL_DENIED_CAPABILITIES:
-            return None
+            return _reject('CAPABILITY_NOT_MODEL_OWNED')
         if not _arguments_are_grounded(capability_id=capability_id, supplied=frozen,
                                       sources=item.get("argument_sources"), text=text):
-            return None
+            return _reject('ARGUMENT_SOURCE_INVALID')
         resolved = _action_arguments(
             capability_id=capability_id, supplied=dict(frozen), text=text,
             deterministic_arguments=deterministic_arguments, slots=slots, by_slot=by_slot,
@@ -580,10 +715,10 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
             resolving_file_ambiguity=resolving_file_ambiguity,
             file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
         if resolved is None or core_plan(capability_id, resolved[0]) is None:
-            return None
+            return _reject('CORE_ARGUMENTS_INVALID')
         arguments, references = resolved
         if any(reference.owner != owner for reference in references):
-            return None
+            return _reject('REFERENCE_OWNER_MISMATCH')
         grounded_references.extend(references)
         seen_ids.add(action_id)
         actions.append(ProposedAction(
@@ -600,6 +735,7 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
         goal=goal,
         clarification_required=required,
         clarification_reason_code=reason_code if required else None,
+        clarification_question=question if required else None,
         references=tuple(grounded_references),
     )
     return _apply_semantic_fences(
@@ -611,31 +747,52 @@ def _build(row: dict[str, Any], *, owner: str, text: str, current: Any,
 def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
                            protected_relation: bool, resolving_file_ambiguity: bool,
                            has_grounded_reference: bool) -> UnderstandingProposal | None:
-    if proposed.conversation_relation not in {current.conversation_relation,
-                                              ConversationRelation.NEW_REQUEST}:
-        return None
     # Sahibi olan bir devam/düzeltme/tur değişimi deterministik kanıtla kurulur; model onu
     # yeniden adlandıramaz. Korunan turda yalnız aynı ilişkide ve aynı kararda benimsenir.
-    if protected_relation:
+    artifact_context = bool(
+        current.pending_owner is None
+        and current.conversation_relation is ConversationRelation.CONTINUE_ACTIVE
+        and any(ref.kind == "artifact" and ref.id == "last_doc" and ref.owner == current.owner
+                for ref in current.references)
+        and not any(ref.kind in _GOAL_CARD_KINDS for ref in current.references)
+    )
+    free_context = current.pending_owner is None and (
+        current.conversation_relation is ConversationRelation.NEW_REQUEST or artifact_context)
+    model_owned_action = bool(proposed.actions and proposed.actions[0].capability_id
+                              in {"documents.export", "system.diagnose"})
+    model_owned_decision = proposed.operation in {'chat','clarify'} or model_owned_action
+    # Gerçek sahipliği olmayan serbest turda (pending owner yok, hedef/görev kartı yok) model bir
+    # düzeltmeyi sohbet/netleştirme olarak CORRECTION ile adlandırabilir. Etiket kendi anlamıyla
+    # kalır, kanonikal değere yazılmaz: CONTINUE_ACTIVE bekleyen bir etkileşimin sahipliğidir ve
+    # brain_entry._pending_owns_turn CORRECTION turunu bağımsız sayar. Sahiplik yokken bu yalnız
+    # anlam bildirimidir; hiçbir efekt veya yetki taşımaz.
+    if proposed.conversation_relation not in {current.conversation_relation,
+                                              ConversationRelation.NEW_REQUEST}:
+        if not (free_context and proposed.operation in {'chat', 'clarify'}
+                and proposed.conversation_relation is ConversationRelation.CORRECTION):
+            return _reject('RELATION_NOT_CURRENT')
+    if protected_relation and not (free_context and model_owned_decision):
         if proposed.operation not in ADOPTED_OPERATIONS:
-            return None
+            return _reject('PROTECTED_OPERATION')
         if proposed.conversation_relation is not current.conversation_relation:
-            return None
+            return _reject('PROTECTED_RELATION')
         if REQUEST_KIND_BY_OPERATION[proposed.operation] is not current.request_kind:
-            return None
+            return _reject('PROTECTED_REQUEST_KIND')
     # Çözülmemiş hedef belirsizliği ancak owner-bound, salt okunur bir dosya seçimiyle açılır.
-    if bool(getattr(current, "needs_input", False)) and not (
+    if proposed.operation != 'clarify' and bool(getattr(current, "needs_input", False)) and not (
             resolving_file_ambiguity and has_grounded_reference):
-        return None
+        return _reject('UNRESOLVED_TARGET')
     if proposed.operation == "direct_action" and proposed.confidence is Confidence.LOW \
             and not resolving_file_ambiguity:
-        return None
-    if resolving_file_ambiguity and not has_grounded_reference:
-        return None
-    # Deterministik kanıtın üzerinde güven üretilmez; belirsizlik çözümü LOW'u MEDIUM'a çekebilir.
-    if _CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]:
+        return _reject('ACTION_CONFIDENCE_LOW')
+    if proposed.operation != 'clarify' and resolving_file_ambiguity and not has_grounded_reference:
+        return _reject('FILE_REFERENCE_UNRESOLVED')
+    # Legacy capabilities keep their migration fence. For model-owned output/diagnosis,
+    # a deterministic LOW guess is not semantic authority over the validated model decision.
+    if (_CONFIDENCE_RANK[proposed.confidence] > _CONFIDENCE_RANK[current.confidence]
+            and not (free_context and model_owned_decision)):
         if not resolving_file_ambiguity:
-            return None
+            return _reject('LEGACY_CONFIDENCE_VETO')
         proposed = UnderstandingProposal(
             operation=proposed.operation,
             conversation_relation=proposed.conversation_relation,
@@ -646,6 +803,7 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
             goal=proposed.goal,
             clarification_required=proposed.clarification_required,
             clarification_reason_code=proposed.clarification_reason_code,
+            clarification_question=proposed.clarification_question,
             references=proposed.references,
         )
     return proposed
@@ -653,7 +811,8 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
 
 def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any],
             protected_relation: bool = False,
-            file_operation_hint: str | None = None) -> UnderstandingProposal | None:
+            file_operation_hint: str | None = None,
+            session_artifacts: tuple[dict[str, str], ...] = ()) -> UnderstandingProposal | None:
     """Tek bounded çağrı: yalnız zaten uygun ücretsiz bulut rotası, her hatada kapalı durur.
 
     Model kararı üretir (işlem, yetenek, önerilen argüman, sunulan yuva seçimi). Gerçek hedef
@@ -661,20 +820,21 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
     doğrulayıcısından geçmeden öneri sayılmaz. Kullanıcı-sahibi alanlar (alıcı, gövde, kişi adı,
     telefon) modelden gelebilir ama ancak cümlenin kendisinden alıntılanmış bir dayanakla.
     """
+    proposal_diagnostic(clear=True)
     if not owner or not isinstance(text, str) or not text.strip():
-        return None
+        return _reject('INPUT_INVALID')
     try:
         from modules import llm, provider_privacy, requests_state, smart_router
         if llm.current_user() != owner:
-            return None
+            return _reject('PROFILE_OWNER_MISMATCH')
         selected = llm.provider()
         # Açıkça seçilmiş ücretli/yerel rotalar Brain tarafından kullanılmaz veya sessiz geçilmez.
         if selected in _PAID or selected in _LOCAL or llm.privacy.mode() == "yerel":
-            return None
+            return _reject('PROVIDER_ROUTE_DISABLED')
         route = provider_privacy.ROUTE_PRIVATE_GENERAL
         eligible = smart_router.selection(owner, "analysis", route=route).get("candidates", [])
         if not any(name in {"groq", "cloudflare"} for name in eligible):
-            return None
+            return _reject('PROVIDER_UNAVAILABLE')
 
         from modules.brain_core_map import CORE_INTENTS
         slot_rows, _, _ = _file_slots(current)
@@ -683,6 +843,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         offered_capabilities = sorted(set(CORE_INTENTS) - _MODEL_DENIED_CAPABILITIES)
         prompt = json.dumps({
             "schema": SCHEMA_VERSION,
+            "response_schema": _response_schema(offered_capabilities),
             "utterance": text[:2000],
             "current": {
                 "request_kind": current.request_kind.value,
@@ -692,6 +853,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 "needs_input": bool(getattr(current, "needs_input", False)),
                 "ambiguities": list(getattr(current, "ambiguities", ())),
                 "file_operation_hint": file_operation_hint,
+                "current_output": _current_output(session_artifacts),
             },
             "allowed": {
                 "operation": sorted(OPERATIONS),
@@ -703,10 +865,13 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             },
             "file_candidates": slot_rows,
             "goal_candidates": list(_offered_goal_ids(current)),
+            "session_artifacts": list(session_artifacts),
         }, ensure_ascii=False)
         system = (
-            "You are the primary semantic decider, not an agent. Return exactly one JSON object "
-            f"named {SCHEMA_VERSION} with keys schema_version, operation, conversation_relation, "
+            "You are the primary semantic decider, not an agent. Return exactly one bare JSON object "
+            "matching response_schema, without a named wrapper or Markdown. "
+            f'The schema_version field must equal the literal string "{SCHEMA_VERSION}". '
+            "The top-level keys are schema_version, operation, conversation_relation, "
             "temporal_need, target_goal_ids, goal, actions, clarification, confidence. Choose "
             "operation among chat, direct_action, action_batch, create_goal, continue_goal, "
             "revise_goal, add_task, pause_goal, resume_goal, cancel_goal, prioritize_goal, clarify. "
@@ -716,43 +881,94 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "capability_id must be one of allowed.capability_id. Write no file path, folder, "
             "account, token, credential, approval id or permission claim: for files.read select "
             "only supplied file_candidates slots (one for open/summarize/analyze/locate, two to "
-            "ten for compare, none for list) and put only the operation in arguments. Simple "
-            "semantic values the schema allows are yours to fill: query, city, number, closed "
-            "action enum, and for the capabilities listed in allowed.argument_schema."
-            "argument_sources the recipient, body, contact name and phone the user actually said. "
+            "ten for compare, none for list) and put only the operation in arguments. "
+            "reference_slots are only for files.read; for every other capability use an empty array. "
+            "Simple semantic values the schema allows are yours to fill: query, city, number, closed "
+            "action enum, and for the capabilities listed in allowed.argument_schema. Each "
+            "allowed.argument_schema entry also carries that capability's purpose and precondition: "
+            "choose the capability whose purpose matches what the user wants to happen, and treat a "
+            "failed precondition as a reason to clarify, never as a reason to pick another capability. "
+            "Set argument_sources to null except for message.send and contacts.manage; for those "
+            "use an object mapping each filled recipient, body, contact name or phone field to "
+            "the exact words the user said. Use goal=null when no goal card is proposed. "
+            "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
             "sentence, or a missing quote drops the whole proposal, so leave a field empty instead "
-            "of inventing it and Core will ask the user. A question, negation or comment about the "
-            "world is chat, not an action. If the target cannot be decided choose clarify with a "
+            "of inventing it and Core will ask the user. current.current_output states whether this "
+            "conversation has a produced result Core can still save: when available is false that "
+            "result does not exist yet, so a request to keep, save or export it must clarify instead "
+            "of naming one - this says nothing about file_candidates, which still describe files the "
+            "user named and stay usable; when available is true that result is the standing target of "
+            "such a request, so do not ask for it again. An explicit target the user chose from "
+            "file_candidates or reference_slots is judged by the selected capability's own contract: "
+            "for the capability it names, that choice decides the target and is not an ambiguity; "
+            "choose clarify only when the target genuinely cannot be decided. Judge the operation the "
+            "utterance asks Jarvis to perform, not its surface form: a polite or interrogative "
+            "request to carry something out is that operation, while a question about what a word, "
+            "phrase or capability means, a quotation and a comment about the world are chat. A "
+            "negation withdraws only the step it governs: refusing an operation makes the turn chat "
+            "about that refusal, and limiting a later step leaves the requested step standing. If "
+            "the target cannot be decided choose clarify with a "
             "required reason_code and never guess. If current.needs_input is true keep it unless "
             "the only ambiguity is multiple target references and one supplied file candidate is "
             "clearly named by the utterance. Core revalidates every field."
         )
-        deadline = time.monotonic() + 12.0
+        deadline = time.monotonic() + _MODEL_BUDGET_SECONDS
 
         def send(provider: str) -> str:
             requests_state.check()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise requests_state.Cancelled("Brain model understanding budget expired.")
-            return llm._send_provider(provider, prompt, system, remaining, None)
+                raise requests_state.LocalDeadline("Brain model understanding budget expired.")
+            # Dördüncü argüman saniye değil token limiti. Süre tek yerden gelir:
+            # requests_state bütçesi (yukarıdaki deadline ile aynı _MODEL_BUDGET_SECONDS);
+            # llm.transport_timeouts soket zaman aşımlarını o bütçenin üstüne çıkarmaz,
+            # ama asıl sınır bütçenin kendisidir — soket süresi toplam deadline değildir.
+            return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None)
 
-        with requests_state.budget(12):
+        with requests_state.budget(_MODEL_BUDGET_SECONDS):
             # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.
             raw = smart_router.run(
                 owner, prompt + "\\n" + system, send, route=route,
                 exclude_providers={"ollama"},
             )
             requests_state.check()
-        return _build(
-            _decode(raw), owner=owner, text=text, current=current,
+        row = _decode(raw)
+        # Retain only closed protocol enums, never arbitrary response fields/arguments.
+        detail = {}
+        for key, allowed in (('operation', OPERATIONS),
+                             ('conversation_relation', {v.value for v in ConversationRelation}),
+                             ('confidence', {v.value for v in Confidence})):
+            if isinstance(row.get(key), str) and row[key] in allowed:
+                detail[key] = row[key]
+        action_rows = row.get('actions')
+        if isinstance(action_rows, list):
+            detail['action_count'] = len(action_rows)
+            detail['capabilities'] = [a['capability_id'] for a in action_rows
+                if isinstance(a,dict) and isinstance(a.get('capability_id'),str)
+                and a['capability_id'] in CORE_INTENTS]
+        _proposal_diagnostic.set(detail)
+        result = _build(
+            row, owner=owner, text=text, current=current,
             deterministic_arguments=arguments, protected_relation=protected_relation,
             file_operation_hint=file_operation_hint)
+        if result is not None:
+            _proposal_diagnostic.set({**proposal_diagnostic(), 'status':'accepted', 'reason_code':None})
+        return result
     except Exception as exc:
         _record_failure("modules/brain_model_understanding.py:propose")
         # Kullanıcı iptali istek sınırına kadar taşınır; diğer her hata deterministik kararı korur.
         from modules import requests_state
+        if isinstance(exc, requests_state.Cancelled):
+            code = 'REQUEST_CANCELLED'
+        elif isinstance(exc, requests_state.LocalDeadline):
+            # Yerel süre aşımı ile sağlayıcının yanıt vermemesi ayrı kök nedenlerdir.
+            code = 'LOCAL_DEADLINE_EXCEEDED'
+        else:
+            code = 'MODEL_CALL_OR_VALIDATION_ERROR'
+        if proposal_diagnostic().get('status') != 'rejected':
+            _reject(code)
         if isinstance(exc, requests_state.Cancelled):
             raise
         return None

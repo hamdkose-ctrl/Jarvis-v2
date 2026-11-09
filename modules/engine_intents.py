@@ -56,6 +56,27 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
     from modules import app_actions, requests_state
     requests_state.check()
     match intent:
+        case "document_export":
+            from pathlib import Path
+            from modules.brain_context import document_fingerprint
+            document = runtime._session().last_doc
+            if isinstance(document, (tuple, list)):
+                document = tuple(document)
+            if (a.get("document_owner") != runtime.profile.slug
+                    or not a.get("document_digest")
+                    or document_fingerprint(document) != a["document_digest"]):
+                return "Kaydedilecek çıktı değişti; önce güncel çıktıyı seçelim."
+            # Capture the validated tuple; the dialog cannot switch to a different result.
+            text, source, label = document
+            saved = runtime.output.save_text_result(text, source, label)
+            if not saved:
+                return "Kaydetme iptal edildi."
+            if not Path(saved).is_file() or Path(saved).stat().st_size == 0:
+                return "Kayıt dosyasını doğrulayamadım; kaydedildi demiyorum."
+            return f"Çıktıyı kaydettim: {saved}"
+        case "system_diagnose":
+            from modules import diagnose
+            return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
         case "app_action":
             result=app_actions.voice(a, runtime._session(), runtime.profile, runtime.emit, command)
             if 'bu işlem kayıtlı değil' in str(result).casefold():
