@@ -77,6 +77,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "system_diagnose":
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
+        case "user_manage":
+            from modules import user_command_domain
+            return user_command_domain.user_manage(runtime, a)
+        case "macro_teach":
+            from modules import user_command_domain
+            return user_command_domain.macro_teach(runtime, a)
+        case "macro_manage":
+            from modules import user_command_domain
+            return user_command_domain.macro_manage(runtime, a)
         case "app_action":
             result=app_actions.voice(a, runtime._session(), runtime.profile, runtime.emit, command)
             if 'bu işlem kayıtlı değil' in str(result).casefold():

@@ -929,7 +929,7 @@ class CascadeOrderContractTests(unittest.TestCase):
         self.assertEqual(brain_precedence.TAIL_GATES,
                          brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
         self.assertEqual(brain_precedence.TAIL_GATES,
-                         ("macro_teach", "macro_manage", "macro_run", "extra_commands"))
+                         ("macro_run", "extra_commands"))
 
     def _runtime(self, answers=None):
         from types import SimpleNamespace
@@ -947,6 +947,7 @@ class CascadeOrderContractTests(unittest.TestCase):
             _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
             _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
             _file_command=gate("file_command"), _user_command=gate("user_command"),
+            _user_controls=gate("user_controls"),
             _planner_command=gate("planner_command"),
             system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
             emit=gate("emit"))
@@ -956,17 +957,16 @@ class CascadeOrderContractTests(unittest.TestCase):
         runtime = self._runtime()
         self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
         self.assertEqual([name for name, _ in runtime.calls],
-                         ["macro_teach", "macro_manage", "macro_run", "extra_commands"])
+                         ["macro_run", "extra_commands"])
         self.assertEqual([args for _, args in runtime.calls],
-                         [("Raporumu telefona gönder", "raporumu telefona gönder"),
-                          ("raporumu telefona gönder",), ("raporumu telefona gönder",),
+                         [("raporumu telefona gönder",),
                           ("Raporumu telefona gönder", "raporumu telefona gönder")])
 
     def test_the_first_answering_gate_stops_the_tail(self):
         from modules import brain_precedence
         runtime = self._runtime({"macro_run": "KISAYOL"})
         self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
-        self.assertEqual([name for name, _ in runtime.calls], ["macro_teach", "macro_manage", "macro_run"])
+        self.assertEqual([name for name, _ in runtime.calls], ["macro_run"])
 
     def test_the_tail_never_replays_an_earlier_effect_gate(self):
         # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini

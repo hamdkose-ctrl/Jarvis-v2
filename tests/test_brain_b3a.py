@@ -199,14 +199,14 @@ class FrontGatePrecedenceTests(_Pipeline):
             "file_command": "runtime._file_command(",
             "windows_settings": "system_control.windows_settings(",
             "selfctl": "selfctl.handle(",
-            "user_command": "runtime._user_command(",
+            "user_controls": "runtime._user_controls(",
             "planner_command": "runtime._planner_command(",
         }
-        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:5]]
+        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:-len(brain_precedence.TAIL_GATES)]]
         positions.append(source.index("brain_precedence.claim_tail("))
         self.assertEqual(positions, sorted(positions))
         # Kuyruk aralığı yüzeyde ikinci kez listelenmez: kısayollar ve cascade tek sahibinden gelir.
-        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[5:]))
+        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):]))
         for gate in ("_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"):
             self.assertNotIn(gate, source)
 

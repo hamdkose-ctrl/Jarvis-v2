@@ -443,7 +443,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             self.assertFalse(schema['additionalProperties'])
             self.assertEqual(set(schema['properties']['actions']['items']['required']),model.ACTION_KEYS)
             self.assertIn('without a named wrapper',body['messages'][0]['content'])
-            self.assertIn('Set argument_sources to null',body['messages'][0]['content'])
+            self.assertIn('For capabilities whose allowed.argument_schema lists argument_sources',body['messages'][0]['content'])
             return response
 
         p1, p2, p3 = self.eligible()

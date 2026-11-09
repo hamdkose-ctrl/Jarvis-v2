@@ -245,9 +245,9 @@ def handle(runtime, command: str):
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
 
-    user_reply = runtime._user_command(command, cmd_lower)
-    if user_reply is not None:
-        return user_reply
+    control_reply = runtime._user_controls(command, cmd_lower)
+    if control_reply is not None:
+        return control_reply
 
     plan_reply = runtime._planner_command(command, cmd_lower)
     if plan_reply is not None:
