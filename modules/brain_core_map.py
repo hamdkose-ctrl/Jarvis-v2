@@ -857,9 +857,81 @@ def _learning_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+
+def _windows_settings_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"page", "original_text"}:
+        return None
+    page = arguments.get("page")
+    from modules.system_control import WINDOWS_SETTINGS_PAGES
+    return {"page": page} if isinstance(page, str) and page in WINDOWS_SETTINGS_PAGES else None
+
+
+_SELFCTL_SETTING_KEYS = frozenset({
+    "wake_sensitivity", "response_speed", "wake_beep", "learn_from_chat",
+    "live_mode", "idle_seconds", "widget", "window_mode",
+})
+_SELFCTL_READ_KEYS = frozenset({"wake_sensitivity", "response_speed", "idle_seconds"})
+
+
+def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate nested model values without ever raising on list/dict payloads."""
+    if set(arguments) - {"action", "original_text"}:
+        return None
+    action = arguments.get("action")
+    if not isinstance(action, Mapping) or not isinstance(action.get("kind"), str):
+        return None
+    kind = action["kind"]
+    if kind == "navigate":
+        from modules.selfctl import PAGES
+        page = action.get("page")
+        return {"kind": kind, "page": page} if set(action) == {"kind", "page"} and isinstance(page, str) and page in PAGES else None
+    if kind == "restart":
+        return {"kind": kind} if set(action) == {"kind"} else None
+    if kind == "open_data":
+        target = action.get("target")
+        return {"kind": kind, "target": target} if set(action) == {"kind", "target"} and isinstance(target, str) and target in {"data", "log"} else None
+    if kind == "setting_read":
+        key = action.get("key")
+        return {"kind": kind, "key": key} if set(action) == {"kind", "key"} and isinstance(key, str) and key in _SELFCTL_READ_KEYS else None
+    if kind in {"setting", "ui"}:
+        if set(action) != {"kind", "key", "value"}:
+            return None
+        key, value = action.get("key"), action.get("value")
+        if not isinstance(key, str):
+            return None
+        if kind == "setting":
+            if key == "wake_sensitivity":
+                good = (type(value) is int and 1 <= value <= 5) or (isinstance(value, str) and value in {"increase", "decrease"})
+            elif key == "response_speed":
+                good = isinstance(value, str) and value in {"fast", "balanced", "patient"}
+            elif key in {"wake_beep", "learn_from_chat", "live_mode", "widget"}:
+                good = type(value) is bool
+            elif key == "window_mode":
+                good = isinstance(value, str) and value in {"full", "window"}
+            elif key == "idle_seconds":
+                good = type(value) is int and 15 <= value <= 600
+            else:
+                good = False
+        else:
+            if key == "hologram_tone":
+                good = isinstance(value, str) and value in {"blue", "turquoise", "yellow"}
+            elif key == "hologram_background":
+                good = isinstance(value, str) and value in {"lava", "mountains"}
+            elif key == "replay":
+                good = value is True
+            elif key == "home_animation":
+                good = type(value) is bool
+            else:
+                good = False
+        return dict(action) if good else None
+    return None
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    "windows.settings.open": ("windows_settings_open", _windows_settings_args),
+    "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
     "macro.teach": ("macro_teach", _macro_teach_args),
     "macro.manage": ("macro_manage", _macro_manage_args),

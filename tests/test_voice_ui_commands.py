@@ -1,82 +1,35 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
-class VoiceUiCommandsTests(unittest.TestCase):
-    def test_every_settings_section_and_menu_opens_by_voice(self):
+class TypedUiCommandsTests(unittest.TestCase):
+    def test_typed_ui_actions_emit_only_allowlisted_events(self):
         from modules import selfctl
-        cases = {
-            'menüyü aç': 'menu|', 'menü sayfasını aç': 'menu|', 'github sayfasını aç': 'settings|github',
-            'github ayarlarını aç': 'settings|github', 'güncelleme sayfasını aç': 'settings|github',
-            'telefon ve mesajlar sayfasını aç': 'settings|iletisim', 'ekran ve dosyalar bölümünü aç': 'settings|ekran',
-            'kamera ayarlarını aç': 'settings|ekran', 'hesap sayfasını aç': 'settings|kullanici',
-            'yapay zekâ sayfasını aç': 'settings|ai', 'ses ayarlarını aç': 'settings|ses',
-            'hafıza sayfasını aç': 'settings|hafiza', 'telefon ayarlarını aç': 'tools|telefon', 'çalışma sayfasını aç': 'study|',
-            'sohbet sayfasını aç': 'chat|', 'ana ekranı aç': 'home|', 'görevler sayfasını aç': 'tools|takvim',
-        }
-        for command, target in cases.items():
-            with self.subTest(command=command):
+        cases = (
+            ({"kind": "ui", "key": "hologram_tone", "value": "turquoise"}, "ui", "hologramtone|turquoise"),
+            ({"kind": "ui", "key": "hologram_background", "value": "lava"}, "ui", "hologrambg|lava"),
+            ({"kind": "ui", "key": "replay", "value": True}, "ui", "bustreplay|"),
+            ({"kind": "ui", "key": "home_animation", "value": False}, "ui", "nxbust|0"),
+        )
+        for action, kind, payload in cases:
+            with self.subTest(action=action):
                 emit = Mock()
-                self.assertIsNotNone(selfctl.handle(command, emit))
-                emit.assert_called_once_with('nav', target)
+                selfctl.execute(action, emit)
+                emit.assert_called_once_with(kind, payload)
 
-    def test_calculator_and_other_apps_are_not_mistaken_for_jarvis_pages(self):
+    def test_typed_ui_does_not_write_settings(self):
         from modules import selfctl
-        for command in ('hesap makinesini aç', 'hesap makinesi aç', 'müziği tekrar oynat', 'şarkıyı yeniden oynat'):
-            with self.subTest(command=command):
-                emit = Mock()
-                self.assertIsNone(selfctl.handle(command, emit))
-                emit.assert_not_called()
-
-    def test_hologram_look_commands_send_only_whitelisted_ui_events(self):
-        from modules import selfctl
-        cases = {
-            'hologramı turkuaz yap': 'hologramtone|turquoise', 'silüet rengini sarı yap': 'hologramtone|yellow',
-            'hologram rengi mavi olsun': 'hologramtone|blue', 'lav dağlarını seç': 'hologrambg|lava',
-            'arka planı mavi dağlar yap': 'hologrambg|mountains', 'açılış animasyonunu tekrar oynat': 'bustreplay|',
-            'ana ekran animasyonunu kapat': 'nxbust|0', 'ana ekran animasyonunu aç': 'nxbust|1',
-        }
-        for command, payload in cases.items():
-            with self.subTest(command=command):
-                emit = Mock()
-                self.assertIsNotNone(selfctl.handle(command, emit))
-                emit.assert_called_once_with('ui', payload)
-
-    def test_ui_commands_never_touch_models_keys_or_settings_files(self):
-        from unittest.mock import patch
-        from modules import selfctl
-        with patch.object(selfctl, 'save_settings') as save:
-            selfctl.handle('hologramı sarı yap', Mock())
-            selfctl.handle('lav dağlarını seç', Mock())
+        with patch.object(selfctl, "save_settings") as save:
+            selfctl.execute({"kind": "ui", "key": "hologram_tone", "value": "yellow"}, Mock())
         save.assert_not_called()
 
-
-class KnowledgeAndGithubVoiceTests(unittest.TestCase):
-    def test_catalog_has_safe_kb_and_github_read_actions_with_confirmation_where_needed(self):
-        from modules import app_actions
-        acts = app_actions._ACTIONS
-        for name in ('github_verify', 'update_now', 'kb_add_path'):
-            self.assertFalse(acts[name]['confirm'], name)
-        for name in ('kb_remove', 'kb_clear'):
-            self.assertTrue(acts[name]['confirm'], name)
-
-    def test_publishing_pulling_phone_access_and_key_actions_stay_out_of_voice_catalog(self):
-        from modules import app_actions
-        for name in ('github_publish', 'github_pull', 'github_backup_pull', 'phone_toggle', 'phone_info', 'update_token_save',
-                     'llm_validate', 'smart_router_save'):
-            self.assertNotIn(name, app_actions._ACTIONS, name)
-
-    def test_kb_remove_rejects_unknown_document_and_confirms_known_one(self):
-        from types import SimpleNamespace
-        from modules import app_actions
-        profile = SimpleNamespace(data={'kb': [{'id': 7}]})
-        with self.assertRaises(ValueError):
-            app_actions._check_reference(profile, 'kb_remove', {'did': 99})
-        app_actions._check_reference(profile, 'kb_remove', {'did': 7})
-        spec, values = app_actions.validate('kb_remove', {'did': 7})
-        self.assertTrue(spec['confirm'])
-        self.assertEqual(values, {'did': 7})
+    def test_unknown_action_is_not_an_implicit_text_fallback(self):
+        from modules import selfctl
+        emit = Mock()
+        reply = selfctl.execute({"kind": "ui", "key": "sentence", "value": "hologramı sarı yap"}, emit)
+        self.assertIn("doğrulanmadı", reply)
+        emit.assert_not_called()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

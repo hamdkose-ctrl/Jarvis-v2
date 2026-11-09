@@ -245,6 +245,27 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
                 if capability_id == "documents.export" else "read-only system checks"}
+    if capability_id == "windows.settings.open":
+        from modules.system_control import WINDOWS_SETTINGS_PAGES
+        return {"page": sorted(WINDOWS_SETTINGS_PAGES)}
+    if capability_id == "jarvis.selfctl":
+        from modules.selfctl import PAGES
+        return {"action": {
+            "kind": ["navigate", "restart", "open_data", "setting_read", "setting", "ui"],
+            "navigate.page": sorted(PAGES),
+            "open_data.target": ["data", "log"],
+            "setting_read.key": ["wake_sensitivity", "response_speed", "idle_seconds"],
+            "setting": {
+                "wake_sensitivity": [1, 2, 3, 4, 5, "increase", "decrease"],
+                "response_speed": ["fast", "balanced", "patient"],
+                "wake_beep": [True, False], "learn_from_chat": [True, False],
+                "live_mode": [True, False], "widget": [True, False],
+                "window_mode": ["full", "window"], "idle_seconds": "integer 15..600",
+            },
+            "ui": {"hologram_tone": ["blue", "turquoise", "yellow"],
+                   "hologram_background": ["lava", "mountains"],
+                   "replay": [True], "home_animation": [True, False]},
+        }}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -296,6 +317,13 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "windows.settings.open": (
+        "opens a supported Windows Settings page with a closed ms-settings identifier",
+        "Core verifies page before Windows receives it; not a Jarvis page or arbitrary URL"),
+    "jarvis.selfctl": (
+        "opens a Jarvis page, reads or changes an allowed setting, adjusts UI or restarts",
+        "choose a valid typed kind, key and value from argument_schema; Core checks before effect"),
+
     "learning.manage": ("manages approved facts, numbered pending facts, and rules",
         "Core rejects an ALL scope from model proposals; exact State Gate alone authorizes bulk changes"),
     "git.publish": ("publishes local changes as a GitHub PR only on an exact admin command",

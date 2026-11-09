@@ -44,8 +44,6 @@ def explicit_workflow_owner_protocol(text: str) -> bool:
 # Order is the contract. This table is its only owner.
 FRONT_GATES: tuple[str, ...] = (
     "file_command",
-    "windows_settings",
-    "selfctl",
     "user_controls",
     "planner_command",
     "macro_run",
@@ -58,15 +56,6 @@ TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
 
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
-    def selfctl():
-        # A canonical notes_read plan means the user asked for note DATA, not the Notlar UI page.
-        # Keep the legacy selfctl grammar unchanged for Live/old callers until PR9; only the
-        # canonical Brain/Core handoff gets this semantic distinction.
-        if plan is not None and plan[0] in {"notes_read", "notes_write"}:
-            return None
-        from modules import selfctl as module
-        return module.handle(lowered, runtime.emit)
-
     def planner_gate():
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
@@ -107,8 +96,6 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     return {
         "file_command": lambda: runtime._file_command(command),
-        "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
-        "selfctl": selfctl,
         "user_controls": lambda: runtime._user_controls(command, lowered),
         "planner_command": planner_gate,
         "macro_run": lambda: runtime._macro_run(lowered),
@@ -160,7 +147,7 @@ def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...
 
 
 _ATTRS = {
-    "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",),
+    "file_command": ("_file_command",),
     "user_controls": ("_user_controls",), "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
 }
 

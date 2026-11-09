@@ -98,13 +98,13 @@ class FileSystemGateTests(unittest.TestCase):
                 patch('webbrowser.open_new_tab') as tab, \
                 patch.object(system_control.os, 'startfile', create=True) as start:
             for invoke in (system_control.mute_volume, system_control.open_new_tab,
-                           lambda: system_control.windows_settings('wifi ayarlarını aç')):
+                           lambda: system_control.open_windows_settings('network-wifi')):
                 with self.assertRaises(PermissionError):
                     invoke()
             for target in (mute, press, tab, start):
                 target.assert_not_called()
             # Komut Windows ayarı değilse bu yolun politikası sohbeti engellemez.
-            self.assertIsNone(system_control.windows_settings('merhaba'))
+            self.assertFalse(system_control.open_windows_settings('not-a-page').ok)
 
     def test_absent_actor_cannot_modify_file_or_system(self):
         source = self.write(self.downloads, 'rapor.txt')

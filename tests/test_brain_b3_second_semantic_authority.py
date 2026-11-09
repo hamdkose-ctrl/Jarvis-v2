@@ -162,9 +162,8 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "learning.handle": set(),  # BRAIN-03 dilim6: legacy semantic owner physically removed
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
-        "system_control.windows_settings": {"modules/brain_precedence.py",
-                                            "modules/engine_commands.py"},
-        "selfctl.handle": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        "system_control.windows_settings": set(),  # typed Windows Core adapter
+        "selfctl.handle": set(),  # typed Jarvis-control Core adapter
         "_user_command": set(),
         "_user_controls": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         "_planner_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
@@ -206,8 +205,6 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         # yukarıda bir satır olarak durmalıdır.
         from modules import brain_precedence
         gate_doors = {"file_command": "_file_command",
-                      "windows_settings": "system_control.windows_settings",
-                      "selfctl": "selfctl.handle",
                       "user_controls": "_user_controls",
                       "planner_command": "_planner_command",
                       "macro_run": "_macro_run",
