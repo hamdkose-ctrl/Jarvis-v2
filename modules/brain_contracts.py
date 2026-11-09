@@ -229,6 +229,8 @@ class UnderstandingResult(_JsonContract):
     request_kind: RequestKind
     capability_hint: str | None = None
     arguments: Mapping[str, Any] = field(default_factory=dict)
+    # Model batch actions stay immutable evidence until each is independently Core-planned.
+    actions: tuple[Mapping[str, Any], ...] = ()
     references: tuple[ContextReference, ...] = ()
     conversation_relation: ConversationRelation = ConversationRelation.NEW_REQUEST
     pending_owner: PendingOwner | None = None
@@ -255,6 +257,24 @@ class UnderstandingResult(_JsonContract):
         _optional_text("UnderstandingResult.capability_hint", self.capability_hint)
         _reject_authority_argument_keys(self.arguments)
         object.__setattr__(self, "arguments", _freeze_json(self.arguments))
+        if not isinstance(self.actions, (tuple, list)):
+            raise ValueError("actions liste/tuple olmalı.")
+        normalized_actions = []
+        seen_action_ids = set()
+        for index, action in enumerate(self.actions):
+            if not isinstance(action, Mapping) or set(action) != {"action_id", "capability_id", "arguments", "reference_slots", "depends_on"}:
+                raise ValueError("action şeması uyuşmuyor.")
+            action_id = action.get("action_id")
+            capability_id = action.get("capability_id")
+            depends_on = action.get("depends_on")
+            if (not isinstance(action_id, str) or action_id != f"a{index + 1}" or action_id in seen_action_ids
+                    or not isinstance(capability_id, str) or not isinstance(depends_on, (tuple, list))
+                    or any(not isinstance(item, str) or item not in seen_action_ids for item in depends_on)):
+                raise ValueError("action bağımlılığı uyuşmuyor.")
+            _reject_authority_argument_keys(action.get("arguments"))
+            normalized_actions.append(_freeze_json(action))
+            seen_action_ids.add(action_id)
+        object.__setattr__(self, "actions", tuple(normalized_actions))
         object.__setattr__(self, "references", _reference_tuple("references", self.references, self.owner))
         if not isinstance(self.context_actions, (tuple, list)):
             raise ValueError("context_actions liste/tuple olmalı.")

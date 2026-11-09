@@ -6,6 +6,13 @@ This dispatcher does not classify again or create a new request identity.
 from __future__ import annotations
 
 
+class ActionOutcome(str):
+    """A domain result with an explicit success signal, retaining the string interface."""
+
+    def __new__(cls, message: str, ok: bool):
+        value = super().__new__(cls, message)
+        value.ok = ok
+        return value
 
 def _remember(runtime, name: str) -> None:
     from modules import session_state
@@ -190,25 +197,26 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if a["property"] == "volume":
                 if runtime.system_control.set_volume(level):
                     _remember(runtime, "volume")
-                    return f"Ses seviyesini yüzde {level} yaptım."
-                return "Ses seviyesini ayarlayamadım."
+                    return ActionOutcome(f"Ses seviyesini yüzde {level} yaptım.", True)
+                return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
             if runtime.system_control.set_brightness_verified(level):
                 _remember(runtime, "brightness")
-                return f"Ekran parlaklığını yüzde {level} olarak ayarladım."
-            return "Ekran parlaklığını doğrulayamadım."
+                return ActionOutcome(f"Ekran parlaklığını yüzde {level} olarak ayarladım.", True)
+            return ActionOutcome("Ekran parlaklığını doğrulayamadım.", False)
         case "audio_action":
             # Eski ham "ses" dallarının tek sahibi: durum tersine çevrilmez, seviye adımı aynı owner'da.
             control = runtime.system_control
             action = str(a.get("action") or "")
             if action == "mute":
                 if control.is_muted():
-                    return "Ses zaten kapalı (sessizde)."
-                return "Sesi kapattım, bilgisayar sessizde." if control.set_mute(True) else "Sesi kapatamadım."
+                    return ActionOutcome("Ses zaten kapalı (sessizde).", True)
+                ok = bool(control.set_mute(True))
+                return ActionOutcome("Sesi kapattım, bilgisayar sessizde." if ok else "Sesi kapatamadım.", ok)
             if action == "unmute":
                 if not control.set_mute(False):
-                    return "Sesi açamadım."
+                    return ActionOutcome("Sesi açamadım.", False)
                 lvl = control.current_volume()
-                return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
+                return ActionOutcome("Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else ""), True)
             if action == "open":
                 if control.is_muted():
                     control.set_mute(False)   # sessizdeyken "sesi aç": önce sessizi kaldır, seviye aynı kalsın
@@ -241,8 +249,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return "Bilgisayarı kapatmamı onaylıyor musun? Evet ya da hayır de."
         case "shutdown_cancel":
             if runtime.system_control.cancel_shutdown() is False:
-                return "Kapatma iptal komutu kabul edilmedi; iptal edildi demiyorum."
-            return "Zamanlanmış bilgisayar kapatma işlemini iptal ettim."
+                return ActionOutcome("Kapatma iptal komutu kabul edilmedi; iptal edildi demiyorum.", False)
+            return ActionOutcome("Zamanlanmış bilgisayar kapatma işlemini iptal ettim.", True)
         case "fast_time":
             return "Saat " + runtime.time.strftime("%H:%M")
         case "fast_date":
