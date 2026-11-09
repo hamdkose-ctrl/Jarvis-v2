@@ -182,6 +182,11 @@ class _Session:
 
 class CloudflareChatTests(unittest.TestCase):
     def setUp(self):
+        # All sessions below are HTTP fakes; unit tests must not write a real
+        # user's usage ledger. Individual metering assertions override this mock.
+        meter = patch.object(cloudflare_chat.usage_meter, 'record')
+        meter.start()
+        self.addCleanup(meter.stop)
         for name, value in (("user_cloudflare_account", "acc123"), ("user_cloudflare_token", "tok456")):
             patcher = patch.object(cloudflare_chat, name, return_value=value)
             patcher.start()
