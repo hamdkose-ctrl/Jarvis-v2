@@ -931,6 +931,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
         try:
             resp = chat_session.send_message(prompt)
         except Exception as exc:
+            _record_failure('modules/llm.py:_send_provider:gemini_transport')
             # Routed Gemini calls otherwise lose failed attempts from the meter.
             # Direct legacy _with_models already records its own failures.
             if model is not None:
