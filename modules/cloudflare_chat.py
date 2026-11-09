@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from modules import failure_policy
+from modules import failure_policy, usage_meter
 from modules.diagnostics import record_failure as _record_failure
 from modules.image_gen import user_cloudflare_account, user_cloudflare_token
 
@@ -42,6 +42,7 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
     if not account or not token:
         raise CloudflareChatError("Bu kullanıcı için Cloudflare hesap kimliği/API token tanımlı değil.", "NO_KEY")
     rows = ([{"role": "system", "content": system}] if system else []) + [dict(m) for m in messages]
+    chars_in = usage_meter.size(rows)
     url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     body = {"messages": rows, "max_tokens": max(1, min(int(max_tokens), 4096))}
@@ -55,9 +56,12 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
         _record_failure('modules/cloudflare_chat.py:chat:request')
         category = failure_policy.classify(exc)
         network = category in {failure_policy.DNS, failure_policy.NETWORK, failure_policy.TIMEOUT}
+        usage_meter.record('cloudflare', model, chars_in, 0,
+                           'baglanti' if network else 'hata', owner=slug)
         raise CloudflareChatError("Cloudflare'e ulaşılamadı." if network else "Cloudflare isteği başarısız oldu.",
                                   "NETWORK_ERROR" if network else "PROVIDER_ERROR") from exc
     if resp.status_code != 200:
+        usage_meter.record('cloudflare', model, chars_in, 0, str(resp.status_code), owner=slug)
         category = failure_policy.classify(_HttpStatusError(resp.status_code, getattr(resp, "text", "")))
         if category == failure_policy.AUTH:
             raise CloudflareChatError("Cloudflare kimlik doğrulaması başarısız (token/hesap kontrolü).", "AUTH_FAILED")
@@ -67,8 +71,11 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
     try:
         payload = resp.json()
         text = payload["result"]["response"]
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, AttributeError):
+        usage_meter.record('cloudflare', model, chars_in, 0, 'bozuk', owner=slug)
         raise CloudflareChatError("Beklenmeyen yanıt biçimi.", "UNEXPECTED_FORMAT")
     if not isinstance(text, str) or not text.strip():
+        usage_meter.record('cloudflare', model, chars_in, 0, 'bos', owner=slug)
         raise CloudflareChatError("Cloudflare boş yanıt döndürdü.", "EMPTY_RESPONSE")
+    usage_meter.record('cloudflare', model, chars_in, len(text), 'ok', owner=slug)
     return text
