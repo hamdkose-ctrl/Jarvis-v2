@@ -208,7 +208,7 @@ def limits(owner: str | None = None) -> dict:
 
 
 _RESET_UNIT_SECONDS = {'ms':.001, 's':1., 'm':60., 'h':3600., 'd':86400.}
-_RESET_DURATION = re.compile(r'(\\d+(?:\\.\\d+)?)(ms|s|m|h|d)')
+_RESET_DURATION = re.compile(r'(\d+(?:\.\d+)?)(ms|s|m|h|d)')
 
 
 def _reset_duration_seconds(raw) -> float | None:
