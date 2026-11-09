@@ -2,7 +2,7 @@
 from __future__ import annotations
 import contextlib
 
-def _get_profile(runtime, name: str) -> Profile:
+def _get_profile(runtime, name: str):
     slug = runtime.slugify(name or "") or "kullanici"
     with runtime._profile_lock:
         if slug not in runtime._profiles:
@@ -130,54 +130,8 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         return f"Merhaba {runtime.profile.name}. Hedefin: {goals[-1]}. Kaldığımız yerden devam edebiliriz."
     return f"Merhaba {runtime.profile.name}."
 
-def _user_command(runtime, command: str, cmd_lower: str) -> str | None:
-    """Kullanıcı değiştirme, hedef ve bilgi komutları. İlgili değilse None döner."""
-    tokens = runtime.re.findall(r"[\wçğıöşü]+", cmd_lower)
-
-    # Ad değiştirme: "adımı Ahmet yap" (aktif kullanıcı) ya da arayüzden "kullanıcıyı yeniden adlandır Eski > Yeni"
-    pass  # Shared fields are held by the explicit engine context.
-    rm = runtime.re.match(r"^kullanıcıyı yeniden adlandır\s+(.+?)\s*>\s*(.+)$", command.strip(), runtime.re.I) \
-        or runtime.re.match(r"^(?:adımı|ismimi|kullanıcı adımı)\s+(.+?)\s+(?:yap|olarak değiştir|olsun)$", command.strip(), runtime.re.I)
-    if rm:
-        old, new = (rm.group(1).strip(), rm.group(2).strip()) if rm.lastindex == 2 else (runtime.profile.name, rm.group(1).strip())
-        new = runtime.display_name(new)
-        err = runtime.rename_user(old, new)
-        if err:
-            return err
-        try:                                   # kişiye özel anahtar yeni ada taşınsın
-            k = runtime._llm.user_key(runtime.slugify(old))
-            if k:
-                runtime._llm.set_user_key(runtime.slugify(new), k)
-                runtime._llm.set_user_key(runtime.slugify(old), None)
-        except Exception:
-            runtime._record_failure('main.py:_user_command')
-        if old.lower() == runtime.profile.name.lower():
-            runtime._profiles.pop(runtime.profile.slug, None)
-            runtime.profile = runtime._get_profile(new)
-            runtime._llm.set_user_context(runtime.profile.slug)
-        return f"Tamam, {old} adını {new} yaptım."
-    dm = runtime.re.match(r"^kullanıcıyı sil\s+(.+)$", command.strip(), runtime.re.I)
-    if dm:
-        victim = dm.group(1).strip()
-        if victim.lower() == runtime.profile.name.lower():
-            return "Aktif kullanıcıyı silemem; önce başka bir kullanıcıya geç."
-        return runtime.delete_user(victim) or f"{victim} kullanıcısını sildim (yedeği 'silinenler' klasöründe)."
-
-    # Yeni kullanıcı: "yeni kullanıcı ekle Merve"
-    m = runtime.re.search(r"(?:yeni kullanıcı(?: ekle)?|kullanıcı ekle)\s+([\wçğıöşü]+)", cmd_lower)
-    if m:
-        name = runtime.display_name(m.group(1))
-        if not runtime.slugify(name):
-            return "Adı anlayamadım, tekrar söyler misin?"
-        return runtime._switch_user(name, created=not runtime.Profile(name).exists)
-
-    if runtime.re.search(r"kullanıcıları? (listele|göster|say)|kimler var|hangi kullanıcılar", cmd_lower):
-        names = runtime.list_users()
-        return "Kayıtlı kullanıcılar: " + ", ".join(names) + "." if names else "Kayıtlı kullanıcı yok."
-
-    if runtime.re.search(r"\bben kimim\b|\bkiminle konuşuyorsun\b|\bkim konuşuyor\b", cmd_lower):
-        return f"Şu an {runtime.profile.name} ile konuşuyorum."
-
+def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
+    """Existing sharing and voice controls; profile intent belongs to Core."""
     # Ekran paylaşımı ve kamera
     # "paylaşımı kapat/durdur/bitir" (ekran ya da kamera, hangisi açıksa): mevcut kapatma yolu
     if runtime.re.search(r"\bpayla[şs](?:ı|i)m(?:ı|i|ımı|imi)?\s+(?:kapat|durdur|bitir|sonlandır|kes)\w*|"
@@ -222,29 +176,7 @@ def _user_command(runtime, command: str, cmd_lower: str) -> str | None:
         runtime.profile.set_pref("rate", new)
         return "Daha yavaş konuşuyorum." if slower else "Daha hızlı konuşuyorum."
 
-    # Hedefler ve bilgiler (aktif kullanıcıya yazılır)
-    if runtime.re.match(r"hedeflerim(i)? (sil|temizle)|hedefi(mi)? sil", cmd_lower):
-        runtime.profile.clear_goals()
-        return f"{runtime.profile.name} için hedefleri sildim."
-    if runtime.re.match(r"hedeflerim( neler| ne)?$", cmd_lower.strip(" ?")):
-        goals = runtime.profile.data["goals"]
-        return "Hedeflerin: " + "; ".join(goals) + "." if goals else "Henüz bir hedef eklemedin."
-    m = runtime.re.match(r"hedefim\s*:?\s*(.+)$", command.strip(), runtime.re.I)
-    if m:
-        runtime.profile.add_goal(m.group(1).strip(" ."))
-        return f"Tamam {runtime.profile.name}, hedefini kaydettim: {m.group(1).strip(' .')}."
-    m = runtime.re.match(r"(?:bunu |şunu )?hatırla(?:\s*:\s*|\s+)(.+)$", command.strip(), runtime.re.I)   # "hatırlatma ..." buraya düşmesin
-    if m:
-        runtime.profile.add_fact(m.group(1).strip(" ."))
-        return f"Hafızama kaydettim: {m.group(1).strip(' .')}"
-
-    # Kullanıcı değiştirme: "ben Merve", "Merve konuşuyor", "Merve burada", "kullanıcı Hamdi"
-    if 0 < len(tokens) <= 6:
-        triggers = {"konuşuyor", "burada", "geldi", "devam", "değiştir", "kullanıcı", "kullanıcısı", "ben"}
-        if triggers & set(tokens):
-            for name in runtime.list_users():
-                s = runtime.slugify(name)
-                if any(runtime.slugify(t) == s or (runtime.slugify(t).startswith(s) and runtime.slugify(t)[len(s):] in runtime._NAME_SUFFIXES)
-                       for t in tokens if t not in triggers):
-                    return runtime._switch_user(name)
     return None
+
+# Compatibility for direct callers; production uses the narrowed controls only.
+_user_command = _user_controls

@@ -181,11 +181,8 @@ def handle(runtime, command: str):
     # `message.send`/`contacts.manage` önerir, Core biçimi doğrular, etki `engine_intents`
     # sahibinde yürür. Buradaki dal yalnız açık `pending_msg` oturumunun devamını tüketir.
 
-    # Öğrenme: kurallar, onay bekleyen bilgiler, gelişim raporu ("kural ekle: …", "öğrendiklerini kaydet")
-    from modules import learning
-    learn_reply = learning.handle(cmd_lower, command, runtime.profile)
-    if learn_reply is not None:
-        return learn_reply
+    # Learning semantics are model-proposed and Core-validated; exact pending
+    # selections are handled by the canonical State Gate, never raw text here.
 
     # Dosyalar ekranındaki düğmeler: '"C:\...\x.pdf" dosyasını özetle' -> yapay zekâya sormadan doğrudan o dosyada
     file_reply = runtime._file_command(command)
@@ -195,8 +192,14 @@ def handle(runtime, command: str):
     # Mikrofon açma/kapama ve uyandırma kurulumu artık yalnız Fast Gate (`fast.mic.toggle`)
     # ve Core `voice.wake.enable` intent'i üzerinden yürür; burada ham cümle kalıbı yoktur.
 
-    # Windows Settings and Jarvis self-control are model proposals validated by Core.
-    # This legacy surface deliberately has no raw-text fallback for either capability.
+    # Jarvis'in kendi işlemleri: sayfa aç, güvenli ayarlar, yeniden başlat ("hafıza sayfasını aç", "cevap hızını sabırlı yap")
+    windows_reply = runtime.system_control.windows_settings(cmd_lower)   # "wifi ayarlarını aç": Windows Ayarlar sayfası, Jarvis'in değil
+    if windows_reply is not None:
+        return windows_reply
+    from modules import selfctl
+    self_reply = selfctl.handle(cmd_lower, runtime.emit)
+    if self_reply is not None:
+        return self_reply
 
     # Onay bekleyen işlem (örn. bilgisayarı kapatma)
     if runtime._session().pending_confirm:
@@ -239,9 +242,9 @@ def handle(runtime, command: str):
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
 
-    user_reply = runtime._user_command(command, cmd_lower)
-    if user_reply is not None:
-        return user_reply
+    control_reply = runtime._user_controls(command, cmd_lower)
+    if control_reply is not None:
+        return control_reply
 
     plan_reply = runtime._planner_command(command, cmd_lower)
     if plan_reply is not None:
@@ -284,7 +287,7 @@ def handle(runtime, command: str):
     # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
     # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
     corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command)
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command, runtime=runtime)
     if view is not None:
         return view
     if corrected != cmd_lower:

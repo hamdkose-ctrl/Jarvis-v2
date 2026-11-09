@@ -1005,36 +1005,6 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
 def _macro_key(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', runtime.re.sub('[^\\w\\s]', ' ', runtime._tr_lower(text))).strip()
 
-def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
-    m = runtime.re.match('^[\'\\"“‘]?(.+?)[\'\\"”’]?\\s+(?:dersem|dediğimde|dediğim zaman|desem)\\s*,?\\s+(.+)$', cmd_lower)
-    if not m:
-        return None
-    trigger, actions = (m.group(1).strip(), m.group(2).strip())
-    if not trigger or len(trigger.split()) > 5:
-        return None
-    pieces = [p for p in runtime._MACRO_SPLIT.split(actions) if p]
-    verb = next((vm.group(1) for p in reversed(pieces) if (vm := runtime._VERB_END.search(p))), 'aç')
-    cmds, unknown = ([], [])
-    for p in pieces:
-        base = runtime._VERB_END.sub('', p).strip()
-        app = runtime.system_control.find_app(base)
-        if app:
-            cmds.append(f'{app} {verb}')
-        elif runtime._NONAPP.search(p):
-            cmds.append(p)
-        else:
-            unknown.append(base)
-    if not cmds and (not runtime._VERB_END.search(actions)):
-        return None
-    if not cmds:
-        return 'Bu kısayol için tanıdığım bir uygulama ya da komut bulamadım' + (f" ({', '.join(unknown)})." if unknown else '.') + ' Uygulama adını Başlat menüsündeki gibi söyler misin?'
-    runtime.profile.data.setdefault('macros', {})[runtime._macro_key(trigger)] = {'title': trigger, 'actions': cmds}
-    runtime.profile.save()
-    out = f'Kısayolu kaydettim: “{trigger}” dediğinde şunları yapacağım: ' + ', '.join(cmds) + '.'
-    if unknown:
-        out += f" Şunları tanımadığım için eklemedim: {', '.join(unknown)}."
-    return out
-
 def _macro_run(runtime, cmd_lower: str) -> str | None:
     """Kısayolun her adımı KENDİ canonical kararıyla çalışır; ham adım eski zincire dönmez.
 
@@ -1082,22 +1052,6 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
         session.speech_override = None  # Do not reuse an individual action's short reply.
     out = f"“{hit['title']}” kısayolunu çalıştırdım: " + ', '.join(executed) + '.'
     return out + (f" Şunlar olmadı: {', '.join(failed)}." if failed else '')
-
-def _macro_manage(runtime, cmd_lower: str) -> str | None:
-    macros = runtime.profile.data.get('macros') or {}
-    if runtime.re.search('kısayol\\w*\\s+(listele|göster|neler)|kısayollarım', cmd_lower):
-        if not macros:
-            return 'Kayıtlı kısayolun yok. Örnek: “çalışma modu dersem spotify, chrome ve vs code aç”.'
-        return 'Kısayolların: ' + '; '.join((f"{v['title']} → {', '.join(v['actions'])}" for v in macros.values())) + '.'
-    m = runtime.re.match('^[\'\\"“‘]?(.+?)[\'\\"”’]?\\s+kısayol\\w*\\s+(?:sil|unut|kaldır)$', cmd_lower)
-    if m:
-        key = runtime._macro_key(m.group(1))
-        if key in macros:
-            title = macros.pop(key)['title']
-            runtime.profile.save()
-            return f'“{title}” kısayolunu sildim.'
-        return 'Böyle bir kısayolun yok.'
-    return None
 
 def _brief_facts(runtime) -> list[str]:
     """Günlük özet için gerçek veriler: hava, takvim, hatırlatmalar, mailler (yalnızca gönderen/konu), görevler."""

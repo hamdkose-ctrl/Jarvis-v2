@@ -51,12 +51,12 @@ class InfrastructureTests(unittest.TestCase):
     def test_memory_commands_exact_selection_and_no_model(self):
         p=profiles.Profile('Alice');p.add_fact('Motor gücü 5 kW')
         with patch.object(llm,'ask',side_effect=AssertionError('model')):
-            self.assertIn('5 kW',learning.handle('hafızamı göster','hafızamı göster',p))
-            learning.handle('hafıza düzelt: motor gücü 5 kw | motor gücü 7 kw','hafıza düzelt: Motor gücü 5 kW | Motor gücü 7 kW',p)
+            self.assertIn('5 kW',learning.execute_typed(p, {'operation':'facts.list'}))
+            learning.execute_typed(p, {'operation':'fact.edit','old':'Motor gücü 5 kW','text':'Motor gücü 7 kW'})
             self.assertEqual(p.data['facts'],['Motor gücü 7 kW'])
-            learning.handle('hafıza unut: motor','hafıza unut: Motor',p)
+            learning.execute_typed(p, {'operation':'fact.forget','old':'Motor'})
             self.assertEqual(p.data['facts'],['Motor gücü 7 kW'])
-            learning.handle('hafıza unut: motor gücü 7 kw','hafıza unut: Motor gücü 7 kW',p)
+            learning.execute_typed(p, {'operation':'fact.forget','old':'Motor gücü 7 kW'})
             self.assertEqual(p.data['facts'],[])
 
     def test_pc_invalid_input_and_foreign_request_do_not_execute(self):

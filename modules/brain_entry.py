@@ -58,6 +58,7 @@ class EntryResult:
     references: tuple[ContextReference, ...] = ()
     understanding: Any = None
     batch_child: bool = False
+    state_references: tuple[ContextReference, ...] = ()
 
     @property
     def stage(self) -> str:
@@ -434,7 +435,7 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         active_context=active, state_references=state_refs,
     )
     if state.matched or state.reason_code == "MULTIPLE_BOUNDED_STATE_MATCHES":
-        return EntryResult(owner, request_id, source, text, active, state)
+        return EntryResult(owner, request_id, source, text, active, state, state_references=state_refs)
 
     fast = deterministic_fast_gate(
         owner=owner, request_id=request_id, text=text, active_context=active,
@@ -1100,7 +1101,15 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
             except Exception:
                 _record_failure("modules/brain_entry.py:pending_level_snapshot")
                 return None
-        return brain_core_map.state_plan(gate.protocol, gate.selection, level)
+        pending_snapshot = None
+        if gate.protocol == "learning.pending_facts.select":
+            refs = [ref for ref in entry.state_references
+                    if ref.source == "learning" and ref.id == "pending_facts"
+                    and ref.owner == entry.owner]
+            if len(refs) != 1:
+                return None
+            pending_snapshot = refs[0].provenance.get("value")
+        return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)
     fast = entry.fast_gate
     if fast is not None and fast.matched:
         return brain_core_map.fast_plan(fast.protocol, fast.selection)

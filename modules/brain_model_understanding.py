@@ -96,12 +96,16 @@ _MODEL_DENIED_ARGUMENT_KEYS = frozenset({
 _USER_OWNED_ARGUMENT_SLOTS = {
     "message.send": frozenset({"recipient", "body"}),
     "contacts.manage": frozenset({"name", "phone"}),
+    "user.manage": frozenset({"name", "old", "text"}),
+    "macro.teach": frozenset({"trigger"}),
+    "macro.manage": frozenset({"trigger"}),
+    "learning.manage": frozenset({"text", "old", "index"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
 # yuvanın rakam dizisi olarak karşılaştırılacağının kapalı sözleşmesidir (telefon). Metin
 # alanları kelime dizisiyle, sayısal alanlar rakam dizisinin TAMAMIyla doğrulanır.
-_GROUNDING_NUMERIC_FIELDS = frozenset({"phone"})
+_GROUNDING_NUMERIC_FIELDS = frozenset({"phone", "index"})
 
 # Kalıcı kullanıcı tercihi kullanıcının KENDİ cümlesinden doğar; modelin o cümlede olmayan bir
 # yazma/silme yeteneği önermesi bu zarfta yetenek düzeyinde reddedilir. Core yalnız BİÇİM
@@ -238,25 +242,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
-    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
-    if owned:
-        # Sözleşme modelce görülebilir olsun: bu alanlar cümleden alıntılanmak zorundadır.
-        return {"freeform": True, "argument_sources": sorted(owned)}
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
                 if capability_id == "documents.export" else "read-only system checks"}
-    if capability_id == "windows.settings.open":
-        from modules.system_control import WINDOWS_SETTINGS_PAGES
-        return {"page": sorted(WINDOWS_SETTINGS_PAGES)}
-    if capability_id == "jarvis.selfctl":
-        from modules.selfctl import PAGES
-        return {"action": {
-            "kind": ["navigate", "restart", "open_data", "setting", "ui"],
-            "navigate.page": sorted(PAGES),
-            "open_data.target": ["data", "log"],
-            "setting.key": ["wake_sensitivity", "response_speed", "wake_beep", "learn_from_chat", "live_mode", "idle_seconds", "widget", "window_mode"],
-            "ui.key": ["hologram_tone", "hologram_background", "replay", "home_animation"],
-        }}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -278,6 +266,26 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "amount": "optional positive decimal string",
             },
         }
+    if capability_id == "user.manage":
+        return {"operation": ["rename", "delete", "create", "list", "identify", "switch",
+                                "goals_list", "goals_clear", "goal_add", "fact_add"],
+                "name": "quoted user name when needed", "old": "quoted existing user name when needed",
+                "text": "quoted goal or fact when needed", "argument_sources": ["name", "old", "text"]}
+    if capability_id == "macro.teach":
+        return {"trigger": "quoted shortcut phrase", "actions": ["verbatim executable steps from the utterance"],
+                "argument_sources": ["trigger"]}
+    if capability_id == "macro.manage":
+        return {"operation": ["list", "delete"], "trigger": "quoted shortcut phrase for delete",
+                "argument_sources": ["trigger"]}
+    if capability_id == "learning.manage":
+        return {"operation": sorted(__import__("modules.brain_core_map", fromlist=["_LEARNING_OPERATIONS"])._LEARNING_OPERATIONS),
+                "text": "quoted user-provided text for addition or editing",
+                "old": "complete quoted old fact for edit/forget",
+                "index": "user-spoken 1-based index for a single pending fact or rule deletion",
+                "argument_sources": ["text", "old", "index"]}
+    owned = _USER_OWNED_ARGUMENT_SLOTS.get(capability_id)
+    if owned:
+        return {"freeform": True, "argument_sources": sorted(owned)}
     validator = CORE_INTENTS[capability_id][1]
     if validator.__name__ in {"_audio_args", "_media_args", "_window_list_args", "_window_op_args"}:
         return {"nested": {"action": "kapalı eylem kümesi"}}
@@ -288,6 +296,15 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "learning.manage": ("manages approved facts, numbered pending facts, and rules",
+        "Core rejects an ALL scope from model proposals; exact State Gate alone authorizes bulk changes"),
+    "git.publish": ("publishes local changes as a GitHub PR only on an exact admin command",
+        "the original full command must satisfy the git_publish protocol"),
+    "system.update": ("checks or installs an update only on an exact updater command",
+        "the updater checks the original full command before any effect"),
+    "user.manage": ("changes, selects, lists or records data in the current user's own profile", "Core validates a closed operation and bounded supplied fields"),
+    "macro.teach": ("stores a user-requested named shortcut with its proposed steps", "Core validates a bounded trigger and non-empty steps; it does not infer an operation from raw text"),
+    "macro.manage": ("lists or deletes a saved shortcut for the current user", "Core validates the closed operation and a bounded trigger for deletion"),
     "documents.export": (
         "keeps the result this conversation already produced as a document the user can open later",
         "requires current.current_output.available true; Core alone binds the document, its path and format",
@@ -308,14 +325,6 @@ _CAPABILITY_PURPOSES = {
         "runs Jarvis's own health checks and reports which parts are failing",
         "performs no repair, no setting change and no write, so a request that forbids repairing "
         "still asks for this check",
-    ),
-    "windows.settings.open": (
-        "opens one named Windows Settings page using a closed ms-settings identifier",
-        "choose only a page listed in argument_schema; Core verifies the page before Windows is contacted",
-    ),
-    "jarvis.selfctl": (
-        "navigates Jarvis, changes one safe local setting, changes an allowed UI appearance, restarts Jarvis, or opens its data path",
-        "choose one closed typed action; Core checks every kind, key and value before the adapter emits or writes",
     ),
 }
 
@@ -587,15 +596,22 @@ def _arguments_are_grounded(*, capability_id: str, supplied: Mapping[str, Any],
     if set(sources) - owned:
         return False
     spoken = _span_tokens(text)
+    if capability_id == "macro.teach":
+        actions = supplied.get("actions")
+        if (not isinstance(actions, (tuple, list)) or not actions
+                or any(not isinstance(action, str) or not _span_tokens(action)
+                       or not _is_contiguous_run(_span_tokens(action), spoken) for action in actions)):
+            return False
     for field in owned:
         value = supplied.get(field)
-        filled = isinstance(value, str) and bool(value.strip())
+        filled = ((isinstance(value, str) and bool(value.strip()))
+                  or (field == "index" and type(value) is int and value > 0))
         span = sources.get(field)
         if span is None:
             if filled:
                 return False
             continue
-        if not filled or not _field_is_grounded(field, value, span, spoken):
+        if not filled or not _field_is_grounded(field, str(value) if field == "index" else value, span, spoken):
             return False
     return True
 
@@ -908,9 +924,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "allowed.argument_schema entry also carries that capability's purpose and precondition: "
             "choose the capability whose purpose matches what the user wants to happen, and treat a "
             "failed precondition as a reason to clarify, never as a reason to pick another capability. "
-            "Set argument_sources to null except for message.send and contacts.manage; for those "
-            "use an object mapping each filled recipient, body, contact name or phone field to "
-            "the exact words the user said. Use goal=null when no goal card is proposed. "
+            "For capabilities whose allowed.argument_schema lists argument_sources, use an object "
+            "mapping each filled named field to the exact words the user said; otherwise set it "
+            "to null. For macro.teach every action must itself quote a contiguous part of the "
+            "utterance. Use goal=null when no goal card is proposed. "
             "When clarification is not required use required=false, question=null, reason_code=null. "
             "For each such field argument_sources must quote the exact words of this utterance "
             "carrying it; a value the utterance does not contain, a quote taken from another "
