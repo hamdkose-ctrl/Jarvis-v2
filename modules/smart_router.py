@@ -294,7 +294,7 @@ def _route_of(route):
 
 
 def selection(owner,task,route=None):
-    from modules import llm, cloudflare_chat
+    from modules import llm, cloudflare_chat, usage_meter
     route=_route_of(route)
     if privacy.mode()=='yerel':
         return {'candidates':['ollama'],'skipped':[
@@ -322,6 +322,13 @@ def selection(owner,task,route=None):
             gate=_evidence_gate(owner,provider,model,route=gate_route)
             if not gate['ok']:
                 reason=gate['reason'];reason_code=gate['reason_code']
+        if reason is None and provider != 'ollama':
+            observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
+            if observed:
+                seconds = observed['seconds']
+                reason = ('Sağlayıcının son görülen rate-limit başlığı tükendi; ' +
+                          str(seconds) + ' saniye sonra yeniden değerlendirilecek')
+                reason_code = 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED'
         if reason is None:
             with _LOCK:seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
             if seconds:
@@ -551,6 +558,9 @@ def status(owner):
         gate=_evidence_gate(owner,provider,model,route=route)
         if not gate['ok']:
             return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
+        observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
+        if observed:
+            return f'Kanıtlı ücretsiz rota; son görülen kota tükendi, {observed["seconds"]} saniye beklemede'
         if provider in cooldowns:
             return f'Kanıtlı ücretsiz rota; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
         return 'Kanıtlı ücretsiz rota; evidence geçerli ve strict zero-cost seçimde kullanılabilir'

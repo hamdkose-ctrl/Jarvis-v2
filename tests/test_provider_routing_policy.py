@@ -45,6 +45,19 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(self.order(PUB), ['gemini', 'groq', 'cloudflare', 'ollama'])
         self.assertEqual(self.order('forged'), ['groq', 'cloudflare', 'ollama'])   # unknown route -> PRIVATE
 
+    def test_observed_zero_remaining_temporarily_skips_only_that_model(self):
+        from modules import usage_meter
+        with patch.object(usage_meter, 'observed_exhaustion',
+                          side_effect=lambda owner, provider, model, **kw:
+                              {'seconds': 42, 'kind': 'tokens'} if provider == 'groq' else None):
+            self.assertEqual(self.order(), ['cloudflare', 'ollama'])
+            selection = router.selection('alice','chat')
+            row = next(s for s in selection['skipped'] if s['provider'] == 'groq')
+            self.assertEqual(row['reason_code'], 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED')
+            self.assertEqual(row['seconds'], 42)
+            self.assertEqual(router.wait_seconds('alice'), 0)  # Cloudflare still usable
+            self.assertIn('42 saniye', router.status('alice')['capabilities'][1]['policy'])
+
     def test_task_type_does_not_reorder_providers(self):
         for task in ('chat', 'code', 'analysis'):
             self.assertEqual(router.candidates('alice', task), ['groq', 'cloudflare', 'ollama'])
