@@ -46,17 +46,14 @@ FRONT_GATES: tuple[str, ...] = (
     "file_command",
     "windows_settings",
     "selfctl",
-    "user_command",
     "planner_command",
-    "macro_teach",
-    "macro_manage",
     "macro_run",
     "extra_commands",
 )
 
 # The range ``engine_commands.handle`` delegates instead of re-listing: shortcuts, then the
 # domain cascade. PR3B §11/§25 B: the surface may not carry a second copy of this order.
-TAIL_GATES: tuple[str, ...] = ("macro_teach", "macro_manage", "macro_run", "extra_commands")
+TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
 
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
@@ -111,10 +108,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         "file_command": lambda: runtime._file_command(command),
         "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
         "selfctl": selfctl,
-        "user_command": lambda: runtime._user_command(command, lowered),
         "planner_command": planner_gate,
-        "macro_teach": lambda: runtime._macro_teach(command, lowered),
-        "macro_manage": lambda: runtime._macro_manage(lowered),
         "macro_run": lambda: runtime._macro_run(lowered),
         "extra_commands": extra_commands,
     }
@@ -164,9 +158,8 @@ def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...
 
 
 _ATTRS = {
-    "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",), "user_command": ("_user_command",),
-    "planner_command": ("_planner_command",), "macro_teach": ("_macro_teach",),
-    "macro_manage": ("_macro_manage",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
+    "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",),
+    "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
 }
 
 

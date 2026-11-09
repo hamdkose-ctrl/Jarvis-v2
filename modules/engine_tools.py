@@ -279,17 +279,9 @@ def _macro_key(runtime, text: str) -> str:
     from modules import main_planner
     return main_planner._macro_key(runtime, text)
 
-def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
-    from modules import main_planner
-    return main_planner._macro_teach(runtime, command, cmd_lower)
-
 def _macro_run(runtime, cmd_lower: str) -> str | None:
     from modules import main_planner
     return main_planner._macro_run(runtime, cmd_lower)
-
-def _macro_manage(runtime, cmd_lower: str) -> str | None:
-    from modules import main_planner
-    return main_planner._macro_manage(runtime, cmd_lower)
 
 def _screen_ocr(runtime, prompt: str) -> str:
     import pyautogui

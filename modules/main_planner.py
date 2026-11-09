@@ -1005,7 +1005,7 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
 def _macro_key(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', runtime.re.sub('[^\\w\\s]', ' ', runtime._tr_lower(text))).strip()
 
-def _macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
+def _retired_macro_teach(runtime, command: str, cmd_lower: str) -> str | None:
     m = runtime.re.match('^[\'\\"“‘]?(.+?)[\'\\"”’]?\\s+(?:dersem|dediğimde|dediğim zaman|desem)\\s*,?\\s+(.+)$', cmd_lower)
     if not m:
         return None
@@ -1083,7 +1083,7 @@ def _macro_run(runtime, cmd_lower: str) -> str | None:
     out = f"“{hit['title']}” kısayolunu çalıştırdım: " + ', '.join(executed) + '.'
     return out + (f" Şunlar olmadı: {', '.join(failed)}." if failed else '')
 
-def _macro_manage(runtime, cmd_lower: str) -> str | None:
+def _retired_macro_manage(runtime, cmd_lower: str) -> str | None:
     macros = runtime.profile.data.get('macros') or {}
     if runtime.re.search('kısayol\\w*\\s+(listele|göster|neler)|kısayollarım', cmd_lower):
         if not macros:

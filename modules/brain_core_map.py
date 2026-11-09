@@ -749,9 +749,109 @@ def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {}
 
 
+_USER_OPERATIONS = frozenset({"rename", "delete", "create", "list", "identify", "switch",
+                              "goals_list", "goals_clear", "goal_add", "fact_add"})
+
+
+def _short_text(value: Any, maximum: int = 160) -> str | None:
+    if not isinstance(value, str) or "\x00" in value:
+        return None
+    value = value.strip()
+    return value if 0 < len(value) <= maximum else None
+
+
+def _user_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "name", "old", "text"}:
+        return None
+    operation = arguments.get("operation")
+    if operation not in _USER_OPERATIONS:
+        return None
+    result = {"operation": operation}
+    if operation in {"rename", "delete", "create", "switch"}:
+        name = _short_text(arguments.get("name"))
+        if name is None:
+            return None
+        result["name"] = name
+    if operation == "rename" and arguments.get("old") is not None:
+        old = _short_text(arguments.get("old"))
+        if old is None:
+            return None
+        result["old"] = old
+    if operation in {"goal_add", "fact_add"}:
+        text = _short_text(arguments.get("text"), 500)
+        if text is None:
+            return None
+        result["text"] = text
+    return result
+
+
+def _macro_teach_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "trigger", "actions"}:
+        return None
+    trigger = _short_text(arguments.get("trigger"), 80)
+    actions = arguments.get("actions")
+    if trigger is None or len(trigger.split()) > 5 or not isinstance(actions, list) or not 1 <= len(actions) <= 8:
+        return None
+    checked = [_short_text(action, 160) for action in actions]
+    if any(action is None for action in checked):
+        return None
+    return {"trigger": trigger, "actions": checked}
+
+
+def _macro_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "trigger"} or arguments.get("operation") not in {"list", "delete"}:
+        return None
+    result = {"operation": arguments["operation"]}
+    if result["operation"] == "delete":
+        trigger = _short_text(arguments.get("trigger"), 80)
+        if trigger is None:
+            return None
+        result["trigger"] = trigger
+    return result
+
+
+_LEARNING_OPERATIONS = frozenset({"facts.list", "pending.approve", "pending.reject",
+                                  "fact.add", "rules.list", "rule.add", "rule.delete",
+                                  "report.read"})
+
+
+def _learning_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Typed memory/rule operation; text and ordinal stay user-supplied, never inferred."""
+    if set(arguments) - {"operation", "text", "index", "original_text"}:
+        return None
+    operation = arguments.get("operation")
+    if operation not in _LEARNING_OPERATIONS:
+        return None
+    text, index = arguments.get("text"), arguments.get("index")
+    needs_text = operation in {"fact.add", "rule.add"}
+    needs_index = operation in {"pending.approve", "pending.reject", "rule.delete"}
+    if needs_text:
+        if not isinstance(text, str) or not 0 < len(text.strip()) <= 500 or "\x00" in text:
+            return None
+    elif text is not None:
+        return None
+    if needs_index:
+        if index is not None and (isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= 100):
+            return None
+    elif index is not None:
+        return None
+    result = {"operation": operation}
+    if needs_text:
+        result["text"] = text.strip()
+    if needs_index and index is not None:
+        result["index"] = index
+    return result
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    "user.manage": ("user_manage", _user_manage_args),
+    "macro.teach": ("macro_teach", _macro_teach_args),
+    "macro.manage": ("macro_manage", _macro_manage_args),
+    "learning.manage": ("learning_manage", _learning_args),
+    "git.publish": ("git_publish", _empty_action_args),
+    "system.update": ("system_update", _empty_action_args),
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
