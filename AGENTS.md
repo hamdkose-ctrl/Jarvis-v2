@@ -22,7 +22,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
-- **Model router authority:** Gerçek model çağrıları `smart_router.ModelRequest` → `RoutePlan` → adapter zincirinden geçer. Adapter yalnız kendisine verilen provider/model için tek taşıma denemesi yapar; retry, schema onarımı ve fallback aynı iki-deneme bütçesini tüketir. Prompt kelimeleri provider/model seçmez; Brain anlamı, Core yetkiyi korur.
+- **Model rotası:** `smart_router.ModelRequest` → `RoutePlan` → adapter. Model seçimi Router'a aittir; tekrar ve fallback için ortak en çok iki deneme. Core yetkiyi korur.
 
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
@@ -32,7 +32,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (14 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (22 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)

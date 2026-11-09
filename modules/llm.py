@@ -886,7 +886,11 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
         except CloudError as e:
             raise LocalModelError(str(e)) from e
     if name == "ollama":
-        return _timed("ollama", lambda: _ollama(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, model=model))
+        messages = _ohist_msgs(history) + [{"role": "user", "content": prompt}]
+        # Explicit/direct local compatibility preserves its prior model selection.
+        # Router-produced calls carry a concrete model and never invoke that helper.
+        return _timed("ollama", lambda: _ollama_task(messages, system, max_tokens, prompt)
+                      if model is None else _ollama(messages, system, max_tokens, model=model))
     if name == "cloudflare":
         from modules import cloudflare_chat
         try:
@@ -919,8 +923,11 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     def one_attempt():
         _route.tokens = None
         result = _with_models(call, model=model) if model is not None else _with_models(call)
-        usage_meter.record('gemini', chosen_model, usage_meter.size(prompt, system, history),
-                           len(result) if isinstance(result, str) else 0, tokens=getattr(_route, 'tokens', None))
+        if model is not None:
+            # Direct legacy _with_models already records usage; routed calls do not.
+            usage_meter.record('gemini', chosen_model, usage_meter.size(prompt, system, history),
+                               len(result) if isinstance(result, str) else 0,
+                               tokens=getattr(_route, 'tokens', None))
         _route.model = chosen_model
         return result
     return _timed("gemini", one_attempt)

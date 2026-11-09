@@ -417,6 +417,7 @@ def plan(request: ModelRequest) -> RoutePlan:
         try:
             model = _model_for(request.owner, provider)
         except Exception:
+            _record_failure('modules/smart_router.py:plan_model_discovery')
             # Model discovery itself is not a model invocation.  It remains a
             # transparent unavailable candidate rather than silently choosing one.
             skipped.append(_skip(provider, 'Kullanılabilir model doğrulanamadı', 'MODEL_UNAVAILABLE'))
@@ -424,7 +425,9 @@ def plan(request: ModelRequest) -> RoutePlan:
         if not model:
             skipped.append(_skip(provider, 'Model yapılandırılmamış', 'MODEL_UNAVAILABLE'))
             continue
-        features = frozenset({'text', 'structured_output'}) if provider in {'gemini', 'groq', 'cloudflare'} else frozenset({'text'})
+        # Structured output means text that our validator can parse; it does not claim
+        # native JSON schema support in the provider API (that is model-specific).
+        features = frozenset({'text', 'structured_output'})
         if not request.features <= features | {'vision'}:
             skipped.append(_skip(provider, 'Model gerekli özelliği desteklemiyor', 'MODEL_FEATURE_UNSUPPORTED', model=model))
             continue
@@ -484,12 +487,17 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
             raise
         except Exception as exc:
             _record_failure('modules/smart_router.py:run_request')
+            transport = (exc.__cause__ if spec.provider == 'ollama'
+                         and type(exc).__name__ == 'LocalModelError'
+                         and isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError))
+                         else None)
+            classified = transport or exc
             row = {'provider': spec.provider, 'model': spec.model, 'ok': False,
-                   'error': type(exc).__name__, 'kind': failure_kind(exc),
-                   'status': failure_status(exc)}
+                   'error': type(classified).__name__, 'kind': failure_kind(classified),
+                   'status': failure_status(classified)}
             if spec.provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
-                if str(exc) == llm.local_hint():
+                if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                     row['hint'] = 'ollama_missing'
             attempts.append(row)
             if type(exc).__name__ != 'ImageCapabilityError':
@@ -497,7 +505,7 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
                     _HEALTH[(request.owner, spec.provider)] = {
                         'until': time.monotonic()+cooldown(spec.provider, exc), 'error': type(exc).__name__}
             from modules import llm
-            llm.note_route(llm.provider_label(spec.provider) + ' ' + failure_text(exc) + ', sıradakine geçildi', False)
+            llm.note_route(llm.provider_label(spec.provider) + ' ' + failure_text(classified) + ', sıradakine geçildi', False)
     with _LOCK:
         _LAST[request.owner] = {'task': 'declared', 'provider': None, 'attempts': attempts,
                                 'skipped': list(route_plan.skipped)}
@@ -509,7 +517,8 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
                (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') +
                ' Ücretli modele geçilmedi.')
     if not attempts:
-        if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED' for row in route_plan.skipped):
+        if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
+               or 'anahtarı eksik' in str(row.get('reason', '')) for row in route_plan.skipped):
             raise failure_policy.ProviderExhaustedError(
                 message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
         evidence_code = next((row.get('reason_code') for row in route_plan.skipped
