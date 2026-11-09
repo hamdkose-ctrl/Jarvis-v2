@@ -35,7 +35,7 @@ _CARD_TITLE_MAX = 80
 # It must never infer a requested goal action, operation, target or owner;
 # ambiguity only prevents a destructive transition and asks for clarification.
 _NEGATED_CANCEL = re.compile(
-    r"(?<!\\w)iptal\\s+(?:etme|etmeyin|etmesin|etmeyelim|edilmesin)\\b",
+    r"(?<!\w)iptal\s+(?:etme|etmeyin|etmesin|etmeyelim|edilmesin)\b",
     re.IGNORECASE,
 )
 
