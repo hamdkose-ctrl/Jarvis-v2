@@ -20,13 +20,20 @@ try:
 except ImportError:   # eski config.py ile de çalışsın
     FALLBACK_MODELS = ()
 
-_client = genai.Client(api_key=API_KEY, http_options={"timeout": 45000}) if API_KEY else None
+def _gemini_http_options() -> dict:
+    """One physical SDK HTTP attempt; Router owns all retries and fallbacks."""
+    # Fresh per-client options: external client constructors must not mutate a
+    # shared object and change another user's attempt budget.
+    return {"timeout": 45000, "retry_options": {"attempts": 1}}
+
+
+_client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options()) if API_KEY else None
 
 
 def set_api_key(key: str) -> None:
     """Çalışırken yeni Gemini anahtarına geçer (yeniden başlatma gerekmez)."""
     global _client
-    _client = genai.Client(api_key=key.strip(), http_options={"timeout": 45000})
+    _client = genai.Client(api_key=key.strip(), http_options=_gemini_http_options())
 
 
 # ---------------------------------------------------------------- kişiye özel anahtar (isteğe bağlı)
@@ -129,7 +136,7 @@ def _cli():
         cached = _user_clients.get(slug)
         if cached is None:
             k = user_key(slug)
-            cached = (k, genai.Client(api_key=k, http_options={"timeout": 45000}) if k else None)
+            cached = (k, genai.Client(api_key=k, http_options=_gemini_http_options()) if k else None)
             _user_clients[slug] = cached
         return cached[1]
 
@@ -905,18 +912,32 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok.")
     system = privacy.redact(system)
-    cfg = types.GenerateContentConfig(
-        system_instruction=system or None,
-        max_output_tokens=max_tokens,
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),   # araç çağrısı kullanmıyoruz
-    )
+    config_options = {
+        "system_instruction": system or None,
+        "max_output_tokens": max_tokens,
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+    }
+    # Newer SDKs can continue a single send_message with extra HTTP requests.
+    # Disable that feature where available; older SDKs do not expose it.
+    if "automatic_continuation" in getattr(types.GenerateContentConfig, "model_fields", {}):
+        config_options["automatic_continuation"] = False
+    cfg = types.GenerateContentConfig(**config_options)
 
     cli = [_cli()]
 
     chosen_model = model or active_model(current_user())
     def call(router_model=None) -> str:
         chat_session = cli[0].chats.create(model=router_model or chosen_model, config=cfg, history=history)
-        resp = chat_session.send_message(prompt)
+        try:
+            resp = chat_session.send_message(prompt)
+        except Exception as exc:
+            # Routed Gemini calls otherwise lose failed attempts from the meter.
+            # Direct legacy _with_models already records its own failures.
+            if model is not None:
+                usage_meter.record('gemini', router_model or chosen_model,
+                                   usage_meter.size(prompt, system, history), 0,
+                                   usage_meter.outcome(exc))
+            raise
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 

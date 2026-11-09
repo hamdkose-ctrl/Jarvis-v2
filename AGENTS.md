@@ -22,7 +22,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
-- **Model rotası:** `smart_router.ModelRequest` → `RoutePlan` → adapter. Model seçimi Router'a aittir; tekrar ve fallback için ortak en çok iki deneme. Core yetkiyi korur.
+- **Model rotası:** `ModelRequest` → `RoutePlan` → adapter; Router retry/fallback için en çok iki fiziksel deneme yetkisidir. Gemini SDK retry/continuation kapalı tutulur, başarısız fiziksel deneme de sayılır; Core yetkiyi korur.
 
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
