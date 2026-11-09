@@ -245,6 +245,18 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
                 if capability_id == "documents.export" else "read-only system checks"}
+    if capability_id == "windows.settings.open":
+        from modules.system_control import WINDOWS_SETTINGS_PAGES
+        return {"page": sorted(WINDOWS_SETTINGS_PAGES)}
+    if capability_id == "jarvis.selfctl":
+        from modules.selfctl import PAGES
+        return {"action": {
+            "kind": ["navigate", "restart", "open_data", "setting", "ui"],
+            "navigate.page": sorted(PAGES),
+            "open_data.target": ["data", "log"],
+            "setting.key": ["wake_sensitivity", "response_speed", "wake_beep", "learn_from_chat", "live_mode", "idle_seconds", "widget", "window_mode"],
+            "ui.key": ["hologram_tone", "hologram_background", "replay", "home_animation"],
+        }}
     if capability_id == "finance.read":
         from modules import finance
         return {
@@ -296,6 +308,14 @@ _CAPABILITY_PURPOSES = {
         "runs Jarvis's own health checks and reports which parts are failing",
         "performs no repair, no setting change and no write, so a request that forbids repairing "
         "still asks for this check",
+    ),
+    "windows.settings.open": (
+        "opens one named Windows Settings page using a closed ms-settings identifier",
+        "choose only a page listed in argument_schema; Core verifies the page before Windows is contacted",
+    ),
+    "jarvis.selfctl": (
+        "navigates Jarvis, changes one safe local setting, changes an allowed UI appearance, restarts Jarvis, or opens its data path",
+        "choose one closed typed action; Core checks every kind, key and value before the adapter emits or writes",
     ),
 }
 

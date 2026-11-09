@@ -162,9 +162,9 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "learning.handle": {"modules/engine_commands.py"},
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
-        "system_control.windows_settings": {"modules/brain_precedence.py",
-                                            "modules/engine_commands.py"},
-        "selfctl.handle": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        # BRAIN-03 dilim 5: raw owners are retired. Typed Core intents are not raw doors.
+        "system_control.windows_settings": set(),
+        "selfctl.handle": set(),
         "_user_command": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         "_planner_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                              "modules/engine_tools.py"},
@@ -205,8 +205,6 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         # yukarıda bir satır olarak durmalıdır.
         from modules import brain_precedence
         gate_doors = {"file_command": "_file_command",
-                      "windows_settings": "system_control.windows_settings",
-                      "selfctl": "selfctl.handle",
                       "user_command": "_user_command",
                       "planner_command": "_planner_command",
                       "macro_teach": "_macro_teach",

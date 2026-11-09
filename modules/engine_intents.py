@@ -56,6 +56,13 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
     from modules import app_actions, requests_state
     requests_state.check()
     match intent:
+        case "windows_settings_open":
+            # Core already checked the closed page identifier; no raw sentence reaches Windows.
+            return runtime.system_control.open_windows_settings(str(a.get("page") or ""))
+        case "selfctl":
+            # Typed Core payload only: selfctl never reparses command text.
+            from modules import selfctl
+            return selfctl.execute(a, runtime.emit)
         case "document_export":
             from pathlib import Path
             from modules.brain_context import document_fingerprint

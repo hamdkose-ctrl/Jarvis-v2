@@ -749,9 +749,68 @@ def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {}
 
 
+def _windows_settings_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core owns the closed ms-settings page allowlist; the adapter receives no utterance."""
+    if set(arguments) - {"page", "original_text"}:
+        return None
+    page = arguments.get("page")
+    from modules.system_control import WINDOWS_SETTINGS_PAGES
+    return {"page": page} if isinstance(page, str) and page in WINDOWS_SETTINGS_PAGES else None
+
+
+def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate a typed Jarvis-control action without reclassifying its source sentence."""
+    if set(arguments) - {"action", "original_text"}:
+        return None
+    action = arguments.get("action")
+    if not isinstance(action, Mapping) or not isinstance(action.get("kind"), str):
+        return None
+    kind = action["kind"]
+    if kind == "navigate":
+        from modules.selfctl import PAGES
+        page = action.get("page")
+        return {"kind": kind, "page": page} if set(action) == {"kind", "page"} and page in PAGES else None
+    if kind == "restart":
+        return {"kind": kind} if set(action) == {"kind"} else None
+    if kind == "open_data":
+        return {"kind": kind, "target": action.get("target")} if set(action) == {"kind", "target"} and action.get("target") in {"data", "log"} else None
+    if kind == "setting":
+        if set(action) != {"kind", "key", "value"}:
+            return None
+        key, value = action.get("key"), action.get("value")
+        if key == "wake_sensitivity" and ((isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 5) or value in {"increase", "decrease"}):
+            return dict(action)
+        if key == "response_speed" and value in {"fast", "balanced", "patient"}:
+            return dict(action)
+        if key in {"wake_beep", "learn_from_chat", "live_mode", "widget"} and isinstance(value, bool):
+            return dict(action)
+        if key == "window_mode" and value in {"full", "window"}:
+            return dict(action)
+        if key == "idle_seconds" and isinstance(value, int) and not isinstance(value, bool) and 15 <= value <= 600:
+            return dict(action)
+        return None
+    if kind == "ui":
+        if set(action) != {"kind", "key", "value"}:
+            return None
+        key, value = action.get("key"), action.get("value")
+        if key == "hologram_tone" and value in {"blue", "turquoise", "yellow"}:
+            return dict(action)
+        if key == "hologram_background" and value in {"lava", "mountains"}:
+            return dict(action)
+        if key == "replay" and value is True:
+            return dict(action)
+        if key == "home_animation" and isinstance(value, bool):
+            return dict(action)
+    return None
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    # BRAIN-03 dilim 5: Windows page and Jarvis-control semantics are model proposals;
+    # Core checks the closed typed payload and adapters never receive raw command text.
+    "windows.settings.open": ("windows_settings_open", _windows_settings_args),
+    "jarvis.selfctl": ("selfctl", _selfctl_args),
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
