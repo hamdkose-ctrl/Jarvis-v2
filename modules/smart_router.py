@@ -32,6 +32,10 @@ class ModelRequest:
     request_id: str = ''
     needs_call: bool = True
     features: frozenset[str] = frozenset({'text'})
+    # These advanced claims require a time-bound, developer-maintained exact-model
+    # evidence record; legacy structured_output only means app-side validation.
+    native_features: frozenset[str] = frozenset()
+    min_context_tokens: int | None = None
     response_schema: dict[str, Any] | None = None
     max_output_tokens: int = 2000
     deadline: float | None = None
@@ -407,6 +411,10 @@ def plan(request: ModelRequest) -> RoutePlan:
     """Make the complete, observable route plan without performing network I/O."""
     if not request.needs_call:
         return RoutePlan((), (), 0)
+    from modules import model_capabilities
+    # Reject malformed requirements before discovering or contacting any model.
+    model_capabilities.check('', '', native_features=request.native_features,
+                             min_context_tokens=request.min_context_tokens)
     if request.max_network_attempts < 1 or request.max_network_attempts > 2:
         raise ValueError('Toplam ağ denemesi 1 veya 2 olmalı.')
     unknown = set(request.exclude_providers) - (_CLOUD_PROVIDERS | {'ollama'})
@@ -432,14 +440,23 @@ def plan(request: ModelRequest) -> RoutePlan:
         if not model:
             skipped.append(_skip(provider, 'Model yapılandırılmamış', 'MODEL_UNAVAILABLE'))
             continue
-        # Structured output means text that our validator can parse; it does not claim
-        # native JSON schema support in the provider API (that is model-specific).
+        # App-side schema validator is *not* native provider JSON schema support.
         features = frozenset({'text', 'structured_output'})
         if not request.features <= features | {'vision'}:
-            skipped.append(_skip(provider, 'Model gerekli özelliği desteklemiyor', 'MODEL_FEATURE_UNSUPPORTED', model=model))
+            skipped.append(_skip(provider, 'Model gerekli özelliği desteklemiyor',
+                                 'MODEL_FEATURE_UNSUPPORTED', model=model))
             continue
-        specs.append(ModelSpec(provider, model, output_limit=request.max_output_tokens,
-                               features=features, usage_class='local' if provider == 'ollama' else 'free'))
+        assessed = model_capabilities.check(
+            provider, model, native_features=request.native_features,
+            min_context_tokens=request.min_context_tokens,
+            requested_output=request.max_output_tokens)
+        if not assessed['ok']:
+            skipped.append(_skip(provider, assessed['reason'], assessed['reason_code'], model=model))
+            continue
+        specs.append(ModelSpec(provider, model, context_limit=assessed['context_limit'],
+                               output_limit=request.max_output_tokens,
+                               features=features | assessed['features'],
+                               usage_class='local' if provider == 'ollama' else 'free'))
     return RoutePlan(tuple(specs), tuple(skipped), request.max_network_attempts)
 
 
