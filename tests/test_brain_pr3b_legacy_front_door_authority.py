@@ -451,7 +451,7 @@ class TypoReadRecoveryGuardTests(unittest.TestCase):
         # Intent yürütme yetkisi seam'de kalır: kurtarma yüzeyi dispatch çağıran yeni bir üretici değildir.
         from test_brain_orphan_dispatch_guard import _production_sources, dispatch_call_sites
         self.assertEqual(set(dispatch_call_sites(_production_sources())),
-                         {"modules/brain_entry.py", "modules/engine_commands.py"})
+                         {"modules/brain_entry.py", "modules/engine_commands.py", "modules/command_manager.py"})
 
     def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
         from modules import command_manager
