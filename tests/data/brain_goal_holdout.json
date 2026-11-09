@@ -1,0 +1,436 @@
+{
+  "version": 1,
+  "note": "Synthetic owner-bounded goals; evaluation only; never dispatch.",
+  "cases": [
+    {
+      "id": "g05-01",
+      "group": "create",
+      "text": "Yeni bir hedef aç: müşteri sunumu hazırlayacağım.",
+      "goals": [],
+      "expected": {
+        "operation": "create_goal",
+        "targets": [],
+        "goal_card": true
+      }
+    },
+    {
+      "id": "g05-02",
+      "group": "create",
+      "text": "Takip edeceğim yeni hedefim proje dokümantasyonu yazmak.",
+      "goals": [],
+      "expected": {
+        "operation": "create_goal",
+        "targets": [],
+        "goal_card": true
+      }
+    },
+    {
+      "id": "g05-03",
+      "group": "continue",
+      "text": "Sunum taslağı hedefinden devam et.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "continue_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-04",
+      "group": "continue",
+      "text": "Bütçe tablosu işini sürdür.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "continue_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-05",
+      "group": "continue",
+      "text": "İki iş var; bütçe tablosu üzerinde çalışmaya devam et.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "continue_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-06",
+      "group": "pause",
+      "text": "Sunum taslağı işini duraklat.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "pause_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-07",
+      "group": "pause",
+      "text": "Bütçe tablosunu şimdilik beklet.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "pause_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-08",
+      "group": "resume",
+      "text": "Durdurduğumuz sunum taslağına yeniden başla.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "paused"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "resume_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-09",
+      "group": "resume",
+      "text": "Bütçe tablosu hedefinin duraklamasını kaldır.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "paused"
+        }
+      ],
+      "expected": {
+        "operation": "resume_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-10",
+      "group": "cancel",
+      "text": "Sunum taslağı hedefini iptal et, bütçe tablosuna dokunma.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "cancel_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-11",
+      "group": "cancel",
+      "text": "Bütçe tablosu hedefini tamamen iptal et.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "cancel_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-12",
+      "group": "prioritize",
+      "text": "Bütçe tablosu hedefinin önceliğini artır.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "prioritize_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-13",
+      "group": "prioritize",
+      "text": "Sunum taslağını diğer işten daha öncelikli tut.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "prioritize_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-14",
+      "group": "revise",
+      "text": "Sunum taslağı hedefini değiştir: artık yatırımcı sunumu olacak.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "revise_goal",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-15",
+      "group": "revise",
+      "text": "Bütçe tablosu hedefini gelecek çeyreğin bütçesi olarak güncelle.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "revise_goal",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-16",
+      "group": "add_task",
+      "text": "Sunum taslağı hedefine görselleri hazırlama adımı ekle.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "add_task",
+        "targets": [
+          "aaaaaaaaaaaaaaaa"
+        ]
+      }
+    },
+    {
+      "id": "g05-17",
+      "group": "add_task",
+      "text": "Bütçe tablosu hedefine masrafları doğrulama görevini ekle.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "add_task",
+        "targets": [
+          "bbbbbbbbbbbbbbbb"
+        ]
+      }
+    },
+    {
+      "id": "g05-18",
+      "group": "ambiguity",
+      "text": "Şu hedefi duraklat.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "clarify",
+        "targets": []
+      }
+    },
+    {
+      "id": "g05-19",
+      "group": "ambiguity",
+      "text": "İkisi arasından birini iptal et.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "clarify",
+        "targets": []
+      }
+    },
+    {
+      "id": "g05-20",
+      "group": "negation",
+      "text": "Sunum taslağı hedefini iptal etme, sadece bunun anlamını anlat.",
+      "goals": [
+        {
+          "id": "aaaaaaaaaaaaaaaa",
+          "title": "sunum taslağı",
+          "state": "running"
+        },
+        {
+          "id": "bbbbbbbbbbbbbbbb",
+          "title": "bütçe tablosu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "chat",
+        "targets": []
+      }
+    }
+  ]
+}
