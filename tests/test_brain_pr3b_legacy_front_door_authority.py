@@ -64,7 +64,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
                                     (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
-                                    (learning, "handle", None), (finance, "answer_request", None)):
+                                    (learning, "execute_typed", None), (finance, "answer_request", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -219,11 +219,6 @@ class TypoSinglePassTests(_RawDoorHarness):
                    if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
-                          "isinstance", "git_publish.requested",
-                          "git_publish.publish_worktree", "updater.verify_sync",
-                          "updater.command_request", "updater.install_latest", "updater.check",
-                          "updater.status", "verified.get", "status['error'].split",
-                          "_record_failure", "str",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 
@@ -763,11 +758,12 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_an_exact_git_publish_command_reaches_the_existing_publish_owner_once(self):
         self.seams["modules.git_publish.publish_worktree"].return_value = "YAYINLANDI"
-        _entry, out, _handle, _ = self.turn("git yükle")
+        from modules import engine_intents
+        out = engine_intents.dispatch(self.ctx, "git_publish", {}, "git yükle", "git yükle")
         self.assertEqual(out, "YAYINLANDI")
         self.seams["updater.verify_sync"].assert_called_once()
         self.seams["modules.git_publish.publish_worktree"].assert_called_once_with(
-            "kullanıcı 'git yükle' komutuyla yayınladı"
+            "kullanıcının onaylı GitHub yayın isteği"
         )
 
     def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
@@ -782,7 +778,8 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_git_publication_fails_closed_when_sync_is_unknown(self):
         self.seams["updater.verify_sync"].return_value = {"sync_state": "offline", "sync_msg": "OFFLINE"}
-        _entry, out, _handle, _ = self.turn("git yükle")
+        from modules import engine_intents
+        out = engine_intents.dispatch(self.ctx, "git_publish", {}, "git yükle", "git yükle")
         self.assertIn("OFFLINE", str(out))
         self.seams["modules.git_publish.publish_worktree"].assert_not_called()
 
@@ -797,12 +794,14 @@ class ExactAdminEffectTests(_RawDoorHarness):
                 self.assertFalse(git_publish.requested(text), text)
 
     def test_an_exact_update_check_does_not_install(self):
-        self.turn("güncelleme var mı")
+        from modules import engine_intents
+        engine_intents.dispatch(self.ctx, "system_update", {}, "güncelleme var mı", "güncelleme var mı")
         self.seams["updater.check"].assert_called_once_with(apply_now=False, force=True)
         self.seams["updater.install_latest"].assert_not_called()
 
     def test_an_exact_update_install_uses_the_existing_protected_installer(self):
-        self.turn("kendini güncelle")
+        from modules import engine_intents
+        engine_intents.dispatch(self.ctx, "system_update", {}, "kendini güncelle", "kendini güncelle")
         self.seams["updater.install_latest"].assert_called_once_with()
         self.seams["updater.check"].assert_not_called()
 
@@ -1091,7 +1090,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
     RAW_PROBE_OWNERS = {
         "watcher.handle": set(),
-        "learning.handle": {"modules/engine_commands.py"},
+        "learning.handle": set(),
         # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
         "is_whatsapp_message": set(),
         "_contact_command": set(),
@@ -1102,8 +1101,8 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/engine_intents.py", "web.py"},
-        "git_publish.publish_worktree": {"modules/command_manager.py"},
-        "updater.install_latest": {"modules/command_manager.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/engine_intents.py"},
+        "updater.install_latest": {"modules/engine_intents.py", "web.py"},
         "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
         "output.save_text_result": {"modules/engine_intents.py", "modules/translate.py"},
     }

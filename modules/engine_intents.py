@@ -91,7 +91,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return learning.execute_typed(runtime.profile, a)
         case "git_publish":
             # Exact admin protocol is a domain safety boundary, not an intent recognizer.
-            from modules import git_publish, updater
+            from modules import git_publish
+            import updater
             if not git_publish.requested(command):
                 return "GitHub yayını için açık ve tam ‘git yükle’ komutunu yaz."
             try:

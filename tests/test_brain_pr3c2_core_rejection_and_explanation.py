@@ -229,13 +229,9 @@ class DomainOwnerRegressionTests(_Pr3c2Harness):
         self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
         self.assertTrue(self.seams["modules.pc_guide.handle"].called)
 
-    def test_rule_teaching_still_reaches_learning(self):
-        self.reset()
-        self.seams["modules.learning.handle"].return_value = "KURAL"
-        entry, out, _handle, _ = self.turn("kural ekle: her sabah su iç")
-        self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
-        self.seams["modules.learning.handle"].assert_called_once()
-        self.assertEqual(out, "KURAL")
+    def test_rule_teaching_has_no_legacy_learning_door(self):
+        from modules import learning
+        self.assertFalse(hasattr(learning, "handle"))
 
     def test_an_alarm_sentence_keeps_the_raw_domain_owner(self):
         self.reset()
