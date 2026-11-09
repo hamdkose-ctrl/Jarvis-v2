@@ -91,7 +91,7 @@ class RoutingPolicyTests(unittest.TestCase):
     # ---- llm.research / provenance -------------------------------------------------------------
     def capture(self):
         sent = []
-        def fake(name, prompt, system, tokens, history):
+        def fake(name, prompt, system, tokens, history, *, model=None):
             sent.append((name, prompt, system, history))
             return 'cevap'
         return sent, patch.object(llm, '_send_provider', side_effect=fake)
@@ -124,7 +124,7 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_chat_with_history_never_reaches_gemini_even_when_everything_fails(self):
         seen = []
-        def fail(name, *a):
+        def fail(name, *a, **kwargs):
             seen.append(name)
             raise llm.LocalModelError('x')
         with patch.object(llm, '_send_provider', side_effect=fail):

@@ -920,6 +920,8 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
+    call.chars_in = usage_meter.size(prompt, system, history)
+    call.kind = 'gemini'
     def one_attempt():
         _route.tokens = None
         result = _with_models(call, model=model) if model is not None else _with_models(call)
@@ -986,10 +988,25 @@ def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=Non
     if validator is not None:
         def checked(name, model=None):
             return _send_provider(name, prompt, system, max_tokens, None, model=model)
-        if provider() in _PAID or provider() == 'ollama':
+        if provider() in _PAID:
             answer = checked(provider())
             validator(answer)
             return answer
+        if provider() == 'ollama':
+            # Explicit local model stays local. A validator repair is a second
+            # request to the SAME provider, bounded by the shared two-attempt policy.
+            for attempt in range(2):
+                requests_state.check()
+                answer = checked('ollama')
+                requests_state.check()
+                try:
+                    validator(answer)
+                except (ValueError, TypeError):
+                    if attempt == 0:
+                        continue
+                    raise
+                requests_state.check()
+                return answer
         from modules import smart_router
         request = smart_router.ModelRequest(owner=current_user(), route=route,
             max_output_tokens=max_tokens, features=frozenset({'text', 'structured_output'}))
