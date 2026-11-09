@@ -8,12 +8,21 @@ from __future__ import annotations
 
 import json
 
-from modules import failure_policy, usage_meter
+from modules import failure_policy, requests_state, usage_meter
 from modules.diagnostics import record_failure as _record_failure
 from modules.image_gen import user_cloudflare_account, user_cloudflare_token
 
 MODEL = "@cf/meta/llama-3.1-8b-instruct"
 _TIMEOUT = (5, 30)
+
+
+def _bounded_timeouts():
+    """Cap socket timeouts by the request's remaining budget, not a new deadline."""
+    remaining = requests_state.budget_remaining()
+    if remaining is None:
+        return _TIMEOUT
+    ceiling = max(.05, remaining)
+    return tuple(min(t, ceiling) for t in _TIMEOUT)
 
 
 class CloudflareChatError(RuntimeError):
@@ -50,8 +59,9 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
     if session is None:
         import requests
         session = requests
+    requests_state.check()
     try:
-        resp = session.post(url, headers=headers, data=json.dumps(body), timeout=_TIMEOUT)
+        resp = session.post(url, headers=headers, data=json.dumps(body), timeout=_bounded_timeouts())
     except Exception as exc:
         _record_failure('modules/cloudflare_chat.py:chat:request')
         category = failure_policy.classify(exc)
@@ -78,4 +88,5 @@ def chat(messages: list[dict], system: str = "", max_tokens: int = 512, *, slug:
         usage_meter.record('cloudflare', model, chars_in, 0, 'bos', owner=slug)
         raise CloudflareChatError("Cloudflare boş yanıt döndürdü.", "EMPTY_RESPONSE")
     usage_meter.record('cloudflare', model, chars_in, len(text), 'ok', owner=slug)
+    requests_state.check()  # late replies are metered but never adopted
     return text

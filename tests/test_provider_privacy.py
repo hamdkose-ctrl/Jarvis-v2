@@ -268,6 +268,39 @@ class CloudflareChatTests(unittest.TestCase):
         self.assertEqual(ctx.exception.reason_code, "EMPTY_PROMPT")
         self.assertEqual(session.calls, [])
 
+    def test_http_timeouts_shrink_to_shared_request_budget(self):
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'budget_remaining', return_value=2.5), \
+             patch.object(cloudflare_chat.requests_state, 'check'):
+            self.assertEqual(self.run_chat(session), "ok")
+        self.assertEqual(session.calls[0][1]['timeout'], (2.5, 2.5))
+        another = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'budget_remaining', return_value=None), \
+             patch.object(cloudflare_chat.requests_state, 'check'):
+            self.assertEqual(self.run_chat(another), "ok")
+        self.assertEqual(another.calls[0][1]['timeout'], (5, 30))
+
+    def test_expired_or_cancelled_request_cannot_send(self):
+        from modules import requests_state
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'check',
+                          side_effect=requests_state.LocalDeadline('expired')):
+            with self.assertRaises(requests_state.LocalDeadline):
+                self.run_chat(session)
+        self.assertEqual(session.calls, [])
+
+    def test_late_success_is_metered_once_but_not_adopted(self):
+        from modules import requests_state
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'check',
+                          side_effect=[None, requests_state.LocalDeadline('expired')]), \
+             patch.object(cloudflare_chat.usage_meter, 'record') as record:
+            with self.assertRaises(requests_state.LocalDeadline):
+                self.run_chat(session)
+        self.assertEqual(len(session.calls), 1)
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[4], 'ok')
+
     def test_max_tokens_is_bounded(self):
         session = _Session(_Resp(payload={"result": {"response": "ok"}}))
         cloudflare_chat.chat([{"role": "user", "content": "x"}], max_tokens=10**9, slug="alice", _session=session)
