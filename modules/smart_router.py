@@ -433,6 +433,20 @@ def plan(request: ModelRequest) -> RoutePlan:
     return RoutePlan(tuple(specs), tuple(skipped), request.max_network_attempts)
 
 
+
+def _check_request(request: ModelRequest) -> None:
+    """Enforce the canonical budget and per-request cancellation/deadline."""
+    requests_state.check()
+    if request.cancelled is not None:
+        is_set = getattr(request.cancelled, 'is_set', None)
+        if not callable(is_set):
+            raise TypeError('cancelled must provide is_set()')
+        if is_set():
+            raise requests_state.Cancelled('Model isteği iptal edildi; yanıt uygulanmadı.')
+    if request.deadline is not None and time.monotonic() >= request.deadline:
+        raise requests_state.LocalDeadline('İstek süre bütçesi doldu; geç yanıt uygulanmadı.')
+
+
 def run_request(request: ModelRequest, adapter: ProviderAdapter,
                 *, validator: Callable[[str], Any] | None = None) -> RouteResult:
     """Execute a plan with one authority for retry, repair and fallback.
@@ -442,20 +456,22 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
     or fallback.  Cooperative cancellation/deadline checks happen before and
     after every adapter return, so a late answer is never adopted.
     """
+    _check_request(request)
     route_plan = plan(request)
     attempts: list[dict] = []
     started = time.monotonic()
     for spec in route_plan.candidates:
         if len(attempts) >= route_plan.max_network_attempts:
             break
-        requests_state.check()
+        _check_request(request)
         try:
             text = adapter(spec)
-            requests_state.check()
+            _check_request(request)
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Boş model yanıtı.')
             if validator is not None:
                 validator(text)
+            _check_request(request)
             attempts.append({'provider': spec.provider, 'model': spec.model, 'ok': True,
                              'seconds': round(time.monotonic() - started, 2)})
             with _LOCK:
@@ -488,10 +504,20 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
     from modules import failure_policy
     detail = '; '.join(failure_detail(row) for row in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok.'
     omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in route_plan.skipped)
-    raise failure_policy.ProviderExhaustedError(
-        'Uygun model iki deneme sınırında yanıt veremedi. ' + detail +
-        (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') + ' Ücretli modele geçilmedi.',
-        reason_code='PROVIDER_POOL_EXHAUSTED', recovery_class='fail_closed')
+    message = ('Uygun model en çok ' + str(route_plan.max_network_attempts) +
+               ' deneme sınırında yanıt veremedi. ' + detail +
+               (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') +
+               ' Ücretli modele geçilmedi.')
+    if not attempts:
+        if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED' for row in route_plan.skipped):
+            raise failure_policy.ProviderExhaustedError(
+                message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
+        evidence_code = next((row.get('reason_code') for row in route_plan.skipped
+                              if str(row.get('reason_code', '')).startswith('PROVIDER_FREE_TIER_')), None)
+        if evidence_code:
+            raise failure_policy.ProviderExhaustedError(
+                message, reason_code=evidence_code, recovery_class='user_action_required')
+    raise failure_policy.ProviderExhaustedError(message)
 
 
 def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=()):

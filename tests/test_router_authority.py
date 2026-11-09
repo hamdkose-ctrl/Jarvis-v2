@@ -43,5 +43,43 @@ class RouterAuthorityTests(unittest.TestCase):
         self.assertEqual(router._LAST, {})
 
 
+    def test_cancelled_request_rejects_adapter_invocation(self):
+        from unittest.mock import Mock
+        cancelled = Mock()
+        cancelled.is_set.return_value = True
+        request = router.ModelRequest(owner='alice', cancelled=cancelled)
+        adapter = Mock(return_value='answer')
+        planned = router.RoutePlan((router.ModelSpec('groq', 'm'),), (), 2)
+        with patch.object(router, 'plan', return_value=planned):
+            with self.assertRaises(requests_state.Cancelled):
+                router.run_request(request, adapter)
+        adapter.assert_not_called()
+
+    def test_explicit_deadline_rejects_late_reply(self):
+        request = router.ModelRequest(owner='alice', deadline=10.0)
+        planned = router.RoutePlan((router.ModelSpec('groq', 'm'),), (), 2)
+        checks = []
+        def check(_):
+            checks.append(True)
+            if len(checks) >= 3:
+                raise requests_state.LocalDeadline('expired')
+        with patch.object(router, 'plan', return_value=planned), patch.object(router, '_check_request', side_effect=check):
+            with self.assertRaises(requests_state.LocalDeadline):
+                router.run_request(request, lambda spec: 'late reply')
+        self.assertEqual(router._LAST, {})
+        self.assertEqual(router._HEALTH, {})
+
+    def test_missing_evidence_retains_reason_code(self):
+        from modules.failure_policy import ProviderExhaustedError
+        request = router.ModelRequest(owner='alice')
+        skipped = ({'provider': 'groq', 'reason': 'missing evidence',
+                    'reason_code': 'PROVIDER_FREE_TIER_EVIDENCE_MISSING'},)
+        planned = router.RoutePlan((), skipped, 2)
+        with patch.object(router, 'plan', return_value=planned):
+            with self.assertRaises(ProviderExhaustedError) as caught:
+                router.run_request(request, lambda _: 'unexpected')
+        self.assertEqual(caught.exception.reason_code, 'PROVIDER_FREE_TIER_EVIDENCE_MISSING')
+        self.assertEqual(caught.exception.recovery_class, 'user_action_required')
+
 if __name__ == '__main__':
     unittest.main()

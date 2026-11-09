@@ -82,6 +82,9 @@ Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Mi
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
+**Router tek-attempt refactor dilimi, PR #540 (9 Kasım 2026, açık):** Provider+model kararı Router'da toplanıyor; validator/retry/fallback ortak en çok iki-deneme zarfına alınıyor. Bu, tam Router ürün planının kapanışı **değildir**. Model bazlı RPM/RPD/TPM/TPD rezervasyonu, özel sağlayıcı UI/config/adapter hattı, model kapasite doğrulaması ve SDK yeniden denemeleri dahil gerçek ağ sayımı ayrı açıktır. Mevcut PRIVATE_GENERAL ve strict free-tier evidence sınırları korunmalıdır. Exact-head Windows CI/watcher ve canlı model kabulü beklenmektedir.
+
+
 **Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor. #437 ile tarihli haber isteği kota sırasını beklerken iş kaydı açılıyor ve keşif/doğrulama/teslim modelsiz yürüyor; bu fazın haber kolu kod+CI aşamasında, canlı PC kabulü bekliyor; `news_recovery` sohbet teslimi artık haber hattının doğruladığı adresleri mühürlüyor.**
 
 Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa asistan yine çalışır. İstikrar yoksa zamanlama veya worker eklemek anlamsız.

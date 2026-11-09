@@ -892,7 +892,7 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
         try:
             return _timed("cloudflare", lambda: cloudflare_chat.chat(
                 _ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
-                privacy.redact(system), max_tokens, slug=current_user()))
+                privacy.redact(system), max_tokens, slug=current_user(), model=model or cloudflare_chat.MODEL))
         except cloudflare_chat.CloudflareChatError as e:
             raise LocalModelError(str(e)) from e
     if name != "gemini":
