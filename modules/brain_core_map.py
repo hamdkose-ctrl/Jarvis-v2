@@ -812,12 +812,60 @@ def _macro_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+
+_LEARNING_OPERATIONS = frozenset({
+    "facts.list", "pending.approve", "pending.reject", "fact.add",
+    "fact.edit", "fact.forget", "rules.list", "rule.add", "rule.delete", "report.read",
+})
+
+
+def _learning_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only Core-typed learning operations; all-scope is State Gate-owned, not model-owned."""
+    if set(arguments) - {"original_text", "operation", "text", "old", "index"}:
+        return None
+    operation = arguments.get("operation")
+    if not isinstance(operation, str) or operation not in _LEARNING_OPERATIONS:
+        return None
+    text, old, index = arguments.get("text"), arguments.get("old"), arguments.get("index")
+    needs_text = operation in {"fact.add", "fact.edit", "rule.add"}
+    needs_old = operation in {"fact.edit", "fact.forget"}
+    needs_index = operation in {"pending.approve", "pending.reject", "rule.delete"}
+    if needs_text:
+        text = _short_text(text, 500)
+        if text is None:
+            return None
+    elif text is not None:
+        return None
+    if needs_old:
+        old = _short_text(old, 500)
+        if old is None:
+            return None
+    elif old is not None:
+        return None
+    if needs_index:
+        if type(index) is not int or not 1 <= index <= 100:
+            return None
+    elif index is not None:
+        return None
+    result: dict[str, Any] = {"operation": operation}
+    if needs_text:
+        result["text"] = text
+    if needs_old:
+        result["old"] = old
+    if needs_index:
+        result["index"] = index
+    return result
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
     "user.manage": ("user_manage", _user_manage_args),
     "macro.teach": ("macro_teach", _macro_teach_args),
     "macro.manage": ("macro_manage", _macro_manage_args),
+    "learning.manage": ("learning_manage", _learning_args),
+    "git.publish": ("git_publish", _empty_action_args),
+    "system.update": ("system_update", _empty_action_args),
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
@@ -901,7 +949,29 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
     return intent, dict(args)
 
 
-def state_plan(protocol: str | None, selection: Any, level: Any) -> tuple[str, dict[str, Any]] | None:
+def state_plan(protocol: str | None, selection: Any, level: Any,
+               pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
+    if protocol == "learning.pending_facts.select":
+        if not isinstance(selection, str) or not isinstance(pending_snapshot, (list, tuple)) or not pending_snapshot:
+            return None
+        if any(not isinstance(value, str) for value in pending_snapshot):
+            return None
+        action, sep, which = selection.partition(":")
+        if not sep or action not in {"approve", "reject"}:
+            return None
+        operation = "pending.approve" if action == "approve" else "pending.reject"
+        if which == "all":
+            index = None
+        elif which.isascii() and which.isdecimal() and 1 <= int(which) <= len(pending_snapshot):
+            index = int(which)
+        else:
+            return None
+        return ("learning_manage", {
+            "operation": operation,
+            "_state_selection": selection,
+            "_pending_snapshot": tuple(pending_snapshot),
+            **({"index": index} if index is not None else {}),
+        })
     if protocol != LEVEL_SELECT_PROTOCOL or selection not in _LEVEL_PROPERTIES:
         return None
     if isinstance(level, bool) or not isinstance(level, int):

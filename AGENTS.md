@@ -213,4 +213,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
-- Brain model kararı/netleştirme, çıktı/teşhis ve semantik kabul: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro ve ses/paylaşım: alan notu.
+- Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.

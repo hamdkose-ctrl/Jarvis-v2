@@ -229,13 +229,12 @@ class DomainOwnerRegressionTests(_Pr3c2Harness):
         self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
         self.assertTrue(self.seams["modules.pc_guide.handle"].called)
 
-    def test_rule_teaching_still_reaches_learning(self):
+    def test_rule_teaching_does_not_reactivate_legacy_learning_parser(self):
         self.reset()
-        self.seams["modules.learning.handle"].return_value = "KURAL"
-        entry, out, _handle, _ = self.turn("kural ekle: her sabah su iç")
+        entry, _out, _handle, _ = self.turn("kural ekle: her sabah su iç")
         self.assertNotIn(EXPLANATION_REQUEST_CODE, self.codes(entry))
-        self.seams["modules.learning.handle"].assert_called_once()
-        self.assertEqual(out, "KURAL")
+        # No model proposal in this deterministic harness: it cannot authorize a write.
+        self.seams["modules.learning.execute_typed"].assert_not_called()
 
     def test_an_alarm_sentence_keeps_the_raw_domain_owner(self):
         self.reset()

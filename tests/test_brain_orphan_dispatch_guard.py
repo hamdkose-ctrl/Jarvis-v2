@@ -23,7 +23,8 @@ INTENTS_FILE = MODULES / "engine_intents.py"
 
 # The only production files allowed to call engine_intents.dispatch, and therefore the only
 # places a dispatch intent can be produced. Anything else is a second semantic authority.
-AUDITED_CALL_SITES = frozenset({"modules/brain_entry.py", "modules/engine_commands.py"})
+AUDITED_CALL_SITES = frozenset({"modules/brain_entry.py", "modules/engine_commands.py",
+                                "modules/command_manager.py"})
 DISPATCH_ARITY = 5  # dispatch(runtime, intent, a, command, cmd_lower)
 
 # Physical-removal evidence for the cleanup PR: none of these may exist as a dispatch case or
@@ -181,6 +182,7 @@ class ProducerAndCaseExtractionTests(unittest.TestCase):
             core_intent_targets(core_map) | fast_intent_targets(core_map)
             | literal_intents_in(self.sources["modules/brain_entry.py"])
             | literal_intents_in(self.sources["modules/engine_commands.py"])
+            | literal_intents_in(self.sources["modules/command_manager.py"])
             | {"chat"},
         )
 
