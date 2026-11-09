@@ -46,11 +46,8 @@ class RouterPhysicalAttemptTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         send.assert_called_once_with("prompt")
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0].args[:5], ("gemini", "router-selected", 12, 2, "ok")[:4] + ("ok",) if False else
-                         ("gemini", "router-selected", 12, 2, "ok"))
-        # Config never allows a continuation loop on SDK versions that expose the option.
-        config = llm.types.GenerateContentConfig
-        self.assertIn("automatic_function_calling", config.model_fields)
+        self.assertEqual(calls[0].args, ("gemini", "router-selected", 12, 2))
+        self.assertEqual(calls[0].kwargs.get("tokens"), None)
 
     def test_routed_failed_http_attempt_is_metered_once_and_rethrown(self):
         problem = llm.errors.ClientError(
