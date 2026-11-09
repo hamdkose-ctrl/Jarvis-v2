@@ -67,6 +67,9 @@ class GoalHoldoutTests(unittest.TestCase):
         self.assertIn('COPY current.conversation_relation exactly', sent)
         self.assertIn('For continue_goal, revise_goal, add_task', sent)
         self.assertIn('FINAL JSON CONTRACT CHECK', sent)
+        self.assertIn('GOAL PRIORITY VS REVISION', sent)
+        self.assertIn('GOAL NEGATION SAFETY', sent)
+        self.assertIn("the ONLY allowed operation is chat", sent)
 
     def test_dry_run_never_checks_credentials_or_sends_models(self):
         with patch.object(goal.base,'preflight',side_effect=AssertionError('should not run')), \

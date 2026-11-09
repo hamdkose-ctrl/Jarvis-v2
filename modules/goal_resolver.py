@@ -18,6 +18,7 @@ kontrol cümlesi yazılmaz).
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from modules.brain_contracts import GoalOperation
@@ -30,6 +31,13 @@ _SINGLE_TARGET = frozenset({
 #: Salt sürdürme: `goal_executor.RESUME_COMMANDS` içinde olduğu için cevap kanalını kirletmez.
 _CONTINUE_TOKEN = "hedef devam"
 _CARD_TITLE_MAX = 80
+# Deny-only constraint on unmistakable explicit cancellation prohibitions.
+# It must never infer a requested goal action, operation, target or owner;
+# ambiguity only prevents a destructive transition and asks for clarification.
+_NEGATED_CANCEL = re.compile(
+    r"(?<!\\w)iptal\\s+(?:etme|etmeyin|etmesin|etmeyelim|edilmesin)\\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -85,6 +93,15 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
     targets = tuple(getattr(understanding, "goal_target_ids", ()) or ())
     cards = _cards(entry)
     text = str(entry.text or "").strip()
+
+    # The model can return a well-formed but semantically inverted cancel
+    # proposal. A literal user prohibition is never permission to delete.
+    # Refuse without touching any goal; do not turn this regex into an
+    # alternative classifier, target selector or authorization source.
+    if operation is GoalOperation.CANCEL and _NEGATED_CANCEL.search(text):
+        return _question("İptal etmeme yönündeki ifadeni gördüm; hiçbir hedef iptal edilmedi. "
+                         "Hedefi gerçekten iptal etmek istiyorsan açıkça belirt.",
+                         "GOAL_CANCELLATION_NEGATED")
 
     if operation is GoalOperation.CREATE:
         # Kart modelin "yeni hedef" niyetinin taşıyıcısıdır; kalıcı hedef cümlesi ise

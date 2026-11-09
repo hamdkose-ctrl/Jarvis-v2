@@ -342,6 +342,27 @@ class GoalResolverTests(unittest.TestCase):
         self.assertEqual(goal_executor.read_job(OWNER, second)["state"], "paused")
         self.assertEqual(goal_executor.read_job(OWNER, first), before)
 
+    def test_explicit_cancel_negation_blocks_model_proposed_effect(self):
+        ident = self.seed("planlama hedefi")
+        before = goal_executor.read_job(OWNER, ident)
+        for words in (
+            "Planlama hedefini iptal etme, sadece anlamını anlat.",
+            "Planlama hedefini iptal etmeyin; ne anlama geliyor?",
+            "Planlama hedefi iptal edilmesin, bunu açıkla.",
+        ):
+            with self.subTest(words=words):
+                result = self.resolve(GoalOperation.CANCEL, (ident,), text=words)
+                self.assertEqual(result.result_status, "needs_input")
+                self.assertEqual(result.reason_code, "GOAL_CANCELLATION_NEGATED")
+                self.assertEqual(goal_executor.read_job(OWNER, ident), before)
+
+    def test_positive_cancellation_still_works(self):
+        ident = self.seed("planlama hedefi")
+        result = self.resolve(GoalOperation.CANCEL, (ident,),
+                              text="Planlama hedefini iptal et.")
+        self.assertEqual(result.result_status, "handled")
+        self.assertEqual(goal_executor.read_job(OWNER, ident)["state"], "cancelled")
+
     def test_ambiguity_between_two_goals_asks_and_changes_nothing(self):
         first, second = self.seed("ilk hedef"), self.seed("ikinci hedef")
         snapshot = {ident: goal_executor.read_job(OWNER, ident) for ident in (first, second)}
