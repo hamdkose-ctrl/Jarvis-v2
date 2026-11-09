@@ -1,5 +1,11 @@
 # Güncelleme, CI, model ve kota (AGENTS.md alan notları)
 
+## Merkezi router deneme bütçesi — 9 Kasım 2026
+
+- Yeni çağrı sözleşmesi `smart_router.ModelRequest`, `ModelSpec`, `RoutePlan` ve `RouteResult` tiplerini kullanır. Çağıran gerekli özellikleri, çıktı üst sınırını, deadline/iptali ve rotayı bildirir; router açık aday planını kurar. Prompt içeriğinden niyet, görev türü veya model kalitesi tahmini yapılmaz.
+- `run_request` en fazla **iki gerçek adapter/ağ denemesi** yapar. Hatalı şema yanıtı da başarısız denemedir; provider fallback veya tekrar için ayrı bir sayaç yoktur. Adapter geç yanıtı routerın `requests_state.check()` denetiminden sonra ancak kabul edilir; deadline/iptal edilmiş yanıt kullanılmaz. Fiziksel HTTP iptali garanti edilmez.
+- `llm` içindeki Gemini model döngüsü ile Groq retry/model geçişi üretim çağrı yolundan kaldırıldı. Gemini/Groq/Ollama taşıyıcıları routerın seçtiği tek modeli çağırır. Eski doğrudan test helper'ları yalnız uyumluluk içindir ve normal `llm._send_provider` yolunda kullanılmaz.
+
 - Test izolasyonu: `test_execution_policy_stability` hem DNS hem çevrimdışı mesajını kontrollü ağ durumuyla doğrular. `test_publish_batch` STATE ve PR_STATE için aynı temizlenen geçici klasörü kullanır; kullanıcının `.jarvis` verisine yazmaz. Üretim davranışı değişmez.
 - Hafif import: `modules.docs`, LLM istemcisini yalnız özet veya içgörü istendiğinde yükler. Çalışma modu ve medya yardımcıları opsiyonel Google Gemini paketi olmadan içe aktarılabilir; `tests/test_warning_acceptance.py` bunu ayrı süreçte doğrular.
 

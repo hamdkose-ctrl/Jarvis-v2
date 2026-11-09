@@ -22,6 +22,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
+- **Model router authority:** Gerçek model çağrıları `smart_router.ModelRequest` → `RoutePlan` → adapter zincirinden geçer. Adapter yalnız kendisine verilen provider/model için tek taşıma denemesi yapar; retry, schema onarımı ve fallback aynı iki-deneme bütçesini tüketir. Prompt kelimeleri provider/model seçmez; Brain anlamı, Core yetkiyi korur.
+
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
 

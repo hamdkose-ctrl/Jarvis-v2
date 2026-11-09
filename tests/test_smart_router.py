@@ -159,7 +159,9 @@ class SmartRouterTests(unittest.TestCase):
         message=str(caught.exception)
         self.assertIn('gemini: kota veya hız sınırı (HTTPError, HTTP 429)',message)
         self.assertIn('groq: zaman aşımı',message)
-        self.assertIn('ollama: bağlantı',message)
+        # Router's global envelope is two real network attempts: the local
+        # fallback is intentionally not a third hidden adapter attempt.
+        self.assertNotIn('ollama:',message)
         self.assertNotIn('kutusunu işaretle',message)
         self.assertNotIn('PRIVATE',message)
         self.assertNotIn('gem-key',json.dumps(router.status('alice')))
@@ -308,7 +310,7 @@ class SmartRouterTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught:
                 router.run('alice','test',Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))))
         message=str(caught.exception)
-        self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)',message)
+        self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor',message)
         self.assertIn('(LocalModelError)',message)
         self.assertEqual(router.status('alice')['last']['attempts'][0].get('hint'),'ollama_missing')
 
