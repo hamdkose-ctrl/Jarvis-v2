@@ -48,10 +48,16 @@ class InfrastructureTests(unittest.TestCase):
                 with self.assertRaises(OSError):p.edit_fact(0,'Eski bilgi',value)
                 self.assertEqual(p.data['facts'],['Eski bilgi'])
 
-    def test_typed_memory_operations_and_no_model(self):
+    def test_memory_commands_exact_selection_and_no_model(self):
         p=profiles.Profile('Alice');p.add_fact('Motor gücü 5 kW')
         with patch.object(llm,'ask',side_effect=AssertionError('model')):
-            self.assertIn('5 kW',learning.execute_typed(p,{'operation':'facts.list'}))
+            self.assertIn('5 kW',learning.handle('hafızamı göster','hafızamı göster',p))
+            learning.handle('hafıza düzelt: motor gücü 5 kw | motor gücü 7 kw','hafıza düzelt: Motor gücü 5 kW | Motor gücü 7 kW',p)
+            self.assertEqual(p.data['facts'],['Motor gücü 7 kW'])
+            learning.handle('hafıza unut: motor','hafıza unut: Motor',p)
+            self.assertEqual(p.data['facts'],['Motor gücü 7 kW'])
+            learning.handle('hafıza unut: motor gücü 7 kw','hafıza unut: Motor gücü 7 kW',p)
+            self.assertEqual(p.data['facts'],[])
 
     def test_pc_invalid_input_and_foreign_request_do_not_execute(self):
         target=Mock()

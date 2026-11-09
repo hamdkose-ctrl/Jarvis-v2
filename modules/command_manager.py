@@ -153,7 +153,7 @@ def dispatch(context, command, normalized):
     return result if result else None
 
 
-def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None):
+def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None, runtime=None):
     """Yazım düzeltmesinin görebileceği ilk kapalı küme: tam-cümle exact admin tanıyıcıları (§25 A, BRAIN-MIG-042).
 
     İkinci bir pipeline geçişi değildir: kanonical tur ham cümleyi yürüttü ve hiçbir kol almadı.
@@ -176,6 +176,19 @@ def exact_admin_view(context, corrected, speak_flag=None, *, original_text=None)
     result = system_doctor.handle(owner, corrected)
     if result is not None:
         return result
+    # Existing exact Git/update protocols stay model-independent.  The effect itself
+    # is implemented exactly once in engine_intents: no second admin executor here.
+    if isinstance(original_text, str):
+        from modules import git_publish
+        import updater
+        intent = ("git_publish" if git_publish.requested(original_text)
+                  else "system_update" if updater.command_request(original_text) is not None
+                  else None)
+        if intent is not None:
+            if runtime is None:
+                return "Yönetici işlemi için yürütme bağlamı gerekli; işlem yapılmadı."
+            from modules.engine_intents import dispatch
+            return dispatch(runtime, intent, {}, original_text, original_text.casefold())
     if brain_gates.conversation_summary_request(corrected):
         return context.conversation_summary()
     if brain_gates.table_request(corrected):

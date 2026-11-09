@@ -104,7 +104,7 @@ class EndToEndTests(Pipeline):
 
     def test_front_gates_before_planner_still_win(self):
         with patch.object(brain_precedence, "_present", return_value=True), \
-             patch.object(self.ctx, "_user_command", return_value="ÖZEL", create=True):
+             patch.object(self.ctx, "_file_command", return_value="ÖZEL"):
             entry, out, feedback, handle = self.through_brain("yarın saat 10'da toplantıyı hatırlat")
         self.assertEqual(out, "ÖZEL")
         self.assertEqual(self.ctx.profile.data["events"], [])

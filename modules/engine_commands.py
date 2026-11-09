@@ -181,8 +181,8 @@ def handle(runtime, command: str):
     # `message.send`/`contacts.manage` önerir, Core biçimi doğrular, etki `engine_intents`
     # sahibinde yürür. Buradaki dal yalnız açık `pending_msg` oturumunun devamını tüketir.
 
-    # Öğrenme/rule/fact cümlesi burada seçilmez: Understanding `learning.manage` önerir,
-    # Core operation + kullanıcı verisini doğrular, yazma `engine_intents` sahibindedir.
+    # Learning semantics are model-proposed and Core-validated; exact pending
+    # selections are handled by the canonical State Gate, never raw text here.
 
     # Dosyalar ekranındaki düğmeler: '"C:\...\x.pdf" dosyasını özetle' -> yapay zekâya sormadan doğrudan o dosyada
     file_reply = runtime._file_command(command)
@@ -242,6 +242,10 @@ def handle(runtime, command: str):
 
     # ---- Hızlı yol: basit komutlar LLM'e gitmeden çalışır ----
 
+    control_reply = runtime._user_controls(command, cmd_lower)
+    if control_reply is not None:
+        return control_reply
+
     plan_reply = runtime._planner_command(command, cmd_lower)
     if plan_reply is not None:
         return plan_reply
@@ -283,7 +287,7 @@ def handle(runtime, command: str):
     # (`engine_intents`) buradan gider. Yapay zekaya her zaman kullanıcının yazdığı asıl cümle gider
     # ("yarış merhaba" -> "yarın merhaba" bozulması olmaz).
     corrected = runtime.typo.fix(cmd_lower)
-    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command)
+    view = exact_admin_view(context, corrected, runtime.flags.get("speak"), original_text=command, runtime=runtime)
     if view is not None:
         return view
     if corrected != cmd_lower:

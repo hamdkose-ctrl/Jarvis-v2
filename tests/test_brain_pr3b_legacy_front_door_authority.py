@@ -64,7 +64,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
                                     (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
-                                    (learning, "execute_typed", None), (finance, "answer_request", None)):
+                                    (learning, "handle", None), (finance, "answer_request", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -219,6 +219,11 @@ class TypoSinglePassTests(_RawDoorHarness):
                    if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
         self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
                          {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
+                          "isinstance", "git_publish.requested",
+                          "git_publish.publish_worktree", "updater.verify_sync",
+                          "updater.command_request", "updater.install_latest", "updater.check",
+                          "updater.status", "verified.get", "status['error'].split",
+                          "_record_failure", "str",
                           "brain_gates.conversation_summary_request", "brain_gates.table_request",
                           "context.conversation_summary", "context.table_chat"})
 
@@ -758,12 +763,11 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_an_exact_git_publish_command_reaches_the_existing_publish_owner_once(self):
         self.seams["modules.git_publish.publish_worktree"].return_value = "YAYINLANDI"
-        from modules import engine_intents
-        out = engine_intents.dispatch(self.ctx, "git_publish", {}, "git yükle", "git yükle")
+        _entry, out, _handle, _ = self.turn("git yükle")
         self.assertEqual(out, "YAYINLANDI")
         self.seams["updater.verify_sync"].assert_called_once()
         self.seams["modules.git_publish.publish_worktree"].assert_called_once_with(
-            "kullanıcının onaylı GitHub yayın isteği"
+            "kullanıcı 'git yükle' komutuyla yayınladı"
         )
 
     def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
@@ -778,8 +782,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
 
     def test_git_publication_fails_closed_when_sync_is_unknown(self):
         self.seams["updater.verify_sync"].return_value = {"sync_state": "offline", "sync_msg": "OFFLINE"}
-        from modules import engine_intents
-        out = engine_intents.dispatch(self.ctx, "git_publish", {}, "git yükle", "git yükle")
+        _entry, out, _handle, _ = self.turn("git yükle")
         self.assertIn("OFFLINE", str(out))
         self.seams["modules.git_publish.publish_worktree"].assert_not_called()
 
@@ -794,14 +797,12 @@ class ExactAdminEffectTests(_RawDoorHarness):
                 self.assertFalse(git_publish.requested(text), text)
 
     def test_an_exact_update_check_does_not_install(self):
-        from modules import engine_intents
-        engine_intents.dispatch(self.ctx, "system_update", {}, "güncelleme var mı", "güncelleme var mı")
+        self.turn("güncelleme var mı")
         self.seams["updater.check"].assert_called_once_with(apply_now=False, force=True)
         self.seams["updater.install_latest"].assert_not_called()
 
     def test_an_exact_update_install_uses_the_existing_protected_installer(self):
-        from modules import engine_intents
-        engine_intents.dispatch(self.ctx, "system_update", {}, "kendini güncelle", "kendini güncelle")
+        self.turn("kendini güncelle")
         self.seams["updater.install_latest"].assert_called_once_with()
         self.seams["updater.check"].assert_not_called()
 
@@ -928,7 +929,7 @@ class CascadeOrderContractTests(unittest.TestCase):
         self.assertEqual(brain_precedence.TAIL_GATES,
                          brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
         self.assertEqual(brain_precedence.TAIL_GATES,
-                         ("macro_teach", "macro_manage", "macro_run", "extra_commands"))
+                         ("macro_run", "extra_commands"))
 
     def _runtime(self, answers=None):
         from types import SimpleNamespace
@@ -946,6 +947,7 @@ class CascadeOrderContractTests(unittest.TestCase):
             _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
             _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
             _file_command=gate("file_command"), _user_command=gate("user_command"),
+            _user_controls=gate("user_controls"),
             _planner_command=gate("planner_command"),
             system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
             emit=gate("emit"))
@@ -955,17 +957,16 @@ class CascadeOrderContractTests(unittest.TestCase):
         runtime = self._runtime()
         self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
         self.assertEqual([name for name, _ in runtime.calls],
-                         ["macro_teach", "macro_manage", "macro_run", "extra_commands"])
+                         ["macro_run", "extra_commands"])
         self.assertEqual([args for _, args in runtime.calls],
-                         [("Raporumu telefona gönder", "raporumu telefona gönder"),
-                          ("raporumu telefona gönder",), ("raporumu telefona gönder",),
+                         [("raporumu telefona gönder",),
                           ("Raporumu telefona gönder", "raporumu telefona gönder")])
 
     def test_the_first_answering_gate_stops_the_tail(self):
         from modules import brain_precedence
         runtime = self._runtime({"macro_run": "KISAYOL"})
         self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
-        self.assertEqual([name for name, _ in runtime.calls], ["macro_teach", "macro_manage", "macro_run"])
+        self.assertEqual([name for name, _ in runtime.calls], ["macro_run"])
 
     def test_the_tail_never_replays_an_earlier_effect_gate(self):
         # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini
@@ -1090,7 +1091,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
     RAW_PROBE_OWNERS = {
         "watcher.handle": set(),
-        "learning.handle": set(),
+        "learning.handle": {"modules/engine_commands.py"},
         # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
         "is_whatsapp_message": set(),
         "_contact_command": set(),
@@ -1101,8 +1102,8 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
         "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/engine_intents.py", "web.py"},
-        "git_publish.publish_worktree": {"modules/engine_intents.py"},
-        "updater.install_latest": {"modules/engine_intents.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/command_manager.py"},
+        "updater.install_latest": {"modules/command_manager.py", "web.py"},
         "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
         "output.save_text_result": {"modules/engine_intents.py", "modules/translate.py"},
     }

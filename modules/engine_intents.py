@@ -90,11 +90,10 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import learning
             return learning.execute_typed(runtime.profile, a)
         case "git_publish":
-            # Exact admin protocol is a domain safety boundary, not an intent recognizer.
             from modules import git_publish
             import updater
             if not git_publish.requested(command):
-                return "GitHub yayını için açık ve tam ‘git yükle’ komutunu yaz."
+                return "GitHub yayını için tam ‘git yükle’ komutunu yaz."
             try:
                 verified = updater.verify_sync()
                 if verified.get("sync_state") in ("diverged", "unknown", "offline"):
@@ -104,8 +103,6 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 runtime._record_failure("modules.engine_intents:git_publish")
                 return f"GitHub'a yükleyemedim: {exc}"
         case "system_update":
-            # The check/install spelling is still an exact updater-owned protocol.  The model
-            # proposes only the capability; it cannot turn a paraphrase into an installation.
             import updater
             action = updater.command_request(command)
             if action is None:

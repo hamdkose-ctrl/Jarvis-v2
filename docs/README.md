@@ -22,6 +22,8 @@ Fikir Deposu roadmap değildir. Buradaki fikirler otomatik işe dönüşmez; yal
 
 - `JARVIS_PROGRAM_LEDGER_V1.md` = karar/handoff ledger'ı, roadmap değil.
 - `JARVIS_BRAIN_MIGRATION_MAP_V1.md` = scoped migration belgesi, roadmap değil.
+- `JARVIS_BRAIN_06_DAG_PREFLIGHT_2026-11-09.md` = BRAIN-06 için mevcut
+  DAG/revizyon altyapısı ve uygulama önkoşulu denetimi, roadmap değil.
 - `JARVIS_AUTONOMOUS_FREE_RUNTIME_V1_1*.md` = frozen architecture/implementation plan, roadmap authority değil.
 
 ## Tarihsel planlar

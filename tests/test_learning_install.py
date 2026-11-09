@@ -11,7 +11,7 @@ class LearningInstallTests(unittest.TestCase):
   self.p=Profile.__new__(Profile);self.p.slug='test';self.p.path=Path(self.tmp.name)/'profile.json'
   self.p.data={'name':'Test','prefs':{},'facts':[],'rules':[],'items':[],'goals':[]}
  def test_explicit_fact_persists_and_is_used(self):
-  reply=learning.execute_typed(self.p,{'operation':'fact.add','text':'A17 panosunda X200 sensörü kullanıyoruz'})
+  reply=learning.handle('şunu öğren: a17 panosunda x200 sensörü kullanıyoruz','Şunu öğren: A17 panosunda X200 sensörü kullanıyoruz',self.p)
   self.assertIn('kaydettim',reply)
   import json
   self.p.data=json.loads(self.p.path.read_text(encoding='utf-8'))
@@ -19,11 +19,11 @@ class LearningInstallTests(unittest.TestCase):
   self.assertEqual(self.p.data['rules'],[])
  def test_negative_approval(self):
   learning.propose(self.p,['A17 panosunda X200 sensörü var'])
-  learning.execute_typed(self.p,{'operation':'pending.reject'})
+  learning.handle('öğrendiklerini kaydetme','Öğrendiklerini kaydetme',self.p)
   self.assertEqual(self.p.data['facts'],[]);self.assertEqual(learning.pending(self.p),[])
  def test_numbered_negative(self):
   learning.propose(self.p,['A17 panosunda X200 sensörü var'])
-  learning.execute_typed(self.p,{'operation':'pending.reject','index':1})
+  learning.handle('öğrendiğin 1. bilgiyi kaydetme','Öğrendiğin 1. bilgiyi kaydetme',self.p)
   self.assertEqual(self.p.data['facts'],[]);self.assertEqual(learning.pending(self.p),[])
  def test_notes_and_user_isolation(self):
   self.p.data['items']=[{'text':'A17 arızasında sigorta kontrol edilir.'}]
