@@ -159,7 +159,7 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "messaging.quick_parse": set(),
         "messaging.extract": set(),
         "_contact_command": set(),
-        "learning.handle": {"modules/engine_commands.py"},
+        "learning.handle": set(),  # BRAIN-03 dilim6: legacy semantic owner physically removed
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
         "system_control.windows_settings": {"modules/brain_precedence.py",
