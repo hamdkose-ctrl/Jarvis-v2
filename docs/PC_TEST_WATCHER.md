@@ -23,3 +23,26 @@ Başlatma:
 - Oturum açılışında otomatik: `powershell -ExecutionPolicy Bypass -File scripts\install_pc_test_watcher_task.ps1`
 
 Raporlar `%LOCALAPPDATA%\Jarvis\pc-acceptance` altında tutulur. Her SHA yalnız bir kez test edilir; PASS/FAIL sonrası otomatik tekrar yoktur, yeni SHA yeni kabul turu başlatır. Doğrulama yalnız gözetlenen kökteki `.venv\Scripts\python.exe` ile çalışır; bu yorumlayıcı yoksa sistem Python'una düşülmez, başlamadan "ortam eksik" sonucu kaydedilir.
+
+## "Hazırda test yok" tanısı ve rapor onarımı (9 Kasım 2026)
+
+Watcher yalnız test kuyruğunu değil, **PR'a yayınlanmayı bekleyen kabul raporlarını**
+da kontrol eder. Tamamlanmış SHA'ya ait `reports/<40-karakter-SHA>.json` dosyası varsa
+validation/desktop/haber/model kabulünü tekrar çağırmaz. Eski test sonucu GitHub'a
+yorumlanamamışsa sadece **aynı raporu** yeniden gönderir; PR yorumunda aynı SHA zaten
+varsa ikinci yorum yazmaz. GitHub iletişimi başarısızsa yayın en az 5 dakika arayla
+tekrar denenir. İşlem için açık PR, aynı branch ve aynı tam SHA şarttır; farklı
+branch veya eksik rapor yeni kabulü geçti sayılmaz.
+
+Windows PC'de yüklemeden test başlatmadan tanı görmek için:
+`scripts\\pc_test_watcher.bat --status`
+
+Bu çıktı açık PR sayısını ve her branch için şu durumlardan birini gösterir:
+`awaiting_test`, `published`, `report_not_published`,
+`recorded_but_local_report_missing`, `remote_ref_missing`. GitHub CLI
+kimlik doğrulaması yoksa `open_pr_list_unavailable` döner, test çalışmaz.
+
+Önemli: Bu PR merge edilse bile Windows'da **çalışan checkout** otomatik güncellenmez.
+Görev Zamanlayıcı'daki `Jarvis PC Test Watcher` görevinin kullandığı repo yolunun
+gerçek çalışma kopyası olduğu ve watcher değişikliğinin o kopyaya geldiği
+doğrulanmalıdır. Rapor yayını veya PC validation, **canlı Brain Full** sonucu değildir.
