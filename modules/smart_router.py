@@ -483,13 +483,24 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
     or fallback.  Cooperative cancellation/deadline checks happen before and
     after every adapter return, so a late answer is never adopted.
     """
+    from modules import router_quota
     _check_request(request)
     route_plan = plan(request)
     attempts: list[dict] = []
+    skipped_now = list(route_plan.skipped)
     started = time.monotonic()
     for spec in route_plan.candidates:
         if len(attempts) >= route_plan.max_network_attempts:
             break
+        _check_request(request)
+        try:
+            router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE)
+        except (router_quota.ReservationUnavailable,router_quota.ReservationExhausted) as exc:
+            # This skipped provider made no actual HTTP attempt. Never bypass a
+            # configured limit merely because its local SQLite store is locked.
+            skipped_now.append(_skip(spec.provider,str(exc),exc.reason_code,
+                                     seconds=exc.retry_after,model=spec.model))
+            continue
         _check_request(request)
         try:
             text = adapter(spec)
@@ -504,7 +515,7 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
             with _LOCK:
                 _LAST[request.owner] = {'task': 'declared', 'provider': spec.provider,
                                         'model': spec.model, 'attempts': attempts,
-                                        'skipped': list(route_plan.skipped)}
+                                        'skipped': skipped_now}
                 _HEALTH.pop((request.owner, spec.provider), None)
             return RouteResult(text, spec, duration_ms=round((time.monotonic()-started)*1000), attempts=attempts)
         except (requests_state.Cancelled, requests_state.LocalDeadline):
@@ -532,20 +543,20 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
             llm.note_route(llm.provider_label(spec.provider) + ' ' + failure_text(classified) + ', sıradakine geçildi', False)
     with _LOCK:
         _LAST[request.owner] = {'task': 'declared', 'provider': None, 'attempts': attempts,
-                                'skipped': list(route_plan.skipped)}
+                                'skipped': skipped_now}
     from modules import failure_policy
     detail = '; '.join(failure_detail(row) for row in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok.'
-    omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in route_plan.skipped)
+    omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
     message = ('Uygun model en çok ' + str(route_plan.max_network_attempts) +
                ' deneme sınırında yanıt veremedi. ' + detail +
                (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') +
                ' Ücretli modele geçilmedi.')
     if not attempts:
         if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
-               or 'anahtarı eksik' in str(row.get('reason', '')) for row in route_plan.skipped):
+               or 'anahtarı eksik' in str(row.get('reason', '')) for row in skipped_now):
             raise failure_policy.ProviderExhaustedError(
                 message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
-        evidence_code = next((row.get('reason_code') for row in route_plan.skipped
+        evidence_code = next((row.get('reason_code') for row in skipped_now
                               if str(row.get('reason_code', '')).startswith('PROVIDER_FREE_TIER_')), None)
         if evidence_code:
             raise failure_policy.ProviderExhaustedError(
