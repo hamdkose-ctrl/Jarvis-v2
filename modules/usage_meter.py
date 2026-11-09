@@ -229,7 +229,10 @@ def observed_exhaustion(owner: str, provider: str, model: str, *, now: float | N
     call. Missing, malformed or stale headers never grant quota, change free-tier
     evidence, or establish an official limit. This is NOT an atomic reservation.
     """
-    row = limits(owner).get(provider, {}).get(model, {})
+    provider_rows = limits(owner).get(provider)
+    if not isinstance(provider_rows, dict):
+        return None
+    row = provider_rows.get(model)
     if not isinstance(row, dict):
         return None
     try:
