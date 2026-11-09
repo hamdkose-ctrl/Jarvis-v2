@@ -35,7 +35,7 @@ class QuotaFallbackTests(unittest.TestCase):
         self.allow_main_pool()
         call=Mock(side_effect=[RuntimeError('429 quota'),RuntimeError('429 quota'),RuntimeError('ollama down')])
         with self.assertRaises(RuntimeError):router.run('alice','araştırma raporu',call,route='PUBLIC_RESEARCH')
-        self.assertEqual([c.args[0] for c in call.call_args_list],['gemini','groq','ollama'])
+        self.assertEqual([c.args[0] for c in call.call_args_list],['gemini','groq'])
 
     def test_private_chain_never_falls_to_gemini(self):
         self.allow_main_pool()
@@ -48,7 +48,7 @@ class QuotaFallbackTests(unittest.TestCase):
         call=Mock(side_effect=[RuntimeError('a'),RuntimeError('b'),RuntimeError('c')])
         with self.assertRaises(RuntimeError):router.run('alice','kod hatasını düzelt',call,route='PUBLIC_RESEARCH')
         names=[c.args[0] for c in call.call_args_list]
-        self.assertEqual(names,['gemini','groq','ollama'])
+        self.assertEqual(names,['gemini','groq'])
         self.assertNotIn('openai',names);self.assertNotIn('anthropic',names)
 
     def test_local_privacy_never_uses_cloud(self):

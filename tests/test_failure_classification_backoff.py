@@ -120,7 +120,7 @@ class BackoffTests(unittest.TestCase):
         for exc in (Http(429, 'x'), Http(429, 'PerDay'), Http(401, 'x'), llm.LocalModelError('Ollama yok')):
             self.assertFalse(fp.is_transient(exc))
 
-    def test_gemini_server_error_retries_bounded_with_growing_waits(self):
+    def test_gemini_direct_compat_does_not_retry_transport(self):
         calls, waits = [], []
 
         def call(model):
@@ -135,8 +135,8 @@ class BackoffTests(unittest.TestCase):
              patch.object(llm.time, 'sleep', side_effect=waits.append):
             with self.assertRaises(llm.errors.ServerError):
                 llm._with_models(call)
-        self.assertEqual(len(calls), llm._MAX_TRIES)
-        self.assertEqual(sum(waits), 1.0 + 2.0)    # 1 sn, sonra 2 sn: artan bekleme, sonsuz deneme yok
+        self.assertEqual(calls, ["m1"])
+        self.assertEqual(waits, [])    # Retry/fallback budgeting belongs to Router, not SDK helper
 
 
 if __name__ == '__main__':

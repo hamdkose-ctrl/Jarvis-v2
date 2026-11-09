@@ -55,19 +55,21 @@ class RoutingPolicyTests(unittest.TestCase):
             call = Mock(side_effect=[error, error, error])
             with self.assertRaises(RuntimeError):
                 router.run('alice', 'özel not', call)
-            self.assertEqual([c.args[0] for c in call.call_args_list], ['groq', 'cloudflare', 'ollama'])
+            self.assertEqual([c.args[0] for c in call.call_args_list], ['groq', 'cloudflare'])
 
-    def test_groq_429_falls_to_cloudflare_then_ollama_then_honest_unavailable(self):
+    def test_groq_429_falls_to_cloudflare_and_stops_at_two_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('down')])
         with self.assertRaises(RuntimeError) as caught:
             router.run('alice', 'x', call)
+        self.assertEqual(call.call_count, 2)
         self.assertNotIn('gemini:', str(caught.exception).split('Atlanan')[0])
         self.assertIn('Ücretli modele geçilmedi', str(caught.exception))
 
-    def test_public_chain_gemini_error_goes_groq_cloudflare_ollama(self):
+    def test_public_chain_stops_after_two_failed_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('429'), 'yerel'])
-        self.assertEqual(router.run('alice', 'x', call, route=PUB), 'yerel')
-        self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq', 'cloudflare', 'ollama'])
+        with self.assertRaises(RuntimeError):
+            router.run('alice', 'x', call, route=PUB)
+        self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq'])
 
     def test_missing_or_stale_evidence_skips_provider(self):
         router.set_free_tier_evidence('alice', provider='groq', model='groq-model', free_tier_verified=True,
