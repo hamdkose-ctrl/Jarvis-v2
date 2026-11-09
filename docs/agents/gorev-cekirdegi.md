@@ -221,3 +221,5 @@ Ağsız ölçülen süitler (nihai): `test_model_wait_contracts.py` (17; LocalDe
 
 
 Entegrasyon: BRAIN-03 `clarify` ve BRAIN-04 `action_batch` aynı model benimseme tablosunda birlikte korunur. Çoklu işlem Core doğrulamasını, tek tur netleştirmesi mevcut soru yolunu kullanır.
+
+- 9 Kasım 2026 BRAIN-03 dilim6 entegrasyon notu: `learning.manage` Core kapalı operasyonu üzerinden fact.add/edit/forget, rule ve numaralı pending seçimini yürütür. Model `index` ve `old/text` dayanağını kullanıcı cümlesinden alır; eksik index toplu onay yetkisi değildir. Toplu seçim yalnız `learning.pending_facts.select` State Gate protokolü, aynı tur snapshot'ı ve yeniden kontrol edilen listeyle yürür; stale seçim etki üretmez. `git.publish`/`system.update` açık exact domain protokolleri korunur, modellerinden bağımsız admin giriş de aynı `engine_intents` yürütücüsüne aktarılır. Kullanıcı/makro göçü (#536) ve `_user_controls` korunur. Bu kayıt canlı model kabulü değildir.
