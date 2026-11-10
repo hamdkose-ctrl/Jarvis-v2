@@ -152,6 +152,17 @@ def ready_read_only_candidates(
     if (owner, job_id) != (current['owner'], current['job_id']):
         raise PlanFenceError('Yanlış plan owner/job kimliği.')
 
+    # A later user correction or priority edit is not automatically reconciled
+    # into an earlier plan. Require the canonical planner to publish a newer
+    # plan after that intent change before any new read-only dispatch candidate.
+    plan_commits = [index for index, entry in enumerate(current['audit'])
+                    if entry['op'] == 'set_goal_plan']
+    if not plan_commits or any(
+        entry['op'] == 'mutate_goal_intent'
+        for entry in current['audit'][plan_commits[-1] + 1:]
+    ):
+        raise PlanFenceError('Kullanıcı goal intent değişikliği için plan revalidation gerekli.')
+
     # Audit appends are ordered and each append_evidence creates exactly one
     # evidence entry. A merely worker-shaped dict is not trusted without the
     # existing WORKER_RESULT_ACCEPTED audit reason.
