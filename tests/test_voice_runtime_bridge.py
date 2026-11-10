@@ -238,7 +238,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         session.runtime, session.speak_enabled, session.live_on = rt, True, False
         session.voice_lane, session.voice_core_fault = lane, None
         session.speak("Metin", shown=True)
-        lane.say.assert_called_once_with("alice", "tr_kadin", "Metin", background=True)
+        lane.say.assert_called_once_with("alice", "tr_kadin", "Metin", background=True, rate=0)
         rt.voice.speak.assert_not_called()
         self.assertIn(("state", "speaking"), rt.emitted)
 
@@ -274,16 +274,52 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         with patch("modules.voice_runtime.active", return_value=lane):
             options = bridge.voice_options()
             self.assertTrue(options["local"])
-            self.assertFalse(options["rate_supported"])
+            self.assertTrue(options["rate_supported"])
             self.assertEqual(options["voices"], [{
                 "key": "tr_kadin", "name": "Yerel kadın", "info": "Yerel Piper",
             }])
             self.assertTrue(bridge.voice_set("tr_kadin"))
-            self.assertFalse(bridge.rate_set(35))
+            self.assertTrue(bridge.rate_set(35))
             self.assertFalse(bridge.voice_set("not-installed"))
         self.assertEqual(person.data["prefs"].get("voice"), "tr_kadin")
-        self.assertEqual(voice_events, [("say", "Merhaba, seçtiğin yerel ses böyle.", "alice")])
+        self.assertEqual(person.data["prefs"].get("rate"), 35)
+        self.assertEqual(voice_events, [
+            ("say", "Merhaba, seçtiğin yerel ses böyle.", "alice"),
+            ("say", "Böyle konuşuyorum."),
+        ])
         lane.interrupt.assert_not_called()
+
+    def test_voice_session_snapshots_rate_and_slow_mode_without_mutating_prefs(self):
+        lane = Mock()
+        lane.say.return_value = threading.Event()
+        rt = self.rt
+        rt.threading = SimpleNamespace(Thread=Mock())
+        rt.voice = SimpleNamespace(speak=Mock())
+        rt.profile.data["prefs"]["rate"] = 20
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime, session.speak_enabled, session.live_on = rt, True, False
+        session.voice_lane, session.voice_core_fault = lane, None
+        session.speak("Normal hız")
+        session.speak("Yavaş anlat", slow=True)
+        self.assertEqual(lane.say.call_args_list[0].kwargs, {
+            "background": False, "rate": 20,
+        })
+        self.assertEqual(lane.say.call_args_list[1].kwargs, {
+            "background": False, "rate": -15,
+        })
+        self.assertEqual(rt.profile.data["prefs"]["rate"], 20)
+        rt.voice.speak.assert_not_called()
+
+    def test_missing_piper_voice_rejects_rate_setting_without_false_success(self):
+        from modules.engine_context import set_profile_rate
+        person = self.rt.profile
+        writes = []
+        person.set_pref = lambda key, value: writes.append((key, value))
+        lane = Mock()
+        lane.check_voice.side_effect = ValueError("installed voice missing")
+        self.assertFalse(set_profile_rate(person, 12, lane=lane))
+        self.assertFalse(set_profile_rate(person, True, lane=lane))
+        self.assertEqual(writes, [])
 
     def test_web_rejects_missing_local_model_without_changing_profile(self):
         from web_voice import WebVoice
