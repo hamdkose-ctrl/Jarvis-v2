@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import tempfile
+from contextlib import closing
 import time
 import unittest
 from pathlib import Path
@@ -139,7 +140,9 @@ class QueueClaimFenceTests(unittest.TestCase):
     def test_old_queue_schema_is_migrated_without_losing_rows(self):
         service_store.ROOT.mkdir(parents=True, exist_ok=True)
         old = service_store.ROOT / 'alice.sqlite3'
-        with sqlite3.connect(old) as db:
+        # sqlite3.Connection.__exit__ commits but does NOT close its handle.
+        # Windows cannot remove the temporary database while the handle lives.
+        with closing(sqlite3.connect(old)) as connection, connection as db:
             db.execute(
                 "CREATE TABLE queue (id TEXT PRIMARY KEY, tasks TEXT, instruction TEXT, "
                 "due REAL, state TEXT, job_id TEXT, created REAL, error TEXT, "
