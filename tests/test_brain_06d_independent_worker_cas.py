@@ -134,6 +134,18 @@ class IndependentRootResultTests(unittest.TestCase):
             self._commit(another)
         self.assertEqual(len(goal_state_store.load(self.path)['evidence']), 1)
 
+    def test_failed_root_may_be_explicitly_retried_on_current_version(self):
+        first = self._prepared('left', state='failed')
+        self._commit(first)
+        retry = self._prepared('left', attempt=2)
+        self._commit(retry)
+        saved = goal_state_store.load(self.path)
+        self.assertEqual(
+            [row['status'] for row in saved['evidence']],
+            ['failed', 'succeeded'],
+        )
+        self.assertEqual(saved['version'], 3)
+
     def test_plan_revision_remains_a_hard_fence(self):
         right = self._prepared('right')
         left = self._prepared('left')
