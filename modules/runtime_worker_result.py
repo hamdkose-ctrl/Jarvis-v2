@@ -82,6 +82,12 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
             raise ValueError('Bağımlı plan node doğrulanmış predecessor kanıtı olmadan başlatılamaz.')
         if node['capability_id'] != row['id'] or node['input'] != data:
             raise ValueError('Worker capability/input canonical plan node ile eşleşmiyor.')
+        # Read canonical acceptance evidence BEFORE invoking the real worker.
+        # The same old plan root may be retried only with a later failed
+        # attempt; success, stale user intent and malformed proof fail closed.
+        goal_plan_gate.validate_root_attempt(
+            snapshot, selection, attempt=attempt,
+        )
         expected.update({
             'command_id': f"{step_id}:{attempt}:p{selection.plan_version}",
             'plan_version': selection.plan_version,
