@@ -1,8 +1,7 @@
-"""VOICE-01: provider-independent foreground speech queue contract.
+"""VOICE Core: one foreground audio owner with bounded, interruptible output.
 
-This is deliberately not connected to the production voice engine yet. Adapters may
-be integrated only after exact-head and real-PC acceptance. No LLM, Ollama, cloud
-provider, model installer, or operating-system audio dependency belongs here.
+Production can use this core only through an explicit opt-in adapter. No LLM,
+Ollama, cloud provider, model installer, or OS audio dependency belongs here.
 """
 from __future__ import annotations
 
@@ -12,6 +11,56 @@ import threading
 from typing import Callable
 
 from modules.diagnostics import record_failure as _record_failure
+
+
+SPEECH_CHUNK_CHARS = 600
+
+
+def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS) -> tuple[str, ...]:
+    """Split a bounded utterance without dropping or rewriting any characters.
+
+    Prefer complete sentence ends, then word boundaries, and hard-cut only when
+    a single word itself exceeds the limit. The same selected voice is used
+    for every chunk; callers may cooperatively stop between chunks.
+    """
+    if not isinstance(text, str) or not text.strip() or len(text) > 12000:
+        raise ValueError("Speech text invalid or too long.")
+    if type(max_chars) is not int or not 32 <= max_chars <= 12000:
+        raise ValueError("Speech chunk size outside supported bounds.")
+    parts: list[str] = []
+    cursor = 0
+    while len(text) - cursor > max_chars:
+        window = text[cursor:cursor + max_chars]
+        first = max(12, max_chars // 3)
+        sentence_break = 0
+        space_break = 0
+        pos = 0
+        while pos < len(window):
+            char = window[pos]
+            if char.isspace():
+                end = pos + 1
+                while end < len(window) and window[end].isspace():
+                    end += 1
+                if end >= first:
+                    space_break = end
+                pos = end
+                continue
+            if char in ".!?;:。！？":
+                after = cursor + pos + 1
+                if after == len(text) or text[after].isspace():
+                    end = pos + 1
+                    while end < len(window) and window[end].isspace():
+                        end += 1
+                    if end >= first:
+                        sentence_break = end
+            pos += 1
+        cut = sentence_break or space_break or len(window)
+        # Boundaries are measured from the original string, so no text is lost.
+        parts.append(text[cursor:cursor + cut])
+        cursor += cut
+    if cursor < len(text):
+        parts.append(text[cursor:])
+    return tuple(parts)
 
 
 @dataclass(frozen=True)
@@ -121,19 +170,38 @@ class VoiceCoordinator:
                 return False
         return True
 
+    def _drain_waiting_locked(self) -> list[SpeechRequest]:
+        """Cancel queued requests immediately, preserving queue accounting."""
+        discarded: list[SpeechRequest] = []
+        while True:
+            try:
+                _, _, _, request, _ = self._pending.get_nowait()
+            except queue.Empty:
+                break
+            discarded.append(request)
+            self._pending.task_done()
+        return discarded
+
     def interrupt_speech(self) -> None:
-        """Forget queued speech and cooperatively interrupt active playback only."""
+        """Interrupt playback and acknowledge all queued audio, not Core work."""
         with self._lock:
             self._generation += 1
             if self._current_cancel is not None:
                 self._current_cancel.set()
+            discarded = self._drain_waiting_locked()
+        for request in discarded:
+            self._notify(request, "cancelled", "VOICE_INTERRUPTED")
 
     def close(self) -> None:
+        """Close without joining the TTS worker or leaving waiting receipts open."""
         with self._lock:
             self._closed.set()
             self._generation += 1
             if self._current_cancel is not None:
                 self._current_cancel.set()
+            discarded = self._drain_waiting_locked()
+        for request in discarded:
+            self._notify(request, "cancelled", "VOICE_INTERRUPTED")
 
     def _notify(self, request: SpeechRequest, status: str, reason: str) -> None:
         receipt = SpeechReceipt(request.request_id, request.owner, request.voice_id, status, reason)
@@ -162,17 +230,23 @@ class VoiceCoordinator:
                     self._notify(request, "cancelled", "VOICE_INTERRUPTED")
                     continue
                 try:
-                    audio = self._synthesize(spec, request.text, cancel)
-                    if cancel.is_set():
-                        self._notify(request, "cancelled", "VOICE_INTERRUPTED")
-                    elif not isinstance(audio, bytes) or not audio:
-                        self._notify(request, "failed", "VOICE_EMPTY_AUDIO")
-                    else:
+                    status, reason = "played", "VOICE_PLAYBACK_RETURNED"
+                    for chunk in split_speech_text(request.text):
+                        if cancel.is_set():
+                            status, reason = "cancelled", "VOICE_INTERRUPTED"
+                            break
+                        audio = self._synthesize(spec, chunk, cancel)
+                        if cancel.is_set():
+                            status, reason = "cancelled", "VOICE_INTERRUPTED"
+                            break
+                        if not isinstance(audio, bytes) or not audio:
+                            status, reason = "failed", "VOICE_EMPTY_AUDIO"
+                            break
                         self._play(audio, cancel)
                         if cancel.is_set():
-                            self._notify(request, "cancelled", "VOICE_INTERRUPTED")
-                        else:
-                            self._notify(request, "played", "VOICE_PLAYBACK_RETURNED")
+                            status, reason = "cancelled", "VOICE_INTERRUPTED"
+                            break
+                    self._notify(request, status, reason)
                 except Exception:
                     _record_failure('modules/voice_core.py:adapter')
                     self._notify(request, "cancelled" if cancel.is_set() else "failed",
