@@ -19,7 +19,12 @@ _FENCE = (
 
 def _fence_expected(identity: dict, kind: str, data: dict):
     """Reuse an already accepted command fence for idempotent reconciliation."""
-    enriched, candidate = runtime_worker_result.prepare(identity, kind, data)
+    # Recovery is read-only and must reuse an accepted exact command below.
+    # Skip the *new worker* preflight (an already succeeded root is not ready
+    # for dispatch), never the plan/identity fence or CAS idempotency check.
+    enriched, candidate = runtime_worker_result.prepare(
+        identity, kind, data, reconcile_existing=True,
+    )
     from modules import goal_executor
     path = goal_executor._root(candidate['owner']) / (candidate['job_id'] + '.goalstate.json')
     state = goal_state_store.load(path)
