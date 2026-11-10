@@ -38,6 +38,9 @@ class ModelRequest:
     min_context_tokens: int | None = None
     response_schema: dict[str, Any] | None = None
     max_output_tokens: int = 2000
+    # Upper bound of provider input + maximum output tokens, furnished by a
+    # trusted developer adapter; not inferred from user text or token estimates.
+    token_budget: int | None = None
     deadline: float | None = None
     cancelled: Any = None
     route: str | None = None
@@ -415,6 +418,12 @@ def plan(request: ModelRequest) -> RoutePlan:
     # Reject malformed requirements before discovering or contacting any model.
     model_capabilities.check('', '', native_features=request.native_features,
                              min_context_tokens=request.min_context_tokens)
+    if request.token_budget is not None and (
+            type(request.token_budget) is not int
+            or type(request.max_output_tokens) is not int
+            or request.token_budget < request.max_output_tokens
+            or request.token_budget > 2_000_000):
+        raise ValueError('Toplam token üst sınırı geçersiz veya çıktı bütçesinden küçük.')
     if request.max_network_attempts < 1 or request.max_network_attempts > 2:
         raise ValueError('Toplam ağ denemesi 1 veya 2 olmalı.')
     unknown = set(request.exclude_providers) - (_CLOUD_PROVIDERS | {'ollama'})
@@ -494,7 +503,8 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
             break
         _check_request(request)
         try:
-            router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE)
+            router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE,
+                                 token_budget=request.token_budget)
         except (router_quota.ReservationUnavailable,router_quota.ReservationExhausted) as exc:
             # This skipped provider made no actual HTTP attempt. Never bypass a
             # configured limit merely because its local SQLite store is locked.
