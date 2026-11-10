@@ -104,6 +104,36 @@ class PlannedRootProductionFenceTests(unittest.TestCase):
         self.commit(prepared)
         self.assertEqual(goal_state_store.load(self.path), before)
 
+    def test_exact_recovery_after_success_reuses_fence_without_new_worker(self):
+        from modules import reconcile_worker_result
+        prepared = self.prepare('left')
+        self.commit(prepared)
+        before = goal_state_store.load(self.path)
+        recovered = {
+            'state': 'done', 'verification': {'fixture': 'synthetic'},
+        }
+        with (patch.object(goal_tools, 'verify', return_value=True) as verified,
+              patch.object(goal_tools, 'execute') as worker):
+            result = reconcile_worker_result.accept_and_commit(
+                recovered, identity('left'), 'research', DATA,
+            )
+        verified.assert_called_once_with(recovered, OWNER)
+        worker.assert_not_called()
+        self.assertEqual(result, recovered)
+        self.assertEqual(goal_state_store.load(self.path), before)
+
+    def test_recovery_cannot_mint_new_success_from_missing_execution_fence(self):
+        from modules import reconcile_worker_result
+        with (patch.object(goal_tools, 'verify') as verified,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaisesRegex(ValueError, 'önceden kabul edilmiş'):
+                reconcile_worker_result.accept_and_commit(
+                    {'state': 'done'}, identity('left'), 'research', DATA,
+                )
+        verified.assert_not_called()
+        worker.assert_not_called()
+        self.assertEqual(goal_state_store.load(self.path)['evidence'], [])
+
     def test_real_specialist_boundary_never_launches_duplicate_worker(self):
         self.commit(self.prepare('left'))
         runtime = SimpleNamespace(profile=SimpleNamespace(slug=OWNER))
