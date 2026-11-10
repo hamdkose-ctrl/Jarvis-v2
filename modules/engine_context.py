@@ -87,22 +87,40 @@ def _parse_voice(runtime, cmd_lower: str, partial: str | None = None) -> tuple[s
         key += "2"
     return key, None
 
-def _set_voice(runtime, key: str) -> str:
+def set_profile_voice(profile, key: str, *, voices=None, lane=None) -> tuple[bool, str]:
+    """One profile mutation authority shared by typed web and spoken voice controls.
+
+    Neither UI nor model may bypass exact installed-voice checks. Keep this
+    function in engine_context rather than creating another preference writer.
+    """
     from modules import voice_runtime
-    lane = voice_runtime.active()
     if lane is None and voice_runtime.legacy_blocked():
-        return "Voice Core yapılandırması geçersiz; önceki ses tercihin değişmedi."
-    label = runtime.voice.VOICES[key][0].split(' · ')[0]
+        return False, "Voice Core yapılandırması geçersiz; önceki ses tercihin değişmedi."
     if lane is not None:
         try:
             label = lane.check_voice(key).label
         except (ValueError, OSError):
-            return "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
-    if lane is not None and runtime.profile.data["prefs"].get("voice") != key:
-        # Old queued utterances belong to the former selected identity.
-        # Switching a voice must not keep playing a mixed old/new queue.
+            return False, "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
+    else:
+        entry = voices.get(key) if isinstance(voices, dict) else None
+        if entry is None:
+            return False, "Seçilen ses mevcut değil; önceki ses tercihin değişmedi."
+        label = entry[0].split(' · ')[0]
+    if lane is not None and profile.data["prefs"].get("voice") != key:
+        # Do not play queued speech from the previous identity after selection.
         lane.interrupt()
-    runtime.profile.set_pref("voice", key)
+    profile.set_pref("voice", key)
+    return True, label
+
+
+def _set_voice(runtime, key: str) -> str:
+    from modules import voice_runtime
+    ok, label = set_profile_voice(
+        runtime.profile, key, voices=runtime.voice.VOICES,
+        lane=voice_runtime.active(),
+    )
+    if not ok:
+        return label
     return f"Tamam {runtime.profile.name}, artık {label} sesiyle konuşuyorum."
 
 def _switch_user(runtime, name: str, created: bool = False) -> str:
