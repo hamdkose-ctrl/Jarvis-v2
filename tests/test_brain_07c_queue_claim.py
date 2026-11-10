@@ -6,6 +6,7 @@ They do not claim canonical DAG ResourceLease or cross-process worker cancellati
 from __future__ import annotations
 
 import sqlite3
+import threading
 import tempfile
 import time
 import unittest
@@ -103,6 +104,37 @@ class QueueClaimFenceTests(unittest.TestCase):
                 'SELECT COUNT(*) FROM queue_runs'
             ).fetchone()[0], 0)
         callback.assert_not_called()
+
+    def test_queue_tick_joins_heartbeat_before_returning_to_owner(self):
+        """The SQLite file must not remain open in the background on Windows."""
+        task_queue.enqueue('alice', TASKS)
+        original_thread = threading.Thread
+        heartbeat_exited = threading.Event()
+        spawned = []
+
+        def track_thread(*args, **kwargs):
+            if kwargs.get('name') != 'task-lease':
+                return original_thread(*args, **kwargs)
+            target = kwargs['target']
+
+            def tracked_heartbeat():
+                try:
+                    target()
+                finally:
+                    # Exposes races where tick returns before its daemon exits.
+                    time.sleep(0.05)
+                    heartbeat_exited.set()
+
+            thread = original_thread(*args, **{**kwargs, 'target': tracked_heartbeat})
+            spawned.append(thread)
+            return thread
+
+        with (patch.object(task_queue.threading, 'Thread', side_effect=track_thread),
+              patch.object(task_agents, 'execute', return_value={'state': 'done'})):
+            task_queue.tick('alice')
+        self.assertEqual(len(spawned), 1)
+        self.assertTrue(heartbeat_exited.is_set())
+        self.assertFalse(spawned[0].is_alive())
 
     def test_old_queue_schema_is_migrated_without_losing_rows(self):
         service_store.ROOT.mkdir(parents=True, exist_ok=True)
