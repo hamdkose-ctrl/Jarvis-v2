@@ -209,6 +209,7 @@ class VoiceSession:
             self.voice_lane, _enabled = voice_runtime.maybe_start(runtime)
         except ValueError:
             runtime._record_failure('modules/engine_voice.py:voice_core_setup')
+            voice_runtime.block_legacy_on_fault()
             # An explicitly requested invalid configuration must never silently
             # fall back to Edge, SAPI or a different user's voice.
             self.voice_core_fault = "Voice Core yapılandırması hatalı. Ses değiştirilmedi; yanıt yazılı kalacak."
