@@ -118,6 +118,7 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         from modules import dependency_evidence
         deps=dependency_evidence.preflight_durable_step(
             identity, step, job.get('outputs'),
+            owner=job['owner'], job_id=job['id'],
         )
     if deps is None:
         deps={key:job['outputs'][key] for key in step['depends']}
