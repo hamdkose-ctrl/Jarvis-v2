@@ -9,7 +9,13 @@ def submit(runtime, text: str, source: str = "yazı", user: str | None = None, r
     text = text.strip()
     if not text:
         return False
-    if runtime._tr_lower(text).strip(" .!") in ("dur", "sus", "yeter", "stop"):
+    command = runtime._tr_lower(text).strip(" .!")
+    if command in ("sus", "yeter", "sesini kes", "konuşmayı kes"):
+        # Voice-only interruption must not cancel Core work or an active request.
+        runtime.voice.stop_speaking()
+        return False
+    if command in ("dur", "stop"):
+        # Existing explicit task-stop semantics remain available.
         from modules import pc_guide
         pc_guide.stop(runtime.slugify(user or runtime.pc_profile().name))
         runtime.voice.stop_speaking()
