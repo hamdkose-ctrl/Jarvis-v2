@@ -241,6 +241,10 @@ def tick(owner, notify=None):
         error = type(exc).__name__
     finally:
         heartbeat_stop.set()
+        # Close the heartbeat's SQLite connection before the queue run exits.
+        # On Windows, even a successful run must not leave the database file
+        # held by a daemon thread during owner shutdown/test cleanup.
+        pulse.join()
 
     if lost.is_set():
         # A timed-out or stolen claim never announces success. Recovery will
