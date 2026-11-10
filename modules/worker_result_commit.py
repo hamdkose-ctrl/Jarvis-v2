@@ -220,6 +220,12 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         goal_plan_gate.validate_root_attempt(
             current, selection, attempt=accepted['attempt'],
         )
+        if accepted['capability_id'] == 'task.account':
+            # The lease remains held across worker verification and Core CAS.
+            # A direct model/worker/recovery caller cannot mint an unleased
+            # new account success. Exact accepted-command replay exits above.
+            from modules import scheduler_resource_gate
+            scheduler_resource_gate.require_account_result_lease(accepted)
 
     next_state = core_state_reducer.apply(current, {
         'expected_version': current['version'],

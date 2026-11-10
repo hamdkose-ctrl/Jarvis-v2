@@ -178,6 +178,23 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 output=runtime_worker_result.accept_and_commit(output,expected)
             return output
 
+    if (expected is not None and 'plan_version' in expected
+            and step['tool'] == 'account'):
+        # The existing durable goal executor owns one in-process lease table.
+        # Only this explicitly supported, read-only canonical capability is
+        # live-wired. Permission/DecisionAuthority already ran above, and
+        # neither account read nor ResourceLease authorizes a write/effect.
+        from modules import goal_executor,scheduler_resource_gate,worker_result_hook
+        with scheduler_resource_gate.account_read_worker(
+            goal_executor._RESOURCE_LEASES, identity, expected,
+        ) as commit_checked:
+            account_output=worker_result_hook.execute(
+                runtime,step['tool'],step['input'],deps,identity,approval=worker_approval,
+            )
+            if isinstance(account_output,dict) and account_output.get('state')=='approval':
+                return account_output
+            return commit_checked(account_output)
+
     if expected is not None:
         from modules import runtime_worker_result,worker_result_hook
         output=worker_result_hook.execute(runtime,step['tool'],step['input'],deps,identity,approval=worker_approval)
