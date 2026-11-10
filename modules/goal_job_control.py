@@ -86,3 +86,23 @@ def mark_saved(root, ident, version):
 
 def saved_version(root, ident):
     return getattr(_LOCAL, 'versions', {}).get(str((Path(root) / ident).absolute()))
+
+
+def mark_worker_commit(root, ident, previous, version):
+    """Remember only this thread's successful CAS, never a freshly loaded version."""
+    commits = getattr(_LOCAL, 'worker_commits', {})
+    key = str((Path(root) / ident).absolute())
+    prior = commits.get(key)
+    base = prior[0] if prior and prior[1] == previous else previous
+    commits[key] = (base, version)
+    _LOCAL.worker_commits = commits
+
+
+def own_worker_version(root, ident, expected):
+    key = str((Path(root) / ident).absolute())
+    commits = getattr(_LOCAL, 'worker_commits', {})
+    commit = commits.get(key)
+    if commit and commit[0] == expected:
+        commits.pop(key)
+        return commit[1]
+    return expected

@@ -112,6 +112,8 @@ def _root(owner):
 def _save(job,*,move_pointer=True):
     root=_root(job['owner'])
     with goal_job_control.locked(root,job['id']):
+        if '_canonical_version' in job:
+            job['_canonical_version']=goal_job_control.own_worker_version(root,job['id'],job['_canonical_version'])
         goal_job_control.assert_fresh(root,job)
         job['updated']=time.time()
         payload=goal_job_control.persistent(job)
@@ -962,6 +964,7 @@ def cancel_job(owner,identity,*,expected_snapshot=None):
             if _ACTIVE_JOBS.get(owner)!=identity:raise ValueError('Başka bir hedef çalışıyor.')
             _CANCEL_REQUESTED.add((owner,identity))
             return 'İptal istendi; devam eden araç döndüğünde sonraki adıma geçilmeyecek.'
+        was_running=job['state']=='running'
         local_cancelled=False
         if job['state']=='approval':
             step=next((s for s in job['steps'] if s['id']==job.get('waiting')),None)
@@ -992,6 +995,8 @@ def cancel_job(owner,identity,*,expected_snapshot=None):
             if local_cancelled:
                 raise ValueError('Bekleyen yerel işlem iptal edildi; hedef kaydı güncellenemedi. Durumu yeniden kontrol et.') from exc
             raise
+        if was_running:
+            return 'İptal kaydedildi; devam eden dış işlem zorla kesilmez. Eski worker sonraki adımı kaydedip başlatamaz.\n\n'+render(job)
         return render(job)
 
 

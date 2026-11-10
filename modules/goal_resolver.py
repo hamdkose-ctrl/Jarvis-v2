@@ -127,6 +127,8 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
     applied: list[Resolution] = []
     for ident in targets:
         applied.append(_apply_one(runtime, goal_executor, owner, operation, ident, text, snapshots.get(ident, {})))
+    if len(applied) == 1 and applied[0].reason_code == 'GOAL_QUESTION_PENDING':
+        return applied[0]
     refused = [row for row in applied if row.result_status != "handled"]
     if refused:
         message = "\n".join(row.message for row in applied)
@@ -162,6 +164,18 @@ def _apply_one(runtime: Any, goal_executor: Any, owner: str, operation: GoalOper
     if (not isinstance(snapshot.get('execution_snapshot'), str) or 'canonical_version' not in snapshot
             or not isinstance(snapshot.get('control_key'), str)):
         return _question('Hedef kartı güncel değil; hedefleri yeniden listele.', 'GOAL_TARGET_STALE')
+    if operation in {GoalOperation.CONTINUE, GoalOperation.RESUME} and job.get('state') == 'question':
+        if goal_executor.control_key(job) != snapshot['control_key']:
+            return _question('Hedef kartı güncel değil; hedefleri yeniden listele.', 'GOAL_TARGET_STALE')
+        from modules import research_evidence
+        question = str(job.get('question') or '').strip()
+        request = job.get('request', '')
+        self_resolvable_news = research_evidence.publication_news_requested(request) and (
+            research_evidence.vague_question(question, request)
+            or goal_executor._self_resolvable_question(question, request))
+        if not self_resolvable_news:
+            return _question(question or 'Bu hedef için bekleyen soruyu yanıtlaman gerekiyor.',
+                             'GOAL_QUESTION_PENDING')
     return _single(
         lambda: _dispatch(runtime, goal_executor, owner, operation, ident, text, snapshot),
         _reason(operation), ident)

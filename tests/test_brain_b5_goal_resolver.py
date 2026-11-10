@@ -355,6 +355,33 @@ class GoalResolverTests(unittest.TestCase):
                 self.assertEqual(before, [path.read_bytes() for path in paths])
                 self.assertEqual(goal_executor.read_job(OWNER, ident)["state"], state)
 
+    def test_continue_and_resume_preserve_a_pending_question(self):
+        ident = self.seed("dosyayı incele", state="question")
+        job = goal_executor.read_job(OWNER, ident)
+        job["question"] = "Hangi dosyayı incelemeliyim?"
+        goal_executor._save(job)
+        root = goal_executor.STORE / OWNER
+        paths = (root / (ident + ".goalstate.json"), root / (ident + ".execution.json"))
+        before = [path.read_bytes() for path in paths]
+        with patch.object(goal_executor, "run") as runner:
+            for operation in (GoalOperation.CONTINUE, GoalOperation.RESUME):
+                result = self.resolve(operation, (ident,))
+                self.assertEqual((result.result_status, result.reason_code),
+                                 ("needs_input", "GOAL_QUESTION_PENDING"))
+                self.assertEqual(result.message, job["question"])
+            runner.assert_not_called()
+        self.assertEqual(before, [path.read_bytes() for path in paths])
+
+    def test_self_resolvable_news_question_keeps_existing_resume_path(self):
+        ident = self.seed("güncel haberleri araştır", state="question")
+        job = goal_executor.read_job(OWNER, ident)
+        job["question"] = "Eksik somut bilgi"
+        goal_executor._save(job)
+        with patch.object(goal_executor, "run", return_value="sürdürüldü") as runner:
+            result = self.resolve(GoalOperation.RESUME, (ident,))
+        self.assertEqual(result.result_status, "handled")
+        runner.assert_called_once()
+
     def test_pause_addresses_the_selected_goal_only(self):
         first, second = self.seed("ilk hedef"), self.seed("ikinci hedef", state="interrupted")
         before = goal_executor.read_job(OWNER, first)

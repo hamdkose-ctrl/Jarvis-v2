@@ -98,6 +98,31 @@ class GoalIntentProductionTests(unittest.TestCase):
         self.assertEqual(goal_executor.read_job('alice', self.job['id'])['state'], 'cancelled')
         self.assertEqual(goal_state_store.load(self.path)['state'], 'cancelled')
 
+    def test_own_worker_commit_is_accepted_but_a_later_user_edit_is_not(self):
+        from modules import runtime_worker_result, worker_result_hook, goal_state_compat
+        for intervening_edit in (False, True):
+            with self.subTest(intervening_edit=intervening_edit):
+                job = goal_executor.read_job('alice', self.job['id'])
+                identity = {'version': 1, 'owner': 'alice', 'job_id': job['id'],
+                            'task_id': 'worker-' + str(intervening_edit), 'attempt': 1}
+                enriched, expected = runtime_worker_result.prepare(
+                    identity, 'research', {'url': 'https://example.test', 'question': 'x'})
+                output = worker_result_hook.wrap_output(
+                    {'state': 'done', 'verification': {'version': 1}}, enriched)
+                runtime_worker_result.accept_and_commit(output, expected)
+                if intervening_edit:
+                    current = goal_state_store.load(self.path)
+                    goal_state_compat.apply_goal_intent(
+                        self.path, owner='alice', job_id=job['id'], expected_version=current['version'],
+                        operation='revise', text='new user instruction')
+                    before = self.path.read_bytes()
+                    with self.assertRaises(ValueError):
+                        goal_executor._save(job)
+                    self.assertEqual(self.path.read_bytes(), before)
+                else:
+                    goal_executor._save(job)
+                    self.assertEqual(job['_canonical_version'], goal_state_store.load(self.path)['version'])
+
     def test_projection_failure_rebuilds_from_canonical(self):
         snapshot = self.snapshot()
         with patch.object(goal_executor, '_save', side_effect=OSError('failure')):
