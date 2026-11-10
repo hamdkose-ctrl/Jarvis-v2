@@ -87,6 +87,69 @@ class IndependentRootResultTests(unittest.TestCase):
         self._commit(left)
         self.assertEqual(goal_state_store.load(self.path), saved)
 
+    def test_simultaneous_cas_race_commits_both_roots_without_rerunning_worker(self):
+        left = self._prepared('left')
+        right = self._prepared('right')
+        original = goal_state_store.compare_and_swap
+        cas_calls = []
+
+        def competing_commit(path, *, expected_version, next_state):
+            cas_calls.append(expected_version)
+            if len(cas_calls) == 1:
+                # Both readers saw version 1. The left root wins just before
+                # the right root's CAS call: the latter must re-read and fence.
+                self._commit(left)
+            return original(
+                path, expected_version=expected_version, next_state=next_state,
+            )
+
+        with patch.object(
+            goal_state_store, 'compare_and_swap', side_effect=competing_commit,
+        ):
+            self._commit(right)
+        saved = goal_state_store.load(self.path)
+        self.assertEqual(saved['version'], 3)
+        self.assertEqual(
+            [row['step_id'] for row in saved['evidence']], ['left', 'right'],
+        )
+        self.assertEqual(cas_calls, [1, 1, 2])
+
+    def test_cas_race_with_user_plan_revision_rejects_stale_worker(self):
+        right = self._prepared('right')
+        original = goal_state_store.compare_and_swap
+        calls = []
+
+        def concurrent_plan_edit(path, *, expected_version, next_state):
+            calls.append(expected_version)
+            if len(calls) == 1:
+                before = goal_state_store.load(self.path)
+                changed = core_state_reducer.apply(before, {
+                    'op': 'set_goal_plan',
+                    'plan': {
+                        'plan_version': 2, 'nodes': [node('left'), node('right')],
+                    },
+                    'expected_version': before['version'],
+                    'reason_code': 'USER_REPLAN',
+                })
+                original(
+                    self.path, expected_version=before['version'],
+                    next_state=changed,
+                )
+            return original(
+                path, expected_version=expected_version, next_state=next_state,
+            )
+
+        with patch.object(
+            goal_state_store, 'compare_and_swap', side_effect=concurrent_plan_edit,
+        ):
+            with self.assertRaises(ValueError):
+                self._commit(right)
+        saved = goal_state_store.load(self.path)
+        self.assertEqual(saved['version'], 2)
+        self.assertEqual(saved['goal_plan']['plan_version'], 2)
+        self.assertEqual(saved['evidence'], [])
+        self.assertEqual(calls, [1])
+
     def test_goal_intent_or_unrelated_canonical_mutation_still_rejects_stale_root(self):
         other = self._prepared('right')
         before = goal_state_store.load(self.path)
