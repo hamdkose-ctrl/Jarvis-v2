@@ -186,11 +186,20 @@ def main(runtime, ui=None):
                 finally:
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()
-                    runtime.emit("state", "idle")
+                    lane = getattr(voice_session, "voice_lane", None)
+                    if lane is None or not lane.is_busy():
+                        runtime.emit("state", "idle")
                 continue
 
             if kind == "listen" and not runtime.flags.get("mic", True):
                 runtime.emit("state", "idle")
+                continue
+
+            if kind == "listen" and getattr(voice_session, "voice_lane", None) is not None \
+                    and voice_session.voice_lane.is_busy():
+                # Explicit one-shot recording must not transcribe Jarvis's own
+                # speaker output. Barge-in wake detection is a separate channel.
+                runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
                 continue
 
             if kind == "listen" and voice_session.live_on and runtime.live.get() is not None and runtime.live.enabled():
@@ -389,7 +398,9 @@ def main(runtime, ui=None):
                             voice_session.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS
                         runtime.time.sleep(0.3)
                         runtime.pause_listening.clear()
-                        runtime.emit("state", "idle")
+                        lane = getattr(voice_session, "voice_lane", None)
+                        if lane is None or not lane.is_busy():
+                            runtime.emit("state", "idle")
             except runtime.requests_state.Cancelled:
                 runtime._cur_source = ""
                 runtime._cur_rid = None
@@ -409,6 +420,9 @@ def main(runtime, ui=None):
         runtime._cur_rid = None
         runtime.pause_listening.clear()
         runtime._prefetch_pool.shutdown(wait=False, cancel_futures=True)
+        close_voice = getattr(voice_session, "close", None)
+        if callable(close_voice):
+            close_voice()
         print("Jarvis kapatıldı.")
         runtime.log.info("Jarvis kapatıldı.")
         runtime.emit("quit")
