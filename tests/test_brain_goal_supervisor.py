@@ -40,7 +40,8 @@ class GoalWatchdogTests(unittest.TestCase):
         body = ('print("Semantic case 1/20",flush=True)\n'
                 'open(args.json,"w",encoding="utf-8").write(' +
                 repr(json.dumps({**META,'state':'passed','semantic_acceptance':True,
-                                 'cases':20,'accuracy':1,'incorrect_action_proposals':0,
+                                 'cases':20,'model_responses':20,'accuracy':1,
+                                 'incorrect_action_proposals':0,
                                  'attempted_effects':0})) + ')\n')
         self.assertEqual(self.invoke(self.script(body),stall_seconds=3),0)
         self.assertEqual(json.loads(self.report.read_text(encoding='utf-8'))['state'],'passed')
@@ -57,6 +58,19 @@ class GoalWatchdogTests(unittest.TestCase):
         self.assertEqual(report['reason_code'],'HOLDOUT_STALLED')
         self.assertEqual(report['last_started_case'],8)
         self.assertNotIn('accuracy',report)
+
+    def test_pass_requires_complete_effect_free_metric_evidence(self):
+        correct = {**META,'state':'passed','semantic_acceptance':True,
+                   'cases':20,'model_responses':20,'accuracy':1,
+                   'incorrect_action_proposals':0,'attempted_effects':0}
+        self.assertTrue(runner._verified_verdict(correct,META,0))
+        for broken in ({'accuracy':.90},{'incorrect_action_proposals':1},
+                       {'attempted_effects':1},{'model_responses':19},
+                       {'semantic_acceptance':False},{'head':'b'*40},
+                       {'scope':'goal_holdout'}, {'cases':19}):
+            with self.subTest(broken=broken):
+                self.assertFalse(runner._verified_verdict({**correct,**broken},META,0))
+        self.assertFalse(runner._verified_verdict(correct,META,1))
 
     def test_stale_pass_report_is_not_reused_after_worker_exit(self):
         self.report.write_text(json.dumps({**META,'state':'passed'}),encoding='utf-8')

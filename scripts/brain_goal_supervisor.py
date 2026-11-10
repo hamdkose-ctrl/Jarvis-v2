@@ -58,6 +58,33 @@ def _parse_progress(buffer: str, chunk: str, *, show: bool) -> tuple[str, int]:
     return pending[-2048:], last_case
 
 
+def _verified_verdict(row: object, metadata: dict, exit_code: int | None) -> bool:
+    """Reject stale/corrupt success reports, not just mismatched run identifiers."""
+    if not isinstance(row, dict):
+        return False
+    state = row.get('state')
+    if (row.get('head') != metadata['head']
+            or row.get('corpus_sha256') != metadata['corpus_sha256']
+            or row.get('scope') != metadata['scope']
+            or state not in {'passed', 'failed', 'unmeasured'}
+            or exit_code != {'passed':0,'failed':1,'unmeasured':2}[state]):
+        return False
+    if state != 'passed':
+        return True
+    if row.get('attempted_effects') != 0:
+        return False
+    if row.get('scope') == 'connection':
+        return row.get('connection_ok') is True and row.get('provider_responses',0) >= 1
+    cases = row.get('cases')
+    responses = row.get('model_responses')
+    score = row.get('accuracy')
+    return (row.get('semantic_acceptance') is True
+            and type(cases) is int and cases == 20
+            and type(responses) is int and responses == cases
+            and type(score) in (int,float) and .95 <= score <= 1
+            and row.get('incorrect_action_proposals') == 0)
+
+
 def supervise(*, script: Path, args: list[str], cwd: Path,
               report_path: Path | None, metadata: dict,
               stall_seconds: float = DEFAULT_STALL_SECONDS,
@@ -135,12 +162,7 @@ def supervise(*, script: Path, args: list[str], cwd: Path,
         if state_error is None and worker_json.is_file():
             try:
                 row = json.loads(worker_json.read_text(encoding='utf-8'))
-                if (isinstance(row, dict)
-                        and row.get('head') == metadata['head']
-                        and row.get('corpus_sha256') == metadata['corpus_sha256']
-                        and row.get('scope') == metadata['scope']
-                        and row.get('state') in {'passed', 'failed', 'unmeasured'}
-                        and return_code == {'passed':0,'failed':1,'unmeasured':2}[row['state']]):
+                if _verified_verdict(row, metadata, return_code):
                     valid = row
             except (OSError, ValueError, KeyError, TypeError):
                 pass
