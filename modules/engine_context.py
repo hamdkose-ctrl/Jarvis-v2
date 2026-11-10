@@ -88,6 +88,13 @@ def _parse_voice(runtime, cmd_lower: str, partial: str | None = None) -> tuple[s
     return key, None
 
 def _set_voice(runtime, key: str) -> str:
+    from modules import voice_runtime
+    lane = voice_runtime.active()
+    if lane is not None:
+        try:
+            lane.check_voice(key)
+        except (ValueError, OSError):
+            return "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
     runtime.profile.set_pref("voice", key)
     return f"Tamam {runtime.profile.name}, artık {runtime.voice.VOICES[key][0].split(' · ')[0]} sesiyle konuşuyorum."
 
