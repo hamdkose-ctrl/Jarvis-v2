@@ -160,7 +160,7 @@ class AcceptedPredecessorBindingTests(unittest.TestCase):
         # no dependent worker is executed by this projection.
         self.assertEqual(verify.call_count, 1)
 
-    def test_missing_predecessor_journal_or_unsigned_old_success_fails(self):
+    def test_missing_predecessor_journal_fails(self):
         self.commit('left')
         self.commit('right')
         self.outputs.pop('right')
@@ -168,21 +168,20 @@ class AcceptedPredecessorBindingTests(unittest.TestCase):
             with self.assertRaises(goal_plan_gate.PlanFenceError):
                 self.resolve()
 
+    def test_older_accepted_success_without_output_digest_stays_unbound(self):
         # Older successful evidence remains accepted for topology/readiness,
         # but may never turn into an unproven dependent worker input.
-        with self.subTest('older-unbound-output'):
-            self.temp.cleanup()
-            self.setUp()
-            self.commit('left', legacy_proof=True)
-            self.commit('right')
-            self.assertIn(
-                'child', [c.node_id for c in goal_plan_gate.ready_read_only_candidates(
-                    self.state(), owner=OWNER, job_id=JOB,
-                )],
-            )
-            with patch('modules.goal_tools.verify', return_value=True):
-                with self.assertRaises(goal_plan_gate.PlanFenceError):
-                    self.resolve()
+        self.commit('left', legacy_proof=True)
+        self.commit('right')
+        self.assertIn(
+            'child', [c.node_id for c in goal_plan_gate.ready_read_only_candidates(
+                self.state(), owner=OWNER, job_id=JOB,
+            )],
+        )
+        with patch('modules.goal_tools.verify', return_value=True) as verify:
+            with self.assertRaises(goal_plan_gate.PlanFenceError):
+                self.resolve()
+        verify.assert_not_called()
 
     def test_domain_readback_must_pass_again_not_merely_match_digest(self):
         self.commit('left')
