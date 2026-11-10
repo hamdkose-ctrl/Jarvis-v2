@@ -160,6 +160,20 @@ class LeaseTable:
             self._active[current.serial] = refreshed
             return refreshed
 
+    def while_current(self, ticket: LeaseTicket, action: Callable):
+        """Run one short acceptance action behind the SAME in-process lease lock.
+
+        Prevents another thread in this LeaseTable from expiring/replacing the
+        ticket between the final fence check and the GoalState CAS. It is NOT a
+        durable, interprocess fence or permission grant; use only on read-only
+        results with the independent canonical GoalState CAS.
+        """
+        if not callable(action):
+            raise ValueError("Lease acceptance action must be callable.")
+        with self._lock:
+            self._require(ticket)
+            return action()
+
     def release(self, ticket: LeaseTicket) -> None:
         with self._lock:
             current = self._require(ticket)
