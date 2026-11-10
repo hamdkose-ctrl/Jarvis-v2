@@ -11,7 +11,7 @@ from unittest.mock import patch
 import wave
 
 from modules.voice_core import VoiceSpec
-from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer, _validate_wave
+from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer, _validate_wave, piper_length_scale
 
 
 def wav_bytes(*, silent=False):
@@ -61,6 +61,41 @@ class OfflineVoiceTests(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertEqual(commands[0][commands[0].index("-m")+1], str((self.root/"female.onnx").resolve()))
         self.assertNotIn("male.onnx", commands[0])
+
+    def test_rate_maps_to_bounded_piper_length_scale_without_voice_change(self):
+        self.assertEqual(piper_length_scale(0), 1.0)
+        self.assertGreater(piper_length_scale(-40), 1.0)
+        self.assertLess(piper_length_scale(40), 1.0)
+        for rate in (True, -41, 41, 1.5, None):
+            with self.subTest(rate=rate), self.assertRaises(ValueError):
+                piper_length_scale(rate)
+
+        commands = []
+        def popen(args, **kwargs):
+            commands.append(args)
+            Path(args[args.index("-f") + 1]).write_bytes(wav_bytes())
+            return FakeProcess()
+        with patch("modules.voice_offline.shutil.which", return_value="C:/bin/piper.exe"), \\
+             patch("modules.voice_offline.subprocess.Popen", side_effect=popen):
+            base = self.spec("female.onnx")
+            self.assertEqual(PiperSynthesizer(self.root)(
+                VoiceSpec(base.voice_id, base.label, base.backend, base.asset_id,
+                          speaking_rate=-20),
+                "Yavaşça oku", threading.Event(),
+            ), wav_bytes())
+            self.assertEqual(PiperSynthesizer(self.root)(
+                VoiceSpec(base.voice_id, base.label, base.backend, base.asset_id,
+                          speaking_rate=25),
+                "Hızlıca oku", threading.Event(),
+            ), wav_bytes())
+        self.assertEqual(len(commands), 2)
+        for cmd in commands:
+            self.assertEqual(cmd[cmd.index("-m") + 1],
+                             str((self.root / "female.onnx").resolve()))
+            self.assertNotIn("male.onnx", cmd)
+            self.assertIn("--length_scale", cmd)
+        self.assertGreater(float(commands[0][-1]), 1)
+        self.assertLess(float(commands[1][-1]), 1)
 
     def test_unavailable_model_fails_without_switching_or_network(self):
         with self.assertRaises(OfflineVoiceUnavailable):
