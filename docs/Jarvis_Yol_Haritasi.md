@@ -108,6 +108,8 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 
 ---
 
+**BRAIN-04 sonuç doğruluğu — ses açma (10 Kasım 2026; PR #544 taslak):** `engine_intents.audio_action/open` sessizdeyken `set_mute(False)` başarısızlığını daha önce başarı metniyle gizleyebiliyordu. Bu dar paket başarısızlığı `ActionOutcome.ok=False`, başarılı unmute sonucunu `ok=True` olarak taşır; eylem sonucu batch bağımlılığına kanıtsız başarı vermez. Gerçek model semantiği, diğer domain sonuçları ve BRAIN-04 ürün kapanışı bu düzeltmeyle kanıtlanmış sayılmaz. Exact-head Windows CI ve gerçek PC watcher kabulü PR için ayrıca doğrulanacak.
+
 ## Faz 2 — Zamanlama, olay, hook ve temel muhakeme
 
 **Durum: 🔄 kapanış kabulü bekliyor. İlk PR'lar (#353–#371) incelemede (incelemeler/faz2_inceleme.md) canlı akışa bağlı çıkmamıştı; #374 bağladı, #380 kaynak takibine abonelik ekledi, #382 webhook tekrar korumasını ekledi. Ölü `modules/proactive.py` silindi. Bu PR ile production consumer'ı olmayan ayrı `gateway_hooks.py` registry/implementation'ı kaldırıldı; gateway observation dahil tek hook registry/dispatch authority `modules/hooks.py`. `shell_hooks.py` Faz 6 sandbox'a kadar bilinçli fail-closed stub olarak kalır ve shell execution vermez. F-011 completion #431 mevcut scheduler heartbeat'ini reuse ederek gerçek günlük briefing tetik noktası ve eksik durum fact'lerini tamamlıyor; exact-head CI + PC acceptance gelmeden PASS sayılmayacak.**
