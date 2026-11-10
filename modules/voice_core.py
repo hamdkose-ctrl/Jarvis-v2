@@ -11,6 +11,8 @@ import queue
 import threading
 from typing import Callable
 
+from modules.diagnostics import record_failure as _record_failure
+
 
 @dataclass(frozen=True)
 class VoiceSpec:
@@ -134,6 +136,7 @@ class VoiceCoordinator:
         try:
             self._report(receipt)
         except Exception:
+            _record_failure('modules/voice_core.py:notify')
             # An observation callback must not kill the dedicated speech worker.
             pass
 
@@ -167,6 +170,7 @@ class VoiceCoordinator:
                         else:
                             self._notify(request, "played", "VOICE_PLAYBACK_RETURNED")
                 except Exception:
+                    _record_failure('modules/voice_core.py:adapter')
                     self._notify(request, "cancelled" if cancel.is_set() else "failed",
                                  "VOICE_INTERRUPTED" if cancel.is_set() else "VOICE_ADAPTER_FAILED")
             finally:
