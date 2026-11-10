@@ -280,6 +280,8 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
             }])
             self.assertTrue(bridge.voice_set("tr_kadin"))
             self.assertTrue(bridge.rate_set(35))
+            self.assertFalse(bridge.rate_set(True))
+            self.assertFalse(bridge.rate_set("hızlı"))
             self.assertFalse(bridge.voice_set("not-installed"))
         self.assertEqual(person.data["prefs"].get("voice"), "tr_kadin")
         self.assertEqual(person.data["prefs"].get("rate"), 35)
