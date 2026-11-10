@@ -90,13 +90,14 @@ def _parse_voice(runtime, cmd_lower: str, partial: str | None = None) -> tuple[s
 def _set_voice(runtime, key: str) -> str:
     from modules import voice_runtime
     lane = voice_runtime.active()
+    label = runtime.voice.VOICES[key][0].split(' · ')[0]
     if lane is not None:
         try:
-            lane.check_voice(key)
+            label = lane.check_voice(key).label
         except (ValueError, OSError):
             return "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
     runtime.profile.set_pref("voice", key)
-    return f"Tamam {runtime.profile.name}, artık {runtime.voice.VOICES[key][0].split(' · ')[0]} sesiyle konuşuyorum."
+    return f"Tamam {runtime.profile.name}, artık {label} sesiyle konuşuyorum."
 
 def _switch_user(runtime, name: str, created: bool = False) -> str:
     """Aktif kullanıcıyı değiştirir; profil, hedefler ve sohbet geçmişi o kullanıcıya göre yüklenir."""
@@ -172,6 +173,11 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
         runtime._session().pending_voice = lang or "sor"
         if lang:
             return "Erkek mi kadın mı?"
+        from modules import voice_runtime
+        lane = voice_runtime.active()
+        if lane is not None:
+            choices = ", ".join(spec.label for spec in lane.catalog.choices())
+            return f"Kurulu katalogda tanımlanan yerel sesler: {choices}. Hangisi? Kullanılabilirlik model kurulumu ile doğrulanır."
         return ("Sesler: Kerem (Türkçe erkek), Defne (Türkçe kadın), Liam ve Noah (çok dilli erkek), "
                 "Olivia ve Mia (çok dilli kadın). İngilizce çalışıyorsan çok dilli sesler İngilizceyi de doğru okur. Hangisi?")
 
