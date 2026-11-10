@@ -334,7 +334,9 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         web._runtime = SimpleNamespace(_p=lambda: person)
         with patch("modules.voice_runtime.active", return_value=lane):
             self.assertEqual(web.voice_options()["voices"], [])
+            self.assertFalse(web.voice_options()["rate_supported"])
             self.assertFalse(web.voice_set("tr_kadin"))
+            self.assertFalse(web.rate_set(12))
         person.set_pref.assert_not_called()
         lane.interrupt.assert_not_called()
 
