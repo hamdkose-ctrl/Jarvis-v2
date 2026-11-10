@@ -1,0 +1,130 @@
+"""Explicit offline Piper synthesis and PCM WAV playback for Voice Core.
+
+No model download, network fallback, LLM/Ollama import, or implicit voice switch.
+Adapters are not connected to the production engine until real-PC acceptance.
+"""
+from __future__ import annotations
+
+import io
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+import wave
+
+from modules.voice_core import SpeechRequest, VoiceSpec
+
+
+class OfflineVoiceUnavailable(RuntimeError):
+    pass
+
+
+class PiperSynthesizer:
+    """Synthesize one explicitly provisioned voice without changing its identity."""
+
+    def __init__(self, model_root: Path, *, timeout_seconds: float = 40.0):
+        if not 1 <= timeout_seconds <= 180:
+            raise ValueError("Piper timeout outside accepted limits.")
+        self.model_root = Path(model_root)
+        self.timeout_seconds = timeout_seconds
+
+    def _model(self, spec: VoiceSpec) -> Path:
+        if spec.backend != "piper":
+            raise OfflineVoiceUnavailable("Selected voice is not a Piper voice.")
+        asset = Path(spec.asset_id)
+        if asset.is_absolute() or asset.suffix.lower() != ".onnx" or ".." in asset.parts:
+            raise OfflineVoiceUnavailable("Selected voice asset path is invalid.")
+        root = self.model_root.resolve()
+        candidate = root / asset
+        if candidate.is_symlink() or any(p.is_symlink() for p in candidate.parents if p != root and root in p.parents):
+            raise OfflineVoiceUnavailable("Symlinked voice models are not accepted.")
+        try:
+            real = candidate.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise OfflineVoiceUnavailable("Selected offline voice is not installed.") from exc
+        if root not in real.parents or not real.is_file() or real.is_symlink():
+            raise OfflineVoiceUnavailable("Selected offline voice is outside its model directory.")
+        return real
+
+    def __call__(self, spec: VoiceSpec, text: str, cancel: threading.Event) -> bytes:
+        if cancel.is_set():
+            return b""
+        model = self._model(spec)
+        executable = shutil.which("piper")
+        if not executable:
+            raise OfflineVoiceUnavailable("Piper executable is not installed.")
+        if not text or len(text) > 12000:
+            raise ValueError("Speech text is empty or exceeds limit.")
+        with tempfile.TemporaryDirectory(prefix="jarvis-voice-piper-") as folder:
+            target = Path(folder) / "speech.wav"
+            proc = subprocess.Popen(
+                [executable, "-m", str(model), "-f", str(target)],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            started = time.monotonic()
+            try:
+                first = True
+                while True:
+                    if cancel.is_set():
+                        return b""
+                    if time.monotonic() - started > self.timeout_seconds:
+                        raise TimeoutError("Selected offline voice exceeded its synthesis deadline.")
+                    try:
+                        proc.communicate(input=text.encode("utf-8") if first else None, timeout=0.2)
+                        break
+                    except subprocess.TimeoutExpired:
+                        first = False
+                if cancel.is_set():
+                    return b""
+                if proc.returncode != 0:
+                    raise OfflineVoiceUnavailable("Selected offline voice failed to synthesize.")
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+            if not target.is_file() or target.is_symlink() or target.stat().st_size > 35_000_000:
+                raise OfflineVoiceUnavailable("Offline voice returned no valid WAV output.")
+            audio = target.read_bytes()
+            _validate_wave(audio)
+            return audio
+
+
+def _validate_wave(audio: bytes) -> None:
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as wf:
+            channels, rate, width, count = wf.getnchannels(), wf.getframerate(), wf.getsampwidth(), wf.getnframes()
+            if (wf.getcomptype() != "NONE" or channels not in (1, 2)
+                    or width != 2 or not 8_000 <= rate <= 48_000
+                    or count <= 0 or count / rate > 180):
+                raise ValueError("Unsupported offline audio metadata.")
+            data = wf.readframes(count)
+            if len(data) != count * channels * width or not any(data):
+                raise ValueError("Offline audio is empty, incomplete or silent.")
+    except (wave.Error, EOFError, OSError) as exc:
+        raise ValueError("Offline voice output is not a valid PCM WAV file.") from exc
+
+
+class WavePlayer:
+    """The single PCM playback adapter. Cancellation never touches Core requests."""
+
+    def __init__(self, *, device=None, frames_per_write: int = 1024):
+        if not 256 <= frames_per_write <= 8192:
+            raise ValueError("Audio output chunk size is invalid.")
+        self.device = device
+        self.frames_per_write = frames_per_write
+
+    def __call__(self, audio: bytes, cancel: threading.Event) -> None:
+        _validate_wave(audio)
+        if cancel.is_set():
+            return
+        import sounddevice as sd
+        with wave.open(io.BytesIO(audio), "rb") as wf:
+            with sd.RawOutputStream(samplerate=wf.getframerate(), channels=wf.getnchannels(),
+                                    dtype="int16", device=self.device) as stream:
+                while not cancel.is_set():
+                    chunk = wf.readframes(self.frames_per_write)
+                    if not chunk:
+                        break
+                    stream.write(chunk)
