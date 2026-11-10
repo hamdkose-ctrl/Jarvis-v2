@@ -29,6 +29,11 @@ def _fence_expected(identity: dict, kind: str, data: dict):
         and row.get('command_id') == candidate['command_id']
     ]
     if not matches:
+        if set(worker_result.PLAN_FENCE).issubset(candidate):
+            # A read-only observation without a persisted exact execution fence
+            # may belong to a previous plan; never mint a new plan identity
+            # from current state during reconciliation.
+            raise ValueError('Planlı reconcile için önceden kabul edilmiş execution fence gerekli.')
         return enriched, candidate
     if len(matches) != 1:
         raise ValueError('Reconcile WorkerResult için birden fazla command kaydı var.')
