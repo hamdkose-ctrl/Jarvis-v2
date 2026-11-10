@@ -14,7 +14,7 @@ import threading
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec
-from modules.voice_offline import PiperSynthesizer, WavePlayer
+from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer
 
 
 CONFIG_NAME = "voice_core.json"
@@ -153,7 +153,10 @@ class VoiceLane:
         """Do not persist a new voice choice when its local model is missing."""
         spec = self.catalog.require(voice_id)
         if isinstance(self._synthesize, PiperSynthesizer):
-            model_path = self._synthesize._model(spec)
+            try:
+                model_path = self._synthesize._model(spec)
+            except OfflineVoiceUnavailable as exc:
+                raise ValueError("Seçilen yerel ses modeli kurulu değil.") from exc
             metadata_path = Path(str(model_path) + ".json")
             if not metadata_path.is_file() or metadata_path.is_symlink():
                 raise ValueError("Seçilen Piper modelinin doğrulanmış .onnx.json metaverisi eksik.")
