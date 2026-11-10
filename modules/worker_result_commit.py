@@ -72,9 +72,11 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     """
     from modules import goal_plan_gate
     expected_version = accepted['expected_job_version']
+    selected = _read_only_manifest(accepted['capability_id'])
     if (accepted['schema'] != worker_result.PLAN_SCHEMA
             or not 0 <= expected_version < current['version']
-            or _read_only_manifest(accepted['capability_id']) is None):
+            or selected is None
+            or accepted['capability_version'] != str(selected['version'])):
         return False
     intervening = current['audit'][expected_version + 1:]
     if not intervening or any(
@@ -83,6 +85,20 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     ):
         return False
     if len(current['evidence']) < len(intervening):
+        return False
+    # The new result must match its canonical node payload exactly; a caller
+    # cannot broaden rebase by claiming an unrelated input for the same root.
+    active = next(
+        (n for n in current['goal_plan']['nodes']
+         if n['id'] == accepted['step_id']), None,
+    )
+    if active is None or active['depends_on']:
+        return False
+    canonical = json.dumps(
+        active['input'], ensure_ascii=False, sort_keys=True,
+        separators=(',', ':'), allow_nan=False,
+    ).encode('utf-8')
+    if accepted['input_digest'] != hashlib.sha256(canonical).hexdigest():
         return False
     appended = current['evidence'][-len(intervening):]
     seen = set()
