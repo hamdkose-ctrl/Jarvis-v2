@@ -17,7 +17,7 @@ from unittest.mock import patch
 import release_guard
 from modules import (
     core_state_reducer, execution_record, goal_executor, goal_job_control,
-    goal_state_compat, goal_state_save_hook, goal_state_store,
+    goal_state, goal_state_compat, goal_state_save_hook, goal_state_store,
 )
 
 OWNER = 'alice'
@@ -186,6 +186,36 @@ class PlanIntentJournalLockTests(unittest.TestCase):
             release.set()
         self.assertEqual(goal_state_store.load(self.canonical), updated)
         self.assertEqual(self.record.read_bytes(), before_record)
+
+    def test_canonical_only_short_identity_has_no_execution_journal_lock(self):
+        # GoalState IDs are intentionally broader than the 16-hex executor
+        # journal schema. Existing canonical-only callers must still work.
+        short_path = self.owner_root / 'abc.goalstate.json'
+        original = goal_state.new(
+            owner=OWNER, job_id='abc', goal='Standalone canonical intent',
+            authority='canonical',
+        )
+        goal_state_store.create(short_path, original)
+        planned = goal_state_compat.apply_goal_plan(
+            short_path, owner=OWNER, job_id='abc',
+            expected_version=original['version'],
+            plan={'plan_version': 1, 'nodes': [node('only')]},
+        )
+        updated = goal_state_compat.apply_goal_intent(
+            short_path, owner=OWNER, job_id='abc',
+            expected_version=planned['version'],
+            operation='revise', text='Keep the standalone plan safe',
+        )
+        self.assertEqual(updated['version'], 2)
+        self.assertEqual(updated['goal_plan']['plan_version'], 1)
+        self.assertEqual(updated['goal_intent']['revision'],
+                         'Keep the standalone plan safe')
+        self.assertEqual(goal_state_store.load(short_path), updated)
+        self.assertFalse(
+            execution_record.path_for(self.owner_root, JOB).with_name(
+                'abc.execution.json'
+            ).exists()
+        )
 
     def test_existing_nested_goal_executor_control_lock_is_reentrant(self):
         with goal_job_control.locked(self.owner_root, JOB):
