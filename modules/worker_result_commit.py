@@ -206,6 +206,12 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             'Plan node için önceki başarılı WorkerResult mevcut; tekrar kabul edilmedi.'
         )
 
+    if (current['version'] != accepted['expected_job_version']
+            and not _independent_worker_only_advance(current, accepted)):
+        raise goal_state_store.PersistedStateConflict(
+            'WorkerResult stale GoalState sürümüne ait; evidence yazılmadı.'
+        )
+
     if current.get('goal_plan') is not None:
         # Exact replay and previous success were already fenced above.
         # Recheck read-only readiness against the latest canonical evidence
@@ -213,12 +219,6 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         # an already completed root here would defeat pre-dispatch gating.
         goal_plan_gate.validate_root_attempt(
             current, selection, attempt=accepted['attempt'],
-        )
-
-    if (current['version'] != accepted['expected_job_version']
-            and not _independent_worker_only_advance(current, accepted)):
-        raise goal_state_store.PersistedStateConflict(
-            'WorkerResult stale GoalState sürümüne ait; evidence yazılmadı.'
         )
 
     next_state = core_state_reducer.apply(current, {
