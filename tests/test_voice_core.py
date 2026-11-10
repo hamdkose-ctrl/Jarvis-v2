@@ -112,6 +112,30 @@ class VoiceCoreTests(unittest.TestCase):
         self.until(1)
         self.assertEqual(self.receipts[0].status, "cancelled")
 
+    def test_foreground_preempts_active_background_audio_not_goal(self):
+        entered = threading.Event()
+        released = threading.Event()
+        goal_running = threading.Event()
+        goal_running.set()
+        played = []
+        def synth(spec, text, cancel):
+            if not entered.is_set():
+                entered.set()
+                self.assertTrue(released.wait(2))
+            return b"audio"
+        coordinator = self.start(synth, lambda audio, cancel: played.append(audio))
+        self.assertTrue(coordinator.submit(request(1, lane="background")))
+        self.assertTrue(entered.wait(1))
+        try:
+            self.assertTrue(coordinator.submit(request(2, lane="foreground")))
+            self.assertTrue(goal_running.is_set())
+        finally:
+            released.set()
+        self.until(2)
+        self.assertEqual([(r.request_id, r.status) for r in self.receipts],
+                         [("1", "cancelled"), ("2", "played")])
+        self.assertEqual(played, [b"audio"])
+
     def test_invalid_contract_and_duplicate_catalog_fail_closed(self):
         with self.assertRaises(ValueError):
             SpeechRequest("owner", "r", "male_calm", "", "foreground")
