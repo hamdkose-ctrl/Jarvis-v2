@@ -68,8 +68,10 @@ def validate_goal_plan(plan):
         if not isinstance(node_id, str) or not _JOB_ID.fullmatch(node_id) or node_id in seen:
             raise ValueError('GoalState plan node kimliği geçersiz.')
         deps = node['depends_on']
-        if (not isinstance(deps, list) or len(deps) != len(set(deps))
-                or any(not isinstance(dep, str) or dep not in seen for dep in deps)):
+        if (not isinstance(deps, list)
+                or any(not isinstance(dep, str) for dep in deps)
+                or len(deps) != len(set(deps))
+                or any(dep not in seen for dep in deps)):
             raise ValueError('GoalState plan bağımlılığı geçersiz.')
         for field in ('capability_id', 'expected_output', 'acceptance'):
             value = node[field]
