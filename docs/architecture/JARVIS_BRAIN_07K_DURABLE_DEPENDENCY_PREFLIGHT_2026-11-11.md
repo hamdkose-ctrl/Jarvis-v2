@@ -17,6 +17,7 @@ A canonical dependent cannot silently downgrade to an unversioned legacy identit
 
 - Two accepted root WorkerResults with unchanged persisted results pass preflight, but **dependent runtime prepare still denies execution**; no extra worker starts
 - Only one accepted parent, wrong dependency order, tool, canonical input or step identity => deny before worker/DecisionAuthority
+- Empty, missing or malformed dependency list (even if versioned identity is downgraded) => deny before checkpoint/DecisionAuthority
 - Missing on-disk journal, forged in-memory output, forged persisted output, or synchronized disk+memory forgery against canonical SHA-256 => deny
 - User intent correction, stale domain receipt or non-durable/foreign execution identity => deny
 - `goal_executor._record` fails before running state, checkpoint, or attempt start when a predecessor is invalid

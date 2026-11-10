@@ -318,6 +318,46 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
         decision.assert_not_called()
         worker.assert_not_called()
 
+    def test_dependency_stripping_cannot_skip_specialist_preflight(self):
+        self.both()
+        for claimed in ([], None, ()):
+            with self.subTest(depends=claimed):
+                altered = {**self.step, 'depends': claimed}
+                with (patch.object(goal_tools, 'verify') as verify,
+                      patch('modules.runtime_execution_gate.plan_task') as decision,
+                      patch.object(goal_tools, 'execute') as worker):
+                    with self.assertRaises(goal_plan_gate.PlanFenceError):
+                        self.attempt(step=altered)
+                verify.assert_not_called()
+                decision.assert_not_called()
+                worker.assert_not_called()
+
+    def test_dependency_stripping_and_legacy_identity_cannot_downgrade(self):
+        self.both()
+        old_identity = {'owner': OWNER, 'job_id': JOB, 'task_id': 'child'}
+        altered = {**self.step, 'depends': []}
+        with (patch('modules.runtime_execution_gate.plan_task') as decision,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError, 'requires durable'):
+                self.attempt(step=altered, identity_override=old_identity)
+        decision.assert_not_called()
+        worker.assert_not_called()
+
+    def test_record_cannot_checkpoint_when_dependency_list_is_stripped(self):
+        self.both()
+        for claimed in ([], None):
+            with self.subTest(depends=claimed):
+                altered = {**self.step, 'depends': claimed, 'state': 'pending'}
+                with (patch.object(goal_executor, '_save') as save,
+                      patch.object(goal_tools, 'checkpoint') as checkpoint,
+                      patch('modules.specialist_orchestrator.execute_step') as worker):
+                    with self.assertRaises(goal_plan_gate.PlanFenceError):
+                        goal_executor._record(self.runtime, self.job, altered)
+                save.assert_not_called()
+                checkpoint.assert_not_called()
+                worker.assert_not_called()
+                self.assertEqual(altered['state'], 'pending')
+
     def test_unplanned_legacy_dependency_behavior_is_unchanged(self):
         state = goal_state_store.load(self.canonical_path)
         # Replace test fixture with a standalone canonical snapshot without

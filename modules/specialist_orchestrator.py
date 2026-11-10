@@ -113,13 +113,13 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     # accepted predecessor-output hashes and domain readback *before* any
     # DecisionAuthority, checkpoint, worker, model or provider invocation.
     # Legacy/unplanned dependencies retain their original execution path.
-    deps=None
-    if step.get('depends'):
-        from modules import dependency_evidence
-        deps=dependency_evidence.preflight_durable_step(
-            identity, step, job.get('outputs'),
-            owner=job['owner'], job_id=job['id'],
-        )
+    # Always inspect canonical authority; a caller could strip both the
+    # dependency list and durable version from a dependent step.
+    from modules import dependency_evidence
+    deps=dependency_evidence.preflight_durable_step(
+        identity, step, job.get('outputs'),
+        owner=job['owner'], job_id=job['id'],
+    )
     if deps is None:
         deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
