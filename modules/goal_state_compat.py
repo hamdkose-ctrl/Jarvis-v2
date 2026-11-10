@@ -1,9 +1,10 @@
 """Compatibility projection from legacy goal_executor jobs to canonical GoalState."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 
-from modules import core_state_reducer, goal_job_control, goal_state, goal_state_store
+from modules import core_state_reducer, execution_record, goal_job_control, goal_state, goal_state_store
 
 # RFC Karar 1 (kabul edildi): legacy goal_executor şemasında fast/durable ayrımı
 # hiç yok; canonical projection bu yüzden kalıcı olarak 'agent' üretir ve
@@ -11,12 +12,27 @@ from modules import core_state_reducer, goal_job_control, goal_state, goal_state
 PROJECTION_EXECUTION_MODE = 'agent'
 
 
+def _execution_journal_lock(path, job_id):
+    """Share the control lock only when this ID can own an ExecutionRecord.
+
+    GoalState also permits older short IDs (e.g. 'abc') that can never be
+    persisted as execution_record.v1. Those canonical-only records have no
+    executor journal to coordinate and retain their original CAS contract.
+    """
+    parent = Path(path).parent
+    try:
+        execution_record.path_for(parent, job_id)
+    except ValueError:
+        return nullcontext()
+    return goal_job_control.locked(parent, job_id)
+
+
 def apply_goal_intent(path, *, owner, job_id, expected_version, operation, text=None, priority=None):
     """Commit an explicitly requested intent mutation to an existing canonical job."""
     # Reuse the executor's existing short per-job, cross-process control lock.
     # Worker/provider execution remains outside this persistence critical section.
     # Nested goal_executor._intent_mutation uses the same reentrant lock.
-    with goal_job_control.locked(Path(path).parent, job_id):
+    with _execution_journal_lock(path, job_id):
         current = goal_state_store.load(path)
         if current['owner'] != owner or current['job_id'] != job_id:
             raise IdentityMismatchError('GoalState kimliği eşleşmiyor.')
@@ -35,7 +51,7 @@ def apply_goal_plan(path, *, owner, job_id, expected_version, plan):
     # Reuse the executor's existing short per-job, cross-process control lock.
     # Worker/provider execution remains outside this persistence critical section.
     # Nested goal_executor._intent_mutation uses the same reentrant lock.
-    with goal_job_control.locked(Path(path).parent, job_id):
+    with _execution_journal_lock(path, job_id):
         current = goal_state_store.load(path)
         if current['owner'] != owner or current['job_id'] != job_id:
             raise IdentityMismatchError('GoalState plan kimliği eşleşmiyor.')
