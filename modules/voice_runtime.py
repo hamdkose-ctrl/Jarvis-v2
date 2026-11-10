@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import threading
 
+from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec
 from modules.voice_offline import PiperSynthesizer, WavePlayer
 
@@ -174,6 +175,7 @@ class VoiceLane:
         try:
             accepted = self._coordinator.submit(request)
         except Exception:
+            _record_failure("modules/voice_runtime.py:submit")
             self._forget(request_id)
             raise
         if not accepted:
@@ -200,7 +202,7 @@ class VoiceLane:
                 if not self.busy_event.is_set():
                     self.runtime.emit("state", "idle")
         except Exception:
-            self.runtime._record_failure("modules/voice_runtime.py:receipt")
+            _record_failure("modules/voice_runtime.py:receipt")
 
     def interrupt(self):
         self._coordinator.interrupt_speech()  # NEVER cancels GoalState/worker
