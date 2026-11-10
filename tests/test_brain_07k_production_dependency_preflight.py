@@ -202,6 +202,32 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
                 decision.assert_not_called()
                 worker.assert_not_called()
 
+    def test_legacy_identity_cannot_bypass_a_canonical_dependent(self):
+        self.both()
+        legacy = {'owner': OWNER, 'job_id': JOB, 'task_id': 'child'}
+        with (patch.object(goal_tools, 'verify') as verify,
+              patch('modules.runtime_execution_gate.plan_task') as decision,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'requires durable'):
+                self.attempt(identity_override=legacy)
+        verify.assert_not_called()
+        decision.assert_not_called()
+        worker.assert_not_called()
+
+    def test_foreign_owner_execution_identity_is_blocked(self):
+        self.both()
+        forged = dict(identity('child'), owner='mallory')
+        with (patch.object(goal_tools, 'verify') as verify,
+              patch('modules.runtime_execution_gate.plan_task') as decision,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'identity differs'):
+                self.attempt(identity_override=forged)
+        verify.assert_not_called()
+        decision.assert_not_called()
+        worker.assert_not_called()
+
     def test_explicit_user_correction_blocks_preflight(self):
         self.both()
         state = goal_state_store.load(self.canonical_path)
