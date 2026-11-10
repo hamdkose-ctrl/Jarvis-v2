@@ -9,7 +9,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 - **Ayrı dal:** Her iş ayrı bir dalda yapılır, PR ile onaya sunulur. `main`'e doğrudan yazılmaz, `--force` kullanılmaz.
 - **"Bitti" kuralı:** Bir faz ya da madde ancak dördü birden sağlanınca "tamamlandı" sayılır: (1) sözleşme / arayüz yazıldı, (2) eski kod göçü tamamlandı, (3) yeni kod kullanıcı akışına bağlandı (yalnız testten çağrılması yetmez), (4) eski kod / legacy kısım kaldırıldı. Merge edilmiş PR tek başına "bitti" değildir. PR açıklaması hangi koşulları kapattığını yazar; durum `docs/Jarvis_Yol_Haritasi.md`'de bu koşullara göre işaretlenir.
 - **Program ledger:** Yeni işe başlamadan önce `docs/architecture/JARVIS_PROGRAM_LEDGER_V1.md` ve güncel açık PR durumunu oku; merge edilmiş işi yeniden açma.
-- **PC watcher:** Gerçek PC kabulü dal önekine değil GitHub'daki açık PR'a bağlıdır; `gpt/*`, `claude/*` veya bakım dalı kullanılabilir. Branch'i pushlamak tek başına yeterli değildir: `main` hedefli açık/draft PR açılmalıdır.
+- **PC watcher:** Gerçek PC kabulü dal önekine değil açık PR'a bağlıdır; `gpt/*`, `codex/*`, `claude/*` ve bakım dalları desteklenir. Sonuç yorumu başarısızsa arşivlenen exact-SHA raporu tekrar yayımlanır, test tekrarlanmaz; tanı: `scripts/pc_test_watcher.py --status`. Ayrıntı: `docs/PC_TEST_WATCHER.md`.
 - **Android'e dokunma:** `android/` ayrı bir sohbette geliştirilir.
 - **Kişisel veri depoya girmez:** `%USERPROFILE%\.jarvis` (ayarlar, kullanıcılar, anahtarlar, günlük), `.venv` ve model dosyaları depoya eklenmez.
 - **Anahtarlar kullanıcıya özeldir:** Her kullanıcı kendi Gemini/Groq anahtarını kullanır, kullanıcılar arasında yedeğe düşülmez (`docs/MIMARI_KURALLAR_v5.7.md`). Ücretli sağlayıcılar otomatik havuza girmez.
@@ -22,6 +22,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
+- **Model rotası:** `ModelRequest` → `RoutePlan` → adapter; Router retry/fallback için en çok iki fiziksel deneme yetkisidir. Gemini SDK retry/continuation kapalı tutulur, başarısız fiziksel deneme de sayılır; Core yetkiyi korur.
+
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
 
@@ -30,11 +32,11 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (14 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (22 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 çoklu hedef bağlamı/Goal Resolver (21 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları (20 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (4 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
@@ -180,7 +182,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PR #439 Windows #855: 3321 testte tek FAIL, RecoveryPipelineEvidenceTests sabit 2026-10-21 haberi 29 Ekim'de 7 günlük pencereden çıktığı için düşmüştür. Bu wiring testi istanbul_today() tarihli feed ve receipt kullanır; üretim freshness kuralı değiştirilmez. Sözdizimi kontrol edildi; yeni exact-head tam CI/PC kabulü beklenir.
 
 
-- PR #439 haber dış keşfi: search_news_public önce mevcut DDG aramasını kullanır; hata durumunda bir kez Bing News RSS okur. PermissionError/Cancelled geçiş başlatmaz. Gerçek boş DDG sonucu tekrar denenmez. Bing wrapper sadece tam www.bing.com/news/apiclick.aspx üzerindeki tek url parametresinden açılır; hedef yine public_sources.address ve gerçek makale doğrulamasından geçer. RSS tarih/başlıkları kanıt sayılmaz. Genel search_public değişmez. DTD/entity ve büyük RSS reddedilir. 4 hedefli test + 105 odaklı test geçti; yeni exact Windows ve iş PC kabulü beklenir. Proxy tanısında Bing 12 aday, Sabah 29 Ekim makalesi parser/tarih PASS; Milliyet eski tarih nedeniyle ret. Bu üretim taşıyıcı kabulü değildir.
+- PR #439 haber dış keşfi: search_news_public önce DDG'yi dener; hata halinde yalnız bir Bing News RSS fallback yapar. Gerçek boş DDG sonucu, PermissionError ve Cancelled fallback başlatmaz. Bing wrapper yalnız www.bing.com/news/apiclick.aspx üzerindeki tek url parametresini açar; hedef public_sources.address ve gerçek makale doğrulamasından geçer. RSS başlık/tarihi kanıt değildir; DTD/entity/büyük RSS reddedilir. Genel search_public değişmez. Proxy tanısı canlı taşıyıcı kabulü değildir.
 
 
 - PR #439 Windows #858 tek FAIL: broad-catch diagnostic ilk işlem olmalı. search_news_public except bloğunda kayıt iptal kontrolünün önüne taşındı; izin/iptal propagation ve fallback bütçesi korunur. AST diagnostic kontrolü ve 4 fallback regresyonu geçti; yeni exact CI/PC sonucu beklenir.
@@ -215,4 +217,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
-- BRAIN-05 hedef değişiklikleri canonical `goal_intent` reducer/CAS yolunu kullanır; ExecutionRecord türetilmiş görünümüdür. Kartın canonical sürümü ve execution özeti işlem sırasında yeniden doğrulanır; eski worker yeni kaydı ezemez. İş kilidi model/araç çağrısı boyunca tutulmaz. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
+- BRAIN-05 hedef değişiklikleri canonical `goal_intent` reducer/CAS yolunu kullanır; ExecutionRecord türetilmiş görünümüdür. Kart sürümü ve execution özeti işlem sırasında yeniden doğrulanır; eski worker yeni kaydı ezemez. Kilit model/araç çağrısı boyunca tutulmaz. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.

@@ -159,7 +159,7 @@ class GroqRateLimitMemoryTests(unittest.TestCase):
         with patch.object(llm.requests, 'post', return_value=limited) as post:
             with self.assertRaises(llm.CloudError): llm._groq([], '', 100)
             with self.assertRaises(llm.CloudError): llm._groq([], '', 100)
-        self.assertEqual(post.call_count, 2)   # ikinci çağrı hiç istek atmadı
+        self.assertEqual(post.call_count, 1)   # router dışı doğrudan çağrı da sınırlı modeli yeniden çağırmaz
         until = max(v[0] for v in llm._rate_limited.values())
         self.assertAlmostEqual(until - llm.time.monotonic(), 20, delta=2)
 

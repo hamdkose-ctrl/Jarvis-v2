@@ -54,15 +54,17 @@ class CoderRecoveryTests(unittest.TestCase):
                 {'tool':'finish','message':'Hazır.'},{'tool':'finish','message':'Hazır.'}]
 
     def test_bad_provider_then_real_test_failure_repaired_and_files_delivered(self):
+        local = patch.object(llm, '_ollama_effective_model', return_value='local-test')
+        local.start(); self.addCleanup(local.stop)
         responses=iter(self.calls());seen=[];prompts=[]
-        def send(selected,prompt,system,tokens,history):
+        def send(selected,prompt,system,tokens,history,*,model=None):
             seen.append(selected);prompts.append(prompt)
             text='İşte kod açıklaması' if selected=='groq' else json.dumps(next(responses))
             return llm._timed(selected,lambda:text)
         with patch.object(llm,'_send_provider',side_effect=send),patch.object(dev,'_test',return_value=(True,'Full suite passed')) as suite:
             job=agents.execute('alice',self.plan())
         self.assertEqual(job['state'],'done',agents.render(job))
-        self.assertEqual(seen[:3],['groq','groq','ollama'])
+        self.assertEqual(seen[:2],['groq','ollama'])
         self.assertTrue(any('AssertionError' in prompt for prompt in prompts))
         self.assertEqual(suite.call_count,1)  # broken new-code test fails before expensive full suite
         output=job['outputs']['code']
@@ -212,11 +214,10 @@ class GroqModelRecoveryTests(unittest.TestCase):
         response.json.return_value={'choices':[{'message':{'content':text}}],'error':{'message':'PRIVATE body'}}
         return response
 
-    def test_missing_and_rate_limited_models_try_alternatives_and_remember_per_owner(self):
-        with patch.object(llm.requests,'post',side_effect=[self.response(404),self.response(429),self.response(200),self.response(200)]) as post:
+    def test_direct_groq_uses_one_selected_model_and_owner_credentials(self):
+        with patch.object(llm.requests,'post',return_value=self.response(200)) as post:
             self.assertEqual(llm._groq([{'role':'user','content':'x'}],'',100),'answer')
-            self.assertEqual(llm._groq([{'role':'user','content':'x'}],'',100),'answer')
-        self.assertEqual([c.kwargs['json']['model'] for c in post.call_args_list],['a','b','c','c'])
+        self.assertEqual([c.kwargs['json']['model'] for c in post.call_args_list],['a'])
         with patch.object(llm,'current_user',return_value='bob'),patch.object(llm,'user_groq_key',return_value='bob-secret') as key, \
              patch.object(llm.requests,'post',return_value=self.response(200)) as post:
             llm._groq([{'role':'user','content':'x'}],'',100)
@@ -231,17 +232,20 @@ class GroqModelRecoveryTests(unittest.TestCase):
         self.assertEqual(post.call_count,1);self.assertNotIn('PRIVATE',str(error.exception))
         with patch.object(llm.requests,'post',return_value=self.response(429)) as post:
             with self.assertRaises(llm.CloudError) as error:llm._groq([],'',100)
-        self.assertEqual(post.call_count,3);self.assertNotIn('PRIVATE',str(error.exception))
+        self.assertEqual(post.call_count,1);self.assertNotIn('PRIVATE',str(error.exception))
 
-    def test_transient_model_error_and_empty_answer_can_use_next_model(self):
-        with patch.object(llm.time,'sleep'),patch.object(llm.requests,'post',side_effect=[self.response(500),self.response(500),self.response(200,' '),self.response(200,'good')]) as post:
-            self.assertEqual(llm._groq([],'',100),'good')
-        self.assertEqual([c.kwargs['json']['model'] for c in post.call_args_list],['a','a','b','c'])
+    def test_transient_error_and_empty_reply_do_not_start_hidden_retry(self):
+        with patch.object(llm.requests,'post',return_value=self.response(500)) as post:
+            with self.assertRaises(llm.CloudError): llm._groq([],'',100)
+        self.assertEqual(post.call_count,1)
+        with patch.object(llm.requests,'post',return_value=self.response(200,' ')) as post:
+            with self.assertRaises(llm.CloudError): llm._groq([],'',100)
+        self.assertEqual(post.call_count,1)
 
     def test_network_outage_does_not_repeat_requests_for_every_model(self):
         with patch.object(llm.time,'sleep'),patch.object(llm.requests,'post',side_effect=llm.requests.ReadTimeout('PRIVATE')) as post:
             with self.assertRaises(llm.CloudError) as error:llm._groq([],'',100)
-        self.assertEqual(post.call_count,2);self.assertNotIn('PRIVATE',str(error.exception))
+        self.assertEqual(post.call_count,1);self.assertNotIn('PRIVATE',str(error.exception))
 
     def test_model_alternatives_require_this_users_free_account_confirmation(self):
         with patch.object(router,'settings',return_value={'cloud_free_confirmed':False}), \

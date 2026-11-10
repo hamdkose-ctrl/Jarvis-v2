@@ -20,13 +20,20 @@ try:
 except ImportError:   # eski config.py ile de çalışsın
     FALLBACK_MODELS = ()
 
-_client = genai.Client(api_key=API_KEY, http_options={"timeout": 45000}) if API_KEY else None
+def _gemini_http_options() -> dict:
+    """One physical SDK HTTP attempt; Router owns all retries and fallbacks."""
+    # Fresh per-client options: external client constructors must not mutate a
+    # shared object and change another user's attempt budget.
+    return {"timeout": 45000, "retry_options": {"attempts": 1}}
+
+
+_client = genai.Client(api_key=API_KEY, http_options=_gemini_http_options()) if API_KEY else None
 
 
 def set_api_key(key: str) -> None:
     """Çalışırken yeni Gemini anahtarına geçer (yeniden başlatma gerekmez)."""
     global _client
-    _client = genai.Client(api_key=key.strip(), http_options={"timeout": 45000})
+    _client = genai.Client(api_key=key.strip(), http_options=_gemini_http_options())
 
 
 # ---------------------------------------------------------------- kişiye özel anahtar (isteğe bağlı)
@@ -129,7 +136,7 @@ def _cli():
         cached = _user_clients.get(slug)
         if cached is None:
             k = user_key(slug)
-            cached = (k, genai.Client(api_key=k, http_options={"timeout": 45000}) if k else None)
+            cached = (k, genai.Client(api_key=k, http_options=_gemini_http_options()) if k else None)
             _user_clients[slug] = cached
         return cached[1]
 
@@ -508,10 +515,8 @@ def ollama_model_for(prompt: str) -> str:
 
 
 def _ollama_task(messages: list[dict], system: str, max_tokens: int, prompt: str) -> str:
-    """Göreve uygun yerel modeli dener; büyük model çalışmazsa kurulu effective modele düşer."""
-    c = _cfg()
-    base = _ollama_effective_model(c)
-    model = ollama_model_for(prompt)
+    """Legacy direct-call compatibility; router production calls ``_ollama`` once."""
+    c = _cfg(); base = _ollama_effective_model(c); model = ollama_model_for(prompt)
     if model != base and base:
         try:
             return _ollama(messages, system, max_tokens, model=model)
@@ -545,67 +550,45 @@ def transport_timeouts(connect: float, read: float) -> tuple[float, float]:
     return (min(connect, ceiling), min(read, ceiling))
 
 
-def _groq(messages: list[dict], system: str, max_tokens: int) -> str:
-    """Groq OpenAI-uyumlu Chat Completions API."""
+def _groq(messages: list[dict], system: str, max_tokens: int, *, model: str | None = None) -> str:
+    """One Groq transport attempt for the router-decided model."""
     key = user_groq_key(current_user())
     if not key:
         raise CloudError("Bu kullanıcının Groq API anahtarı yok. Bağlantılar sayfasından ekle.")
     msgs = ([{"role": "system", "content": system}] if system else []) + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    from modules import smart_router
-    alternatives = GROQ_MODELS if smart_router.settings(current_user()).get('cloud_free_confirmed') else []
-    models = list(dict.fromkeys([groq_model(), *alternatives]))[:3]
-    identity = ('groq', current_user(), tuple(models))
-    with _fallback_lock:
-        active, since = _fallback_states.get(identity, (0, 0))
-    if time.time() - since > 600: active = 0
-    last = ''
-    for offset in range(len(models)):
-        index = (active + offset) % len(models); model = models[index]
-        if _limited('groq', model) is not None:
-            last = 'HTTP 429, bekleme süresi dolmadı'
-            continue
-        body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
-        for attempt in range(1, 3):
-            requests_state.check()
-            try:
-                r = requests.post(_GROQ_URL, headers=headers, json=body,
-                                  timeout=transport_timeouts(5, 30))
-            except requests.RequestException as e:
-                usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
-                if attempt == 2: raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
-                failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep); continue
-            usage_meter.observe_limits('groq', model, getattr(r, 'headers', None))
-            if r.status_code != 200:
-                usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
-            if r.status_code == 200:
-                try:
-                    data = r.json()
-                    text = data["choices"][0]["message"]["content"]
-                    if not isinstance(text, str) or not text.strip(): raise ValueError('empty answer')
-                except (KeyError, IndexError, TypeError, ValueError) as e:
-                    usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
-                    last = 'boş/geçersiz yanıt'; break
-                usage_meter.record('groq', model, usage_meter.size(msgs), len(text),
-                                   tokens=usage_meter.tokens_from(data))
-                _route.model = model
-                with _fallback_lock: _fallback_states[identity] = (index, time.time())
-                return text
-            if r.status_code in (401, 403):
-                raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
-            last = 'HTTP ' + str(r.status_code)
-            if r.status_code == 429:
-                headers_in = getattr(r, 'headers', None) or {}
-                daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
-                _mark_limited('groq', model, last, _limit_seconds(daily, headers_in.get('retry-after')))
-                break
-            if r.status_code == 404: break
-            if r.status_code not in (500, 502, 503, 504):
-                raise CloudError('Groq yanıt vermedi (' + last + ')')
-            if attempt < 2: failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
-        note_route('Groq · ' + model + ' yanıt vermedi (' + last + ')' +
-                   (', diğer model deneniyor' if offset + 1 < len(models) else ''), False)
-    raise CloudError('Groq yanıt vermedi (' + last + ')')
+    model = model or groq_model()
+    if _limited('groq', model) is not None:
+        raise CloudError('Groq modeli kota beklemesinde.')
+    body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "temperature": 0.2}
+    requests_state.check()
+    try:
+        r = requests.post(_GROQ_URL, headers=headers, json=body, timeout=transport_timeouts(5, 30))
+    except requests.RequestException as e:
+        usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'baglanti')
+        raise CloudError('Groq bağlantısı kurulamadı (' + type(e).__name__ + ')') from e
+    usage_meter.observe_limits('groq', model, getattr(r, 'headers', None))
+    if r.status_code != 200:
+        usage_meter.record('groq', model, usage_meter.size(msgs), 0, str(r.status_code))
+    if r.status_code in (401, 403):
+        raise CloudError('Groq API anahtarı geçersiz ya da yetkisiz.')
+    if r.status_code == 429:
+        headers_in = getattr(r, 'headers', None) or {}
+        daily = failure_policy.quota_exhausted_text(getattr(r, 'text', ''))
+        _mark_limited('groq', model, 'HTTP 429', _limit_seconds(daily, headers_in.get('retry-after')))
+        raise CloudError('Groq istek/token sınırına takıldı (HTTP 429).')
+    if r.status_code != 200:
+        raise CloudError('Groq yanıt vermedi (HTTP ' + str(r.status_code) + ')')
+    try:
+        data = r.json(); text = data["choices"][0]["message"]["content"]
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError('empty answer')
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        usage_meter.record('groq', model, usage_meter.size(msgs), 0, 'bos')
+        raise CloudError('Groq boş ya da geçersiz yanıt verdi.') from e
+    usage_meter.record('groq', model, usage_meter.size(msgs), len(text), tokens=usage_meter.tokens_from(data))
+    _route.model = model
+    return text
 
 
 def _need_cloud(prompt: str) -> str:
@@ -775,59 +758,30 @@ def _metered(call, chars_in, kind='gemini'):
     return call
 
 
-def _with_models(call):
-    """call(model) fonksiyonunu çalıştırır: geçici hatada bekleyip tekrar dener, olmazsa yedek modele geçer.
-
-    Kota sayacı için giden karakter ve tür call.chars_in / call.kind niteliklerinden okunur.
-    """
+def _with_models(call, *, model=None):
+    """Compatibility for old direct callers; routed production passes ``model`` and calls once."""
+    if model is not None:
+        return call(model)
     chars_in, kind = getattr(call, 'chars_in', 0), getattr(call, 'kind', 'gemini')
-    owner=current_user()
-    models=model_names(owner)
-    identity=(owner,tuple(models))
-    with _fallback_lock:
-        active, switched_at=_fallback_states.get(identity,(0,0))
-    if active and time.time() - switched_at > 600:
-        active = 0                       # yedekte 10 dk geçti: ana (hızlı) modele dön
-    last: Exception | None = None
-    for step in range(len(models)):
-        idx = (active + step) % len(models)
-        model = models[idx]
-        if (waiting := _limited('gemini', model)) is not None:
-            last = waiting
-            continue
-        for attempt in range(1, _MAX_TRIES + 1):
-            requests_state.check()
-            try:
-                _route.tokens = None
-                result = call(model)
-                usage_meter.record(kind, model, chars_in, len(result) if isinstance(result, str) else 0,
-                                   tokens=getattr(_route, 'tokens', None))
-                requests_state.check()
-                _route.model = model
-                if idx != active:
-                    print(f"(Yedek model kullanılıyor: {model})")
-                    with _fallback_lock:
-                        _fallback_states[identity] = (idx, time.time())
-                return result
-            except (errors.ServerError, errors.ClientError) as e:
-                last = e
-                code = getattr(e, "code", None)
-                usage_meter.record(kind, model, chars_in, 0, usage_meter.outcome(e))
-                if code not in _SWITCH_CODES:
-                    raise
-                if code == 429:
-                    # Kullanım sınırı: aynı modeli 1-2 sn sonra yeniden denemek sınırı açmaz.
-                    daily = _daily_quota(e)
-                    _mark_limited('gemini', model, e, _limit_seconds(daily, None if daily else _gemini_retry_after(e)))
-                    break
-                if code == 404 or _daily_quota(e) or attempt == _MAX_TRIES:
-                    break   # bu modelde ısrar etme, sıradakine geç
-                # artan bekleme (~1, ~2 sn, üst sınır 8 sn); iptal beklemenin ortasında da yakalanır
-                wait = failure_policy.backoff_sleep(attempt, check=requests_state.check, sleep=time.sleep)
-                print(f"(Gemini {code} verdi, {wait:.1f} sn beklendi, tekrar deneniyor... [{attempt}/{_MAX_TRIES - 1}])")
-    if last is None:
-        raise RuntimeError("Yanıt verecek model yapılandırılmamış.")
-    raise last
+    owner=current_user(); models=model_names(owner); last=None
+    for selected in models:
+        if (waiting := _limited('gemini', selected)) is not None:
+            last = waiting; continue
+        try:
+            result = call(selected)
+            usage_meter.record(kind, selected, chars_in, len(result) if isinstance(result, str) else 0,
+                               tokens=getattr(_route, 'tokens', None))
+            _route.model = selected
+            return result
+        except (errors.ServerError, errors.ClientError) as exc:
+            last = exc; code = getattr(exc, 'code', None)
+            usage_meter.record(kind, selected, chars_in, 0, usage_meter.outcome(exc))
+            if code == 429:
+                daily = _daily_quota(exc)
+                _mark_limited('gemini', selected, exc, _limit_seconds(daily, None if daily else _gemini_retry_after(exc)))
+                continue
+            raise
+    raise last or RuntimeError('Yanıt verecek model yapılandırılmamış.')
 
 
 # Arayüzdeki AI Modelleri kartı için: gerçek isteklerin son cevap süresi (ek/deneme isteği atılmaz, kota harcamaz).
@@ -918,11 +872,13 @@ def _send(prompt: str, system: str, max_tokens: int, history, route=None) -> str
     if selected in _PAID or selected == 'ollama':   # explicit paid or local-only choice: no automatic pool
         return _send_provider(selected, prompt, system, max_tokens, history)
     from modules import smart_router
-    return smart_router.run(current_user(), prompt + '\n' + system,
-        lambda name: _send_provider(name, prompt, system, max_tokens, history), route=route)
+    request = smart_router.ModelRequest(owner=current_user(), route=route,
+        max_output_tokens=max_tokens, features=frozenset({'text'}))
+    return smart_router.run_request(request,
+        lambda spec: _send_provider(spec.provider, prompt, system, max_tokens, history, model=spec.model)).text
 
 
-def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history) -> str:
+def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history, *, model: str | None = None) -> str:
     """One provider, one attempt: transport only. No cross-provider fallback (the Router owns that)."""
     if name != 'ollama' and history:
         history = [types.Content(role=h.role,parts=[types.Part(text=privacy.redact(p.text)) for p in h.parts if getattr(p,'text',None)]) for h in history]
@@ -933,17 +889,21 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     if name == "groq":
         try:
             return _timed("groq", lambda: _groq(_ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
-                         privacy.redact(system), max_tokens))
+                         privacy.redact(system), max_tokens, model=model))
         except CloudError as e:
             raise LocalModelError(str(e)) from e
     if name == "ollama":
-        return _timed("ollama", lambda: _ollama_task(_ohist_msgs(history) + [{"role": "user", "content": prompt}], system, max_tokens, prompt))
+        messages = _ohist_msgs(history) + [{"role": "user", "content": prompt}]
+        # Explicit/direct local compatibility preserves its prior model selection.
+        # Router-produced calls carry a concrete model and never invoke that helper.
+        return _timed("ollama", lambda: _ollama_task(messages, system, max_tokens, prompt)
+                      if model is None else _ollama(messages, system, max_tokens, model=model))
     if name == "cloudflare":
         from modules import cloudflare_chat
         try:
             return _timed("cloudflare", lambda: cloudflare_chat.chat(
                 _ohist_msgs(history) + [{"role": "user", "content": privacy.redact(prompt)}],
-                privacy.redact(system), max_tokens, slug=current_user()))
+                privacy.redact(system), max_tokens, slug=current_user(), model=model or cloudflare_chat.MODEL))
         except cloudflare_chat.CloudflareChatError as e:
             raise LocalModelError(str(e)) from e
     if name != "gemini":
@@ -952,21 +912,49 @@ def _send_provider(name: str, prompt: str, system: str, max_tokens: int, history
     if _cli() is None:
         raise LocalModelError("Bu kullanıcının Gemini anahtarı yok.")
     system = privacy.redact(system)
-    cfg = types.GenerateContentConfig(
-        system_instruction=system or None,
-        max_output_tokens=max_tokens,
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),   # araç çağrısı kullanmıyoruz
-    )
+    config_options = {
+        "system_instruction": system or None,
+        "max_output_tokens": max_tokens,
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+    }
+    # Newer SDKs can continue a single send_message with extra HTTP requests.
+    # Disable that feature where available; older SDKs do not expose it.
+    if "automatic_continuation" in getattr(types.GenerateContentConfig, "model_fields", {}):
+        config_options["automatic_continuation"] = False
+    cfg = types.GenerateContentConfig(**config_options)
 
     cli = [_cli()]
 
-    def call(model: str) -> str:
-        chat_session = cli[0].chats.create(model=model, config=cfg, history=history)
-        resp = chat_session.send_message(prompt)
+    chosen_model = model or active_model(current_user())
+    def call(router_model=None) -> str:
+        chat_session = cli[0].chats.create(model=router_model or chosen_model, config=cfg, history=history)
+        try:
+            resp = chat_session.send_message(prompt)
+        except Exception as exc:
+            _record_failure('modules/llm.py:_send_provider:gemini_transport')
+            # Routed Gemini calls otherwise lose failed attempts from the meter.
+            # Direct legacy _with_models already records its own failures.
+            if model is not None:
+                usage_meter.record('gemini', router_model or chosen_model,
+                                   usage_meter.size(prompt, system, history), 0,
+                                   usage_meter.outcome(exc))
+            raise
         _route.tokens = usage_meter.tokens_from(resp)
         return resp.text or ""
 
-    return _timed("gemini", lambda: _with_models(_metered(call, usage_meter.size(prompt, system, history))))
+    call.chars_in = usage_meter.size(prompt, system, history)
+    call.kind = 'gemini'
+    def one_attempt():
+        _route.tokens = None
+        result = _with_models(call, model=model) if model is not None else _with_models(call)
+        if model is not None:
+            # Direct legacy _with_models already records usage; routed calls do not.
+            usage_meter.record('gemini', chosen_model, usage_meter.size(prompt, system, history),
+                               len(result) if isinstance(result, str) else 0,
+                               tokens=getattr(_route, 'tokens', None))
+        _route.model = chosen_model
+        return result
+    return _timed("gemini", one_attempt)
 
 
 def _ohist_msgs(history) -> list[dict]:
@@ -1020,24 +1008,32 @@ def research(query: str, evidence, system: str = "", max_tokens: int = 2000, *, 
 
 def _ask(prompt: str, system: str = "", max_tokens: int = 2000, *, validator=None, route=None) -> str:
     if validator is not None:
-        def checked(name):
+        def checked(name, model=None):
+            return _send_provider(name, prompt, system, max_tokens, None, model=model)
+        if provider() in _PAID:
+            answer = checked(provider())
+            validator(answer)
+            return answer
+        if provider() == 'ollama':
+            # Explicit local model stays local. A validator repair is a second
+            # request to the SAME provider, bounded by the shared two-attempt policy.
             for attempt in range(2):
-                notes = len(getattr(_route, 'notes', None) or [])
-                instruction = prompt if not attempt else prompt + '\nSon yanıt araç sözleşmesini karşılamadı. Sistem şemasına uygun tek JSON araç komutu üret; açıklama/kod bloğu ile bitirme.'
-                answer = _send_provider(name, instruction, system, max_tokens, None)
+                requests_state.check()
+                answer = checked('ollama')
+                requests_state.check()
                 try:
                     validator(answer)
-                except (ValueError, TypeError, KeyError):
-                    # A fluent answer is not a successful tool call. Keep failure notes only.
-                    current = getattr(_route, 'notes', None) or []
-                    _route.notes = current[:notes] + [n for n in current[notes:] if not n[1]]
-                    if attempt: raise
-                    continue
+                except (ValueError, TypeError):
+                    if attempt == 0:
+                        continue
+                    raise
+                requests_state.check()
                 return answer
-        if provider() in _PAID or provider() == 'ollama':
-            return checked(provider())
         from modules import smart_router
-        return smart_router.run(current_user(), prompt + '\n' + system, checked, route=route)
+        request = smart_router.ModelRequest(owner=current_user(), route=route,
+            max_output_tokens=max_tokens, features=frozenset({'text', 'structured_output'}))
+        return smart_router.run_request(request,
+            lambda spec: checked(spec.provider, spec.model), validator=validator).text
     return _send(prompt, system, max_tokens, None, route)
 
 

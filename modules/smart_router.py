@@ -1,5 +1,7 @@
 """Budget-aware task routing. Paid providers never belong to the automatic pool."""
 from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
 import json
 from pathlib import Path
 import re
@@ -19,6 +21,62 @@ _EVIDENCE_MODELS_MAX = 32
 # Route class of a request is decided by its provenance (privacy_sources); callers never pick a provider.
 # Vision still keeps its legacy order until the image path moves to the router chains (P0-3c).
 _DEFAULT_ROUTE = provider_privacy.ROUTE_PRIVATE_GENERAL
+
+
+# Routing is deliberately based on the caller's declared contract, never on words in
+# the prompt.  ``selection`` remains as a compatibility/status surface; new model
+# calls enter through ``run_request`` below.
+@dataclass(frozen=True)
+class ModelRequest:
+    owner: str
+    request_id: str = ''
+    needs_call: bool = True
+    features: frozenset[str] = frozenset({'text'})
+    # These advanced claims require a time-bound, developer-maintained exact-model
+    # evidence record; legacy structured_output only means app-side validation.
+    native_features: frozenset[str] = frozenset()
+    min_context_tokens: int | None = None
+    response_schema: dict[str, Any] | None = None
+    max_output_tokens: int = 2000
+    # Upper bound of provider input + maximum output tokens, furnished by a
+    # trusted developer adapter; not inferred from user text or token estimates.
+    token_budget: int | None = None
+    deadline: float | None = None
+    cancelled: Any = None
+    route: str | None = None
+    exclude_providers: frozenset[str] = frozenset()
+    max_network_attempts: int = 2
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    provider: str
+    model: str
+    context_limit: int | None = None
+    output_limit: int | None = None
+    features: frozenset[str] = frozenset({'text'})
+    usage_class: str = 'free'
+
+
+@dataclass(frozen=True)
+class RoutePlan:
+    candidates: tuple[ModelSpec, ...]
+    skipped: tuple[dict, ...]
+    max_network_attempts: int
+
+
+@dataclass
+class RouteResult:
+    text: str
+    model: ModelSpec
+    usage: dict[str, Any] = field(default_factory=dict)
+    duration_ms: int = 0
+    attempts: list[dict] = field(default_factory=list)
+
+
+class ProviderAdapter(Protocol):
+    """Transport boundary: it receives a decided model and may make one request only."""
+    def __call__(self, spec: ModelSpec) -> str: ...
 
 
 def owner_path(owner):
@@ -243,7 +301,7 @@ def _route_of(route):
 
 
 def selection(owner,task,route=None):
-    from modules import llm, cloudflare_chat
+    from modules import llm, cloudflare_chat, usage_meter
     route=_route_of(route)
     if privacy.mode()=='yerel':
         return {'candidates':['ollama'],'skipped':[
@@ -271,6 +329,13 @@ def selection(owner,task,route=None):
             gate=_evidence_gate(owner,provider,model,route=gate_route)
             if not gate['ok']:
                 reason=gate['reason'];reason_code=gate['reason_code']
+        if reason is None and provider != 'ollama':
+            observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
+            if observed:
+                seconds = observed['seconds']
+                reason = ('Sağlayıcının son görülen rate-limit başlığı tükendi; ' +
+                          str(seconds) + ' saniye sonra yeniden değerlendirilecek')
+                reason_code = 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED'
         if reason is None:
             with _LOCK:seconds=max(0,int(_HEALTH.get((owner,provider),{}).get('until',0)-time.monotonic()+.999))
             if seconds:
@@ -329,68 +394,207 @@ def cooldown(provider, exc):
     return failure_policy.cooldown_seconds(provider, exc)
 
 
-def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=()):
-    """Run only Router-eligible providers; callers may narrow, never add, the candidate pool."""
-    task = task_type(prompt, image)
-    excluded = frozenset(exclude_providers)
-    if not excluded <= _CLOUD_PROVIDERS | {"ollama"}:
+def _model_for(owner: str, provider: str) -> str:
+    """Resolve a model after the provider was admitted; no prompt inspection here."""
+    from modules import llm, cloudflare_chat
+    if provider == 'gemini':
+        return llm.active_model(owner)
+    if provider == 'groq':
+        return llm.groq_model()
+    if provider == 'cloudflare':
+        return cloudflare_chat.MODEL
+    if provider == 'ollama':
+        # The local backend owns effective-model discovery.  The router must not
+        # turn an unavailable model into an invented fallback.
+        return llm._ollama_effective_model(llm.provider_configuration(), refresh_missing=False)
+    return ''
+
+
+def plan(request: ModelRequest) -> RoutePlan:
+    """Make the complete, observable route plan without performing network I/O."""
+    if not request.needs_call:
+        return RoutePlan((), (), 0)
+    from modules import model_capabilities
+    # Reject malformed requirements before discovering or contacting any model.
+    model_capabilities.check('', '', native_features=request.native_features,
+                             min_context_tokens=request.min_context_tokens)
+    if request.token_budget is not None and (
+            type(request.token_budget) is not int
+            or type(request.max_output_tokens) is not int
+            or request.token_budget < request.max_output_tokens
+            or request.token_budget > 2_000_000):
+        raise ValueError('Toplam token üst sınırı geçersiz veya çıktı bütçesinden küçük.')
+    if request.max_network_attempts < 1 or request.max_network_attempts > 2:
+        raise ValueError('Toplam ağ denemesi 1 veya 2 olmalı.')
+    unknown = set(request.exclude_providers) - (_CLOUD_PROVIDERS | {'ollama'})
+    if unknown:
         raise ValueError('Router dışlama kümesinde bilinmeyen sağlayıcı var.')
-    attempts = []
-    chosen = selection(owner,task,route)
-    selected=[provider for provider in chosen['candidates'] if provider not in excluded]
-    skipped=list(chosen['skipped'])
-    skipped.extend(_skip(provider, 'Bu çağrı için sağlayıcı dışlandı', 'PROVIDER_CALLER_EXCLUDED')
-                   for provider in chosen['candidates'] if provider in excluded)
-    providers=list(selected)
-    for provider in providers:
-        requests_state.check(); start = time.monotonic()
+    # Vision is an explicitly declared feature, not a prompt classification.
+    task = 'vision' if 'vision' in request.features else 'text'
+    chosen = selection(request.owner, task, request.route)
+    specs = []
+    skipped = list(chosen['skipped'])
+    for provider in chosen['candidates']:
+        if provider in request.exclude_providers:
+            skipped.append(_skip(provider, 'Bu çağrı için sağlayıcı dışlandı', 'PROVIDER_CALLER_EXCLUDED'))
+            continue
         try:
-            answer = callback(provider)
-            requests_state.check()
-            if not isinstance(answer,str) or not answer.strip(): raise ValueError('Boş model yanıtı.')
+            model = _model_for(request.owner, provider)
+        except Exception:
+            _record_failure('modules/smart_router.py:plan_model_discovery')
+            # Model discovery itself is not a model invocation.  It remains a
+            # transparent unavailable candidate rather than silently choosing one.
+            skipped.append(_skip(provider, 'Kullanılabilir model doğrulanamadı', 'MODEL_UNAVAILABLE'))
+            continue
+        if not model:
+            skipped.append(_skip(provider, 'Model yapılandırılmamış', 'MODEL_UNAVAILABLE'))
+            continue
+        # App-side schema validator is *not* native provider JSON schema support.
+        features = frozenset({'text', 'structured_output'})
+        if not request.features <= features | {'vision'}:
+            skipped.append(_skip(provider, 'Model gerekli özelliği desteklemiyor',
+                                 'MODEL_FEATURE_UNSUPPORTED', model=model))
+            continue
+        assessed = model_capabilities.check(
+            provider, model, native_features=request.native_features,
+            min_context_tokens=request.min_context_tokens,
+            requested_output=request.max_output_tokens)
+        if not assessed['ok']:
+            skipped.append(_skip(provider, assessed['reason'], assessed['reason_code'], model=model))
+            continue
+        specs.append(ModelSpec(provider, model, context_limit=assessed['context_limit'],
+                               output_limit=request.max_output_tokens,
+                               features=features | assessed['features'],
+                               usage_class='local' if provider == 'ollama' else 'free'))
+    return RoutePlan(tuple(specs), tuple(skipped), request.max_network_attempts)
+
+
+
+def _check_request(request: ModelRequest) -> None:
+    """Enforce the canonical budget and per-request cancellation/deadline."""
+    requests_state.check()
+    if request.cancelled is not None:
+        is_set = getattr(request.cancelled, 'is_set', None)
+        if not callable(is_set):
+            raise TypeError('cancelled must provide is_set()')
+        if is_set():
+            raise requests_state.Cancelled('Model isteği iptal edildi; yanıt uygulanmadı.')
+    if request.deadline is not None and time.monotonic() >= request.deadline:
+        raise requests_state.LocalDeadline('İstek süre bütçesi doldu; geç yanıt uygulanmadı.')
+
+
+class ResponseValidationError(ValueError):
+    """A received response did not satisfy the caller's application contract."""
+
+
+def run_request(request: ModelRequest, adapter: ProviderAdapter,
+                *, validator: Callable[[str], Any] | None = None) -> RouteResult:
+    """Execute a plan with one authority for retry, repair and fallback.
+
+    Each adapter invocation is one real network attempt.  A schema rejection is
+    recorded as an attempt and consumes the same two-attempt envelope as a retry
+    or fallback.  Cooperative cancellation/deadline checks happen before and
+    after every adapter return, so a late answer is never adopted.
+    """
+    from modules import router_quota
+    _check_request(request)
+    route_plan = plan(request)
+    attempts: list[dict] = []
+    skipped_now = list(route_plan.skipped)
+    started = time.monotonic()
+    for spec in route_plan.candidates:
+        if len(attempts) >= route_plan.max_network_attempts:
+            break
+        _check_request(request)
+        try:
+            router_quota.reserve(request.owner,spec.provider,spec.model,directory=_STORE,
+                                 token_budget=request.token_budget)
+        except (router_quota.ReservationUnavailable,router_quota.ReservationExhausted) as exc:
+            # This skipped provider made no actual HTTP attempt. Never bypass a
+            # configured limit merely because its local SQLite store is locked.
+            skipped_now.append(_skip(spec.provider,str(exc),exc.reason_code,
+                                     seconds=exc.retry_after,model=spec.model))
+            continue
+        _check_request(request)
+        try:
+            text = adapter(spec)
+            _check_request(request)
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError('Boş model yanıtı.')
+            if validator is not None:
+                try:
+                    validator(text)
+                except (requests_state.Cancelled, requests_state.LocalDeadline):
+                    raise
+                except Exception as exc:
+                    _record_failure('modules/smart_router.py:response_validation')
+                    raise ResponseValidationError('Model yanıtı istenen sözleşmeyi karşılamadı.') from exc
+            _check_request(request)
+            attempts.append({'provider': spec.provider, 'model': spec.model, 'ok': True,
+                             'seconds': round(time.monotonic() - started, 2)})
+            with _LOCK:
+                _LAST[request.owner] = {'task': 'declared', 'provider': spec.provider,
+                                        'model': spec.model, 'attempts': attempts,
+                                        'skipped': skipped_now}
+                _HEALTH.pop((request.owner, spec.provider), None)
+            return RouteResult(text, spec, duration_ms=round((time.monotonic()-started)*1000), attempts=attempts)
         except (requests_state.Cancelled, requests_state.LocalDeadline):
-            # İptal ve yerel süre bütçesi sağlayıcı hatası değildir: cooldown yok, sonraki
-            # aday boşuna denenmez (bütçe dolmuşken her deneme aynı sınırdan döner).
             raise
         except Exception as exc:
-            _record_failure('modules/smart_router.py:run')
-            # Local adapters wrap transport errors; retain only their type, never
-            # the raw request/URL/body. Routing and cooldown still use exc.
-            transport = (exc.__cause__ if provider == 'ollama' and
-                         type(exc).__name__ == 'LocalModelError' and
-                         isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError)) else None)
-            attempt={'provider':provider,'ok':False,'error':type(transport or exc).__name__,
-                     'kind':failure_kind(exc),'status':failure_status(exc)}
-            if provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
+            _record_failure('modules/smart_router.py:run_request')
+            transport = (exc.__cause__ if spec.provider == 'ollama'
+                         and type(exc).__name__ == 'LocalModelError'
+                         and isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError))
+                         else None)
+            classified = transport or exc
+            validation_error = isinstance(exc, ResponseValidationError)
+            row = {'provider': spec.provider, 'model': spec.model, 'ok': False,
+                   'error': type(classified).__name__,
+                   'kind': 'response_validation' if validation_error else failure_kind(classified),
+                   'status': failure_status(classified)}
+            if spec.provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
                 if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
-                    attempt['hint'] = 'ollama_missing'
-            attempts.append(attempt)
+                    row['hint'] = 'ollama_missing'
+            attempts.append(row)
+            if not validation_error and type(exc).__name__ != 'ImageCapabilityError':
+                with _LOCK:
+                    _HEALTH[(request.owner, spec.provider)] = {
+                        'until': time.monotonic()+cooldown(spec.provider, exc), 'error': type(exc).__name__}
             from modules import llm
-            llm.note_route(llm.provider_label(provider) + ' ' + failure_text(transport or exc) + ', sıradakine geçildi', False)
-            if type(exc).__name__ != 'ImageCapabilityError':
-                with _LOCK: _HEALTH[(owner,provider)] = {'until':time.monotonic()+cooldown(provider,exc),'error':type(exc).__name__}
-            continue
-        attempts.append({'provider':provider,'ok':True,'seconds':round(time.monotonic()-start,2)})
-        with _LOCK:
-            _LAST[owner] = {'task':task,'provider':provider,'attempts':attempts,'skipped':skipped}
-            _HEALTH.pop((owner,provider),None)
-        return answer
-    with _LOCK: _LAST[owner] = {'task':task,'provider':None,'attempts':attempts,'skipped':skipped}
+            detail = 'yanıt sözleşmesini karşılamadı' if validation_error else failure_text(classified)
+            llm.note_route(llm.provider_label(spec.provider) + ' ' + detail + ', sıradakine geçildi', False)
+    with _LOCK:
+        _LAST[request.owner] = {'task': 'declared', 'provider': None, 'attempts': attempts,
+                                'skipped': skipped_now}
     from modules import failure_policy
-    detail = '; '.join(failure_detail(a) for a in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok; onay, anahtar, free-tier evidence ve bekleme durumunu router durumu ile kontrol et.'
-    omitted='; '.join(row['provider']+': '+row['reason'] for row in skipped)
-    message='Uygun ücretsiz model yanıt vermedi. '+detail+(' Atlanan sağlayıcılar: '+omitted+'.' if omitted else '')+' Ücretli modele geçilmedi.'
-    missing_key = not attempts and any(row.get('reason_code')=='PROVIDER_CONFIGURATION_REQUIRED' or 'anahtarı eksik' in row.get('reason','') for row in skipped)
-    evidence_code = next((row.get('reason_code') for row in skipped
-                          if str(row.get('reason_code','')).startswith('PROVIDER_FREE_TIER_')), None)
-    if missing_key:
-        raise failure_policy.ProviderExhaustedError(
-            message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
-    if not attempts and evidence_code:
-        raise failure_policy.ProviderExhaustedError(
-            message, reason_code=evidence_code, recovery_class='user_action_required')
+    detail = '; '.join(failure_detail(row) for row in attempts) if attempts else 'Bu çağrıda denenecek sağlayıcı yok.'
+    omitted = '; '.join(row['provider'] + ': ' + row['reason'] for row in skipped_now)
+    message = ('Uygun model en çok ' + str(route_plan.max_network_attempts) +
+               ' deneme sınırında yanıt veremedi. ' + detail +
+               (' Atlanan sağlayıcılar: ' + omitted + '.' if omitted else '') +
+               ' Ücretli modele geçilmedi.')
+    if not attempts:
+        if any(row.get('reason_code') == 'PROVIDER_CONFIGURATION_REQUIRED'
+               or 'anahtarı eksik' in str(row.get('reason', '')) for row in skipped_now):
+            raise failure_policy.ProviderExhaustedError(
+                message, reason_code='PROVIDER_CONFIGURATION_REQUIRED', recovery_class='user_action_required')
+        evidence_code = next((row.get('reason_code') for row in skipped_now
+                              if str(row.get('reason_code', '')).startswith('PROVIDER_FREE_TIER_')), None)
+        if evidence_code:
+            raise failure_policy.ProviderExhaustedError(
+                message, reason_code=evidence_code, recovery_class='user_action_required')
     raise failure_policy.ProviderExhaustedError(message)
+
+
+def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=(),
+        include_model=False, validator=None, deadline=None):
+    """Compatibility façade for legacy callers; all attempts still use ``run_request``."""
+    request = ModelRequest(owner=owner, route=route,
+        features=frozenset({'vision'}) if image else frozenset({'text'}),
+        exclude_providers=frozenset(exclude_providers), deadline=deadline)
+    return run_request(request, lambda spec: callback(spec.provider, spec.model)
+                       if include_model else callback(spec.provider), validator=validator).text
 
 
 def status(owner):
@@ -407,6 +611,9 @@ def status(owner):
         gate=_evidence_gate(owner,provider,model,route=route)
         if not gate['ok']:
             return 'Ücretsiz hesap onaylı; '+gate['reason']+' ['+gate['reason_code']+']'
+        observed = usage_meter.observed_exhaustion(owner, provider, model, now=time.time())
+        if observed:
+            return f'Kanıtlı ücretsiz rota; son görülen kota tükendi, {observed["seconds"]} saniye beklemede'
         if provider in cooldowns:
             return f'Kanıtlı ücretsiz rota; son çağrı başarısız, {cooldowns[provider]} saniye beklemede'
         return 'Kanıtlı ücretsiz rota; evidence geçerli ve strict zero-cost seçimde kullanılabilir'

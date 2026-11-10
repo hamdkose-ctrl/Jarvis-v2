@@ -73,10 +73,10 @@ class UsageMeterTests(unittest.TestCase):
         ok = Mock(status_code=200, json=lambda: {'choices': [{'message': {'content': 'tamam'}}]})
         limited = Mock(status_code=429, headers={}, text='Rate limit reached')
         with patch.object(llm, 'user_groq_key', return_value='k'), patch.object(llm, 'groq_model', return_value='g1'), \
-                patch.object(llm, 'GROQ_MODELS', ['g2']), \
-                patch('modules.smart_router.settings', return_value={'cloud_free_confirmed': True}), \
                 patch.object(llm.requests, 'post', side_effect=[limited, ok]):
-            self.assertEqual(llm._groq([{'role': 'user', 'content': 'soru'}], 'sistem', 50), 'tamam')
+            with self.assertRaises(llm.CloudError):
+                llm._groq([{'role': 'user', 'content': 'soru'}], 'sistem', 50)
+            self.assertEqual(llm._groq([{'role': 'user', 'content': 'soru'}], 'sistem', 50, model='g2'), 'tamam')
         with patch.object(llm, 'ollama_models', return_value=['meter-local']), \
                 patch.object(llm.requests, 'post', side_effect=llm.requests.ConnectionError('yok')):
             with self.assertRaises(llm.LocalModelError):

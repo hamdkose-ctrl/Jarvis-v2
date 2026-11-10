@@ -1067,7 +1067,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
         )
         deadline = time.monotonic() + _MODEL_BUDGET_SECONDS
 
-        def send(provider: str) -> str:
+        def send(provider: str, model: str | None = None) -> str:
             requests_state.check()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -1076,13 +1076,20 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             # requests_state bütçesi (yukarıdaki deadline ile aynı _MODEL_BUDGET_SECONDS);
             # llm.transport_timeouts soket zaman aşımlarını o bütçenin üstüne çıkarmaz,
             # ama asıl sınır bütçenin kendisidir — soket süresi toplam deadline değildir.
-            return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None)
+            return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None, model=model)
+
+        def validate_response(raw: str) -> None:
+            proposal = _build(_decode(raw), owner=owner, text=text, current=current,
+                              deterministic_arguments=arguments, protected_relation=protected_relation,
+                              file_operation_hint=file_operation_hint)
+            if proposal is None:
+                raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
 
         with requests_state.budget(_MODEL_BUDGET_SECONDS):
             # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.
             raw = smart_router.run(
                 owner, prompt + "\\n" + system, send, route=route,
-                exclude_providers={"ollama"},
+                exclude_providers={"ollama"}, include_model=True, validator=validate_response, deadline=deadline,
             )
             requests_state.check()
         row = _decode(raw)
