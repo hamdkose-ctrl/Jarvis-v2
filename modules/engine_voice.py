@@ -202,6 +202,23 @@ class VoiceSession:
         runtime._manual_local_stt = self.manual_local_stt
         self.live_on = self.listening_enabled and not self.manual_local_stt and runtime.live.enabled()
         self.state = {"awake_until": 0.0}
+        self.voice_lane = None
+        self.voice_core_fault = None
+        from modules import voice_runtime
+        try:
+            self.voice_lane, _enabled = voice_runtime.maybe_start(runtime)
+        except ValueError:
+            runtime._record_failure('modules/engine_voice.py:voice_core_setup')
+            # An explicitly requested invalid configuration must never silently
+            # fall back to Edge, SAPI or a different user's voice.
+            self.voice_core_fault = "Voice Core yapılandırması hatalı. Ses değiştirilmedi; yanıt yazılı kalacak."
+        if self.voice_lane is not None:
+            runtime.emit("system", "Yerel Voice Core etkin: ses arka planda oynatılır, seçili ses değişmez.")
+
+    def close(self):
+        lane = getattr(self, "voice_lane", None)
+        if lane is not None:
+            lane.close()
 
     def submit_voice(self, command: str) -> bool:
         """Only an accepted command leaves listening paused for the event loop."""
@@ -238,6 +255,29 @@ class VoiceSession:
     def speak(self, text: str, slow: bool = False, shown: bool = False) -> None:
         runtime = self.runtime
         if self.speak_enabled and runtime.flags["speak"]:
+            if getattr(self, "voice_core_fault", None):
+                runtime.emit("system", self.voice_core_fault)
+                return
+            lane = getattr(self, "voice_lane", None)
+            if lane is not None:
+                # Existing per-user voice preference is the only voice identity
+                # authority. Do not reuse Edge/SAPI when an exact Piper model is
+                # absent. Enqueue returns immediately; Core work continues.
+                prefs = runtime.profile.data["prefs"]
+                voice_key = prefs.get("voice") or "tr_erkek"
+                try:
+                    done = lane.say(runtime.profile.slug, voice_key, text,
+                                    background=shown)
+                except ValueError:
+                    runtime._record_failure('modules/engine_voice.py:voice_core_submit')
+                    runtime.emit("system", "Seçilen yerel ses kullanılamıyor veya kuyruk dolu; başka ses kullanılmadı.")
+                    return
+                if not done.is_set():
+                    runtime.emit("state", "speaking")
+                    runtime.threading.Thread(
+                        target=self._barge_watch, args=(done,), daemon=True,
+                    ).start()
+                return
             # Canlı mod açıksa TÜM PC sesli yanıtlarını aynı Gemini Live sesiyle okut.
             # Yazı/web cevabı zaten arayüze bir kez yazıldığı için Live transkriptinin ikinci kez
             # sohbet geçmişine düşmesini `suppress_ui=True` ile engelliyoruz.
@@ -275,8 +315,9 @@ class VoiceSession:
             return False                  # hazırlanırken / kurulamadıysa Google yöntemi
 
         def should_stop() -> bool:
+            lane = getattr(self, "voice_lane", None)
             return runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                or not wakeword.wanted(runtime.WAKE_WORD)
+                or (lane is not None and lane.is_busy()) or not wakeword.wanted(runtime.WAKE_WORD)
 
         with runtime.audio_lock:
             if should_stop():
@@ -319,7 +360,10 @@ class VoiceSession:
         last_error = None
         silent_count = 0
         while not runtime.stop_event.is_set():
-            if runtime.pause_listening.is_set() or not runtime.flags["mic"] or (runtime.live.get() is not None and runtime.live.enabled()):
+            lane = getattr(self, "voice_lane", None)
+            if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                    or (lane is not None and lane.is_busy()) \
+                    or (runtime.live.get() is not None and runtime.live.enabled()):
                 runtime.stop_event.wait(0.1)
                 continue
 
@@ -354,10 +398,16 @@ class VoiceSession:
 
             try:
                 with runtime.audio_lock:
-                    if runtime.pause_listening.is_set() or not runtime.flags["mic"] or (runtime.live.get() is not None and runtime.live.enabled()):
+                    if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                            or (lane is not None and lane.is_busy()) \
+                            or (runtime.live.get() is not None and runtime.live.enabled()):
                         continue
                     in_session = runtime.time.time() < self.state["awake_until"]
-                    heard = runtime.voice.listen(timeout=2, announce_fail=False, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel),
+                    abort = runtime._AnyAbort(
+                        runtime.pause_listening, runtime.mic_cancel,
+                        *( (lane.busy_event,) if lane is not None else () ),
+                    )
+                    heard = runtime.voice.listen(timeout=2, announce_fail=False, abort=abort,
                                          cheap=not in_session,      # ad aranırken ücretsiz yöntem
                                          gate=in_session)           # sohbet sürerken gürültüyü komut sanma
             except Exception as exc:
