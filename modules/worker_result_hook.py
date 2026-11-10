@@ -16,14 +16,18 @@ def wrap_output(output: dict, identity: dict) -> dict:
     if output.get('state') == 'approval':
         return output
     from modules import worker_result
+    planned = set(worker_result.PLAN_FENCE).intersection(identity)
+    if planned and planned != set(worker_result.PLAN_FENCE):
+        raise ValueError('Eksik plan fence: eski schema ile sessiz düşüş yasak.')
     envelope = {
-        'schema': worker_result.SCHEMA,
+        'schema': worker_result.PLAN_SCHEMA if planned else worker_result.SCHEMA,
         'status': 'succeeded' if output.get('state') == 'done' else 'failed',
         'evidence': [{
             'state': output.get('state'),
             'verification': copy.deepcopy(output.get('verification')),
         }],
         **{key: copy.deepcopy(identity[key]) for key in required},
+        **{key: copy.deepcopy(identity[key]) for key in worker_result.PLAN_FENCE if key in planned},
     }
     worker_result.validate(envelope)
     wrapped = copy.deepcopy(output)

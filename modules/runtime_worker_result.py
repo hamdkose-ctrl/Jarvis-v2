@@ -18,7 +18,7 @@ def durable_identity(identity: dict) -> bool:
     return isinstance(identity, dict) and isinstance(identity.get('version'), int)
 
 
-def canonical_version(identity: dict) -> int:
+def canonical_snapshot(identity: dict) -> dict:
     owner = identity.get('owner') if isinstance(identity, dict) else None
     job_id = identity.get('job_id') if isinstance(identity, dict) else None
     if not isinstance(owner, str) or not owner or not isinstance(job_id, str) or not job_id:
@@ -31,14 +31,22 @@ def canonical_version(identity: dict) -> int:
     state = goal_state_store.load(path)
     if state['owner'] != owner or state['job_id'] != job_id:
         raise ValueError('Canonical GoalState worker kimliğiyle eşleşmiyor.')
-    return state['version']
+    return state
+
+
+def canonical_version(identity: dict) -> int:
+    return canonical_snapshot(identity)['version']
 
 
 def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None):
     if not isinstance(identity, dict):
         raise ValueError('Worker kimliği geçersiz.')
-    if expected_job_version is None:
-        expected_job_version = canonical_version(identity)
+    # Default durable execution reads the single canonical GoalState snapshot.
+    # Explicit-version legacy/testing callers remain v1, but commit rejects a
+    # v1 result if a canonical goal_plan is present (no version-fence bypass).
+    snapshot = canonical_snapshot(identity) if expected_job_version is None else None
+    if snapshot is not None:
+        expected_job_version = snapshot['version']
     if not isinstance(expected_job_version, int) or isinstance(expected_job_version, bool) or expected_job_version < 0:
         raise ValueError('Beklenen GoalState sürümü geçersiz.')
     row = _capability(kind)
@@ -60,6 +68,25 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         'capability_version': str(row['version']),
         'input_digest': hashlib.sha256(payload.encode('utf-8')).hexdigest(),
     }
+    if snapshot is not None and snapshot.get('goal_plan') is not None:
+        from modules import goal_plan_gate
+        if row['effect_policy'] != 'read_only':
+            raise ValueError('Planlı dış etki BRAIN-07 lease/approval kabulüne kadar engelli.')
+        selection = goal_plan_gate.candidate(
+            snapshot, owner=owner, job_id=job_id, node_id=step_id,
+        )
+        node = goal_plan_gate.revalidate(snapshot, selection)
+        if node['depends_on']:
+            # BRAIN-06C cannot infer verified predecessor completion from a
+            # claim or old worker log. BRAIN-06D/07 will supply this proof.
+            raise ValueError('Bağımlı plan node doğrulanmış predecessor kanıtı olmadan başlatılamaz.')
+        if node['capability_id'] != row['id'] or node['input'] != data:
+            raise ValueError('Worker capability/input canonical plan node ile eşleşmiyor.')
+        expected.update({
+            'command_id': f"{step_id}:{attempt}:p{selection.plan_version}",
+            'plan_version': selection.plan_version,
+            'node_digest': selection.node_digest,
+        })
     enriched = copy.deepcopy(identity)
     enriched.update(expected)
     return enriched, expected

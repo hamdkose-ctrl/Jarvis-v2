@@ -34,6 +34,7 @@ def _evidence(accepted: dict) -> dict:
         'input_digest': row['input_digest'],
         'status': row['status'],
         'evidence': copy.deepcopy(row['evidence']),
+        **{field: row[field] for field in worker_result.PLAN_FENCE if field in row},
     }
 
 
@@ -44,6 +45,30 @@ def commit(accepted: dict) -> dict:
     current = goal_state_store.load(path)
     if current['owner'] != accepted['owner'] or current['job_id'] != accepted['job_id']:
         raise ValueError('WorkerResult canonical GoalState kimliğiyle eşleşmiyor.')
+
+    if current.get('goal_plan') is not None:
+        from modules import goal_plan_gate
+        if accepted['schema'] != worker_result.PLAN_SCHEMA:
+            raise goal_state_store.PersistedStateConflict(
+                'Planlı GoalState legacy WorkerResult.v1 kabul etmez.'
+            )
+        selection = goal_plan_gate.candidate(
+            current, owner=accepted['owner'], job_id=accepted['job_id'],
+            node_id=accepted['step_id'],
+        )
+        node = goal_plan_gate.revalidate(current, selection)
+        if (node['depends_on'] or node['capability_id'] != accepted['capability_id']
+                or selection.plan_version != accepted['plan_version']
+                or selection.node_digest != accepted['node_digest']
+                or accepted['command_id'] !=
+                   f"{accepted['step_id']}:{accepted['attempt']}:p{accepted['plan_version']}"):
+            raise goal_state_store.PersistedStateConflict(
+                'WorkerResult node/plan sürümü veya dependency fence geçersiz.'
+            )
+    elif accepted['schema'] != worker_result.SCHEMA:
+        raise goal_state_store.PersistedStateConflict(
+            'Canonical plan yokken planlı WorkerResult kabul edilemez.'
+        )
 
     matches = [
         row for row in current['evidence']
