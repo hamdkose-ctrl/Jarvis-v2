@@ -88,14 +88,29 @@ class VerifyBeforeCommitTests(unittest.TestCase):
         output = {'state': 'done', 'owner': 'alice', 'text': 'unverified reconcile'}
         identity = {'version': 1, 'owner': 'alice'}
         with (patch('modules.goal_tools.verify', side_effect=ValueError('bad receipt')) as verify,
-              patch.object(reconcile_worker_result, '_fence_expected') as fence,
+              patch.object(reconcile_worker_result, '_fence_expected',
+                           return_value=(identity, {'owner': 'alice'})) as fence,
               patch('modules.runtime_worker_result.accept_and_commit') as commit):
             with self.assertRaisesRegex(ValueError, 'bad receipt'):
                 reconcile_worker_result.accept_and_commit(
                     output, identity, 'research', {'url': 'https://example.test'},
                 )
         verify.assert_called_once_with(output, 'alice')
-        fence.assert_not_called()
+        fence.assert_called_once()
+        commit.assert_not_called()
+
+    def test_reconcile_stale_execution_fence_blocks_readback(self):
+        output = {'state': 'done', 'owner': 'alice'}
+        identity = {'version': 1, 'owner': 'alice'}
+        with (patch.object(reconcile_worker_result, '_fence_expected',
+                           side_effect=ValueError('stale plan')),
+              patch('modules.goal_tools.verify') as verify,
+              patch('modules.runtime_worker_result.accept_and_commit') as commit):
+            with self.assertRaisesRegex(ValueError, 'stale plan'):
+                reconcile_worker_result.accept_and_commit(
+                    output, identity, 'research', {'url': 'https://example.test'},
+                )
+        verify.assert_not_called()
         commit.assert_not_called()
 
     def test_effect_recovery_verifies_before_receipt_and_cas(self):
