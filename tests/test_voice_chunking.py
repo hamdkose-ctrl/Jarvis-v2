@@ -107,6 +107,23 @@ class ChunkedSpeechTests(unittest.TestCase):
                          "Merhaba, bu konuşma devam ediyor.")
         self.assertEqual(self.receipts[0].status, "played")
 
+    def test_rate_and_selected_voice_remain_immutable_across_all_chunks(self):
+        snapshots = []
+        def synth(voice, text, cancel):
+            snapshots.append((voice.voice_id, voice.speaking_rate))
+            return b"audio"
+        catalog = spec()
+        lane = self.start(synth, lambda audio, cancel: None)
+        long_text = "Daha hızlı ve açık anlat. " * 80
+        self.assertTrue(lane.submit(SpeechRequest(
+            "alice", "speed-long", "tr_kadin", long_text,
+            lane="foreground", rate=22,
+        )))
+        self.until(1)
+        self.assertGreater(len(snapshots), 2)
+        self.assertEqual(set(snapshots), {("tr_kadin", 22)})
+        self.assertEqual(catalog.require("tr_kadin").speaking_rate, 0)
+
     def test_sus_during_first_chunk_never_starts_next_chunk(self):
         entered = threading.Event()
         released = threading.Event()
