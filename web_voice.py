@@ -15,6 +15,21 @@ class WebVoice:
         runtime = self._runtime
         pr = runtime._p().data['prefs']
         rate = pr.get('rate', 5)
+        from modules import voice_runtime
+        lane = voice_runtime.active()
+        if lane is not None:
+            installed = []
+            for spec in lane.catalog.choices():
+                try:
+                    lane.check_voice(spec.voice_id)
+                except (ValueError, OSError):
+                    continue
+                installed.append({'key': spec.voice_id, 'name': spec.label, 'info': 'Yerel Piper'})
+            return {
+                'local': True, 'rate_supported': False,
+                'voices': installed, 'voice': pr.get('voice', 'tr_erkek'),
+                'rate': rate if isinstance(rate, int) else 5,
+            }
         if not runtime.config.load_settings().get('local_stt_enabled', False) and runtime._live().enabled():
             cur = runtime.config.load_settings().get('live_voice') or runtime._live().DEFAULT_VOICE
             return {'live': True, 'voices': [{'key': k, 'name': k, 'info': d} for k, d in runtime._live().VOICE_INFO.items()], 'voice': cur, 'rate': rate if isinstance(rate, int) else 5}
@@ -22,6 +37,19 @@ class WebVoice:
 
     def voice_set(self, key: str) -> bool:
         runtime = self._runtime
+        from modules import voice_runtime
+        lane = voice_runtime.active()
+        if lane is not None:
+            try:
+                lane.check_voice(key)
+            except (ValueError, OSError):
+                return False
+            profile = runtime._p()
+            if profile.data['prefs'].get('voice') != key:
+                lane.interrupt()
+            profile.set_pref('voice', key)
+            runtime.engine.events.put(('say', 'Merhaba, seçtiğin yerel ses böyle.', profile.slug))
+            return True
         lv = runtime._live()
         if not runtime.config.load_settings().get('local_stt_enabled', False) and lv.enabled() and key in lv.VOICE_INFO:
             if lv.get() is not None:
@@ -37,6 +65,9 @@ class WebVoice:
 
     def rate_set(self, rate: int) -> bool:
         runtime = self._runtime
+        from modules import voice_runtime
+        if voice_runtime.active() is not None:
+            return False  # not implemented in Piper: never claim speed changed
         runtime._p().set_pref('rate', max(-40, min(40, int(rate))))
         runtime.engine.events.put(('say', 'Böyle konuşuyorum.'))
         return True
