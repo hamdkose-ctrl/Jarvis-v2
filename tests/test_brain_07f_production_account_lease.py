@@ -44,7 +44,8 @@ class LiveCanonicalAccountLeaseTests(unittest.TestCase):
             'acceptance': 'Verified immutable account response',
         }]}
         planned = core_state_reducer.apply(init, {
-            'op': 'set_goal_plan', 'plan': self.plan, 'expected_version': 0,
+            'op': 'set_goal_plan', 'plan': self.plan,
+            'expected_version': init['version'],
             'reason_code': 'TEST_PLAN',
         })
         goal_state_store.create(self.path, planned)
