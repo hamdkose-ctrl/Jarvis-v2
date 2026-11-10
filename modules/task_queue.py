@@ -1,6 +1,7 @@
 """Persistent opt-in read/production queue, serviced only while Jarvis runs."""
 import json
 import math
+import secrets
 import threading
 import time
 import uuid
@@ -89,7 +90,7 @@ def run_now(owner, qid):
             raise ValueError('İptal edilmiş veya bitmiş iş yeniden başlatılmaz; yeni görev olarak zamanla.')
         new_job_id = uuid.uuid4().hex[:12]
         db.execute(
-            "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0 WHERE id=?",
+            "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0,lease_token='' WHERE id=?",
             (time.time(), new_job_id, row['job_id'], qid),
         )
     return qid
@@ -110,7 +111,7 @@ def cancel(owner,qid):
     with service_store.database(owner) as db:
         row=db.execute('SELECT * FROM queue WHERE id=?',(qid,)).fetchone()
         if not row:raise ValueError('Bu kullanıcıya ait kuyruk işi yok.')
-        db.execute("UPDATE queue SET state='cancelled' WHERE id=? AND state IN ('queued','running','blocked','paused')",(qid,))
+        db.execute("UPDATE queue SET state='cancelled',lease=0,lease_token='' WHERE id=? AND state IN ('queued','running','blocked','paused')",(qid,))
     from modules import task_agents
     if row['state']=='running':
         try:task_agents.cancel_job(owner,row['job_id'])
@@ -127,70 +128,151 @@ def configure(owner,qid,*,operation,repeat_seconds=None):
         if not row:raise ValueError('Bu kullanıcıya ait takip yok.')
         if row['state'] not in {'queued','paused'}:raise ValueError('Yalnız bekleyen veya duraklatılmış takip düzenlenebilir; çalışan işi önce bitir veya iptal et.')
         if operation=='pause':
-            db.execute("UPDATE queue SET state='paused',lease=0 WHERE id=?",(qid,))
+            db.execute("UPDATE queue SET state='paused',lease=0,lease_token='' WHERE id=?",(qid,))
         elif operation=='resume':
             if row['state']!='paused':raise ValueError('Takip zaten sırada.')
-            db.execute("UPDATE queue SET state='queued',due=?,lease=0 WHERE id=?",(time.time(),qid))
+            db.execute("UPDATE queue SET state='queued',due=?,lease=0,lease_token='' WHERE id=?",(time.time(),qid))
         else:
             db.execute('UPDATE queue SET repeat_seconds=? WHERE id=?',(repeat_seconds,qid))
     return True
 
 
 def tick(owner, notify=None):
+    """One atomic queue claim per run; old wakeups cannot finalize a successor.
+
+    This is the existing Scheduler's durable queue fence, not the separate
+    canonical DAG ResourceLease. A lost claim cannot write a successful queue
+    result. Workers must still obey their existing cancellation/effect gates.
+    """
     from modules import task_agents
     service_store.identity(owner)
     with task_agents._LOCK:
-        if owner in task_agents._ACTIVE:return
+        if owner in task_agents._ACTIVE:
+            return
+    now = time.time()
+    claim = secrets.token_hex(16)
     with service_store.database(owner) as db:
-        row=db.execute("SELECT * FROM queue WHERE (state='queued' AND due<=?) OR (state='running' AND lease<=?) ORDER BY due LIMIT 1",(time.time(),time.time())).fetchone()
-        if not row:return
-        row=dict(row)
-        db.execute("UPDATE queue SET state='running',lease=? WHERE id=?",(time.time()+90,row['id']))
-    heartbeat_stop=threading.Event()
+        row = db.execute(
+            "SELECT * FROM queue WHERE (state='queued' AND due<=?) "
+            "OR (state='running' AND lease<=?) ORDER BY due LIMIT 1",
+            (now, now),
+        ).fetchone()
+        if not row:
+            return
+        row = dict(row)
+        # database() holds BEGIN IMMEDIATE from selection through the claim.
+        # Still require the exact job and ready state to prevent replay.
+        changed = db.execute(
+            "UPDATE queue SET state='running',lease=?,lease_token=? "
+            "WHERE id=? AND job_id=? AND "
+            "((state='queued' AND due<=?) OR (state='running' AND lease<=?))",
+            (now + 90, claim, row['id'], row['job_id'], now, now),
+        ).rowcount
+        if changed != 1:
+            return
+
+    heartbeat_stop = threading.Event()
+    lost = threading.Event()
+
     def heartbeat():
-        token=llm._key_context.set(owner)
+        token = llm._key_context.set(owner)
         try:
             while not heartbeat_stop.wait(20):
+                instant = time.time()
                 with service_store.database(owner) as db:
-                    db.execute("UPDATE queue SET lease=? WHERE id=? AND state='running'",(time.time()+90,row['id']))
-        finally:llm._key_context.reset(token)
-    pulse=threading.Thread(target=heartbeat,daemon=True,name='task-lease');pulse.start()
+                    renewed = db.execute(
+                        "UPDATE queue SET lease=? WHERE id=? AND job_id=? "
+                        "AND state='running' AND lease_token=? AND lease>?",
+                        (instant + 90, row['id'], row['job_id'], claim, instant),
+                    ).rowcount
+                if renewed != 1:
+                    lost.set()
+                    return
+        except Exception:
+            _record_failure('modules/task_queue.py:heartbeat')
+            lost.set()
+        finally:
+            llm._key_context.reset(token)
+
+    pulse = threading.Thread(target=heartbeat, daemon=True, name='task-lease')
+    pulse.start()
     try:
-        tasks=json.loads(row['tasks']);task_agents.validate(tasks)
-        if any(t['agent'] not in ('research','writer','account','verify','media') for t in tasks):raise ValueError('Kuyruk planı güvenli araç sınırını aşıyor.')
-        # The assigned job identity is saved before any execution. After restart,
-        # reuse its journal instead of creating a second independent job.
-        path=task_agents._job_path(task_agents._root(owner),row['job_id'])
-        if path.exists():job=task_agents.continue_job(owner,row['job_id'],queue_id=row['id'],queue_tasks=tasks)
-        else:job=task_agents.execute(owner,tasks,row['instruction'],job_id=row['job_id'],queue_id=row['id'])
-        state='done' if job['state']=='done' else 'cancelled' if job['state']=='cancelled' else 'blocked'
-        error=''
+        # A cancel/run-now/reclaimed lease that arrives before the worker starts
+        # must not invoke any worker, even if the original SELECT was valid.
+        with service_store.database(owner) as db:
+            still_owned = db.execute(
+                "SELECT 1 FROM queue WHERE id=? AND job_id=? "
+                "AND state='running' AND lease_token=? AND lease>?",
+                (row['id'], row['job_id'], claim, time.time()),
+            ).fetchone()
+        if not still_owned or lost.is_set():
+            return
+        tasks = json.loads(row['tasks'])
+        task_agents.validate(tasks)
+        if any(t['agent'] not in ('research', 'writer', 'account', 'verify', 'media') for t in tasks):
+            raise ValueError('Kuyruk planı güvenli araç sınırını aşıyor.')
+        # Preserve the assigned journal identity across restart; never create
+        # a second job from an expired wake if its journal already exists.
+        path = task_agents._job_path(task_agents._root(owner), row['job_id'])
+        if path.exists():
+            job = task_agents.continue_job(
+                owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
+            )
+        else:
+            job = task_agents.execute(
+                owner, tasks, row['instruction'],
+                job_id=row['job_id'], queue_id=row['id'],
+            )
+        state = 'done' if job['state'] == 'done' else 'cancelled' if job['state'] == 'cancelled' else 'blocked'
+        error = ''
     except task_agents.Busy:
-        # Another task claimed this owner after the initial check. Keep the
-        # assigned journal identity and retry later; cancellation remains final.
+        # Retry only if THIS claim still owns the exact scheduled run.
         heartbeat_stop.set()
         with service_store.database(owner) as db:
-            db.execute("UPDATE queue SET state='queued',lease=0 WHERE id=? AND job_id=? AND state='running'",
-                       (row['id'],row['job_id']))
+            db.execute(
+                "UPDATE queue SET state='queued',lease=0,lease_token='' "
+                "WHERE id=? AND job_id=? AND state='running' AND lease_token=? AND lease>?",
+                (row['id'], row['job_id'], claim, time.time()),
+            )
         return
     except Exception as exc:
         _record_failure('modules/task_queue.py:tick')
-        state='blocked';error=type(exc).__name__
-    finally:heartbeat_stop.set()
+        state = 'blocked'
+        error = type(exc).__name__
+    finally:
+        heartbeat_stop.set()
+
+    if lost.is_set():
+        # A timed-out or stolen claim never announces success. Recovery will
+        # recheck the same durable job journal on a later scheduler wake.
+        return
     with service_store.database(owner) as db:
-        count=db.execute("UPDATE queue SET state=?,error=? WHERE id=? AND state='running'",(state,error,row['id'])).rowcount
+        count = db.execute(
+            "UPDATE queue SET state=?,error=?,lease=0,lease_token='' "
+            "WHERE id=? AND job_id=? AND state='running' AND lease_token=? AND lease>?",
+            (state, error, row['id'], row['job_id'], claim, time.time()),
+        ).rowcount
         if count:
-            db.execute('INSERT OR IGNORE INTO queue_runs VALUES(?,?,?,?)',(row['id'],row['job_id'],state,time.time()))
-            # A cron schedule keeps its cadence after a blocked run too; the
-            # notification still reports the failed run.
-            if state in ('done','blocked') and row['cron']:
+            db.execute(
+                'INSERT OR IGNORE INTO queue_runs VALUES(?,?,?,?)',
+                (row['id'], row['job_id'], state, time.time()),
+            )
+            if state in ('done', 'blocked') and row['cron']:
                 next_due = CronExpression(row['cron']).next_after(datetime.now()).timestamp()
-                db.execute("UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0 WHERE id=? AND state IN ('done','blocked')",
-                           (next_due,uuid.uuid4().hex[:12],row['job_id'],row['id']))
-            elif state=='done' and row['repeat_seconds']:
-                db.execute("UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0 WHERE id=? AND state='done'",
-                           (time.time()+row['repeat_seconds'],uuid.uuid4().hex[:12],row['job_id'],row['id']))
-    if notify and count:notify(owner,row['id'],state,row['job_id'])
+                db.execute(
+                    "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0,lease_token='' "
+                    "WHERE id=? AND state IN ('done','blocked')",
+                    (next_due, uuid.uuid4().hex[:12], row['job_id'], row['id']),
+                )
+            elif state == 'done' and row['repeat_seconds']:
+                db.execute(
+                    "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0,lease_token='' "
+                    "WHERE id=? AND state='done'",
+                    (time.time() + row['repeat_seconds'], uuid.uuid4().hex[:12],
+                     row['job_id'], row['id']),
+                )
+    if notify and count:
+        notify(owner, row['id'], state, row['job_id'])
 
 
 def is_cancelled(owner,qid):
