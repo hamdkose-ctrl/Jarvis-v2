@@ -38,6 +38,62 @@ def _evidence(accepted: dict) -> dict:
     }
 
 
+
+def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
+    """Allow a late *different root* only across accepted worker evidence.
+
+    A concurrent read-only root can legitimately finish after another root
+    moves the canonical version. Never rebase over user edits, state changes,
+    plan revisions, unknown evidence, a dependent node or a duplicate node.
+    This proves only that the intervening CAS writes were accepted worker
+    results; it grants no scheduler, permission, lease or completion authority.
+    """
+    from modules import goal_plan_gate
+    expected_version = accepted['expected_job_version']
+    if (accepted['schema'] != worker_result.PLAN_SCHEMA
+            or not 0 <= expected_version < current['version']):
+        return False
+    intervening = current['audit'][expected_version + 1:]
+    if not intervening or any(
+        item['op'] != 'append_evidence' or item['reason_code'] != _REASON
+        for item in intervening
+    ):
+        return False
+    if len(current['evidence']) < len(intervening):
+        return False
+    appended = current['evidence'][-len(intervening):]
+    seen = set()
+    for row in appended:
+        if (not isinstance(row, dict) or row.get('kind') != 'worker_result'
+                or row.get('status') not in {'succeeded', 'failed'}
+                or row.get('owner') != accepted['owner']
+                or row.get('job_id') != accepted['job_id']
+                or row.get('plan_version') != accepted['plan_version']):
+            return False
+        step_id = row.get('step_id')
+        attempt = row.get('attempt')
+        if (not isinstance(step_id, str) or not step_id
+                or step_id == accepted['step_id'] or step_id in seen
+                or type(attempt) is not int or attempt < 0):
+            return False
+        seen.add(step_id)
+        try:
+            selection = goal_plan_gate.candidate(
+                current, owner=accepted['owner'],
+                job_id=accepted['job_id'], node_id=step_id,
+            )
+            node = goal_plan_gate.revalidate(current, selection)
+        except ValueError:
+            return False
+        if (node['depends_on']
+                or selection.node_digest != row.get('node_digest')
+                or node['capability_id'] != row.get('capability_id')
+                or row.get('command_id') !=
+                   f"{step_id}:{attempt}:p{accepted['plan_version']}"):
+            return False
+    return True
+
+
 def commit(accepted: dict) -> dict:
     """Append accepted WorkerResult evidence exactly once using reducer + CAS."""
     evidence = _evidence(accepted)
@@ -83,7 +139,24 @@ def commit(accepted: dict) -> dict:
             )
         return current
 
-    if current['version'] != accepted['expected_job_version']:
+    if current.get('goal_plan') is not None and any(
+        isinstance(row, dict) and row.get('kind') == 'worker_result'
+        and row.get('owner') == accepted['owner']
+        and row.get('job_id') == accepted['job_id']
+        and row.get('step_id') == accepted['step_id']
+        and row.get('plan_version') == accepted['plan_version']
+        and row.get('node_digest') == accepted['node_digest']
+        and row.get('status') == 'succeeded'
+        for row in current['evidence']
+    ):
+        # Replay of the *same* command was handled above. Another attempt
+        # must not silently run a root that already has accepted success.
+        raise goal_state_store.PersistedStateConflict(
+            'Plan node için önceki başarılı WorkerResult mevcut; tekrar kabul edilmedi.'
+        )
+
+    if (current['version'] != accepted['expected_job_version']
+            and not _independent_worker_only_advance(current, accepted)):
         raise goal_state_store.PersistedStateConflict(
             'WorkerResult stale GoalState sürümüne ait; evidence yazılmadı.'
         )
