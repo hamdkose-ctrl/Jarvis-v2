@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import threading
 
 from modules.voice_core import SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec
@@ -54,6 +55,9 @@ def _read_config(path: Path):
             raise VoiceConfigurationError("Voice Core ses etiketi geçersiz.")
         if not isinstance(model, str) or not model or len(model) > 200:
             raise VoiceConfigurationError("Voice Core model yolu geçersiz.")
+        asset = Path(model)
+        if asset.is_absolute() or ".." in asset.parts or asset.suffix.lower() != ".onnx":
+            raise VoiceConfigurationError("Voice Core yalnız yerel .onnx model yolu kabul eder.")
         # PiperSynthesizer revalidates path confinement and regular files on
         # each request, also preventing model replacement via symlink.
         specs.append(VoiceSpec(key, label, "piper", model))
@@ -116,6 +120,7 @@ class VoiceLane:
     def __init__(self, runtime, catalog, synthesize, play):
         self.runtime = runtime
         self.catalog = catalog
+        self._synthesize = synthesize
         self._lock = threading.RLock()
         self._outstanding = {}
         self.busy_event = threading.Event()
@@ -123,6 +128,15 @@ class VoiceLane:
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
         )
+
+    def check_voice(self, voice_id: str):
+        """Do not persist a new voice choice when its local model is missing."""
+        spec = self.catalog.require(voice_id)
+        if isinstance(self._synthesize, PiperSynthesizer):
+            self._synthesize._model(spec)
+            if not shutil.which("piper"):
+                raise ValueError("Seçilen Piper motoru kurulu değil.")
+        return spec
 
     def say(self, owner: str, voice_id: str, text: str, *, background: bool = False):
         """Enqueue without waiting for synthesis or blocking caller's Core work."""
