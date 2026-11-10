@@ -267,9 +267,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return ActionOutcome("Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else ""), True)
             if action == "open":
                 if control.is_muted():
-                    control.set_mute(False)   # sessizdeyken "sesi aç": önce sessizi kaldır, seviye aynı kalsın
+                    # Do not claim a successful unmute when the OS rejected it.
+                    if not control.set_mute(False):
+                        return ActionOutcome("Sesi açamadım.", False)
                     lvl = control.current_volume()
-                    return "Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else "")
+                    return ActionOutcome("Sessizi kaldırdım." + (f" Ses yüzde {lvl}." if lvl is not None else ""), True)
                 return runtime._volume_step(15, "arttırdım")
             if action == "volume_up":
                 return runtime._volume_step(15, "arttırdım")
