@@ -110,6 +110,10 @@ def block_legacy_on_fault():
     _BLOCK_LEGACY = True
 
 
+def legacy_blocked() -> bool:
+    return bool(_BLOCK_LEGACY)
+
+
 def interrupt_active() -> bool:
     lane = active()
     if lane is None:
