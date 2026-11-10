@@ -78,7 +78,9 @@ class WebVoice:
         from modules import voice_runtime
         from modules.engine_context import set_profile_rate
         lane = voice_runtime.active()
-        level = max(-40, min(40, int(rate)))
+        if type(rate) is not int:
+            return False
+        level = max(-40, min(40, rate))
         if not set_profile_rate(runtime._p(), level, lane=lane):
             return False
         runtime.engine.events.put(('say', 'Böyle konuşuyorum.'))
