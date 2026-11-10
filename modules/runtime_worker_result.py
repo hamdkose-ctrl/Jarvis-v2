@@ -38,7 +38,8 @@ def canonical_version(identity: dict) -> int:
     return canonical_snapshot(identity)['version']
 
 
-def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None):
+def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None,
+            reconcile_existing: bool = False):
     if not isinstance(identity, dict):
         raise ValueError('Worker kimliği geçersiz.')
     # Default durable execution reads the single canonical GoalState snapshot.
@@ -85,9 +86,13 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         # Read canonical acceptance evidence BEFORE invoking the real worker.
         # The same old plan root may be retried only with a later failed
         # attempt; success, stale user intent and malformed proof fail closed.
-        goal_plan_gate.validate_root_attempt(
-            snapshot, selection, attempt=attempt,
-        )
+        if reconcile_existing is not True:
+            goal_plan_gate.validate_root_attempt(
+                snapshot, selection, attempt=attempt,
+            )
+        # Reconciliation never launches a worker. Its caller MUST still find
+        # an already accepted exact execution fence before committing any
+        # planned observation; worker_result_commit enforces idempotency.
         expected.update({
             'command_id': f"{step_id}:{attempt}:p{selection.plan_version}",
             'plan_version': selection.plan_version,
