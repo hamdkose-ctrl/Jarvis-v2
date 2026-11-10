@@ -94,6 +94,16 @@ class GoalHoldoutTests(unittest.TestCase):
         self.assertIn('GOAL NEGATION SAFETY', sent)
         self.assertIn("the ONLY allowed operation is chat", sent)
 
+    def test_live_run_defaults_to_isolated_supervisor(self):
+        from scripts import brain_goal_supervisor
+        with patch.object(goal.subprocess,'check_output',return_value='a'*40), \
+             patch.object(brain_goal_supervisor,'supervise',return_value=2) as sp, \
+             patch.object(goal.base,'preflight',side_effect=AssertionError('must run in child')):
+            self.assertEqual(goal.main(['--run','--suite','fresh']),2)
+        self.assertIn('--run', sp.call_args.kwargs['args'])
+        self.assertIn('fresh', sp.call_args.kwargs['args'])
+        self.assertEqual(sp.call_args.kwargs['metadata']['state'],'unmeasured')
+
     def test_dry_run_never_checks_credentials_or_sends_models(self):
         with patch.object(goal.base,'preflight',side_effect=AssertionError('should not run')), \
              patch.object(goal,'measure',side_effect=AssertionError('should not run')):

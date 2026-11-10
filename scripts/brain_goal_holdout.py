@@ -83,6 +83,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true')
     parser.add_argument('--connection-only', action='store_true')
+    # Only the supervisor may spawn a worker; a direct user --run is supervised.
+    parser.add_argument('--_worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--suite', choices=('baseline','fresh'), default='baseline',
                         help='Use fresh, independent synthetics without altering original acceptance.')
     parser.add_argument('--json', type=Path)
@@ -106,6 +108,17 @@ def main(argv=None):
         'scope':'connection' if args.connection_only else ('goal_holdout_fresh' if args.suite == 'fresh' else 'goal_holdout'),
         'semantic_acceptance':False,
     }
+    if not args._worker:
+        # On Windows QuickEdit and a provider socket may stall the console or
+        # block inside requests despite its cooperative 30-second budget.
+        # Run the unchanged effect-guarded acceptance in an isolated process.
+        from scripts.brain_goal_supervisor import supervise
+        worker_args = ['--run', '--suite', args.suite, '--interval-seconds',
+                       str(args.interval_seconds)]
+        if args.connection_only:
+            worker_args.append('--connection-only')
+        return supervise(script=Path(__file__).resolve(), args=worker_args,
+                         cwd=ROOT, report_path=args.json, metadata=report)
     try:
         owner, ok, reason = base.preflight()
         if not ok:
