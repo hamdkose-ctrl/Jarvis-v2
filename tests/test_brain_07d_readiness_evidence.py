@@ -159,6 +159,33 @@ class CanonicalReadinessTests(unittest.TestCase):
         with self.assertRaises(goal_plan_gate.PlanFenceError):
             self.ready()
 
+    def test_tampered_committed_result_digest_or_owner_never_unblocks_a_child(self):
+        self.commit('left')
+        state = goal_state_store.load(self.path)
+        for field, forged in (
+            ('node_digest', 'f' * 64),
+            ('input_digest', 'f' * 64),
+            ('owner', 'mallory'),
+            ('capability_version', '99'),
+        ):
+            with self.subTest(field=field):
+                snapshot = copy.deepcopy(state)
+                snapshot['evidence'][0][field] = forged
+                with self.assertRaises(goal_plan_gate.PlanFenceError):
+                    goal_plan_gate.ready_read_only_candidates(
+                        snapshot, owner=OWNER, job_id=JOB,
+                    )
+        self.assertEqual(self.ready(), ('right', 'dependent'))
+
+    def test_evidence_audit_length_mismatch_fails_closed(self):
+        self.commit('left')
+        snapshot = goal_state_store.load(self.path)
+        snapshot['evidence'].append({'kind': 'extra'})
+        with self.assertRaisesRegex(goal_plan_gate.PlanFenceError, 'sırası'):
+            goal_plan_gate.ready_read_only_candidates(
+                snapshot, owner=OWNER, job_id=JOB,
+            )
+
     def test_old_plan_accepted_result_is_not_completion_after_revision(self):
         self.commit('left')
         latest = self.mutate(
