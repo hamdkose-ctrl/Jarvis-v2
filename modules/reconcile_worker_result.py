@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 
-from modules import goal_state_store, runtime_worker_result, worker_result_hook
+from modules import goal_state_store, runtime_worker_result, worker_result_hook, worker_result
 
 
 _FENCE = (
@@ -33,8 +33,14 @@ def _fence_expected(identity: dict, kind: str, data: dict):
     if len(matches) != 1:
         raise ValueError('Reconcile WorkerResult için birden fazla command kaydı var.')
     previous = matches[0]
-    expected = {key: previous.get(key) for key in _FENCE}
-    for key in _FENCE:
+    plan_fields = set(worker_result.PLAN_FENCE)
+    has_previous_plan = plan_fields.intersection(previous)
+    has_candidate_plan = plan_fields.intersection(candidate)
+    if has_previous_plan != has_candidate_plan or has_previous_plan not in (set(), plan_fields):
+        raise ValueError('Reconcile WorkerResult plan fence değişmiş veya eksik.')
+    expected_keys = (*_FENCE, *(worker_result.PLAN_FENCE if has_previous_plan else ()))
+    expected = {key: previous.get(key) for key in expected_keys}
+    for key in expected_keys:
         if key == 'expected_job_version':
             continue
         if expected[key] != candidate[key]:
