@@ -81,6 +81,45 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
                     voice_runtime.maybe_start(self.rt)
         self.assertIsNone(voice_runtime.active())
 
+    def test_invalid_asset_path_rejected_before_synthesis(self):
+        self._config({"tr_kadin": {"label": "x", "model": "../outside.onnx"}})
+        with self.assertRaises(voice_runtime.VoiceConfigurationError):
+            voice_runtime.maybe_start(self.rt)
+        self.assertIsNone(voice_runtime.active())
+
+    def test_only_one_output_owner_may_be_registered(self):
+        first = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda s, t, c: b"audio", lambda a, c: None,
+        )
+        voice_runtime.register(first)
+        second = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda s, t, c: b"audio", lambda a, c: None,
+        )
+        try:
+            with self.assertRaises(voice_runtime.VoiceConfigurationError):
+                voice_runtime.register(second)
+            self.assertIs(voice_runtime.active(), first)
+        finally:
+            second.close()
+
+    def test_unavailable_voice_selection_does_not_change_profile_preference(self):
+        from modules.engine_context import _set_voice
+        person = self.rt.profile
+        saved = []
+        person.name = "Deneme"
+        person.set_pref = lambda key, value: saved.append((key, value))
+        self.rt.voice = SimpleNamespace(VOICES={"tr_erkek": ("Kerem · Türkçe", "edge"),
+                                               "tr_kadin": ("Defne · Türkçe", "edge")})
+        lane = Mock()
+        lane.check_voice.side_effect = ValueError("model missing")
+        with patch("modules.voice_runtime.active", return_value=lane):
+            message = _set_voice(self.rt, "tr_erkek")
+        self.assertEqual(saved, [])
+        self.assertIn("değişmedi", message)
+        lane.check_voice.assert_called_once_with("tr_erkek")
+
     def test_disabled_config_does_not_take_output_ownership(self):
         self._config(enabled=False)
         lane, enabled = voice_runtime.maybe_start(self.rt)
@@ -178,6 +217,9 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         voice_runtime.register(lane)
         done = lane.say("alice", "tr_kadin", "Merhaba")
         self.assertTrue(done.wait(2))
+        deadline = time.monotonic() + 2
+        while ("state", "idle") not in self.rt.emitted and time.monotonic() < deadline:
+            time.sleep(0.01)
         self.assertIn(("state", "idle"), self.rt.emitted)
 
 
