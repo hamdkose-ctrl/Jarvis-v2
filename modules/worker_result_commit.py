@@ -141,9 +141,14 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
 
 
 def commit(accepted: dict) -> dict:
-    """Append accepted WorkerResult evidence exactly once using reducer + CAS."""
+    """Append one accepted result; only canonical CAS is retried, never a worker."""
     evidence = _evidence(accepted)
     path = _path(accepted)
+    return _commit_once(accepted, evidence, path, retries=2)
+
+
+def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
+    """Re-read every plan/identity fence after a concurrent CAS winner."""
     current = goal_state_store.load(path)
     if current['owner'] != accepted['owner'] or current['job_id'] != accepted['job_id']:
         raise ValueError('WorkerResult canonical GoalState kimliğiyle eşleşmiyor.')
@@ -213,9 +218,20 @@ def commit(accepted: dict) -> dict:
         'evidence': evidence,
         'reason_code': _REASON,
     })
-    saved = goal_state_store.compare_and_swap(
-        path, expected_version=current['version'], next_state=next_state
-    )
+    try:
+        saved = goal_state_store.compare_and_swap(
+            path, expected_version=current['version'], next_state=next_state
+        )
+    except goal_state_store.PersistedStateConflict:
+        # Only a genuinely advanced planned GoalState may retry this CAS.
+        # The next attempt revalidates plan, owner, roots, input, status and
+        # all intervening writes; no external worker/effect is ever repeated.
+        if accepted['schema'] != worker_result.PLAN_SCHEMA or retries <= 0:
+            raise
+        later = goal_state_store.load(path)
+        if later['version'] <= current['version']:
+            raise
+        return _commit_once(accepted, evidence, path, retries=retries - 1)
     from modules import goal_job_control
     goal_job_control.mark_worker_commit(path.parent, accepted['job_id'], current['version'], saved['version'])
     return saved
