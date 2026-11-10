@@ -172,6 +172,8 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
             if expected is not None:
                 from modules import runtime_worker_result,worker_result_hook
+                if isinstance(output,dict) and output.get('state')=='done':
+                    goal_tools.verify(output,job['owner'])
                 output=worker_result_hook.wrap_output(output,identity)
                 output=runtime_worker_result.accept_and_commit(output,expected)
             return output
@@ -186,6 +188,9 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         if step['tool']=='browser' and isinstance(output,dict) and output.get('state')=='done':
             from modules import runtime_worker_result,worker_result_hook
             if runtime_worker_result.durable_identity(identity):
+                # Browser's prepare path bypasses worker_result_hook.execute.
+                # It must meet the same domain verification before Core CAS.
+                goal_tools.verify(output,job['owner'])
                 fenced_identity,browser_expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
                 fenced=worker_result_hook.wrap_output(output,fenced_identity)
                 return runtime_worker_result.accept_and_commit(fenced,browser_expected)

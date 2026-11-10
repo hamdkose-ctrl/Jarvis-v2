@@ -40,17 +40,21 @@ class ReconcileWorkerResultTests(unittest.TestCase):
 
     def test_exact_reconcile_result_is_bound_to_current_execution_and_committed(self):
         goal_executor, root, path = self.fixture()
-        with patch.object(goal_executor, 'STORE', root):
+        with patch.object(goal_executor, 'STORE', root), \
+             patch('modules.goal_tools.verify', return_value=True) as verified:
             accepted = self.reconcile.accept_and_commit(self.recovered(), self.identity(), 'research', self.data())
+        verified.assert_called_once()
         self.assertEqual(accepted, self.recovered())
         self.assertNotIn('_worker_result', accepted)
         self.assertEqual(self.store.load(path)['version'], 1)
 
     def test_reconcile_result_commits_reducer_cas_evidence_once(self):
         goal_executor, root, path = self.fixture()
-        with patch.object(goal_executor, 'STORE', root):
+        with patch.object(goal_executor, 'STORE', root), \
+             patch('modules.goal_tools.verify', return_value=True) as verified:
             first = self.reconcile.accept_and_commit(self.recovered(), self.identity(), 'research', self.data())
             second = self.reconcile.accept_and_commit(self.recovered(), self.identity(), 'research', self.data())
+        self.assertEqual(verified.call_count, 2)
         state = self.store.load(path)
         self.assertEqual(first, second)
         self.assertEqual(state['version'], 1)
