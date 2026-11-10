@@ -33,7 +33,7 @@ class WebVoice:
                     continue
                 installed.append({'key': spec.voice_id, 'name': spec.label, 'info': 'Yerel Piper'})
             return {
-                'local': True, 'rate_supported': False,
+                'local': True, 'rate_supported': True,
                 'voices': installed, 'voice': pr.get('voice', 'tr_erkek'),
                 'rate': rate if isinstance(rate, int) else 5,
             }
@@ -76,9 +76,11 @@ class WebVoice:
     def rate_set(self, rate: int) -> bool:
         runtime = self._runtime
         from modules import voice_runtime
-        if voice_runtime.active() is not None or voice_runtime.legacy_blocked():
-            return False  # not implemented in Piper: never claim speed changed
-        runtime._p().set_pref('rate', max(-40, min(40, int(rate))))
+        from modules.engine_context import set_profile_rate
+        lane = voice_runtime.active()
+        level = max(-40, min(40, int(rate)))
+        if not set_profile_rate(runtime._p(), level, lane=lane):
+            return False
         runtime.engine.events.put(('say', 'Böyle konuşuyorum.'))
         return True
 
