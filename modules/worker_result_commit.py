@@ -7,6 +7,8 @@ persists with GoalState CAS before the normal legacy save/sync continues.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 
 from modules import core_state_reducer, goal_state_store, worker_result
 
@@ -39,6 +41,26 @@ def _evidence(accepted: dict) -> dict:
 
 
 
+
+def _read_only_manifest(capability_id: str) -> dict | None:
+    """Reuse the installed static manifest; an arbitrary capability ID is not proof."""
+    from modules import capability_manifest
+    if not isinstance(capability_id, str):
+        return None
+    try:
+        if capability_id.startswith('task.'):
+            row = capability_manifest.from_task_tool(capability_id.removeprefix('task.'))
+        elif capability_id.startswith('goal.'):
+            row = capability_manifest.from_goal_tool(capability_id.removeprefix('goal.'))
+        else:
+            return None
+    except ValueError:
+        return None
+    if row['id'] != capability_id or row['effect_policy'] != 'read_only':
+        return None
+    return row
+
+
 def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     """Allow a late *different root* only across accepted worker evidence.
 
@@ -51,7 +73,8 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     from modules import goal_plan_gate
     expected_version = accepted['expected_job_version']
     if (accepted['schema'] != worker_result.PLAN_SCHEMA
-            or not 0 <= expected_version < current['version']):
+            or not 0 <= expected_version < current['version']
+            or _read_only_manifest(accepted['capability_id']) is None):
         return False
     intervening = current['audit'][expected_version + 1:]
     if not intervening or any(
@@ -85,9 +108,16 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
             node = goal_plan_gate.revalidate(current, selection)
         except ValueError:
             return False
-        if (node['depends_on']
+        manifest = _read_only_manifest(node['capability_id'])
+        canonical_input = json.dumps(
+            node['input'], ensure_ascii=False, sort_keys=True,
+            separators=(',', ':'), allow_nan=False,
+        ).encode('utf-8')
+        if (node['depends_on'] or manifest is None
                 or selection.node_digest != row.get('node_digest')
                 or node['capability_id'] != row.get('capability_id')
+                or row.get('capability_version') != str(manifest['version'])
+                or row.get('input_digest') != hashlib.sha256(canonical_input).hexdigest()
                 or row.get('command_id') !=
                    f"{step_id}:{attempt}:p{accepted['plan_version']}"):
             return False
