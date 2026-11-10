@@ -43,3 +43,9 @@ The Coordinator does **not** choose an alternate TTS provider or a new voice, cr
 ## Accepted vs not yet proven
 
 VOICE-01 tests use fake adapters without microphone, speaker, network or model. They establish contract behavior only. They do not prove real audio, local Turkish voice quality, foreground scheduling under CPU pressure, barge-in microphone performance or production binding.
+
+## VOICE-03A: offline adapter foundation (separate PR, not a cutover)
+
+`modules/voice_offline.py` provides an explicitly provisioned `PiperSynthesizer` and `WavePlayer`. A developer supplies `model_root`, installs the Piper executable and approved Turkish `.onnx` models, and registers exact `VoiceSpec(voice_id, label, 'piper', asset_id)` entries. No code path downloads/installs a model, uses a cloud provider, invokes Ollama, or selects a substitute identity. The adapter validates model-root confinement and regular non-symlink files; it generates an ephemeral PCM WAV, validates metadata/data and deletes intermediates. `WavePlayer` streams frames to the configured Windows output via `sounddevice.RawOutputStream`, cooperatively respecting an audio-only cancellation event.
+
+The adapter is not wired into `engine_loop` or the installed user's profile yet. No Piper executable, voice pack or SAPI fallback is bundled. The real PC must establish installed model integrity/licence, Turkish quality, low latency under concurrent Core work, output device and Windows master/per-app volume, and reliable user interruption before enabling this route. The mock tests demonstrate only the isolated adapter contract.
