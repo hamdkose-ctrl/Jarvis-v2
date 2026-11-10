@@ -81,7 +81,7 @@ def maybe_start(runtime):
     lane = VoiceLane(runtime, catalog, PiperSynthesizer(root), WavePlayer())
     try:
         register(lane)
-    except Exception:
+    except VoiceConfigurationError:
         lane.close()
         raise
     return lane, True
@@ -114,6 +114,8 @@ def announce_active(text: str) -> bool:
     if lane is None:
         return False
     runtime = lane.runtime
+    if not runtime.flags.get("speak", True):
+        return True  # mute never starts a new private-mode voice notice
     owner = runtime.pc_profile()
     voice_key = owner.data["prefs"].get("voice") or "tr_erkek"
     try:
