@@ -51,6 +51,9 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
         if capability_id == "task.computer":
             from modules import task_tools
             task_tools.validate_input("computer", params)
+        else:
+            from modules import goal_tools
+            goal_tools.validate("observe", params)
         return (resource_leases.resource_key("pc_desktop"),)
 
     if capability_id == "task.file":
