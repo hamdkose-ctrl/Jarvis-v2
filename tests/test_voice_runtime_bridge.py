@@ -300,6 +300,31 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         person.set_pref.assert_not_called()
         lane.interrupt.assert_not_called()
 
+    def test_pending_audio_receipt_is_acknowledged_immediately_on_sus(self):
+        entered, released = threading.Event(), threading.Event()
+        def synth(spec, text, cancel):
+            entered.set()
+            self.assertTrue(released.wait(3))
+            return b"audio"
+        lane = voice_runtime.VoiceLane(
+            self.rt,
+            VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel: None,
+        )
+        voice_runtime.register(lane)
+        try:
+            active = lane.say("alice", "tr_kadin", "Birinci yanıt.")
+            self.assertTrue(entered.wait(1))
+            waiting = lane.say("alice", "tr_kadin", "Bekleyen ikinci yanıt.")
+            self.assertFalse(waiting.is_set())
+            lane.interrupt()
+            self.assertTrue(waiting.wait(1))
+            self.assertTrue(lane.is_busy())
+        finally:
+            released.set()
+        self.assertTrue(active.wait(2))
+        self.assertFalse(lane.is_busy())
+
     def test_status_returns_idle_after_last_speech_receipt(self):
         lane = voice_runtime.VoiceLane(
             self.rt,
