@@ -110,6 +110,25 @@ class LiveCanonicalAccountLeaseTests(unittest.TestCase):
         self.assertEqual(self.table._holders, {})
         self.assertEqual(self.table._commands, {})
 
+    def test_exact_lease_is_still_live_at_actual_worker_result_cas(self):
+        original = runtime_worker_result.accept_and_commit
+        commits = []
+        def guarded_commit(output, expected):
+            self.assertEqual(len(self.table._holders), 1)
+            self.assertTrue(any(self.table.validate(ticket)
+                                for ticket in self.table._active.values()))
+            commits.append(expected['command_id'])
+            return original(output, expected)
+        with patch.object(
+            runtime_worker_result, 'accept_and_commit',
+            side_effect=guarded_commit,
+        ):
+            result, worker = self.run_worker()
+        self.assertEqual(result['state'], 'done')
+        worker.assert_called_once()
+        self.assertEqual(commits, ['mail:1:p1'])
+        self.assertEqual(self.table._holders, {})
+
     def test_duplicate_worker_cannot_acquire_second_live_ticket(self):
         def competing_dispatch():
             with self.assertRaises(resource_leases.LeaseConflict):
