@@ -78,3 +78,25 @@ Operational boundaries:
 - The callback means the sound buffer was submitted/returned by the output adapter, **not that a person actually heard the audio**. Long text chunking, speech rate/prosody, runtime device diagnostics and real PC audibility are additional acceptance gates.
 
 VOICE-02A tests run with fake audio and no network/model/OS playback. Before enabling on a real PC: verify licence and actual male/female Turkish model files, microphone no-feedback behavior, explicit voice selection persistence, interruption and background GoalState progress, full Windows CI on exact PR head, same-SHA PC watcher, and human listening with correct output device/volume. Keep the new route opt-in until all checks pass. Do not delete the old voice path until production parity is proven.
+
+## VOICE-02B — Real-device human-audible output acceptance (manual probe)
+
+`modules/voice_acceptance.py` is an operator-invoked acceptance check, not an auto-configurer or runtime worker. It uses the existing Piper synthesis and WAV playback adapters but does not launch Jarvis, alter voice preferences, download models, or claim the selected voice is active in production.
+
+First identify available Windows output-device indices locally (no model or licence flag required):
+
+```powershell
+python -m modules.voice_acceptance --list-output-devices
+```
+
+With Jarvis stopped, Piper installed, model rights and training-data rights individually reviewed, and an approved `.onnx` plus its `.onnx.json` already available, run on Windows:
+
+```powershell
+python -m modules.voice_acceptance --model-root "C:\path\to\voice_models" --model "approved-voice.onnx" --voice-id tr_kadin --license-reviewed
+```
+
+Optionally pass `--device-index N` for the chosen Windows output. These model filenames are illustrative, NOT bundled. Repeat for each separately approved male/female model. The probe validates the exact local model, Piper metadata and sample rate, produces a short original Turkish sample, streams PCM to the selected speaker, and asks the operator whether they really heard the voice.
+
+The console JSON separates `synthesis`, `playback` and `human_heard`. Playback-returned does NOT imply audible. Only an explicit yes after listening sets `verdict=human_confirmed` and exit code zero. Bad model, no license acknowledgement, device failure, silence, EOF/headless test or no hearing confirmation cannot pass. It writes no voice preference and sends no audio to a provider.
+
+**Still unproven:** Actual quality and identity of at least two approved Turkish voice models, output device/volume, microphone echo and barge-in, long-text timing, simultaneous background GoalState progress, privacy and Ollama-absent behavior. Fake-audio CI and unattended Windows PC watcher are not human listening evidence.
