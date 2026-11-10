@@ -11,6 +11,21 @@ from modules import core_state_reducer, goal_state, goal_state_store
 PROJECTION_EXECUTION_MODE = 'agent'
 
 
+def apply_goal_intent(path, *, owner, job_id, expected_version, operation, text=None, priority=None):
+    """Commit an explicitly requested intent mutation to an existing canonical job."""
+    current = goal_state_store.load(path)
+    if current['owner'] != owner or current['job_id'] != job_id:
+        raise IdentityMismatchError('GoalState kimliği eşleşmiyor.')
+    if goal_state.authority(current) != 'canonical':
+        raise ReconcilePolicyError('Goal intent için canonical authority gerekli.')
+    updated = core_state_reducer.apply(current, {
+        'expected_version': expected_version, 'op': 'mutate_goal_intent',
+        'operation': operation, 'text': text, 'priority': priority,
+        'reason_code': 'USER_GOAL_INTENT',
+    })
+    return goal_state_store.compare_and_swap(path, expected_version=expected_version, next_state=updated)
+
+
 _STATE_MAP = {
     'running': 'running',
     'approval': 'waiting',
@@ -284,12 +299,16 @@ def rollback_operator_promotion(path, *, expected_state: dict, previous_bytes: b
     )
 
 
-def sync(job: dict, path) -> dict:
+def sync(job: dict, path, *, expected_version=None) -> dict:
     path = Path(path)
     if not path.exists():
+        if expected_version is not None:
+            raise goal_state_store.PersistedStateConflict('Beklenen canonical hedef kaydı bulunamadı.')
         state = project(job)
         return goal_state_store.create(path, state)
     current = goal_state_store.load(path)
+    if expected_version is not None and current['version'] != expected_version:
+        raise goal_state_store.PersistedStateConflict('Hedef sürümü değişti; eski kayıt yazılmadı.')
     # After operator promotion, legacy journal saves may still arrive from an
     # already-running executor. They may refresh the separate ExecutionRecord,
     # but must never drive canonical lifecycle state back through compat sync.

@@ -55,14 +55,24 @@ def _atomic(path, data):
     if job is None:
         return _ORIGINAL_ATOMIC(path, data)
 
-    from modules import execution_record, goal_state, goal_state_compat
+    from modules import goal_job_control
+    with goal_job_control.locked(path.parent, job['id']):
+        return _atomic_job(path, data, job)
+
+
+def _atomic_job(path, data, job):
+    from modules import execution_record, goal_state, goal_state_compat, goal_job_control
 
     canonical = path.with_name(job['id'] + '.goalstate.json')
     record = execution_record.path_for(path.parent, job['id'])
     before = canonical.read_bytes() if canonical.exists() else None
     record_before = record.read_bytes() if record.exists() else None
+    expected = job.pop('_goal_version_fence', None)
+    if expected is not None:
+        data = json.dumps(job, ensure_ascii=False).encode('utf-8')
     try:
-        synced = goal_state_compat.sync(job, canonical)
+        synced = (goal_state_compat.sync(job, canonical, expected_version=expected)
+                  if expected is not None else goal_state_compat.sync(job, canonical))
     except Exception:
         _record_failure('modules/goal_state_save_hook.py:_atomic:canonical_sync')
         raise
@@ -78,9 +88,12 @@ def _atomic(path, data):
         raise record_error
     if goal_state.authority(synced) == 'canonical':
         # Canonical-authority job: ExecutionRecord is the only journal.
+        goal_job_control.mark_saved(path.parent, job['id'], synced['version'])
         return None
     try:
-        return _ORIGINAL_ATOMIC(path, data)
+        result = _ORIGINAL_ATOMIC(path, data)
+        goal_job_control.mark_saved(path.parent, job['id'], synced['version'])
+        return result
     except Exception as legacy_error:
         _record_failure('modules/goal_state_save_hook.py:_atomic:legacy_write')
         _rollback(canonical, synced, before, record=record, record_before=record_before)

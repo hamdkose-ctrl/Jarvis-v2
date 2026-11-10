@@ -325,14 +325,38 @@ class GoalResolverTests(unittest.TestCase):
 
     def resolve(self, operation, targets, *, cards=None, text="şu hedefi duraklat"):
         cards = cards if cards is not None else tuple(card(ident) for ident in targets)
+        # Real offered cards carry a version and an execution snapshot.
+        enriched = []
+        for ref in cards:
+            try:
+                job = goal_executor.read_job(OWNER, ref.id)
+            except ValueError:
+                job = None
+            if job:
+                actual = brain_context._goal_card(OWNER, job)
+                ref = dataclasses.replace(ref, provenance={**dict(ref.provenance), **dict(actual.provenance)})
+            enriched.append(ref)
+        cards = tuple(enriched)
         goal_card = ({"kind": "goal", "title": text}
                      if operation is GoalOperation.CREATE else None)
         return goal_resolver.resolve(self.runtime,
                                      goal_entry(*cards, operation=operation, targets=targets,
                                                 text=text, goal_card=goal_card))
 
+    def test_pause_preserves_pending_and_review_records(self):
+        for state in ("question", "approval", "review"):
+            with self.subTest(state=state):
+                ident = self.seed("bekleyen hedef", state=state)
+                root = goal_executor.STORE / OWNER
+                paths = (root / (ident + ".goalstate.json"), root / (ident + ".execution.json"))
+                before = [path.read_bytes() for path in paths]
+                result = self.resolve(GoalOperation.PAUSE, (ident,))
+                self.assertEqual(result.result_status, "failed")
+                self.assertEqual(before, [path.read_bytes() for path in paths])
+                self.assertEqual(goal_executor.read_job(OWNER, ident)["state"], state)
+
     def test_pause_addresses_the_selected_goal_only(self):
-        first, second = self.seed("ilk hedef"), self.seed("ikinci hedef")
+        first, second = self.seed("ilk hedef"), self.seed("ikinci hedef", state="interrupted")
         before = goal_executor.read_job(OWNER, first)
         result = self.resolve(GoalOperation.PAUSE, (second,),
                               cards=(card(first, title="ilk hedef"),
@@ -418,12 +442,12 @@ class GoalResolverTests(unittest.TestCase):
         self.assertEqual(goal_executor.read_job(OWNER, ident)["state"], "running")
 
     def test_add_task_uses_the_users_own_words_as_the_new_result(self):
-        ident = self.seed("rapor hedefi")
+        ident = self.seed("rapor hedefi", state="interrupted")
         text = "rapora kaynakçayı da ekle"
         result = self.resolve(GoalOperation.ADD_TASK, (ident,), text=text)
         self.assertEqual(result.result_status, "handled")
         job = goal_executor.read_job(OWNER, ident)
-        self.assertEqual([goal["text"] for goal in job["goals"]], [text])
+        self.assertEqual([goal["text"] for goal in job["goals"]], ["rapor hedefi", text])
         self.assertEqual(job["request"], "rapor hedefi")
         self.assertIn(text, result.message)
 
@@ -446,20 +470,16 @@ class GoalResolverTests(unittest.TestCase):
         self.resolve(GoalOperation.PAUSE, (other,))
         self.assertEqual(goal_executor.latest(OWNER)["id"], standing)
 
-    def test_continue_and_revise_are_executed_by_the_existing_runner(self):
-        ident = self.seed("sürdürülecek hedef")
-        calls = []
-
-        def fake_run(runtime, request, **options):
-            calls.append((request, options))
-            return "sürüyor"
-
-        with patch.object(goal_executor, "run", fake_run):
+    def test_continue_uses_runner_and_revise_commits_canonical_intent(self):
+        ident = self.seed("sürdürülecek hedef", state="interrupted")
+        with patch.object(goal_executor, "run", return_value="sürüyor") as runner:
             self.resolve(GoalOperation.CONTINUE, (ident,))
             self.resolve(GoalOperation.REVISE, (ident,), text="şunu da ekleyerek sürdür")
-        # Salt sürdürme protokol sözüyle gider: kontrol cümlesi cevap kanalına yazılmaz.
-        self.assertEqual(calls[0], ("hedef devam", {"resume": True, "job_id": ident}))
-        self.assertEqual(calls[1], ("şunu da ekleyerek sürdür", {"resume": True, "job_id": ident}))
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_args.args[1], "hedef devam")
+        state = goal_executor.goal_job_control.canonical(goal_executor.STORE / OWNER, OWNER, ident)
+        self.assertEqual(state['goal_intent']['revision'], "şunu da ekleyerek sürdür")
+        self.assertGreater(state['version'], 0)
 
     def test_create_never_addresses_an_identity(self):
         calls = []
@@ -542,7 +562,7 @@ class GoalProductionSeamTests(fixtures._CanonicalAuthorityHarness):
         return entry, out, handler, feedback, job_id
 
     def test_a_goal_operation_reaches_the_store_through_the_real_seam(self):
-        first, second = self.seed("ilk hedef"), self.seed("ikinci hedef")
+        first, second = self.seed("ilk hedef"), self.seed("ikinci hedef", state="interrupted")
         entry, out, handle, feedback, job_id = self.turn(
             "ikinci hedefi duraklat", self.envelope("pause_goal", targets=(second,)))
         self.assertIs(entry.understanding.request_kind, RequestKind.GOAL_CONTROL)
@@ -560,7 +580,7 @@ class GoalProductionSeamTests(fixtures._CanonicalAuthorityHarness):
     def test_the_legacy_planner_never_sees_a_goal_operation_sentence(self):
         # BRAIN-MIG-098: hedef işlemi front gate zincirine düşmez; `_planner_command` ve
         # `brain_precedence.claim` bu cümleyi ikinci kez yorumlayamaz.
-        ident = self.seed("tek hedef")
+        ident = self.seed("tek hedef", state="interrupted")
         for attribute in ("_planner_command", "_extra_commands", "_user_command",
                           "_macro_run", "_macro_manage"):
             setattr(self.ctx, attribute, Mock(return_value=None))

@@ -92,6 +92,9 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
         raise ValueError("Hedef işlemi owner'ı istek sahibiyle eşleşmiyor.")
     targets = tuple(getattr(understanding, "goal_target_ids", ()) or ())
     cards = _cards(entry)
+    snapshots = {str(ref.id): dict(ref.provenance or {})
+                 for ref in getattr(entry.active_context, "goal_candidates", ())
+                 if ref.source == "goal_state"}
     text = str(entry.text or "").strip()
 
     # The model can return a well-formed but semantically inverted cancel
@@ -123,7 +126,7 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
 
     applied: list[Resolution] = []
     for ident in targets:
-        applied.append(_apply_one(runtime, goal_executor, owner, operation, ident, text))
+        applied.append(_apply_one(runtime, goal_executor, owner, operation, ident, text, snapshots.get(ident, {})))
     refused = [row for row in applied if row.result_status != "handled"]
     if refused:
         message = "\n".join(row.message for row in applied)
@@ -138,7 +141,7 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
 
 
 def _apply_one(runtime: Any, goal_executor: Any, owner: str, operation: GoalOperation,
-               ident: str, text: str) -> Resolution:
+               ident: str, text: str, snapshot: dict) -> Resolution:
     """One identity, re-read from the durable store, through the existing lifecycle primitive."""
     try:
         job = goal_executor.read_job(owner, ident)
@@ -156,8 +159,11 @@ def _apply_one(runtime: Any, goal_executor: Any, owner: str, operation: GoalOper
         return _question(
             "Bu hedef artık açık değil; tamamlanmış, kapanmış ya da bayatlamış olabilir. "
             "Başka hedefe işlem uygulanmadı.", "GOAL_TARGET_STALE")
+    if (not isinstance(snapshot.get('execution_snapshot'), str) or 'canonical_version' not in snapshot
+            or not isinstance(snapshot.get('control_key'), str)):
+        return _question('Hedef kartı güncel değil; hedefleri yeniden listele.', 'GOAL_TARGET_STALE')
     return _single(
-        lambda: _dispatch(runtime, goal_executor, owner, operation, ident, text),
+        lambda: _dispatch(runtime, goal_executor, owner, operation, ident, text, snapshot),
         _reason(operation), ident)
 
 
@@ -181,19 +187,19 @@ def _single(call: Any, reason_code: str, ident: str | None = None) -> Resolution
 
 
 def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOperation,
-              ident: str, text: str) -> str:
+              ident: str, text: str, snapshot: dict) -> str:
     # `create_goal` buraya hiç ulaşmaz: yeni kaydın hedeflenecek bir kimliği yoktur ve o
     # geçiş `resolve` kendi dalından yürür. Buradaki her kol mevcut bir kayıttadır.
     if operation in {GoalOperation.CONTINUE, GoalOperation.RESUME}:
-        return goal_executor.run(runtime, _CONTINUE_TOKEN, resume=True, job_id=ident)
+        return goal_executor.run(runtime, _CONTINUE_TOKEN, resume=True, job_id=ident,
+                                 expected_job_id=ident, expected_control=snapshot.get('control_key'))
     if operation is GoalOperation.REVISE:
-        # Düzeltme kullanıcının kendi cümlesidir ve cevap kanalından yürür; `request`
-        # (canonical kimlik alanı) değiştirilmez.
-        return goal_executor.run(runtime, text, resume=True, job_id=ident)
+        # Kullanıcının düzeltmesi canonical intent'tir; planner cevabı değildir.
+        return goal_executor.revise_job(owner, ident, text, expected_snapshot=snapshot)
     if operation is GoalOperation.ADD_TASK:
-        return goal_executor.append_goal_task(owner, ident, text)
+        return goal_executor.append_goal_task(owner, ident, text, expected_snapshot=snapshot)
     if operation is GoalOperation.PAUSE:
-        return goal_executor.pause_job(owner, ident)
+        return goal_executor.pause_job(owner, ident, expected_snapshot=snapshot)
     if operation is GoalOperation.CANCEL:
-        return goal_executor.cancel_job(owner, ident)
-    return goal_executor.prioritize_job(owner, ident)
+        return goal_executor.cancel_job(owner, ident, expected_snapshot=snapshot)
+    return goal_executor.prioritize_job(owner, ident, expected_snapshot=snapshot)

@@ -214,3 +214,5 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Hoca arama hata sınırı: `docs/agents/hoca.md`.
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
+
+- BRAIN-05 hedef değişiklikleri canonical `goal_intent` reducer/CAS yolunu kullanır; ExecutionRecord türetilmiş görünümüdür. Kartın canonical sürümü ve execution özeti işlem sırasında yeniden doğrulanır; eski worker yeni kaydı ezemez. İş kilidi model/araç çağrısı boyunca tutulmaz. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.

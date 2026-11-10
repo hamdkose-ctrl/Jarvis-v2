@@ -90,6 +90,32 @@ def apply(current: dict, proposal: dict) -> dict:
         next_state['authority'] = 'canonical'
         return _audit(next_state, op=op, reason_code=reason)
 
+    if op == 'mutate_goal_intent':
+        if goal_state.authority(state) != 'canonical':
+            raise InvalidTransitionError('Goal intent yalnız canonical authority üzerinde değiştirilebilir.')
+        operation = proposal.get('operation')
+        text = proposal.get('text')
+        priority = proposal.get('priority')
+        intent = copy.deepcopy(state.get('goal_intent', {
+            'revision': None, 'additions': [], 'priority': 0,
+        }))
+        if operation in {'add_task', 'revise'}:
+            if priority is not None or not isinstance(text, str) or not text.strip() or len(text.strip()) > 2000:
+                raise ValueError('Goal intent metni geçersiz.')
+            if operation == 'add_task':
+                intent['additions'].append(text.strip())
+            else:
+                intent['revision'] = text.strip()
+        elif operation == 'prioritize':
+            if text is not None or not isinstance(priority, int) or isinstance(priority, bool) or priority < 0:
+                raise ValueError('Goal intent önceliği geçersiz.')
+            intent['priority'] = priority
+        else:
+            raise ValueError('Goal intent işlemi geçersiz.')
+        next_state = copy.deepcopy(state)
+        next_state['goal_intent'] = goal_state.validate_goal_intent(intent)
+        return _audit(next_state, op=op, reason_code=_reason(proposal))
+
     if op == 'set_state':
         target = proposal.get('state')
         if target not in goal_state.STATES:
