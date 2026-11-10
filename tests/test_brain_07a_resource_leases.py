@@ -47,7 +47,9 @@ class ResourceLeaseTests(unittest.TestCase):
         ready = threading.Barrier(2)
         def run(k):
             ready.wait(2)
-            return claim(self.table, keys=(k,))
+            # Two genuinely independent commands can use disjoint files.
+            step = 's1' if k == FILE_A else 's2'
+            return claim(self.table, keys=(k,), step=step, command=step + ':1')
         with ThreadPoolExecutor(max_workers=2) as pool:
             a = pool.submit(run, FILE_A)
             b = pool.submit(run, FILE_B)
@@ -99,6 +101,44 @@ class ResourceLeaseTests(unittest.TestCase):
         with self.assertRaises(LeaseConflict):
             claim(self.table)
         self.assertTrue(self.table.validate(original))
+
+    def test_duplicate_command_with_different_resource_is_rejected(self):
+        first = claim(self.table, keys=(FILE_A,))
+        with self.assertRaisesRegex(LeaseConflict, 'command already'):
+            claim(self.table, keys=(FILE_B,))
+        self.assertTrue(self.table.validate(first))
+        self.assertFalse(self.table.occupied(FILE_B))
+        # A second independent step remains runnable on another resource.
+        independent = claim(self.table, keys=(FILE_B,), step='s2', command='s2:1')
+        self.assertTrue(self.table.validate(independent))
+
+    def test_command_reservation_is_removed_on_release_and_expiry(self):
+        first = claim(self.table, keys=(FILE_A,), ttl=2)
+        self.table.release(first)
+        again = claim(self.table, keys=(FILE_B,), ttl=2)
+        self.assertTrue(self.table.validate(again))
+        self.now[0] = 102.0
+        # Expiry of the preceding generation also releases its identity.
+        new = claim(self.table, keys=(FILE_A,), ttl=5)
+        self.assertFalse(self.table.validate(again))
+        self.assertTrue(self.table.validate(new))
+
+    def test_same_command_and_separate_keys_from_threads_has_only_one_winner(self):
+        barrier = threading.Barrier(2)
+        def run(key):
+            barrier.wait(2)
+            try:
+                return claim(self.table, keys=(key,))
+            except LeaseConflict:
+                return None
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = pool.submit(run, FILE_A)
+            b = pool.submit(run, FILE_B)
+            winners = [a.result(timeout=2), b.result(timeout=2)]
+        self.assertEqual(sum(ticket is not None for ticket in winners), 1)
+        valid = next(ticket for ticket in winners if ticket is not None)
+        self.assertTrue(self.table.validate(valid))
+        self.assertNotEqual(self.table.occupied(FILE_A), self.table.occupied(FILE_B))
 
     def test_forged_owner_job_step_plan_or_token_fails_closed(self):
         ticket = claim(self.table)
