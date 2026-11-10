@@ -121,3 +121,56 @@ def bind_predecessor_outputs(
             )
         result[step_id] = copy.deepcopy(output)
     return result
+
+
+def preflight_durable_step(
+    identity: dict, step: dict, journal_outputs: dict,
+) -> dict[str, dict] | None:
+    """Validate canonical dependent inputs at the existing specialist boundary.
+
+    Returns None for an unplanned/legacy call, preserving its existing
+    dependency semantics; a *planned* dependent step returns only trusted
+    copies from bind_predecessor_outputs. This does not enable its worker:
+    runtime_worker_result.prepare and worker_result_commit still deny
+    dependent execution until the separate Core dispatch cutover.
+    """
+    from modules import capability_manifest, runtime_worker_result
+    if not runtime_worker_result.durable_identity(identity):
+        return None
+    if not isinstance(step, dict) or not isinstance(journal_outputs, dict):
+        raise goal_plan_gate.PlanFenceError('Durable step or outputs invalid.')
+    state = runtime_worker_result.canonical_snapshot(identity)
+    if state.get('goal_plan') is None:
+        return None
+
+    selected = goal_plan_gate.candidate(
+        state, owner=identity.get('owner'), job_id=identity.get('job_id'),
+        node_id=identity.get('task_id'),
+    )
+    node = goal_plan_gate.revalidate(state, selected)
+    depends = step.get('depends')
+    kind = step.get('tool')
+    if (step.get('id') != identity.get('task_id')
+            or not isinstance(depends, list)
+            or depends != node['depends_on']
+            or not isinstance(kind, str)
+            or node['input'] != step.get('input')):
+        raise goal_plan_gate.PlanFenceError(
+            'Durable specialist step does not match the canonical plan node.'
+        )
+    try:
+        try:
+            manifest = capability_manifest.from_task_tool(kind)
+        except ValueError:
+            manifest = capability_manifest.from_goal_tool(kind)
+    except ValueError:
+        raise goal_plan_gate.PlanFenceError(
+            'Unknown specialist capability in canonical dependent plan.'
+        ) from None
+    if manifest['id'] != node['capability_id']:
+        raise goal_plan_gate.PlanFenceError(
+            'Specialist tool and canonical capability do not match.'
+        )
+    if not depends:
+        return {}
+    return bind_predecessor_outputs(state, selected, journal_outputs)
