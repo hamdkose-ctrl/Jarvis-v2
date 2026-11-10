@@ -120,6 +120,46 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
         worker.assert_not_called()
         self.assertEqual(len(goal_state_store.load(self.canonical_path)['evidence']), 2)
 
+    def test_good_preflight_returns_only_defensive_journal_copies(self):
+        self.both()
+        with patch.object(goal_tools, 'verify', return_value=True) as verify:
+            proof = dependency_evidence.preflight_durable_step(
+                identity('child'), self.step, self.job['outputs'],
+                owner=OWNER, job_id=JOB,
+            )
+        self.assertEqual(proof, self.job['outputs'])
+        self.assertIsNot(proof['left'], self.job['outputs']['left'])
+        proof['left']['text'] = 'tampered returned copy'
+        self.assertNotEqual(proof['left'], self.job['outputs']['left'])
+        self.assertEqual(
+            execution_record.load(self.owner_root, OWNER, JOB)['outputs'],
+            self.job['outputs'],
+        )
+        self.assertEqual(verify.call_count, 2)
+
+    def test_old_success_without_accepted_output_commitment_cannot_handoff(self):
+        enriched, expected = runtime_worker_result.prepare(
+            identity('left'), 'research', DATA,
+        )
+        output = {
+            'state': 'done', 'text': 'pre-digest legacy success',
+            'verification': {'fixture': 'old', 'test_only': True},
+        }
+        wrapped = worker_result_hook.wrap_output(output, enriched)
+        wrapped['_worker_result']['evidence'][0].pop('output_sha256')
+        runtime_worker_result.accept_and_commit(wrapped, expected)
+        self.job['outputs']['left'] = copy.deepcopy(output)
+        self.persist()
+        self.complete('right')
+        with (patch.object(goal_tools, 'verify') as verify,
+              patch('modules.runtime_execution_gate.plan_task') as decision,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaises(goal_plan_gate.PlanFenceError):
+                self.attempt()
+        verify.assert_not_called()
+        decision.assert_not_called()
+        worker.assert_not_called()
+
     def test_unaccepted_predecessor_fails_before_any_decision_or_worker(self):
         self.complete('left')
         with (patch.object(goal_tools, 'verify', return_value=True) as verify,
