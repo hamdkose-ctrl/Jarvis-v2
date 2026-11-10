@@ -69,6 +69,9 @@ def commit(accepted: dict) -> dict:
         'evidence': evidence,
         'reason_code': _REASON,
     })
-    return goal_state_store.compare_and_swap(
+    saved = goal_state_store.compare_and_swap(
         path, expected_version=current['version'], next_state=next_state
     )
+    from modules import goal_job_control
+    goal_job_control.mark_worker_commit(path.parent, accepted['job_id'], current['version'], saved['version'])
+    return saved

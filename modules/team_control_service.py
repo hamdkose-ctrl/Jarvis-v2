@@ -36,9 +36,11 @@ def dispatch(
         raise ValueError('Yanıt fazla uzun.')
 
     if kind == 'goal':
-        job = goal_executor.latest(owner)
-        if not job or job['id'] != identity:
-            raise ValueError('Seçilen hedef son hedef değil; başka hedefe işlem uygulanmadı.')
+        # BRAIN-05: bir hedef kendi kimliğiyle yönetilebilir; `latest()` tek hedef seçicisi değildir.
+        # Sahip, kimlik biçimi ve tazelik (`control_key`) burada yeniden doğrulanır.
+        job = goal_executor.read_job(owner, identity)
+        if not job:
+            raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
         if action == 'cancel':
             return goal_executor.cancel_job(owner, identity)
         if not isinstance(control, str) or goal_executor.control_key(job) != control:

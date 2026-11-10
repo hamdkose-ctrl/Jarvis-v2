@@ -17,6 +17,33 @@ class RequestKind(str, Enum):
     CAPABILITY = "CAPABILITY"
     CLARIFY = "CLARIFY"
     CONTEXT_CONTROL = "CONTEXT_CONTROL"
+    # BRAIN-05: hedef lifecycle'ine dokunan öneri ayrı bir taşıyıcıdır. Bir CAPABILITY'e
+    # indirgenemez, çünkü CAPABILITY yolu eşleşmeyen cümleyi legacy `task` üretmeye düşürür.
+    GOAL_CONTROL = "GOAL_CONTROL"
+
+
+class GoalOperation(str, Enum):
+    """Kapalı hedef işlemi sözlüğü: mevcut GoalState lifecycle geçişleriyle birebir eşleşir.
+
+    Model bu adların herhangi birini önerebilir ama hiçbirini yürütme yetkisi olarak taşımaz;
+    yürütücü (``modules/goal_resolver.py``) sahibi, kimliği, tazeliği ve geçişi Core'da yeniden
+    doğrular. Yeni bir ad eklemek lifecycle'a yeni bir geçiş eklemek demektir."""
+
+    CREATE = "create_goal"
+    CONTINUE = "continue_goal"
+    REVISE = "revise_goal"
+    ADD_TASK = "add_task"
+    PAUSE = "pause_goal"
+    RESUME = "resume_goal"
+    CANCEL = "cancel_goal"
+    PRIORITIZE = "prioritize_goal"
+
+
+# Hedef kartının kapalı biçimi. Model zarfı (`brain_model_understanding`) ve taşıyıcı burada tek
+# kaynaktan beslenir; kart yalnız kind + title taşır — kimlik, yetki veya durum asla.
+GOAL_CARD_KEYS = frozenset({"kind", "title"})
+GOAL_CARD_KINDS = frozenset({"goal", "task"})
+GOAL_CARD_TITLE_MAX = 200
 
 
 class ConversationRelation(str, Enum):
@@ -195,6 +222,9 @@ class ActiveContext(_JsonContract):
     request_id: str
     topic: str | None = None
     active_goal_references: tuple[ContextReference, ...] = ()
+    # BRAIN-05: bu turda modele sunulan owner'ın kendi açık hedef kartları. State/Fast geçitleri
+    # bu kanalı okumaz; `active_goal_references` çıplak kontrollerin duran hedefi olarak kalır.
+    goal_candidates: tuple[ContextReference, ...] = ()
     active_task_references: tuple[ContextReference, ...] = ()
     recent_references: tuple[ContextReference, ...] = ()
     active_artifacts: tuple[ContextReference, ...] = ()
@@ -206,8 +236,8 @@ class ActiveContext(_JsonContract):
         _require_text("ActiveContext.request_id", self.request_id)
         _optional_text("ActiveContext.topic", self.topic)
         for name in (
-            "active_goal_references", "active_task_references", "recent_references",
-            "active_artifacts", "pending_references", "memory_references",
+            "active_goal_references", "goal_candidates", "active_task_references",
+            "recent_references", "active_artifacts", "pending_references", "memory_references",
         ):
             object.__setattr__(self, name, _reference_tuple(name, getattr(self, name), self.owner))
 
@@ -242,6 +272,12 @@ class UnderstandingResult(_JsonContract):
     reason_codes: tuple[str, ...] = ()
     needs_input: bool = False
     preview: EchoPreview | None = None
+    # BRAIN-05: modelin önerdiği hedef işlemi, hangi offered kimliklere yönelik olduğu ve
+    # (yalnız create_goal) yeni hedefin kart etiketi. Üçü de öneridir, yürütme yetkisi değil:
+    # hedefin kalıcı metni her zaman kullanıcının kendi cümlesinden alınır.
+    goal_operation: GoalOperation | None = None
+    goal_target_ids: tuple[str, ...] = ()
+    goal_card: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _require_text("UnderstandingResult.owner", self.owner)
@@ -294,6 +330,61 @@ class UnderstandingResult(_JsonContract):
             raise ValueError("needs_input ambiguity veya candidate reference taşımalı.")
         if self.preview is not None and not isinstance(self.preview, EchoPreview):
             raise ValueError("preview EchoPreview olmalı.")
+        if self.goal_operation is not None:
+            object.__setattr__(
+                self, "goal_operation",
+                _as_enum(GoalOperation, self.goal_operation, "goal_operation"),
+            )
+        _check_goal_carrier(
+            self.goal_operation, self.request_kind, self.goal_target_ids, self.goal_card,
+        )
+        object.__setattr__(self, "goal_target_ids", _text_tuple("goal_target_ids", self.goal_target_ids))
+        if self.goal_card is not None:
+            _reject_authority_argument_keys(self.goal_card)
+            object.__setattr__(self, "goal_card", _freeze_json(self.goal_card))
+
+
+# Sayısal üst sınır (kaç hedef kartı sunulabilir) model zarfının sözlüğüdür; taşıyıcı aynı
+# sayıda ısrar ederse iki ayrı otorite zamanla ayrışır. Burada yalnız biçim ve tutarlılık var.
+_GOAL_CONTENT_REQUIRED = frozenset({GoalOperation.CREATE})
+_GOAL_TARGET_REQUIRED = frozenset(GoalOperation) - {GoalOperation.CREATE}
+
+
+def _check_goal_carrier(
+    operation: GoalOperation | None,
+    request_kind: RequestKind,
+    target_ids: Any,
+    card: Any,
+) -> None:
+    """Keep the goal proposal channel closed: an operation only travels with its own shape."""
+    if operation is None:
+        if card is not None or target_ids:
+            raise ValueError("goal_operation olmadan hedef kartı veya kimliği taşınamaz.")
+        return
+    if request_kind is not RequestKind.GOAL_CONTROL:
+        raise ValueError("goal_operation yalnız GOAL_CONTROL taşıyıcısında bulunur.")
+    if not isinstance(target_ids, (tuple, list)) or any(
+            not isinstance(ident, str) or "\x00" in ident for ident in target_ids):
+        raise ValueError("goal_target_ids boş olmayan benzersiz kimlikler olmalı.")
+    if len(set(target_ids)) != len(target_ids):
+        raise ValueError("goal_target_ids yinelenemez.")
+    if card is not None and (
+            not isinstance(card, Mapping) or set(card) != GOAL_CARD_KEYS
+            or card.get("kind") not in GOAL_CARD_KINDS):
+        raise ValueError("goal_card kind ve title taşımalı.")
+    if card is not None:
+        title = card.get("title")
+        if (not isinstance(title, str) or not title.strip() or len(title) > GOAL_CARD_TITLE_MAX
+                or "\x00" in title):
+            raise ValueError("goal_card.title sınırlı boş olmayan metin olmalı.")
+    if operation in _GOAL_CONTENT_REQUIRED and card is None:
+        raise ValueError(f"{operation.value} işlemi hedef kartı istemeli.")
+    if operation not in _GOAL_CONTENT_REQUIRED and card is not None:
+        raise ValueError(f"{operation.value} işlemi hedef kartı taşıyamaz.")
+    if operation in _GOAL_TARGET_REQUIRED and not target_ids:
+        raise ValueError(f"{operation.value} işlemi en az bir hedef kimliği istemeli.")
+    if operation is GoalOperation.CREATE and target_ids:
+        raise ValueError("create_goal yeni hedefi bir kimlikle adreslemez.")
 
 
 @dataclass(frozen=True)

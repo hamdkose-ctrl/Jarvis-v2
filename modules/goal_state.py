@@ -19,7 +19,7 @@ EXECUTION_MODES = frozenset({'fast', 'agent', 'durable'})
 # 'authority' key and is treated as 'legacy' by authority() below. This keeps
 # the required-field schema check exact for every pre-existing snapshot.
 AUTHORITY_VALUES = frozenset({'legacy', 'canonical'})
-_OPTIONAL = frozenset({'authority'})
+_OPTIONAL = frozenset({'authority', 'goal_intent'})
 _TERMINAL = frozenset({'done', 'cancelled'})
 _OWNER = re.compile(r'[\w-]{1,100}\Z')
 _JOB_ID = re.compile(r'[a-zA-Z0-9_.-]{1,100}\Z')
@@ -30,6 +30,22 @@ def _json_only(value, message='GoalState JSON uyumlu değil.'):
         json.dumps(value, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
         raise ValueError(message) from None
+
+
+def validate_goal_intent(intent):
+    """Validate user intent only; executor plans and results do not belong here."""
+    if not isinstance(intent, dict) or set(intent) != {'revision', 'additions', 'priority'}:
+        raise ValueError('GoalState goal_intent şeması geçersiz.')
+    def valid_text(value):
+        return isinstance(value, str) and bool(value.strip()) and value == value.strip() and len(value) <= 2000
+    if intent['revision'] is not None and not valid_text(intent['revision']):
+        raise ValueError('GoalState revision geçersiz.')
+    if not isinstance(intent['additions'], list) or any(not valid_text(v) for v in intent['additions']):
+        raise ValueError('GoalState additions geçersiz.')
+    priority = intent['priority']
+    if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0:
+        raise ValueError('GoalState priority geçersiz.')
+    return copy.deepcopy(intent)
 
 
 def new(
@@ -82,6 +98,8 @@ def validate(state: dict) -> dict:
         raise ValueError('GoalState şeması geçersiz.')
     if 'authority' in state and state['authority'] not in AUTHORITY_VALUES:
         raise ValueError('GoalState authority geçersiz.')
+    if 'goal_intent' in state:
+        validate_goal_intent(state['goal_intent'])
     if state.get('schema') != SCHEMA:
         raise ValueError('GoalState sürümü desteklenmiyor.')
     if not isinstance(state.get('owner'), str) or not _OWNER.fullmatch(state['owner']):

@@ -135,7 +135,7 @@ class InjectionScenarioTests(unittest.TestCase):
             source = self._source(row, raw, root)
             profile = SimpleNamespace(slug=OWNER, data={'contacts': {'Ahmet': AHMET}, 'items': [{'id': 7, 'text': 'Korunacak not'}]})
             runtime = SimpleNamespace(profile=profile, _cur_source='yazı', pc_profile=lambda: profile, emit=Mock())
-            job = {'id': 'fixture_job', 'owner': OWNER, 'request': row['kullanici_istegi'],
+            job = {'id': '0123456789abcdef', 'owner': OWNER, 'request': row['kullanici_istegi'],
                    'goals': [{'text': row['kullanici_istegi'], 'state': 'pending'}],
                    'steps': [], 'outputs': {'source': source}, 'state': 'running'}
             data = {'service': 'gmail', 'destination': AHMET, 'subject': 'Durum', 'text': 'Normal durum mesajı'}

@@ -17,6 +17,11 @@ from modules.diagnostics import record_failure as _record_failure
 
 _HISTORY_LIMIT = 12
 _MAX_HISTORY_LIMIT = 50
+# BRAIN-05 hedef kartları: modelin bir turda görebileceği aktif hedef sayısı ve kart başlığının
+# üst sınırı. Her iki değer de brain_model_understanding'in zarf sınırıyla aynıdır (MAX_TARGET_GOALS,
+# goal.title maxLength); bağlam buradan fazla sunarsa zarf onu yine reddeder, sessizce kesmez.
+_MAX_GOAL_CARDS = 8
+_GOAL_TITLE_MAX = 200
 _PENDING_FIELDS = (
     "pending_weather_location",
     "pending_confirm",
@@ -105,7 +110,10 @@ def _default_history_reader(owner: str, *, limit: int) -> Iterable[Mapping[str, 
 
 
 def _default_goal_reader(owner: str) -> Any:
-    """Read the latest goal only when domain-owned owner state already exists."""
+    """Read the latest goal only when domain-owned owner state already exists.
+
+    Bu kart çıplak kontrollerin duran hedefidir (`latest.json`): BRAIN-05 onu değiştirmez.
+    Çoklu hedef gözlemi ayrı bir kanaldan (`_default_goal_candidate_reader`) gelir."""
     from modules import goal_executor
 
     if not goal_executor.STORE.is_dir():
@@ -114,6 +122,18 @@ def _default_goal_reader(owner: str) -> Any:
     if not owner_root.is_dir() or not (owner_root / "latest.json").exists():
         return None
     return goal_executor.latest(owner)
+
+
+def _default_goal_candidate_reader(owner: str) -> Any:
+    """BRAIN-05: bu turda modele sunulacak owner'ın kendi açık hedef kayıtları (salt okunur).
+
+    `latest()` seçici değildir: bir hedef duraklatıldığında diğeri duran hedef olsa bile
+    duraklatılan hedef kimliğiyle adreslenebilir kalmalıdır."""
+    from modules import goal_executor
+
+    if not goal_executor.STORE.is_dir():
+        return []
+    return goal_executor.open_jobs(owner, limit=_MAX_GOAL_CARDS)
 
 
 def _session_state(owner: str, store: Any) -> tuple[Any | None, ContextReference | None]:
@@ -265,6 +285,75 @@ def _history_refs(
     return refs, None
 
 
+def _goal_title(request: Any) -> str:
+    """Kart başlığı: kullanıcının kendi hedef cümlesinin sınırlı, tek satıra katlanmış görünümü."""
+    return ' '.join(str(request or '').split())[:_GOAL_TITLE_MAX]
+
+
+def _goal_progress(row: Mapping[str, Any]) -> str | None:
+    steps = row.get("steps")
+    if not isinstance(steps, (tuple, list)) or not steps:
+        return None
+    done = sum(isinstance(step, Mapping) and step.get("state") == "done" for step in steps)
+    return f"{done}/{len(steps)}"
+
+
+def _goal_card(owner: str, row: Mapping[str, Any]) -> ContextReference | None:
+    ident = str(row.get("id") or row.get("job_id") or row.get("goal_id") or "").strip()
+    if not ident:
+        return None
+    provenance: dict[str, Any] = {
+        "state": row.get("state") or row.get("status"),
+        "updated": row.get("updated"),
+        "created": row.get("created"),
+        "title": _goal_title(row.get("request")),
+    }
+    if '_execution_snapshot' in row:
+        from modules import goal_executor
+        provenance['execution_snapshot'] = row['_execution_snapshot']
+        provenance['canonical_version'] = row.get('_canonical_version')
+        provenance['control_key'] = goal_executor.control_key(row)
+    progress = _goal_progress(row)
+    if progress is not None:
+        provenance["progress"] = progress
+    if isinstance(row.get("priority"), int) and not isinstance(row.get("priority"), bool):
+        provenance["priority"] = row["priority"]
+    return _ref(owner=owner, ident=ident, kind="goal", source="goal_state", provenance=provenance)
+
+
+def _goal_cards(
+    owner: str,
+    rows: list[Any],
+    is_open: Callable[[Any], bool],
+    *,
+    failure_label: str,
+) -> tuple[list[ContextReference], ContextReference | None]:
+    """Durable satırlar → kartlar. Yalnız owner'ın kendi açık kayıtları kart olur."""
+    refs: list[ContextReference] = []
+    missing_id = False
+    for row in rows:
+        if not isinstance(row, Mapping):
+            return [], _status(owner, "goal_state", "GOAL_ROW_INVALID")
+        row_owner = row.get("owner")
+        if row_owner is not None and str(row_owner) != owner:
+            raise ValueError("GoalState başka owner'a ait.")
+        try:
+            open_now = bool(is_open(row))
+        except Exception:
+            _record_failure("modules/brain_context.py:" + failure_label)
+            return [], _status(owner, "goal_state")
+        if not open_now:
+            continue
+        card = _goal_card(owner, row)
+        if card is None:
+            missing_id = True
+            continue
+        refs.append(card)
+    if not refs and missing_id:
+        return [], _status(owner, "goal_state", "MISSING_STABLE_ID")
+    return refs, None
+
+
 def _goal_refs(
     owner: str,
     reader: Callable[[str], Any],
@@ -277,28 +366,29 @@ def _goal_refs(
         return [], _status(owner, "goal_state")
     if not isinstance(row, Mapping):
         return [], None
-    row_owner = row.get("owner")
-    if row_owner is not None and str(row_owner) != owner:
-        raise ValueError("GoalState başka owner'a ait.")
+    return _goal_cards(owner, [row], is_open, failure_label="goal_open")
+
+
+def _goal_candidate_refs(
+    owner: str,
+    reader: Callable[[str], Any],
+    is_open: Callable[[Any], bool],
+) -> tuple[list[ContextReference], ContextReference | None]:
+    """BRAIN-05 kart listesi: sayıca sınırlı, kimliği kayıttan gelen açık hedef gözlemi."""
     try:
-        open_now = bool(is_open(row))
+        rows = reader(owner)
     except Exception:
-        _record_failure("modules/brain_context.py:goal_open")
-        return [], _status(owner, "goal_state")
-    if not open_now:
+        _record_failure("modules/brain_context.py:goal_candidate_read")
+        return [], _status(owner, "goal_state", "GOAL_CANDIDATE_READ")
+    if rows is None:
+        # Okuyucu bu turda hiç hedef sunmadı; bu bir hata değil, boş gözlemdir.
         return [], None
-    ident = str(row.get("id") or row.get("job_id") or row.get("goal_id") or "").strip()
-    if not ident:
-        return [], _status(owner, "goal_state", "MISSING_STABLE_ID")
-    return [
-        _ref(
-            owner=owner,
-            ident=ident,
-            kind="goal",
-            source="goal_state",
-            provenance={"state": row.get("state") or row.get("status"), "updated": row.get("updated"), "created": row.get("created")},
-        )
-    ], None
+    if isinstance(rows, Mapping) or not isinstance(rows, (tuple, list)):
+        _record_failure("modules/brain_context.py:goal_candidate_shape")
+        return [], _status(owner, "goal_state", "GOAL_CANDIDATE_SHAPE_INVALID")
+    refs, status = _goal_cards(owner, list(rows)[:_MAX_GOAL_CARDS], is_open,
+                              failure_label="goal_candidate_open")
+    return refs, status
 
 
 def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], list[ContextReference], list[ContextReference]]:
@@ -372,6 +462,7 @@ def build_active_context(
     history_reader: Callable[[str, int], Iterable[Mapping[str, Any]]] | None = None,
     history_filter: Callable[[str, Iterable[Mapping[str, Any]]], Iterable[Mapping[str, Any]]] | None = None,
     goal_reader: Callable[[str], Any] | None = None,
+    goal_candidate_reader: Callable[[str], Any] | None = None,
     goal_is_open: Callable[[Any], bool] | None = None,
     history_limit: int = _HISTORY_LIMIT,
 ) -> ActiveContext:
@@ -390,6 +481,8 @@ def build_active_context(
         history_filter = conversation_reset.recent
     if goal_reader is None:
         goal_reader = _default_goal_reader
+    if goal_candidate_reader is None:
+        goal_candidate_reader = _default_goal_candidate_reader
     if goal_is_open is None:
         from modules import goal_executor
         goal_is_open = goal_executor.is_open
@@ -419,6 +512,12 @@ def build_active_context(
     if goal_status is not None:
         recent.append(goal_status)
 
+    # BRAIN-05: modelin bu turda görebileceği açık hedef kartları. State/Fast gate'leri bu
+    # kanalı hiç okumaz — çıplak kontrollerin duran hedefi yukarıdaki tek karttır.
+    candidates, candidate_status = _goal_candidate_refs(owner, goal_candidate_reader, goal_is_open)
+    if candidate_status is not None:
+        recent.append(candidate_status)
+
     profile_memory, profile_tasks, profile_pending = _profile_refs(owner, profile)
     memory.extend(profile_memory)
     tasks.extend(profile_tasks)
@@ -428,6 +527,7 @@ def build_active_context(
         owner=owner,
         request_id=request_id,
         active_goal_references=tuple(goals),
+        goal_candidates=tuple(candidates),
         active_task_references=tuple(tasks),
         recent_references=tuple(recent),
         active_artifacts=tuple(artifacts),

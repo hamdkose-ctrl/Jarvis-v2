@@ -4,7 +4,6 @@ from contextvars import ContextVar
 import copy
 import hashlib
 import json
-from pathlib import Path
 import re
 import threading
 import time
@@ -12,7 +11,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import completion_policy, execution_record, failure_policy, goal_tools, llm, privacy, requests_state, task_tools
+from modules import completion_policy, execution_record, failure_policy, goal_job_control, goal_tools, llm, privacy, requests_state, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
@@ -31,6 +30,8 @@ TURN_SECONDS=120
 MAX_INVALID_DECISIONS=3
 _TURN_DEADLINE=ContextVar("jarvis_goal_turn_deadline",default=None)
 STALE_SECONDS=6*3600     # bu kadar eski yarım iş "açık" sayılmaz; bare devam/iptal ona dokunmaz
+JOB_ID=r'[a-f0-9]{16}'   # durable hedef kaydının kimlik biçimi; tek tanım buradan gelir
+_MAX_GOAL_CARDS=8        # bir tura sunulan aktif hedef kartının üst sınırı (Brain zarfıyla aynı)
 QUESTION_SECONDS=600     # sorulmuş bir hedef yalnız bu süre içinde sıradaki cümleyi cevap sayar
 RESUME_COMMANDS=frozenset({'devam','devam et','sürdür','surdur','hedef devam','hedef sürdür','hedef surdur'})
 _INTERNAL_FAILURE_HINTS=(
@@ -96,18 +97,36 @@ def _self_resolvable_question(question,request):
     return True
 
 
-def _root(owner):
+def _owner_root(owner):
+    """Validate one owner namespace for a read; never creates or mutates anything."""
     if not re.fullmatch(r'[\w-]{1,100}',owner or ''):raise ValueError('Hedef sahibi geçersiz.')
     root=STORE/owner
     if any(p.is_symlink() for p in (root,*root.parents)):raise ValueError('Hedef klasörü sembolik bağ olamaz.')
-    root.mkdir(parents=True,exist_ok=True);return root
+    return root
 
 
-def _save(job):
+def _root(owner):
+    root=_owner_root(owner);root.mkdir(parents=True,exist_ok=True);return root
+
+
+def _save(job,*,move_pointer=True):
     root=_root(job['owner'])
-    job['updated']=time.time()
-    release_guard.atomic(root/(job['id']+'.json'),json.dumps(job,ensure_ascii=False).encode('utf-8'))
-    release_guard.atomic(root/'latest.json',json.dumps({'id':job['id']}).encode())
+    with goal_job_control.locked(root,job['id']):
+        if '_canonical_version' in job:
+            job['_canonical_version']=goal_job_control.own_worker_version(root,job['id'],job['_canonical_version'])
+        goal_job_control.assert_fresh(root,job)
+        job['updated']=time.time()
+        payload=goal_job_control.persistent(job)
+        if job.get('_canonical_version') is not None:
+            payload['_goal_version_fence']=job['_canonical_version']
+        release_guard.atomic(root/(job['id']+'.json'),json.dumps(payload,ensure_ascii=False).encode('utf-8'))
+        if move_pointer:
+            release_guard.atomic(root/'latest.json',json.dumps({'id':job['id']}).encode())
+        # Capture from the actual record: the hook may project canonical lifecycle.
+        saved=execution_record.load(root,job['owner'],job['id'])
+        job['_execution_snapshot']=goal_job_control.fingerprint(saved)
+        version=goal_job_control.saved_version(root,job['id'])
+        job['_canonical_version']=version if version is not None else (goal_job_control.canonical(root,job['owner'],job['id']) or {}).get('version')
 
 
 def age(job):
@@ -133,8 +152,142 @@ def latest(owner):
     root=_root(owner);pointer=root/'latest.json'
     if not pointer.exists():return None
     ident=json.loads(pointer.read_text())['id']
-    if not isinstance(ident,str) or not re.fullmatch('[a-f0-9]{16}',ident):raise ValueError('Hedef kimliği geçersiz.')
-    return execution_record.load(root,owner,ident)
+    return read_job(owner,ident)
+
+
+def _project_intent(job,intent):
+    """Rebuild the disposable execution projection after a partial write or crash."""
+    marker=job.get('_intent_projection',{})
+    if not isinstance(marker,dict):raise ValueError('Hedef intent projection kaydı geçersiz.')
+    count=marker.get('additions',0)
+    if not isinstance(count,int) or isinstance(count,bool) or not 0<=count<=len(intent['additions']):
+        raise ValueError('Hedef intent projection kaydı geçersiz.')
+    if intent['additions'][count:] and not job.get('goals'):
+        job['goals']=[{'text':job['request'],'state':'pending','evidence':[]}]
+    for text in intent['additions'][count:]:
+        job.setdefault('goals',[]).append({'text':text,'state':'pending','evidence':[]})
+    if intent['revision'] is not None and marker.get('revision')!=intent['revision']:
+        job.setdefault('feedback',[]).append('Kullanıcının hedef düzeltmesi: '+intent['revision'])
+    job['priority']=intent['priority']
+    job['_intent_projection']={'additions':len(intent['additions']),'revision':intent['revision']}
+
+
+def _check_offered(job,expected_snapshot):
+    if expected_snapshot is None:return
+    if (expected_snapshot.get('canonical_version') != job.get('_canonical_version') or
+        expected_snapshot.get('execution_snapshot') != job.get('_execution_snapshot')):
+        raise ValueError('Hedef kartı değişti; ekranı yenileyip tekrar seç.')
+
+
+def _read_locked(root,owner,identity):
+    job=execution_record.load(root,owner,identity)
+    state=goal_job_control.capture(root,job)
+    if state and 'goal_intent' in state:
+        _project_intent(job,state['goal_intent'])
+    return job
+
+
+def read_job(owner,identity):
+    """Read a job and its canonical/execution fence in one critical section."""
+    root=_owner_root(owner)
+    if not isinstance(identity,str) or not re.fullmatch(JOB_ID,identity):
+        raise ValueError('Hedef kimliği geçersiz.')
+    with goal_job_control.locked(root,identity):
+        try:return _read_locked(root,owner,identity)
+        except FileNotFoundError:return None
+
+
+def _job_stamps(root):
+    stamps={}
+    for path in root.glob('*.json'):
+        ident=path.name.split('.',1)[0]
+        if not re.fullmatch(JOB_ID,ident):continue
+        try:
+            stamp=path.stat().st_mtime
+        except OSError:
+            continue
+        stamps[ident]=max(stamps.get(ident,0.0),stamp)
+    return sorted(stamps,key=lambda ident:(-stamps[ident],ident))
+
+
+def open_jobs(owner,*,limit=_MAX_GOAL_CARDS):
+    """Read-only view of the owner's own still-open goals, most recently moved first.
+
+    Korunan kayıtlar okunabilir kalmalı: bayat bir kayıt kart listesini düşürmez, ama bozuk bir
+    kayıt da sessizce yutulmaz — okuma hatası çağırana ulaşır ve orada fail-closed olur. Okuma
+    sayısı en yeni `limit*2` kimlikle sınırlıdır; `limit` açık kayıt bulununca erken dönülür."""
+    root=_owner_root(owner)
+    if not root.is_dir():return []
+    rows=[]
+    ids=_job_stamps(root)
+    for ident in ids[:max(1,limit)*2]:
+        job=read_job(owner,ident)
+        if is_open(job):rows.append(job)
+        if len(rows)>=limit:break
+    rows.sort(key=lambda job:(_priority(job),job.get('updated') or job.get('created') or 0),reverse=True)
+    return rows[:limit]
+
+
+def _priority(job):
+    value=job.get('priority')
+    return value if isinstance(value,int) and not isinstance(value,bool) else 0
+
+
+def pause_job(owner,identity,*,expected_snapshot=None):
+    """Park only a safely stopped open goal, after checking the offered snapshot."""
+    root=_owner_root(owner)
+    with _LOCK, goal_job_control.locked(root,identity):
+        job=read_job(owner,identity)
+        if not job:raise ValueError('Hedef bulunamadı veya sana ait değil.')
+        _check_offered(job,expected_snapshot)
+        if not is_open(job):raise ValueError('Hedef artık açık değil.')
+        if job['state'] in {'running','approval','question','review'} or owner in _ACTIVE:
+            raise ValueError('Hedef çalışıyor veya güvenli beklemede; duraklatma uygulanmadı.')
+        job['state']='paused';job['blocker']='Kullanıcı bu hedefi duraklattı; plan ve yapılanlar korundu.'
+        _save(job,move_pointer=False);return render(job)
+
+
+def _intent_mutation(owner,identity,operation,*,text=None,priority=None,expected_snapshot=None):
+    from modules import goal_state_compat
+    root=_owner_root(owner)
+    with _LOCK, goal_job_control.locked(root,identity):
+        job=read_job(owner,identity)
+        if not job:raise ValueError('Hedef bulunamadı veya sana ait değil.')
+        _check_offered(job,expected_snapshot)
+        if not is_open(job):raise ValueError('Hedef artık açık değil.')
+        if owner in _ACTIVE or job['state']=='running':
+            raise ValueError('Hedef çalışıyor; değişiklik uygulanmadı.')
+        if operation=='revise' and job['state'] in {'approval','review'}:
+            raise ValueError('Hedef onay veya inceleme bekliyor; düzeltme uygulanmadı.')
+        if job.get('_canonical_version') is None:
+            raise ValueError('Canonical hedef kaydı bulunamadı; değişiklik uygulanmadı.')
+        state=goal_state_compat.apply_goal_intent(
+            root/(identity+'.goalstate.json'),owner=owner,job_id=identity,
+            expected_version=job.get('_canonical_version'),operation=operation,text=text,priority=priority)
+        job['_canonical_version']=state['version']
+        _project_intent(job,state['goal_intent'])
+        try:
+            _save(job,move_pointer=False)
+        except Exception as exc:
+            _record_failure('modules/goal_executor.py:_intent_mutation:projection')
+            raise ValueError('Hedef niyeti kaydedildi; yürütme görünümü güncellenemedi. Yeniden okuma ile uzlaştırılacak.') from exc
+        return job
+
+
+def append_goal_task(owner,identity,text,*,expected_snapshot=None):
+    job=_intent_mutation(owner,identity,'add_task',text=text,expected_snapshot=expected_snapshot)
+    return 'Bu hedefe yeni sonuç olarak eklendi: '+text.strip()[:300]+'\n\n'+render(job)
+
+
+def revise_job(owner,identity,text,*,expected_snapshot=None):
+    job=_intent_mutation(owner,identity,'revise',text=text,expected_snapshot=expected_snapshot)
+    return 'Hedef düzeltmesi kaydedildi.\n\n'+render(job)
+
+
+def prioritize_job(owner,identity,*,expected_snapshot=None):
+    priority=max([_priority(current) for current in open_jobs(owner) if current['id']!=identity]+[0])+1
+    job=_intent_mutation(owner,identity,'prioritize',priority=priority,expected_snapshot=expected_snapshot)
+    return 'Bu hedef öncelikli olarak kaydedildi.\n\n'+render(job)
 
 
 @contextmanager
@@ -654,7 +807,7 @@ def _loop_steps(runtime,job,answer=None,resume=False):
 
 
 def control_key(job):
-    view={key:job.get(key) for key in ('id','state','waiting','question','approval_at','steps','tasks','outputs')}
+    view={key:job.get(key) for key in ('id','state','waiting','question','approval_at','steps','tasks','outputs','goals','priority','feedback','blocker','_canonical_version','_execution_snapshot')}
     return hashlib.sha256(json.dumps(view,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
@@ -666,7 +819,7 @@ def _quota_wait():
         return 0
 
 
-def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
+def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
     owner=runtime.profile.slug
     from modules import research_evidence
     # Kota beklemesi yalnız model isteyen işleri durdurur: tarihli haber işi modelsiz hattını çalıştırır.
@@ -674,7 +827,7 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
         return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
-                    expected_job_id=expected_job_id,expected_control=expected_control)
+                    expected_job_id=expected_job_id,expected_control=expected_control,job_id=job_id)
     except BaseException:
         llm.discard_success_routes()
         raise
@@ -683,10 +836,15 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
     return result
 
 
-def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None):
+def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
+    if job_id is not None and not resume and not approve:
+        raise ValueError('Hedef seçimi yalnız sürdürme ve onay için geçerlidir; yeni hedef seçilerek açılmaz.')
     with _owned(runtime) as owner:
-        job=latest(owner)
+        # Seçilen hedef kendi kimliğinden okunur; `latest.json` tek hedef seçicisi değildir.
+        job=read_job(owner,job_id) if job_id is not None else latest(owner)
+        if job_id is not None and not job:
+            raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
         if expected_job_id is not None and (not job or job['id']!=expected_job_id):
             raise ValueError('Seçilen hedef değişmiş; başka hedefe işlem uygulanmadı.')
         if expected_control is not None and (not job or control_key(job)!=expected_control):
@@ -793,29 +951,52 @@ def render(job):
     return '\n\n'.join(lines) or 'Hedef kaydedildi.'
 
 
-def cancel_job(owner,identity):
+def cancel_job(owner,identity,*,expected_snapshot=None):
     from modules import service_store
     service_store.identity(owner)
-    with _LOCK:
-        job=latest(owner)
-        if not job or job['id']!=identity:raise ValueError('Yalnız son hedef bu kontrolle yönetilebilir; seçilen hedef değişmiş.')
+    root=_owner_root(owner)
+    with _LOCK, goal_job_control.locked(root,identity):
+        job=read_job(owner,identity)
+        if not job:raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
+        _check_offered(job,expected_snapshot)
         if job['state'] in {'done','cancelled'}:return 'Hedef zaten kapanmış.'
         if owner in _ACTIVE:
             if _ACTIVE_JOBS.get(owner)!=identity:raise ValueError('Başka bir hedef çalışıyor.')
             _CANCEL_REQUESTED.add((owner,identity))
             return 'İptal istendi; devam eden araç döndüğünde sonraki adıma geçilmeyecek.'
+        was_running=job['state']=='running'
+        local_cancelled=False
         if job['state']=='approval':
-            step=next(s for s in job['steps'] if s['id']==job['waiting'])
+            step=next((s for s in job['steps'] if s['id']==job.get('waiting')),None)
+            output=job.get('outputs',{}).get(job.get('waiting'))
+            if not step:
+                raise ValueError('Bekleyen hedef onayı doğrulanamadı; iptal uygulanmadı.')
+            if step['tool'] in {'browser','publish'} and (not isinstance(output,dict) or not isinstance(output.get('id'),str) or not output['id']):
+                raise ValueError('Bekleyen hedef onayı doğrulanamadı; iptal uygulanmadı.')
             if step['tool']=='browser':
                 from modules import browser_agent
-                browser_agent.cancel(owner)
+                browser_agent.cancel(owner,expected_token=output['id'])
+                local_cancelled=True
             elif step['tool']=='publish':
                 from modules import outbox
-                outbox.cancel(owner,job['outputs'][step['id']]['id'])
+                result=outbox.cancel(owner,output['id'])
+                if result.get('state')!='blocked':
+                    raise ValueError('Bekleyen gönderim iptal edilemedi; hedef iptal edilmedi.')
+                local_cancelled=True
         job['state']='cancelled'
         for step in job['steps']:
             if step['state'] not in {'done','failed'}:step['state']='cancelled'
-        _save(job)
+        pointer=root/'latest.json'
+        move_pointer=pointer.exists() and json.loads(pointer.read_text(encoding='utf-8')).get('id')==identity
+        try:
+            _save(job,move_pointer=move_pointer)
+        except Exception as exc:
+            _record_failure('modules/goal_executor.py:cancel_job:save')
+            if local_cancelled:
+                raise ValueError('Bekleyen yerel işlem iptal edildi; hedef kaydı güncellenemedi. Durumu yeniden kontrol et.') from exc
+            raise
+        if was_running:
+            return 'İptal kaydedildi; devam eden dış işlem zorla kesilmez. Eski worker sonraki adımı kaydedip başlatamaz.\n\n'+render(job)
         return render(job)
 
 
@@ -864,7 +1045,8 @@ def handle(runtime,command):
     bound=re.fullmatch(r'hedef (devam|onayla|yanıtla) ([a-f0-9]{16}) ([a-f0-9]{64})(?:\s*:\s*(.*))?',command.strip(),re.I|re.S)
     if bound:
         if bound[1].casefold()=='yanıtla' and not (bound[4] or '').strip():raise ValueError('Yanıt boş olamaz.')
-        return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',expected_job_id=bound[2],expected_control=bound[3])
+        return run(runtime,(bound[4] or 'hedef devam').strip(),resume=True,approve=bound[1].casefold()=='onayla',
+                   expected_job_id=bound[2],expected_control=bound[3],job_id=bound[2])
     if job and job['state']=='approval' and low in {'evet','onaylıyorum','onayla'}:low='hedef onayla'
     if is_open(job) and low in {'iptal','vazgeç','boşver'}:low='hedef iptal'
     if low in {'hedef durumu','işin durumu'}:return status_summary(job) if job else 'Kayıtlı hedef yok.'

@@ -236,9 +236,19 @@ def _run(owner, actions=None, approval=None, *, headless=False, read_only=False)
         finally: context.close()
 
 
-def cancel(owner):
+def cancel(owner, *, expected_token=None):
     with _LOCK:
-        (_root(owner)/'pending.json').unlink(missing_ok=True)
+        path = _root(owner)/'pending.json'
+        if expected_token is not None:
+            if not isinstance(expected_token, str) or not expected_token:
+                raise ValueError('Tarayıcı onay kimliği geçersiz.')
+            try:
+                pending = json.loads(path.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                raise ValueError('Bekleyen tarayıcı işlemi bulunamadı; hedef iptal edilmedi.') from None
+            if not isinstance(pending, dict) or pending.get('id') != expected_token:
+                raise ValueError('Bekleyen tarayıcı işlemi bu hedefle eşleşmiyor; hedef iptal edilmedi.')
+        path.unlink(missing_ok=True)
     return 'Bekleyen tarayıcı işlemi iptal edildi.'
 
 

@@ -378,7 +378,7 @@ class GoalStatePersistenceTests(unittest.TestCase):
             job = dict(self.job('approval'), blocker='Onay bekliyor')
             self.goal_executor._save(job)
             legacy = self.root / 'alice' / '0123456789abcdef.json'
-            self.assertEqual(json.loads(legacy.read_text(encoding='utf-8')), job)
+            self.assertEqual(json.loads(legacy.read_text(encoding='utf-8')), self.goal_executor.goal_job_control.persistent(job))
 
     def test_goal_executor_save_writes_canonical_before_legacy_record(self):
         with patch.object(self.goal_executor, 'STORE', self.root):
@@ -767,7 +767,7 @@ class ExecutionRecordTests(unittest.TestCase):
             record = self.root / 'alice' / '0123456789abcdef.execution.json'
             stored = json.loads(record.read_text(encoding='utf-8'))
             self.assertEqual(stored['schema'], execution_record.SCHEMA)
-            self.assertEqual(stored['job'], job)
+            self.assertEqual(stored['job'], self.goal_executor.goal_job_control.persistent(job))
             self.assertEqual(self.goal_executor.latest('alice'), job)
 
     def test_latest_reads_execution_record_even_without_legacy_journal(self):
@@ -783,7 +783,7 @@ class ExecutionRecordTests(unittest.TestCase):
             legacy = {'id': '0123456789abcdef', 'owner': 'alice', 'state': 'paused', 'steps': []}
             (root / '0123456789abcdef.json').write_text(json.dumps(legacy), encoding='utf-8')
             (root / 'latest.json').write_text(json.dumps({'id': '0123456789abcdef'}))
-            self.assertEqual(self.goal_executor.latest('alice'), legacy)
+            self.assertEqual(self.goal_executor.goal_job_control.persistent(self.goal_executor.latest('alice')), legacy)
 
     def test_execution_record_owner_or_id_mismatch_is_rejected(self):
         from modules import execution_record
