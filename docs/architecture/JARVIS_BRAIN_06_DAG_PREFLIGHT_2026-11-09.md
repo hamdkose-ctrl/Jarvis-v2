@@ -89,3 +89,11 @@ Son uygulama paketi, en az aşağıdakileri üretim bağlantısında sınamalıd
 Bu doküman canlı Brain Full veya watcher çalıştırma talimatı değildir. Kod
 paketi hazır olduğunda odaklı testler ve tam `modules.validation` bir kez,
 exact head üzerinde çalıştırılır; Windows CI/gerçek-PC kabulü ayrı kanıttır.
+
+## 10 Kasım 2026 — BRAIN-06B yapısal node fence dilimi (ayrı PR)
+
+BRAIN-05 merged ve BRAIN-06A'nın `goal_plan`/CAS şema çekirdeği main'dedir. Bu tarihli not orijinal 9 Kasım preflight kararlarını geriye dönük değiştirmez.
+
+`modules/goal_plan_gate.py` yalnız canonical GoalState snapshot'ını okur: plan node/bağımlılık/acceptance/input dahil transitive fingerprint üretir. `NodeCandidate` owner/job, `GoalState.version`, `plan_version`, node ve capability'yi snapshot'a bağlar; `revalidate` geç gelen veya değişmiş seçimi efekt öncesi reddedebilir. `initial_roots` yalnız başlangıç adayıdır. `revision_reuse_candidates` aynı yapı/ata parmak izi olan node'ları listeler; bunlar **tamamlanan veya kabul edilmiş** node değildir. Önceki sonuç kanıtı geçerli mi sorusunu yalnız Core + WorkerResult verifier cevaplayabilir.
+
+**Bu PR production runtime'a bağlı değildir.** Hiçbir iş dispatch edilmez veya yeni worker, lease, receipt, permission verilmez. Eski `task_agents`/Scheduler yürütme yolu değiştirilmez. Devamındaki BRAIN-06C, mevcut `worker_result_commit`/Core fence'ine plan/node sürümü bağlayacak; BRAIN-07 tek Scheduler üzerinden kaynak lease'i sağlayacak. O aşamada `NodeCandidate` bir izin/lease kanıtı sayılmayacak, her dispatch Core tarafından yeniden doğrulanacaktır.
