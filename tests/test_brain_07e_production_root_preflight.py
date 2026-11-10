@@ -182,7 +182,9 @@ class PlannedRootProductionFenceTests(unittest.TestCase):
         )
         with self.assertRaises(goal_plan_gate.PlanFenceError):
             self.prepare('left')
-        with self.assertRaises(goal_plan_gate.PlanFenceError):
+        with self.assertRaisesRegex(
+            goal_state_store.PersistedStateConflict, 'stale',
+        ):
             self.commit(pending)
         self.assertEqual(len(goal_state_store.load(self.path)['evidence']), 0)
 
