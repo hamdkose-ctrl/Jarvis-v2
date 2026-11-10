@@ -1,7 +1,9 @@
 """BRAIN-06A canonical plan shape and reducer fence; no model or external effect."""
 import copy
+import tempfile
 import unittest
-from modules import core_state_reducer as reducer, goal_state
+from pathlib import Path
+from modules import core_state_reducer as reducer, goal_state, goal_state_store, goal_state_compat
 
 
 def node(identity, deps=()):
@@ -73,6 +75,27 @@ class CanonicalPlanFoundationTests(unittest.TestCase):
             with self.subTest(item=item), self.assertRaises(ValueError):
                 self.apply(state, item)
         self.assertEqual(state, frozen)
+
+    def test_persisted_cas_rejects_stale_revision_and_wrong_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'plan.goalstate.json'
+            goal_state_store.create(path, self.state())
+            saved = goal_state_compat.apply_goal_plan(
+                path, owner='alice', job_id='0123456789abcdef',
+                expected_version=0, plan=plan(),
+            )
+            self.assertEqual(saved['goal_plan']['plan_version'], 1)
+            with self.assertRaises(reducer.StaleStateError):
+                goal_state_compat.apply_goal_plan(
+                    path, owner='alice', job_id='0123456789abcdef',
+                    expected_version=0, plan=plan(2),
+                )
+            with self.assertRaises(goal_state_compat.IdentityMismatchError):
+                goal_state_compat.apply_goal_plan(
+                    path, owner='mallory', job_id='0123456789abcdef',
+                    expected_version=1, plan=plan(2),
+                )
+            self.assertEqual(goal_state_store.load(path), saved)
 
     def test_rejects_stale_canonical_version_and_invalid_plan_number(self):
         state = self.apply(self.state(), plan())
