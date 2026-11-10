@@ -244,11 +244,21 @@ def recognize(raw: bytes, announce_fail: bool = False, cheap: bool = False, gate
 
 
 def _play_mp3(path: str):
+    """Play one downloaded audio file; Windows MCI failures must not look successful."""
     mci = ctypes.windll.winmm.mciSendStringW
-    mci("close jarvis_tts", None, 0, 0)
-    mci(f'open "{path}" type mpegvideo alias jarvis_tts', None, 0, 0)
-    mci("play jarvis_tts wait", None, 0, 0)
-    mci("close jarvis_tts", None, 0, 0)
+    mci("close jarvis_tts", None, 0, 0)  # best-effort stale alias cleanup
+    opened = False
+    try:
+        code = mci(f'open "{path}" type mpegvideo alias jarvis_tts', None, 0, 0)
+        if code:
+            raise OSError(f"Windows ses çalma başlatılamadı (MCI hata kodu: {code}).")
+        opened = True
+        code = mci("play jarvis_tts wait", None, 0, 0)
+        if code:
+            raise OSError(f"Windows ses oynatma başarısız (MCI hata kodu: {code}).")
+    finally:
+        if opened:
+            mci("close jarvis_tts", None, 0, 0)
 
 
 def _clean(text: str) -> str:
@@ -395,7 +405,13 @@ def speak(text: str, voice: str | None = None, rate: int | None = None) -> str |
                         _log.info("Süre: konuşman bittikten sonra cevabın sesi %.1f sn'de başladı",
                                   time.time() - last_speech_end)
                         last_speech_end = 0.0
-                    _play_mp3(val)
+                    try:
+                        _play_mp3(val)
+                    except OSError:
+                        _record_failure('modules/voice.py:playback')
+                        message = "Windows ses oynatıcısı sesi çalamadı. Windows çıkış cihazını, ses düzeyini ve Jarvis Konuşma ayarını kontrol et."
+                        print(message)
+                        return message
             finally:
                 try:
                     os.remove(val)
