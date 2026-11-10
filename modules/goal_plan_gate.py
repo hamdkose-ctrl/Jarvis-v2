@@ -119,6 +119,97 @@ def initial_roots(state: dict, *, owner: str, job_id: str) -> tuple[NodeCandidat
     )
 
 
+def _read_only_manifest(capability_id: str) -> dict | None:
+    """Resolve the existing developer-integrated capability catalog only."""
+    from modules import capability_manifest
+    if not isinstance(capability_id, str):
+        return None
+    try:
+        if capability_id.startswith('task.'):
+            spec = capability_manifest.from_task_tool(capability_id.removeprefix('task.'))
+        elif capability_id.startswith('goal.'):
+            spec = capability_manifest.from_goal_tool(capability_id.removeprefix('goal.'))
+        else:
+            return None
+    except ValueError:
+        return None
+    if (spec['id'] != capability_id or spec['effect_policy'] != 'read_only'
+            or spec['decision_authority'] != 'execute'):
+        return None
+    return spec
+
+
+def ready_read_only_candidates(
+    state: dict, *, owner: str, job_id: str,
+) -> tuple[NodeCandidate, ...]:
+    """Find snapshot-ready plan nodes from *accepted canonical worker evidence*.
+
+    This is read-only eligibility, NOT permission, admission, lease acquisition,
+    worker dispatch or global completion. A failed node is not automatically
+    retried; revision/cancel and any unexpected evidence fail closed.
+    """
+    current, plan = _current_plan(state)
+    if (owner, job_id) != (current['owner'], current['job_id']):
+        raise PlanFenceError('Yanlış plan owner/job kimliği.')
+
+    # Audit appends are ordered and each append_evidence creates exactly one
+    # evidence entry. A merely worker-shaped dict is not trusted without the
+    # existing WORKER_RESULT_ACCEPTED audit reason.
+    appends = [row for row in current['audit'] if row['op'] == 'append_evidence']
+    if len(appends) != len(current['evidence']):
+        raise PlanFenceError('GoalState evidence/audit sırası doğrulanamadı.')
+
+    nodes = {node['id']: node for node in plan['nodes']}
+    digests = fingerprints(plan)
+    seen: set[str] = set()
+    completed: set[str] = set()
+    for audit, evidence in zip(appends, current['evidence']):
+        row = evidence if isinstance(evidence, dict) else {}
+        claimed = row.get('kind') == 'worker_result'
+        accepted = audit['reason_code'] == 'WORKER_RESULT_ACCEPTED'
+        if claimed != accepted:
+            raise PlanFenceError('WorkerResult evidence/audit authority tutarsız.')
+        if not claimed:
+            continue
+        # The canonical plan was revised; previous success is not transferable
+        # by a name match and must not be counted as current-plan completion.
+        if row.get('plan_version') != plan['plan_version']:
+            continue
+
+        step = row.get('step_id')
+        node = nodes.get(step) if isinstance(step, str) else None
+        if node is None or step in seen:
+            raise PlanFenceError('Current-plan WorkerResult step belirsiz/tekrarlı.')
+        seen.add(step)
+        spec = _read_only_manifest(node['capability_id'])
+        attempt = row.get('attempt')
+        digest = _hash(node['input'])  # same canonical-input JSON hash used by runtime
+        if (spec is None
+                or row.get('owner') != owner or row.get('job_id') != job_id
+                or row.get('capability_id') != node['capability_id']
+                or row.get('capability_version') != str(spec['version'])
+                or row.get('node_digest') != digests[step]
+                or row.get('input_digest') != digest
+                or type(attempt) is not int or attempt < 1
+                or row.get('command_id') !=
+                   f"{step}:{attempt}:p{plan['plan_version']}"
+                or row.get('status') not in ('succeeded', 'failed')
+                or not isinstance(row.get('evidence'), list)):
+            raise PlanFenceError('Current-plan WorkerResult canonical fence geçersiz.')
+        if row['status'] == 'succeeded':
+            completed.add(step)
+
+    # A dependency never becomes ready just because a model or output reports
+    # done: every prerequisite needs its own accepted WorkerResult audit.
+    return tuple(
+        candidate(current, owner=owner, job_id=job_id, node_id=node['id'])
+        for node in plan['nodes']
+        if (node['id'] not in seen
+            and all(dep in completed for dep in node['depends_on'])
+            and _read_only_manifest(node['capability_id']) is not None)
+    )
+
+
 def revision_reuse_candidates(state: dict, revised_plan: dict) -> tuple[str, ...]:
     """Return structurally unchanged node IDs, *not* verified finished steps.
 
