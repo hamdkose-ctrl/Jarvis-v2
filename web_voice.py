@@ -48,15 +48,12 @@ class WebVoice:
         lane = voice_runtime.active()
         if lane is None and voice_runtime.legacy_blocked():
             return False
+        from modules.engine_context import set_profile_voice
         if lane is not None:
-            try:
-                lane.check_voice(key)
-            except (ValueError, OSError):
-                return False
             profile = runtime._p()
-            if profile.data['prefs'].get('voice') != key:
-                lane.interrupt()
-            profile.set_pref('voice', key)
+            accepted, _label = set_profile_voice(profile, key, lane=lane)
+            if not accepted:
+                return False
             runtime.engine.events.put(('say', 'Merhaba, seçtiğin yerel ses böyle.', profile.slug))
             return True
         lv = runtime._live()
@@ -66,7 +63,11 @@ class WebVoice:
             else:
                 runtime.config.save_settings(live_voice=key)
         elif key in runtime.voice.VOICES:
-            runtime._p().set_pref('voice', key)
+            accepted, _label = set_profile_voice(
+                runtime._p(), key, voices=runtime.voice.VOICES,
+            )
+            if not accepted:
+                return False
             runtime.engine.events.put(('say', 'Merhaba, sesim böyle.'))
         else:
             return False
