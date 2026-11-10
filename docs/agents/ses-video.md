@@ -21,6 +21,11 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - `pc.audio.action` için `sesi aç` sessiz durumdaysa `set_mute(False)` sonucu kontrol edilir. Başarısızlıkta `Sesi açamadım.` ve `ActionOutcome.ok=False` döner; sahte başarı metni, seviye okuması veya volume delta çalışmaz. Başarıda önceki metin korunur ve `ok=True` ile dependent batch ancak gerçek domain sonucu üzerinden ilerleyebilir.
 - Bu küçük düzeltme diğer ses eylemlerinin, tüm action_batch domain'lerinin veya canlı model semantiğinin tamamlandığı anlamına gelmez.
 
+## Windows TTS oynatma hata teşhisi — 10 Kasım 2026
+
+- `voice._play_mp3` artık Windows MCI `open/play` dönüş kodlarını kontrol eder; hata, başarılı gibi geçilmez. `voice.speak` oynatma hatasında mevcut seçili sesi değiştirmeden görünür hata mesajı döner; indirilen geçici ses dosyaları temizlenir. Ses üretilmesiyle gerçekten oynatılması ayrı kabul aşamalarıdır.
+- Bu düzeltme Edge TTS'nin ses üretemediği servis/ağ arızasını çözmez, farklı ses seçmez ve gerçek hoparlörden ses duyulduğunu kanıtlamaz. VOICE Core geliştirmesi bundan bağımsızdır.
+
 ## Video araçları kurulumu ve çalışma testi
 
 Windows'ta isteğe bağlı `scripts/video_kurulum.bat`, kullanıcı Evet seçerse yalnız `winget install --id Gyan.FFmpeg --exact --source winget --scope user` çalıştırır. Uygulama kendiliğinden kurulum/indirme yapmaz. WinGet eksikse App Installer veya FFmpeg'in Windows dağıtımı gerekir. WinGet sonucu başarısızsa başarı denmez; kurulumdan sonra Jarvis yeniden başlatılır (PATH yenilenmesi). Paket kaynağı: https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/Gyan/FFmpeg .
