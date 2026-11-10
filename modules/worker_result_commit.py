@@ -141,10 +141,19 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
 
 
 def commit(accepted: dict) -> dict:
-    """Append one accepted result; only canonical CAS is retried, never a worker."""
+    """Append accepted evidence inside the existing short per-job save lock.
+
+    Legacy ExecutionRecord persistence already holds this lock across its
+    canonical sync and journal write. Share that exact cross-process lock for
+    WorkerResult CAS so an independent worker cannot change the canonical
+    version between journal fencing and journal persistence. No lock is held
+    while a worker, model, or provider action executes.
+    """
     evidence = _evidence(accepted)
     path = _path(accepted)
-    return _commit_once(accepted, evidence, path, retries=2)
+    from modules import goal_job_control
+    with goal_job_control.locked(path.parent, accepted['job_id']):
+        return _commit_once(accepted, evidence, path, retries=2)
 
 
 def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
