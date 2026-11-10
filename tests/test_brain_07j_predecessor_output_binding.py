@@ -140,6 +140,32 @@ class AcceptedPredecessorBindingTests(unittest.TestCase):
                 canonical, self.selection('grandchild'), self.outputs,
             )
 
+    def test_same_command_cannot_replay_different_output_under_same_plan(self):
+        original = self.commit('left')
+        before = self.state()
+        expected_fields = original['_worker_result']
+        forged_result = {
+            'state': 'done', 'text': 'different data',
+            'verification': {'fixture': 'left', 'test_only': True},
+        }
+        enriched, _ = runtime_worker_result.prepare(
+            identity('right'), 'research', DATA,
+        )
+        # Reconstruct only the already accepted command's immutable identity;
+        # a different *result* cannot be passed off as idempotent replay.
+        enriched.update({
+            key: value for key, value in expected_fields.items()
+            if key not in ('schema', 'status', 'evidence')
+        })
+        altered = worker_result_hook.wrap_output(forged_result, enriched)
+        with self.assertRaises(goal_state_store.PersistedStateConflict):
+            runtime_worker_result.accept_and_commit(
+                altered,
+                {key: value for key, value in expected_fields.items()
+                 if key not in ('schema', 'status', 'evidence')},
+            )
+        self.assertEqual(self.state(), before)
+
     def test_tampered_journal_body_fails_even_when_state_says_done(self):
         self.commit('left')
         self.commit('right')
