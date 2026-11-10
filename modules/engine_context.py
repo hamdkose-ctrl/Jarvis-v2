@@ -90,6 +90,8 @@ def _parse_voice(runtime, cmd_lower: str, partial: str | None = None) -> tuple[s
 def _set_voice(runtime, key: str) -> str:
     from modules import voice_runtime
     lane = voice_runtime.active()
+    if lane is None and voice_runtime.legacy_blocked():
+        return "Voice Core yapılandırması geçersiz; önceki ses tercihin değişmedi."
     label = runtime.voice.VOICES[key][0].split(' · ')[0]
     if lane is not None:
         try:
@@ -179,6 +181,8 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
             return "Erkek mi kadın mı?"
         from modules import voice_runtime
         lane = voice_runtime.active()
+        if lane is None and voice_runtime.legacy_blocked():
+            return "Voice Core yapılandırması hatalı; ses seçimi şu anda kapalı."
         if lane is not None:
             choices = ", ".join(spec.label for spec in lane.catalog.choices())
             return f"Kurulu katalogda tanımlanan yerel sesler: {choices}. Hangisi? Kullanılabilirlik model kurulumu ile doğrulanır."
@@ -188,8 +192,8 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
     m = runtime.re.search(r"(yavaş|hızlı)\w*\s+konuş|konuşma hızı|konuşmayı (yavaşlat|hızlandır)", cmd_lower)
     if m:
         from modules import voice_runtime
-        if voice_runtime.active() is not None:
-            return "Yerel Piper sesinde konuşma hızı ayarı henüz desteklenmiyor; mevcut hız değişmedi."
+        if voice_runtime.active() is not None or voice_runtime.legacy_blocked():
+            return "Yerel Piper sesinde konuşma hızı ayarı şu anda kullanılamıyor; mevcut hız değişmedi."
         slower = "yavaş" in m.group(0)
         cur = runtime.profile.data["prefs"].get("rate", -8)
         new = max(-40, min(40, (cur if isinstance(cur, int) else -8) + (-10 if slower else 10)))
