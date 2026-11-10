@@ -87,9 +87,41 @@ def _parse_voice(runtime, cmd_lower: str, partial: str | None = None) -> tuple[s
         key += "2"
     return key, None
 
+def set_profile_voice(profile, key: str, *, voices=None, lane=None) -> tuple[bool, str]:
+    """One profile mutation authority shared by typed web and spoken voice controls.
+
+    Neither UI nor model may bypass exact installed-voice checks. Keep this
+    function in engine_context rather than creating another preference writer.
+    """
+    from modules import voice_runtime
+    if lane is None and voice_runtime.legacy_blocked():
+        return False, "Voice Core yapılandırması geçersiz; önceki ses tercihin değişmedi."
+    if lane is not None:
+        try:
+            label = lane.check_voice(key).label
+        except (ValueError, OSError):
+            return False, "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
+    else:
+        entry = voices.get(key) if isinstance(voices, dict) else None
+        if entry is None:
+            return False, "Seçilen ses mevcut değil; önceki ses tercihin değişmedi."
+        label = entry[0].split(' · ')[0]
+    if lane is not None and profile.data["prefs"].get("voice") != key:
+        # Do not play queued speech from the previous identity after selection.
+        lane.interrupt()
+    profile.set_pref("voice", key)
+    return True, label
+
+
 def _set_voice(runtime, key: str) -> str:
-    runtime.profile.set_pref("voice", key)
-    return f"Tamam {runtime.profile.name}, artık {runtime.voice.VOICES[key][0].split(' · ')[0]} sesiyle konuşuyorum."
+    from modules import voice_runtime
+    ok, label = set_profile_voice(
+        runtime.profile, key, voices=runtime.voice.VOICES,
+        lane=voice_runtime.active(),
+    )
+    if not ok:
+        return label
+    return f"Tamam {runtime.profile.name}, artık {label} sesiyle konuşuyorum."
 
 def _switch_user(runtime, name: str, created: bool = False) -> str:
     """Aktif kullanıcıyı değiştirir; profil, hedefler ve sohbet geçmişi o kullanıcıya göre yüklenir."""
@@ -165,11 +197,21 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
         runtime._session().pending_voice = lang or "sor"
         if lang:
             return "Erkek mi kadın mı?"
+        from modules import voice_runtime
+        lane = voice_runtime.active()
+        if lane is None and voice_runtime.legacy_blocked():
+            return "Voice Core yapılandırması hatalı; ses seçimi şu anda kapalı."
+        if lane is not None:
+            choices = ", ".join(spec.label for spec in lane.catalog.choices())
+            return f"Kurulu katalogda tanımlanan yerel sesler: {choices}. Hangisi? Kullanılabilirlik model kurulumu ile doğrulanır."
         return ("Sesler: Kerem (Türkçe erkek), Defne (Türkçe kadın), Liam ve Noah (çok dilli erkek), "
                 "Olivia ve Mia (çok dilli kadın). İngilizce çalışıyorsan çok dilli sesler İngilizceyi de doğru okur. Hangisi?")
 
     m = runtime.re.search(r"(yavaş|hızlı)\w*\s+konuş|konuşma hızı|konuşmayı (yavaşlat|hızlandır)", cmd_lower)
     if m:
+        from modules import voice_runtime
+        if voice_runtime.active() is not None or voice_runtime.legacy_blocked():
+            return "Yerel Piper sesinde konuşma hızı ayarı şu anda kullanılamıyor; mevcut hız değişmedi."
         slower = "yavaş" in m.group(0)
         cur = runtime.profile.data["prefs"].get("rate", -8)
         new = max(-40, min(40, (cur if isinstance(cur, int) else -8) + (-10 if slower else 10)))

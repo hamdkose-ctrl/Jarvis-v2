@@ -704,7 +704,9 @@ class FastAuthorityTests(_CanonicalAuthorityHarness):
             entry, out, handle, _ = self.turn("konuşmayı durdur")
         self.assertEqual(entry.fast_gate.protocol, "fast.speech.stop")
         self.ctx.voice.stop_speaking.assert_called_once_with()
-        cancel.assert_called_once_with(self.owner)
+        # "Konuşmayı durdur" is an audio-only command. It must not cancel
+        # an unrelated background Core job; explicit "dur" is separate.
+        cancel.assert_not_called()
         handle.assert_not_called()
         self.assertEqual(out, "Konuşmayı durdurdum.")
 

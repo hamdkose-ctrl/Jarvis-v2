@@ -308,7 +308,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "fast_system_status":
             return runtime.desktop.system_status()
         case "fast_speech_stop":
-            requests_state.cancel(runtime.profile.slug)
+            # A speech-only command must never cancel a Core/GoalState job.
             runtime.voice.stop_speaking()
             return "Konuşmayı durdurdum."
         case "screen_analyze":

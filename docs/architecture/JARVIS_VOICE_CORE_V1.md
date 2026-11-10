@@ -49,3 +49,32 @@ VOICE-01 tests use fake adapters without microphone, speaker, network or model. 
 `modules/voice_offline.py` provides an explicitly provisioned `PiperSynthesizer` and `WavePlayer`. A developer supplies `model_root`, installs the Piper executable and approved Turkish `.onnx` models, and registers exact `VoiceSpec(voice_id, label, 'piper', asset_id)` entries. No code path downloads/installs a model, uses a cloud provider, invokes Ollama, or selects a substitute identity. The adapter validates model-root confinement and regular non-symlink files; it generates an ephemeral PCM WAV, validates metadata/data and deletes intermediates. `WavePlayer` streams frames to the configured Windows output via `sounddevice.RawOutputStream`, cooperatively respecting an audio-only cancellation event.
 
 The adapter is not wired into `engine_loop` or the installed user's profile yet. No Piper executable, voice pack or SAPI fallback is bundled. The real PC must establish installed model integrity/licence, Turkish quality, low latency under concurrent Core work, output device and Windows master/per-app volume, and reliable user interruption before enabling this route. The mock tests demonstrate only the isolated adapter contract.
+
+
+## VOICE-02A — Explicitly opt-in live bridge (production path, disabled by default)
+
+`modules/voice_runtime.py` is the sole optional speech-output owner when explicitly enabled. The default without config remains the pre-existing Edge/SAPI route, because no licensed Turkish male/female models are bundled. A developer/operator must first supply Piper and approved models, inspect license and verify real Windows audio. No automatic model install or voice switching.
+
+The operator creates `<DATA_DIR>/voice_core.json` with **exact** schema:
+
+```json
+{
+  "schema": "voice_core.config.v1",
+  "enabled": true,
+  "voices": {
+    "tr_erkek": {"label": "Kurulu erkek sesinin gerçek adı", "model": "approved-male.onnx"},
+    "tr_kadin": {"label": "Kurulu kadın sesinin gerçek adı", "model": "approved-female.onnx"}
+  }
+}
+```
+
+These are **illustrative filenames, not supplied assets**. Put only approved, installed `.onnx` models (with required model-specific config/metadata) under `<DATA_DIR>/voice_models/`, with an installed `piper` executable on the PATH. Existing user's `prefs.voice` key is the only selection authority; default identity is `tr_erkek` if unset, never an arbitrary other voice. Only configured entries can be selected. Voice selection checks that the exact model and Piper executable exist; no silent alternative Edge/SAPI voice is used if unavailable. No user data or audio is sent to the network by this route. The profile's legacy speech rate preference is **not yet mapped to Piper prosody**; slow-reading parity is an open acceptance criterion.
+
+Operational boundaries:
+- `VoiceSession.speak` enqueues work to `VoiceCoordinator` and returns immediately, allowing the request/GoalState worker to continue. Foreground speech can preempt queued or currently producing background audio through the existing cooperative cancellation token.
+- `voice.stop_speaking` also interrupts the single active local lane, covering web, PC guidance, emergency and keyboard stop callers. It does not cancel any Core job; explicit `dur`/`stop` task cancellation still follows the separate Core command.
+- When speech is busy, the normal microphone transcription path is gated against Jarvis's own audio. A separate wakeword barge-in listener may interrupt output only when that wakeword stack is installed and ready. This is **not** a validated full-duplex AEC implementation.
+- A broken explicit voice config fails closed rather than silently playing the legacy voice. Closing the engine clears the active speech owner.
+- The callback means the sound buffer was submitted/returned by the output adapter, **not that a person actually heard the audio**. Long text chunking, speech rate/prosody, runtime device diagnostics and real PC audibility are additional acceptance gates.
+
+VOICE-02A tests run with fake audio and no network/model/OS playback. Before enabling on a real PC: verify licence and actual male/female Turkish model files, microphone no-feedback behavior, explicit voice selection persistence, interruption and background GoalState progress, full Windows CI on exact PR head, same-SHA PC watcher, and human listening with correct output device/volume. Keep the new route opt-in until all checks pass. Do not delete the old voice path until production parity is proven.

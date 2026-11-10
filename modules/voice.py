@@ -157,7 +157,10 @@ def _off_notice(announce: bool) -> None:
     _last_off_notice = time.time()
     m = "Yalnızca yerel" if privacy.mode() == "yerel" else "Gizli"
     try:
-        speak(f"{m} modda sesin dışarı gitmemesi için sesli komut kapalı. Lütfen yazarak söyle.")
+        message = f"{m} modda sesin dışarı gitmemesi için sesli komut kapalı. Lütfen yazarak söyle."
+        from modules import voice_runtime
+        if not voice_runtime.announce_active(message):
+            speak(message)
     except Exception:   # noqa: BLE001
         _record_failure('modules/voice.py:_off_notice')
         pass
@@ -269,6 +272,13 @@ def _clean(text: str) -> str:
 
 def stop_speaking():
     """Okunmakta olan sesi hemen keser (başka thread'den çağrılabilir)."""
+    # Central interception covers web mute/emergency/PC guide/voice commands.
+    # No second speech player is created or selected by this stop operation.
+    try:
+        from modules import voice_runtime
+        voice_runtime.interrupt_active()
+    except Exception:
+        _record_failure('modules/voice.py:stop_voice_core')
     _stop_flag.set()
     try:
         from modules import live
