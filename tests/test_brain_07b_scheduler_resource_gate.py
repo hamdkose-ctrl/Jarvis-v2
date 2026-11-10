@@ -220,6 +220,25 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
                     )
         self.assertFalse(self.leases.occupied("pc_desktop"))
 
+    def test_goal_observe_requires_its_existing_typed_input_schema(self):
+        invalid = snapshot(nodes=[
+            node("look", "goal.observe", payload={"resource_key": "pc_desktop"}),
+        ])
+        with self.assertRaises(ValueError):
+            scheduler_resource_gate.admit(
+                self.leases, invalid, candidate(invalid, "look"), attempt=1,
+            )
+        valid = snapshot(nodes=[
+            node("look", "goal.observe", payload={
+                "kind": "screen", "question": "What is on screen?",
+            }),
+        ])
+        ticket = scheduler_resource_gate.admit(
+            self.leases, valid, candidate(valid, "look"), attempt=1,
+        )
+        self.assertEqual(ticket.keys, ("pc_desktop",))
+        self.assertTrue(self.leases.validate(ticket))
+
     def test_reject_model_supplied_resource_key_without_valid_capability_mapping(self):
         state = snapshot(nodes=[
             node("bad", "goal.document", payload={"resource_key": "pc_desktop"}),
