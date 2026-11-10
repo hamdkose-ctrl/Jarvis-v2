@@ -120,6 +120,39 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertIn("değişmedi", message)
         lane.check_voice.assert_called_once_with("tr_erkek")
 
+    def test_valid_local_voice_selection_stops_queued_old_identity(self):
+        from modules.engine_context import _set_voice
+        person = self.rt.profile
+        person.name = "Deneme"
+        person.set_pref = lambda key, value: person.data["prefs"].__setitem__(key, value)
+        self.rt.voice = SimpleNamespace(VOICES={
+            "tr_erkek": ("Kerem · Türkçe", "edge"),
+            "tr_kadin": ("Defne · Türkçe", "edge"),
+        })
+        lane = Mock()
+        lane.check_voice.return_value = VoiceSpec("tr_erkek", "Yerel erkek", "piper", "male.onnx")
+        with patch("modules.voice_runtime.active", return_value=lane):
+            result = _set_voice(self.rt, "tr_erkek")
+        self.assertEqual(person.data["prefs"]["voice"], "tr_erkek")
+        self.assertIn("Yerel erkek", result)
+        lane.interrupt.assert_called_once()
+
+    def test_invalid_explicit_config_blocks_old_privacy_notice(self):
+        self.assertFalse(voice_runtime.announce_active("notice"))
+        voice_runtime.block_legacy_on_fault()
+        self.assertTrue(voice_runtime.announce_active("notice"))
+        # A subsequent absent configuration is an explicit return to legacy.
+        voice_runtime.maybe_start(self.rt)
+        self.assertFalse(voice_runtime.announce_active("notice"))
+
+    def test_muted_voice_never_enqueues_privacy_notice(self):
+        self.rt.flags["speak"] = False
+        lane = Mock()
+        lane.runtime = self.rt
+        with patch("modules.voice_runtime.active", return_value=lane):
+            self.assertTrue(voice_runtime.announce_active("do not play"))
+        lane.say.assert_not_called()
+
     def test_disabled_config_does_not_take_output_ownership(self):
         self._config(enabled=False)
         lane, enabled = voice_runtime.maybe_start(self.rt)
