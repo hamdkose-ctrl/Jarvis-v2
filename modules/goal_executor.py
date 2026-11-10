@@ -412,6 +412,15 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    # Reject forged/stale canonical predecessor outputs BEFORE setting the
+    # durable step to running, creating its checkpoint, or marking it started.
+    # Only a versioned executor job uses this path; the specialist boundary
+    # repeats the same proof immediately before any possible worker launch.
+    if step.get('depends') and job.get('_canonical_version') is not None:
+        from modules import dependency_evidence
+        dependency_evidence.preflight_durable_step(
+            _identity(job,step), step, job.get('outputs'),
+        )
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     from modules import brain_delegate,specialist_orchestrator
