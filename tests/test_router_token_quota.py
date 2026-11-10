@@ -1,5 +1,6 @@
 """Developer token-cap reservations; all data and model adapters are synthetic."""
 import concurrent.futures
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -59,7 +60,7 @@ class AtomicTokenQuotaTests(unittest.TestCase):
 
     def test_legacy_request_counts_have_unknown_cost_not_zero(self):
         path=self.directory/'atomic_requests.sqlite3'
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute('CREATE TABLE requests (owner TEXT, provider TEXT, '
                        'model TEXT, stamp REAL)')
             db.execute('INSERT INTO requests VALUES(?,?,?,?)',
