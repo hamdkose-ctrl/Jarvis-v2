@@ -1,0 +1,434 @@
+{
+  "version": 1,
+  "note": "Fresh independently authored goal phrasing; synthetic owner-bounded identities; test-only; no dispatch.",
+  "cases": [
+    {
+      "id": "g05f-01",
+      "group": "create",
+      "text": "Yeni hedef olarak yazılım sürüm notlarını hazırlamayı kaydet.",
+      "goals": [],
+      "expected": {
+        "operation": "create_goal",
+        "targets": [],
+        "goal_card": true
+      }
+    },
+    {
+      "id": "g05f-02",
+      "group": "create",
+      "text": "Bir hedef daha oluştur: müşteri geri bildirimlerini sınıflandırmak.",
+      "goals": [],
+      "expected": {
+        "operation": "create_goal",
+        "targets": [],
+        "goal_card": true
+      }
+    },
+    {
+      "id": "g05f-03",
+      "group": "continue",
+      "text": "Fatura kontrolü hedefine kaldığımız yerden devam edelim.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "continue_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-04",
+      "group": "continue",
+      "text": "Yalnızca eğitim kılavuzu işini sürdür.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "continue_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-05",
+      "group": "pause",
+      "text": "Fatura kontrolü hedefine şimdilik ara ver.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "pause_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-06",
+      "group": "pause",
+      "text": "Eğitim kılavuzu projesini beklemeye al.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "pause_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-07",
+      "group": "resume",
+      "text": "Daha önce duraklattığımız fatura kontrolü hedefine geri dön.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "paused"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "resume_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-08",
+      "group": "resume",
+      "text": "Eğitim kılavuzu hedefini yeniden etkinleştir.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "paused"
+        }
+      ],
+      "expected": {
+        "operation": "resume_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-09",
+      "group": "cancel",
+      "text": "Fatura kontrolü hedefini iptal et; eğitim kılavuzuna dokunma.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "cancel_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-10",
+      "group": "cancel",
+      "text": "Eğitim kılavuzu hedefini kapat ve iptal et.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "cancel_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-11",
+      "group": "prioritize",
+      "text": "Eğitim kılavuzunu öncelik listesinde en üst sıraya al.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "prioritize_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-12",
+      "group": "prioritize",
+      "text": "Fatura kontrolü hedefine daha yüksek öncelik ver.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "prioritize_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-13",
+      "group": "revise",
+      "text": "Fatura kontrolü hedefinin kapsamını değiştir: artık sadece yurtdışı faturaları.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "revise_goal",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-14",
+      "group": "revise",
+      "text": "Eğitim kılavuzu hedefini yeni başlayanlar için yeniden düzenle.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "revise_goal",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-15",
+      "group": "add_task",
+      "text": "Fatura kontrolüne ödeme tarihlerini karşılaştırma adımı ekle.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "add_task",
+        "targets": [
+          "1111111111111111"
+        ]
+      }
+    },
+    {
+      "id": "g05f-16",
+      "group": "add_task",
+      "text": "Eğitim kılavuzu hedefine örnek ekran görüntülerini toplama görevini ekle.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "add_task",
+        "targets": [
+          "2222222222222222"
+        ]
+      }
+    },
+    {
+      "id": "g05f-17",
+      "group": "ambiguity",
+      "text": "Bu iki hedeften birini beklemeye al.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "clarify",
+        "targets": []
+      }
+    },
+    {
+      "id": "g05f-18",
+      "group": "ambiguity",
+      "text": "Bir hedefi iptal et; hangisini kastettiğimi henüz söylemedim.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "clarify",
+        "targets": []
+      }
+    },
+    {
+      "id": "g05f-19",
+      "group": "negation",
+      "text": "Eğitim kılavuzu hedefini iptal etme; yalnızca iptalin sonucunu açıkla.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "chat",
+        "targets": []
+      }
+    },
+    {
+      "id": "g05f-20",
+      "group": "negation",
+      "text": "Fatura kontrolü hedefini duraklatma; sadece duraklatmanın ne demek olduğunu anlat.",
+      "goals": [
+        {
+          "id": "1111111111111111",
+          "title": "fatura kontrolü",
+          "state": "running"
+        },
+        {
+          "id": "2222222222222222",
+          "title": "eğitim kılavuzu",
+          "state": "running"
+        }
+      ],
+      "expected": {
+        "operation": "chat",
+        "targets": []
+      }
+    }
+  ]
+}

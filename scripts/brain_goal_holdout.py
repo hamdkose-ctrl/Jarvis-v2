@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from scripts import brain_output_diagnose_holdout as base
 
 CORPUS = ROOT / 'tests/data/brain_goal_holdout.json'
+FRESH_CORPUS = ROOT / 'tests/data/brain_goal_holdout_fresh.json'
 
 
 def ask(owner, case, index):
@@ -82,14 +83,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true')
     parser.add_argument('--connection-only', action='store_true')
+    parser.add_argument('--suite', choices=('baseline','fresh'), default='baseline',
+                        help='Use fresh, independent synthetics without altering original acceptance.')
     parser.add_argument('--json', type=Path)
     parser.add_argument('--interval-seconds', type=float, default=35)
     args = parser.parse_args(argv)
     if not 0 <= args.interval_seconds <= 120:
         parser.error('--interval-seconds must be between 0 and 120')
-    cases = json.loads(CORPUS.read_text(encoding='utf-8'))['cases']
-    if len(cases) != 20:
-        raise ValueError('BRAIN-05 holdout requires exactly 20 cases.')
+    selected = CORPUS if args.suite == 'baseline' else FRESH_CORPUS
+    cases = json.loads(selected.read_text(encoding='utf-8'))['cases']
+    if len(cases) != 20 or len({row['id'] for row in cases}) != 20:
+        raise ValueError('BRAIN-05 holdout requires exactly 20 unique cases.')
     if args.connection_only:
         cases = cases[:1]
     if not args.run:
@@ -97,9 +101,9 @@ def main(argv=None):
         return 0
     head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip()
     report = {
-        'head':head, 'corpus_sha256':hashlib.sha256(CORPUS.read_bytes()).hexdigest(),
+        'head':head, 'corpus_sha256':hashlib.sha256(selected.read_bytes()).hexdigest(),
         'generated_at':datetime.now(timezone.utc).isoformat(), 'state':'unmeasured',
-        'scope':'connection' if args.connection_only else 'goal_holdout',
+        'scope':'connection' if args.connection_only else ('goal_holdout_fresh' if args.suite == 'fresh' else 'goal_holdout'),
         'semantic_acceptance':False,
     }
     try:

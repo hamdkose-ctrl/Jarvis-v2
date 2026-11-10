@@ -23,6 +23,29 @@ class GoalHoldoutTests(unittest.TestCase):
             self.assertTrue(set(row['expected']['targets']) <= ids)
             self.assertTrue(all(len(g['id']) == 16 for g in row['goals']))
 
+    def test_fresh_suite_is_independent_and_never_uses_real_goals(self):
+        baseline = json.loads(goal.CORPUS.read_text(encoding='utf-8'))['cases']
+        fresh = json.loads(goal.FRESH_CORPUS.read_text(encoding='utf-8'))['cases']
+        self.assertEqual(len(fresh),20)
+        self.assertEqual(len({x['id'] for x in fresh}),20)
+        self.assertFalse({x['text'] for x in baseline} & {x['text'] for x in fresh})
+        self.assertFalse({x['id'] for x in baseline} & {x['id'] for x in fresh})
+        self.assertTrue(all(x['id'].startswith('g05f-') for x in fresh))
+        allowed = {'create_goal','continue_goal','revise_goal','add_task','pause_goal',
+                   'resume_goal','cancel_goal','prioritize_goal','clarify','chat'}
+        for row in fresh:
+            self.assertIn(row['expected']['operation'],allowed)
+            goals = row['goals']
+            self.assertTrue(all(len(g['id'])==16 and g['id'] in {'1111111111111111','2222222222222222'} for g in goals))
+            self.assertTrue(set(row['expected']['targets']) <= {g['id'] for g in goals})
+        self.assertEqual([x['expected']['operation'] for x in fresh].count('chat'),2)
+        self.assertEqual([x['expected']['operation'] for x in fresh].count('clarify'),2)
+
+    def test_fresh_suite_dry_run_does_not_call_preflight_or_dispatch(self):
+        with patch.object(goal.base,'preflight',side_effect=AssertionError('must not run')), \
+             patch.object(goal,'measure',side_effect=AssertionError('must not run')):
+            self.assertEqual(goal.main(['--suite','fresh']),0)
+
     def test_scoring_rejects_wrong_target_even_when_operation_correct(self):
         case = json.loads(goal.CORPUS.read_text(encoding='utf-8'))['cases'][5]
         self.assertEqual(case['expected']['operation'], 'pause_goal')
