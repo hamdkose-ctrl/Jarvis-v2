@@ -131,6 +131,50 @@ class CanonicalReadinessTests(unittest.TestCase):
         self.assertEqual(self.ready(), ('right', 'dependent'))
         self.assertEqual(len(goal_state_store.load(self.path)['evidence']), 1)
 
+    def test_existing_lease_gate_rejects_already_committed_root(self):
+        from modules import resource_leases, scheduler_resource_gate
+        screen = {
+            'id': 'screen', 'depends_on': [],
+            'capability_id': 'goal.observe',
+            'input': {'kind': 'screen', 'question': 'Describe the visible window'},
+            'expected_output': 'verified screen observation',
+            'acceptance': 'verified read-only observation',
+        }
+        state = self.mutate(
+            'set_goal_plan', reason='TEST_READ_ONLY_PLAN',
+            plan={'plan_version': 2, 'nodes': [screen]},
+        )
+        table = resource_leases.LeaseTable()
+        selected = goal_plan_gate.candidate(
+            state, owner=OWNER, job_id=JOB, node_id='screen',
+        )
+        ticket = scheduler_resource_gate.admit(
+            table, state, selected, attempt=1,
+        )
+        self.assertTrue(table.validate(ticket))
+        enriched, expected = runtime_worker_result.prepare(
+            ident('screen'), 'observe', screen['input'],
+        )
+        wrapped = worker_result_hook.wrap_output({
+            'state': 'done', 'local_evidence': 'observe', 'owner': OWNER,
+            'text': 'synthetic fixture',
+        }, enriched)
+        runtime_worker_result.accept_and_commit(wrapped, expected)
+        newer = goal_state_store.load(self.path)
+        fresh = goal_plan_gate.candidate(
+            newer, owner=OWNER, job_id=JOB, node_id='screen',
+        )
+        with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+            scheduler_resource_gate.validate_before_dispatch(
+                table, newer, fresh, ticket, attempt=1,
+            )
+        table.release(ticket)
+        with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+            scheduler_resource_gate.admit(
+                table, newer, fresh, attempt=2,
+            )
+        self.assertFalse(table.occupied('pc_desktop'))
+
     def test_untrusted_worker_shape_without_worker_accept_audit_is_rejected(self):
         self.mutate(
             'append_evidence', reason='USER_EVIDENCE',
