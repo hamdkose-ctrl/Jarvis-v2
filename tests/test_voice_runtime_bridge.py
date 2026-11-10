@@ -138,9 +138,23 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         lane.interrupt.assert_called_once()
 
     def test_invalid_explicit_config_blocks_old_privacy_notice(self):
+        from modules.engine_context import _set_voice
+        from web_voice import WebVoice
         self.assertFalse(voice_runtime.announce_active("notice"))
         voice_runtime.block_legacy_on_fault()
         self.assertTrue(voice_runtime.announce_active("notice"))
+        person = self.rt.profile
+        person.name = "Deneme"
+        person.set_pref = Mock()
+        self.rt.voice = SimpleNamespace(VOICES={"tr_kadin": ("Defne · Türkçe", "edge")})
+        bridge = WebVoice()
+        bridge._runtime = SimpleNamespace(_p=lambda: person)
+        self.assertEqual(bridge.voice_options()["voices"], [])
+        self.assertIn("error", bridge.voice_options())
+        self.assertFalse(bridge.voice_set("tr_kadin"))
+        self.assertFalse(bridge.rate_set(20))
+        self.assertIn("değişmedi", _set_voice(self.rt, "tr_kadin"))
+        person.set_pref.assert_not_called()
         # A subsequent absent configuration is an explicit return to legacy.
         voice_runtime.maybe_start(self.rt)
         self.assertFalse(voice_runtime.announce_active("notice"))
