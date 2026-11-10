@@ -358,6 +358,23 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
                 worker.assert_not_called()
                 self.assertEqual(altered['state'], 'pending')
 
+    def test_record_preflight_does_not_depend_on_transient_version_marker(self):
+        self.both()
+        self.job.pop('_canonical_version')
+        altered = {**self.step, 'depends': [], 'state': 'pending'}
+        with (patch.object(dependency_evidence, 'preflight_durable_step',
+                           wraps=dependency_evidence.preflight_durable_step) as preflight,
+              patch.object(goal_executor, '_save') as save,
+              patch.object(goal_tools, 'checkpoint') as checkpoint,
+              patch('modules.specialist_orchestrator.execute_step') as worker):
+            with self.assertRaises(goal_plan_gate.PlanFenceError):
+                goal_executor._record(self.runtime, self.job, altered)
+        preflight.assert_called_once()
+        save.assert_not_called()
+        checkpoint.assert_not_called()
+        worker.assert_not_called()
+        self.assertEqual(altered['state'], 'pending')
+
     def test_unplanned_legacy_dependency_behavior_is_unchanged(self):
         state = goal_state_store.load(self.canonical_path)
         # Replace test fixture with a standalone canonical snapshot without

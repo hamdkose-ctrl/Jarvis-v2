@@ -412,10 +412,13 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
-    # Run the canonical fence even if the step claims zero dependencies:
-    # stripping 'depends' must not bypass preflight before any checkpoint.
-    # Unplanned/legacy jobs keep their original path (preflight returns None).
-    if job.get('_canonical_version') is not None:
+    # A transient version marker is not authority: if the canonical sidecar
+    # still exists, a forged/missing _canonical_version must not allow a
+    # dependent step to checkpoint before preflight. Legacy jobs without a
+    # sidecar retain the previous path.
+    canonical_path = _root(job['owner']) / (job['id'] + '.goalstate.json')
+    if (job.get('_canonical_version') is not None
+            or canonical_path.exists() or canonical_path.is_symlink()):
         from modules import dependency_evidence
         dependency_evidence.preflight_durable_step(
             _identity(job,step), step, job.get('outputs'),
