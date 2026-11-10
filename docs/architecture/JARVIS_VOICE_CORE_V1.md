@@ -118,4 +118,6 @@ Every `SpeechRequest` snapshots the bounded rate. `VoiceCoordinator` attaches it
 
 Web UI reports `rate_supported=true` **only** when a local `VoiceLane` is active. When disabled, it retains its existing legacy mode behavior. When configured but broken it reports unavailable. `tests/test_voice_speed.py`, `test_voice_offline.py` and `test_voice_runtime_bridge.py` use mocked synthesizers and output to check rate bounds, correct Piper command, exact model identity and profile ownership.
 
+VOICE-02B manual listening CLI also accepts `--rate -20`, `--rate 0` or `--rate 20` with the **same** `--voice-id`, `--model`, `--model-root` and `--license-reviewed`; it reports `requested_rate` without asserting the sound has the requested duration/quality. This command must be run by a human on their Windows speakers for each explicitly approved model. Invalid rate or missing licence confirmation fails before audio. It does not change the persisted user preference.
+
 **This is not yet human-audible rate/prosody acceptance.** Operator must test actual Piper CLI version, selected Turkish models at slow/normal/fast rates on Windows speakers, pronunciation and latency between long-speech chunks. Keep VOICE-02A opt-in, no unapproved model downloads or replacement of the active voice until manually accepted with the VOICE-02B procedure.
