@@ -96,6 +96,10 @@ def _set_voice(runtime, key: str) -> str:
             label = lane.check_voice(key).label
         except (ValueError, OSError):
             return "Bu sesin yerel modeli veya Piper motoru kurulu değil. Önceki ses tercihin değişmedi."
+    if lane is not None and runtime.profile.data["prefs"].get("voice") != key:
+        # Old queued utterances belong to the former selected identity.
+        # Switching a voice must not keep playing a mixed old/new queue.
+        lane.interrupt()
     runtime.profile.set_pref("voice", key)
     return f"Tamam {runtime.profile.name}, artık {label} sesiyle konuşuyorum."
 
