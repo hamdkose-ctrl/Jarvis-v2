@@ -235,6 +235,10 @@ class VoiceCoordinator:
                         if cancel.is_set():
                             status, reason = "cancelled", "VOICE_INTERRUPTED"
                             break
+                        if not chunk.strip():
+                            # Pure whitespace is a non-audio separator, never
+                            # an extra Piper invocation or a fake failure.
+                            continue
                         audio = self._synthesize(spec, chunk, cancel)
                         if cancel.is_set():
                             status, reason = "cancelled", "VOICE_INTERRUPTED"
