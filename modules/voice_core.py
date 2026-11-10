@@ -48,11 +48,13 @@ class SpeechRequest:
     voice_id: str
     text: str
     lane: str = "foreground"  # foreground conversation or background notification
+    rate: int = -8
 
     def __post_init__(self):
         if (not all(isinstance(x, str) and x.strip()
                     for x in (self.owner, self.request_id, self.voice_id, self.text))
-                or len(self.text) > 12000 or self.lane not in {"foreground", "background"}):
+                or len(self.text) > 12000 or self.lane not in {"foreground", "background"}
+                or type(self.rate) is not int or not -50 <= self.rate <= 50):
             raise ValueError("Invalid speech request.")
 
 
@@ -75,7 +77,7 @@ class VoiceCoordinator:
     def __init__(
         self,
         catalog: VoiceCatalog,
-        synthesize: Callable[[VoiceSpec, str, threading.Event], bytes],
+        synthesize: Callable[[VoiceSpec, SpeechRequest, threading.Event], bytes],
         play: Callable[[bytes, threading.Event], None],
         report: Callable[[SpeechReceipt], None],
         *,
@@ -155,7 +157,7 @@ class VoiceCoordinator:
                     self._notify(request, "cancelled", "VOICE_INTERRUPTED")
                     continue
                 try:
-                    audio = self._synthesize(spec, request.text, cancel)
+                    audio = self._synthesize(spec, request, cancel)
                     if cancel.is_set():
                         self._notify(request, "cancelled", "VOICE_INTERRUPTED")
                     elif not isinstance(audio, bytes) or not audio:
