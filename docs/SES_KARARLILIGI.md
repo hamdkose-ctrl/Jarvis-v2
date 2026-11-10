@@ -52,3 +52,9 @@ başarılı ses gönderimi, ilk kullanıcı transkripti, ilk model ses paketi ve
 ilk yanıtın output stream'e yazılması sürelerini gösterir. Uyanma bip'i yanıt
 sayılmaz. `output_write` donanımdan duyulma onayı değildir; sürücü gecikmesi
 buna eklenebilir. 0,6–0,8 saniyelik oynatma tamponu değiştirilmemiştir.
+
+## Ses susturma ve görev iptalinin ayrılması — 10 Kasım 2026
+
+Kullanıcının `sus`, `yeter`, `sesini kes` ve `konuşmayı kes` komutları yalnız oynatılan sesi durdurur. İlgili kullanıcının aktif Core/Brain isteği ve arka plan görevi `requests_state.cancel` ile iptal edilmez; sesli uyarı bekleyen bir işin kendisi değildir. Önceki doğrudan `dur` ve `stop` komutlarının aktif isteği iptal etme davranışı korunur. Bu ayırım yalnız komut yönlendirme aşamasına aittir; yeni Voice Coordinator üretim hattına henüz bağlanmamıştır.
+
+Birim testi ses durdurma çağrısının yapıldığını ve görev iptali/PC guide stop çağrılarının yapılmadığını doğrular; gerçek Windows ses ve görev paralelliği ayrıca kabul edilmelidir.
