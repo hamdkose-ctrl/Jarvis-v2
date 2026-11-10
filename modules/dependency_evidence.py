@@ -173,4 +173,32 @@ def preflight_durable_step(
         )
     if not depends:
         return {}
-    return bind_predecessor_outputs(state, selected, journal_outputs)
+
+    # Read from the existing durable ExecutionRecord, not merely a mutable
+    # in-memory job dict supplied to the worker adapter. A canonical dependent
+    # must never be launched from an unpersisted or legacy-only output claim.
+    from modules import execution_record, goal_executor
+    root = goal_executor._root(selected.owner)
+    path = execution_record.path_for(root, selected.job_id)
+    if path.is_symlink() or not path.is_file():
+        raise goal_plan_gate.PlanFenceError(
+            'Canonical dependent requires a persisted ExecutionRecord.'
+        )
+    try:
+        persisted = execution_record.load(
+            root, selected.owner, selected.job_id,
+        )
+    except (OSError, ValueError, TypeError, PermissionError):
+        raise goal_plan_gate.PlanFenceError(
+            'Cannot validate persisted ExecutionRecord.'
+        ) from None
+    disk_outputs = persisted.get('outputs')
+    if not isinstance(disk_outputs, dict) or any(
+        key not in journal_outputs or key not in disk_outputs
+        or journal_outputs[key] != disk_outputs[key]
+        for key in depends
+    ):
+        raise goal_plan_gate.PlanFenceError(
+            'In-memory dependent input differs from persisted ExecutionRecord.'
+        )
+    return bind_predecessor_outputs(state, selected, disk_outputs)
