@@ -75,8 +75,8 @@ class OfflineVoiceTests(unittest.TestCase):
             commands.append(args)
             Path(args[args.index("-f") + 1]).write_bytes(wav_bytes())
             return FakeProcess()
-        with patch("modules.voice_offline.shutil.which", return_value="C:/bin/piper.exe"), \\
-             patch("modules.voice_offline.subprocess.Popen", side_effect=popen):
+        with (patch("modules.voice_offline.shutil.which", return_value="C:/bin/piper.exe"),
+              patch("modules.voice_offline.subprocess.Popen", side_effect=popen)):
             base = self.spec("female.onnx")
             self.assertEqual(PiperSynthesizer(self.root)(
                 VoiceSpec(base.voice_id, base.label, base.backend, base.asset_id,
