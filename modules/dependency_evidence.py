@@ -124,7 +124,8 @@ def bind_predecessor_outputs(
 
 
 def preflight_durable_step(
-    identity: dict, step: dict, journal_outputs: dict,
+    identity: dict, step: dict, journal_outputs: dict, *,
+    owner: str | None = None, job_id: str | None = None,
 ) -> dict[str, dict] | None:
     """Validate canonical dependent inputs at the existing specialist boundary.
 
@@ -134,8 +135,31 @@ def preflight_durable_step(
     runtime_worker_result.prepare and worker_result_commit still deny
     dependent execution until the separate Core dispatch cutover.
     """
-    from modules import capability_manifest, runtime_worker_result
+    from modules import (
+        capability_manifest, goal_executor, goal_state_store,
+        runtime_worker_result,
+    )
+    if not isinstance(identity, dict):
+        raise goal_plan_gate.PlanFenceError('Specialist identity invalid.')
+    if ((owner is not None and identity.get('owner') != owner)
+            or (job_id is not None and identity.get('job_id') != job_id)):
+        raise goal_plan_gate.PlanFenceError(
+            'Specialist identity differs from durable execution owner/job.'
+        )
     if not runtime_worker_result.durable_identity(identity):
+        # A planned canonical job cannot escape dependency proof simply by
+        # supplying an old, unversioned specialist identity. The former
+        # unplanned/legacy specialist path is preserved.
+        if isinstance(owner, str) and isinstance(job_id, str):
+            path = goal_executor._root(owner) / (job_id + '.goalstate.json')
+            try:
+                current = goal_state_store.load(path)
+            except FileNotFoundError:
+                return None
+            if current.get('goal_plan') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical dependent requires durable worker identity.'
+                )
         return None
     if not isinstance(step, dict) or not isinstance(journal_outputs, dict):
         raise goal_plan_gate.PlanFenceError('Durable step or outputs invalid.')
@@ -177,7 +201,7 @@ def preflight_durable_step(
     # Read from the existing durable ExecutionRecord, not merely a mutable
     # in-memory job dict supplied to the worker adapter. A canonical dependent
     # must never be launched from an unpersisted or legacy-only output claim.
-    from modules import execution_record, goal_executor
+    from modules import execution_record
     root = goal_executor._root(selected.owner)
     path = execution_record.path_for(root, selected.job_id)
     if path.is_symlink() or not path.is_file():
