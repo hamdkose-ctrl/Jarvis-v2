@@ -420,6 +420,7 @@ def _record(runtime,job,step,approval=None):
         from modules import dependency_evidence
         dependency_evidence.preflight_durable_step(
             _identity(job,step), step, job.get('outputs'),
+            owner=job['owner'], job_id=job['id'],
         )
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
