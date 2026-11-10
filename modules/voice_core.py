@@ -36,6 +36,10 @@ class VoiceCatalog:
             raise ValueError("Voice catalog must contain unique, named voices.")
         self._by_id = {item.voice_id: item for item in specs}
 
+    def choices(self) -> tuple[VoiceSpec, ...]:
+        """Expose developer-approved choices without mutating the active voice."""
+        return tuple(self._by_id.values())
+
     def require(self, voice_id: str) -> VoiceSpec:
         try:
             return self._by_id[voice_id]
