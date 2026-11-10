@@ -172,6 +172,19 @@ class ModularEngineTests(unittest.TestCase):
         self.assertTrue(context.pause_listening.is_set())
         self.assertEqual(context.events.get_nowait()[1],'merhaba')
 
+    def test_silence_only_does_not_cancel_active_work(self):
+        context=self.context();context.emit=Mock()
+        context.voice=SimpleNamespace(stop_speaking=Mock())
+        context.requests_state=SimpleNamespace(cancel=Mock(),register=Mock(return_value=True))
+        with patch('modules.pc_guide.stop') as guide:
+            for text in ('sus', 'yeter', 'sesini kes', 'konuşmayı kes'):
+                self.assertFalse(context.submit(text))
+        self.assertEqual(context.voice.stop_speaking.call_count, 4)
+        context.requests_state.cancel.assert_not_called()
+        context.requests_state.register.assert_not_called()
+        guide.assert_not_called()
+        self.assertTrue(context.events.empty())
+
     def test_voice_submission_failure_also_releases_listening(self):
         context=self.context();context.emit=Mock()
         context.submit=Mock(side_effect=RuntimeError('registration failed'))
