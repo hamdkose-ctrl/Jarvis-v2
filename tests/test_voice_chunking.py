@@ -93,6 +93,20 @@ class ChunkedSpeechTests(unittest.TestCase):
         self.assertEqual([(r.request_id, r.status) for r in self.receipts],
                          [("long", "played")])
 
+    def test_whitespace_only_chunks_do_not_trigger_piper(self):
+        chunks = []
+        def synth(voice, text, cancel):
+            self.assertTrue(text.strip())
+            chunks.append(text)
+            return b"audio"
+        lane = self.start(synth, lambda audio, cancel: None)
+        text = (" " * 900) + "Merhaba, bu konuşma devam ediyor."
+        self.assertTrue(lane.submit(request("spaces", text)))
+        self.until(1)
+        self.assertEqual("".join(x.strip() for x in chunks),
+                         "Merhaba, bu konuşma devam ediyor.")
+        self.assertEqual(self.receipts[0].status, "played")
+
     def test_sus_during_first_chunk_never_starts_next_chunk(self):
         entered = threading.Event()
         released = threading.Event()
