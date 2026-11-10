@@ -17,6 +17,13 @@ class WebVoice:
         rate = pr.get('rate', 5)
         from modules import voice_runtime
         lane = voice_runtime.active()
+        if lane is None and voice_runtime.legacy_blocked():
+            return {
+                'local': True, 'rate_supported': False, 'voices': [],
+                'voice': pr.get('voice', 'tr_erkek'),
+                'rate': rate if isinstance(rate, int) else 5,
+                'error': 'Voice Core yapılandırması geçersiz; ses seçimi kapalı.',
+            }
         if lane is not None:
             installed = []
             for spec in lane.catalog.choices():
@@ -39,6 +46,8 @@ class WebVoice:
         runtime = self._runtime
         from modules import voice_runtime
         lane = voice_runtime.active()
+        if lane is None and voice_runtime.legacy_blocked():
+            return False
         if lane is not None:
             try:
                 lane.check_voice(key)
@@ -66,7 +75,7 @@ class WebVoice:
     def rate_set(self, rate: int) -> bool:
         runtime = self._runtime
         from modules import voice_runtime
-        if voice_runtime.active() is not None:
+        if voice_runtime.active() is not None or voice_runtime.legacy_blocked():
             return False  # not implemented in Piper: never claim speed changed
         runtime._p().set_pref('rate', max(-40, min(40, int(rate))))
         runtime.engine.events.put(('say', 'Böyle konuşuyorum.'))
