@@ -236,7 +236,7 @@ def validate_root_attempt(
     for this plan root. A previous failed attempt can only be followed by a
     strictly newer attempt, never silently replayed with changed evidence.
     """
-    if type(attempt) is not int or not 0 <= attempt <= 1_000_000:
+    if type(attempt) is not int or not 1 <= attempt <= 1_000_000:
         raise PlanFenceError('Root attempt kimliği geçersiz.')
     node = revalidate(state, selection)
     if node['depends_on']:
