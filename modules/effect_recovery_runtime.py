@@ -110,6 +110,10 @@ def reconcile(expected: dict, read_only_reconcile):
     output = read_only_reconcile()
     if not isinstance(output, dict) or output.get('state') != 'done':
         return output
+    # A provider receipt must not be recorded as verified on a worker claim
+    # alone. Domain verification comes before receipt and WorkerResult CAS.
+    from modules import goal_tools
+    goal_tools.verify(output, expected['owner'])
     if decision['state'] == 'unknown':
         record_receipt(expected, output)
     fenced = worker_result_hook.wrap_output(output, expected)

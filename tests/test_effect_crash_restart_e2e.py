@@ -38,6 +38,12 @@ class EffectCrashRestartE2ETests(unittest.TestCase):
         self.worker = runtime_worker_result
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # These tests use deliberately fabricated provider receipts to
+        # isolate effect-journal/WorkerResult recovery, not domain proof.
+        # BRAIN-06E tests assert unverifiable done now fails before commit.
+        verified = patch('modules.goal_tools.verify', return_value=True)
+        verified.start()
+        self.addCleanup(verified.stop)
 
     def identity(self):
         return {'version':1, 'owner':'alice', 'job_id':'0123456789abcdef',

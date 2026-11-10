@@ -182,10 +182,14 @@ class PlannedWorkerResultTests(unittest.TestCase):
         from modules import reconcile_worker_result
         _, expected, output = self._prepared()
         runtime_worker_result.accept_and_commit(output, expected)
-        result = reconcile_worker_result.accept_and_commit(
-            {"state": "done", "verification": {"source": "example.test"}},
-            identity(), "research", DATA,
-        )
+        # Synthetic fixture intentionally lacks real task_result sealing;
+        # this test measures exact-fence reconcile, not domain verification.
+        with patch("modules.goal_tools.verify", return_value=True) as verified:
+            result = reconcile_worker_result.accept_and_commit(
+                {"state": "done", "verification": {"source": "example.test"}},
+                identity(), "research", DATA,
+            )
+        verified.assert_called_once()
         self.assertEqual(result["state"], "done")
         self.assertEqual(goal_state_store.load(self.path)["version"], 2)
         self.assertEqual(len(goal_state_store.load(self.path)["evidence"]), 1)
