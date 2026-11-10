@@ -212,6 +212,15 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             'WorkerResult stale GoalState sürümüne ait; evidence yazılmadı.'
         )
 
+    if current.get('goal_plan') is not None:
+        # Exact replay and previous success were already fenced above.
+        # Recheck read-only readiness against the latest canonical evidence
+        # immediately before CAS; accepting a stale user-corrected plan or
+        # an already completed root here would defeat pre-dispatch gating.
+        goal_plan_gate.validate_root_attempt(
+            current, selection, attempt=accepted['attempt'],
+        )
+
     next_state = core_state_reducer.apply(current, {
         'expected_version': current['version'],
         'op': 'append_evidence',

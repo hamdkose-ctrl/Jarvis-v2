@@ -191,8 +191,12 @@ class IndependentRootResultTests(unittest.TestCase):
 
     def test_already_succeeded_root_rejects_a_new_attempt(self):
         first = self._prepared('left')
-        self._commit(first)
+        # In-flight second attempt may already have been prepared when the
+        # first result wins canonical CAS. It must still fail at commit.
         another = self._prepared('left', attempt=2)
+        self._commit(first)
+        with self.assertRaisesRegex(ValueError, 'tamamlanmış'):
+            self._prepared('left', attempt=3)
         with self.assertRaisesRegex(ValueError, 'önceki başarılı'):
             self._commit(another)
         self.assertEqual(len(goal_state_store.load(self.path)['evidence']), 1)

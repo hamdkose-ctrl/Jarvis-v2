@@ -226,6 +226,50 @@ def ready_read_only_candidates(
     )
 
 
+def validate_root_attempt(
+    state: dict, selection: NodeCandidate, *, attempt: int,
+) -> dict:
+    """Fence one read-only root before worker launch or canonical result CAS.
+
+    The existing executor chooses retry attempts; this gate does not grant a
+    retry, lease, permission, scheduler slot, or completion. Success is terminal
+    for this plan root. A previous failed attempt can only be followed by a
+    strictly newer attempt, never silently replayed with changed evidence.
+    """
+    if type(attempt) is not int or not 1 <= attempt <= 1_000_000:
+        raise PlanFenceError('Root attempt kimliği geçersiz.')
+    node = revalidate(state, selection)
+    if node['depends_on']:
+        raise PlanFenceError('Bağımlı node üretim worker dispatch kapsamı dışında.')
+
+    # In addition to node + snapshot identity, this rejects unplanned intent
+    # edits, invalid acceptance audits, tampered evidence, effectful tools,
+    # and work already accepted as complete. No second status store exists.
+    ready = ready_read_only_candidates(
+        state, owner=selection.owner, job_id=selection.job_id,
+    )
+    if selection in ready:
+        return node
+
+    current = goal_state.validate(state)
+    old = [
+        row for row in current['evidence']
+        if isinstance(row, dict) and row.get('kind') == 'worker_result'
+        and row.get('owner') == selection.owner
+        and row.get('job_id') == selection.job_id
+        and row.get('step_id') == selection.node_id
+        and row.get('plan_version') == selection.plan_version
+    ]
+    if (old and old[-1].get('status') == 'failed'
+            and attempt > old[-1].get('attempt', -1)):
+        # All current-plan worker rows, including this failed attempt, have
+        # already been checked by ready_read_only_candidates above.
+        return node
+    raise PlanFenceError(
+        'Canonical root tamamlanmış, durmuş veya geçerli attempt bekliyor.'
+    )
+
+
 def revision_reuse_candidates(state: dict, revised_plan: dict) -> tuple[str, ...]:
     """Return structurally unchanged node IDs, *not* verified finished steps.
 
