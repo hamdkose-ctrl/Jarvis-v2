@@ -93,6 +93,7 @@ class VoiceCoordinator:
         self._generation = 0
         self._sequence = 0
         self._current_cancel: threading.Event | None = None
+        self._current_lane: str | None = None
         self._worker = threading.Thread(target=self._run, name="jarvis-voice-output", daemon=True)
         self._worker.start()
 
@@ -106,6 +107,10 @@ class VoiceCoordinator:
             priority = 0 if request.lane == "foreground" else 1
             try:
                 self._pending.put_nowait((priority, self._sequence, self._generation, request, spec))
+                if request.lane == "foreground" and self._current_lane == "background":
+                    # Urgent conversation preempts only the audio notification, not its GoalState.
+                    if self._current_cancel is not None:
+                        self._current_cancel.set()
             except queue.Full:
                 return False
         return True
@@ -144,6 +149,7 @@ class VoiceCoordinator:
                     cancel.set()
                 else:
                     self._current_cancel = cancel
+                    self._current_lane = request.lane
             try:
                 if cancel.is_set():
                     self._notify(request, "cancelled", "VOICE_INTERRUPTED")
@@ -167,4 +173,5 @@ class VoiceCoordinator:
                 with self._lock:
                     if self._current_cancel is cancel:
                         self._current_cancel = None
+                        self._current_lane = None
                 self._pending.task_done()
