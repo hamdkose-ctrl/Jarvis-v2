@@ -17,7 +17,7 @@ _FENCE = ('owner', 'job_id', 'step_id', 'command_id', 'attempt',
           'input_digest')
 _FIELDS = frozenset(('schema', 'status', 'evidence', *_FENCE))
 PLAN_FENCE = ('plan_version', 'node_digest')
-_HEX_SHA256 = re.compile(r'[0-9a-f]{64}\\Z'.replace('\\\\', '\\'))
+_HEX_SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 
 
 class FenceError(ValueError):
