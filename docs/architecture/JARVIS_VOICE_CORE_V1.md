@@ -108,3 +108,15 @@ The existing single `VoiceCoordinator` is still the only local audio-output owne
 Speech-only `interrupt_speech()` and `close()` now immediately dequeue and acknowledge **waiting** utterances with `VOICE_INTERRUPTED`. The active utterance remains cooperatively cancellable. This prevents pending `VoiceLane` completion events from getting stuck forever after shutdown and stops queued text from being spoken after "sus". It does not cancel GoalState, WorkerResult or the user's background jobs.
 
 `tests/test_voice_chunking.py` and the extra `VoiceLane` receipt regression in `tests/test_voice_runtime_bridge.py` cover Unicode/exact-text preservation, bounded chunks, sequential synthesis, foreground over background preemption, queue draining, close behavior, no text/voice switching and failure midway through output. Audio and listeners are **mocked**; this is not evidence of smooth live Turkish pronunciation, device latency, buffer crackle, AEC/full-duplex microphone listening, model licensing, speech speed/prosody or correct device selection. The new route stays operator-controlled/opt-in while physical acceptance (VOICE-02B) is outstanding.
+
+## VOICE-02D — Per-utterance Piper speech speed (proposed, separate acceptance)
+
+Piper CLI supports `--length_scale` (aka `--length-scale`), which changes phoneme duration. The verified upstream entrypoint and C++ CLI are:
+- https://github.com/rhasspy/piper/blob/master/src/python_run/piper/__main__.py
+- https://github.com/rhasspy/piper/blob/master/src/cpp/main.cpp
+
+The existing saved profile `prefs.rate` integer (clamped `-40..40`) is now snapshotted on each `SpeechRequest`, while the installed `VoiceCatalog` remains unchanged. An immutable `VoiceSpec.speaking_rate` accompanies that request through all audio chunks. The Piper adapter uses `--length_scale` only when the rate is nonzero; it maps rate `0` to the model's original default and applies `round(2 ** (-rate / 60), 3)` for other settings. Thus larger rate means faster speech/smaller phoneme duration without pitch or voice ID selection changes. This is a bounded application setting, not a guarantee of uniform perceived speed across voices.
+
+Web and spoken rate changes use one `engine_context.set_profile_rate` preference authority; an explicitly enabled but missing Piper voice fails closed and does not report false success. `VoiceSession.speak(... slow=True)` snapshots a slower per-utterance rate, leaving the saved preference untouched. Notifications use the same user's rate. No automatic provider fallback and no new voice identity are permitted.
+
+`tests/test_voice_speed.py`, `tests/test_voice_offline.py`, `tests/test_voice_runtime_bridge.py` and `tests/test_voice_chunking.py` use fake adapters to prove rate bounds, exact selected ONNX model, CLI option, per-request snapshot, voice selection isolation, slow-reading and refusal on missing models. **The actual speed, intelligibility and glitch-free output on different Turkish models have not been confirmed by a person.** This option must not trigger automatic activation, voice installation or deletion of the working legacy output path.
