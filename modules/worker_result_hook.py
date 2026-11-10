@@ -39,4 +39,8 @@ def execute(runtime, kind, data, dependencies, identity, *, approval=None):
     """Call the current goal_tools adapter and fence only this invocation's result."""
     from modules import goal_tools
     result = goal_tools.execute(runtime, kind, data, dependencies, identity, approval=approval)
+    if isinstance(result, dict) and result.get('state') == 'done':
+        # A worker's "done" claim is not Core acceptance. Verify signed task
+        # evidence / local readback before it can reach a success CAS commit.
+        goal_tools.verify(result, identity['owner'])
     return wrap_output(result, identity)
