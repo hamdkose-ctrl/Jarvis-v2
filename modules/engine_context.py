@@ -113,6 +113,26 @@ def set_profile_voice(profile, key: str, *, voices=None, lane=None) -> tuple[boo
     return True, label
 
 
+def set_profile_rate(profile, rate: int, *, lane=None) -> bool:
+    """Only voice-control preference writer for both web UI and spoken controls.
+
+    Rate is a bounded request property, not a new voice identity. If a user
+    explicitly enabled Piper but its selected voice is unavailable, do not
+    save a setting and pretend it was applied to audible output.
+    """
+    from modules import voice_runtime
+    if voice_runtime.legacy_blocked() or type(rate) is not int or not -40 <= rate <= 40:
+        return False
+    if lane is not None:
+        selected = profile.data["prefs"].get("voice") or "tr_erkek"
+        try:
+            lane.check_voice(selected)
+        except (ValueError, OSError):
+            return False
+    profile.set_pref("rate", rate)
+    return True
+
+
 def _set_voice(runtime, key: str) -> str:
     from modules import voice_runtime
     ok, label = set_profile_voice(
@@ -210,12 +230,13 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
     m = runtime.re.search(r"(yavaş|hızlı)\w*\s+konuş|konuşma hızı|konuşmayı (yavaşlat|hızlandır)", cmd_lower)
     if m:
         from modules import voice_runtime
-        if voice_runtime.active() is not None or voice_runtime.legacy_blocked():
-            return "Yerel Piper sesinde konuşma hızı ayarı şu anda kullanılamıyor; mevcut hız değişmedi."
+        lane = voice_runtime.active()
         slower = "yavaş" in m.group(0)
         cur = runtime.profile.data["prefs"].get("rate", -8)
-        new = max(-40, min(40, (cur if isinstance(cur, int) else -8) + (-10 if slower else 10)))
-        runtime.profile.set_pref("rate", new)
+        current = cur if type(cur) is int and -40 <= cur <= 40 else -8
+        new = max(-40, min(40, current + (-10 if slower else 10)))
+        if not set_profile_rate(runtime.profile, new, lane=lane):
+            return "Seçilen ses kurulmadığı için konuşma hızı değiştirilmedi."
         return "Daha yavaş konuşuyorum." if slower else "Daha hızlı konuşuyorum."
 
     return None
