@@ -246,7 +246,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         catalog = VoiceCatalog((spec,))
         lane = Mock()
         lane.catalog = catalog
-        lane.check_voice.return_value = spec
+        lane.check_voice.side_effect = catalog.require
         person = self.rt.profile
         person.set_pref = lambda key, value: person.data["prefs"].__setitem__(key, value)
         voice_events = []
