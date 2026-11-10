@@ -11,11 +11,14 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import completion_policy, execution_record, failure_policy, goal_job_control, goal_tools, llm, privacy, requests_state, task_tools
+from modules import completion_policy, execution_record, failure_policy, goal_job_control, goal_tools, llm, privacy, requests_state, resource_leases, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
 _LOCK=threading.RLock()
+# The EXISTING goal execution owner holds the one in-process resource table.
+# This is not a second Scheduler or durable cross-process ownership.
+_RESOURCE_LEASES=resource_leases.LeaseTable()
 _ACTIVE=set()
 _ACTIVE_JOBS={}
 # Sağlayıcı/ağ kaynaklı sınıflar: bu sınıflarda kullanıcıya ham sağlayıcı/ağ metni değil,
