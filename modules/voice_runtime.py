@@ -132,8 +132,10 @@ def announce_active(text: str) -> bool:
         return True  # mute never starts a new private-mode voice notice
     owner = runtime.pc_profile()
     voice_key = owner.data["prefs"].get("voice") or "tr_erkek"
+    raw_rate = owner.data["prefs"].get("rate", 0)
+    rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
     try:
-        lane.say(owner.slug, voice_key, text, background=True)
+        lane.say(owner.slug, voice_key, text, background=True, rate=rate)
     except ValueError:
         # No fallback to Edge or a different local identity.
         runtime.emit("system", "Seçilen yerel ses kurulu değil; bildirim yalnız yazılı gösterildi.")
@@ -168,14 +170,16 @@ class VoiceLane:
                 raise ValueError("Seçilen Piper motoru kurulu değil.")
         return spec
 
-    def say(self, owner: str, voice_id: str, text: str, *, background: bool = False):
+    def say(self, owner: str, voice_id: str, text: str, *,
+            background: bool = False, rate: int = 0):
         """Enqueue without waiting for synthesis or blocking caller's Core work."""
         voice_id = voice_id if isinstance(voice_id, str) else ""
         self.catalog.require(voice_id)  # explicit exact voice; no implicit fallback
         request_id = self.runtime.secrets.token_hex(16)
         request = SpeechRequest(owner=owner, request_id=request_id,
                                 voice_id=voice_id, text=text,
-                                lane="background" if background else "foreground")
+                                lane="background" if background else "foreground",
+                                rate=rate)
         done = threading.Event()
         with self._lock:
             if self._closed:
