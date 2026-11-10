@@ -36,11 +36,14 @@ def database(owner):
         CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, work_key TEXT UNIQUE, payload TEXT, digest TEXT,
           state TEXT, created REAL, updated REAL, receipt TEXT, error TEXT);
         CREATE TABLE IF NOT EXISTS queue(id TEXT PRIMARY KEY, tasks TEXT, instruction TEXT, due REAL,
-          state TEXT, job_id TEXT, created REAL, error TEXT, lease REAL DEFAULT 0, cron TEXT DEFAULT '');
+          state TEXT, job_id TEXT, created REAL, error TEXT, lease REAL DEFAULT 0,
+          lease_token TEXT DEFAULT '', cron TEXT DEFAULT '');
         ''')
         if 'lease' not in [row[1] for row in db.execute('PRAGMA table_info(queue)')]:
             db.execute('ALTER TABLE queue ADD COLUMN lease REAL DEFAULT 0')
         columns=[row[1] for row in db.execute('PRAGMA table_info(queue)')]
+        if 'lease_token' not in columns:
+            db.execute("ALTER TABLE queue ADD COLUMN lease_token TEXT DEFAULT ''")
         if 'repeat_seconds' not in columns:db.execute('ALTER TABLE queue ADD COLUMN repeat_seconds INTEGER DEFAULT 0')
         if 'last_job_id' not in columns:db.execute("ALTER TABLE queue ADD COLUMN last_job_id TEXT DEFAULT ''")
         if 'cron' not in columns:db.execute("ALTER TABLE queue ADD COLUMN cron TEXT DEFAULT ''")
