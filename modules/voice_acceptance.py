@@ -118,6 +118,8 @@ def main(argv=None) -> int:
                         help="Exact selected voice ID, not an inferred replacement.")
     parser.add_argument("--device-index", type=int,
                         help="Optional sounddevice output device index.")
+    parser.add_argument("--rate", type=int, default=0,
+                        help="Exact Piper speech rate -40..40 (0 = normal, no model change).")
     parser.add_argument("--list-output-devices", action="store_true",
                         help="List output device indices without model/license setup.")
     parser.add_argument(
@@ -137,7 +139,10 @@ def main(argv=None) -> int:
         parser.error("--model-root, --model and --voice-id are required for playback.")
     if not args.license_reviewed:
         parser.error("The operator must review voice-model and dataset rights first.")
-    spec = VoiceSpec(args.voice_id, args.voice_id, "piper", args.model)
+    if not -40 <= args.rate <= 40:
+        parser.error("--rate must be an integer from -40 to 40.")
+    spec = VoiceSpec(args.voice_id, args.voice_id, "piper", args.model,
+                     speaking_rate=args.rate)
     synthesizer = PiperSynthesizer(args.model_root)
     try:
         preflight(synthesizer, spec)
@@ -155,6 +160,9 @@ def main(argv=None) -> int:
         spec, synthesizer, WavePlayer(device=args.device_index),
         lambda: input("Doğru Türkçe sesi gerçekten hoparlörden duydunuz mu? [e/h]: "),
     )
+    # A stated rate is an operator-selected control value, not evidence
+    # that the listener perceived the expected rate or quality.
+    result["requested_rate"] = args.rate
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0 if result["verdict"] == "human_confirmed" else 1
 

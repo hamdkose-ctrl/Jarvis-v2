@@ -21,6 +21,17 @@ class OfflineVoiceUnavailable(RuntimeError):
     pass
 
 
+def piper_length_scale(rate: int) -> float:
+    """Map the bounded existing profile rate onto Piper's phoneme length.
+
+    Higher rate is faster; Piper length_scale is inversely related to speed.
+    Zero retains Piper's normal default. No pitch, timbre or voice-ID change.
+    """
+    if type(rate) is not int or not -40 <= rate <= 40:
+        raise ValueError("Piper speaking rate must be an integer -40..40.")
+    return round(2 ** (-rate / 60), 3)
+
+
 class PiperSynthesizer:
     """Synthesize one explicitly provisioned voice without changing its identity."""
 
@@ -59,8 +70,13 @@ class PiperSynthesizer:
             raise ValueError("Speech text is empty or exceeds limit.")
         with tempfile.TemporaryDirectory(prefix="jarvis-voice-piper-") as folder:
             target = Path(folder) / "speech.wav"
+            command = [executable, "-m", str(model), "-f", str(target)]
+            if spec.speaking_rate:
+                command.extend([
+                    "--length_scale", f"{piper_length_scale(spec.speaking_rate):.3f}",
+                ])
             proc = subprocess.Popen(
-                [executable, "-m", str(model), "-f", str(target)],
+                command,
                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             started = time.monotonic()

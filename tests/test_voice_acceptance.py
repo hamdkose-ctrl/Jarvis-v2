@@ -151,6 +151,38 @@ class VoiceAcceptanceTests(unittest.TestCase):
             pre.assert_not_called()
             run.assert_not_called()
 
+    def test_cli_can_verify_exact_piper_rate_without_altering_voice_selection(self):
+        args = [
+            "--model-root", str(self.root), "--model", "female.onnx",
+            "--voice-id", "tr_kadin", "--rate", "-20", "--license-reviewed",
+        ]
+        with patch("modules.voice_acceptance.preflight") as preflight, \
+             patch("modules.voice_acceptance.probe",
+                   return_value={"voice_id": "tr_kadin", "verdict": "not_verified"}) as check, \
+             patch("builtins.print") as print_json:
+            self.assertEqual(main(args), 1)
+        spec = preflight.call_args.args[1]
+        self.assertEqual(spec.voice_id, "tr_kadin")
+        self.assertEqual(spec.asset_id, "female.onnx")
+        self.assertEqual(spec.speaking_rate, -20)
+        self.assertIs(check.call_args.args[0], spec)
+        self.assertIn('"requested_rate": -20', print_json.call_args.args[0])
+
+    def test_cli_rejects_out_of_range_rate_before_audio_or_profile_change(self):
+        for rate in ("-41", "41", "hızlı"):
+            with self.subTest(rate=rate), \
+                 patch("modules.voice_acceptance.preflight") as preflight, \
+                 patch("modules.voice_acceptance.probe") as probe:
+                with self.assertRaises(SystemExit) as exc:
+                    main([
+                        "--model-root", str(self.root), "--model", "female.onnx",
+                        "--voice-id", "tr_kadin", "--rate", rate,
+                        "--license-reviewed",
+                    ])
+                self.assertEqual(exc.exception.code, 2)
+                preflight.assert_not_called()
+                probe.assert_not_called()
+
     def test_cli_returns_nonzero_when_no_human_hearing_proof(self):
         args = ["--model-root", str(self.root), "--model", "female.onnx",
                 "--voice-id", "tr_kadin", "--license-reviewed"]

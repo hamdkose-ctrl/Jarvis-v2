@@ -266,9 +266,13 @@ class VoiceSession:
                 # absent. Enqueue returns immediately; Core work continues.
                 prefs = runtime.profile.data["prefs"]
                 voice_key = prefs.get("voice") or "tr_erkek"
+                raw_rate = prefs.get("rate", 0)
+                rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
+                if slow:
+                    rate = min(rate, -15)
                 try:
                     done = lane.say(runtime.profile.slug, voice_key, text,
-                                    background=shown)
+                                    background=shown, rate=rate)
                 except ValueError:
                     runtime._record_failure('modules/engine_voice.py:voice_core_submit')
                     runtime.emit("system", "Seçilen yerel ses kullanılamıyor veya kuyruk dolu; başka ses kullanılmadı.")
