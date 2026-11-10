@@ -5,7 +5,7 @@ Ollama, cloud provider, model installer, or OS audio dependency belongs here.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import queue
 import threading
 from typing import Callable
@@ -69,10 +69,13 @@ class VoiceSpec:
     label: str
     backend: str
     asset_id: str
+    speaking_rate: int = 0  # immutable per-request prosody, not voice identity
 
     def __post_init__(self):
         if (not self.voice_id or not self.label or not self.asset_id
-                or self.backend not in {"edge", "piper", "sapi"}):
+                or self.backend not in {"edge", "piper", "sapi"}
+                or type(self.speaking_rate) is not int
+                or not -40 <= self.speaking_rate <= 40):
             raise ValueError("Voice specification is incomplete.")
 
 
@@ -103,11 +106,13 @@ class SpeechRequest:
     voice_id: str
     text: str
     lane: str = "foreground"  # foreground conversation or background notification
+    rate: int = 0  # -40 slower, +40 faster, immutable on this request
 
     def __post_init__(self):
         if (not all(isinstance(x, str) and x.strip()
                     for x in (self.owner, self.request_id, self.voice_id, self.text))
-                or len(self.text) > 12000 or self.lane not in {"foreground", "background"}):
+                or len(self.text) > 12000 or self.lane not in {"foreground", "background"}
+                or type(self.rate) is not int or not -40 <= self.rate <= 40):
             raise ValueError("Invalid speech request.")
 
 
@@ -154,7 +159,9 @@ class VoiceCoordinator:
 
     def submit(self, request: SpeechRequest) -> bool:
         # Selected voice is validated at enqueue time, not changed by a later setting.
-        spec = self._catalog.require(request.voice_id)
+        # Snapshot per-request speed in an immutable spec. The installed
+        # catalog and active voice ID are never mutated by a rate change.
+        spec = replace(self._catalog.require(request.voice_id), speaking_rate=request.rate)
         with self._lock:
             if self._closed.is_set():
                 return False
