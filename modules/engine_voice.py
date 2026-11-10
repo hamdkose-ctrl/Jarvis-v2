@@ -258,40 +258,6 @@ class VoiceSession:
             finally:
                 done.set()
 
-    def speak_long(self, text: str) -> None:
-        runtime = self.runtime
-        """Uzun yanıtı okurken 'dur' / 'yeter' / 'sus' denirse susar (klavyeden dur yazmak da keser)."""
-        if not self.speak_enabled or not runtime.flags["speak"]:
-            return
-        if self.live_on and runtime.live.get() is not None and runtime.live.enabled():
-            self.speak(text)                    # canlı modda tek ses: eski seslendirme hiç devreye girmesin
-            return
-        runtime.emit("state", "speaking")
-        from modules import wakeword
-        if self.manual_local_stt or not self.listening_enabled or not runtime.flags["mic"] or len(text) < 250 or (wakeword.wanted(runtime.WAKE_WORD) and wakeword.ready()):
-            self.speak(text)                    # "Hey Jarvis" ile kesilebilir
-            return
-        done = runtime.threading.Event()
-
-        def watch():
-            while not done.is_set():
-                try:
-                    heard = runtime.voice.listen(timeout=1, abort=done)
-                except Exception:
-                    runtime._record_failure('main.py:watch')
-                    return
-                if heard and runtime.re.search(r"\b(dur|yeter|sus|sessiz ol|stop)\b", runtime._tr_lower(heard)):
-                    runtime.voice.stop_speaking()
-                    return
-
-        runtime.threading.Thread(target=watch, daemon=True).start()
-        try:
-            error = runtime.voice.speak(text, **runtime._voice_opts())
-            if isinstance(error, str):
-                runtime.emit("system", error)
-        finally:
-            done.set()
-
     def offline_wake_step(self) -> bool:
         runtime = self.runtime
         """İnternetsiz uyandırma ("Hey Jarvis"): bir tur dinler. Bu yöntem kullanılmıyorsa False döner."""
