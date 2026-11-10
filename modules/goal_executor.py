@@ -116,7 +116,8 @@ def _save(job,*,move_pointer=True):
     root=_root(job['owner'])
     with goal_job_control.locked(root,job['id']):
         if '_canonical_version' in job:
-            job['_canonical_version']=goal_job_control.own_worker_version(root,job['id'],job['_canonical_version'])
+            job['_canonical_version']=goal_job_control.own_worker_version(
+                root,job['id'],job['_canonical_version'],owner=job['owner'])
         goal_job_control.assert_fresh(root,job)
         job['updated']=time.time()
         payload=goal_job_control.persistent(job)
