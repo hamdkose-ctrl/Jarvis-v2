@@ -153,7 +153,10 @@ class VoiceLane:
         """Do not persist a new voice choice when its local model is missing."""
         spec = self.catalog.require(voice_id)
         if isinstance(self._synthesize, PiperSynthesizer):
-            self._synthesize._model(spec)
+            model_path = self._synthesize._model(spec)
+            metadata_path = Path(str(model_path) + ".json")
+            if not metadata_path.is_file() or metadata_path.is_symlink():
+                raise ValueError("Seçilen Piper modelinin doğrulanmış .onnx.json metaverisi eksik.")
             if not shutil.which("piper"):
                 raise ValueError("Seçilen Piper motoru kurulu değil.")
         return spec
