@@ -240,6 +240,52 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         rt.voice.speak.assert_not_called()
         self.assertTrue(any(k == "system" and "başka ses" in v for k, v in rt.emitted))
 
+    def test_web_local_choices_preview_and_rate_are_exact_and_owner_bound(self):
+        from web_voice import WebVoice
+        spec = VoiceSpec("tr_kadin", "Yerel kadın", "piper", "female.onnx")
+        catalog = VoiceCatalog((spec,))
+        lane = Mock()
+        lane.catalog = catalog
+        lane.check_voice.return_value = spec
+        person = self.rt.profile
+        person.set_pref = lambda key, value: person.data["prefs"].__setitem__(key, value)
+        voice_events = []
+        bridge = WebVoice()
+        bridge._runtime = SimpleNamespace(
+            _p=lambda: person,
+            config=SimpleNamespace(load_settings=lambda: {"local_stt_enabled": False}),
+            _live=lambda: self.fail("local voice should never inspect Gemini Live"),
+            engine=SimpleNamespace(events=SimpleNamespace(put=voice_events.append)),
+        )
+        with patch("modules.voice_runtime.active", return_value=lane):
+            options = bridge.voice_options()
+            self.assertTrue(options["local"])
+            self.assertFalse(options["rate_supported"])
+            self.assertEqual(options["voices"], [{
+                "key": "tr_kadin", "name": "Yerel kadın", "info": "Yerel Piper",
+            }])
+            self.assertTrue(bridge.voice_set("tr_kadin"))
+            self.assertFalse(bridge.rate_set(35))
+            self.assertFalse(bridge.voice_set("not-installed"))
+        self.assertEqual(person.data["prefs"].get("voice"), "tr_kadin")
+        self.assertEqual(voice_events, [("say", "Merhaba, seçtiğin yerel ses böyle.", "alice")])
+        lane.interrupt.assert_not_called()
+
+    def test_web_rejects_missing_local_model_without_changing_profile(self):
+        from web_voice import WebVoice
+        lane = Mock()
+        lane.catalog = VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "missing.onnx"),))
+        lane.check_voice.side_effect = ValueError("missing")
+        person = self.rt.profile
+        person.set_pref = Mock()
+        web = WebVoice()
+        web._runtime = SimpleNamespace(_p=lambda: person)
+        with patch("modules.voice_runtime.active", return_value=lane):
+            self.assertEqual(web.voice_options()["voices"], [])
+            self.assertFalse(web.voice_set("tr_kadin"))
+        person.set_pref.assert_not_called()
+        lane.interrupt.assert_not_called()
+
     def test_status_returns_idle_after_last_speech_receipt(self):
         lane = voice_runtime.VoiceLane(
             self.rt,
