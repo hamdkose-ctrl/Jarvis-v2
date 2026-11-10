@@ -226,7 +226,7 @@ def account_read_worker(leases: resource_leases.LeaseTable,
                 leases, current, refreshed, holder[0],
                 attempt=expected['attempt'],
             )
-            token = _ACCOUNT_RESULT_LEASE.set((leases, holder[0]))
+            token = _ACCOUNT_RESULT_LEASE.set((leases, holder[0], expected))
             try:
                 return runtime_worker_result.accept_and_commit(output, expected)
             finally:
@@ -257,15 +257,22 @@ def account_read_worker(leases: resource_leases.LeaseTable,
 def require_account_result_lease(accepted: dict) -> None:
     """Core-side exact ticket check before accepting a planned account result."""
     binding = _ACCOUNT_RESULT_LEASE.get()
-    if not isinstance(binding, tuple) or len(binding) != 2:
+    if not isinstance(binding, tuple) or len(binding) != 3:
         raise ReadOnlyAdmissionError('Planned account result needs a live owner lease.')
-    leases, ticket = binding
+    leases, ticket, expected = binding
+    fields = (
+        'owner', 'job_id', 'step_id', 'command_id', 'attempt',
+        'expected_job_version', 'capability_id', 'capability_version',
+        'input_digest', 'plan_version', 'node_digest',
+    )
     if (not isinstance(leases, resource_leases.LeaseTable)
             or not isinstance(ticket, resource_leases.LeaseTicket)
+            or not isinstance(expected, dict)
+            or any(accepted.get(field) != expected.get(field) for field in fields)
             or (ticket.owner, ticket.job_id, ticket.step_id,
                 ticket.plan_version, ticket.command_id) !=
                (accepted['owner'], accepted['job_id'], accepted['step_id'],
                 accepted['plan_version'], accepted['command_id'])):
-        raise ReadOnlyAdmissionError('Account result ticket identity mismatched.')
+        raise ReadOnlyAdmissionError('Account result exact execution fence mismatched.')
     if not leases.validate(ticket):
         raise ReadOnlyAdmissionError('Account result resource lease expired.')
