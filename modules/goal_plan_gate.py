@@ -161,7 +161,7 @@ def ready_read_only_candidates(
 
     nodes = {node['id']: node for node in plan['nodes']}
     digests = fingerprints(plan)
-    seen: set[str] = set()
+    seen: dict[str, tuple[int, str]] = {}
     completed: set[str] = set()
     for audit, evidence in zip(appends, current['evidence']):
         row = evidence if isinstance(evidence, dict) else {}
@@ -178,9 +178,8 @@ def ready_read_only_candidates(
 
         step = row.get('step_id')
         node = nodes.get(step) if isinstance(step, str) else None
-        if node is None or step in seen:
-            raise PlanFenceError('Current-plan WorkerResult step belirsiz/tekrarlı.')
-        seen.add(step)
+        if node is None:
+            raise PlanFenceError('Current-plan WorkerResult step belirsiz.')
         spec = _read_only_manifest(node['capability_id'])
         attempt = row.get('attempt')
         digest = _hash(node['input'])  # same canonical-input JSON hash used by runtime
@@ -196,6 +195,12 @@ def ready_read_only_candidates(
                 or row.get('status') not in ('succeeded', 'failed')
                 or not isinstance(row.get('evidence'), list)):
             raise PlanFenceError('Current-plan WorkerResult canonical fence geçersiz.')
+        prior = seen.get(step)
+        if prior is not None and (prior[1] == 'succeeded' or attempt <= prior[0]):
+            raise PlanFenceError('Current-plan WorkerResult attempt sırası belirsiz.')
+        # An explicitly retried failure may later succeed, but a previously
+        # succeeded node cannot be accepted as a new generation of work.
+        seen[step] = (attempt, row['status'])
         if row['status'] == 'succeeded':
             completed.add(step)
 
