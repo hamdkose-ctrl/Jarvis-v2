@@ -87,6 +87,17 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
     raise ReadOnlyAdmissionError("No scheduler resource mapping for this capability.")
 
 
+def _require_unfinished_ready_node(state: dict, selected: goal_plan_gate.NodeCandidate) -> None:
+    """Readiness is a pre-dispatch constraint, not authorization to execute."""
+    ready = goal_plan_gate.ready_read_only_candidates(
+        state, owner=selected.owner, job_id=selected.job_id,
+    )
+    if selected not in ready:
+        raise ReadOnlyAdmissionError(
+            "Canonical node is already committed, failed, or not ready for admission."
+        )
+
+
 def admit(
     leases: resource_leases.LeaseTable, state: dict,
     selected: goal_plan_gate.NodeCandidate, *,
@@ -100,6 +111,7 @@ def admit(
     node = goal_plan_gate.revalidate(state, selected)
     if node["depends_on"]:
         raise ReadOnlyAdmissionError("Dependent node requires verified predecessor evidence.")
+    _require_unfinished_ready_node(state, selected)
     keys = _typed_resource_keys(node, selected.owner)
     return leases.acquire(
         owner=selected.owner,
@@ -131,6 +143,7 @@ def validate_before_dispatch(
     node = goal_plan_gate.revalidate(state, selected)
     if node["depends_on"]:
         raise ReadOnlyAdmissionError("Dependent node requires verified predecessor evidence.")
+    _require_unfinished_ready_node(state, selected)
     expected = (
         selected.owner, selected.job_id, selected.node_id,
         selected.plan_version, f"{selected.node_id}:{attempt}:p{selected.plan_version}",
