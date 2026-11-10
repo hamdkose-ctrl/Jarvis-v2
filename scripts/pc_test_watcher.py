@@ -378,7 +378,7 @@ def pr_comment_body(report: dict) -> str:
     return "\n".join(lines)
 
 
-def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
+def publish_pr_comment(root: Path, ref: str, report: dict, *, verify_existing: bool = False) -> dict:
     gh = gh_exe()
     if not gh:
         return {"state": "skipped", "reason": "gh_cli_missing"}
@@ -394,11 +394,125 @@ def publish_pr_comment(root: Path, ref: str, report: dict) -> dict:
         return {"state": "skipped", "reason": "open_pr_not_found"}
     pr = prs[0]
     number = pr.get("number")
+    if verify_existing:
+        # A previous publish may have succeeded but timed out before its status was saved.
+        # Do not post the same exact-SHA acceptance twice; fail closed if verification fails.
+        existing = run([gh, "pr", "view", str(number), "--json", "comments"],
+                       cwd=root, check=False, capture=True)
+        if existing.returncode != 0:
+            return {"state": "failed", "reason": "gh_pr_comment_lookup_failed", "pr": number}
+        try:
+            comments = json.loads(existing.stdout or "{}").get("comments")
+        except (ValueError, AttributeError):
+            comments = None
+        if not isinstance(comments, list):
+            return {"state": "failed", "reason": "gh_pr_comment_lookup_invalid", "pr": number}
+        exact = "- Commit: " + chr(96) + str(report.get("sha") or "")[:12] + chr(96)
+        for comment in comments:
+            body = comment.get("body") if isinstance(comment, dict) else None
+            if (isinstance(body, str) and "<!-- jarvis-pc-acceptance -->" in body
+                    and exact in body.splitlines()):
+                return {"state": "published", "pr": number, "url": pr.get("url"),
+                        "already_present": True}
     posted = run([gh, "pr", "comment", str(number), "--body", pr_comment_body(report)],
                  cwd=root, check=False, capture=True)
     if posted.returncode != 0:
         return {"state": "failed", "reason": "gh_pr_comment_failed", "pr": number}
     return {"state": "published", "pr": number, "url": pr.get("url")}
+
+
+
+def _archived_candidate_report(report_path: Path, candidate: dict) -> dict | None:
+    """Only this ref's complete exact-SHA local evidence can suppress a repeated test."""
+    sha = str(candidate.get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return None
+    path = report_path.parent / "reports" / (sha + ".json")
+    report = load_state(path)
+    if (report.get("sha") != sha or report.get("ref") != candidate.get("ref")
+            or report.get("status") not in {"passed", "failed"}
+            or not isinstance(report.get("validation"), dict)):
+        return None
+    return report
+
+
+def reconcile_archived_reports(root: Path, state_path: Path, report_path: Path,
+                               candidates: list[dict], seen: dict, *,
+                               now: float | None = None) -> bool:
+    """Repair publication independently of running tests. Never rerun an archived SHA."""
+    now = time.time() if now is None else now
+    activity = False
+    state_changed = False
+    for item in candidates:
+        report = _archived_candidate_report(report_path, item)
+        if report is None:
+            continue
+        ref, sha = item["ref"], item["sha"]
+        known = _seen_entry(seen, ref)
+        if known is None or known.get("sha") != sha:
+            # Crash after archiving, before persisting 'seen': the completed test
+            # must not run a second time just to recover its PR comment.
+            seen[ref] = {"sha": sha, "status": report["status"],
+                         "last_attempt": float(report.get("started") or now),
+                         "last_result": report["status"]}
+            state_changed = True
+            activity = True
+            print(f"Yerel test raporu kurtarildi: {branch_from_ref(ref)} {sha[:12]}", flush=True)
+
+        published = report.get("github_pr_comment")
+        if isinstance(published, dict) and published.get("state") == "published":
+            continue
+        if now < float(report.get("publication_retry_after") or 0):
+            continue
+        print(f"Test tekrar edilmiyor; PR raporu yayinlaniyor: {branch_from_ref(ref)} {sha[:12]}", flush=True)
+        publication = publish_pr_comment(root, ref, report, verify_existing=True)
+        report["github_pr_comment"] = publication
+        if publication.get("state") == "published":
+            report.pop("publication_retry_after", None)
+            print(f"PR raporu yayinlandi: {branch_from_ref(ref)} {sha[:12]}", flush=True)
+        else:
+            report["publication_retry_after"] = now + 300
+            print("PR raporu gonderilemedi: " + str(publication.get("reason") or "unknown"),
+                  flush=True)
+        archive_report(report_path, report)
+        if load_state(report_path).get("sha") == sha:
+            save_json(report_path, report)
+        activity = True
+    if state_changed:
+        previous = load_state(state_path)
+        previous["seen"] = seen
+        previous["updated"] = now
+        save_json(state_path, previous)
+    return activity
+
+
+def queue_status(root: Path, state_path: Path, report_path: Path, pattern: str) -> dict:
+    """Read-only acceptance diagnosis. No validation, desktop or live model calls."""
+    open_refs = open_pr_refs(root)
+    if open_refs is None:
+        return {"state": "unavailable", "reason": "open_pr_list_unavailable",
+                "hint": "GitHub CLI installation/authentication must be checked on this Windows PC."}
+    remote = {item["ref"]: item for item in remote_heads(root, pattern)}
+    seen = load_state(state_path).get("seen") or {}
+    rows = []
+    for ref in sorted(open_refs):
+        item = remote.get(ref)
+        if item is None:
+            rows.append({"branch": branch_from_ref(ref), "state": "remote_ref_missing"})
+            continue
+        sha = item["sha"]
+        known = _seen_entry(seen, ref)
+        report = _archived_candidate_report(report_path, item)
+        if report is None:
+            state = ("awaiting_test" if known is None or known.get("sha") != sha
+                     else "recorded_but_local_report_missing")
+        elif (report.get("github_pr_comment") or {}).get("state") == "published":
+            state = "published"
+        else:
+            state = "report_not_published"
+        rows.append({"branch": branch_from_ref(ref), "sha": sha[:12], "state": state})
+    return {"state": "ok", "open_pr_count": len(open_refs),
+            "visible_ref_count": len(remote), "branches": rows}
 
 
 def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, desktop: bool, news: bool,
@@ -410,9 +524,10 @@ def once(root: Path, state_path: Path, report_path: Path, pattern: str, *, deskt
         print("Açık PR listesi doğrulanamadı; fail-closed olarak test başlatılmadı.", flush=True)
         return False
     candidates = [item for item in remote_heads(root, pattern) if item["ref"] in open_refs]
+    recovered = reconcile_archived_reports(root, state_path, report_path, candidates, seen)
     target = choose_candidate(candidates, seen)
     if not target:
-        return False
+        return recovered
     paths = changed_paths(root, target["sha"])
     # Scope discovery never makes an optional live call on uncertainty.  The
     # validation gate still gives the PR a useful, non-destructive result.
@@ -461,6 +576,8 @@ def main() -> int:
     parser.add_argument("--interval", type=int, default=30)
     parser.add_argument("--pattern", default=DEFAULT_PATTERN)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--status", action="store_true",
+                        help="Açık PR/SHA/kayıt/yayın durumunu göster; test çalıştırma")
     parser.add_argument("--desktop", action="store_true", help="Kapsamdan bağımsız gerçek desktop kabulünü zorla")
     parser.add_argument("--news", action="store_true", help="Yavaş haber kabulünü ayrı final aşaması olarak çalıştır")
     parser.add_argument("--local-model", action="store_true", help="Gerçek yerel model UI/inference kabulünü zorla")
@@ -470,6 +587,10 @@ def main() -> int:
     local_dir = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "Jarvis" / "pc-acceptance"
     state_path = local_dir / STATE_NAME
     report_path = local_dir / REPORT_NAME
+    if args.status:
+        summary = queue_status(root, state_path, report_path, args.pattern)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0 if summary["state"] == "ok" else 1
     print(f"Jarvis PC test watcher başladı: {root}")
     print(f"İzlenen ref: {args.pattern}")
     print(f"Sonuç: {report_path}")

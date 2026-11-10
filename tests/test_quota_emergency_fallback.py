@@ -11,6 +11,7 @@ from provider_fixture import fresh_bundle
 class QuotaFallbackTests(unittest.TestCase):
     def setUp(self):
         fresh_bundle(self)
+        p=patch.object(llm,'_ollama_effective_model',return_value='local-test');p.start();self.addCleanup(p.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{}),('_LAST',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)

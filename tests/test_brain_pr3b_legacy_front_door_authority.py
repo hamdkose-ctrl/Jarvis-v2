@@ -36,7 +36,7 @@ EFFECT_SEAMS = (
     "modules.git_publish.publish_worktree",
     "modules.folder_analysis.analyze_turn", "modules.file_ops.handle",
     "modules.worktrack.handle", "modules.handoff.handle", "modules.notify.handle",
-    "modules.finance_alert_commands.matches", "modules.selfctl.handle",
+    "modules.finance_alert_commands.matches",
     "modules.media.handle", "modules.filesend.handle",
     "modules.pc_guide.handle", "modules.developer.handle", "modules.task_agents.handle",
 )
@@ -64,7 +64,7 @@ class _RawDoorHarness(pr3a._CanonicalAuthorityHarness):
             self.addCleanup(starter.stop)
         for module, attr, value in ((git_publish, "publish_worktree", "YAYINLANDI"),
                                     (watcher, "handle", None), (watcher, "apply", "WATCHER_APPLIED"),
-                                    (learning, "handle", None), (finance, "answer_request", None)):
+                                    (learning, "execute_typed", None), (finance, "answer_request", None)):
             mock = Mock(return_value=value)
             self.seams[f"{module.__name__}.{attr}"] = mock
             starter = patch.object(module, attr, mock)
@@ -217,15 +217,13 @@ class TypoSinglePassTests(_RawDoorHarness):
         tree = ast.parse((ROOT / "modules" / "command_manager.py").read_text(encoding="utf-8"))
         arm = next(node for node in tree.body
                    if isinstance(node, ast.FunctionDef) and node.name == "exact_admin_view")
-        self.assertEqual({ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)},
-                         {"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
-                          "isinstance", "git_publish.requested",
-                          "git_publish.publish_worktree", "updater.verify_sync",
-                          "updater.command_request", "updater.install_latest", "updater.check",
-                          "updater.status", "verified.get", "status['error'].split",
-                          "_record_failure", "str",
-                          "brain_gates.conversation_summary_request", "brain_gates.table_request",
-                          "context.conversation_summary", "context.table_chat"})
+        calls = {ast.unparse(node.func) for node in ast.walk(arm) if isinstance(node, ast.Call)}
+        self.assertTrue({"usage_meter.handle", "smart_router.handle", "system_doctor.handle",
+                         "git_publish.requested", "updater.command_request", "dispatch"} <= calls)
+        # Git/update effects have exactly one executor; exact_admin_view is routing only.
+        self.assertFalse({"git_publish.publish_worktree", "updater.install_latest",
+                          "updater.check"} & calls)
+
 
     def test_the_surface_consults_the_closed_set_exactly_once(self):
         tree = ast.parse(ENGINE_COMMANDS_SOURCE)
@@ -324,9 +322,6 @@ class TypoReadRecoveryTests(_RawDoorHarness):
         self.assertEqual(counts, {"understand": 1, "state": 1, "fast": 1, "recovery": 1})
         self.assertEqual(self.silent("modules.folder_analysis", "modules.file_ops",
                                      "modules.media", "modules.notify", "modules.worktrack"), [])
-        seen = [arg for call in self.seams["modules.selfctl.handle"].call_args_list for arg in call.args]
-        self.assertNotIn(typo.fix("notlarımı göstr"), seen,
-                         "salt-okuma kurtarması düzeltilmiş metni hiçbir efekt kapısına taşımaz")
         seen = [call.args[0] for call in self.ctx._planner_command.call_args_list if call.args]
         self.assertNotIn(typo.fix("notlarımı göstr"), seen,
                          "kurtarma ham kapıyı düzeltilmiş metinle yeniden yürütmez")
@@ -453,7 +448,7 @@ class TypoReadRecoveryGuardTests(unittest.TestCase):
         # Intent yürütme yetkisi seam'de kalır: kurtarma yüzeyi dispatch çağıran yeni bir üretici değildir.
         from test_brain_orphan_dispatch_guard import _production_sources, dispatch_call_sites
         self.assertEqual(set(dispatch_call_sites(_production_sources())),
-                         {"modules/brain_entry.py", "modules/engine_commands.py"})
+                         {"modules/brain_entry.py", "modules/engine_commands.py", "modules/command_manager.py"})
 
     def test_only_read_intents_can_be_dispatched_from_the_corrected_view(self):
         from modules import command_manager
@@ -767,7 +762,7 @@ class ExactAdminEffectTests(_RawDoorHarness):
         self.assertEqual(out, "YAYINLANDI")
         self.seams["updater.verify_sync"].assert_called_once()
         self.seams["modules.git_publish.publish_worktree"].assert_called_once_with(
-            "kullanıcı 'git yükle' komutuyla yayınladı"
+            "kullanıcının onaylı GitHub yayın isteği"
         )
 
     def test_git_publish_phrase_inside_a_larger_request_does_not_publish(self):
@@ -929,7 +924,7 @@ class CascadeOrderContractTests(unittest.TestCase):
         self.assertEqual(brain_precedence.TAIL_GATES,
                          brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):])
         self.assertEqual(brain_precedence.TAIL_GATES,
-                         ("macro_teach", "macro_manage", "macro_run", "extra_commands"))
+                         ("macro_run", "extra_commands"))
 
     def _runtime(self, answers=None):
         from types import SimpleNamespace
@@ -947,6 +942,7 @@ class CascadeOrderContractTests(unittest.TestCase):
             _macro_teach=gate("macro_teach"), _macro_manage=gate("macro_manage"),
             _macro_run=gate("macro_run"), _extra_commands=gate("extra_commands"),
             _file_command=gate("file_command"), _user_command=gate("user_command"),
+            _user_controls=gate("user_controls"),
             _planner_command=gate("planner_command"),
             system_control=SimpleNamespace(windows_settings=gate("windows_settings")),
             emit=gate("emit"))
@@ -956,17 +952,16 @@ class CascadeOrderContractTests(unittest.TestCase):
         runtime = self._runtime()
         self.assertIsNone(brain_precedence.claim_tail(runtime, "Raporumu telefona gönder"))
         self.assertEqual([name for name, _ in runtime.calls],
-                         ["macro_teach", "macro_manage", "macro_run", "extra_commands"])
+                         ["macro_run", "extra_commands"])
         self.assertEqual([args for _, args in runtime.calls],
-                         [("Raporumu telefona gönder", "raporumu telefona gönder"),
-                          ("raporumu telefona gönder",), ("raporumu telefona gönder",),
+                         [("raporumu telefona gönder",),
                           ("Raporumu telefona gönder", "raporumu telefona gönder")])
 
     def test_the_first_answering_gate_stops_the_tail(self):
         from modules import brain_precedence
         runtime = self._runtime({"macro_run": "KISAYOL"})
         self.assertEqual(brain_precedence.claim_tail(runtime, "deneme komutu"), ("macro_run", "KISAYOL"))
-        self.assertEqual([name for name, _ in runtime.calls], ["macro_teach", "macro_manage", "macro_run"])
+        self.assertEqual([name for name, _ in runtime.calls], ["macro_run"])
 
     def test_the_tail_never_replays_an_earlier_effect_gate(self):
         # Devir çift sahiplik değildir: kuyruk aralığı, yüzeyin daha önce yürüttüğü efekt gate'lerini
@@ -979,14 +974,11 @@ class CascadeOrderContractTests(unittest.TestCase):
                                              "planner_command", "emit"}))
 
     def test_the_full_contract_still_runs_every_gate_from_the_front(self):
-        from modules import brain_precedence, selfctl
+        from modules import brain_precedence
         runtime = self._runtime()
-        # selfctl bir modül sınırıdır (runtime._x değil), bu yüzden çağrı defterinde adı geçmez;
-        # efektsiz olması için burada patch'lenir.
-        with patch.object(selfctl, "handle", lambda lowered, emit: None):
-            self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
+        self.assertIsNone(brain_precedence.claim(runtime, "hava nasıl"))
         self.assertEqual([name for name, _ in runtime.calls],
-                         [name for name in brain_precedence.FRONT_GATES if name != "selfctl"])
+                         list(brain_precedence.FRONT_GATES))
 
 
 class CascadeRootTests(_RawDoorHarness):
@@ -1091,19 +1083,20 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     # Ölçülen üretim çağıranları (base `ea2f0b3` → PR3B head): ham cümleyi alan anlamsal yoklamalar.
     RAW_PROBE_OWNERS = {
         "watcher.handle": set(),
-        "learning.handle": {"modules/engine_commands.py"},
+        "learning.handle": set(),
+        "learning.execute_typed": {"modules/engine_intents.py"},
         # BRAIN-03 dilim 2: üç sembol de yüzeyden ve modülden silindi; çağıran yoktur.
         "is_whatsapp_message": set(),
         "_contact_command": set(),
         "quick_parse": set(),
-        "selfctl.handle": {"modules/engine_commands.py"},
+        "selfctl.handle": set(),
         "_file_command": {"modules/brain_precedence.py", "modules/engine_commands.py",
                           "modules/engine_tools.py", "modules/main_documents.py"},
-        "windows_settings": {"modules/brain_precedence.py", "modules/engine_commands.py"},
+        "windows_settings": set(),
         # Normal diagnostic requests must have a single bounded full-sentence owner.
         "diagnose.run": {"modules/engine_intents.py", "web.py"},
-        "git_publish.publish_worktree": {"modules/command_manager.py"},
-        "updater.install_latest": {"modules/command_manager.py", "web.py"},
+        "git_publish.publish_worktree": {"modules/engine_intents.py"},
+        "updater.install_latest": {"modules/engine_intents.py", "web.py"},
         "profile.set_pref": {"modules/engine_intents.py", "modules/engine_context.py"},
         "output.save_text_result": {"modules/engine_intents.py", "modules/translate.py"},
     }

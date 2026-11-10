@@ -54,6 +54,8 @@ class CoderRecoveryTests(unittest.TestCase):
                 {'tool':'finish','message':'Hazır.'},{'tool':'finish','message':'Hazır.'}]
 
     def test_bad_provider_then_real_test_failure_repaired_and_files_delivered(self):
+        local = patch.object(llm, '_ollama_effective_model', return_value='local-test')
+        local.start(); self.addCleanup(local.stop)
         responses=iter(self.calls());seen=[];prompts=[]
         def send(selected,prompt,system,tokens,history,*,model=None):
             seen.append(selected);prompts.append(prompt)

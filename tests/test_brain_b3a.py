@@ -197,16 +197,14 @@ class FrontGatePrecedenceTests(_Pipeline):
         source = inspect.getsource(engine_commands.handle)
         markers = {
             "file_command": "runtime._file_command(",
-            "windows_settings": "system_control.windows_settings(",
-            "selfctl": "selfctl.handle(",
-            "user_command": "runtime._user_command(",
+            "user_controls": "runtime._user_controls(",
             "planner_command": "runtime._planner_command(",
         }
-        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:5]]
+        positions = [source.index(markers[name]) for name in brain_precedence.FRONT_GATES[:-len(brain_precedence.TAIL_GATES)]]
         positions.append(source.index("brain_precedence.claim_tail("))
         self.assertEqual(positions, sorted(positions))
         # Kuyruk aralığı yüzeyde ikinci kez listelenmez: kısayollar ve cascade tek sahibinden gelir.
-        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[5:]))
+        self.assertEqual(brain_precedence.TAIL_GATES, tuple(brain_precedence.FRONT_GATES[-len(brain_precedence.TAIL_GATES):]))
         for gate in ("_macro_teach", "_macro_manage", "_macro_run", "_extra_commands"):
             self.assertNotIn(gate, source)
 
@@ -229,17 +227,18 @@ class FrontGatePrecedenceTests(_Pipeline):
     def test_gate_order_is_first_match_wins(self):
         seen = []
         table = {n: (lambda n=n: seen.append(n)) for n in brain_precedence.FRONT_GATES}
-        table["selfctl"] = lambda: (seen.append("selfctl"), "S")[1]
+        table["user_controls"] = lambda: (seen.append("user_controls"), "S")[1]
         with patch.object(brain_precedence, "_gates", return_value=table):
-            self.assertEqual(brain_precedence.claim(self.ctx, "x"), ("selfctl", "S"))
-        self.assertEqual(seen, ["file_command", "windows_settings", "selfctl"])
+            self.assertEqual(brain_precedence.claim(self.ctx, "x"), ("user_controls", "S"))
+        self.assertEqual(seen, ["file_command", "user_controls"])
 
-    def test_real_windows_settings_gate_is_consulted_before_core(self):
-        self.ctx.system_control.windows_settings.return_value = "Ayarlar açıldı"
+    def test_retired_windows_settings_gate_cannot_shadow_core(self):
+        self.ctx.system_control.windows_settings.return_value = "YASAK HAM YANIT"
         with self.spy_dispatch() as dispatch:
             entry, out, feedback, handle = self.through_brain("hava nasıl")
-        self.assertEqual(out, "Ayarlar açıldı")
-        dispatch.assert_not_called()
+        self.assertEqual(out, "CORE")
+        dispatch.assert_called_once()
+        self.ctx.system_control.windows_settings.assert_not_called()
 
     def test_no_gate_claims_core_runs(self):
         with self.spy_dispatch() as dispatch, patch.object(brain_precedence, "claim", return_value=None):

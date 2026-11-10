@@ -270,8 +270,8 @@ class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
         handle.assert_not_called()
         self.assertIn("onaylıyor musun", out)
 
-    def test_app_grammar_never_claims_jarvis_pages_or_windows_settings(self):
-        for text in ("ayarları aç", "wifi ayarlarını aç", "hafıza sayfasını aç"):
+    def test_app_grammar_never_claims_explicit_page_targets(self):
+        for text in ("wifi ayarlarını aç", "hafıza sayfasını aç"):
             with self.subTest(text=text):
                 entry, out, handle, _ = self.turn(text)
                 self.assertNotIn(entry.understanding.capability_hint, {"app.open", "app.close"})

@@ -440,68 +440,89 @@ def short_summary(text: str) -> str:
 
 
 # ------------------------------------------------------------------ sesli/yazılı komutlar
-def handle(cmd_lower: str, command: str, profile) -> str | None:
-    t = cmd_lower.strip(" .!?")
-    if t in ('hafızamı göster','hafızayı göster','hafızamdaki bilgileri listele'):
-        facts=profile.data.get('facts',[])
-        return '\n'.join(f'{i}. {f}' for i,f in enumerate(facts,1)) or 'Hafızada onaylı bilgi yok.'
-    memory=re.fullmatch(r'hafıza\s+(düzelt|unut)\s*:\s*(.+)',command.strip(),re.I|re.S)
-    if memory:
-        value=memory[2].strip();text=None
-        if _low(memory[1])=='düzelt':
-            if '|' not in value:return 'Kullanım: hafıza düzelt: eski bilginin tamamı | yeni bilgi'
-            value,text=(v.strip() for v in value.split('|',1))
-        matches=[i for i,f in enumerate(profile.data.get('facts',[])) if f==value]
-        if len(matches)!=1:return 'Kesin ve tek bir bilgi seçilemedi; önce “hafızamı göster” de ve kaydın tamamını yaz.'
-        profile.edit_fact(matches[0],value,text)
-        return 'Bilgiyi düzelttim.' if text is not None else 'Seçtiğin bilgiyi unuttum.'
-    # gelişim raporu
-    if re.search(r"gelişim raporu|kendini (?:değerlendir|geliştir|analiz)|neleri? yapamadın|nerede hata yaptın", t):
+def execute_typed(profile, action: dict) -> str:
+    """Only typed Core learning operations. Exact bulk selection belongs to State Gate."""
+    from modules import brain_entry
+    from modules.personalization import _LOCK as _PROFILE_LOCK
+
+    operation = action.get("operation")
+    index = action.get("index")
+    selection = action.get("_state_selection")
+    snapshot = action.get("_pending_snapshot")
+    if selection is not None or snapshot is not None:
+        # The model cannot inject these fields: Core's normal validator rejects them.
+        if (not isinstance(selection, str) or not isinstance(snapshot, tuple)
+                or not brain_entry.matched_protocol("learning.pending_facts.select")
+                or brain_entry.protocol_selection("learning.pending_facts.select") != selection):
+            return "Bu öğrenme seçimi artık geçerli değil; hiçbir bilgi değiştirilmedi."
+        with _PROFILE_LOCK:
+            if tuple(pending(profile)) != snapshot:
+                return "learning_pending_stale: Onay listesi değişti; hiçbir bilgi değiştirilmedi."
+            kind, _, chosen = selection.partition(":")
+            expected = "pending.approve" if kind == "approve" else "pending.reject"
+            if operation != expected or chosen not in {"all", str(index)}:
+                return "Öğrenme seçimi tutarsız; işlem yapılmadı."
+            if chosen == "all":
+                if index is not None:
+                    return "Toplu seçim tekil numarayla birleştirilemez."
+                n = approve(profile) if kind == "approve" else reject(profile)
+            else:
+                if type(index) is not int or not 1 <= index <= len(snapshot):
+                    return "Seçilen bilgi numarası geçersiz; işlem yapılmadı."
+                n = approve(profile, index - 1) if kind == "approve" else reject(profile, index - 1)
+            return (f"{n} bilgiyi hafızama kaydettim." if kind == "approve"
+                    else f"{n} bilgiyi kaydetmeden sildim.")
+
+    if action.get("_state_selection") is not None or action.get("_pending_snapshot") is not None:
+        return "İzinsiz toplu seçim; işlem yapılmadı."
+    if operation == "report.read":
         return short_summary(report())
-    # onay bekleyen bilgiler
-    if re.search(r"öğrendi(?:k)?lerini(?:n)?\s+(?:hepsini\s+)?(?:kaydet|onayla|hatırla|sakla)\b|hepsini (?:kaydet|onayla|hatırla)\b", t):
-        n = approve(profile)
-        return f"{n} bilgiyi hafızama kaydettim." if n else "Onay bekleyen bir şey yok."
-    if re.search(r"öğrendi(?:k)?lerini(?:n)?\s+(?:hepsini\s+)?(?:kaydetme|sil|unut|at|onaylama)|hiçbirini (?:kaydetme|hatırlama)", t):
-        n = reject(profile)
-        return f"Tamam, {n} bilgiyi kaydetmeden sildim." if n else "Onay bekleyen bir şey yok."
-    m = re.search(r"öğrendiğin\s+(\d+)\s*\.?\s*(?:bilgiyi|maddeyi|şeyi)?\s*(kaydetme|kaydet|onayla|hatırla|sil|unut)\b", t)
-    if m:
-        idx = int(m.group(1)) - 1
-        if m.group(2) in ("kaydet", "onayla", "hatırla"):
-            return "Kaydettim." if approve(profile, idx) else "O numarada onay bekleyen bir bilgi yok."
-        return "Sildim." if reject(profile, idx) else "O numarada onay bekleyen bir bilgi yok."
-    m = re.match(r"^(?:şunu öğren|bunu öğren|öğren|hafızana kaydet)\s*[:,]?\s+(.+)$", command.strip(), re.I)
-    if m:
-        fact = _clean(m.group(1))
-        if len(fact) < 6: return "Öğrenmemi istediğin bilgiyi bir cümleyle söyle."
+    if operation in {"pending.approve", "pending.reject"}:
+        if type(index) is not int:
+            return "Onay bekleyen hangi numaralı bilgi? Toplu işlemler yalnız tam State seçimiyle yapılır."
+        with _PROFILE_LOCK:
+            if not 1 <= index <= len(pending(profile)):
+                return "O numarada onay bekleyen bilgi yok."
+            n = approve(profile, index - 1) if operation == "pending.approve" else reject(profile, index - 1)
+        return "Kaydettim." if operation == "pending.approve" and n else "Sildim." if n else "Bilgi seçilemedi."
+    if operation == "fact.add":
+        fact = _clean(str(action.get("text") or ""))
+        if len(fact) < 6:
+            return "Öğrenmemi istediğin bilgiyi bir cümleyle söyle."
         profile.add_fact(fact)
         return "Hafızama kaydettim: " + fact
-    m = re.match(r"^bundan sonra\s+(.+)$", command.strip(), re.I)
-    if m: return add_rule(profile, m.group(1))
-    # kurallar
-    if re.search(r"(?:kurallarını|kurallarımı|öğrettiklerimi|öğrendiklerini)\s+(?:say|söyle|oku|listele|göster)|neler öğrendin", t):
+    if operation in {"fact.edit", "fact.forget"}:
+        old = action.get("old")
+        if not isinstance(old, str) or not old.strip():
+            return "Düzenlenecek bilginin tamamını belirt."
+        with _PROFILE_LOCK:
+            facts = list(profile.data.get("facts") or [])
+            found = [i for i, value in enumerate(facts) if value == old]
+            if len(found) != 1:
+                return "Kesin ve tek bir bilgi seçilemedi; önce hafızanı listele."
+            new = action.get("text") if operation == "fact.edit" else None
+            profile.edit_fact(found[0], old, new)
+        return "Bilgiyi düzelttim." if new is not None else "Seçtiğin bilgiyi unuttum."
+    if operation == "rule.add":
+        return add_rule(profile, str(action.get("text") or ""))
+    if operation in {"facts.list", "rules.list"}:
         rs, pf = rules(profile), pending(profile)
         parts = []
-        if profile.data.get("facts"):
+        if operation == "facts.list" and profile.data.get("facts"):
             parts.append("Hafızamdaki bilgiler: " + "; ".join(profile.data["facts"]))
         if rs:
             parts.append("Öğrettiğin kurallar: " + " ".join(f"{i}) {r}" for i, r in enumerate(rs, 1)))
-        if pf:
+        if operation == "facts.list" and pf:
             parts.append("Onay bekleyen bilgiler: " + " ".join(f"{i}) {f}" for i, f in enumerate(pf, 1)))
-        return " ".join(parts) if parts else "Henüz bana öğrettiğin bir kural ya da onay bekleyen bir bilgi yok."
-    m = re.search(r"(?:(\d+)\s*\.?\s*kuralı|(.+?)\s+kuralını)\s+(?:unut|sil|kaldır)", t)
-    if m:
-        idx = int(m.group(1)) - 1 if m.group(1) else _find_rule(profile, m.group(2))
-        if idx is not None and 0 <= idx < len(rules(profile)):
-            gone = rules(profile)[idx]
-            delete_rule(profile, idx)
-            return f"Bu kuralı unuttum: {gone}"
-        return "Böyle bir kural bulamadım. 'Kurallarını söyle' dersen listeyi okurum."
-    m = re.match(r"^(?:kural ekle|kural öğren)\s*[:,]?\s+(.+)$", t)
-    if m:
-        return add_rule(profile, command.split(None, 2)[-1] if len(command.split()) > 2 else m.group(1))
-    return None
+        return " ".join(parts) if parts else "Henüz kayıtlı bilgi veya kural yok."
+    if operation == "rule.delete":
+        rs = rules(profile)
+        if type(index) is not int or not 1 <= index <= len(rs):
+            return "O numarada kural yok; numarasını söyle."
+        gone = rs[index - 1]
+        delete_rule(profile, index - 1)
+        return f"Bu kuralı unuttum: {gone}"
+    return "Öğrenme işlemi Core tarafından doğrulanmadı."
 
 
 def startup_notice(profile) -> str | None:

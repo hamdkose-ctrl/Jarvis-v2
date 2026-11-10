@@ -13,6 +13,7 @@ class SmartRouterTests(unittest.TestCase):
         for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{}),('_LAST',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)
         fresh_bundle(self)
+        self.local_model_patch=patch.object(llm,'_ollama_effective_model',return_value='local-test');self.local_model_patch.start();self.addCleanup(self.local_model_patch.stop)
         p=patch.object(router.privacy,'mode',return_value='normal');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_key',return_value='gem-key');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
@@ -193,6 +194,7 @@ class SmartRouterTests(unittest.TestCase):
             with self.assertRaises(llm.errors.ClientError):llm._send_provider('gemini','merhaba','',100,None)
 
     def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
+        self.local_model_patch.stop()
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
              patch.object(llm,'load_settings',return_value={}), \
              patch.object(llm,'ollama_models',return_value=['llama3.2','qwen2.5:7b']):

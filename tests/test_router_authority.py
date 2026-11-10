@@ -69,6 +69,22 @@ class RouterAuthorityTests(unittest.TestCase):
         self.assertEqual(router._LAST, {})
         self.assertEqual(router._HEALTH, {})
 
+    def test_cancel_or_deadline_inside_validator_stops_without_cooldown(self):
+        request = router.ModelRequest(owner='alice')
+        planned = router.RoutePlan((router.ModelSpec('groq', 'm'), router.ModelSpec('gemini', 'g')), (), 2)
+        for exc in (requests_state.Cancelled('cancelled'), requests_state.LocalDeadline('expired')):
+            calls = []
+            def adapter(spec):
+                calls.append(spec.provider)
+                return 'answer'
+            def validate(_):
+                raise exc
+            with self.subTest(error=type(exc).__name__), patch.object(router, 'plan', return_value=planned):
+                with self.assertRaises(type(exc)):
+                    router.run_request(request, adapter, validator=validate)
+                self.assertEqual(calls, ['groq'])
+                self.assertEqual(router._HEALTH, {})
+
     def test_missing_evidence_retains_reason_code(self):
         from modules.failure_policy import ProviderExhaustedError
         request = router.ModelRequest(owner='alice')

@@ -1771,12 +1771,6 @@ _SHUTDOWN_CANCEL = re.compile(r"^(?:kapatmayı|kapatma)\s+iptal(?:\s+et)?$")
 _WAKE_ENABLE = re.compile(r"^(?:(?:hey\s+)?jarvis)\s+uyandırmasını\s+(?:aç|ac)$")
 
 
-def _jarvis_page_request(normalized: str) -> bool:
-    """Jarvis'in kendi sayfasını açma isteği bir uygulama hedefi değildir; sahibi selfctl kapısıdır."""
-    from modules.selfctl import recognizes_page
-    return recognizes_page(normalized)
-
-
 def _app_folded_request(text: str) -> tuple[str, dict[str, object]] | None:
     """Ham açma gramerinin kaçırdığı Türkçe-karakteri-düşmüş cümle; hedef yalnız doğrulanmış
     sabit kimliğe çözülürse `app.open` doğar, çözülemezse hedef sorusu."""
@@ -1801,7 +1795,7 @@ def _app_request(normalized: str) -> tuple[str, dict[str, object]] | None:
     """Aç/kapat cümlesinin bounded hedefi; hedef yoksa clarify önerisi (`APP_TARGET_MISSING`)."""
     text = normalized.strip()
     # Dosya/belge hedefinin tek sahibi dosya alanıdır: "dosyayı aç" uygulama açmaz.
-    if not text or _jarvis_page_request(text) or _file_operation(text) is not None:
+    if not text or _file_operation(text) is not None:
         return None
     # Emekli edilen ham dal cümleyi `strip(" .!?")` ile okuyordu: sesli yazımda "Kapat." ve
     # "Kapatır mısın?" noktalamayla gelir; çıplak fiil tanımı o noktalamadan bağımsızdır.

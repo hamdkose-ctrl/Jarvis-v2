@@ -423,6 +423,53 @@ class BrainModelUnderstandingTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(model.proposal_diagnostic()["reason_code"], "LOCAL_DEADLINE_EXCEEDED")
 
+    def test_brain_routes_decided_model_and_validates_within_attempt_budget(self):
+        from modules import smart_router
+        plan = smart_router.RoutePlan((smart_router.ModelSpec('gemini', 'verified-gemini'),
+                                       smart_router.ModelSpec('groq', 'verified-groq')), (), 2)
+        calls = []
+        def transport(provider, prompt, system, max_tokens, history, *, model):
+            calls.append((provider, model))
+            return 'invalid-json' if len(calls) == 1 else answer(confidence='HIGH')
+        p1, p2, p3 = self.eligible()
+        with p1, p2, p3, patch.object(smart_router, 'plan', return_value=plan), \
+                patch('modules.llm._send_provider', side_effect=transport):
+            result = model.propose(owner=OWNER, text='rapor dosyasını özetle',
+                                   current=current(), arguments=current().arguments)
+        self.assertIsNotNone(result)
+        self.assertEqual(calls, [('gemini', 'verified-gemini'), ('groq', 'verified-groq')])
+
+    def test_bad_brain_response_does_not_disable_provider_for_next_turn(self):
+        from modules import cloudflare_chat, smart_router, usage_meter
+        import tempfile
+
+        for bad in ('invalid-json', answer(operation='invented-operation')):
+            with self.subTest(response=bad), tempfile.TemporaryDirectory() as temp:
+                responses = iter((bad, answer(confidence='HIGH'), answer(confidence='HIGH')))
+                calls = []
+                def transport(provider, prompt, system, max_tokens, history, *, model):
+                    calls.append(provider)
+                    return next(responses)
+                with patch.object(smart_router, '_STORE', Path(temp)), \
+                        patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
+                        patch.object(smart_router, 'settings', return_value={'cloud_free_confirmed': True}), \
+                        patch.object(smart_router, '_evidence_gate', return_value={'ok': True}), \
+                        patch.object(usage_meter, 'observed_exhaustion', return_value=None), \
+                        patch('modules.llm.provider', return_value='groq'), \
+                        patch('modules.llm.privacy.mode', return_value='normal'), \
+                        patch('modules.llm.user_groq_key', return_value='test'), \
+                        patch.object(cloudflare_chat, 'configured', return_value=True), \
+                        patch('modules.llm._send_provider', side_effect=transport):
+                    first = model.propose(owner=OWNER, text='merhaba', current=current(), arguments=current().arguments)
+                    trace = smart_router._LAST[OWNER]['attempts']
+                    self.assertIsNotNone(first)
+                    self.assertEqual(trace[0]['kind'], 'response_validation')
+                    self.assertNotIn((OWNER, 'groq'), smart_router._HEALTH)
+                    self.assertIn('groq', smart_router.selection(OWNER, 'text')['candidates'])
+                    second = model.propose(owner=OWNER, text='merhaba', current=current(), arguments=current().arguments)
+                self.assertIsNotNone(second)
+                self.assertEqual(calls, ['groq', 'cloudflare', 'groq'])
+
     def test_production_groq_http_payload_accepts_brain_token_limit(self):
         raw = answer(confidence="MEDIUM")
         response = SimpleNamespace(status_code=200, headers={},
@@ -443,7 +490,7 @@ class BrainModelUnderstandingTests(unittest.TestCase):
             self.assertFalse(schema['additionalProperties'])
             self.assertEqual(set(schema['properties']['actions']['items']['required']),model.ACTION_KEYS)
             self.assertIn('without a named wrapper',body['messages'][0]['content'])
-            self.assertIn('Set argument_sources to null',body['messages'][0]['content'])
+            self.assertIn('For capabilities whose allowed.argument_schema lists argument_sources',body['messages'][0]['content'])
             return response
 
         p1, p2, p3 = self.eligible()

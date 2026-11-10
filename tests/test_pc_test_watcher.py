@@ -243,5 +243,132 @@ class PcTestWatcherTests(unittest.TestCase):
         self.assertIn('Desktop: **failed**', watcher.pr_comment_body(report))
 
 
+    def test_existing_pr_comment_is_not_posted_twice_during_recovery(self):
+        sha = "b" * 40
+        ref = "refs/remotes/origin/gpt/one"
+        comment = watcher.pr_comment_body({"sha": sha, "status": "passed"})
+        found = mock.Mock(returncode=0, stdout='[{"number":537,"url":"https://github.com/x/y/pull/537"}]')
+        existing = mock.Mock(returncode=0, stdout=__import__("json").dumps(
+            {"comments": [{"body": comment}]}))
+        with mock.patch.object(watcher, "gh_exe", return_value="gh"), \
+                mock.patch.object(watcher, "run", side_effect=[found, existing]) as run:
+            result = watcher.publish_pr_comment(Path("repo"), ref,
+                {"sha": sha, "status": "passed"}, verify_existing=True)
+        self.assertEqual(result["state"], "published")
+        self.assertTrue(result["already_present"])
+        self.assertEqual(run.call_count, 2)
+
+    def test_reconcile_publishes_archived_sha_without_rerunning_suite(self):
+        sha = "a" * 40
+        ref = "refs/remotes/origin/gpt/test"
+        item = {"sha": sha, "ref": ref, "time": 100}
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            report_path, state_path = folder / "last.json", folder / "state.json"
+            report = {"sha": sha, "ref": ref, "started": 1, "status": "passed",
+                      "validation": {"exit_code": 0},
+                      "github_pr_comment": {"state": "failed", "reason": "gh_pr_comment_failed"}}
+            watcher.archive_report(report_path, report)
+            watcher.save_json(report_path, report)
+            seen = {ref: {"sha": sha, "status": "passed"}}
+            with mock.patch.object(watcher, "publish_pr_comment",
+                                   return_value={"state": "published", "pr": 537}) as publish, \
+                 mock.patch.object(watcher, "run_suite",
+                                   side_effect=AssertionError("a completed suite must never rerun")):
+                self.assertTrue(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=100))
+            publish.assert_called_once()
+            self.assertTrue(publish.call_args.kwargs["verify_existing"])
+            self.assertEqual(watcher.load_state(report_path)["github_pr_comment"]["state"], "published")
+            self.assertEqual(watcher._archived_candidate_report(report_path, item)
+                             ["github_pr_comment"]["state"], "published")
+            with mock.patch.object(watcher, "publish_pr_comment") as second:
+                self.assertFalse(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=1000))
+            second.assert_not_called()
+
+    def test_recover_archived_report_after_crash_before_seen_file_write(self):
+        sha = "c" * 40
+        ref = "refs/remotes/origin/codex/feature"
+        item = {"sha": sha, "ref": ref, "time": 100}
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "last.json"
+            state_path = Path(tmp) / "state.json"
+            watcher.archive_report(report_path, {
+                "sha": sha, "ref": ref, "status": "failed", "started": 4,
+                "validation": {"exit_code": 1}, "github_pr_comment": {"state": "published"}})
+            seen = {}
+            with mock.patch.object(watcher, "publish_pr_comment") as publish:
+                self.assertTrue(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=200))
+            publish.assert_not_called()
+            self.assertIsNone(watcher.choose_candidate([item], seen))
+            self.assertEqual(watcher.load_state(state_path)["seen"][ref]["sha"], sha)
+
+    def test_failed_publication_is_throttled_and_does_not_rerun_validation(self):
+        sha = "d" * 40
+        ref = "refs/remotes/origin/gpt/feature"
+        item = {"sha": sha, "ref": ref, "time": 100}
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "last.json"
+            state_path = Path(tmp) / "state.json"
+            watcher.archive_report(report_path, {
+                "sha": sha, "ref": ref, "status": "passed",
+                "validation": {"exit_code": 0}})
+            seen = {ref: {"sha": sha, "status": "passed"}}
+            with mock.patch.object(watcher, "publish_pr_comment",
+                                   return_value={"state": "failed", "reason": "network"}) as pub:
+                self.assertTrue(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=100))
+                self.assertFalse(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=150))
+                self.assertTrue(watcher.reconcile_archived_reports(
+                    Path("repo"), state_path, report_path, [item], seen, now=401))
+            self.assertEqual(pub.call_count, 2)
+
+    def test_invalid_or_foreign_archived_report_never_suppresses_validation(self):
+        sha = "e" * 40
+        ref = "refs/remotes/origin/gpt/correct"
+        item = {"sha": sha, "ref": ref, "time": 10}
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "last.json"
+            watcher.archive_report(report_path, {
+                "sha": sha, "ref": "refs/remotes/origin/gpt/other",
+                "status": "passed", "validation": {"exit_code": 0}})
+            self.assertIsNone(watcher._archived_candidate_report(report_path, item))
+            seen = {}
+            with mock.patch.object(watcher, "publish_pr_comment") as publish:
+                self.assertFalse(watcher.reconcile_archived_reports(
+                    Path("repo"), Path(tmp) / "state.json", report_path,
+                    [item], seen, now=11))
+            publish.assert_not_called()
+            self.assertEqual(watcher.choose_candidate([item], seen), item)
+
+    def test_queue_status_distinguishes_no_report_from_unpublished_or_missing_ref(self):
+        s1, s2 = "f"*40, "a"*40
+        refs = ["refs/remotes/origin/gpt/ready", "refs/remotes/origin/gpt/unfinished",
+                "refs/remotes/origin/codex/missing"]
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "last.json"
+            state_path = Path(tmp) / "state.json"
+            watcher.archive_report(report_path, {
+                "sha": s1, "ref": refs[0], "status": "passed",
+                "validation": {"exit_code": 0},
+                "github_pr_comment": {"state": "skipped", "reason": "gh_cli_missing"}})
+            watcher.save_json(state_path, {"seen": {
+                refs[0]: {"sha": s1, "status": "passed"}}})
+            remote = [{"ref": refs[0], "sha": s1, "time": 100},
+                      {"ref": refs[1], "sha": s2, "time": 99}]
+            with mock.patch.object(watcher, "open_pr_refs", return_value=set(refs)), \
+                    mock.patch.object(watcher, "remote_heads", return_value=remote):
+                data = watcher.queue_status(Path("repo"), state_path, report_path,
+                                            watcher.DEFAULT_PATTERN)
+            self.assertEqual({row["branch"]: row["state"] for row in data["branches"]}, {
+                "gpt/ready": "report_not_published",
+                "gpt/unfinished": "awaiting_test",
+                "codex/missing": "remote_ref_missing",
+            })
+
+
 if __name__ == '__main__':
     unittest.main()

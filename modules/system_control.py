@@ -461,53 +461,40 @@ def _app_windows() -> list[tuple[int, str, str]]:
     return out
 
 
-# Windows Ayarlar sayfaları (sabit ms-settings adresleri; serbest komut çalıştırılmaz).
-# İlk liste "ayarları" denince Windows'a aittir; ikinci liste Jarvis'in kendi sayfalarıyla karışabilir, yalnız pc/bilgisayar/windows denince.
-_SETTINGS_PAGES = [
-    (r"wi-?fi|kablosuz", "network-wifi", "Wi-Fi"), (r"bluetooth", "bluetooth", "Bluetooth"),
-    (r"\bağ\b|internet", "network", "Ağ ve internet"), (r"ekran|görüntü|parlaklık", "display", "Ekran"),
-    (r"güncelleme", "windowsupdate", "Windows Update"), (r"pil|güç|uyku", "powersleep", "Güç ve pil"),
-    (r"depolama|disk", "storagesense", "Depolama"), (r"bildirim", "notifications", "Bildirimler"),
-    (r"görev çubuğu", "taskbar", "Görev çubuğu"), (r"arka plan|duvar kağıdı", "personalization-background", "Arka plan"),
-    (r"renk|karanlık mod|koyu mod|tema|kişiselleştirme", "colors", "Renkler ve tema"),
-    (r"klavye", "typing", "Klavye"), (r"fare|dokunmatik", "mousetouchpad", "Fare ve dokunmatik yüzey"),
-    (r"yazıcı|tarayıcı cihaz", "printers", "Yazıcılar"), (r"saat|tarih", "dateandtime", "Tarih ve saat"),
-    (r"\bdil\b|bölge", "regionlanguage", "Dil ve bölge"), (r"varsayılan uygulama", "defaultapps", "Varsayılan uygulamalar"),
-    (r"hesap(?:lar)?(?:ım)?\b", "yourinfo", "Hesap bilgileri"),
-]
-_SETTINGS_QUALIFIED = [
-    (r"\bses\b", "sound", "Ses"), (r"gizlilik", "privacy", "Gizlilik"), (r"güvenlik", "windowsdefender", "Windows Güvenliği"),
-    (r"uygulama", "appsfeatures", "Uygulamalar"), (r"sistem", "about", "Sistem"),
-]
+# Windows Settings is a typed adapter.  Natural-language page selection belongs to
+# the model proposal and the Core allowlist, never to this domain executor.
+WINDOWS_SETTINGS_PAGES = {
+    "network-wifi": "Wi-Fi", "bluetooth": "Bluetooth", "network": "Ağ ve internet",
+    "display": "Ekran", "windowsupdate": "Windows Update", "powersleep": "Güç ve pil",
+    "storagesense": "Depolama", "notifications": "Bildirimler", "taskbar": "Görev çubuğu",
+    "personalization-background": "Arka plan", "colors": "Renkler ve tema", "typing": "Klavye",
+    "mousetouchpad": "Fare ve dokunmatik yüzey", "printers": "Yazıcılar", "dateandtime": "Tarih ve saat",
+    "regionlanguage": "Dil ve bölge", "defaultapps": "Varsayılan uygulamalar", "yourinfo": "Hesap bilgileri",
+    "sound": "Ses", "privacy": "Gizlilik", "windowsdefender": "Windows Güvenliği",
+    "appsfeatures": "Uygulamalar", "about": "Sistem",
+}
 
 
-def windows_settings(command: str):
-    """“wifi ayarlarını aç”, “pc ses ayarları” gibi komutta Windows Ayarlar sayfasını açar; komut buna ait değilse None."""
-    text = _norm(command)
-    if not re.search(r"\bayar", text) or not re.search(r"\b(?:aç\w*|göster\w*|git\w*|getir\w*)\b", text) or re.search(r"\bjarvis", text):
-        return None
-    qualified = bool(re.search(r"\b(?:pc|bilgisayar\w*|windows)\b", text))
-    for pages, allowed in ((_SETTINGS_PAGES, True), (_SETTINGS_QUALIFIED, qualified)):
-        if not allowed:
-            continue
-        for pattern, page, label in pages:
-            if re.search(pattern, text):
-                _permission_decision('windows_settings', command)
-                if os.name != "nt":
-                    return ApplicationResult("Windows Ayarlar yalnız Windows'ta açılır.")
-                try:
-                    os.startfile("ms-settings:" + page)   # type: ignore[attr-defined]
-                except OSError:
-                    _record_failure('modules/system_control.py:windows_settings')
-                    return ApplicationResult(f"{label} ayarlarını açamadım.")
-                deadline = time.monotonic() + 10
-                while time.monotonic() < deadline:
-                    requests_state.check()
-                    if _visible_application("ayarlar"):
-                        return ApplicationResult(f"Windows Ayarlar açık; {label} sayfasına gitmesi için komutu gönderdim.", ok=True)
-                    time.sleep(.25)
-                return ApplicationResult(f"{label} ayarları için komutu gönderdim ama Ayarlar penceresini doğrulayamadım. Açıldı demiyorum.")
-    return None
+def open_windows_settings(page: str) -> ApplicationResult:
+    """Open one Core-validated `ms-settings:` page and verify the Settings window."""
+    label = WINDOWS_SETTINGS_PAGES.get(page)
+    if label is None:
+        return ApplicationResult("Windows Ayarlar sayfası Core tarafından doğrulanmadı.")
+    _permission_decision("windows_settings", page)
+    if os.name != "nt":
+        return ApplicationResult("Windows Ayarlar yalnız Windows'ta açılır.")
+    try:
+        os.startfile("ms-settings:" + page)  # type: ignore[attr-defined]
+    except OSError:
+        _record_failure("modules/system_control.py:open_windows_settings")
+        return ApplicationResult(f"{label} ayarlarını açamadım.")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        requests_state.check()
+        if _visible_application("ayarlar"):
+            return ApplicationResult(f"Windows Ayarlar açık; {label} sayfasına gitmesi için komutu gönderdim.", ok=True)
+        time.sleep(.25)
+    return ApplicationResult(f"{label} ayarları için komutu gönderdim ama Ayarlar penceresini doğrulayamadım. Açıldı demiyorum.")
 
 
 def close_application(app_name: str) -> str | None:

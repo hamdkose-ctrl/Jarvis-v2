@@ -62,7 +62,8 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
         cause = requests.ReadTimeout('private')
         wrapped = llm.LocalModelError(llm.local_hint())
         wrapped.__cause__ = cause
-        with patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
+        with patch.object(llm, '_ollama_effective_model', return_value='local-test'), \
+             patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
              patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
              patch.object(llm, 'note_route') as note:
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:
@@ -77,7 +78,8 @@ class ProviderHocaDiagnosticsTests(unittest.TestCase):
     def test_connection_refusal_remains_unavailable_without_raw_transport_message(self):
         wrapped = llm.LocalModelError(llm.local_hint())
         wrapped.__cause__ = requests.ConnectionError('private-secret')
-        with patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
+        with patch.object(llm, '_ollama_effective_model', return_value='local-test'), \
+             patch.object(smart_router, 'selection', return_value={'candidates': ['ollama'], 'skipped': []}), \
              patch.object(smart_router, '_HEALTH', {}), patch.object(smart_router, '_LAST', {}), \
              patch.object(llm, 'note_route'):
             with self.assertRaises(failure_policy.ProviderExhaustedError) as caught:

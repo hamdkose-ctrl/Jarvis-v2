@@ -749,9 +749,195 @@ def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {}
 
 
+_USER_OPERATIONS = frozenset({"rename", "delete", "create", "list", "identify", "switch",
+                              "goals_list", "goals_clear", "goal_add", "fact_add"})
+
+
+def _short_text(value: Any, maximum: int = 160) -> str | None:
+    if not isinstance(value, str) or "\x00" in value:
+        return None
+    value = value.strip()
+    return value if 0 < len(value) <= maximum else None
+
+
+def _user_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "name", "old", "text"}:
+        return None
+    operation = arguments.get("operation")
+    if not isinstance(operation, str) or operation not in _USER_OPERATIONS:
+        return None
+    result = {"operation": operation}
+    if operation in {"rename", "delete", "create", "switch"}:
+        name = _short_text(arguments.get("name"))
+        if name is None:
+            return None
+        result["name"] = name
+    if operation == "rename" and arguments.get("old") is not None:
+        old = _short_text(arguments.get("old"))
+        if old is None:
+            return None
+        result["old"] = old
+    if operation in {"goal_add", "fact_add"}:
+        text = _short_text(arguments.get("text"), 500)
+        if text is None:
+            return None
+        result["text"] = text
+    return result
+
+
+def _macro_teach_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "trigger", "actions"}:
+        return None
+    trigger = _short_text(arguments.get("trigger"), 80)
+    actions = arguments.get("actions")
+    if trigger is None or len(trigger.split()) > 5 or not isinstance(actions, (list, tuple)) or not 1 <= len(actions) <= 8:
+        return None
+    checked = [_short_text(action, 160) for action in actions]
+    if any(action is None for action in checked):
+        return None
+    return {"trigger": trigger, "actions": checked}
+
+
+def _macro_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if (set(arguments) - {"original_text", "operation", "trigger"}
+            or not isinstance(arguments.get("operation"), str)
+            or arguments.get("operation") not in {"list", "delete"}):
+        return None
+    result = {"operation": arguments["operation"]}
+    if result["operation"] == "delete":
+        trigger = _short_text(arguments.get("trigger"), 80)
+        if trigger is None:
+            return None
+        result["trigger"] = trigger
+    return result
+
+
+
+_LEARNING_OPERATIONS = frozenset({
+    "facts.list", "pending.approve", "pending.reject", "fact.add",
+    "fact.edit", "fact.forget", "rules.list", "rule.add", "rule.delete", "report.read",
+})
+
+
+def _learning_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only Core-typed learning operations; all-scope is State Gate-owned, not model-owned."""
+    if set(arguments) - {"original_text", "operation", "text", "old", "index"}:
+        return None
+    operation = arguments.get("operation")
+    if not isinstance(operation, str) or operation not in _LEARNING_OPERATIONS:
+        return None
+    text, old, index = arguments.get("text"), arguments.get("old"), arguments.get("index")
+    needs_text = operation in {"fact.add", "fact.edit", "rule.add"}
+    needs_old = operation in {"fact.edit", "fact.forget"}
+    needs_index = operation in {"pending.approve", "pending.reject", "rule.delete"}
+    if needs_text:
+        text = _short_text(text, 500)
+        if text is None:
+            return None
+    elif text is not None:
+        return None
+    if needs_old:
+        old = _short_text(old, 500)
+        if old is None:
+            return None
+    elif old is not None:
+        return None
+    if needs_index:
+        if type(index) is not int or not 1 <= index <= 100:
+            return None
+    elif index is not None:
+        return None
+    result: dict[str, Any] = {"operation": operation}
+    if needs_text:
+        result["text"] = text
+    if needs_old:
+        result["old"] = old
+    if needs_index:
+        result["index"] = index
+    return result
+
+
+
+def _windows_settings_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"page", "original_text"}:
+        return None
+    page = arguments.get("page")
+    from modules.system_control import WINDOWS_SETTINGS_PAGES
+    return {"page": page} if isinstance(page, str) and page in WINDOWS_SETTINGS_PAGES else None
+
+
+_SELFCTL_SETTING_KEYS = frozenset({
+    "wake_sensitivity", "response_speed", "wake_beep", "learn_from_chat",
+    "live_mode", "idle_seconds", "widget", "window_mode",
+})
+_SELFCTL_READ_KEYS = frozenset({"wake_sensitivity", "response_speed", "idle_seconds"})
+
+
+def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate nested model values without ever raising on list/dict payloads."""
+    if set(arguments) - {"action", "original_text"}:
+        return None
+    action = arguments.get("action")
+    if not isinstance(action, Mapping) or not isinstance(action.get("kind"), str):
+        return None
+    kind = action["kind"]
+    if kind == "navigate":
+        from modules.selfctl import PAGES
+        page = action.get("page")
+        return {"kind": kind, "page": page} if set(action) == {"kind", "page"} and isinstance(page, str) and page in PAGES else None
+    if kind == "restart":
+        return {"kind": kind} if set(action) == {"kind"} else None
+    if kind == "open_data":
+        target = action.get("target")
+        return {"kind": kind, "target": target} if set(action) == {"kind", "target"} and isinstance(target, str) and target in {"data", "log"} else None
+    if kind == "setting_read":
+        key = action.get("key")
+        return {"kind": kind, "key": key} if set(action) == {"kind", "key"} and isinstance(key, str) and key in _SELFCTL_READ_KEYS else None
+    if kind in {"setting", "ui"}:
+        if set(action) != {"kind", "key", "value"}:
+            return None
+        key, value = action.get("key"), action.get("value")
+        if not isinstance(key, str):
+            return None
+        if kind == "setting":
+            if key == "wake_sensitivity":
+                good = (type(value) is int and 1 <= value <= 5) or (isinstance(value, str) and value in {"increase", "decrease"})
+            elif key == "response_speed":
+                good = isinstance(value, str) and value in {"fast", "balanced", "patient"}
+            elif key in {"wake_beep", "learn_from_chat", "live_mode", "widget"}:
+                good = type(value) is bool
+            elif key == "window_mode":
+                good = isinstance(value, str) and value in {"full", "window"}
+            elif key == "idle_seconds":
+                good = type(value) is int and 15 <= value <= 600
+            else:
+                good = False
+        else:
+            if key == "hologram_tone":
+                good = isinstance(value, str) and value in {"blue", "turquoise", "yellow"}
+            elif key == "hologram_background":
+                good = isinstance(value, str) and value in {"lava", "mountains"}
+            elif key == "replay":
+                good = value is True
+            elif key == "home_animation":
+                good = type(value) is bool
+            else:
+                good = False
+        return dict(action) if good else None
+    return None
+
+
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    "windows.settings.open": ("windows_settings_open", _windows_settings_args),
+    "jarvis.selfctl": ("selfctl", _selfctl_args),
+    "user.manage": ("user_manage", _user_manage_args),
+    "macro.teach": ("macro_teach", _macro_teach_args),
+    "macro.manage": ("macro_manage", _macro_manage_args),
+    "learning.manage": ("learning_manage", _learning_args),
+    "git.publish": ("git_publish", _empty_action_args),
+    "system.update": ("system_update", _empty_action_args),
     LEVEL_CAPABILITY: ("level_set", _level_args),
     "weather.read": ("weather", _weather_args),
     "weather.read.current": ("weather", _weather_args),
@@ -835,7 +1021,29 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
     return intent, dict(args)
 
 
-def state_plan(protocol: str | None, selection: Any, level: Any) -> tuple[str, dict[str, Any]] | None:
+def state_plan(protocol: str | None, selection: Any, level: Any,
+               pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
+    if protocol == "learning.pending_facts.select":
+        if not isinstance(selection, str) or not isinstance(pending_snapshot, (list, tuple)) or not pending_snapshot:
+            return None
+        if any(not isinstance(value, str) for value in pending_snapshot):
+            return None
+        action, sep, which = selection.partition(":")
+        if not sep or action not in {"approve", "reject"}:
+            return None
+        operation = "pending.approve" if action == "approve" else "pending.reject"
+        if which == "all":
+            index = None
+        elif which.isascii() and which.isdecimal() and 1 <= int(which) <= len(pending_snapshot):
+            index = int(which)
+        else:
+            return None
+        return ("learning_manage", {
+            "operation": operation,
+            "_state_selection": selection,
+            "_pending_snapshot": tuple(pending_snapshot),
+            **({"index": index} if index is not None else {}),
+        })
     if protocol != LEVEL_SELECT_PROTOCOL or selection not in _LEVEL_PROPERTIES:
         return None
     if isinstance(level, bool) or not isinstance(level, int):

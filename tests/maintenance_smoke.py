@@ -64,11 +64,9 @@ with patch.object(main, '_sessions', SessionStore()):
         close.assert_not_called()
     print('Motor: önceki sesli kısa yanıt temizliği, rehberlikten bağımsız kapatma ve telefon kapatma sınırı geçti.')
 
-    with patch('modules.command_manager.dispatch', return_value=None), patch.object(main, '_user_command', return_value=None), patch.object(main, '_planner_command', return_value=None), patch.object(main, '_macro_teach', return_value='kısayol kaydedildi') as teach, patch.object(main, '_macro_manage') as manage, patch.object(main, '_macro_run') as run, patch.object(main, '_extra_commands') as extra:
-        assert main.handle('özel deneme komutu') == 'kısayol kaydedildi'
-        teach.assert_called_once()
-        manage.assert_not_called()
-        run.assert_not_called()
+    with patch('modules.command_manager.dispatch', return_value=None), patch.object(main, '_user_controls', return_value=None), patch.object(main, '_planner_command', return_value=None), patch.object(main, '_macro_run', return_value='kısayol çalıştı') as run, patch.object(main, '_extra_commands') as extra:
+        assert main.handle('özel deneme komutu') == 'kısayol çalıştı'
+        run.assert_called_once()
         extra.assert_not_called()
     print('Motor: ilk hızlı işleyici yanıtladığında diğer işleyiciler ve yan etkileri çalışmıyor.')
 

@@ -44,31 +44,18 @@ def explicit_workflow_owner_protocol(text: str) -> bool:
 # Order is the contract. This table is its only owner.
 FRONT_GATES: tuple[str, ...] = (
     "file_command",
-    "windows_settings",
-    "selfctl",
-    "user_command",
+    "user_controls",
     "planner_command",
-    "macro_teach",
-    "macro_manage",
     "macro_run",
     "extra_commands",
 )
 
 # The range ``engine_commands.handle`` delegates instead of re-listing: shortcuts, then the
 # domain cascade. PR3B §11/§25 B: the surface may not carry a second copy of this order.
-TAIL_GATES: tuple[str, ...] = ("macro_teach", "macro_manage", "macro_run", "extra_commands")
+TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
 
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
-    def selfctl():
-        # A canonical notes_read plan means the user asked for note DATA, not the Notlar UI page.
-        # Keep the legacy selfctl grammar unchanged for Live/old callers until PR9; only the
-        # canonical Brain/Core handoff gets this semantic distinction.
-        if plan is not None and plan[0] in {"notes_read", "notes_write"}:
-            return None
-        from modules import selfctl as module
-        return module.handle(lowered, runtime.emit)
-
     def planner_gate():
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
@@ -109,12 +96,8 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     return {
         "file_command": lambda: runtime._file_command(command),
-        "windows_settings": lambda: runtime.system_control.windows_settings(lowered),
-        "selfctl": selfctl,
-        "user_command": lambda: runtime._user_command(command, lowered),
+        "user_controls": lambda: runtime._user_controls(command, lowered),
         "planner_command": planner_gate,
-        "macro_teach": lambda: runtime._macro_teach(command, lowered),
-        "macro_manage": lambda: runtime._macro_manage(lowered),
         "macro_run": lambda: runtime._macro_run(lowered),
         "extra_commands": extra_commands,
     }
@@ -122,7 +105,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
 def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
     """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
-    if plan is not None and plan[0] == "photo_action":
+    if plan is not None and plan[0] in {"photo_action", "user_manage", "macro_teach", "macro_manage"}:
         # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
         # mutation gates must not reinterpret the same utterance.
         return None
@@ -164,9 +147,8 @@ def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...
 
 
 _ATTRS = {
-    "file_command": ("_file_command",), "windows_settings": ("system_control",), "selfctl": ("emit",), "user_command": ("_user_command",),
-    "planner_command": ("_planner_command",), "macro_teach": ("_macro_teach",),
-    "macro_manage": ("_macro_manage",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
+    "file_command": ("_file_command",),
+    "user_controls": ("_user_controls",), "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
 }
 
 

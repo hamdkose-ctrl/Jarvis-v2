@@ -483,6 +483,10 @@ def _check_request(request: ModelRequest) -> None:
         raise requests_state.LocalDeadline('İstek süre bütçesi doldu; geç yanıt uygulanmadı.')
 
 
+class ResponseValidationError(ValueError):
+    """A received response did not satisfy the caller's application contract."""
+
+
 def run_request(request: ModelRequest, adapter: ProviderAdapter,
                 *, validator: Callable[[str], Any] | None = None) -> RouteResult:
     """Execute a plan with one authority for retry, repair and fallback.
@@ -518,7 +522,13 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
             if not isinstance(text, str) or not text.strip():
                 raise ValueError('Boş model yanıtı.')
             if validator is not None:
-                validator(text)
+                try:
+                    validator(text)
+                except (requests_state.Cancelled, requests_state.LocalDeadline):
+                    raise
+                except Exception as exc:
+                    _record_failure('modules/smart_router.py:response_validation')
+                    raise ResponseValidationError('Model yanıtı istenen sözleşmeyi karşılamadı.') from exc
             _check_request(request)
             attempts.append({'provider': spec.provider, 'model': spec.model, 'ok': True,
                              'seconds': round(time.monotonic() - started, 2)})
@@ -537,20 +547,23 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
                          and isinstance(exc.__cause__, (requests.Timeout, requests.ConnectionError))
                          else None)
             classified = transport or exc
+            validation_error = isinstance(exc, ResponseValidationError)
             row = {'provider': spec.provider, 'model': spec.model, 'ok': False,
-                   'error': type(classified).__name__, 'kind': failure_kind(classified),
+                   'error': type(classified).__name__,
+                   'kind': 'response_validation' if validation_error else failure_kind(classified),
                    'status': failure_status(classified)}
             if spec.provider == 'ollama' and type(exc).__name__ == 'LocalModelError':
                 from modules import llm
                 if not isinstance(transport, requests.Timeout) and str(exc) == llm.local_hint():
                     row['hint'] = 'ollama_missing'
             attempts.append(row)
-            if type(exc).__name__ != 'ImageCapabilityError':
+            if not validation_error and type(exc).__name__ != 'ImageCapabilityError':
                 with _LOCK:
                     _HEALTH[(request.owner, spec.provider)] = {
                         'until': time.monotonic()+cooldown(spec.provider, exc), 'error': type(exc).__name__}
             from modules import llm
-            llm.note_route(llm.provider_label(spec.provider) + ' ' + failure_text(classified) + ', sıradakine geçildi', False)
+            detail = 'yanıt sözleşmesini karşılamadı' if validation_error else failure_text(classified)
+            llm.note_route(llm.provider_label(spec.provider) + ' ' + detail + ', sıradakine geçildi', False)
     with _LOCK:
         _LAST[request.owner] = {'task': 'declared', 'provider': None, 'attempts': attempts,
                                 'skipped': skipped_now}
@@ -574,12 +587,14 @@ def run_request(request: ModelRequest, adapter: ProviderAdapter,
     raise failure_policy.ProviderExhaustedError(message)
 
 
-def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=()):
+def run(owner, prompt, callback, image=False, route=None, *, exclude_providers=(),
+        include_model=False, validator=None, deadline=None):
     """Compatibility façade for legacy callers; all attempts still use ``run_request``."""
     request = ModelRequest(owner=owner, route=route,
         features=frozenset({'vision'}) if image else frozenset({'text'}),
-        exclude_providers=frozenset(exclude_providers))
-    return run_request(request, lambda spec: callback(spec.provider)).text
+        exclude_providers=frozenset(exclude_providers), deadline=deadline)
+    return run_request(request, lambda spec: callback(spec.provider, spec.model)
+                       if include_model else callback(spec.provider), validator=validator).text
 
 
 def status(owner):
