@@ -31,7 +31,11 @@ class VoiceConfigurationError(ValueError):
 def _read_config(path: Path):
     if not path.is_file():
         return None
-    if path.stat().st_size > 32_768:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise VoiceConfigurationError("Voice Core yapılandırma dosyası okunamadı.") from exc
+    if size > 32_768:
         raise VoiceConfigurationError("Voice Core yapılandırması çok büyük.")
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -75,7 +79,11 @@ def maybe_start(runtime):
         return None, False
     root = data_dir / "voice_models"
     lane = VoiceLane(runtime, catalog, PiperSynthesizer(root), WavePlayer())
-    register(lane)
+    try:
+        register(lane)
+    except Exception:
+        lane.close()
+        raise
     return lane, True
 
 
