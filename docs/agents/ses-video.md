@@ -16,6 +16,12 @@ Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak b
 - "Bilgisayarın tüm sesi" (`ACT.pcmute` → `pc_mute`, `pc_mute_state`) Windows ana ses çıkışını sessize alır.
 - Sesli komutla ses kapatma/açma sözcükleri (`sessize al`, `sesi kapat`, `sessizi kaldır`, `sesi aç/yükselt/kıs`) artık `engine_commands` içinde ham metin dalı olarak çalışmıyor: capability'yi Understanding tipli `pc.audio.action` olarak bir kez seçer, `brain_core_map._audio_args` eylemi enum dışında olana karşı yeniden doğrular, etki tek Core `audio_action` yürütücüsündedir (`modules/engine_intents.py`). Yanıt metinleri ve durum tersine çevirmeme davranışı eskisiyle birebir aynı; durum okumaları (`is_muted`, `current_volume`, `set_mute`, `_volume_step`) yalnız o yürütücüde. Test: `tests/test_brain_pr3_raw_text_authority.py`.
 
+## Yazılı cevap var, konuşma yok — Windows oynatma teşhisi (10 Kasım 2026)
+
+- Normal PC yanıtı `engine_loop` içinde önce `emit('assistant', out)`, sonra `VoiceSession.speak` ile okunur; `--mute` veya `flags['speak']=False` konuşmayı bilinçli kapatır. Telefon kaynağı PC hoparlöründen okutulmaz.
+- Çevrimiçi seçili ses Edge TTS MP3 indirir; Windows'ta `voice._play_mp3` MCI ile açar/çalar. Eski MCI `open/play` hata dönüşleri kontrol edilmediğinden yazı görünüp ses çıkmaması sessiz kalabiliyordu. Şimdi hata kodları denetlenir; oynatma hatasında kullanıcıya arayüz `system` olayıyla ses çıkış cihazını, düzeyi ve Konuşma ayarını kontrol etme önerisi iletilir; kalan ses parçaları temizlenir. Ses başarılı çalınmış gibi iddia edilmez.
+- Bu düzeltme fiziksel çıkış cihazını seçmez veya otomatik hoparlör düzeyi değiştirmez; gerçek PC'de ses çıkışının işitsel kabulü ayrı gereklidir.
+
 ## Video araçları kurulumu ve çalışma testi
 
 Windows'ta isteğe bağlı `scripts/video_kurulum.bat`, kullanıcı Evet seçerse yalnız `winget install --id Gyan.FFmpeg --exact --source winget --scope user` çalıştırır. Uygulama kendiliğinden kurulum/indirme yapmaz. WinGet eksikse App Installer veya FFmpeg'in Windows dağıtımı gerekir. WinGet sonucu başarısızsa başarı denmez; kurulumdan sonra Jarvis yeniden başlatılır (PATH yenilenmesi). Paket kaynağı: https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/Gyan/FFmpeg .
