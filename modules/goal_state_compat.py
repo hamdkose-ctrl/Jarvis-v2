@@ -26,6 +26,22 @@ def apply_goal_intent(path, *, owner, job_id, expected_version, operation, text=
     return goal_state_store.compare_and_swap(path, expected_version=expected_version, next_state=updated)
 
 
+def apply_goal_plan(path, *, owner, job_id, expected_version, plan):
+    """Commit one Core-validated canonical plan proposal through the existing CAS."""
+    current = goal_state_store.load(path)
+    if current['owner'] != owner or current['job_id'] != job_id:
+        raise IdentityMismatchError('GoalState plan kimliği eşleşmiyor.')
+    if goal_state.authority(current) != 'canonical':
+        raise ReconcilePolicyError('Goal plan için canonical authority gerekli.')
+    updated = core_state_reducer.apply(current, {
+        'expected_version': expected_version, 'op': 'set_goal_plan',
+        'plan': plan, 'reason_code': 'CORE_GOAL_PLAN_ACCEPTED',
+    })
+    return goal_state_store.compare_and_swap(
+        path, expected_version=expected_version, next_state=updated,
+    )
+
+
 _STATE_MAP = {
     'running': 'running',
     'approval': 'waiting',
