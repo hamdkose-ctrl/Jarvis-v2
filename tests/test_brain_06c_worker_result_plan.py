@@ -171,6 +171,44 @@ class PlannedWorkerResultTests(unittest.TestCase):
                     worker_result_hook.wrap_output({"state": "done"}, bad)
         self.assertEqual(goal_state_store.load(self.path)["evidence"], [])
 
+    def test_planned_recovery_without_prior_committed_fence_cannot_claim_current_plan(self):
+        from modules import reconcile_worker_result
+        output = {"state": "done", "verification": {"source": "example.test"}}
+        with self.assertRaisesRegex(ValueError, "önceden kabul edilmiş"):
+            reconcile_worker_result.accept_and_commit(output, identity(), "research", DATA)
+        self.assertEqual(goal_state_store.load(self.path)["evidence"], [])
+
+    def test_read_only_reconcile_reuses_exact_accepted_plan_result_without_second_write(self):
+        from modules import reconcile_worker_result
+        _, expected, output = self._prepared()
+        runtime_worker_result.accept_and_commit(output, expected)
+        result = reconcile_worker_result.accept_and_commit(
+            {"state": "done", "verification": {"source": "example.test"}},
+            identity(), "research", DATA,
+        )
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(goal_state_store.load(self.path)["version"], 2)
+        self.assertEqual(len(goal_state_store.load(self.path)["evidence"]), 1)
+
+    def test_old_read_only_reconcile_cannot_mint_new_version_after_plan_revision(self):
+        from modules import reconcile_worker_result
+        _, expected, output = self._prepared()
+        runtime_worker_result.accept_and_commit(output, expected)
+        before = goal_state_store.load(self.path)
+        after = core_state_reducer.apply(before, {
+            "op": "set_goal_plan", "plan": plan(2),
+            "expected_version": before["version"], "reason_code": "TEST_REVISION",
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=before["version"], next_state=after,
+        )
+        with self.assertRaises(ValueError):
+            reconcile_worker_result.accept_and_commit(
+                {"state": "done", "verification": {"source": "example.test"}},
+                identity(), "research", DATA,
+            )
+        self.assertEqual(goal_state_store.load(self.path), after)
+
     def test_existing_v1_unplanned_protocol_remains_supported(self):
         result = {
             "schema": worker_result.SCHEMA, "status": "succeeded", "evidence": [],
