@@ -82,7 +82,7 @@ Kanıt: PR=#449; SHA=2da471412a53d275659d2f82ac91f2558478c0e9; Contract=#349; Mi
 
 ## Faz 1 — 429 ve Ollama'sız çalışma
 
-**Router tek-attempt refactor dilimi, PR #540 (9 Kasım 2026, açık):** Provider+model kararı Router'da toplanıyor; validator/retry/fallback ortak en çok iki-deneme zarfına alınıyor. Bu, tam Router ürün planının kapanışı **değildir**. Model bazlı RPM/RPD/TPM/TPD rezervasyonu, özel sağlayıcı UI/config/adapter hattı, model kapasite doğrulaması ve SDK yeniden denemeleri dahil gerçek ağ sayımı ayrı açıktır. Mevcut PRIVATE_GENERAL ve strict free-tier evidence sınırları korunmalıdır. Exact-head Windows CI/watcher ve canlı model kabulü beklenmektedir.
+**Router tek-attempt refactor dilimi, PR #540 (10 Kasım 2026, merged):** Provider+model kararı Router'da toplanıyor; validator/retry/fallback ortak en çok iki-deneme zarfına alınıyor. Bu, tam Router ürün planının kapanışı **değildir**. Model bazlı atomik SQLite RPM/RPD/TPM/TPD rezervasyon altyapısı ve seçili model kapasitesi kanıt kontrolü #540 ile eklendi; `router_quota.POLICIES` hâlâ bilinçli boş. Gerçek hesap/proje limit politikaları, custom-provider UI/adapter, Cloudflare neuron muhasebesi ve canlı kalite/hız kabulü açık. Kabul head `acd9db4067f451a71501353a22f26b84c311e82f`: Windows CI SUCCESS, aynı SHA PC watcher PASSED; merge `f1fc6bb0bc67f5bddaced4f53042b8793dbb0e2d`. Mevcut PRIVATE_GENERAL ve strict free-tier evidence sınırları korunmalıdır.
 
 
 **Durum: 🔄 kısmi `[1✓ 2✓ 3✓ 4🔄]`. Provider sınıflandırma temizliği #423 ile `model_health.py` ve `image_gen.py` tarafında ortak `failure_policy` hattına taşındı. F-009 bu fazın açık dikey işidir: `cloud_free_confirmed` tek başına otomatik cloud izni sayılmayacak; exact provider/model için provenance'lı free-tier evidence, TTL, eligibility, quota durumu ve hard-stop guarantee geçerli değilse strict zero-cost router fail-closed kalacak. CI + gerçek PC watcher kabulü gelmeden F-009 tamamlandı sayılmaz. İş PC'sinde Ollama'sız gerçek kabul ve gerçek LM Studio / Groq denemesi ayrıca bekliyor. #437 ile tarihli haber isteği kota sırasını beklerken iş kaydı açılıyor ve keşif/doğrulama/teslim modelsiz yürüyor; bu fazın haber kolu kod+CI aşamasında, canlı PC kabulü bekliyor; `news_recovery` sohbet teslimi artık haber hattının doğruladığı adresleri mühürlüyor.**
@@ -107,6 +107,8 @@ Ağ ve model hataları net biçimde yönetilir; Ollama yoksa ya da kota doluysa 
 - ✅ (#351) `[1✓ 2– 3✓ 4–]` Ücretli sağlayıcıya otomatik geçiş yapılmaz.
 
 ---
+
+**BRAIN-05 durum eşitlemesi (10 Kasım 2026):** #541 merged (`527fe799a45e1755b227d006c4551330d9f3cd8e`). Kabul head `48e3fbf38b4bad3c8a54679c4976c7ab0d3d8ace` için Windows CI run `42808798958` SUCCESS ve aynı SHA gerçek PC watcher validation PASSED. Çoklu Goal Resolver bağlamı kapanmıştır; BRAIN-06 dinamik DAG, BRAIN-07 paralel yürütme ve gerçek Windows/semantik closeout bitmiş değildir. BRAIN-06A canonical plan şema/reducer hazırlığı ayrı PR'da; kullanıcıya bağlı yürütme kabulü değildir.
 
 ## Faz 2 — Zamanlama, olay, hook ve temel muhakeme
 

@@ -116,6 +116,20 @@ def apply(current: dict, proposal: dict) -> dict:
         next_state['goal_intent'] = goal_state.validate_goal_intent(intent)
         return _audit(next_state, op=op, reason_code=_reason(proposal))
 
+    if op == 'set_goal_plan':
+        if goal_state.authority(state) != 'canonical':
+            raise InvalidTransitionError('Plan yalnız canonical authority üzerinde değiştirilebilir.')
+        proposed = proposal.get('plan')
+        if not isinstance(proposed, dict):
+            raise ValueError('Goal plan proposal geçersiz.')
+        prior = state.get('goal_plan')
+        expected_plan_version = 1 if prior is None else prior['plan_version'] + 1
+        if proposed.get('plan_version') != expected_plan_version:
+            raise StaleStateError('Goal plan sürümü sıralı ilerlemeli.')
+        next_state = copy.deepcopy(state)
+        next_state['goal_plan'] = goal_state.validate_goal_plan(proposed)
+        return _audit(next_state, op=op, reason_code=_reason(proposal))
+
     if op == 'set_state':
         target = proposal.get('state')
         if target not in goal_state.STATES:

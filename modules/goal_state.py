@@ -19,7 +19,7 @@ EXECUTION_MODES = frozenset({'fast', 'agent', 'durable'})
 # 'authority' key and is treated as 'legacy' by authority() below. This keeps
 # the required-field schema check exact for every pre-existing snapshot.
 AUTHORITY_VALUES = frozenset({'legacy', 'canonical'})
-_OPTIONAL = frozenset({'authority', 'goal_intent'})
+_OPTIONAL = frozenset({'authority', 'goal_intent', 'goal_plan'})
 _TERMINAL = frozenset({'done', 'cancelled'})
 _OWNER = re.compile(r'[\w-]{1,100}\Z')
 _JOB_ID = re.compile(r'[a-zA-Z0-9_.-]{1,100}\Z')
@@ -46,6 +46,43 @@ def validate_goal_intent(intent):
     if not isinstance(priority, int) or isinstance(priority, bool) or priority < 0:
         raise ValueError('GoalState priority geçersiz.')
     return copy.deepcopy(intent)
+
+
+def validate_goal_plan(plan):
+    """Bounded canonical plan proposal, not execution state or worker authority."""
+    if not isinstance(plan, dict) or set(plan) != {'plan_version', 'nodes'}:
+        raise ValueError('GoalState goal_plan şeması geçersiz.')
+    version = plan['plan_version']
+    if type(version) is not int or version < 1:
+        raise ValueError('GoalState plan_version geçersiz.')
+    nodes = plan['nodes']
+    if not isinstance(nodes, list) or not 1 <= len(nodes) <= 8:
+        raise ValueError('GoalState plan node sayısı geçersiz.')
+    seen = set()
+    for node in nodes:
+        if not isinstance(node, dict) or set(node) != {
+            'id', 'depends_on', 'capability_id', 'input', 'expected_output', 'acceptance',
+        }:
+            raise ValueError('GoalState plan node şeması geçersiz.')
+        node_id = node['id']
+        if not isinstance(node_id, str) or not _JOB_ID.fullmatch(node_id) or node_id in seen:
+            raise ValueError('GoalState plan node kimliği geçersiz.')
+        deps = node['depends_on']
+        if (not isinstance(deps, list)
+                or any(not isinstance(dep, str) for dep in deps)
+                or len(deps) != len(set(deps))
+                or any(dep not in seen for dep in deps)):
+            raise ValueError('GoalState plan bağımlılığı geçersiz.')
+        for field in ('capability_id', 'expected_output', 'acceptance'):
+            value = node[field]
+            if not isinstance(value, str) or not value.strip() or len(value) > 2000:
+                raise ValueError('GoalState plan alanı geçersiz.')
+        if not isinstance(node['input'], dict):
+            raise ValueError('GoalState plan input geçersiz.')
+        _json_only(node['input'])
+        seen.add(node_id)
+    _json_only(plan)
+    return copy.deepcopy(plan)
 
 
 def new(
@@ -100,6 +137,8 @@ def validate(state: dict) -> dict:
         raise ValueError('GoalState authority geçersiz.')
     if 'goal_intent' in state:
         validate_goal_intent(state['goal_intent'])
+    if 'goal_plan' in state:
+        validate_goal_plan(state['goal_plan'])
     if state.get('schema') != SCHEMA:
         raise ValueError('GoalState sürümü desteklenmiyor.')
     if not isinstance(state.get('owner'), str) or not _OWNER.fullmatch(state['owner']):
