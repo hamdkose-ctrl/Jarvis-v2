@@ -13,6 +13,7 @@ class SmartRouterTests(unittest.TestCase):
         for target,value in [('_STORE',Path(self.tmp.name)),('_HEALTH',{}),('_LAST',{})]:
             p=patch.object(router,target,value);p.start();self.addCleanup(p.stop)
         fresh_bundle(self)
+        self.local_model_patch=patch.object(llm,'_ollama_effective_model',return_value='local-test');self.local_model_patch.start();self.addCleanup(self.local_model_patch.stop)
         p=patch.object(router.privacy,'mode',return_value='normal');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_key',return_value='gem-key');p.start();self.addCleanup(p.stop)
         p=patch.object(llm,'user_groq_key',return_value='groq-key');p.start();self.addCleanup(p.stop)
@@ -159,7 +160,9 @@ class SmartRouterTests(unittest.TestCase):
         message=str(caught.exception)
         self.assertIn('gemini: kota veya hız sınırı (HTTPError, HTTP 429)',message)
         self.assertIn('groq: zaman aşımı',message)
-        self.assertIn('ollama: bağlantı',message)
+        # Router's global envelope is two real network attempts: the local
+        # fallback is intentionally not a third hidden adapter attempt.
+        self.assertNotIn('ollama:',message)
         self.assertNotIn('kutusunu işaretle',message)
         self.assertNotIn('PRIVATE',message)
         self.assertNotIn('gem-key',json.dumps(router.status('alice')))
@@ -191,6 +194,7 @@ class SmartRouterTests(unittest.TestCase):
             with self.assertRaises(llm.errors.ClientError):llm._send_provider('gemini','merhaba','',100,None)
 
     def test_ollama_uses_big_model_for_code_and_falls_back_to_small(self):
+        self.local_model_patch.stop()
         with patch.object(llm,'_cfg',return_value={'provider':'ollama','url':'http://x','model':'llama3.2'}), \
              patch.object(llm,'load_settings',return_value={}), \
              patch.object(llm,'ollama_models',return_value=['llama3.2','qwen2.5:7b']):
@@ -308,7 +312,7 @@ class SmartRouterTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as caught:
                 router.run('alice','test',Mock(side_effect=llm.LocalModelError(ollama_hint.need('Yerel model'))))
         message=str(caught.exception)
-        self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor (ollama.com adresinden kurup `ollama serve` ile başlat)',message)
+        self.assertIn('ollama: Ollama yüklü değil ya da çalışmıyor',message)
         self.assertIn('(LocalModelError)',message)
         self.assertEqual(router.status('alice')['last']['attempts'][0].get('hint'),'ollama_missing')
 

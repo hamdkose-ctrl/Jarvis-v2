@@ -89,7 +89,7 @@ class DurableWorkTests(unittest.TestCase):
 
     def test_image_connection_or_quota_error_still_cools_provider(self):
         for error in (llm.LocalModelError('connection failed'),llm.CloudError('quota')):
-            with self.subTest(error=type(error).__name__),patch.object(router,'_HEALTH',{}), \
+            with self.subTest(error=type(error).__name__),patch.object(llm, '_ollama_effective_model', return_value='local-test'), patch.object(router,'_HEALTH',{}), \
                  patch.object(router,'settings',return_value={'cloud_free_confirmed':False,'key':''}), \
                  patch.object(router.privacy,'mode',return_value='normal'):
                 with self.assertRaises(RuntimeError):router.run('alice','image',Mock(side_effect=error),image=True)

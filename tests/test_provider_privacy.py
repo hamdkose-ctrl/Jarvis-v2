@@ -182,6 +182,11 @@ class _Session:
 
 class CloudflareChatTests(unittest.TestCase):
     def setUp(self):
+        # All sessions below are HTTP fakes; unit tests must not write a real
+        # user's usage ledger. Individual metering assertions override this mock.
+        meter = patch.object(cloudflare_chat.usage_meter, 'record')
+        meter.start()
+        self.addCleanup(meter.stop)
         for name, value in (("user_cloudflare_account", "acc123"), ("user_cloudflare_token", "tok456")):
             patcher = patch.object(cloudflare_chat, name, return_value=value)
             patcher.start()
@@ -217,6 +222,40 @@ class CloudflareChatTests(unittest.TestCase):
         self.assert_error(_Session(_Resp(payload={"result": {"response": "  "}})), "EMPTY_RESPONSE")
         self.assert_error(_Session(_Resp(payload={"result": {"response": 5}})), "EMPTY_RESPONSE")
 
+    def test_physical_http_attempt_has_exactly_one_owner_meter_entry(self):
+        cases = [
+            (_Session(_Resp(payload={"result": {"response": "ok"}})), 'ok', 2),
+            (_Session(_Resp(status=401)), '401', 0),
+            (_Session(_Resp(status=429)), '429', 0),
+            (_Session(_Resp(payload=None)), 'bozuk', 0),
+            (_Session(_Resp(payload={"result": {"response": "  "}})), 'bos', 0),
+            (_Session(error=TimeoutError("network timeout")), 'baglanti', 0),
+        ]
+        for session, expected_result, expected_out in cases:
+            with self.subTest(result=expected_result), \
+                 patch.object(cloudflare_chat.usage_meter, 'record') as record:
+                try:
+                    self.run_chat(session)
+                except cloudflare_chat.CloudflareChatError:
+                    pass
+                self.assertEqual(len(session.calls), 1)
+                record.assert_called_once()
+                args = record.call_args.args
+                self.assertEqual(args[:2], ('cloudflare', cloudflare_chat.MODEL))
+                self.assertEqual(args[2], len('sistem') + len('selam'))
+                self.assertEqual(args[3], expected_out)
+                self.assertEqual(args[4], expected_result)
+                self.assertEqual(record.call_args.kwargs['owner'], 'alice')
+
+    def test_cloudflare_no_network_means_no_usage_meter_record(self):
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat, 'user_cloudflare_token', return_value=''), \
+             patch.object(cloudflare_chat.usage_meter, 'record') as record:
+            with self.assertRaises(cloudflare_chat.CloudflareChatError):
+                self.run_chat(session)
+        record.assert_not_called()
+        self.assertEqual(session.calls, [])
+
     def test_missing_credentials_or_user_never_calls_the_network(self):
         session = _Session(_Resp(payload={"result": {"response": "x"}}))
         with patch.object(cloudflare_chat, "user_cloudflare_token", return_value=""):
@@ -228,6 +267,39 @@ class CloudflareChatTests(unittest.TestCase):
             cloudflare_chat.chat([], slug="alice", _session=session)
         self.assertEqual(ctx.exception.reason_code, "EMPTY_PROMPT")
         self.assertEqual(session.calls, [])
+
+    def test_http_timeouts_shrink_to_shared_request_budget(self):
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'budget_remaining', return_value=2.5), \
+             patch.object(cloudflare_chat.requests_state, 'check'):
+            self.assertEqual(self.run_chat(session), "ok")
+        self.assertEqual(session.calls[0][1]['timeout'], (2.5, 2.5))
+        another = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'budget_remaining', return_value=None), \
+             patch.object(cloudflare_chat.requests_state, 'check'):
+            self.assertEqual(self.run_chat(another), "ok")
+        self.assertEqual(another.calls[0][1]['timeout'], (5, 30))
+
+    def test_expired_or_cancelled_request_cannot_send(self):
+        from modules import requests_state
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'check',
+                          side_effect=requests_state.LocalDeadline('expired')):
+            with self.assertRaises(requests_state.LocalDeadline):
+                self.run_chat(session)
+        self.assertEqual(session.calls, [])
+
+    def test_late_success_is_metered_once_but_not_adopted(self):
+        from modules import requests_state
+        session = _Session(_Resp(payload={"result": {"response": "ok"}}))
+        with patch.object(cloudflare_chat.requests_state, 'check',
+                          side_effect=[None, requests_state.LocalDeadline('expired')]), \
+             patch.object(cloudflare_chat.usage_meter, 'record') as record:
+            with self.assertRaises(requests_state.LocalDeadline):
+                self.run_chat(session)
+        self.assertEqual(len(session.calls), 1)
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[4], 'ok')
 
     def test_max_tokens_is_bounded(self):
         session = _Session(_Resp(payload={"result": {"response": "ok"}}))

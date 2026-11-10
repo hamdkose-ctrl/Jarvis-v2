@@ -29,6 +29,10 @@ class RoutingPolicyTests(unittest.TestCase):
             p = patch.object(router.privacy, name, side_effect=fn); p.start(); self.addCleanup(p.stop)
         p = patch.object(router.time, 'time', return_value=self.now); p.start(); self.addCleanup(p.stop)
         fresh_bundle(self)
+        # The CI/test owner is synthetic; never read a real account's stored
+        # provider-limit observations in routing policy unit tests.
+        p = patch('modules.usage_meter.observed_exhaustion', return_value=None)
+        p.start(); self.addCleanup(p.stop)
         router.configure('alice', True)
         for provider, model in (('gemini', 'gem-model'), ('groq', 'groq-model'), ('cloudflare', cloudflare_chat.MODEL)):
             router.set_free_tier_evidence('alice', provider=provider, model=model, free_tier_verified=True,
@@ -45,6 +49,19 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertEqual(self.order(PUB), ['gemini', 'groq', 'cloudflare', 'ollama'])
         self.assertEqual(self.order('forged'), ['groq', 'cloudflare', 'ollama'])   # unknown route -> PRIVATE
 
+    def test_observed_zero_remaining_temporarily_skips_only_that_model(self):
+        from modules import usage_meter
+        with patch.object(usage_meter, 'observed_exhaustion',
+                          side_effect=lambda owner, provider, model, **kw:
+                              {'seconds': 42, 'kind': 'tokens'} if provider == 'groq' else None):
+            self.assertEqual(self.order(), ['cloudflare', 'ollama'])
+            selection = router.selection('alice','chat')
+            row = next(s for s in selection['skipped'] if s['provider'] == 'groq')
+            self.assertEqual(row['reason_code'], 'PROVIDER_OBSERVED_QUOTA_EXHAUSTED')
+            self.assertEqual(row['seconds'], 42)
+            self.assertEqual(router.wait_seconds('alice'), 0)  # Cloudflare still usable
+            self.assertIn('42 saniye', router.status('alice')['capabilities'][1]['policy'])
+
     def test_task_type_does_not_reorder_providers(self):
         for task in ('chat', 'code', 'analysis'):
             self.assertEqual(router.candidates('alice', task), ['groq', 'cloudflare', 'ollama'])
@@ -55,19 +72,21 @@ class RoutingPolicyTests(unittest.TestCase):
             call = Mock(side_effect=[error, error, error])
             with self.assertRaises(RuntimeError):
                 router.run('alice', 'özel not', call)
-            self.assertEqual([c.args[0] for c in call.call_args_list], ['groq', 'cloudflare', 'ollama'])
+            self.assertEqual([c.args[0] for c in call.call_args_list], ['groq', 'cloudflare'])
 
-    def test_groq_429_falls_to_cloudflare_then_ollama_then_honest_unavailable(self):
+    def test_groq_429_falls_to_cloudflare_and_stops_at_two_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('down')])
         with self.assertRaises(RuntimeError) as caught:
             router.run('alice', 'x', call)
+        self.assertEqual(call.call_count, 2)
         self.assertNotIn('gemini:', str(caught.exception).split('Atlanan')[0])
         self.assertIn('Ücretli modele geçilmedi', str(caught.exception))
 
-    def test_public_chain_gemini_error_goes_groq_cloudflare_ollama(self):
+    def test_public_chain_stops_after_two_failed_attempts(self):
         call = Mock(side_effect=[RuntimeError('429'), RuntimeError('429'), RuntimeError('429'), 'yerel'])
-        self.assertEqual(router.run('alice', 'x', call, route=PUB), 'yerel')
-        self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq', 'cloudflare', 'ollama'])
+        with self.assertRaises(RuntimeError):
+            router.run('alice', 'x', call, route=PUB)
+        self.assertEqual([c.args[0] for c in call.call_args_list], ['gemini', 'groq'])
 
     def test_missing_or_stale_evidence_skips_provider(self):
         router.set_free_tier_evidence('alice', provider='groq', model='groq-model', free_tier_verified=True,
@@ -89,7 +108,7 @@ class RoutingPolicyTests(unittest.TestCase):
     # ---- llm.research / provenance -------------------------------------------------------------
     def capture(self):
         sent = []
-        def fake(name, prompt, system, tokens, history):
+        def fake(name, prompt, system, tokens, history, *, model=None):
             sent.append((name, prompt, system, history))
             return 'cevap'
         return sent, patch.object(llm, '_send_provider', side_effect=fake)
@@ -122,7 +141,7 @@ class RoutingPolicyTests(unittest.TestCase):
 
     def test_chat_with_history_never_reaches_gemini_even_when_everything_fails(self):
         seen = []
-        def fail(name, *a):
+        def fail(name, *a, **kwargs):
             seen.append(name)
             raise llm.LocalModelError('x')
         with patch.object(llm, '_send_provider', side_effect=fail):

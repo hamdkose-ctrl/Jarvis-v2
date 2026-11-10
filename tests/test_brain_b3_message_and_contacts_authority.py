@@ -126,7 +126,7 @@ def _utterance_of(payload: str) -> str:
     return row["utterance"]
 
 
-def _stub_run(owner, payload, send, *, route, exclude_providers):
+def _stub_run(owner, payload, send, *, route, exclude_providers, **kwargs):
     reply = MODEL_STUB_REPLIES.get(_utterance_of(payload))
     return _chat_envelope() if reply is None else _envelope(*reply)
 
@@ -138,7 +138,7 @@ class _ModelStubMixin:
         self.model_calls: list[str] = []
         real_run = run or _stub_run
 
-        def counted(owner, payload, send, *, route, exclude_providers):
+        def counted(owner, payload, send, *, route, exclude_providers, **kwargs):
             self.model_calls.append(_utterance_of(payload))
             return real_run(owner, payload, send, route=route, exclude_providers=exclude_providers)
 
@@ -277,7 +277,7 @@ class MessageModelAuthorityTests(_ZarfHarness):
         from modules.brain_core_map import CORE_INTENTS
         captured: dict[str, str] = {}
 
-        def fake_run(owner, text, send, *, route, exclude_providers):
+        def fake_run(owner, text, send, *, route, exclude_providers, **kwargs):
             captured["payload"] = text
             return _envelope("weather.read", {"location": "izmir"})
 
@@ -847,7 +847,7 @@ class MessageTurnTests(_MessageTurnHarness):
 
 def _reply(capability, arguments, sources=None):
     """Sabit bir zarfla cevap veren sahte sağlayıcı (dayanak/uydurma senaryoları için)."""
-    def run(owner, payload, send, *, route, exclude_providers):
+    def run(owner, payload, send, *, route, exclude_providers, **kwargs):
         return _envelope(capability, arguments, sources)
     return run
 
@@ -885,7 +885,7 @@ class MessageSideEffectTests(_MessageTurnHarness):
 
     def test_a_provider_failure_does_not_fall_back_to_a_word_pattern(self):
         # §2: model başarısız olduğunda regex/kelime listesi onun yerine NL kararı veremez.
-        def failing(owner, payload, send, *, route, exclude_providers):
+        def failing(owner, payload, send, *, route, exclude_providers, **kwargs):
             raise RuntimeError("sağlayıcı yanıt vermedi")
 
         self._start_model_stub(run=failing)
@@ -908,7 +908,7 @@ class MessageSideEffectTests(_MessageTurnHarness):
     def test_approval_off_does_not_send_on_a_provider_failure(self):
         self.ctx.load_approve.return_value = False
 
-        def failing(owner, payload, send, *, route, exclude_providers):
+        def failing(owner, payload, send, *, route, exclude_providers, **kwargs):
             raise RuntimeError("sağlayıcı yanıt vermedi")
 
         self._start_model_stub(run=failing)

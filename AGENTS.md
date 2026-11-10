@@ -22,6 +22,8 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
   - İş sonunda kısa bir durum kaydı bırak: yapılanlar, doğrulananlar, doğrulanmayanlar (açık işler `docs/BEKLEYEN_ISLER.md`'de tutulur).
   - Gerekli testleri ve güvenlik kontrollerini atlama; tasarruf bunların pahasına yapılmaz.
 
+- **Model rotası:** `ModelRequest` → `RoutePlan` → adapter; Router retry/fallback için en çok iki fiziksel deneme yetkisidir. Gemini SDK retry/continuation kapalı tutulur, başarısız fiziksel deneme de sayılır; Core yetkiyi korur.
+
 - Haber zamanı: “son dakika” varsayılanı son 1 saattir; açık saat aralığı üstündür. Saat hassasiyetli istekte yalnız yayın günü yeterli değildir. Olayın geçerlilik tarihi yayın tarihinden ayrı, özgün istek zamanı ve kapsamına bağlı kanıtla doğrulanır.
 - Not arama/özetleme sahibi: `docs/agents/mail-takvim.md`.
 
@@ -30,7 +32,7 @@ Bu dosya Jarvis kodunda değişiklik yapan her yapay zekâ ajanı (Claude, Codex
 Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştirirken önce ilgili dosyayı oku, değişince aynı PR'da orayı güncelle:
 
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (14 bölüm)
-- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (22 bölüm)
+- `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
 - `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
@@ -180,7 +182,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - PR #439 Windows #855: 3321 testte tek FAIL, RecoveryPipelineEvidenceTests sabit 2026-10-21 haberi 29 Ekim'de 7 günlük pencereden çıktığı için düşmüştür. Bu wiring testi istanbul_today() tarihli feed ve receipt kullanır; üretim freshness kuralı değiştirilmez. Sözdizimi kontrol edildi; yeni exact-head tam CI/PC kabulü beklenir.
 
 
-- PR #439 haber dış keşfi: search_news_public önce mevcut DDG aramasını kullanır; hata durumunda bir kez Bing News RSS okur. PermissionError/Cancelled geçiş başlatmaz. Gerçek boş DDG sonucu tekrar denenmez. Bing wrapper sadece tam www.bing.com/news/apiclick.aspx üzerindeki tek url parametresinden açılır; hedef yine public_sources.address ve gerçek makale doğrulamasından geçer. RSS tarih/başlıkları kanıt sayılmaz. Genel search_public değişmez. DTD/entity ve büyük RSS reddedilir. 4 hedefli test + 105 odaklı test geçti; yeni exact Windows ve iş PC kabulü beklenir. Proxy tanısında Bing 12 aday, Sabah 29 Ekim makalesi parser/tarih PASS; Milliyet eski tarih nedeniyle ret. Bu üretim taşıyıcı kabulü değildir.
+- PR #439 haber dış keşfi: search_news_public önce DDG'yi dener; hata halinde yalnız bir Bing News RSS fallback yapar. Gerçek boş DDG sonucu, PermissionError ve Cancelled fallback başlatmaz. Bing wrapper yalnız www.bing.com/news/apiclick.aspx üzerindeki tek url parametresini açar; hedef public_sources.address ve gerçek makale doğrulamasından geçer. RSS başlık/tarihi kanıt değildir; DTD/entity/büyük RSS reddedilir. Genel search_public değişmez. Proxy tanısı canlı taşıyıcı kabulü değildir.
 
 
 - PR #439 Windows #858 tek FAIL: broad-catch diagnostic ilk işlem olmalı. search_news_public except bloğunda kayıt iptal kontrolünün önüne taşındı; izin/iptal propagation ve fallback bütçesi korunur. AST diagnostic kontrolü ve 4 fallback regresyonu geçti; yeni exact CI/PC sonucu beklenir.

@@ -618,7 +618,7 @@ class WeatherCityModelEnvelopeTests(unittest.TestCase):
         from modules.brain_core_map import CORE_INTENTS
         captured: dict[str, str] = {}
 
-        def fake_run(owner, text, send, *, route, exclude_providers):
+        def fake_run(owner, text, send, *, route, exclude_providers, **kwargs):
             captured["payload"] = text
             return self._envelope("weather.read", {"location": "izmir"})
 

@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import time
 import tempfile
 import threading
 import uuid
@@ -204,6 +205,58 @@ def limits(owner: str | None = None) -> dict:
     except (OSError, ValueError):
         _record_failure('modules/usage_meter.py:limits')
         return {}
+
+
+_RESET_UNIT_SECONDS = {'ms':.001, 's':1., 'm':60., 'h':3600., 'd':86400.}
+_RESET_DURATION = re.compile(r'(\d+(?:\.\d+)?)(ms|s|m|h|d)')
+
+
+def _reset_duration_seconds(raw) -> float | None:
+    """Parse only a provider duration (e.g. 50s, 2m35s); never guess an absolute reset."""
+    if not isinstance(raw, str) or not (1 <= len(raw) <= 20):
+        return None
+    parts = list(_RESET_DURATION.finditer(raw))
+    if not parts or ''.join(match.group() for match in parts) != raw:
+        return None
+    seconds = sum(float(m.group(1)) * _RESET_UNIT_SECONDS[m.group(2)] for m in parts)
+    return seconds if 0 < seconds <= 2 * 86400 else None
+
+
+def observed_exhaustion(owner: str, provider: str, model: str, *, now: float | None = None) -> dict | None:
+    """Extra *deny-only* gate from fresh provider rate-limit headers.
+
+    A locally saved zero remaining with parseable reset may postpone another
+    call. Missing, malformed or stale headers never grant quota, change free-tier
+    evidence, or establish an official limit. This is NOT an atomic reservation.
+    """
+    provider_rows = limits(owner).get(provider)
+    if not isinstance(provider_rows, dict):
+        return None
+    row = provider_rows.get(model)
+    if not isinstance(row, dict):
+        return None
+    try:
+        observed = datetime.fromisoformat(str(row['t']))
+        if observed.tzinfo is None:
+            return None
+        recorded = observed.timestamp()
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return None
+    current = time.time() if now is None else now
+    if current < recorded - 60 or current - recorded > 2 * 86400:
+        return None
+    active = []
+    for left, reset, kind in (('req_left','req_reset','requests'),
+                              ('tok_left','tok_reset','tokens')):
+        seconds = _reset_duration_seconds(row.get(reset))
+        if type(row.get(left)) is int and row[left] == 0 and seconds is not None:
+            remaining = int(max(0, recorded + seconds - current) + .999)
+            if remaining:
+                active.append((remaining, kind))
+    if not active:
+        return None
+    seconds, kind = max(active)  # wait until every observed exhausted limit resets
+    return {'seconds':seconds,'kind':kind}
 
 
 _LOW = 0.1          # kalan sınır %10'un altına inerse uyarı satırı
