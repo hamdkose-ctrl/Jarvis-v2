@@ -187,6 +187,9 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
 
     m = runtime.re.search(r"(yavaş|hızlı)\w*\s+konuş|konuşma hızı|konuşmayı (yavaşlat|hızlandır)", cmd_lower)
     if m:
+        from modules import voice_runtime
+        if voice_runtime.active() is not None:
+            return "Yerel Piper sesinde konuşma hızı ayarı henüz desteklenmiyor; mevcut hız değişmedi."
         slower = "yavaş" in m.group(0)
         cur = runtime.profile.data["prefs"].get("rate", -8)
         new = max(-40, min(40, (cur if isinstance(cur, int) else -8) + (-10 if slower else 10)))
