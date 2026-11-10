@@ -22,6 +22,7 @@ _ALLOWED_VOICES = frozenset({
 })
 _ACTIVE_LOCK = threading.Lock()
 _ACTIVE = None
+_BLOCK_LEGACY = False  # explicit configuration fault must not trigger a second voice
 
 
 class VoiceConfigurationError(ValueError):
@@ -70,6 +71,8 @@ def _read_config(path: Path):
 
 def maybe_start(runtime):
     """Return (voice_lane, explicitly_enabled); absent/disabled config keeps legacy."""
+    global _BLOCK_LEGACY
+    _BLOCK_LEGACY = False
     data_dir = getattr(runtime, "DATA_DIR", None)
     if not isinstance(data_dir, Path):
         return None, False
@@ -100,6 +103,12 @@ def active():
         return _ACTIVE
 
 
+def block_legacy_on_fault():
+    """An invalid explicit Voice Core configuration cannot select old TTS."""
+    global _BLOCK_LEGACY
+    _BLOCK_LEGACY = True
+
+
 def interrupt_active() -> bool:
     lane = active()
     if lane is None:
@@ -112,7 +121,7 @@ def announce_active(text: str) -> bool:
     """Route direct local privacy notices through the same owner when enabled."""
     lane = active()
     if lane is None:
-        return False
+        return bool(_BLOCK_LEGACY)
     runtime = lane.runtime
     if not runtime.flags.get("speak", True):
         return True  # mute never starts a new private-mode voice notice
@@ -198,13 +207,14 @@ class VoiceLane:
         # Busy remains set until the worker acknowledges pending receipts.
 
     def close(self):
-        global _ACTIVE
+        global _ACTIVE, _BLOCK_LEGACY
         with self._lock:
             self._closed = True
         self._coordinator.close()
         with _ACTIVE_LOCK:
             if _ACTIVE is self:
                 _ACTIVE = None
+                _BLOCK_LEGACY = False
 
     def is_busy(self) -> bool:
         return self.busy_event.is_set()
