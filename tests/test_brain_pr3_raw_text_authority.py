@@ -572,6 +572,23 @@ class AudioAuthorityTests(_CanonicalAuthorityHarness):
         handle.assert_not_called()
         self.assertEqual(out, "Sessizi kaldırdım. Ses yüzde 40.")
 
+    def test_open_volume_reports_failure_without_false_success(self):
+        self.ctx.system_control.is_muted = Mock(return_value=True)
+        self.ctx.system_control.set_mute.return_value = False
+        _, out, handle, _ = self.turn("sesi aç")
+        self.assertEqual(out, "Sesi açamadım.")
+        self.assertIs(out.ok, False)
+        self.ctx.system_control.current_volume.assert_not_called()
+        self.ctx._volume_step.assert_not_called()
+        handle.assert_not_called()
+
+    def test_open_volume_has_explicit_success_receipt(self):
+        self.ctx.system_control.is_muted = Mock(return_value=True)
+        _, out, handle, _ = self.turn("sesi aç")
+        self.assertIs(out.ok, True)
+        self.ctx.system_control.set_mute.assert_called_once_with(False)
+        handle.assert_not_called()
+
     def test_raise_and_lower_use_the_existing_delta_owner(self):
         _, _, handle, _ = self.turn("sesi yükselt")
         self.ctx._volume_step.assert_called_once_with(15, "arttırdım")
