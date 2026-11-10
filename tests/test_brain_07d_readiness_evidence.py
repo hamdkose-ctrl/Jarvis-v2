@@ -168,6 +168,23 @@ class CanonicalReadinessTests(unittest.TestCase):
         self.assertEqual(latest['goal_plan']['plan_version'], 2)
         self.assertEqual(self.ready(), ('left', 'right'))
 
+    def test_unreconciled_user_intent_blocks_stale_readiness_until_replan(self):
+        self.commit('left')
+        self.mutate(
+            'mutate_goal_intent', reason='USER_CORRECTION',
+            operation='revise', text='Research a different source',
+            priority=None,
+        )
+        with self.assertRaisesRegex(goal_plan_gate.PlanFenceError, 'plan revalidation'):
+            self.ready()
+        # A new canonical plan revision (even with the same topology) must
+        # precede any fresh eligibility; old-plan success is never reused.
+        self.mutate(
+            'set_goal_plan', reason='REPLAN_AFTER_CORRECTION',
+            plan={'plan_version': 2, 'nodes': self.plan['nodes']},
+        )
+        self.assertEqual(self.ready(), ('left', 'right'))
+
     def test_stopped_goal_and_other_owner_cannot_select_ready_nodes(self):
         self.commit('left')
         stopped = self.mutate('set_state', reason='USER_PAUSE', state='paused')
