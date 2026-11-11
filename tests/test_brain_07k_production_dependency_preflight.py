@@ -396,6 +396,29 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
                 self.attempt(identity_override=hinted)
         decision.assert_not_called()
 
+    def test_partial_plan_identity_cannot_use_legacy_fallback(self):
+        self.both()
+        self.canonical_path.unlink()
+        downgraded_job = {key: value for key, value in self.job.items()
+                          if key != '_canonical_version'}
+        for hint in ('plan_version', 'node_digest'):
+            with self.subTest(hint=hint):
+                downgraded_identity = dict(identity('child'))
+                downgraded_identity.pop('version')
+                downgraded_identity[hint] = (
+                    1 if hint == 'plan_version' else 'a' * 64
+                )
+                with (patch('modules.runtime_execution_gate.plan_task') as decision,
+                      patch.object(goal_tools, 'execute') as worker):
+                    with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                                 'plan fence requires durable'):
+                        specialist_orchestrator._execute_step(
+                            self.runtime, downgraded_job, self.step,
+                            downgraded_identity,
+                        )
+                decision.assert_not_called()
+                worker.assert_not_called()
+
     def test_legacy_versioned_identity_without_canonical_sidecar_is_unplanned(self):
         legacy_identity = {'version': 1, 'owner': OWNER,
                            'job_id': 'job-1', 'task_id': 'root'}

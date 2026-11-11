@@ -148,6 +148,13 @@ def preflight_durable_step(
             'Specialist identity differs from durable execution owner/job.'
         )
     if not runtime_worker_result.durable_identity(identity):
+        # Partial planned identity is not a legacy identity. Even if the
+        # canonical sidecar disappeared and the transient job version marker
+        # was stripped, a plan fence cannot authorize legacy dispatch.
+        if 'plan_version' in identity or 'node_digest' in identity:
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical plan fence requires durable worker identity.'
+            )
         # A planned canonical job cannot escape dependency proof simply by
         # supplying an old, unversioned specialist identity. The former
         # unplanned/legacy specialist path is preserved.
