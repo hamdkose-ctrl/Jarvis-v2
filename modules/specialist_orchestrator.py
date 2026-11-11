@@ -119,6 +119,24 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     deps=None
     job_id=job.get('id')
     identity_job_id=identity.get('job_id') if isinstance(identity,dict) else None
+    # A planned job cannot lose its ExecutionRecord ID before the predecessor
+    # proof is checked. Reject this early: domain re-verification must never
+    # obscure a missing canonical execution identity. Some historical direct
+    # specialist calls legitimately have no job['id'] and no canonical plan.
+    if not isinstance(job_id,str) and isinstance(identity_job_id,str):
+        from modules import runtime_worker_result
+        try:
+            canonical=runtime_worker_result.canonical_snapshot(identity)
+        except FileNotFoundError:
+            if job.get('_canonical_version') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                ) from None
+        else:
+            if canonical.get('goal_plan') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                )
     # Legacy direct specialist calls can lack a durable job ID entirely.
     # But a canonical job may have its runtime dependency list or version
     # marker stripped, so file-backed authority is checked whenever the

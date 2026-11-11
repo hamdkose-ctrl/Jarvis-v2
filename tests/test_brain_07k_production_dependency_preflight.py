@@ -430,14 +430,23 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
 
     def test_canonical_step_rejects_missing_execution_job_id(self):
         self.both()
-        missing = {key:value for key,value in self.job.items() if key != 'id'}
-        with patch('modules.runtime_execution_gate.plan_task') as decision:
-            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
-                                         'ExecutionRecord job ID'):
-                specialist_orchestrator._execute_step(
-                    self.runtime, missing, self.step, identity('child'),
-                )
-        decision.assert_not_called()
+        for stripped_version in (False, True):
+            with self.subTest(stripped_version=stripped_version):
+                missing = {key:value for key,value in self.job.items()
+                           if key != 'id'}
+                if stripped_version:
+                    missing.pop('_canonical_version')
+                with (patch('modules.runtime_execution_gate.plan_task') as decision,
+                      patch.object(goal_tools, 'verify') as verifier,
+                      patch.object(goal_tools, 'execute') as worker):
+                    with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                                 'ExecutionRecord job ID'):
+                        specialist_orchestrator._execute_step(
+                            self.runtime, missing, self.step, identity('child'),
+                        )
+                verifier.assert_not_called()
+                decision.assert_not_called()
+                worker.assert_not_called()
 
     def test_unplanned_legacy_dependency_behavior_is_unchanged(self):
         state = goal_state_store.load(self.canonical_path)
