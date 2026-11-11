@@ -165,6 +165,11 @@ class WorkTests(unittest.TestCase):
                      {'id':'other','agent':'research','input':{'url':'https://example.com'}}):
             saved={'id':assigned,'state':'interrupted','queue_id':qid,
                    'tasks':[{**task,'state':'queued'}],'outputs':{}}
+            # Model an external writer which first reads the *current*
+            # journal. A blind stale overwrite is correctly rejected now.
+            path=agents._job_path(agents._root('alice'),assigned)
+            if path.exists():
+                saved[agents._JOURNAL_FENCE]=agents._load('alice',assigned)[agents._JOURNAL_FENCE]
             agents._save(agents._root('alice'),saved)
             with store.database('alice') as db:
                 db.execute("UPDATE queue SET state='running',lease=0 WHERE id=?",(qid,))
@@ -188,8 +193,12 @@ class WorkTests(unittest.TestCase):
         qid=queue.enqueue('alice',tasks);assigned=queue.rows('alice')[0]['job_id']
         changed=[dict(tasks[0],state='queued'),dict(tasks[1],state='queued',depends=[])]
         for state in ('interrupted','done'):
-            agents._save(agents._root('alice'),{'id':assigned,'state':state,'queue_id':qid,
-                                              'tasks':changed,'outputs':{}})
+            saved={'id':assigned,'state':state,'queue_id':qid,
+                   'tasks':changed,'outputs':{}}
+            path=agents._job_path(agents._root('alice'),assigned)
+            if path.exists():
+                saved[agents._JOURNAL_FENCE]=agents._load('alice',assigned)[agents._JOURNAL_FENCE]
+            agents._save(agents._root('alice'),saved)
             with store.database('alice') as db:
                 db.execute("UPDATE queue SET state='running',lease=0 WHERE id=?",(qid,))
             with patch.object(agents,'worker',return_value={'state':'done'}) as work:

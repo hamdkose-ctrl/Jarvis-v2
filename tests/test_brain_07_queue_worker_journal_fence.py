@@ -76,6 +76,31 @@ class DurableQueuedWorkerFenceTests(unittest.TestCase):
         finally:
             task_agents._QUEUE_CLAIM.reset(token)
 
+    def test_external_cancel_keeps_original_cancel_exception_not_stale_write(self):
+        import threading
+        started = threading.Event()
+        release = threading.Event()
+        result = []
+        def work(owner, task, deps):
+            started.set()
+            release.wait(8)
+            return {'state':'done','text':'late'}
+        def worker_thread():
+            try:
+                task_agents.execute('alice', [{'id':'a','agent':'research'}])
+            except requests_state.Cancelled:
+                result.append('cancelled')
+        with patch.object(task_agents, 'worker', side_effect=work):
+            thread = threading.Thread(target=worker_thread)
+            thread.start()
+            self.assertTrue(started.wait(5))
+            job = task_agents.cancel_job('alice')
+            release.set()
+            thread.join(10)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(result, ['cancelled'])
+        self.assertEqual(task_agents._load('alice', job['id'])['state'], 'cancelled')
+
     def test_queue_lease_lost_during_worker_cannot_record_done(self):
         qid = task_queue.enqueue('alice', [{'id':'a', 'agent':'verify'}])
         def revoke(owner, task, deps):

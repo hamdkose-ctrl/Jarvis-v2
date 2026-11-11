@@ -335,9 +335,20 @@ def _run_pending(owner,job,emit=None):
             _save(root,job)
         return job
     except requests_state.Cancelled:
+        # A different process/user cancellation may already own the newer
+        # durable snapshot. Never overwrite it, and do not mask the original
+        # cancellation with a stale journal version error.
+        latest=_load(owner,job['id'])
+        if latest.get(_JOURNAL_FENCE)!=job.get(_JOURNAL_FENCE):
+            raise
         for pending in job['tasks']:
             if pending['state'] in ('running','queued','blocked'): _transition(job,pending,'cancelled')
-        _transition(job,None,'cancelled');_save(root,job);raise
+        _transition(job,None,'cancelled')
+        try:
+            _save(root,job)
+        except ValueError as exc:
+            raise requests_state.Cancelled('Görev başka yürütmede değişti; iptal korundu.') from exc
+        raise
 
 
 def _run_parallel(owner,job,emit=None):
@@ -390,9 +401,17 @@ def _run_parallel(owner,job,emit=None):
         _transition(job,None,'done' if all(t['state']=='done' for t in job['tasks']) else 'incomplete');_save(root,job)
         return job
     except requests_state.Cancelled:
+        latest=_load(owner,job['id'])
+        if latest.get(_JOURNAL_FENCE)!=job.get(_JOURNAL_FENCE):
+            raise
         for task in job['tasks']:
             if task['state'] in ('queued','running','blocked'):_transition(job,task,'cancelled')
-        _transition(job,None,'cancelled');_save(root,job);raise
+        _transition(job,None,'cancelled')
+        try:
+            _save(root,job)
+        except ValueError as exc:
+            raise requests_state.Cancelled('Görev başka yürütmede değişti; iptal korundu.') from exc
+        raise
 
 
 def continue_job(owner,job_id=None,emit=None,*,queue_id=None,queue_tasks=None):
