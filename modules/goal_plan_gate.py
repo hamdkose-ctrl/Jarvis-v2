@@ -288,7 +288,7 @@ def validate_dependent_research_attempt(
                 state, owner=selection.owner, job_id=selection.job_id,
             )):
         raise PlanFenceError(
-            'Dependent research has no fresh canonical predecessor readiness.'
+            'Bağımlı araştırma için güncel canonical predecessor kanıtı yok.'
         )
     return node
 
