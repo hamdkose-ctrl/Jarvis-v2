@@ -110,6 +110,7 @@ def certify_projected_plan(owner: str, job_id: str) -> ProjectedPlanProof:
             snapshots.append((ident, copy.deepcopy(output), digest))
 
         goal_version = state['version']
+        state_digest = goal_job_control.fingerprint(state)
         record_digest = goal_job_control.fingerprint(record)
         plan_version = plan['plan_version']
 
@@ -129,7 +130,7 @@ def certify_projected_plan(owner: str, job_id: str) -> ProjectedPlanProof:
         fresh = goal_state_store.load(state_path)
         current = execution_record.load(root, owner, job_id)
         if (fresh['version'] != goal_version
-                or fresh['state'] != state['state']
+                or goal_job_control.fingerprint(fresh) != state_digest
                 or goal_job_control.fingerprint(current) != record_digest):
             raise PlanEvidenceError('Canonical plan changed during verification.')
 
