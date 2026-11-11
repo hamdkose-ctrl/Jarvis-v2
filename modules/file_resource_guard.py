@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 import hashlib
 import os
+import stat
 from pathlib import Path
 
 from config import DATA_DIR
@@ -36,7 +37,7 @@ def claim_paths(*paths):
         if not canonical:
             raise ValueError('File effect resource path invalid.')
         # Never mistake a directory, symlink or special file for a file alias.
-        file_id = (info.st_dev, info.st_ino) if info is not None and info.st_ino else None
+        file_id = (info.st_dev, info.st_ino) if info is not None and stat.S_ISREG(info.st_mode) and info.st_ino else None
         return canonical, file_id, info is not None
 
     keys = set()
