@@ -38,6 +38,7 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
             (root / (owner+'.sqlite3')).touch()
         for module, attr, value in (
             (task_queue, '_THREAD', None),
+            (task_queue, '_CANONICAL_WORKERS', {}),
             (task_queue, '_DAILY_NOTIFY', None),
             (task_queue, '_OWNER_TICKS', {}),
             (task_queue, '_LAST_ADMITTED', {}),
@@ -64,9 +65,15 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
             loop.join(8)
         for worker in tuple(task_queue._OWNER_TICKS.values()):
             worker.join(8)
+        for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+            worker.join(8)
         self.assertFalse(
             any(worker.is_alive() for worker in task_queue._OWNER_TICKS.values()),
             'Owner tick survived test teardown',
+        )
+        self.assertFalse(
+            any(worker.is_alive() for worker in task_queue._CANONICAL_WORKERS.values()),
+            'Canonical worker survived test teardown',
         )
 
     def test_blocked_first_owner_does_not_block_other_owners(self):
@@ -118,6 +125,46 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
             self.assertTrue(fourth.wait(8), 'Fourth owner did not get a fair slot')
             self.stop.set()
             task_queue._THREAD.join(3)
+    def test_canonical_registered_owner_without_sqlite_keeps_scheduler_responsive(self):
+        from types import SimpleNamespace
+        from modules import canonical_scheduler_dispatch
+        # A canonical goal needs no queued-task SQLite database.
+        (service_store.ROOT / 'alice.sqlite3').unlink()
+        entered = threading.Event()
+        observed_source = threading.Event()
+        profile = SimpleNamespace(slug='alice')
+        offer = SimpleNamespace(selection=SimpleNamespace(
+            owner='alice', job_id='0123456789abcdef', node_id='left',
+        ), attempt=1)
+
+        def long_canonical(_profile, _offer, *, stop_event):
+            self.assertIs(_profile, profile)
+            entered.set()
+            self.release.wait(5)
+
+        def poll(owner, notify):
+            if owner == 'bob' and entered.is_set():
+                observed_source.set()
+
+        with patch.object(canonical_scheduler_dispatch, 'discover',
+                          side_effect=lambda owner, **kwargs: (offer,) if owner == 'alice' else ()), \
+             patch.object(canonical_scheduler_dispatch, 'execute_offer',
+                          side_effect=long_canonical), \
+             patch.object(source_watch, 'poll', side_effect=poll), \
+             patch.object(task_queue, 'tick', return_value=None):
+            task_queue.start(
+                self.stop,
+                allowed_owners=lambda: {'alice', 'bob'},
+                canonical_profile_resolver=lambda owner:
+                    profile if owner == 'alice' else SimpleNamespace(slug='bob'),
+            )
+            try:
+                self.assertTrue(entered.wait(8), 'Canonical owner was not admitted')
+                self.assertTrue(observed_source.wait(8), 'Scheduler blocked by worker')
+            finally:
+                self.release.set()
+                self.stop.set()
+                task_queue._THREAD.join(8)
 
 
 if __name__ == '__main__':

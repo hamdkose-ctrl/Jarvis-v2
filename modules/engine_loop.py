@@ -140,8 +140,22 @@ def main(runtime, ui=None):
     def source_notice(owner,event_id,message):
         event_channels.deliver(runtime,owner,{'source':'source_watch','kind':'source_update','payload':{'text':message,'event_id':event_id}},
                                title='Jarvis kaynak takibi')
+    def canonical_profile(owner):
+        # An authenticated, registered profile is required for background
+        # read-only work. Never borrow the mutable foreground runtime.profile.
+        name = next((name for name in runtime.list_users()
+                     if runtime.slugify(name) == owner), None)
+        if name is None:
+            raise PermissionError('Canonical Scheduler owner is not registered.')
+        profile = runtime._get_profile(name)
+        if profile.slug != owner or not profile.exists:
+            raise PermissionError('Canonical Scheduler owner identity changed.')
+        return profile
+
     task_queue.start(runtime.stop_event,queue_notice,
-                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},source_notify=source_notice)
+                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},
+                     source_notify=source_notice,
+                     canonical_profile_resolver=canonical_profile)
     from modules import webhook_server
     def webhook_event(owner,event):
         event_channels.deliver(runtime,owner,event,title='Jarvis olay')
