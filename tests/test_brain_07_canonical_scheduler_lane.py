@@ -15,7 +15,8 @@ from unittest.mock import patch
 
 import release_guard
 from modules import (
-    canonical_output_projection, canonical_plan_evidence, canonical_scheduler_dispatch,
+    canonical_output_projection, canonical_plan_evidence, canonical_restart_audit,
+    canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
     goal_executor, goal_state, goal_state_store, goal_tools,
     runtime_worker_result, task_agents, task_results, untrusted_flow,
@@ -433,6 +434,88 @@ class SchedulerOfferTests(unittest.TestCase):
         # An unrelated standalone legacy/read-only worker has no Scheduler
         # stop token; the failed scope does not permanently contaminate it.
         runtime_worker_result.require_scheduler_active()
+
+    def test_restart_audit_queued_nodes_are_not_evidence_or_replayed(self):
+        before_state = self.path.read_bytes()
+        before_record = self.record_path.read_bytes()
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(
+            [(n.node_id, n.status) for n in result.nodes],
+            [('left', 'queued_unstarted'), ('right', 'queued_unstarted'),
+             ('child', 'queued_unstarted')],
+        )
+        self.assertEqual(self.path.read_bytes(), before_state)
+        self.assertEqual(self.record_path.read_bytes(), before_record)
+
+    def test_restart_audit_started_without_core_success_is_unknown(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        before = self.record_path.read_bytes()
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(result.nodes[0].status, 'started_unknown')
+        self.assertEqual(self.record_path.read_bytes(), before)
+        self.assertEqual(
+            [offer.selection.node_id for offer in self.offers()], ['right'],
+        )
+
+    def test_restart_audit_acceptance_without_projection_is_not_completion(self):
+        self.accept('left')
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        before = self.path.read_bytes(), self.record_path.read_bytes()
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(result.nodes[0].status, 'accepted_unprojected')
+        self.assertEqual(before, (self.path.read_bytes(), self.record_path.read_bytes()))
+        self.assertEqual(goal_state_store.load(self.path)['state'], 'pending')
+
+    def test_restart_audit_accepted_projection_requires_exact_core_hash(self):
+        clean = self.accept('left')
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', clean)
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(result.nodes[0].status, 'accepted_projected')
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['outputs']['left']['text'] = 'changed after acceptance'
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        with self.assertRaises(canonical_restart_audit.RestartAuditError):
+            canonical_restart_audit.inspect(OWNER, JOB)
+
+    def test_restart_audit_explicit_first_attempt_failure_never_retries(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='failed', started=True, attempts=1)
+        job['outputs']['left'] = {
+            'state': 'failed', 'text': 'unknown upstream receipt',
+        }
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(result.nodes[0].status, 'failed_unaccepted')
+        self.assertEqual(
+            [offer.selection.node_id for offer in self.offers()], ['right'],
+        )
+
+    def test_restart_audit_core_failed_attempt_requires_reconciliation(self):
+        self.accept('left', state='failed')
+        result = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual(result.nodes[0].status, 'failed_accepted')
+
+    def test_restart_audit_rejects_foreign_and_terminal_states(self):
+        with self.assertRaises(canonical_restart_audit.RestartAuditError):
+            canonical_restart_audit.inspect('bob', JOB)
+        current = goal_state_store.load(self.path)
+        closed = core_state_reducer.apply(current, {
+            'op': 'set_state', 'state': 'cancelled',
+            'reason_code': 'TEST_CANCEL',
+            'expected_version': current['version'],
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=current['version'], next_state=closed,
+        )
+        with self.assertRaises(canonical_restart_audit.RestartAuditError):
+            canonical_restart_audit.inspect(OWNER, JOB)
 
     def test_discovery_requires_published_running_records(self):
         found = canonical_scheduler_dispatch.discover(OWNER)
