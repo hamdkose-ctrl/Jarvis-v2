@@ -212,9 +212,11 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             from modules import model_free_news
             news_scope = nullcontext(None)
             if (expected is not None and 'plan_version' in expected
-                    and deps):
+                    and expected['capability_id'] == 'task.research'):
                 from modules import goal_executor, scheduler_resource_gate
-                news_scope = scheduler_resource_gate.dependent_research_worker(
+                guard = (scheduler_resource_gate.dependent_research_worker
+                         if deps else scheduler_resource_gate.root_research_worker)
+                news_scope = guard(
                     goal_executor._RESOURCE_LEASES, identity, expected,
                 )
             with news_scope as dependent_commit:
@@ -237,12 +239,14 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
                 return output
 
     if (expected is not None and 'plan_version' in expected
-            and expected['capability_id'] == 'task.research' and deps):
-        # A planned research child owns a command ticket across the real
-        # worker and its final canonical CAS. Root and legacy calls are not
-        # upgraded to an implicit research lease.
+            and expected['capability_id'] == 'task.research'):
+        # Root and dependent read-only research now reserve the same
+        # exact-command namespace through the real worker and Core CAS.
+        # This is never a global provider mutex; other roots may overlap.
         from modules import goal_executor, scheduler_resource_gate, worker_result_hook
-        with scheduler_resource_gate.dependent_research_worker(
+        guard = (scheduler_resource_gate.dependent_research_worker
+                 if deps else scheduler_resource_gate.root_research_worker)
+        with guard(
             goal_executor._RESOURCE_LEASES, identity, expected,
         ) as commit_checked:
             research_output=worker_result_hook.execute(
