@@ -9,6 +9,7 @@ import copy
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -365,6 +366,114 @@ class SchedulerOfferTests(unittest.TestCase):
         job['state'] = 'cancelled'
         release_guard.atomic(self.record_path, execution_record.encode(job))
         self.assertEqual(canonical_scheduler_dispatch.discover(OWNER), ())
+
+    def test_actual_engine_scheduler_runs_disk_backed_dag_without_sqlite_queue(self):
+        """End-to-end: one Scheduler loop, two overlapping roots, verified child.
+
+        Uses the real specialist and Core/ExecutionRecord persistence paths;
+        only external research transport and the wall-clock tick are synthetic.
+        """
+        from types import SimpleNamespace
+        from modules import llm, outbox, privacy, service_store, source_watch, task_queue
+
+        state = goal_state_store.load(self.path)
+        nodes = [node('left'), node('right'), node('child', ('left', 'right'))]
+        updated = core_state_reducer.apply(state, {
+            'op': 'set_goal_plan', 'reason_code': 'TEST_SCHEDULER_DAG',
+            'expected_version': state['version'],
+            'plan': {'plan_version': 2, 'nodes': nodes},
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=state['version'], next_state=updated,
+        )
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][-1]['depends'] = ['left', 'right']
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+
+        sqlite = self.store / 'sqlite'
+        sqlite.mkdir()
+        barrier = threading.Barrier(2, timeout=9)
+        finished = threading.Event()
+        root_entered = threading.Event()
+        poll_while_busy = threading.Event()
+        observed = []
+        lock = threading.Lock()
+
+        class FastStop:
+            def __init__(self):
+                self.event = threading.Event()
+            def wait(self, _):
+                return self.event.wait(.01)
+            def is_set(self):
+                return self.event.is_set()
+            def set(self):
+                self.event.set()
+
+        stop = FastStop()
+        self.addCleanup(stop.set)
+
+        def worker(owner, task, deps):
+            self.assertEqual(owner, OWNER)
+            self.assertEqual(llm._key_context.get(), OWNER)
+            if task['id'] in ('left', 'right'):
+                root_entered.set()
+                barrier.wait()
+            else:
+                self.assertEqual(set(deps), {'left', 'right'})
+                finished.set()
+            with lock:
+                observed.append(task['id'])
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified ' + task['id'],
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        def poll(owner, notify):
+            if root_entered.is_set():
+                poll_while_busy.set()
+
+        with ExitStack() as stack:
+            for module, attribute, value in (
+                (service_store, 'ROOT', sqlite),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_queue, 'tick', lambda *_: None),
+                (outbox, 'has_pending', lambda *_: False),
+                (privacy, 'blocked', lambda *_: None),
+                (source_watch, 'poll', poll),
+                (untrusted_flow, 'observe', lambda *_: None),
+                (task_agents, 'worker', worker),
+            ):
+                stack.enter_context(patch.object(module, attribute, value))
+            task_queue.start(
+                stop,
+                allowed_owners=lambda: {OWNER},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+            )
+            try:
+                self.assertTrue(finished.wait(15), 'Dependent node was not dispatched')
+                self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
+                for _ in range(200):
+                    saved = execution_record.load(self.owner_root, OWNER, JOB)
+                    if saved['steps'][-1]['state'] == 'done':
+                        break
+                    threading.Event().wait(.01)
+                saved = execution_record.load(self.owner_root, OWNER, JOB)
+                self.assertEqual(set(saved['outputs']), {'left', 'right', 'child'})
+                self.assertTrue(all(s['state'] == 'done' for s in saved['steps']))
+                self.assertEqual(set(observed), {'left', 'right', 'child'})
+            finally:
+                stop.set()
+                barrier.abort()
+                task_queue._THREAD.join(8)
+                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    thread.join(8)
+                self.assertFalse(any(
+                    thread.is_alive() for thread in task_queue._CANONICAL_WORKERS.values()
+                ), 'Canonical worker leaked after scheduler shutdown')
 
 
 if __name__ == '__main__':
