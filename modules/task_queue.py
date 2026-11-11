@@ -370,12 +370,16 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 if len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS:
                     break
 
-                def work(candidate=offer):
-                    token = llm._key_context.set(owner)
+                # Bind the pinned owner/profile at thread creation time.
+                # The Scheduler can iterate another registered owner before
+                # this new OS thread begins executing; late-bound locals must
+                # never transplant one worker into another user's context.
+                def work(candidate=offer, pinned_owner=owner, pinned_profile=profile):
+                    token = llm._key_context.set(pinned_owner)
                     try:
                         if not stop_event.is_set():
                             canonical_scheduler_dispatch.execute_offer(
-                                profile, candidate, stop_event=stop_event,
+                                pinned_profile, candidate, stop_event=stop_event,
                             )
                     except Exception:
                         _record_failure('modules/task_queue.py:canonical_dispatch')
