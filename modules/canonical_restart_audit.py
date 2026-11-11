@@ -119,7 +119,8 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
                 if len(successes) != 1:
                     raise RestartAuditError('Repeated successful Core evidence.')
                 if has_output:
-                    if step_state != 'done' or not isinstance(output, dict):
+                    if (step_state != 'done' or attempts != 1 or started is not True
+                            or not isinstance(output, dict)):
                         raise RestartAuditError('Accepted output is not a completed step.')
                     try:
                         canonical_output_projection._accepted_row(
@@ -135,6 +136,8 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
             elif accepted:
                 # Failed attempts may not automatically be retried, even if
                 # the journal lacks an exact output at the time of a crash.
+                if step_state not in ('running', 'failed') or attempts != 1 or started is not True:
+                    raise RestartAuditError('Failed Core attempt has no durable launch.')
                 if has_output and (
                         step_state != 'failed' or not isinstance(output, dict)
                         or output.get('state') != 'failed'):
