@@ -443,6 +443,18 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertIn('Henüz başlamamış: 3 adım', result)
         self.assertEqual(before, (self.path.read_bytes(), self.record_path.read_bytes()))
 
+    def test_goal_status_command_routes_through_existing_goal_handler(self):
+        from types import SimpleNamespace
+        from modules import brain_entry
+
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug=OWNER))
+        with patch.object(brain_entry, 'allow_legacy_goal_control', return_value=True), \
+             patch.object(goal_executor, 'latest', return_value=job):
+            answer = goal_executor.handle(runtime, 'hedef durumu')
+        self.assertIn('Canonical DAG kanıtı: 0/3', answer)
+        self.assertIn('Henüz başlamamış: 3 adım.', answer)
+
     def test_goal_status_started_unknown_never_suggests_auto_retry(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
         job['steps'][0].update(state='running', started=True, attempts=1)
