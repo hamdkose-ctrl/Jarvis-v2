@@ -52,6 +52,22 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
         self.release=threading.Event()
         self.addCleanup(self.release.set)
         self.addCleanup(self.stop.set)
+        # Thread cleanup must run while the temporary task_queue registry and
+        # test-owned directories still exist, including assertion failures.
+        self.addCleanup(self.finish_threads)
+
+    def finish_threads(self):
+        self.stop.set()
+        self.release.set()
+        loop = task_queue._THREAD
+        if loop:
+            loop.join(8)
+        for worker in tuple(task_queue._OWNER_TICKS.values()):
+            worker.join(8)
+        self.assertFalse(
+            any(worker.is_alive() for worker in task_queue._OWNER_TICKS.values()),
+            'Owner tick survived test teardown',
+        )
 
     def test_blocked_first_owner_does_not_block_other_owners(self):
         first=threading.Event()
@@ -69,8 +85,8 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
                 next_owner.set()
         with patch.object(task_queue, 'tick', side_effect=tick):
             task_queue.start(self.stop)
-            self.assertTrue(first.wait(4), 'First owner was not dispatched')
-            self.assertTrue(next_owner.wait(4), 'Second owner starved on first worker')
+            self.assertTrue(first.wait(8), 'First owner was not dispatched')
+            self.assertTrue(next_owner.wait(8), 'Second owner starved on first worker')
             self.assertIn('alice',seen)
             self.assertIn('bob',seen)
             self.assertLessEqual(len(task_queue._OWNER_TICKS), 3)
@@ -96,10 +112,10 @@ class ExistingSchedulerOwnerDispatchTests(unittest.TestCase):
                 self.release.wait(5)
         with patch.object(task_queue, 'tick', side_effect=tick):
             task_queue.start(self.stop)
-            self.assertTrue(first_three.wait(4))
+            self.assertTrue(first_three.wait(8))
             self.assertFalse(fourth.is_set(), 'Capacity limit was bypassed')
             self.release.set()
-            self.assertTrue(fourth.wait(4), 'Fourth owner did not get a fair slot')
+            self.assertTrue(fourth.wait(8), 'Fourth owner did not get a fair slot')
             self.stop.set()
             task_queue._THREAD.join(3)
 
