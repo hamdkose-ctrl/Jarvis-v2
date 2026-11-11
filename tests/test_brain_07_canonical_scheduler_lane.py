@@ -719,7 +719,28 @@ class SchedulerOfferTests(unittest.TestCase):
                     voice_id='tr_erkek', text='Arka planda devam ediyorum',
                 )))
                 self.assertTrue(voice_played.wait(5), 'Voice playback did not start')
-                self.assertTrue(finished.wait(15), 'Dependent node was not dispatched')
+                # The provider signal may arrive before its Core CAS and
+                # durable projection. Give busy Windows CI enough time for
+                # both roots to finish, but still require the actual child
+                # worker to start; don't replace this with a mocked result.
+                child_started = finished.wait(30)
+                if not child_started:
+                    journal = execution_record.load(self.owner_root, OWNER, JOB)
+                    canonical = goal_state_store.load(self.path)
+                    self.fail(
+                        'Dependent node was not dispatched; durable steps='
+                        + repr([(step['id'], step['state'],
+                                 step.get('attempts', 0))
+                                for step in journal['steps']])
+                        + '; output states='
+                        + repr({key: value.get('state')
+                                for key, value in journal['outputs'].items()})
+                        + '; accepted WorkerResult nodes='
+                        + repr([(row.get('step_id'), row.get('status'))
+                                for row in canonical['evidence']
+                                if isinstance(row, dict)
+                                and row.get('kind') == 'worker_result'])
+                    )
                 self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
                 # The worker sets "finished" before its Core CAS and durable
                 # output projection. On a busy Windows runner those stages may
