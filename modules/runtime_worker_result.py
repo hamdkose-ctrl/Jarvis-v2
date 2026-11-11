@@ -4,10 +4,45 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 
 from modules import capability_manifest, goal_state_store, worker_result
+
+
+class CanonicalWorkerDeadlineExceeded(RuntimeError):
+    """A canonical read-only worker outlived its cooperative time budget."""
+
+
+class CanonicalWorkerDeadline:
+    """One bounded worker attempt, not a provider kill or retry authority.
+
+    The same token represents engine stop and elapsed deadline. It is bound
+    through the existing Scheduler stop ContextVar, so Core rejects results
+    that return after either boundary. It does NOT cancel a blocking provider
+    or release a resource lock while an external call is still in flight.
+    """
+
+    def __init__(self, stop_event, seconds: float, *, clock=time.monotonic):
+        if not callable(getattr(stop_event, 'is_set', None)):
+            raise ValueError('Canonical Scheduler stop event invalid.')
+        if (type(seconds) not in (int, float) or not 1 <= seconds <= 3600
+                or not callable(clock)):
+            raise ValueError('Canonical worker deadline must be 1–3600 seconds.')
+        self._stop_event = stop_event
+        self._clock = clock
+        self._deadline = clock() + seconds
+
+    def stop_reason(self):
+        if self._stop_event.is_set():
+            return 'scheduler_stopped'
+        if self._clock() >= self._deadline:
+            return 'worker_deadline'
+        return None
+
+    def is_set(self):
+        return self.stop_reason() is not None
 
 
 # Only the canonical worker launched by the existing Scheduler binds this
@@ -33,6 +68,11 @@ def require_scheduler_active():
     """Cooperative fence directly before Core accepts this worker's result."""
     stop_event = _SCHEDULER_STOP.get()
     if stop_event is not None and stop_event.is_set():
+        if (isinstance(stop_event, CanonicalWorkerDeadline)
+                and stop_event.stop_reason() == 'worker_deadline'):
+            raise CanonicalWorkerDeadlineExceeded(
+                'Canonical worker deadline elapsed; stale result not accepted.'
+            )
         raise RuntimeError(
             'Canonical Scheduler stopped; stale worker result not accepted.'
         )
