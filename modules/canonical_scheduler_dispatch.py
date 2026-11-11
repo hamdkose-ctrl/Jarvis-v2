@@ -7,7 +7,9 @@ Core WorkerResult CAS remain the only execution/acceptance path.
 from __future__ import annotations
 
 import copy
+from bisect import bisect_right
 import re
+import threading
 import time
 from types import SimpleNamespace
 
@@ -20,6 +22,9 @@ from modules import (
 )
 
 _JOB_RECORD = re.compile(r"([a-f0-9]{16})\.execution\.json\Z")
+# Cursor affects fairness only; readiness/authority are always re-read from disk.
+_SCAN_CURSOR = {}
+_SCAN_LOCK = threading.Lock()
 
 
 def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
@@ -31,7 +36,20 @@ def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
     if not root.is_dir():
         return ()
     offers = []
-    for path in sorted(root.glob("*.execution.json"))[:max_jobs]:
+    paths = sorted(root.glob("*.execution.json"))
+    if not paths:
+        return ()
+    # Always advance by a bounded group, even when all of its journals are
+    # corrupt, completed or already running. Otherwise a ninth goal can be
+    # permanently invisible behind eight older journals for the same owner.
+    with _SCAN_LOCK:
+        cursor_key = (str(root), owner)
+        next_index = bisect_right(
+            [path.name for path in paths], _SCAN_CURSOR.get(cursor_key, ""),
+        )
+        batch = (paths[next_index:] + paths[:next_index])[:max_jobs]
+        _SCAN_CURSOR[cursor_key] = batch[-1].name
+    for path in batch:
         match = _JOB_RECORD.fullmatch(path.name)
         if not match or path.is_symlink() or not path.is_file():
             continue
