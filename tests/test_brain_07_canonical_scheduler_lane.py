@@ -929,6 +929,101 @@ class SchedulerOfferTests(unittest.TestCase):
                     for thread in task_queue._CANONICAL_WORKERS.values()
                 ), 'Canonical goal worker leaked after stop')
 
+    def test_canonical_workers_pin_owner_and_profile_before_delayed_thread_start(self):
+        """Late OS thread scheduling must not adopt the next owner's identity.
+
+        The real Scheduler creates worker thread targets for two owners, but
+        test starts those targets only after both owner/profile loop locals
+        have moved on. No external worker, device or provider is invoked.
+        """
+        from types import SimpleNamespace
+        from modules import llm, service_store, task_queue
+
+        started = threading.Event()
+        stop_event = threading.Event()
+        targets = []
+        seen = []
+        original_thread = threading.Thread
+
+        class DeferredCanonicalThread:
+            def __init__(self, *, target, name, **kwargs):
+                self.target = target
+                self.name = name
+                self.done = False
+            def start(self):
+                targets.append(self)
+                if len(targets) >= 2:
+                    started.set()
+            def is_alive(self):
+                return not self.done
+            def join(self, timeout=None):
+                return
+
+        def thread_factory(*args, **kwargs):
+            if kwargs.get('name', '').startswith('jarvis-canonical-'):
+                return DeferredCanonicalThread(**kwargs)
+            return original_thread(*args, **kwargs)
+
+        def discover(owner, **_):
+            return (SimpleNamespace(
+                selection=SimpleNamespace(
+                    owner=owner, job_id='0000000000000001', node_id='only',
+                ),
+                attempt=1,
+            ),)
+
+        def execute(profile, offer, *, stop_event=None):
+            seen.append((
+                profile.slug,
+                offer.selection.owner,
+                llm._key_context.get(),
+            ))
+            self.assertEqual(profile.slug, offer.selection.owner)
+            self.assertEqual(llm._key_context.get(), offer.selection.owner)
+            return True
+
+        class RapidStop:
+            def wait(self, _):
+                return stop_event.wait(.01)
+            def is_set(self):
+                return stop_event.is_set()
+
+        with ExitStack() as stack:
+            for module, name, replacement in (
+                (service_store, 'ROOT', self.store / 'no-queue'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_queue.threading, 'Thread', thread_factory),
+                (canonical_scheduler_dispatch, 'discover', discover),
+                (canonical_scheduler_dispatch, 'execute_offer', execute),
+            ):
+                stack.enter_context(patch.object(module, name, replacement))
+            task_queue.start(
+                RapidStop(),
+                allowed_owners=lambda: {'alice', 'bob'},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+            )
+            try:
+                self.assertTrue(started.wait(5), 'Both owner threads were not prepared')
+                self.assertEqual(len(targets), 2)
+                # Both closures execute after the scheduler has iterated the
+                # other owner, deterministically reproducing late binding.
+                for thread in targets:
+                    thread.target()
+                    thread.done = True
+                self.assertEqual(
+                    seen,
+                    [('alice', 'alice', 'alice'),
+                     ('bob', 'bob', 'bob')],
+                )
+            finally:
+                stop_event.set()
+                task_queue._THREAD.join(5)
+                self.assertFalse(task_queue._THREAD.is_alive())
+
     def test_registered_canonical_owner_gets_fair_next_slot(self):
         """An unserved fourth owner must beat a repeatedly runnable first owner.
 
