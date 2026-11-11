@@ -79,12 +79,18 @@ class ExecutionRecordWindowsOpenTests(unittest.TestCase):
 
     def test_wrong_owner_is_not_accepted_or_retried(self):
         original = Path.read_text
+        calls = []
+
+        def observed_read(path, *args, **kwargs):
+            calls.append(path)
+            return original(path, *args, **kwargs)
+
         with patch.object(execution_record, '_WINDOWS', True), \
-             patch.object(Path, 'read_text', autospec=True, wraps=original) as opening, \
+             patch.object(Path, 'read_text', new=observed_read), \
              patch.object(execution_record.time, 'sleep') as sleeping:
             with self.assertRaises(PermissionError):
                 execution_record.load(self.root, 'bob', JOB)
-        opening.assert_called_once()
+        self.assertEqual(calls, [self.path])
         sleeping.assert_not_called()
 
     def test_symlink_rejected_without_open_retry(self):
