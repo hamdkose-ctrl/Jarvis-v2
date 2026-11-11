@@ -523,6 +523,134 @@ class SchedulerOfferTests(unittest.TestCase):
             ['left', 'right'],
         )
 
+    def test_two_independent_goals_same_owner_overlap_on_real_scheduler(self):
+        """Read-only canonical goals run concurrently without legacy _ACTIVE.
+
+        One existing Scheduler and two separate on-disk GoalState/records;
+        only the external research provider transport is synthetic.
+        """
+        from types import SimpleNamespace
+        from modules import service_store, task_queue
+
+        first = goal_state_store.load(self.path)
+        one_node = [node('left')]
+        updated = core_state_reducer.apply(first, {
+            'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
+            'expected_version': first['version'],
+            'plan': {'plan_version': 2, 'nodes': one_node},
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=first['version'], next_state=updated,
+        )
+        first_record = execution_record.load(self.owner_root, OWNER, JOB)
+        first_record['steps'] = first_record['steps'][:1]
+        release_guard.atomic(self.record_path, execution_record.encode(first_record))
+
+        second_id = 'fedcba9876543210'
+        second_node = node('other')
+        second_state = goal_state.new(
+            owner=OWNER, job_id=second_id, goal='Read a different source',
+            authority='canonical',
+        )
+        second_state = core_state_reducer.apply(second_state, {
+            'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
+            'expected_version': second_state['version'],
+            'plan': {'plan_version': 1, 'nodes': [second_node]},
+        })
+        goal_state_store.create(
+            self.owner_root / (second_id + '.goalstate.json'), second_state,
+        )
+        second_record = {
+            'id': second_id, 'owner': OWNER,
+            'request': 'Read a different source', 'state': 'running',
+            'goals': [], 'outputs': {},
+            'steps': [{
+                'id': 'other', 'tool': 'research', 'input': dict(DATA),
+                'depends': [], 'state': 'queued',
+            }],
+        }
+        release_guard.atomic(
+            execution_record.path_for(self.owner_root, second_id),
+            execution_record.encode(second_record),
+        )
+
+        class RapidStop:
+            def __init__(self):
+                self.event = threading.Event()
+            def wait(self, _):
+                return self.event.wait(.015)
+            def is_set(self):
+                return self.event.is_set()
+            def set(self):
+                self.event.set()
+
+        stop = RapidStop()
+        barrier = threading.Barrier(2, timeout=12)
+        observed = []
+        lock = threading.Lock()
+
+        def research_worker(owner, task, deps):
+            self.assertEqual(owner, OWNER)
+            self.assertEqual(deps, {})
+            barrier.wait()
+            with lock:
+                observed.append(task['id'])
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified ' + task['id'],
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        with ExitStack() as stack:
+            for module, attribute, value in (
+                (service_store, 'ROOT', self.store / 'missing-sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', research_worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+            ):
+                stack.enter_context(patch.object(module, attribute, value))
+            task_queue.start(
+                stop,
+                allowed_owners=lambda: {OWNER},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+            )
+            try:
+                for _ in range(700):
+                    one = execution_record.load(self.owner_root, OWNER, JOB)
+                    two = execution_record.load(self.owner_root, OWNER, second_id)
+                    if ('left' in one['outputs'] and 'other' in two['outputs']):
+                        break
+                    threading.Event().wait(.02)
+                self.assertEqual(set(observed), {'left', 'other'})
+                self.assertEqual(one['steps'][0]['state'], 'done')
+                self.assertEqual(two['steps'][0]['state'], 'done')
+                self.assertEqual(
+                    {row['step_id'] for row in
+                     goal_state_store.load(self.path)['evidence']
+                     if row.get('kind') == 'worker_result'},
+                    {'left'},
+                )
+                self.assertEqual(
+                    {row['step_id'] for row in goal_state_store.load(
+                        self.owner_root / (second_id + '.goalstate.json')
+                    )['evidence'] if row.get('kind') == 'worker_result'},
+                    {'other'},
+                )
+            finally:
+                stop.set()
+                barrier.abort()
+                task_queue._THREAD.join(10)
+                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    thread.join(10)
+                self.assertFalse(any(
+                    thread.is_alive()
+                    for thread in task_queue._CANONICAL_WORKERS.values()
+                ), 'Canonical goal worker leaked after stop')
+
     def test_registered_canonical_owner_gets_fair_next_slot(self):
         """An unserved fourth owner must beat a repeatedly runnable first owner.
 
