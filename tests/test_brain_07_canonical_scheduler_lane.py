@@ -7,15 +7,18 @@ from __future__ import annotations
 
 import copy
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import release_guard
 from modules import (
-    canonical_output_projection, canonical_scheduler_lane,
-    core_state_reducer, execution_record, goal_executor, goal_state,
-    goal_state_store, goal_tools, runtime_worker_result, worker_result_hook,
+    canonical_output_projection, canonical_scheduler_dispatch,
+    canonical_scheduler_lane, core_state_reducer, execution_record,
+    goal_executor, goal_state, goal_state_store, goal_tools,
+    runtime_worker_result, task_agents, task_results, untrusted_flow,
+    worker_result_hook,
 )
 
 OWNER = 'alice'
@@ -172,6 +175,101 @@ class SchedulerOfferTests(unittest.TestCase):
         )
         with self.assertRaises(canonical_scheduler_lane.DispatchFenceError):
             canonical_scheduler_lane.revalidate_offer(offer)
+
+    def test_real_worker_dispatch_projects_two_roots_then_dependent_child(self):
+        from types import SimpleNamespace
+
+        # Make the child depend on BOTH roots, using the real Core plan CAS.
+        state = goal_state_store.load(self.path)
+        nodes = [node('left'), node('right'), node('child', ('left', 'right'))]
+        changed = core_state_reducer.apply(state, {
+            'op': 'set_goal_plan', 'reason_code': 'TEST_DAG',
+            'expected_version': state['version'],
+            'plan': {'plan_version': 2, 'nodes': nodes},
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=state['version'], next_state=changed,
+        )
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][-1]['depends'] = ['left', 'right']
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+
+        barrier = threading.Barrier(2, timeout=8)
+        observed = []
+        errors = []
+        def safe_worker(owner, task, deps):
+            self.assertEqual(owner, OWNER)
+            self.assertEqual(task['agent'], 'research')
+            if task['id'] in ('left', 'right'):
+                barrier.wait()
+            else:
+                self.assertEqual(set(deps), {'left', 'right'})
+            observed.append(task['id'])
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified ' + task['id'],
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        runtime = SimpleNamespace(slug=OWNER)
+        # The first reservation modifies the journal digest, so re-select
+        # second root from durable disk rather than replaying an old offer.
+        def dispatch(offer):
+            try:
+                canonical_scheduler_dispatch.execute_offer(runtime, offer)
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=safe_worker), \
+             patch.object(untrusted_flow, 'observe'):
+            left = self.offers()[0]
+            first = threading.Thread(target=dispatch, args=(left,))
+            first.start()
+            try:
+                for _ in range(300):
+                    recorded = execution_record.load(self.owner_root, OWNER, JOB)
+                    if recorded['steps'][0]['state'] == 'running':
+                        break
+                    threading.Event().wait(.01)
+                second = next(o for o in self.offers()
+                              if o.selection.node_id == 'right')
+                other = threading.Thread(target=dispatch, args=(second,))
+                other.start()
+                other.join(12)
+                first.join(12)
+                self.assertFalse(other.is_alive())
+                self.assertFalse(first.is_alive())
+                self.assertFalse(errors, repr(errors))
+                self.assertIn('left', observed)
+                self.assertIn('right', observed)
+                children = self.offers()
+                self.assertEqual([o.selection.node_id for o in children], ['child'])
+                self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                    runtime, children[0],
+                ))
+                saved = execution_record.load(self.owner_root, OWNER, JOB)
+                self.assertEqual(set(saved['outputs']), {'left', 'right', 'child'})
+                self.assertTrue(all(step['state'] == 'done' for step in saved['steps']))
+            finally:
+                barrier.abort()
+                first.join(2)
+
+    def test_foreign_profile_never_claims_node(self):
+        from types import SimpleNamespace
+        offer = self.offers()[0]
+        before = self.record_path.read_bytes()
+        with self.assertRaises(PermissionError):
+            canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug='bob'), offer,
+            )
+        self.assertEqual(before, self.record_path.read_bytes())
+
+    def test_discovery_requires_published_running_records(self):
+        found = canonical_scheduler_dispatch.discover(OWNER)
+        self.assertEqual([o.selection.node_id for o in found], ['left', 'right'])
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['state'] = 'cancelled'
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        self.assertEqual(canonical_scheduler_dispatch.discover(OWNER), ())
 
 
 if __name__ == '__main__':

@@ -16,6 +16,11 @@ _THREAD=None
 # scheduler loop. No second task poller or GoalState writer.
 _OWNER_TICKS={}
 _LAST_ADMITTED={}
+# Read-only canonical workers belong to this same scheduler loop, not another
+# background poller. No owner may monopolize the bounded global pool.
+_CANONICAL_WORKERS={}
+_MAX_CANONICAL_WORKERS=3
+_MAX_CANONICAL_PER_OWNER=2
 _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
@@ -296,12 +301,13 @@ def is_cancelled(owner,qid):
         return not row or row['state']=='cancelled'
 
 
-def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
+def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
+          canonical_profile_resolver=None):
     """One engine-owned scheduler loop, dispatching bounded owner workers.
 
-    Workers only execute already claimed queue work through tick(), which
-    retains the existing SQLite lease/CAS and per-owner task gates. Source
-    watches and outbox polling still run on this ONE scheduler thread.
+    Queue workers use tick() and its existing SQLite claim. Optional canonical
+    workers use the same poll loop, pinned profiles, and the existing Core
+    ResourceLease/WorkerResult fences. Voice is never serialized behind them.
     """
     global _THREAD
     with _START_LOCK:
@@ -338,6 +344,50 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
             worker.start()
             return True
 
+        def admit_canonical(owner, profile):
+            from modules import canonical_scheduler_dispatch
+            # The scheduler thread is the sole mutator of this thread registry.
+            for key, worker in tuple(_CANONICAL_WORKERS.items()):
+                if not worker.is_alive():
+                    _CANONICAL_WORKERS.pop(key, None)
+            if len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS:
+                return
+            active_here = sum(key[0] == owner for key in _CANONICAL_WORKERS)
+            if active_here >= _MAX_CANONICAL_PER_OWNER:
+                return
+            # Never adopt the current foreground profile. A caller must
+            # resolve a registered user and prove its immutable owner slug.
+            if getattr(profile, 'slug', None) != owner:
+                return
+            for offer in canonical_scheduler_dispatch.discover(
+                owner, max_offers=_MAX_CANONICAL_PER_OWNER - active_here,
+            ):
+                selected = offer.selection
+                key = (owner, selected.job_id, selected.node_id, offer.attempt)
+                if key in _CANONICAL_WORKERS:
+                    continue
+                if len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS:
+                    break
+
+                def work(candidate=offer):
+                    token = llm._key_context.set(owner)
+                    try:
+                        if not stop_event.is_set():
+                            canonical_scheduler_dispatch.execute_offer(
+                                profile, candidate, stop_event=stop_event,
+                            )
+                    except Exception:
+                        _record_failure('modules/task_queue.py:canonical_dispatch')
+                    finally:
+                        llm._key_context.reset(token)
+
+                thread = threading.Thread(
+                    target=work, daemon=True,
+                    name='jarvis-canonical-'+owner[:16]+'-'+selected.node_id[:16],
+                )
+                _CANONICAL_WORKERS[key] = thread
+                thread.start()
+
         def loop():
             global _DAILY_NEXT
             while not stop_event.wait(5):
@@ -360,6 +410,10 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
                     from modules import outbox,task_agents,privacy
                     try:
                         admit_owner(path.stem)
+                        if canonical_profile_resolver is not None:
+                            profile = canonical_profile_resolver(path.stem)
+                            if getattr(profile, 'slug', None) == path.stem:
+                                admit_canonical(path.stem, profile)
                         from modules import source_watch
                         source_watch.poll(path.stem,source_notify)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):

@@ -77,6 +77,22 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
             snapshot, owner=owner, job_id=job_id, node_id=step_id,
         )
         node = goal_plan_gate.revalidate(snapshot, selection)
+        # A scheduler offer is a revision-pinned observation. It must not
+        # silently execute against a newer plan that happened to reuse its
+        # node ID/input; this check runs inside specialist preparation BEFORE
+        # the real provider/worker starts, and the resource guard checks again.
+        dispatch = identity.get('_canonical_scheduler_offer')
+        if dispatch is not None and (
+                not isinstance(dispatch, dict)
+                or set(dispatch) != {'owner', 'job_id', 'node_id', 'plan_version', 'node_digest'}
+                or dispatch != {
+                    'owner': owner, 'job_id': job_id, 'node_id': step_id,
+                    'plan_version': selection.plan_version,
+                    'node_digest': selection.node_digest,
+                }):
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical scheduler offer plan changed before worker prepare.'
+            )
         if node['depends_on']:
             # BRAIN-07L is deliberately limited to a first-attempt read-only
             # research child. It re-reads the canonical accepted predecessor
