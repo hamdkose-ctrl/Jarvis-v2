@@ -18,7 +18,7 @@ from modules.diagnostics import record_failure as _record_failure
 from modules import (
     canonical_output_projection, canonical_scheduler_lane, execution_record,
     goal_executor, goal_job_control, goal_plan_gate, goal_state_store,
-    specialist_orchestrator,
+    runtime_worker_result, specialist_orchestrator,
 )
 
 _JOB_RECORD = re.compile(r"([a-f0-9]{16})\.execution\.json\Z")
@@ -165,9 +165,13 @@ def execute_offer(profile, offer, *, stop_event=None):
     try:
         if stop_event is not None and stop_event.is_set():
             raise RuntimeError("Scheduler stopped before worker invocation.")
-        result = specialist_orchestrator.execute_step(
-            runtime, job, copy.deepcopy(step), identity,
-        )
+        # This synchronous thread-bound scope travels through the existing
+        # specialist/lease/WorkerResult path. A stop during provider execution
+        # fences the Core CAS, even if the external task later returns "done".
+        with runtime_worker_result.scheduler_stop_scope(stop_event):
+            result = specialist_orchestrator.execute_step(
+                runtime, job, copy.deepcopy(step), identity,
+            )
         if not isinstance(result, dict) or result.get("state") != "done":
             raise ValueError("Canonical read-only worker did not succeed.")
         canonical_output_projection.project_accepted(
