@@ -121,3 +121,132 @@ def bind_predecessor_outputs(
             )
         result[step_id] = copy.deepcopy(output)
     return result
+
+
+def preflight_durable_step(
+    identity: dict, step: dict, journal_outputs: dict, *,
+    owner: str | None = None, job_id: str | None = None,
+    canonical_required: bool = False,
+) -> dict[str, dict] | None:
+    """Validate canonical dependent inputs at the existing specialist boundary.
+
+    Returns None for an unplanned/legacy call, preserving its existing
+    dependency semantics; a *planned* dependent step returns only trusted
+    copies from bind_predecessor_outputs. This does not enable its worker:
+    runtime_worker_result.prepare and worker_result_commit still deny
+    dependent execution until the separate Core dispatch cutover.
+    """
+    from modules import (
+        capability_manifest, goal_executor, goal_state_store,
+        runtime_worker_result,
+    )
+    if not isinstance(identity, dict):
+        raise goal_plan_gate.PlanFenceError('Specialist identity invalid.')
+    if ((owner is not None and identity.get('owner') != owner)
+            or (job_id is not None and identity.get('job_id') != job_id)):
+        raise goal_plan_gate.PlanFenceError(
+            'Specialist identity differs from durable execution owner/job.'
+        )
+    if not runtime_worker_result.durable_identity(identity):
+        # Partial planned identity is not a legacy identity. Even if the
+        # canonical sidecar disappeared and the transient job version marker
+        # was stripped, a plan fence cannot authorize legacy dispatch.
+        if 'plan_version' in identity or 'node_digest' in identity:
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical plan fence requires durable worker identity.'
+            )
+        # A planned canonical job cannot escape dependency proof simply by
+        # supplying an old, unversioned specialist identity. The former
+        # unplanned/legacy specialist path is preserved.
+        if isinstance(owner, str) and isinstance(job_id, str):
+            path = goal_executor._root(owner) / (job_id + '.goalstate.json')
+            try:
+                current = goal_state_store.load(path)
+            except FileNotFoundError:
+                if canonical_required:
+                    raise goal_plan_gate.PlanFenceError(
+                        'Expected canonical GoalState is missing.'
+                    ) from None
+                return None
+            if current.get('goal_plan') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical dependent requires durable worker identity.'
+                )
+        return None
+    if not isinstance(step, dict) or not isinstance(journal_outputs, dict):
+        raise goal_plan_gate.PlanFenceError('Durable step or outputs invalid.')
+    try:
+        state = runtime_worker_result.canonical_snapshot(identity)
+    except FileNotFoundError:
+        # Standalone historical specialist/approval calls can use versioned
+        # identities without a canonical GoalState. Do not turn those into
+        # planned DAG work. Conversely, an executor-proven canonical job or
+        # explicitly plan-fenced identity must never downgrade on file loss.
+        if (canonical_required or 'plan_version' in identity
+                or 'node_digest' in identity):
+            raise goal_plan_gate.PlanFenceError(
+                'Expected canonical GoalState is missing.'
+            ) from None
+        return None
+    if state.get('goal_plan') is None:
+        return None
+
+    selected = goal_plan_gate.candidate(
+        state, owner=identity.get('owner'), job_id=identity.get('job_id'),
+        node_id=identity.get('task_id'),
+    )
+    node = goal_plan_gate.revalidate(state, selected)
+    depends = step.get('depends')
+    kind = step.get('tool')
+    if (step.get('id') != identity.get('task_id')
+            or not isinstance(depends, list)
+            or depends != node['depends_on']
+            or not isinstance(kind, str)
+            or node['input'] != step.get('input')):
+        raise goal_plan_gate.PlanFenceError(
+            'Durable specialist step does not match the canonical plan node.'
+        )
+    try:
+        try:
+            manifest = capability_manifest.from_task_tool(kind)
+        except ValueError:
+            manifest = capability_manifest.from_goal_tool(kind)
+    except ValueError:
+        raise goal_plan_gate.PlanFenceError(
+            'Unknown specialist capability in canonical dependent plan.'
+        ) from None
+    if manifest['id'] != node['capability_id']:
+        raise goal_plan_gate.PlanFenceError(
+            'Specialist tool and canonical capability do not match.'
+        )
+    if not depends:
+        return {}
+
+    # Read from the existing durable ExecutionRecord, not merely a mutable
+    # in-memory job dict supplied to the worker adapter. A canonical dependent
+    # must never be launched from an unpersisted or legacy-only output claim.
+    from modules import execution_record
+    root = goal_executor._root(selected.owner)
+    path = execution_record.path_for(root, selected.job_id)
+    if path.is_symlink() or not path.is_file():
+        raise goal_plan_gate.PlanFenceError(
+            'Canonical dependent requires a persisted ExecutionRecord.'
+        )
+    try:
+        persisted = execution_record.load(
+            root, selected.owner, selected.job_id,
+        )
+    except (OSError, ValueError, TypeError, PermissionError):
+        raise goal_plan_gate.PlanFenceError(
+            'Cannot validate persisted ExecutionRecord.'
+        ) from None
+    disk_outputs = persisted.get('outputs')
+    if not isinstance(disk_outputs, dict) or any(
+        key not in journal_outputs or key not in disk_outputs
+        or journal_outputs[key] != disk_outputs[key]
+        for key in depends
+    ):
+        raise goal_plan_gate.PlanFenceError(
+            'In-memory dependent input differs from persisted ExecutionRecord.'
+        )
+    return bind_predecessor_outputs(state, selected, disk_outputs)

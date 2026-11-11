@@ -108,7 +108,55 @@ def execute_step(runtime,job,step,identity,*,approval=None):
 
 def _execute_step(runtime,job,step,identity,*,approval=None):
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
-    deps={key:job['outputs'][key] for key in step['depends']}
+    # A canonical dependent must never trust in-memory ExecutionRecord outputs
+    # solely because they are present or say "done". Validate the exact
+    # accepted predecessor-output hashes and domain readback *before* any
+    # DecisionAuthority, checkpoint, worker, model or provider invocation.
+    # Legacy/unplanned dependencies retain their original execution path.
+    # Always inspect canonical authority; a caller could strip both the
+    # dependency list and durable version from a dependent step.
+    from modules import dependency_evidence, goal_plan_gate
+    deps=None
+    job_id=job.get('id')
+    identity_job_id=identity.get('job_id') if isinstance(identity,dict) else None
+    # A planned job cannot lose its ExecutionRecord ID before the predecessor
+    # proof is checked. Reject this early: domain re-verification must never
+    # obscure a missing canonical execution identity. Some historical direct
+    # specialist calls legitimately have no job['id'] and no canonical plan.
+    if not isinstance(job_id,str) and isinstance(identity_job_id,str):
+        from modules import runtime_worker_result
+        try:
+            canonical=runtime_worker_result.canonical_snapshot(identity)
+        except FileNotFoundError:
+            if job.get('_canonical_version') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                ) from None
+        else:
+            if canonical.get('goal_plan') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                )
+    # Legacy direct specialist calls can lack a durable job ID entirely.
+    # But a canonical job may have its runtime dependency list or version
+    # marker stripped, so file-backed authority is checked whenever the
+    # execution identity gives us an addressable owner/job pair.
+    if isinstance(job_id,str) or isinstance(identity_job_id,str):
+        deps=dependency_evidence.preflight_durable_step(
+            identity, step, job.get('outputs'),
+            owner=job['owner'], job_id=job_id if isinstance(job_id,str) else identity_job_id,
+            canonical_required=job.get('_canonical_version') is not None,
+        )
+        if deps is not None and job_id != identity_job_id:
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical specialist requires exact ExecutionRecord job ID.'
+            )
+    elif isinstance(identity,dict) and 'version' in identity:
+        raise goal_plan_gate.PlanFenceError(
+            'Versioned specialist execution has no durable job ID.'
+        )
+    if deps is None:
+        deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
     # same Core gate before native UIA/CUA/C# adapters can be introduced.
     # State setters enter the durable effect/receipt path only when they have

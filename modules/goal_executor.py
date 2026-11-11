@@ -412,6 +412,19 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    # A transient version marker is not authority: if the canonical sidecar
+    # still exists, a forged/missing _canonical_version must not allow a
+    # dependent step to checkpoint before preflight. Legacy jobs without a
+    # sidecar retain the previous path.
+    canonical_path = _root(job['owner']) / (job['id'] + '.goalstate.json')
+    if (job.get('_canonical_version') is not None
+            or canonical_path.exists() or canonical_path.is_symlink()):
+        from modules import dependency_evidence
+        dependency_evidence.preflight_durable_step(
+            _identity(job,step), step, job.get('outputs'),
+            owner=job['owner'], job_id=job['id'],
+            canonical_required=True,
+        )
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     from modules import brain_delegate,specialist_orchestrator
