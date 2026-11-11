@@ -189,3 +189,45 @@ Bu belge için aktif ve doğrulanmış ana liste aşağıdaki 10 fikirdir. Yeni 
 - **Kaynak:** https://github.com/msitarzewski/agency-agents
 - **Ek kaynak:** https://github.com/affaan-m/ECC
 - **Ponytail kaynak/rehber:** kullanıcı tarafından sağlanan “Ponytail ile gereksiz kodu bul” PDF; resmi kaynak olarak DietrichGebert/ponytail not edilmiş.
+
+---
+
+## Kaynak değerlendirme eki — VoiceStudio (11 Kasım 2026)
+
+Hamdi'nin “alınabilecek olanları doğrula, gerçekten değerliyse fikir dosyasına yaz” isteğiyle kaydedildi. **Aktif 10 maddelik ana liste değiştirilmedi; bu ek uygulama emri veya roadmap aktarımı değildir.** Aşağıdaki `DOĞRULANDI` ifadesi yalnız belirtilen kaynak davranışını kapsar, gerçek Türkçe ses/Windows performansı veya Jarvis entegrasyonu anlamına gelmez.
+
+İncelenen kaynak: [`debpalash/VoiceStudio@c85a866f19dfddd6a31c50f88ee2e08e644c77ea`](https://github.com/debpalash/VoiceStudio/tree/c85a866f19dfddd6a31c50f88ee2e08e644c77ea). Jarvis karşılaştırma tabanı: `main@4928f78`; ses temeli `voice_core.py`, `voice_runtime.py`, `voice_offline.py`. Bu üç dosyanın `1a96749` sonrasındaki main farkında değişiklik görülmedi.
+
+### VS-01 — Ses motorunun efektif cihazı ve çalışamama nedenini gösterme
+
+- **Faz:** Voice Core cihaz/performans gözlemi; mevcut ses rollout'u ve yük kabulüyle birlikte değerlendirilecek.
+- **Bizde:** Seçili ses/model kimliği, dosya/Piper executable kontrolü, bounded ses kuyruğu, adapter hatası ve insan duyumlu ses probe'u var. Ayrı ses kuyruğu veya yeni model yönlendiricisi gerekmiyor.
+- **Ne ekliyor:** Motorun yalnız model dosyası varlığını değil, bildirilen/doğrulanan çalışma yolunu (`accelerated`, `cpu_fallback`, `cpu_only`, `unavailable`, `unknown`) ve nedenini göstermesi. “GPU bulundu” ile “bu motor GPU'da çalışabilir” ayrı. Jarvis'te bilgi ölçülmediyse `unknown`; CPU'ya düşüş görünür olmalı, fakat ses kimliği kendiliğinden değişmemeli.
+- **Kazanç:** Ağır yerel modelle birlikte ses yavaşladığında gerçek cihaz/bellek/uygunluk nedenini ayırma; kurulu görünen fakat kullanılamayan motoru hazır göstermeme.
+- **Ne zaman:** Mevcut ses adapter'ı ve durum ekranı üzerinde; ayrı kontrol paneli, worker veya Scheduler açmadan. Gerçek Windows yük ölçümünü tamamlandı saydırmaz.
+- **Ücretsiz yapılabilir mi:** Evet, mevcut adapter durum sözleşmesi ve platform kontrolleriyle tasarım uyarlanabilir; zorunlu ücretli servis veya VoiceStudio kurulumu yok. VoiceStudio AGPL kodu kopyalanmadı. Model/GPU doğrulaması ayrıca ölçülecek.
+- **Karar:** **UYARLA.** Sadece cihaz/uygunluk görünürlüğü; bütün VoiceStudio model yöneticisini almak veya kurulu ses hattını değiştirmek değil.
+- **Durum:** **DOĞRULANDI — kaynakta saf durum çözümleme davranışı/testleri.** Gerçek donanımda tespit doğruluğu henüz ölçülmedi.
+- **Kanıt:** [`engine_routing.py`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/backend/services/engine_routing.py), [`device_caps.py`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/backend/core/device_caps.py), [`test_engine_routing.py`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/tests/test_engine_routing.py). Fake host/engine matrisi ve event loop'u bekletmeyen async çözümleme testleri çalıştırıldı; fiziksel GPU çıkarımı yapılmadı.
+
+### VS-02 — İsteğe bağlı yerel TTS/STT sağlayıcı sınırı ve talep üzerine ses akışı
+
+- **Faz:** Voice Core adapter genişlemesi; gerçekten ikinci motor veya ayrı yerel servis ihtiyacı oluştuğunda.
+- **Bizde:** Tek VoiceCoordinator, Piper adapter'ı, cümle parçalama ve generation/iptal çiti var. Bu özellikler yeniden yapılmayacak. Mevcut ses sahibi ve profile voice/rate otoritesi korunacak.
+- **Ne ekliyor:** İleride farklı yerel motorun aynı adapter sınırına bağlanabilmesi için sabit motor/ses kimlikli speech-provider sözleşmesi; PCM delta/terminal hata, bağlantı kapanınca sonraki cümlelerin üretilmemesi. TTS sağlayıcı servisi Jarvis'in Brain/Core/Scheduler'ı veya ikinci player'ı olmaz.
+- **Kazanç:** Yeni motorun ağır bağımlılıklarını Jarvis sürecinden ayırabilme, bütün metin yerine hazır parçayı sunabilme, terk edilmiş yanıtın sonraki cümlelerine gereksiz üretim yapmama. Kazanç motor/ölçüme bağlıdır; mevcut Piper'dan hızlı olduğu iddia edilmez.
+- **Ne zaman:** Mevcut ses dikey akışı tamamlandıktan sonra ve somut motor ihtiyacıyla. Kullanılacak ikinci motor yokken yeni servis/protokol katmanı kurulmaz; ilk bağlantı koşullu genişleme fikridir.
+- **Ücretsiz yapılabilir mi:** Protokol/tasarım mevcut Jarvis adapter'larıyla ücretsiz uyarlanabilir; OpenAI-compatible ses API'si OpenAI hesabı/ücretli servisi gerektirmez. Belirli modelin kullanım lisansı ayrıca doğrulanır. VoiceStudio uygulamasını dağıtmak/kod kopyalamak ayrı AGPL değerlendirmesidir; bu kayıt onu onaylamaz.
+- **Karar:** **UYARLA — ihtiyaç olduğunda.** Bütün VoiceStudio'yu alma, otomatik model indirme veya mevcut ses motorunu değiştirme kararı yok.
+- **Durum:** **DOĞRULANDI — protokol kaynakta mevcut, streaming helper davranışı izole olarak çalıştırıldı.** Tam HTTP/ASR/model/hoparlör denemesi yapılmadı.
+- **Kanıt:** [`agentic-voice.md`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/docs/agentic-voice.md), [`openai_compat.py`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/backend/api/routers/openai_compat.py). Kaynak `_stream_speech_pcm` ve yardımcıları AST ile izole edilip sahte renderer ile çalıştırıldı: ilk PCM sonraki cümle üretiminden önce geldi; generator kapanınca sonraki cümleler üretilmedi; SSE sıra/terminal olayları doğrulandı; kısmi üretim hatası başarılı `done` yerine hata verdi. Bu test devam eden native inference'ın anında durmasını kanıtlamaz.
+
+### Alınmayan parçalar ve kanıt sınırı
+
+- **VoiceStudio bütünü:** Şimdilik **ELE / ENTEGRE ETME**. Mevcut Jarvis'e ek desktop uygulaması, ayrı profil/model yöneticisi ve büyük ML bağımlılıkları için kanıtlanmış net kazanç yok. Karar kaynak incelemesine dayanır, uygulamanın genel kalitesine dair hüküm değildir.
+- **AEC'yi hazır çözüm saymak:** **ELE.** [`aec.py`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/backend/services/aec.py) NLMS+double-talk içeriyor ve kendisi production-grade DSP olmadığını söylüyor. Ek sentetik deney: 16 kHz/20 ms frame, 4 sn echo-only sinyal, gain .45; son 600 ms'de 5 ms yankı gecikmesi için 9,27 dB, 50 ms için -0,16 dB azaltma. Oda/mikrofon/gerçek konuşma testi değildir. Jarvis full-duplex/AEC kabulünü kapatmaz.
+- **Türkçe motorları ana ses yapmak:** **DOĞRULANACAK, AL kararı yok.** MOSS-TTS-Nano/VoxCPM2 belgelerinde Türkçe var; kendi PC'mizde kalite, ilk ses gecikmesi, yük ve exact ağırlık lisansı doğrulanmadı. Kaynak dil listesi tek başına ses kalitesi kanıtı değildir; ana fikir listesine eklenmedi.
+- **Lisans ayrımı:** [`LICENSE-NOTICE.md`](https://github.com/debpalash/VoiceStudio/blob/c85a866f19dfddd6a31c50f88ee2e08e644c77ea/LICENSE-NOTICE.md) uygulama AGPL-3.0-only, bundled kod ve indirilen ağırlıkların ayrı koşullarını açıklıyor. Varsayılan OmniVoice ağırlıkları için non-commercial koşullar belirtiliyor. Ücretsiz tasarım uyarlaması, bütün modeller için sınırsız kullanım hakkı demek değildir.
+- **Çalıştırılan upstream test kapsamı:** İzole ortamda `test_aec.py` ve `test_engine_routing.py` seçiminin saf NumPy/host-matrix kısmı: **47 passed**. Torch/model-loader bağımlı **10 test seçime alınmadı**. İlk geniş koşu ortamın yazılamayan varsayılan data dizini ve eksik Torch nedeniyle 10 hata verdi; bu durum ürün hatası sayılmadı. Son koşu geçici data dizini ve açık test seçimiyle yapıldı. Ek streaming kontrolleri yukarıda belirtilen kaynak fonksiyonlarıyla yapıldı; bütün upstream suite veya çalışan API kabulü değildir.
+
+**Gelecek uygulama koşulu:** Önce mevcut Jarvis'te gerçek boşluk yeniden kontrol edilir. Uyarlama yapılırsa aynı kullanıcı yeteneğinin mevcut sahibi genişletilir; ikinci ses kuyruğu/konuşmacı/ayar otoritesi eklenmez. Eski yolun emekliliği, owner/voice kimliği, iptal ve gerçek oynatma kabulü birlikte ele alınır. Bu ek nedeniyle aktif yol haritası değiştirilmedi.
