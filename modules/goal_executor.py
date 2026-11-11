@@ -1087,6 +1087,64 @@ def _is_fast_command(command):
     return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
 
 
+
+def _canonical_recovery_status(job):
+    """Report only durable canonical DAG evidence in the explicit status route.
+
+    This is a read-only operator view, not Scheduler admission or permission.
+    A 'started_unknown' worker may still be running: no crash, retry or global
+    completion can be inferred from this view. Legacy/unplanned goals retain
+    the existing concise status response without a new authority path.
+    """
+    from collections import Counter
+    from modules import canonical_restart_audit, goal_state, goal_state_store
+
+    owner, ident = job.get('owner'), job.get('id')
+    if (job.get('state') != 'running' or not isinstance(owner, str)
+            or not isinstance(ident, str) or not re.fullmatch(JOB_ID, ident)):
+        return ''
+    try:
+        root = _owner_root(owner)
+        canonical_path = root / (ident + '.goalstate.json')
+        if not canonical_path.exists():
+            return ''
+        canonical = goal_state_store.load(canonical_path)
+        if (goal_state.authority(canonical) != 'canonical'
+                or canonical.get('goal_plan') is None):
+            return ''
+        snapshot = canonical_restart_audit.inspect(owner, ident)
+    except (ValueError, OSError, TypeError, KeyError, IndexError):
+        # Never claim complete/replayable on unreadable, stale, foreign or
+        # contradictory canonical evidence. Keep the basic status readable.
+        return 'Canonical DAG kanıtı şu anda doğrulanamıyor; otomatik tekrar veya tamamlama izni verilmedi.'
+
+    counts = Counter(item.status for item in snapshot.nodes)
+    lines = [
+        'Canonical DAG kanıtı: '
+        + str(counts['accepted_projected']) + '/' + str(len(snapshot.nodes))
+        + ' adımda Core kabulü ve kayıtlı çıktı eşleşiyor.'
+    ]
+    if counts['accepted_unprojected']:
+        lines.append(
+            'Core kabulü var, kayıtlı çıktı eksik: '
+            + str(counts['accepted_unprojected'])
+            + ' adım; elle kurtarma incelemesi gerekli.'
+        )
+    if counts['started_unknown']:
+        lines.append(
+            'Başlatılmış, sonuç kanıtı henüz yok: '
+            + str(counts['started_unknown'])
+            + ' adım; hâlâ çalışıyor olabilir, otomatik tekrar yapılmaz.'
+        )
+    blocked = counts['failed_unaccepted'] + counts['failed_accepted']
+    if blocked:
+        lines.append('Başarısız ilk deneme: ' + str(blocked)
+                     + ' adım; otomatik tekrar yapılmaz.')
+    if counts['queued_unstarted']:
+        lines.append('Henüz başlamamış: ' + str(counts['queued_unstarted']) + ' adım.')
+    return '\n'.join(lines)
+
+
 def status_summary(job):
     states = {'running': 'çalışıyor', 'done': 'bitti', 'cancelled': 'iptal edildi',
               'approval': 'onay bekliyor', 'question': 'soru bekliyor',
@@ -1112,6 +1170,9 @@ def status_summary(job):
     summary = f"Durum: {states.get(job.get('state'), 'belirsiz')} · {completed}/{len(steps)} adım · {len(urls)} kaynak"
     if report:
         summary += ' · Rapor dosyası: ' + report
+    details = _canonical_recovery_status(job)
+    if details:
+        summary += '\n' + details
     return ('Hedef: ' + request + '\n' if request else '') + summary
 
 

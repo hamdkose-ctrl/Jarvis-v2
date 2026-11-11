@@ -435,6 +435,77 @@ class SchedulerOfferTests(unittest.TestCase):
         # stop token; the failed scope does not permanently contaminate it.
         runtime_worker_result.require_scheduler_active()
 
+    def test_goal_status_uses_existing_read_only_canonical_restart_proof(self):
+        before = self.path.read_bytes(), self.record_path.read_bytes()
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        result = goal_executor.status_summary(job)
+        self.assertIn('Canonical DAG kanıtı: 0/3', result)
+        self.assertIn('Henüz başlamamış: 3 adım', result)
+        self.assertEqual(before, (self.path.read_bytes(), self.record_path.read_bytes()))
+
+    def test_goal_status_command_routes_through_existing_goal_handler(self):
+        from types import SimpleNamespace
+        from modules import brain_entry
+
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug=OWNER))
+        with patch.object(brain_entry, 'allow_legacy_goal_control', return_value=True), \
+             patch.object(goal_executor, 'latest', return_value=job):
+            answer = goal_executor.handle(runtime, 'hedef durumu')
+        self.assertIn('Canonical DAG kanıtı: 0/3', answer)
+        self.assertIn('Henüz başlamamış: 3 adım.', answer)
+
+    def test_goal_status_started_unknown_never_suggests_auto_retry(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        status = goal_executor.status_summary(
+            execution_record.load(self.owner_root, OWNER, JOB),
+        )
+        self.assertIn('Başlatılmış, sonuç kanıtı henüz yok: 1', status)
+        self.assertIn('hâlâ çalışıyor olabilir', status)
+        self.assertIn('otomatik tekrar yapılmaz', status)
+
+    def test_goal_status_core_accepted_unprojected_is_not_goal_done(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        self.accept('left')
+        status = goal_executor.status_summary(
+            execution_record.load(self.owner_root, OWNER, JOB),
+        )
+        self.assertIn('Core kabulü var, kayıtlı çıktı eksik: 1', status)
+        self.assertNotIn('Canonical DAG kanıtı: 1/3', status)
+        self.assertEqual(goal_state_store.load(self.path)['state'], 'pending')
+
+    def test_goal_status_accepted_projected_then_tampered_fails_closed(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        output = self.accept('left')
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', output)
+        status = goal_executor.status_summary(
+            execution_record.load(self.owner_root, OWNER, JOB),
+        )
+        self.assertIn('Canonical DAG kanıtı: 1/3', status)
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['outputs']['left']['text'] = 'altered after acceptance'
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        status = goal_executor.status_summary(
+            execution_record.load(self.owner_root, OWNER, JOB),
+        )
+        self.assertIn('Canonical DAG kanıtı şu anda doğrulanamıyor', status)
+        self.assertNotIn('Canonical DAG kanıtı: 1/3', status)
+
+    def test_goal_status_legacy_without_canonical_plan_unchanged(self):
+        # The legacy status surface must not require a canonical sidecar or
+        # invent a plan for existing user jobs.
+        self.path.unlink()
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        status = goal_executor.status_summary(job)
+        self.assertIn('Durum: çalışıyor', status)
+        self.assertNotIn('Canonical DAG kanıtı', status)
+
     def test_restart_audit_queued_nodes_are_not_evidence_or_replayed(self):
         before_state = self.path.read_bytes()
         before_record = self.record_path.read_bytes()
@@ -648,7 +719,28 @@ class SchedulerOfferTests(unittest.TestCase):
                     voice_id='tr_erkek', text='Arka planda devam ediyorum',
                 )))
                 self.assertTrue(voice_played.wait(5), 'Voice playback did not start')
-                self.assertTrue(finished.wait(15), 'Dependent node was not dispatched')
+                # The provider signal may arrive before its Core CAS and
+                # durable projection. Give busy Windows CI enough time for
+                # both roots to finish, but still require the actual child
+                # worker to start; don't replace this with a mocked result.
+                child_started = finished.wait(30)
+                if not child_started:
+                    journal = execution_record.load(self.owner_root, OWNER, JOB)
+                    canonical = goal_state_store.load(self.path)
+                    self.fail(
+                        'Dependent node was not dispatched; durable steps='
+                        + repr([(step['id'], step['state'],
+                                 step.get('attempts', 0))
+                                for step in journal['steps']])
+                        + '; output states='
+                        + repr({key: value.get('state')
+                                for key, value in journal['outputs'].items()})
+                        + '; accepted WorkerResult nodes='
+                        + repr([(row.get('step_id'), row.get('status'))
+                                for row in canonical['evidence']
+                                if isinstance(row, dict)
+                                and row.get('kind') == 'worker_result'])
+                    )
                 self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
                 # The worker sets "finished" before its Core CAS and durable
                 # output projection. On a busy Windows runner those stages may
