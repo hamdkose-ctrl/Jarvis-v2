@@ -270,6 +270,29 @@ def validate_root_attempt(
     )
 
 
+def validate_dependent_research_attempt(
+    state: dict, selection: NodeCandidate, *, attempt: int,
+) -> dict:
+    """Admit only a first-attempt, canonical, evidence-ready research child.
+
+    Readiness is not output binding or worker authority. A separate persistent
+    predecessor readback must precede dispatch AND final WorkerResult CAS.
+    No dependent retry, account/file/desktop effect, or lease is granted here.
+    """
+    if type(attempt) is not int or attempt != 1:
+        raise PlanFenceError('Dependent research requires a fresh first attempt.')
+    node = revalidate(state, selection)
+    if (not node['depends_on']
+            or node['capability_id'] != 'task.research'
+            or selection not in ready_read_only_candidates(
+                state, owner=selection.owner, job_id=selection.job_id,
+            )):
+        raise PlanFenceError(
+            'Dependent research has no fresh canonical predecessor readiness.'
+        )
+    return node
+
+
 def revision_reuse_candidates(state: dict, revised_plan: dict) -> tuple[str, ...]:
     """Return structurally unchanged node IDs, *not* verified finished steps.
 

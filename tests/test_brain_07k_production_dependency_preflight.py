@@ -1,8 +1,8 @@
 """BRAIN-07K: actual durable goal/specialist predecessor pre-dispatch fence.
 
 All workers and external effects are mocked. Tests use real canonical
-GoalState/WorkerResult CAS and real on-disk ExecutionRecord bytes. A successful
-proof does NOT execute a dependent node: BRAIN-06C still explicitly denies it.
+GoalState/WorkerResult CAS and real on-disk ExecutionRecord bytes. BRAIN-07L allows only a verified first-attempt read-only research child,
+not effectful dependent nodes, retries, or arbitrary DAG worker dispatch.
 """
 from __future__ import annotations
 
@@ -107,18 +107,74 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
             else identity(self.step['id']),
         )
 
-    def test_valid_persisted_parents_are_verified_then_dispatch_still_denied(self):
+    def test_valid_persisted_parents_dispatch_readonly_research_child(self):
         self.both()
+        child_output = {
+            'state': 'done', 'text': 'verified synthesis',
+            'verification': {'fixture': 'child', 'test_only': True},
+        }
         with (patch.object(goal_tools, 'verify', return_value=True) as verify,
               patch('modules.runtime_execution_gate.plan_task',
                     return_value={'phase': 'execute'}) as decision,
-              patch.object(goal_tools, 'execute') as worker):
-            with self.assertRaisesRegex(ValueError, 'Bağımlı'):
-                self.attempt()
-        self.assertEqual(verify.call_count, 2)
+              patch.object(goal_tools, 'execute', return_value=child_output) as worker):
+            accepted = self.attempt()
+        self.assertEqual(accepted, child_output)
+        self.assertGreaterEqual(verify.call_count, 6)
         decision.assert_called_once()
-        worker.assert_not_called()
-        self.assertEqual(len(goal_state_store.load(self.canonical_path)['evidence']), 2)
+        worker.assert_called_once()
+        self.assertEqual(set(worker.call_args.args[3]), {'left', 'right'})
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 3,
+        )
+
+    def test_dependent_commit_rechecks_tampered_persisted_predecessor(self):
+        self.both()
+        with patch.object(goal_tools, 'verify', return_value=True):
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+            output = worker_result_hook.wrap_output({
+                'state': 'done', 'text': 'reported synthesis',
+                'verification': {'fixture': 'child', 'test_only': True},
+            }, enriched)
+            modified = execution_record.load(self.owner_root, OWNER, JOB)
+            modified['outputs']['left']['text'] = 'replaced after dispatch'
+            release_guard.atomic(
+                self.record_path, execution_record.encode(modified),
+            )
+            with self.assertRaises(goal_plan_gate.PlanFenceError):
+                runtime_worker_result.accept_and_commit(output, expected)
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 2,
+        )
+
+    def test_dependent_commit_rejects_user_edit_after_worker_prepare(self):
+        self.both()
+        with patch.object(goal_tools, 'verify', return_value=True):
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+        output = worker_result_hook.wrap_output({
+            'state': 'done', 'text': 'stale synthesis',
+            'verification': {'fixture': 'child', 'test_only': True},
+        }, enriched)
+        current = goal_state_store.load(self.canonical_path)
+        edited = core_state_reducer.apply(current, {
+            'op': 'mutate_goal_intent', 'operation': 'revise',
+            'text': 'new required sources', 'priority': None,
+            'reason_code': 'USER_CORRECTION',
+            'expected_version': current['version'],
+        })
+        goal_state_store.compare_and_swap(
+            self.canonical_path, expected_version=current['version'],
+            next_state=edited,
+        )
+        with patch.object(goal_tools, 'verify', return_value=True):
+            with self.assertRaises(goal_state_store.PersistedStateConflict):
+                runtime_worker_result.accept_and_commit(output, expected)
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 2,
+        )
 
     def test_good_preflight_returns_only_defensive_journal_copies(self):
         self.both()

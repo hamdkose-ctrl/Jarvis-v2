@@ -250,3 +250,43 @@ def preflight_durable_step(
             'In-memory dependent input differs from persisted ExecutionRecord.'
         )
     return bind_predecessor_outputs(state, selected, disk_outputs)
+
+
+def require_persisted_research_dependencies(identity: dict, node: dict) -> dict[str, dict]:
+    """Revalidate a planned research child's readback-bound direct inputs.
+
+    Called from the real pre-worker prepare and from the locked result CAS.
+    It cannot authorize a model-selected dependency list or create a worker.
+    """
+    from modules import execution_record, goal_executor
+    if (not isinstance(identity, dict) or not isinstance(node, dict)
+            or node.get('capability_id') != 'task.research'
+            or not isinstance(node.get('depends_on'), list)
+            or not node['depends_on']):
+        raise goal_plan_gate.PlanFenceError('Dependent research boundary invalid.')
+    owner = identity.get('owner')
+    job_id = identity.get('job_id')
+    if not isinstance(owner, str) or not isinstance(job_id, str):
+        raise goal_plan_gate.PlanFenceError('Dependent owner/job identity missing.')
+    root = goal_executor._root(owner)
+    path = execution_record.path_for(root, job_id)
+    if path.is_symlink() or not path.is_file():
+        raise goal_plan_gate.PlanFenceError(
+            'Dependent research requires a persisted ExecutionRecord.'
+        )
+    try:
+        persisted = execution_record.load(root, owner, job_id)
+    except (OSError, ValueError, TypeError, PermissionError):
+        raise goal_plan_gate.PlanFenceError(
+            'Dependent research ExecutionRecord is invalid.'
+        ) from None
+    return preflight_durable_step(
+        identity,
+        {
+            'id': identity.get('task_id'), 'tool': 'research',
+            'depends': copy.deepcopy(node['depends_on']),
+            'input': copy.deepcopy(node['input']),
+        },
+        persisted.get('outputs'),
+        owner=owner, job_id=job_id, canonical_required=True,
+    )

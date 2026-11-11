@@ -173,7 +173,8 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             node_id=accepted['step_id'],
         )
         node = goal_plan_gate.revalidate(current, selection)
-        if (node['depends_on'] or node['capability_id'] != accepted['capability_id']
+        if ((node['depends_on'] and node['capability_id'] != 'task.research')
+                or node['capability_id'] != accepted['capability_id']
                 or selection.plan_version != accepted['plan_version']
                 or selection.node_digest != accepted['node_digest']
                 or accepted['command_id'] !=
@@ -226,9 +227,26 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         # Recheck read-only readiness against the latest canonical evidence
         # immediately before CAS; accepting a stale user-corrected plan or
         # an already completed root here would defeat pre-dispatch gating.
-        goal_plan_gate.validate_root_attempt(
-            current, selection, attempt=accepted['attempt'],
-        )
+        if node['depends_on']:
+            # The caller cannot mint an accepted child from a stale/injected
+            # predecessor output. Canonical readiness and the exact persisted
+            # output digest/domain receipt are checked again under the same
+            # owner/job cross-process lock immediately before Reducer/CAS.
+            goal_plan_gate.validate_dependent_research_attempt(
+                current, selection, attempt=accepted['attempt'],
+            )
+            from modules import dependency_evidence
+            dependency_evidence.require_persisted_research_dependencies(
+                {
+                    'version': 1, 'owner': accepted['owner'],
+                    'job_id': accepted['job_id'], 'task_id': accepted['step_id'],
+                },
+                node,
+            )
+        else:
+            goal_plan_gate.validate_root_attempt(
+                current, selection, attempt=accepted['attempt'],
+            )
         if accepted['capability_id'] == 'task.account':
             # The lease remains held across worker verification and Core CAS.
             # A direct model/worker/recovery caller cannot mint an unleased

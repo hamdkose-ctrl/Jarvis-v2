@@ -78,9 +78,17 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         )
         node = goal_plan_gate.revalidate(snapshot, selection)
         if node['depends_on']:
-            # BRAIN-06C cannot infer verified predecessor completion from a
-            # claim or old worker log. BRAIN-06D/07 will supply this proof.
-            raise ValueError('Bağımlı plan node doğrulanmış predecessor kanıtı olmadan başlatılamaz.')
+            # BRAIN-07L is deliberately limited to a first-attempt read-only
+            # research child. It re-reads the canonical accepted predecessor
+            # outputs from the existing persisted ExecutionRecord; merely
+            # ready DAG topology is not worker dispatch authority.
+            goal_plan_gate.validate_dependent_research_attempt(
+                snapshot, selection, attempt=attempt,
+            )
+            from modules import dependency_evidence
+            dependency_evidence.require_persisted_research_dependencies(
+                identity, node,
+            )
         if node['capability_id'] != row['id'] or node['input'] != data:
             raise ValueError('Worker capability/input canonical plan node ile eşleşmiyor.')
         # Read canonical acceptance evidence BEFORE invoking the real worker.
