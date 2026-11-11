@@ -219,15 +219,21 @@ def tick(owner, notify=None):
         # Preserve the assigned journal identity across restart; never create
         # a second job from an expired wake if its journal already exists.
         path = task_agents._job_path(task_agents._root(owner), row['job_id'])
-        if path.exists():
-            job = task_agents.continue_job(
-                owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
-            )
-        else:
-            job = task_agents.execute(
-                owner, tasks, row['instruction'],
-                job_id=row['job_id'], queue_id=row['id'],
-            )
+        marker = task_agents._QUEUE_CLAIM.set(
+            (owner, row['id'], row['job_id'], claim),
+        )
+        try:
+            if path.exists():
+                job = task_agents.continue_job(
+                    owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
+                )
+            else:
+                job = task_agents.execute(
+                    owner, tasks, row['instruction'],
+                    job_id=row['job_id'], queue_id=row['id'],
+                )
+        finally:
+            task_agents._QUEUE_CLAIM.reset(marker)
         state = 'done' if job['state'] == 'done' else 'cancelled' if job['state'] == 'cancelled' else 'blocked'
         error = ''
     except task_agents.Busy:
