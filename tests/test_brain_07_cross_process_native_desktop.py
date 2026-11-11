@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import desktop_agent as agent
+from modules import desktop_agent as agent, resource_leases
 
 
 _HOLD_DESKTOP = """
@@ -21,7 +21,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 from modules import desktop_agent as agent
-with patch.object(agent, 'STORE', Path(sys.argv[1])):
+with patch.object(agent, 'STORE', Path(sys.argv[1])), \
+     patch.object(agent, '_PHYSICAL_DESKTOP_CLAIM_ROOT', Path(sys.argv[3])):
     with agent._desktop_claim() as owned:
         if not owned:
             sys.exit(19)
@@ -35,9 +36,13 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._cleanup_temp)
         self.root = Path(self.tmp.name) / "desktop_tasks"
+        self.claim_root = Path(self.tmp.name) / "global-desktop-claims"
         patcher = patch.object(agent, 'STORE', self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
+        claim_patcher = patch.object(agent, '_PHYSICAL_DESKTOP_CLAIM_ROOT', self.claim_root)
+        claim_patcher.start()
+        self.addCleanup(claim_patcher.stop)
         self.cwd = Path(__file__).resolve().parents[1]
 
     def _cleanup_temp(self):
@@ -79,10 +84,12 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         self.assertIsNotNone(child.returncode)
         self._assert_desktop_reclaimed()
 
-    def start_other_process(self):
+    def start_other_process(self, *, foreign_store=None):
         ready = self.root.parent / 'holder-ready.flag'
+        store = foreign_store if foreign_store is not None else self.root
         child = subprocess.Popen(
-            [sys.executable, '-c', _HOLD_DESKTOP, str(self.root), str(ready)],
+            [sys.executable, '-c', _HOLD_DESKTOP,
+             str(store), str(ready), str(self.claim_root)],
             cwd=self.cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         start = time.monotonic()
@@ -136,6 +143,58 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         self.assertEqual(result, 'ready')
         native.assert_called_once()
         self.assertNotEqual(agent._path('alice').read_bytes(), before)
+
+    def test_distinct_data_roots_cannot_claim_same_physical_desktop(self):
+        # A second Jarvis instance can use a DIFFERENT JARVIS_DATA_DIR and
+        # still operate in the same interactive OS account/session. Its
+        # desktop journal root must not become a second physical lock.
+        other_store = self.root.parent / 'alternate-jarvis-data' / 'desktop_tasks'
+        self.assertNotEqual(other_store.resolve(), self.root.resolve())
+        child = self.start_other_process(foreign_store=other_store)
+        try:
+            self.assertTrue(other_store.is_dir())
+            with patch.object(agent, '_run_claimed') as native:
+                result = agent.handle(
+                    'alice', 'PC görevi: Hesap Makinesi | 12 ile 7 topla',
+                    current=lambda: 'alice',
+                )
+            self.assertIn('Başka bir masaüstü', result)
+            self.assertFalse(agent._path('alice').exists())
+            native.assert_not_called()
+            self.assertFalse(agent._BUSY.locked())
+        finally:
+            self.stop_other_process(child)
+
+        # Once the independent process exits, the same physical OS claim can
+        # be taken again. This is OS-handle release, not evidence that a remote
+        # provider action was never performed.
+        with agent._desktop_claim() as owned:
+            self.assertTrue(owned)
+
+    def test_same_process_cannot_bypass_claim_by_switching_data_root(self):
+        with agent._desktop_claim() as owned:
+            self.assertTrue(owned)
+            with patch.object(agent, 'STORE', self.root.parent / 'different-root'):
+                # No same-thread handoff without an explicit native run chain.
+                with agent._desktop_claim() as second:
+                    self.assertFalse(second)
+
+    def test_global_desktop_claim_root_symlink_fails_closed(self):
+        outside = self.root.parent / 'outside-claims'
+        outside.mkdir()
+        alias = self.root.parent / 'claim-alias'
+        try:
+            alias.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Creating a symlink is unavailable on this host')
+        with patch.object(agent, '_PHYSICAL_DESKTOP_CLAIM_ROOT', alias):
+            with self.assertRaisesRegex(
+                resource_leases.LeaseConflict,
+                'symlink',
+            ):
+                with agent._desktop_claim():
+                    self.fail('Symlink-derived desktop claim was accepted')
+        self.assertFalse(agent._BUSY.locked())
 
     def test_stale_direct_run_cannot_overwrite_newer_native_job(self):
         original = {

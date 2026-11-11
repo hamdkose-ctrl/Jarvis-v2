@@ -880,15 +880,32 @@ class SchedulerOfferTests(unittest.TestCase):
                 canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
             )
             try:
-                for _ in range(700):
+                # Two overlapping provider returns are not durable Core
+                # acceptance. Give the loaded Windows runner a bounded
+                # interval for both real Scheduler dispatches and projections.
+                # Do not silently pass just because both workers were entered.
+                for _ in range(600):
                     one = execution_record.load(self.owner_root, OWNER, JOB)
                     two = execution_record.load(self.owner_root, OWNER, second_id)
-                    if ('left' in one['outputs'] and 'other' in two['outputs']):
+                    if (one['steps'][0]['state'] == 'done'
+                            and two['steps'][0]['state'] == 'done'
+                            and 'left' in one['outputs']
+                            and 'other' in two['outputs']):
                         break
-                    threading.Event().wait(.02)
+                    threading.Event().wait(.05)
                 self.assertEqual(set(observed), {'left', 'other'})
-                self.assertEqual(one['steps'][0]['state'], 'done')
-                self.assertEqual(two['steps'][0]['state'], 'done')
+                self.assertEqual(
+                    one['steps'][0]['state'], 'done',
+                    'First goal has no durable worker projection: '
+                    + repr((one['steps'], list(one['outputs']))),
+                )
+                self.assertEqual(
+                    two['steps'][0]['state'], 'done',
+                    'Second goal has no durable worker projection: '
+                    + repr((two['steps'], list(two['outputs']))),
+                )
+                self.assertIn('left', one['outputs'])
+                self.assertIn('other', two['outputs'])
                 self.assertEqual(
                     {row['step_id'] for row in
                      goal_state_store.load(self.path)['evidence']
