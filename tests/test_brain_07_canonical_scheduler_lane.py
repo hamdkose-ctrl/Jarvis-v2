@@ -509,5 +509,124 @@ class SchedulerOfferTests(unittest.TestCase):
                 ), 'Canonical worker leaked after scheduler shutdown')
 
 
+    def test_discovery_rotates_past_eight_unusable_journals(self):
+        # Sorted-first-eight scans starved this valid newer canonical goal
+        # forever if eight old journals were corrupt or terminal.
+        for number in range(1, 10):
+            path = self.owner_root / f'{number:016x}.execution.json'
+            path.write_text('invalid legacy record', encoding='utf-8')
+        with patch.object(canonical_scheduler_dispatch, '_SCAN_CURSOR', {}):
+            self.assertEqual(canonical_scheduler_dispatch.discover(OWNER), ())
+            second = canonical_scheduler_dispatch.discover(OWNER)
+        self.assertEqual(
+            [offer.selection.node_id for offer in second],
+            ['left', 'right'],
+        )
+
+    def test_registered_canonical_owner_gets_fair_next_slot(self):
+        """An unserved fourth owner must beat a repeatedly runnable first owner.
+
+        Workers and the tick clock are synthetic; actual Scheduler thread
+        admission and owner ordering are exercised without provider calls.
+        """
+        from types import SimpleNamespace
+        from modules import service_store, task_queue
+
+        class RapidStop:
+            def __init__(self):
+                self.event = threading.Event()
+
+            def wait(self, _seconds):
+                return self.event.wait(.015)
+
+            def is_set(self):
+                return self.event.is_set()
+
+            def set(self):
+                self.event.set()
+
+        stop = RapidStop()
+        release_first = threading.Event()
+        first_finished = threading.Event()
+        fourth_polled = threading.Event()
+        fourth_admitted = threading.Event()
+        started = []
+        lock = threading.Lock()
+        first_owner_runs = [0]
+
+        def resolver(owner):
+            if owner == 'donna':
+                fourth_polled.set()
+            return SimpleNamespace(slug=owner)
+
+        def discover(owner, **_):
+            return (SimpleNamespace(
+                selection=SimpleNamespace(
+                    owner=owner, job_id='0000000000000001', node_id='only',
+                ),
+                attempt=1,
+            ),)
+
+        def execute(profile, offer, *, stop_event=None):
+            owner = offer.selection.owner
+            self.assertEqual(profile.slug, owner)
+            with lock:
+                started.append(owner)
+                if owner == 'alice':
+                    first_owner_runs[0] += 1
+                    run = first_owner_runs[0]
+                else:
+                    run = 0
+            if owner == 'alice' and run == 1:
+                release_first.wait(10)
+                first_finished.set()
+                return True
+            if owner == 'donna':
+                fourth_admitted.set()
+            stop.event.wait(10)
+            return True
+
+        with ExitStack() as stack:
+            for module, name, replacement in (
+                (service_store, 'ROOT', self.store / 'missing-sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (canonical_scheduler_dispatch, 'discover', discover),
+                (canonical_scheduler_dispatch, 'execute_offer', execute),
+            ):
+                stack.enter_context(patch.object(module, name, replacement))
+            task_queue.start(
+                stop,
+                allowed_owners=lambda: {'alice', 'bob', 'charlie', 'donna'},
+                canonical_profile_resolver=resolver,
+            )
+            try:
+                self.assertTrue(fourth_polled.wait(10), 'Fourth owner not polled')
+                # Three blocked workers filled the global pool on first poll.
+                self.assertFalse(fourth_admitted.is_set())
+                release_first.set()
+                self.assertTrue(first_finished.wait(10), 'First slot not released')
+                self.assertTrue(
+                    fourth_admitted.wait(10),
+                    'Repeated first owner starved an unserved owner',
+                )
+                with lock:
+                    self.assertIn('donna', started)
+            finally:
+                stop.set()
+                release_first.set()
+                task_queue._THREAD.join(10)
+                for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    worker.join(10)
+                self.assertFalse(any(
+                    worker.is_alive()
+                    for worker in task_queue._CANONICAL_WORKERS.values()
+                ), 'Canonical worker remained after scheduler shutdown')
+
+
 if __name__ == '__main__':
     unittest.main()
