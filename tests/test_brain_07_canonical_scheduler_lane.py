@@ -1180,6 +1180,10 @@ class SchedulerOfferTests(unittest.TestCase):
             ),)
 
         def execute(profile, offer, *, stop_event=None):
+            self.assertIsInstance(
+                stop_event, runtime_worker_result.CanonicalWorkerDeadline,
+            )
+            self.assertFalse(stop_event.is_set())
             owner = offer.selection.owner
             self.assertEqual(profile.slug, owner)
             with lock:
