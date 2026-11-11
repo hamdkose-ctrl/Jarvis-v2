@@ -6,8 +6,11 @@ existing `desktop_agent._BUSY` path, not a second scheduler or UI worker.
 
 `desktop_agent._desktop_claim` acquires the existing in-process thread
 mutex and a nonblocking `resource_leases.process_resource_claim` OS lock
-under one shared `desktop_agent.STORE` root, using the canonical
-`pc_desktop` resource key. The same thread can carry the claim through
+under the OS-account-stable `~/.jarvis/physical-desktop-claims` root,
+**independent of the configurable `JARVIS_DATA_DIR` and native journal
+`desktop_agent.STORE`**, using the canonical `pc_desktop` resource key.
+The legacy journal remains in its installation-specific `STORE`; only
+physical desktop live ownership is shared across two data roots. The same thread can carry the claim through
 `handle()` to `run()` without reacquiring the OS byte-range lock.
 
 Unlike a run-only claim, it is acquired BEFORE loading/updating the native
@@ -20,7 +23,13 @@ termination.
 
 Subprocess fixture tests hold the actual OS claim in an independent Python
 process and prove that a competing new job, another owner's job and direct
-read-only UI observation are blocked. A released claim permits the new
+read-only UI observation are blocked. Further tests explicitly give the child
+a **different native `STORE` / `JARVIS_DATA_DIR` root**, hold the stable OS
+claim and verify the competing instance cannot start a new native job. Tests
+inject a temporary claim root instead of touching the real OS-account path;
+symlink redirection is rejected before opening the claim. Both processes
+must be running under the same OS account for this file-lock location to be
+shared; different Windows accounts/session isolation are **not** proven. A released claim permits the new
 journal without touching the native OS or running a real model.
 
 **Out of scope:** PC global protection for unrelated system, shell,
