@@ -19,6 +19,7 @@ _LAST_ADMITTED={}
 # Read-only canonical workers belong to this same scheduler loop, not another
 # background poller. No owner may monopolize the bounded global pool.
 _CANONICAL_WORKERS={}
+_LAST_CANONICAL_ADMITTED={}
 _MAX_CANONICAL_WORKERS=3
 _MAX_CANONICAL_PER_OWNER=2
 _MAX_OWNER_WORKERS=3
@@ -387,6 +388,9 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 )
                 _CANONICAL_WORKERS[key] = thread
                 thread.start()
+                # A registered owner with no recent admission goes first on
+                # the next tick, even if earlier owners remain permanently busy.
+                _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
 
         def loop():
             global _DAILY_NEXT
@@ -403,7 +407,10 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 if (canonical_profile_resolver is not None
                         and allowed_owners is not None):
                     try:
-                        registered = sorted(allowed_owners())
+                        registered = sorted(
+                            allowed_owners(),
+                            key=lambda name: (_LAST_CANONICAL_ADMITTED.get(name, 0.0), name),
+                        )
                     except Exception:
                         _record_failure('modules/task_queue.py:canonical_owners')
                         registered = ()
