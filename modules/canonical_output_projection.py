@@ -118,6 +118,10 @@ def project_accepted(owner: str, job_id: str, step_id: str, output: dict) -> boo
         raise ProjectionFenceError('Projection owner, step or clean output invalid.')
     from modules import goal_executor
     root = goal_executor._owner_root(owner)
+    # An arbitrary foreign owner must not cause a new directory/control lock
+    # file to be created merely because a projected worker ID was supplied.
+    if not root.is_dir():
+        raise ProjectionFenceError('Canonical owner journal does not exist.')
     record_path = execution_record.path_for(root, job_id)
     with goal_job_control.locked(root, job_id):
         current = goal_state_store.load(root / (job_id + '.goalstate.json'))
