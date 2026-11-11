@@ -12,6 +12,11 @@ from modules.diagnostics import record_failure as _record_failure
 
 _START_LOCK=threading.Lock()
 _THREAD=None
+# One bounded pool of scheduled owner executions, owned by the existing
+# scheduler loop. No second task poller or GoalState writer.
+_OWNER_TICKS={}
+_LAST_ADMITTED={}
+_MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
@@ -292,10 +297,47 @@ def is_cancelled(owner,qid):
 
 
 def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
-    """One engine-owned worker; no boot-time model/network call without queued work."""
+    """One engine-owned scheduler loop, dispatching bounded owner workers.
+
+    Workers only execute already claimed queue work through tick(), which
+    retains the existing SQLite lease/CAS and per-owner task gates. Source
+    watches and outbox polling still run on this ONE scheduler thread.
+    """
     global _THREAD
     with _START_LOCK:
         if _THREAD and _THREAD.is_alive():return
+
+        def admit_owner(owner):
+            # The only scheduler thread owns this registry. An owner may not
+            # have two live tick() executions even across consecutive polls.
+            for name, worker in tuple(_OWNER_TICKS.items()):
+                if not worker.is_alive():
+                    _OWNER_TICKS.pop(name, None)
+            if owner in _OWNER_TICKS or len(_OWNER_TICKS) >= _MAX_OWNER_WORKERS:
+                return False
+
+            def work():
+                from modules import task_agents
+                token=llm._key_context.set(owner)
+                try:
+                    if not stop_event.is_set():
+                        tick(owner, notify)
+                except task_agents.Busy:
+                    # A user-owned synchronous job has the same owner.
+                    pass
+                except Exception:
+                    _record_failure('modules/task_queue.py:owner_tick')
+                finally:
+                    llm._key_context.reset(token)
+
+            worker=threading.Thread(
+                target=work, daemon=True, name='jarvis-task-owner-'+owner[:30],
+            )
+            _OWNER_TICKS[owner]=worker
+            _LAST_ADMITTED[owner]=time.monotonic()
+            worker.start()
+            return True
+
         def loop():
             global _DAILY_NEXT
             while not stop_event.wait(5):
@@ -305,13 +347,19 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
                     try:_DAILY_NOTIFY()
                     except Exception:_record_failure('modules/task_queue.py:daily_notify')
                 if not service_store.ROOT.exists():continue
-                for path in sorted(service_store.ROOT.glob('*.sqlite3')):
+                # Least-recently-admitted owners first; a busy owner cannot
+                # starve a later owner when the bounded pool is saturated.
+                owners=sorted(
+                    service_store.ROOT.glob('*.sqlite3'),
+                    key=lambda path: (_LAST_ADMITTED.get(path.stem, 0.0), path.stem),
+                )
+                for path in owners:
                     if stop_event.is_set():return
                     if allowed_owners is not None and path.stem not in allowed_owners():continue
                     token=llm._key_context.set(path.stem)
                     from modules import outbox,task_agents,privacy
                     try:
-                        tick(path.stem,notify)
+                        admit_owner(path.stem)
                         from modules import source_watch
                         source_watch.poll(path.stem,source_notify)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):
