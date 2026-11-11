@@ -1,8 +1,10 @@
 """BRAIN-07: cross-process file-effect path claims, real temp files only."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from contextlib import contextmanager
 import tempfile
 import time
 import unittest
@@ -141,6 +143,48 @@ class FileEffectClaimTests(unittest.TestCase):
                 )
             self.assertIn('başka bir işlem', message)
             self.assertFalse(expected.exists())
+        finally:
+            self.close_holder(child)
+
+    def test_file_replaced_between_preflight_and_os_lock_is_refused(self):
+        source = self.folder / 'to-change.txt'
+        source.write_text('old identity', encoding='utf-8')
+        original = file_resource_guard.resource_leases.process_resource_claim
+        changed = False
+
+        @contextmanager
+        def swap_before_yield(root, key):
+            nonlocal changed
+            with original(root, key):
+                if not changed:
+                    changed = True
+                    replacement = self.folder / 'replacement.tmp'
+                    replacement.write_text('new identity', encoding='utf-8')
+                    os.replace(replacement, source)
+                yield
+
+        with patch.object(file_resource_guard.resource_leases,
+                          'process_resource_claim', side_effect=swap_before_yield):
+            with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                with file_resource_guard.claim_paths(source):
+                    self.fail('Worker must not act on a replaced path')
+        self.assertEqual(source.read_text(encoding='utf-8'), 'new identity')
+
+    def test_hardlink_alias_is_fenced_by_existing_file_identity(self):
+        original = self.folder / 'original-hardlink.txt'
+        alias = self.folder / 'alias-hardlink.txt'
+        original.write_text('same object', encoding='utf-8')
+        try:
+            os.link(original, alias)
+        except OSError:
+            self.skipTest('Hardlinks not supported')
+        if not original.stat().st_ino:
+            self.skipTest('Filesystem did not expose a unique inode')
+        child = self.holder(original)
+        try:
+            with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                with file_resource_guard.claim_paths(alias):
+                    self.fail('Hardlink alias bypassed the claim')
         finally:
             self.close_holder(child)
 

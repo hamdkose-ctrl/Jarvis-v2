@@ -31,3 +31,13 @@ writer) reserves the exact destination before saving. Claims are only
 held while changing local files. Other report/media writer adapters remain
 outside this package. An inode value of zero is not trusted as a physical
 identity to avoid blocking unrelated files on some Windows filesystems.
+
+## Identity recheck under the acquired OS claim
+
+Path/inode identities are sampled before constructing canonical file resource
+keys, then rechecked **after** all claims are held. A rename/replace or
+parent symlink retarget between preflight and locking fails closed instead
+of performing an effect under the previous file's inode claim. The new
+tests cover this race and hardlink alias contention. A noncooperating writer
+may still change file content after this check; this is a cooperative Jarvis
+lease, not a filesystem transaction.
