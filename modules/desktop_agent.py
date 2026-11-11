@@ -1,5 +1,6 @@
 """Bounded, persisted desktop tasks using verified Windows accessibility controls."""
 from __future__ import annotations
+from contextlib import ExitStack, contextmanager
 import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -9,7 +10,7 @@ import time
 import unicodedata
 import uuid
 from config import DATA_DIR
-from modules import desktop_uia, llm, privacy, requests_state
+from modules import desktop_uia, llm, privacy, requests_state, resource_leases
 from modules.diagnostics import record_failure as _record_failure
 
 STORE = DATA_DIR / 'desktop_tasks'
@@ -43,6 +44,43 @@ _NEVER_APPS = {'cmd', 'powershell', 'powershell_ise', 'pwsh', 'windowsterminal',
 _PERMISSION = re.compile(r'pc (?:izin|izni|izinleri|izinler)\b')
 _SYSTEM_APPS = {'systemsettings', 'control', 'mmc', 'msconfig', 'windowsdefender', 'securityhealthsystray'}   # anahtarları sistemi değiştirir
 _ctx = threading.local()   # run() sırasında görev sahibi; validate izin listesine bakarken kullanır
+_DESKTOP_BUSY_MESSAGE = 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
+
+
+@contextmanager
+def _desktop_claim():
+    """One physical desktop across threads, owners and live Jarvis processes.
+
+    The same thread may pass this claim from handle() to run() while creating
+    or updating its native journal. A process-wide nonblocking OS byte claim,
+    stored outside owner folders, covers the actual UIA execution too.
+    """
+    if getattr(_ctx, 'desktop_claimed', False):
+        yield True
+        return
+    if not _BUSY.acquire(blocking=False):
+        yield False
+        return
+    stack = ExitStack()
+    try:
+        STORE.mkdir(parents=True, exist_ok=True)
+        try:
+            stack.enter_context(
+                resource_leases.process_resource_claim(STORE, 'pc_desktop')
+            )
+        except resource_leases.LeaseConflict:
+            yield False
+            return
+        _ctx.desktop_claimed = True
+        try:
+            yield True
+        finally:
+            _ctx.desktop_claimed = False
+    finally:
+        try:
+            stack.close()
+        finally:
+            _BUSY.release()
 
 
 def _apps_path(owner):
@@ -539,8 +577,18 @@ def _perform(job, snapshot, action, ui, emit, current, *, approved=False):
 def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None, read_only=False):
     if not isinstance(read_only,bool):
         raise ValueError('Salt-okunur masaüstü modu geçersiz.')
-    if not _BUSY.acquire(blocking=False):
-        return 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
+    with _desktop_claim() as owned:
+        if not owned:
+            return _DESKTOP_BUSY_MESSAGE
+        return _run_claimed(
+            job, approval=approval, emit=emit, current=current,
+            ui=ui, read_only=read_only,
+        )
+
+
+def _run_claimed(job, *, approval=None, emit=lambda *args: None, current=None,
+                 ui=None, read_only=False):
+    """Only called under the shared physical desktop claim."""
     ui = ui or desktop_uia.DesktopUI()
     _ctx.started=time.perf_counter()
     _ctx.owner = job['owner']
@@ -679,7 +727,6 @@ def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None, r
     finally:
         _ctx.started=None
         _ctx.owner = None
-        _BUSY.release()
 
 
 def handle(owner, command, emit=lambda *args: None, *, current=None, source='yazı'):
@@ -692,13 +739,23 @@ def handle(owner, command, emit=lambda *args: None, *, current=None, source='yaz
         return None
     if source == 'telefon' or (current and current() != owner):
         return 'Masaüstü işlem görevini bilgisayarın aktif kullanıcısı başlatabilir.'
+    # Reads do not claim the screen. All state-changing commands, including
+    # cancel/consent/new-job creation, must own the same claim as native run().
+    if low in ('pc görevi durumu', 'pc görevi durum'):
+        return render(_load(owner))
+    if low in ('pc görevi ayrıntı','pc görevi ayrıntıları'):
+        return render(_load(owner),details=True)
+    with _desktop_claim() as owned:
+        if not owned:
+            return _DESKTOP_BUSY_MESSAGE
+        return _handle_claimed(owner, text, low, permission, emit, current)
+
+
+def _handle_claimed(owner, text, low, permission, emit, current):
+    """Re-read the native job only after this process owns the desktop."""
     if _PERMISSION.match(permission):
         return _permission_command(owner, permission, emit, current)
     job = _load(owner)
-    if low in ('pc görevi durumu', 'pc görevi durum'):
-        return render(job)
-    if low in ('pc görevi ayrıntı','pc görevi ayrıntıları'):
-        return render(job,details=True)
     if low == 'pc görevi iptal':
         if job:
             job['status'] = 'cancelled'; job['approval'] = None; job['message'] = 'Görev iptal edildi.'; _save(job)
@@ -719,8 +776,6 @@ def handle(owner, command, emit=lambda *args: None, *, current=None, source='yaz
         parts = [spoken.group(1), spoken.group(2)]
     if len(parts) != 2 or not all(p.strip() for p in parts):
         return 'Hedef pencereyi ve işi belirt: PC görevi: Hesap Makinesi | 12 ile 7 topla'
-    if _BUSY.locked():
-        return 'Başka bir masaüstü görevi çalışıyor; aynı ekrana ikinci işlem başlatmadım.'
     # Yeni açık görev, yarım kalmış (durmuş, bekleyen, onay/soru bekleyen) eski görevin yerine geçer; elle iptal gerekmez.
     job = {'id':uuid.uuid4().hex,'owner': owner, 'target': parts[0].strip()[:200], 'goal': parts[1].strip()[:2000],
            'status': 'running', 'history': [], 'hwnd': None, 'approval': None, 'pending_effect': None}
