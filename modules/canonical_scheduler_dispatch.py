@@ -12,6 +12,7 @@ import time
 from types import SimpleNamespace
 
 import release_guard
+from modules.diagnostics import record_failure as _record_failure
 from modules import (
     canonical_output_projection, canonical_scheduler_lane, execution_record,
     goal_executor, goal_job_control, goal_plan_gate, goal_state_store,
@@ -156,6 +157,7 @@ def execute_offer(profile, offer, *, stop_event=None):
         )
         return True
     except Exception:
+        _record_failure('modules/canonical_scheduler_dispatch.py:execute_offer')
         _record_failed_if_unaccepted(
             selected.owner, selected.job_id, selected.node_id,
             plan_version=selected.plan_version, node_digest=selected.node_digest,
