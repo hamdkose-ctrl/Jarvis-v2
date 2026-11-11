@@ -30,3 +30,14 @@ an action already sent to the desktop. Existing native UIA identity,
 approval and exact screen-readback remain authoritative.
 
 Gate: latest exact-head Windows CI and matching real-PC watcher PASS.
+
+## Reentrancy and stale direct callers
+
+Only the existing handle-to-run same-thread handoff can reenter the live
+physical claim; recursive handle and a second nested native worker are
+refused. The direct run adapter re-reads its same-owner native journal
+**after** acquiring the shared OS claim and checks ID, target, goal,
+lifecycle, verified history, pending effect, window IDs and exact approval.
+A stale result/approval snapshot cannot overwrite a newer native task.
+The ordinary answer field may be updated by the existing resume path
+without granting additional native action authority.

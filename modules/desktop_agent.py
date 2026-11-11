@@ -48,15 +48,14 @@ _DESKTOP_BUSY_MESSAGE = 'Başka bir masaüstü görevi çalışıyor; aynı ekra
 
 
 @contextmanager
-def _desktop_claim():
+def _desktop_claim(*, run_handoff=False):
     """One physical desktop across threads, owners and live Jarvis processes.
 
-    The same thread may pass this claim from handle() to run() while creating
-    or updating its native journal. A process-wide nonblocking OS byte claim,
-    stored outside owner folders, covers the actual UIA execution too.
+    Only handle()->run() may borrow the same thread's claim. Recursive
+    handle() or a second nested native run() must fail closed.
     """
     if getattr(_ctx, 'desktop_claimed', False):
-        yield True
+        yield bool(run_handoff and not getattr(_ctx, 'native_running', False))
         return
     if not _BUSY.acquire(blocking=False):
         yield False
@@ -577,9 +576,18 @@ def _perform(job, snapshot, action, ui, emit, current, *, approved=False):
 def run(job, *, approval=None, emit=lambda *args: None, current=None, ui=None, read_only=False):
     if not isinstance(read_only,bool):
         raise ValueError('Salt-okunur masaüstü modu geçersiz.')
-    with _desktop_claim() as owned:
+    with _desktop_claim(run_handoff=True) as owned:
         if not owned:
             return _DESKTOP_BUSY_MESSAGE
+        # A direct caller may have read this job before another Jarvis process
+        # updated or replaced it. Refuse all stale native action/approval
+        # attempts even after the OS claim becomes available.
+        if not read_only and isinstance(job.get('id'), str) and job['id']:
+            fresh = _load(job['owner'])
+            fields = ('id', 'owner', 'target', 'goal', 'status', 'hwnd',
+                      'pid', 'app_pid', 'history', 'pending_effect', 'approval')
+            if fresh is None or any(fresh.get(key) != job.get(key) for key in fields):
+                return 'Masaüstü görevi değişti; eski işlem yeniden başlatılmadı.'
         return _run_claimed(
             job, approval=approval, emit=emit, current=current,
             ui=ui, read_only=read_only,
@@ -592,6 +600,7 @@ def _run_claimed(job, *, approval=None, emit=lambda *args: None, current=None,
     ui = ui or desktop_uia.DesktopUI()
     _ctx.started=time.perf_counter()
     _ctx.owner = job['owner']
+    _ctx.native_running = True
     try:
         requests_state.allow_long_operation(600)
         _ensure(job['owner'], current)
@@ -727,6 +736,7 @@ def _run_claimed(job, *, approval=None, emit=lambda *args: None, current=None,
     finally:
         _ctx.started=None
         _ctx.owner = None
+        _ctx.native_running = False
 
 
 def handle(owner, command, emit=lambda *args: None, *, current=None, source='yazı'):

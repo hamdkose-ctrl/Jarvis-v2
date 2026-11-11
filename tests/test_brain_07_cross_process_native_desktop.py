@@ -62,7 +62,15 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         with agent._desktop_claim() as claimed:
             self.assertTrue(claimed)
             with agent._desktop_claim() as nested:
-                self.assertTrue(nested)
+                self.assertFalse(nested)
+            with agent._desktop_claim(run_handoff=True) as valid_handoff:
+                self.assertTrue(valid_handoff)
+                agent._ctx.native_running = True
+                try:
+                    with agent._desktop_claim(run_handoff=True) as duplicate_run:
+                        self.assertFalse(duplicate_run)
+                finally:
+                    agent._ctx.native_running = False
         self.assertFalse(agent._BUSY.locked())
         old = {'owner':'alice','id':'old-native','target':'Calculator',
                'goal':'old task','status':'waiting','history':[]}
@@ -92,6 +100,39 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         self.assertEqual(result, 'ready')
         native.assert_called_once()
         self.assertNotEqual(agent._path('alice').read_bytes(), before)
+
+    def test_stale_direct_run_cannot_overwrite_newer_native_job(self):
+        original = {
+            'id': 'job-old', 'owner': 'alice', 'target': 'Calculator',
+            'goal': 'old task', 'status': 'waiting', 'history': [],
+        }
+        agent._save(original)
+        stale = dict(original)
+        agent._save(dict(original, id='job-new', goal='new task'))
+        before = agent._path('alice').read_bytes()
+        class NeverUI:
+            def observe(self, *_):
+                raise AssertionError('Stale job reached physical desktop')
+        result = agent.run(stale, ui=NeverUI())
+        self.assertIn('görevi değişti', result)
+        self.assertEqual(agent._path('alice').read_bytes(), before)
+
+    def test_stale_same_id_approval_snapshot_cannot_dispatch(self):
+        old = {
+            'id': 'stable-id', 'owner': 'alice', 'target': 'Calculator',
+            'goal': 'old task', 'status': 'approval', 'history': [],
+            'approval': {'id':'before'}, 'pending_effect': None,
+        }
+        agent._save(old)
+        stale = dict(old)
+        agent._save(dict(old, approval={'id':'after'}))
+        before = agent._path('alice').read_bytes()
+        class NeverUI:
+            def observe(self, *_):
+                raise AssertionError('Stale approval reached physical desktop')
+        result = agent.run(stale, ui=NeverUI(), approval='before')
+        self.assertIn('görevi değişti', result)
+        self.assertEqual(agent._path('alice').read_bytes(), before)
 
     def test_different_owner_does_not_bypass_one_physical_desktop(self):
         child = self.start_other_process()
