@@ -25,6 +25,10 @@ _ACTIVE_JOBS = {}
 class Busy(ValueError):
     pass
 _CANCEL_REQUESTED = set()
+# The current SQLite queue generation travels with the executing context,
+# including dependency-wave workers. It is never model-supplied.
+_QUEUE_CLAIM = contextvars.ContextVar('jarvis_task_queue_live_claim', default=None)
+_JOURNAL_FENCE = '_journal_snapshot'
 _REPLAY_SAFE = {kind for kind, spec in task_tools.CATALOG.items() if spec['replay_safe']}
 WORKER_CATALOG = {
     'media': 'Yerel görsel ve isteğe bağlı sesle FFmpeg video üretir; süre/boyut/dosya doğrulanır.',
@@ -68,27 +72,79 @@ def _job_path(root, job_id):
     return path
 
 
+def _require_queue_claim(owner, job, db=None):
+    """Fence a scheduled worker by its exact, live SQLite claim generation."""
+    current = _QUEUE_CLAIM.get()
+    if current is None:
+        return
+    if current[:3] != (owner, job.get('queue_id'), job.get('id')):
+        raise requests_state.Cancelled('Kuyruk işinin canlı yürütme kimliği değişti.')
+    from modules import service_store
+    def valid(connection):
+        return connection.execute(
+            "SELECT 1 FROM queue WHERE id=? AND job_id=? AND state='running' "
+            "AND lease_token=? AND lease>?",
+            (current[1], current[2], current[3], time.time()),
+        ).fetchone() is not None
+    if db is not None:
+        if not valid(db):
+            raise requests_state.Cancelled('Kuyruk işi lease sahipliğini kaybetti.')
+    else:
+        with service_store.database(owner) as connection:
+            if not valid(connection):
+                raise requests_state.Cancelled('Kuyruk işi lease sahipliğini kaybetti.')
+
+
 def _save(root, job):
+    """Cross-process snapshot CAS; a stale worker cannot overwrite a journal.
+
+    Hold the existing GoalState file-lock primitive only across read+write,
+    never while a model/provider/worker is executing. A scheduled worker also
+    holds the queue row's short SQLite transaction during its journal write.
+    """
+    from modules import goal_state_store, service_store
     with _LOCK:
         path=_job_path(root,job['id']); tmp=path.with_suffix('.tmp')
         if tmp.is_symlink(): raise ValueError('Geçici görev kaydı sembolik bağ olamaz.')
-        payload=json.dumps(job,ensure_ascii=False)
-        with tmp.open('w',encoding='utf-8') as stream:
-            stream.write(payload);stream.flush();os.fsync(stream.fileno())
-        os.replace(tmp,path)
+        with goal_state_store._exclusive(path.with_suffix('.taskjournal')):
+            raw=path.read_bytes() if path.exists() else None
+            previous=job.get(_JOURNAL_FENCE)
+            if (raw is None and previous is not None) or (
+                raw is not None and previous != hashlib.sha256(raw).hexdigest()
+            ):
+                raise ValueError('Görev günlüğü başka yürütmede değişti; eski sonuç yazılmadı.')
+            payload=json.dumps(
+                {key:value for key,value in job.items() if key != _JOURNAL_FENCE},
+                ensure_ascii=False, allow_nan=False,
+            ).encode('utf-8')
+            def write():
+                with tmp.open('wb') as stream:
+                    stream.write(payload);stream.flush();os.fsync(stream.fileno())
+                os.replace(tmp,path)
+            if _QUEUE_CLAIM.get() is not None:
+                with service_store.database(root.name) as db:
+                    _require_queue_claim(root.name, job, db)
+                    write()
+            else:
+                write()
+            job[_JOURNAL_FENCE]=hashlib.sha256(payload).hexdigest()
 
 
 def _load(owner, job_id):
     path=_job_path(_root(owner),job_id)
     if not path.exists(): raise ValueError('Bu kullanıcıya ait görev bulunamadı.')
     if path.stat().st_size>16_000_000: raise ValueError('Görev kaydı çok büyük.')
-    job=json.loads(path.read_text(encoding='utf-8'))
+    raw=path.read_bytes()
+    job=json.loads(raw.decode('utf-8'))
     if not isinstance(job,dict) or job.get('id')!=job_id or not isinstance(job.get('tasks'),list) or not isinstance(job.get('outputs'),dict):
         raise ValueError('Görev kaydı bozuk; otomatik işleme alınmadı.')
     for task in job['tasks']:
         if not isinstance(task,dict):raise ValueError('Görev adımı bozuk.')
         if task.get('state')=='done' and job['outputs'].get(task.get('id'),{}).get('state')!='done':
             raise ValueError('Tamamlanan adımın başarı kaydı eksik; görev otomatik sürdürülmedi.')
+    if _JOURNAL_FENCE in job:
+        raise ValueError('Görev günlüğünde geçersiz geçici sürüm işareti var.')
+    job[_JOURNAL_FENCE]=hashlib.sha256(raw).hexdigest()
     return job
 
 
@@ -226,6 +282,7 @@ def _execute(owner, tasks, instruction='', emit=None, *, job_id=None, queue_id=N
 
 def _check_job(owner,job):
     requests_state.check()
+    _require_queue_claim(owner,job)
     if job.get('queue_id'):
         from modules import task_queue
         if task_queue.is_cancelled(owner,job['queue_id']):raise requests_state.Cancelled('Kuyruk işi iptal edildi.')
@@ -278,9 +335,20 @@ def _run_pending(owner,job,emit=None):
             _save(root,job)
         return job
     except requests_state.Cancelled:
+        # A different process/user cancellation may already own the newer
+        # durable snapshot. Never overwrite it, and do not mask the original
+        # cancellation with a stale journal version error.
+        latest=_load(owner,job['id'])
+        if latest.get(_JOURNAL_FENCE)!=job.get(_JOURNAL_FENCE):
+            raise
         for pending in job['tasks']:
             if pending['state'] in ('running','queued','blocked'): _transition(job,pending,'cancelled')
-        _transition(job,None,'cancelled');_save(root,job);raise
+        _transition(job,None,'cancelled')
+        try:
+            _save(root,job)
+        except ValueError as exc:
+            raise requests_state.Cancelled('Görev başka yürütmede değişti; iptal korundu.') from exc
+        raise
 
 
 def _run_parallel(owner,job,emit=None):
@@ -333,9 +401,17 @@ def _run_parallel(owner,job,emit=None):
         _transition(job,None,'done' if all(t['state']=='done' for t in job['tasks']) else 'incomplete');_save(root,job)
         return job
     except requests_state.Cancelled:
+        latest=_load(owner,job['id'])
+        if latest.get(_JOURNAL_FENCE)!=job.get(_JOURNAL_FENCE):
+            raise
         for task in job['tasks']:
             if task['state'] in ('queued','running','blocked'):_transition(job,task,'cancelled')
-        _transition(job,None,'cancelled');_save(root,job);raise
+        _transition(job,None,'cancelled')
+        try:
+            _save(root,job)
+        except ValueError as exc:
+            raise requests_state.Cancelled('Görev başka yürütmede değişti; iptal korundu.') from exc
+        raise
 
 
 def continue_job(owner,job_id=None,emit=None,*,queue_id=None,queue_tasks=None):
