@@ -311,15 +311,33 @@ class GoalTests(unittest.TestCase):
 
     def test_interrupted_step_before_execution_can_resume_without_false_uncertainty(self):
         self.responses(self.plan('Not ekle'),self.tool('action',{'action':'note_add','params':{'text':'not'}}))
-        from modules import requests_state
-        with patch.object(goal_tools,'checkpoint',side_effect=requests_state.Cancelled('stop')):
-            with self.assertRaises(requests_state.Cancelled):goals.run(self.runtime,'Not ekle')
+        # Model a process crash, NOT user cancellation. Explicit Cancelled
+        # closes canonical GoalState permanently; power loss before any
+        # effect must leave the journal resumable without a duplicate effect.
+        with patch.object(goal_tools,'checkpoint',side_effect=KeyboardInterrupt('crash before effect')):
+            with self.assertRaises(KeyboardInterrupt):goals.run(self.runtime,'Not ekle')
         job=goals.latest('alice');job['state']='paused';job['steps'][0]['state']='running';goals._save(job)
         bridge=SimpleNamespace(note_add=Mock(return_value={'id':1,'text':'not'}))
         self.responses(self.tool('action',{'action':'note_add','params':{'text':'not'}}),self.done('s2'),self.finish())
         with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
             goals.handle(self.runtime,'devam')
         bridge.note_add.assert_called_once();self.assertEqual(goals.latest('alice')['state'],'done')
+
+    def test_explicit_cancellation_before_execution_is_terminal_on_resume(self):
+        from modules import requests_state, goal_state_store
+        self.responses(self.plan('Not ekle'),self.tool('action',{'action':'note_add','params':{'text':'not'}}))
+        with patch.object(goal_tools,'checkpoint',side_effect=requests_state.Cancelled('stop')):
+            with self.assertRaises(requests_state.Cancelled):
+                goals.run(self.runtime,'Not ekle')
+        job=goals.latest('alice')
+        self.assertEqual(job['state'],'cancelled')
+        path=goals.STORE/'alice'/(job['id']+'.goalstate.json')
+        self.assertEqual(goal_state_store.load(path)['state'],'cancelled')
+        bridge=SimpleNamespace(note_add=Mock())
+        with patch.object(goal_tools.app_actions,'_owned',return_value=nullcontext(bridge)):
+            goals.handle(self.runtime,'devam')
+        bridge.note_add.assert_not_called()
+        self.assertEqual(goal_state_store.load(path)['state'],'cancelled')
 
 
 
