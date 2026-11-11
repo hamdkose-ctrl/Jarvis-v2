@@ -66,7 +66,8 @@ def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
 
 
 def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
-                                 *, plan_version: int, node_digest: str) -> None:
+                                 *, plan_version: int, node_digest: str,
+                                 deadline_expired: bool = False) -> None:
     """Never clobber a projected result, terminal job, or an accepted success.
 
     If a provider stops or fails, its started first attempt is durably fenced
@@ -108,7 +109,16 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
         matches[0]["state"] = "failed"
         job["outputs"][node_id] = {
             "state": "failed",
-            "text": "Canonical read-only worker stopped; manual review required.",
+            "text": (
+                "Canonical worker deadline elapsed; external read outcome "
+                "is not proven. Manual review required; never retry automatically."
+                if deadline_expired else
+                "Canonical read-only worker stopped; manual review required."
+            ),
+            "reason_code": (
+                "CANONICAL_WORKER_DEADLINE_UNACCEPTED" if deadline_expired else
+                "CANONICAL_WORKER_STOPPED_UNACCEPTED"
+            ),
         }
         job["updated"] = time.time()
         release_guard.atomic(path, execution_record.encode(job))
@@ -163,8 +173,6 @@ def execute_offer(profile, offer, *, stop_event=None):
         "node_digest": selected.node_digest,
     }
     try:
-        if stop_event is not None and stop_event.is_set():
-            raise RuntimeError("Scheduler stopped before worker invocation.")
         # This synchronous thread-bound scope travels through the existing
         # specialist/lease/WorkerResult path. A stop during provider execution
         # fences the Core CAS, even if the external task later returns "done".
@@ -178,10 +186,13 @@ def execute_offer(profile, offer, *, stop_event=None):
             selected.owner, selected.job_id, selected.node_id, result,
         )
         return True
-    except Exception:
+    except Exception as exc:
         _record_failure('modules/canonical_scheduler_dispatch.py:execute_offer')
         _record_failed_if_unaccepted(
             selected.owner, selected.job_id, selected.node_id,
             plan_version=selected.plan_version, node_digest=selected.node_digest,
+            deadline_expired=isinstance(
+                exc, runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+            ),
         )
         raise
