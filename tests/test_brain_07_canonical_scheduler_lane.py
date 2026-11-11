@@ -650,14 +650,22 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.assertTrue(voice_played.wait(5), 'Voice playback did not start')
                 self.assertTrue(finished.wait(15), 'Dependent node was not dispatched')
                 self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
-                for _ in range(200):
+                # The worker sets "finished" before its Core CAS and durable
+                # output projection. On a busy Windows runner those stages may
+                # outlive a two-second sleep; prove the final disk state
+                # instead of treating provider completion as acceptance.
+                for _ in range(300):
                     saved = execution_record.load(self.owner_root, OWNER, JOB)
-                    if saved['steps'][-1]['state'] == 'done':
+                    if (all(step['state'] == 'done' for step in saved['steps'])
+                            and set(saved['outputs']) == {'left', 'right', 'child'}):
                         break
-                    threading.Event().wait(.01)
+                    threading.Event().wait(.05)
                 saved = execution_record.load(self.owner_root, OWNER, JOB)
                 self.assertEqual(set(saved['outputs']), {'left', 'right', 'child'})
-                self.assertTrue(all(s['state'] == 'done' for s in saved['steps']))
+                self.assertTrue(
+                    all(step['state'] == 'done' for step in saved['steps']),
+                    f"Canonical worker projection not durable: {[(step['id'], step['state']) for step in saved['steps']]}",
+                )
                 self.assertEqual(set(observed), {'left', 'right', 'child'})
             finally:
                 stop.set()
