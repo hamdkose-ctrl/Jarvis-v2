@@ -115,11 +115,13 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
                 if deadline_expired else
                 "Canonical read-only worker stopped; manual review required."
             ),
-            "reason_code": (
-                "CANONICAL_WORKER_DEADLINE_UNACCEPTED" if deadline_expired else
-                "CANONICAL_WORKER_STOPPED_UNACCEPTED"
-            ),
         }
+        # Preserve the pre-existing generic failure record contract; only
+        # a proven deadline fence gains this additional reason classification.
+        if deadline_expired:
+            job["outputs"][node_id]["reason_code"] = (
+                "CANONICAL_WORKER_DEADLINE_UNACCEPTED"
+            )
         job["updated"] = time.time()
         release_guard.atomic(path, execution_record.encode(job))
 
