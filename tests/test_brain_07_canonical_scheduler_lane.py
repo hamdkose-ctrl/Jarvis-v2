@@ -375,6 +375,7 @@ class SchedulerOfferTests(unittest.TestCase):
         """
         from types import SimpleNamespace
         from modules import llm, outbox, privacy, service_store, source_watch, task_queue
+        from modules.voice_core import VoiceCatalog, VoiceCoordinator, VoiceSpec, SpeechRequest
 
         state = goal_state_store.load(self.path)
         nodes = [node('left'), node('right'), node('child', ('left', 'right'))]
@@ -399,6 +400,7 @@ class SchedulerOfferTests(unittest.TestCase):
         finished = threading.Event()
         root_entered = threading.Event()
         poll_while_busy = threading.Event()
+        voice_played = threading.Event()
         observed = []
         lock = threading.Lock()
 
@@ -421,6 +423,9 @@ class SchedulerOfferTests(unittest.TestCase):
             if task['id'] in ('left', 'right'):
                 root_entered.set()
                 barrier.wait()
+                self.assertTrue(
+                    voice_played.wait(7), 'Voice playback blocked by canonical worker',
+                )
                 # Prove the central Scheduler polls Bob DURING both active
                 # Alice workers, not after their results have been accepted.
                 self.assertTrue(
@@ -441,6 +446,20 @@ class SchedulerOfferTests(unittest.TestCase):
                 poll_while_busy.set()
 
         with ExitStack() as stack:
+            # Synthetic playback verifies VoiceCoordinator can still speak
+            # while the actual Scheduler workers are blocked in their provider.
+            # This is NOT a claim of real audible Windows device acceptance.
+            def play(audio, cancel, on_start):
+                on_start()
+                voice_played.set()
+
+            coordinator = VoiceCoordinator(
+                VoiceCatalog((VoiceSpec('tr_erkek', 'Test voice', 'piper', 'test.onnx'),)),
+                lambda spec, text, cancel: b'audio',
+                play,
+                lambda receipt: None,
+            )
+            stack.callback(coordinator.close)
             for module, attribute, value in (
                 (service_store, 'ROOT', sqlite),
                 (task_queue, '_THREAD', None),
@@ -462,6 +481,12 @@ class SchedulerOfferTests(unittest.TestCase):
                 canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
             )
             try:
+                self.assertTrue(root_entered.wait(8), 'No canonical worker started')
+                self.assertTrue(coordinator.submit(SpeechRequest(
+                    owner=OWNER, request_id='speak-while-running',
+                    voice_id='tr_erkek', text='Arka planda devam ediyorum',
+                )))
+                self.assertTrue(voice_played.wait(5), 'Voice playback did not start')
                 self.assertTrue(finished.wait(15), 'Dependent node was not dispatched')
                 self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
                 for _ in range(200):
