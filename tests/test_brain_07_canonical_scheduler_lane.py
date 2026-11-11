@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import release_guard
 from modules import (
-    canonical_output_projection, canonical_scheduler_dispatch,
+    canonical_output_projection, canonical_plan_evidence, canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
     goal_executor, goal_state, goal_state_store, goal_tools,
     runtime_worker_result, task_agents, task_results, untrusted_flow,
@@ -754,6 +754,125 @@ class SchedulerOfferTests(unittest.TestCase):
                     worker.is_alive()
                     for worker in task_queue._CANONICAL_WORKERS.values()
                 ), 'Canonical worker remained after scheduler shutdown')
+
+
+    def plan_only_roots(self, *names):
+        current = goal_state_store.load(self.path)
+        updated = core_state_reducer.apply(current, {
+            'op': 'set_goal_plan', 'expected_version': current['version'],
+            'reason_code': 'TEST_CERTIFICATION',
+            'plan': {'plan_version': 2, 'nodes': [node(name) for name in names]},
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=current['version'], next_state=updated,
+        )
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        journal['steps'] = [
+            next(row for row in journal['steps'] if row['id'] == name)
+            for name in names
+        ]
+        release_guard.atomic(
+            self.record_path, execution_record.encode(journal),
+        )
+
+    def test_full_plan_proof_requires_every_projected_accepted_root(self):
+        self.plan_only_roots('left', 'right')
+        with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+            canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+        result_left = self.accept('left')
+        with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+            canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+        canonical_output_projection.project_accepted(
+            OWNER, JOB, 'left', result_left,
+        )
+        with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+            canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+
+        result_right = self.accept('right')
+        canonical_output_projection.project_accepted(
+            OWNER, JOB, 'right', result_right,
+        )
+        with patch.object(goal_tools, 'verify', return_value=True) as verified:
+            proof = canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+        self.assertEqual(proof.owner, OWNER)
+        self.assertEqual(proof.job_id, JOB)
+        self.assertEqual(proof.plan_version, 2)
+        self.assertEqual(
+            {ident for ident, digest in proof.output_digests},
+            {'left', 'right'},
+        )
+        self.assertEqual(verified.call_count, 2)
+        # A completed DAG is not permission to declare a user's goal done.
+        self.assertEqual(goal_state_store.load(self.path)['state'], 'pending')
+        self.assertEqual(
+            execution_record.load(self.owner_root, OWNER, JOB)['state'],
+            'running',
+        )
+
+    def test_full_plan_proof_rejects_tampered_projected_bytes(self):
+        self.plan_only_roots('left')
+        clean = self.accept('left')
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', clean)
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['outputs']['left']['text'] = 'Modified after accepted Core CAS'
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        with patch.object(goal_tools, 'verify', return_value=True) as verified:
+            with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+                canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+            verified.assert_not_called()
+
+    def test_full_plan_proof_rejects_domain_verifier_failure(self):
+        self.plan_only_roots('left')
+        clean = self.accept('left')
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', clean)
+        with patch.object(goal_tools, 'verify', return_value=False):
+            with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+                canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+
+    def test_full_plan_proof_rejects_user_intent_change_after_projection(self):
+        self.plan_only_roots('left')
+        clean = self.accept('left')
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', clean)
+        current = goal_state_store.load(self.path)
+        updated = core_state_reducer.apply(current, {
+            'op': 'mutate_goal_intent', 'operation': 'revise',
+            'text': 'New user request', 'priority': None,
+            'expected_version': current['version'], 'reason_code': 'USER_REVISE',
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=current['version'], next_state=updated,
+        )
+        with patch.object(goal_tools, 'verify', return_value=True):
+            with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+                canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+
+    def test_full_plan_proof_rechecks_cas_after_slow_domain_verification(self):
+        self.plan_only_roots('left')
+        clean = self.accept('left')
+        canonical_output_projection.project_accepted(OWNER, JOB, 'left', clean)
+
+        def change_during_verify(output, owner):
+            self.assertEqual(owner, OWNER)
+            old = goal_state_store.load(self.path)
+            changed = core_state_reducer.apply(old, {
+                'op': 'mutate_goal_intent', 'operation': 'prioritize',
+                'priority': 3, 'text': None,
+                'expected_version': old['version'], 'reason_code': 'USER_PRIORITY',
+            })
+            goal_state_store.compare_and_swap(
+                self.path, expected_version=old['version'],
+                next_state=changed,
+            )
+            return True
+
+        with patch.object(goal_tools, 'verify', side_effect=change_during_verify):
+            with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+                canonical_plan_evidence.certify_projected_plan(OWNER, JOB)
+
+    def test_full_plan_proof_rejects_foreign_owner(self):
+        self.plan_only_roots('left')
+        with self.assertRaises(canonical_plan_evidence.PlanEvidenceError):
+            canonical_plan_evidence.certify_projected_plan('bob', JOB)
 
 
 if __name__ == '__main__':
