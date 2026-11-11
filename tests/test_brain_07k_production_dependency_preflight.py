@@ -240,9 +240,12 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
             with scheduler_resource_gate.dependent_research_worker(
                 goal_executor._RESOURCE_LEASES, enriched, expected,
             ):
+                # Separate process/scheduler tables still collide on the
+                # owner-scoped OS claim, not merely on one in-memory table.
+                independent_table = resource_leases.LeaseTable()
                 with self.assertRaises(resource_leases.LeaseConflict):
                     with scheduler_resource_gate.dependent_research_worker(
-                        goal_executor._RESOURCE_LEASES, enriched, expected,
+                        independent_table, enriched, expected,
                     ):
                         self.fail('A duplicate command entered the worker scope.')
         self.assertEqual(goal_executor._RESOURCE_LEASES._commands, {})

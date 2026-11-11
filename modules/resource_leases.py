@@ -8,7 +8,12 @@ later BRAIN-07 slices before any effectful capability can use leases.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
+import hashlib
+import os
+from pathlib import Path
+import stat
 import re
 import secrets
 import threading
@@ -181,3 +186,64 @@ class LeaseTable:
         with self._lock:
             self._expire(self._clock())
             return key in self._holders
+
+
+@contextmanager
+def process_resource_claim(owner_root: Path, key: str):
+    """Nonblocking OS claim shared by separately running Windows/Unix workers.
+
+    Scoped only to currently live read-only worker execution. The OS releases
+    the byte-range/flock lock on process exit; the caller must STILL check the
+    canonical GoalState, a live in-process ticket, and WorkerResult CAS.
+    A crash does not prove a remote call was never issued.
+    """
+    canonical = _key(key)
+    root = Path(owner_root)
+    if root.is_symlink() or not root.is_dir():
+        raise LeaseConflict("Resource owner directory is invalid.")
+    # The lock file name cannot be controlled by a model-supplied path.
+    name = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    path = root / (".resource-" + name + ".claim")
+    if path.is_symlink():
+        raise LeaseConflict("Resource claim cannot follow a symlink.")
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise LeaseConflict("Cannot open the read-only resource claim.") from exc
+    handle = os.fdopen(fd, "r+b", buffering=0)
+    acquired = False
+    try:
+        details = os.fstat(handle.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_nlink != 1:
+            raise LeaseConflict("Resource claim must be an ordinary private file.")
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"0")
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise LeaseConflict("Resource is already owned by another process.") from exc
+        acquired = True
+        yield
+    finally:
+        try:
+            if acquired:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()

@@ -238,13 +238,20 @@ def account_read_worker(leases: resource_leases.LeaseTable,
     )
     started = False
     try:
-        validate_before_dispatch(
-            leases, state, selected, holder[0],
-            attempt=expected['attempt'],
-        )
-        thread.start()
-        started = True
-        yield commit_checked
+        from modules import goal_executor
+        # The OS claim is per canonical owner/resource, across all jobs and
+        # independently started Jarvis processes. Do not hold the short
+        # owner/job GoalState control lock during network/provider execution.
+        with resource_leases.process_resource_claim(
+            goal_executor._root(selected.owner), ticket.keys[0],
+        ):
+            validate_before_dispatch(
+                leases, state, selected, holder[0],
+                attempt=expected['attempt'],
+            )
+            thread.start()
+            started = True
+            yield commit_checked
     finally:
         stop.set()
         if started:
@@ -386,11 +393,18 @@ def dependent_research_worker(
     )
     started = False
     try:
-        with lock:
-            require_current()
-        thread.start()
-        started = True
-        yield commit_checked
+        from modules import goal_executor
+        # Keep the same-command OS claim throughout the real worker and
+        # final Core CAS. Another process cannot start a duplicate command
+        # while this holder is alive; different command keys stay parallel.
+        with resource_leases.process_resource_claim(
+            goal_executor._root(selected.owner), key,
+        ):
+            with lock:
+                require_current()
+            thread.start()
+            started = True
+            yield commit_checked
     finally:
         stop.set()
         if started:
