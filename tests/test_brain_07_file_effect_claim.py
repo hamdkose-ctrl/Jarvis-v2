@@ -188,6 +188,44 @@ class FileEffectClaimTests(unittest.TestCase):
         finally:
             self.close_holder(child)
 
+    def test_chosen_collision_suffix_is_reserved_before_create(self):
+        occupied = self.folder / 'note.txt'
+        occupied.write_text('existing', encoding='utf-8')
+        chosen = self.folder / 'note (1).txt'
+        child = self.holder(chosen)
+        try:
+            with patch.object(file_ops.files, 'match_folder',
+                              return_value=(self.folder, 'Belgeler', False)):
+                message = file_ops.execute_typed(
+                    'create', owner='alice', folder='belgeler',
+                    name='note.txt', content='new',
+                )
+            self.assertIn('başka bir işlem', message)
+            self.assertFalse(chosen.exists())
+            self.assertEqual(occupied.read_text(encoding='utf-8'), 'existing')
+        finally:
+            self.close_holder(child)
+
+    def test_chosen_collision_suffix_is_reserved_before_move(self):
+        source_folder = self.base / 'Downloads'
+        source_folder.mkdir()
+        source = source_folder / 'report.txt'
+        source.write_text('new report', encoding='utf-8')
+        (self.folder / 'report.txt').write_text('existing', encoding='utf-8')
+        chosen = self.folder / 'report (1).txt'
+        child = self.holder(chosen)
+        try:
+            with patch.object(file_ops.files, 'match_folder',
+                              return_value=(self.folder, 'Belgeler', False)):
+                message = file_ops.execute_typed(
+                    'move', owner='alice', path=str(source), folder='belgeler',
+                )
+            self.assertIn('başka bir işlem', message)
+            self.assertTrue(source.exists())
+            self.assertFalse(chosen.exists())
+        finally:
+            self.close_holder(child)
+
     def test_symlink_destination_is_rejected_without_writing(self):
         source = self.folder / 'source.txt'
         source.write_text('safe', encoding='utf-8')

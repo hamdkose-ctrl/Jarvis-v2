@@ -6,6 +6,7 @@ inmeden çalışır. Silme ve üzerine yazma yoktur; her işlem geri alınabilir
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import os
 import re
 import shutil
@@ -27,6 +28,23 @@ def _with_file_claims(paths, operation):
             return operation()
     except resource_leases.LeaseConflict:
         return _FILE_BUSY
+
+
+@contextmanager
+def _claim_chosen_file_target(requested, chosen):
+    """Reserve a collision suffix selected by _free_name as well as its base.
+
+    The caller already holds the requested path claim. If an existing
+    document forces e.g. "report (1).txt", that *actual* path must also be
+    claimed before moving/writing; unrelated files remain independent.
+    """
+    if chosen == requested:
+        yield
+        return
+    with file_resource_guard.claim_paths(chosen):
+        if chosen.exists() or chosen.is_symlink():
+            raise resource_leases.LeaseConflict('Chosen file target changed.')
+        yield
 
 
 def _permission_decision(owner, name, target):
@@ -161,8 +179,10 @@ def _move(command: str, owner: str = "") -> str | None:
         if reason := _permission_decision(owner, 'Taşı', str(source)):
             return reason
         try:
-            final = files._free_name(folder / source.name)
-            shutil.move(str(source), str(final))
+            requested = folder / source.name
+            final = files._free_name(requested)
+            with _claim_chosen_file_target(requested, final):
+                shutil.move(str(source), str(final))
         except OSError as exc:
             return f"Dosyayı taşıyamadım: {exc}"
         _record([[str(final), str(source), _digest(final)]], owner)
@@ -226,11 +246,12 @@ def _create(command: str, owner: str = "") -> str | None:
         if reason := _permission_decision(owner, 'Metin dosyası oluştur', str(folder / name)):
             return reason
         try:
-            final = files._free_name(folder / name)
-            # Exclusive create even if a separate non-cooperating process
-            # creates the final name after free-name discovery.
-            with final.open('x', encoding='utf-8') as stream:
-                stream.write(content + ("\n" if content else ""))
+            requested = folder / name
+            final = files._free_name(requested)
+            # Reserve the *actual* suffix, not only the original basename.
+            with _claim_chosen_file_target(requested, final):
+                with final.open('x', encoding='utf-8') as stream:
+                    stream.write(content + ("\n" if content else ""))
         except OSError as exc:
             return f"Dosyayı oluşturamadım: {exc}"
         _record([[str(final), "", _digest(final)]], owner)
@@ -320,8 +341,10 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
                 if reason := _permission_decision(owner, "Taşı", str(source)):
                     return reason
                 try:
-                    target = files._free_name(destination / source.name)
-                    shutil.move(str(source), str(target))
+                    requested = destination / source.name
+                    target = files._free_name(requested)
+                    with _claim_chosen_file_target(requested, target):
+                        shutil.move(str(source), str(target))
                     _record([[str(target), str(source), _digest(target)]], owner)
                 except OSError:
                     return "Dosyayı güvenli biçimde taşıyamadım."
@@ -360,9 +383,11 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
         if reason := _permission_decision(owner, "Metin dosyası oluştur", str(destination / filename)):
             return reason
         try:
-            target = files._free_name(destination / filename)
-            with target.open('x', encoding='utf-8', errors='strict') as stream:
-                stream.write(content + ("\n" if content else ""))
+            requested = destination / filename
+            target = files._free_name(requested)
+            with _claim_chosen_file_target(requested, target):
+                with target.open('x', encoding='utf-8', errors='strict') as stream:
+                    stream.write(content + ("\n" if content else ""))
             _record([[str(target), "", _digest(target)]], owner)
         except OSError:
             return "Metin dosyasını güvenli biçimde oluşturamadım."

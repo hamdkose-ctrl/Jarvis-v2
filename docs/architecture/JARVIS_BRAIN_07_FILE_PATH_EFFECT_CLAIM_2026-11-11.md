@@ -41,3 +41,13 @@ of performing an effect under the previous file's inode claim. The new
 tests cover this race and hardlink alias contention. A noncooperating writer
 may still change file content after this check; this is a cooperative Jarvis
 lease, not a filesystem transaction.
+
+## Dynamic collision suffixes
+
+The requested base destination and the actual `_free_name` collision-suffix
+path are distinct resources. Both native-language and typed move/create
+adapters now take a second nonblocking claim for the selected suffix before
+writing. A competing Jarvis worker claiming `report (1).txt` cannot be
+bypassed merely because the original request was for `report.txt`.
+This is cooperative locking, not an absolute defense against non-Jarvis
+processes modifying the same directory.
