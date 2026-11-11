@@ -127,6 +127,33 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
             len(goal_state_store.load(self.canonical_path)['evidence']), 3,
         )
 
+    def test_dependent_readonly_first_attempt_only_and_no_repeat_success(self):
+        self.both()
+        with patch.object(goal_tools, 'verify', return_value=True):
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'first attempt'):
+                runtime_worker_result.prepare(
+                    {**identity('child'), 'attempt': 2}, 'research', DATA,
+                )
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+            wrapped = worker_result_hook.wrap_output({
+                'state': 'done', 'text': 'verified child',
+                'verification': {'fixture': 'child', 'test_only': True},
+            }, enriched)
+            runtime_worker_result.accept_and_commit(wrapped, expected)
+            with self.assertRaises(goal_plan_gate.PlanFenceError):
+                runtime_worker_result.prepare(
+                    identity('child'), 'research', DATA,
+                )
+            # Exact previously accepted WorkerResult is idempotent, but a
+            # fresh worker cannot be launched for the completed child.
+            runtime_worker_result.accept_and_commit(wrapped, expected)
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 3,
+        )
+
     def test_dependent_commit_rechecks_tampered_persisted_predecessor(self):
         self.both()
         with patch.object(goal_tools, 'verify', return_value=True):
