@@ -359,6 +359,81 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertFalse(any(row.get('kind') == 'worker_result'
                              for row in saved['evidence']))
 
+    def test_scheduler_stop_during_running_research_rejects_late_core_cas(self):
+        """Cooperative shutdown does not accept a stale provider success."""
+        from types import SimpleNamespace
+
+        entered = threading.Event()
+        release = threading.Event()
+        stop = threading.Event()
+        self.addCleanup(release.set)
+        failures = []
+
+        def worker(owner, task, deps):
+            self.assertEqual(owner, OWNER)
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Arrived after scheduler stopped',
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        offer = self.offers()[0]
+
+        def run():
+            try:
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), offer, stop_event=stop,
+                )
+            except Exception as exc:
+                failures.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \\
+             patch.object(untrusted_flow, 'observe'):
+            thread = threading.Thread(target=run, name='stop-fence-test')
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(8))
+                stop.set()
+            finally:
+                release.set()
+                thread.join(8)
+
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(failures, 'A late worker must not report success.')
+        self.assertTrue(any('Scheduler stopped' in str(exc) for exc in failures))
+        saved = goal_state_store.load(self.path)
+        self.assertEqual(saved['state'], 'pending')
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result' for row in saved['evidence']
+        ))
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        self.assertEqual(journal['steps'][0]['state'], 'failed')
+        self.assertEqual(journal['outputs']['left']['state'], 'failed')
+        self.assertEqual([o.selection.node_id for o in self.offers()], ['right'])
+
+    def test_scheduler_stop_before_claim_leaves_exact_record_unchanged(self):
+        from types import SimpleNamespace
+        stop = threading.Event()
+        stop.set()
+        initial = self.record_path.read_bytes()
+        result = canonical_scheduler_dispatch.execute_offer(
+            SimpleNamespace(slug=OWNER), self.offers()[0],
+            stop_event=stop,
+        )
+        self.assertFalse(result)
+        self.assertEqual(self.record_path.read_bytes(), initial)
+
+    def test_scheduler_stop_scope_is_thread_local_and_cleared_on_error(self):
+        stop = threading.Event()
+        stop.set()
+        with self.assertRaisesRegex(RuntimeError, 'Scheduler stopped'):
+            with runtime_worker_result.scheduler_stop_scope(stop):
+                self.fail('A stopped Scheduler may not enter a worker.')
+        # An unrelated standalone legacy/read-only worker has no Scheduler
+        # stop token; the failed scope does not permanently contaminate it.
+        runtime_worker_result.require_scheduler_active()
+
     def test_discovery_requires_published_running_records(self):
         found = canonical_scheduler_dispatch.discover(OWNER)
         self.assertEqual([o.selection.node_id for o in found], ['left', 'right'])
