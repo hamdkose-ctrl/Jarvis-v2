@@ -33,12 +33,51 @@ with patch.object(agent, 'STORE', Path(sys.argv[1])):
 class CrossProcessNativeDesktopTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self._cleanup_temp)
         self.root = Path(self.tmp.name) / "desktop_tasks"
         patcher = patch.object(agent, 'STORE', self.root)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.cwd = Path(__file__).resolve().parents[1]
+
+    def _cleanup_temp(self):
+        # A just-terminated Python child can leave a transient Win32 open
+        # handle while the OS finishes process teardown. Never swallow a
+        # persistently leaked handle: bounded retries must eventually pass.
+        deadline = time.monotonic() + 8
+        while True:
+            try:
+                self.tmp.cleanup()
+                return
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(.05)
+
+    def _assert_desktop_reclaimed(self):
+        # Verify that termination really released the cross-process claim,
+        # not merely that Popen.wait() returned. The successor may not
+        # continue until it can acquire the *same* physical resource.
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            with agent._desktop_claim() as owned:
+                if owned:
+                    return
+            time.sleep(.05)
+        self.fail(
+            'Desktop OS claim remained occupied after holder exit; '
+            'check live owner process and Windows file handles.'
+        )
+
+    def stop_other_process(self, child):
+        try:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=10)
+        finally:
+            child.stderr.close()
+        self.assertIsNotNone(child.returncode)
+        self._assert_desktop_reclaimed()
 
     def start_other_process(self):
         ready = self.root.parent / 'holder-ready.flag'
@@ -87,10 +126,7 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
             native.assert_not_called()
             self.assertEqual(agent._path('alice').read_bytes(), before)
         finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=10)
-            child.stderr.close()
+            self.stop_other_process(child)
 
         with patch.object(agent, '_run_claimed', return_value='ready') as native:
             result = agent.handle(
@@ -146,10 +182,7 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
             self.assertFalse(agent._path('bob').exists())
             native.assert_not_called()
         finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=10)
-            child.stderr.close()
+            self.stop_other_process(child)
 
     def test_direct_run_never_observes_ui_when_other_process_owns_desktop(self):
         child = self.start_other_process()
@@ -162,10 +195,7 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
             result = agent.run(job, ui=NeverUI(), read_only=True)
             self.assertIn('Başka bir masaüstü', result)
         finally:
-            if child.poll() is None:
-                child.kill()
-            child.wait(timeout=10)
-            child.stderr.close()
+            self.stop_other_process(child)
 
 
 if __name__ == '__main__':
