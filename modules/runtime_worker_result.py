@@ -4,8 +4,38 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from modules import capability_manifest, goal_state_store, worker_result
+
+
+# Only the canonical worker launched by the existing Scheduler binds this
+# cooperative stop check. It must never be mistaken for a durable cancellation
+# decision or an authority to launch/retry an effectful command.
+_SCHEDULER_STOP = ContextVar('jarvis_canonical_scheduler_stop', default=None)
+
+
+@contextmanager
+def scheduler_stop_scope(stop_event):
+    """Bind a single Scheduler stop token to this synchronous worker thread."""
+    if stop_event is not None and not callable(getattr(stop_event, 'is_set', None)):
+        raise ValueError('Canonical Scheduler stop token invalid.')
+    token = _SCHEDULER_STOP.set(stop_event)
+    try:
+        require_scheduler_active()
+        yield
+    finally:
+        _SCHEDULER_STOP.reset(token)
+
+
+def require_scheduler_active():
+    """Cooperative fence directly before Core accepts this worker's result."""
+    stop_event = _SCHEDULER_STOP.get()
+    if stop_event is not None and stop_event.is_set():
+        raise RuntimeError(
+            'Canonical Scheduler stopped; stale worker result not accepted.'
+        )
 
 
 def durable_identity(identity: dict) -> bool:
