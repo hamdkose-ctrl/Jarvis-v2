@@ -17,62 +17,42 @@ class WebVoice:
         rate = pr.get('rate', 5)
         from modules import voice_runtime
         lane = voice_runtime.active()
-        if lane is None and voice_runtime.legacy_blocked():
+        if lane is None:
+            # The single owner is absent only after a reported configuration fault.
             return {
                 'local': True, 'rate_supported': False, 'voices': [],
                 'voice': pr.get('voice', 'tr_erkek'),
                 'rate': rate if isinstance(rate, int) else 5,
                 'error': 'Voice Core yapılandırması geçersiz; ses seçimi kapalı.',
             }
-        if lane is not None:
-            installed = []
-            for spec in lane.catalog.choices():
-                try:
-                    lane.check_voice(spec.voice_id)
-                except (ValueError, OSError):
-                    continue
-                installed.append({'key': spec.voice_id, 'name': spec.label, 'info': 'Yerel Piper'})
-            selected = pr.get('voice') or 'tr_erkek'
-            rate_supported = any(item['key'] == selected for item in installed)
-            return {
-                'local': True, 'rate_supported': rate_supported,
-                'voices': installed, 'voice': selected,
-                'rate': rate if isinstance(rate, int) else 5,
-            }
-        if not runtime.config.load_settings().get('local_stt_enabled', False) and runtime._live().enabled():
-            cur = runtime.config.load_settings().get('live_voice') or runtime._live().DEFAULT_VOICE
-            return {'live': True, 'voices': [{'key': k, 'name': k, 'info': d} for k, d in runtime._live().VOICE_INFO.items()], 'voice': cur, 'rate': rate if isinstance(rate, int) else 5}
-        return {'voices': [{'key': k, 'name': v[0]} for k, v in runtime.voice.VOICES.items()], 'voice': pr.get('voice', 'tr_erkek'), 'rate': rate if isinstance(rate, int) else 5}
+        installed = []
+        for spec in lane.catalog.choices():
+            try:
+                lane.check_voice(spec.voice_id)
+            except (ValueError, OSError):
+                continue
+            info = 'Yerel Piper' if spec.backend == 'piper' else 'Edge (çevrimiçi)'
+            installed.append({'key': spec.voice_id, 'name': spec.label, 'info': info})
+        selected = pr.get('voice') or 'tr_erkek'
+        rate_supported = any(item['key'] == selected for item in installed)
+        return {
+            'local': True, 'rate_supported': rate_supported,
+            'voices': installed, 'voice': selected,
+            'rate': rate if isinstance(rate, int) else 5,
+        }
 
     def voice_set(self, key: str) -> bool:
         runtime = self._runtime
         from modules import voice_runtime
-        lane = voice_runtime.active()
-        if lane is None and voice_runtime.legacy_blocked():
-            return False
         from modules.engine_context import set_profile_voice
-        if lane is not None:
-            profile = runtime._p()
-            accepted, _label = set_profile_voice(profile, key, lane=lane)
-            if not accepted:
-                return False
-            runtime.engine.events.put(('say', 'Merhaba, seçtiğin yerel ses böyle.', profile.slug))
-            return True
-        lv = runtime._live()
-        if not runtime.config.load_settings().get('local_stt_enabled', False) and lv.enabled() and key in lv.VOICE_INFO:
-            if lv.get() is not None:
-                lv.get().preview(key, 'Merhaba, sesim böyle.')
-            else:
-                runtime.config.save_settings(live_voice=key)
-        elif key in runtime.voice.VOICES:
-            accepted, _label = set_profile_voice(
-                runtime._p(), key, voices=runtime.voice.VOICES,
-            )
-            if not accepted:
-                return False
-            runtime.engine.events.put(('say', 'Merhaba, sesim böyle.'))
-        else:
+        lane = voice_runtime.active()
+        if lane is None:
             return False
+        profile = runtime._p()
+        accepted, _label = set_profile_voice(profile, key, lane=lane)
+        if not accepted:
+            return False
+        runtime.engine.events.put(('say', 'Merhaba, seçtiğin ses böyle.', profile.slug))
         return True
 
     def rate_set(self, rate: int) -> bool:

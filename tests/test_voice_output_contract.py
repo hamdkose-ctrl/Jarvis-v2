@@ -1,0 +1,298 @@
+"""Speech output envelope contract: identity, stages, TTL, validity and backpressure.
+
+Every adapter, clock and audio device here is fake. These tests establish the
+typed contract only; they are not evidence of audible Windows output or AEC.
+"""
+import threading
+import time
+import unittest
+
+from modules.voice_core import (
+    SPEECH_REQUEST_SCHEMA,
+    SpeechReceipt,
+    SpeechRequest,
+    VoiceCatalog,
+    VoiceCoordinator,
+    VoiceSpec,
+)
+
+
+def catalog():
+    return VoiceCatalog((
+        VoiceSpec("tr_erkek", "Erkek", "piper", "male-tr.onnx"),
+        VoiceSpec("tr_kadin", "Kadın", "piper", "female-tr.onnx"),
+    ))
+
+
+def request(ident="r1", **kwargs):
+    base = {"owner": "alice", "request_id": ident, "voice_id": "tr_erkek", "text": "Merhaba"}
+    base.update(kwargs)
+    return SpeechRequest(**base)
+
+
+class SpeechEnvelopeTests(unittest.TestCase):
+    def test_context_fields_are_carried_without_a_caller_priority(self):
+        req = request(turn_id="t1", event_id="e1", goal_id="g1", state_version=7,
+                      artifact_id="a1", approval_id="p1", kind="reminder",
+                      lane="background", ttl_seconds=30.0)
+        self.assertEqual(req.schema, SPEECH_REQUEST_SCHEMA)
+        self.assertEqual((req.turn_id, req.event_id, req.goal_id), ("t1", "e1", "g1"))
+        self.assertEqual((req.state_version, req.artifact_id, req.approval_id), (7, "a1", "p1"))
+        self.assertEqual(req.kind, "reminder")
+        self.assertEqual(req.ttl_seconds, 30.0)
+        # Priority is derived from the lane, never a model-supplied urgency value.
+        self.assertFalse(hasattr(req, "priority"))
+
+    def test_unknown_schema_kind_and_identity_fields_fail_closed(self):
+        for kwargs in ({"schema": "speech.request.v99"}, {"kind": "emergency"},
+                       {"kind": ""}, {"state_version": -1}, {"state_version": True},
+                       {"ttl_seconds": -1}, {"ttl_seconds": 99999},
+                       {"goal_id": "x" * 200}, {"turn_id": None}):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    request(**kwargs)
+
+    def test_receipt_keeps_the_utterance_identity_for_ui_correlation(self):
+        receipt = SpeechReceipt("r1", "alice", "tr_erkek", "played", "VOICE_PLAYBACK_RETURNED",
+                                turn_id="t1", event_id="e1", goal_id="g1", kind="reply")
+        self.assertEqual((receipt.turn_id, receipt.event_id, receipt.goal_id), ("t1", "e1", "g1"))
+        self.assertEqual(receipt.kind, "reply")
+
+
+class CoordinatorOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.receipts = []
+        self.stages = []
+        self.signal = threading.Event()
+        self.coordinator = None
+        self.now = 1000.0
+
+    def tearDown(self):
+        if self.coordinator is not None:
+            self.coordinator.close()
+
+    def report(self, receipt):
+        self.receipts.append(receipt)
+        self.signal.set()
+
+    def stage(self, req, name):
+        self.stages.append((req.request_id, name))
+
+    def clock(self):
+        return self.now
+
+    def start(self, synth=None, play=None, **kwargs):
+        synth = synth or (lambda spec, text, cancel: b"audio")
+        play = play or (lambda audio, cancel, on_start: on_start())
+        self.coordinator = VoiceCoordinator(
+            catalog(), synth, play, self.report,
+            stages=self.stage, clock=self.clock, **kwargs,
+        )
+        return self.coordinator
+
+    def until(self, count):
+        deadline = time.monotonic() + 2
+        while len(self.receipts) < count and time.monotonic() < deadline:
+            self.signal.wait(0.02)
+            self.signal.clear()
+        self.assertGreaterEqual(len(self.receipts), count, self.receipts)
+
+    def wait_stage(self, name):
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if any(stage == name for _, stage in self.stages):
+                return
+            time.sleep(0.01)
+        self.fail(f"stage {name} not reached: {self.stages}")
+
+    def test_playback_started_comes_from_the_player_not_from_enqueue_or_wav(self):
+        release = threading.Event()
+        entered = threading.Event()
+
+        def play(audio, cancel, on_start):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            on_start()
+
+        self.start(play=play)
+        self.assertTrue(self.coordinator.submit(request()))
+        self.assertTrue(entered.wait(1))
+        # WAV bytes exist and enqueue succeeded, but the player has not started.
+        self.assertIn(("r1", "audio_ready"), self.stages)
+        self.assertNotIn(("r1", "playback_started"), self.stages)
+        release.set()
+        self.until(1)
+        self.assertEqual([name for _, name in self.stages],
+                         ["accepted", "synthesizing", "audio_ready", "playback_started"])
+        self.assertEqual(self.receipts[0].status, "played")
+
+    def test_one_utterance_reports_start_once_across_chunks(self):
+        starts = []
+
+        def play(audio, cancel, on_start):
+            starts.append(1)
+            on_start()
+
+        self.start(play=play)
+        self.assertTrue(self.coordinator.submit(request(text="cümle bir. " * 200)))
+        self.until(1)
+        self.assertGreater(len(starts), 1)
+        self.assertEqual([name for _, name in self.stages].count("playback_started"), 1)
+        self.assertEqual(self.receipts[0].status, "played")
+
+    def test_ttl_drops_queued_audio_without_a_second_voice_or_core_cancel(self):
+        release = threading.Event()
+        entered = threading.Event()
+        goal_running = threading.Event()
+        goal_running.set()
+
+        def synth(spec, text, cancel):
+            if not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return b"audio"
+
+        self.start(synth=synth)
+        self.assertTrue(self.coordinator.submit(request("active")))
+        self.assertTrue(entered.wait(1))
+        try:
+            self.assertTrue(self.coordinator.submit(request("stale", ttl_seconds=5.0)))
+            self.now += 10.0
+        finally:
+            release.set()
+        self.until(2)
+        by_id = {r.request_id: r for r in self.receipts}
+        self.assertEqual(by_id["active"].status, "played")
+        self.assertEqual((by_id["stale"].status, by_id["stale"].reason_code),
+                         ("cancelled", "VOICE_TTL_EXPIRED"))
+        self.assertTrue(goal_running.is_set())
+        self.assertNotIn(("stale", "playback_started"), self.stages)
+
+    def test_validity_is_checked_at_enqueue_and_again_before_playback(self):
+        release = threading.Event()
+        entered = threading.Event()
+        state = {"valid": True}
+        played = []
+
+        def synth(spec, text, cancel):
+            if not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return b"audio"
+
+        def play(audio, cancel, on_start):
+            played.append(audio)
+            on_start()
+
+        self.start(synth=synth, play=play,
+                   validate=lambda req: "" if state["valid"] else "VOICE_INVALIDATED")
+        self.assertTrue(self.coordinator.submit(request("active")))
+        self.assertTrue(entered.wait(1))
+        state["valid"] = False
+        self.assertFalse(self.coordinator.submit(request("blocked-at-entrance")))
+        try:
+            release.set()
+            self.until(2)
+        finally:
+            release.set()
+        by_id = {r.request_id: r for r in self.receipts}
+        self.assertEqual((by_id["blocked-at-entrance"].status,
+                          by_id["blocked-at-entrance"].reason_code),
+                         ("rejected", "VOICE_INVALIDATED"))
+        self.assertEqual(by_id["active"].status, "cancelled")
+        self.assertEqual(played, [])
+
+    def test_broken_validator_fails_closed_instead_of_playing(self):
+        def validate(req):
+            raise OSError("canonical state unreadable")
+
+        self.start(validate=validate)
+        self.assertFalse(self.coordinator.submit(request()))
+        self.assertEqual((self.receipts[0].status, self.receipts[0].reason_code),
+                         ("rejected", "VOICE_VALIDITY_UNKNOWN"))
+
+    def test_invalidation_targets_identity_and_keeps_unrelated_queued_order(self):
+        release = threading.Event()
+        entered = threading.Event()
+
+        def synth(spec, text, cancel):
+            if not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return b"audio"
+
+        self.start(synth=synth)
+        self.assertTrue(self.coordinator.submit(request("active", goal_id="g1")))
+        self.assertTrue(entered.wait(1))
+        try:
+            self.assertTrue(self.coordinator.submit(request("other", goal_id="g2")))
+            self.assertTrue(self.coordinator.submit(request("stale", goal_id="g1", turn_id="t1")))
+            self.assertEqual(self.coordinator.invalidate(goal_id="g1"), 2)
+        finally:
+            release.set()
+        self.until(3)
+        by_id = {r.request_id: r for r in self.receipts}
+        self.assertEqual((by_id["stale"].status, by_id["stale"].reason_code),
+                         ("cancelled", "VOICE_INVALIDATED"))
+        self.assertEqual(by_id["active"].status, "cancelled")
+        self.assertEqual(by_id["other"].status, "played")
+
+    def test_invalidation_without_an_identity_cannot_blindly_clear_the_queue(self):
+        self.start()
+        with self.assertRaises(ValueError):
+            self.coordinator.invalidate()
+        with self.assertRaises(ValueError):
+            self.coordinator.invalidate(goal_id="  ")
+        self.assertTrue(self.coordinator.submit(request(goal_id="g1", state_version=3)))
+        self.until(1)
+        # Only a matching result identity invalidates audio; a state_version bump
+        # or an unrelated goal id is not an audio clearing authority.
+        self.assertEqual(self.coordinator.invalidate(goal_id="g9"), 0)
+        self.assertEqual(self.receipts[0].status, "played")
+
+    def test_full_queue_produces_a_typed_backpressure_receipt(self):
+        release = threading.Event()
+        entered = threading.Event()
+
+        def synth(spec, text, cancel):
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return b"audio"
+
+        coordinator = VoiceCoordinator(catalog(), synth, lambda a, c, s: s(), self.report,
+                                       max_pending=1, clock=self.clock)
+        self.coordinator = coordinator
+        self.assertTrue(coordinator.submit(request("one")))
+        self.assertTrue(entered.wait(1))
+        try:
+            self.assertTrue(coordinator.submit(request("two")))
+            self.assertFalse(coordinator.submit(request("three", goal_id="g1", turn_id="t1")))
+            rejected = [r for r in self.receipts if r.request_id == "three"]
+            self.assertEqual(len(rejected), 1)
+            self.assertEqual((rejected[0].status, rejected[0].reason_code),
+                             ("rejected", "VOICE_QUEUE_FULL"))
+            self.assertEqual((rejected[0].owner, rejected[0].goal_id, rejected[0].turn_id),
+                             ("alice", "g1", "t1"))
+        finally:
+            release.set()
+        self.until(3)
+
+    def test_submit_after_close_is_a_typed_rejection_not_a_silent_drop(self):
+        coordinator = self.start()
+        coordinator.close()
+        self.coordinator = None
+        self.assertFalse(coordinator.submit(request()))
+        self.assertEqual((self.receipts[0].status, self.receipts[0].reason_code),
+                         ("rejected", "VOICE_CLOSED"))
+
+    def test_unavailable_identity_is_rejected_without_switching_voice(self):
+        calls = []
+        self.start(synth=lambda spec, text, cancel: calls.append(spec.voice_id) or b"audio")
+        with self.assertRaises(ValueError):
+            self.coordinator.submit(request(voice_id="yok"))
+        self.assertEqual(calls, [])
+        self.assertEqual(self.receipts, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

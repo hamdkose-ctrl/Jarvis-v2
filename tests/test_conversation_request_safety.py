@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from unittest.mock import Mock, patch
 import test_engine_modular as fixtures
-from modules import app_actions, engine_loop, requests_state as state, voice
+from modules import app_actions, engine_loop, requests_state as state
 from modules.command_manager import PENDING_INPUT_FIELDS
 from modules.engine_voice import VoiceSession
 from web_chat import WebChat
@@ -200,56 +200,22 @@ class ConversationRequestSafetyTests(unittest.TestCase):
         self.assertFalse(self.runtime.submit_audio('record.wav',user=self.user,rid='record-id'))
         self.assertEqual(self.runtime.events.qsize(),1)
 
-    def test_selected_voice_failure_does_not_switch_voices_or_continue_chunks(self):
-        calls = []; played = []
-        class Communication:
-            def __init__(self, text, name, **kwargs): calls.append((text,name)); self.text=text
-            async def save(self, path):
-                if self.text == 'second': raise OSError('service unavailable')
-                Path(path).write_bytes(b'fake speech')
-        class InlineThread:
-            def __init__(self, target, **kwargs): self.target=target
-            def start(self): self.target()
-        voice._stop_flag.clear(); self.addCleanup(voice._stop_flag.clear)
-        with patch.object(voice.privacy,'mode',return_value='normal'), patch.object(voice,'_chunks',return_value=['first','second','third']), \
-             patch.object(voice.edge_tts,'Communicate',Communication), patch.object(voice.threading,'Thread',InlineThread), \
-             patch.object(voice.tempfile,'gettempdir',return_value=str(self.folder)), patch.object(voice.time,'sleep'), \
-             patch.object(voice,'_play_mp3',side_effect=played.append), patch.object(voice,'_local_say') as local:
-            error = voice.speak('long answer',voice='tr-TR-EmelNeural')
-        self.assertEqual([name for _,name in calls], ['tr-TR-EmelNeural']*3)
-        self.assertEqual([text for text,_ in calls], ['first','second','second'])
-        self.assertEqual(len(played),1); local.assert_not_called()
-        self.assertIn('seçilen ses', error.lower())
-        self.assertEqual(list(self.folder.glob('*.mp3')), [])
-
     def test_speech_failure_is_visible_in_ui(self):
-        runtime = SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text']),
-            live=SimpleNamespace(enabled=Mock()),flags={'speak':True,'mic':False},emit=Mock(),
-            threading=SimpleNamespace(Event=threading.Event,Thread=Mock()),
-            voice=SimpleNamespace(speak=Mock(return_value='Seçilen ses kullanılamadı.')),
-            _voice_opts=lambda:{'voice':'tr-TR-EmelNeural'})
-        VoiceSession(runtime).speak('Merhaba')
-        runtime.emit.assert_any_call('system','Seçilen ses kullanılamadı.')
-
-    def test_next_answer_retries_the_same_selected_voice_after_service_recovers(self):
-        calls=[]
-        class Communication:
-            def __init__(self,text,name,**kwargs):calls.append(name)
-            async def save(self,path):
-                if len(calls)<=2:raise OSError('service unavailable')
-                Path(path).write_bytes(b'fake speech')
-        class InlineThread:
-            def __init__(self,target,**kwargs):self.target=target
-            def start(self):self.target()
-        voice._stop_flag.clear();self.addCleanup(voice._stop_flag.clear)
-        with patch.object(voice.privacy,'mode',return_value='normal'), \
-             patch.object(voice.edge_tts,'Communicate',Communication),patch.object(voice.threading,'Thread',InlineThread), \
-             patch.object(voice.tempfile,'gettempdir',return_value=str(self.folder)),patch.object(voice.time,'sleep'), \
-             patch.object(voice,'_play_mp3') as play,patch.object(voice,'_local_say') as local:
-            self.assertIsInstance(voice.speak('İlk cevap',voice='tr-TR-EmelNeural'),str)
-            self.assertIsNone(voice.speak('İkinci cevap',voice='tr-TR-EmelNeural'))
-        self.assertEqual(calls,['tr-TR-EmelNeural']*3)
-        play.assert_called_once();local.assert_not_called()
+        # The single owner surfaces an unavailable selected voice as a written UI
+        # notice; VoiceSession never opens a second Edge/SAPI path or switches voice.
+        # No-voice-switch and per-request identity are owned by test_voice_core /
+        # test_voice_edge; this asserts the session-level UI visibility seam.
+        lane = Mock()
+        lane.say.side_effect = ValueError("selected voice unavailable")
+        person = SimpleNamespace(slug='alice', data={'prefs': {'voice': 'tr_kadin', 'rate': 0}})
+        runtime = SimpleNamespace(sys=SimpleNamespace(argv=['main.py', '--text']),
+            live=SimpleNamespace(enabled=Mock(return_value=False)), flags={'speak': True, 'mic': False},
+            emit=Mock(), threading=SimpleNamespace(Event=threading.Event, Thread=Mock()),
+            profile=person, _record_failure=lambda *a: None)
+        with patch('modules.voice_runtime.maybe_start', return_value=(lane, False)):
+            session = VoiceSession(runtime)
+        session.speak('Merhaba')
+        runtime.emit.assert_any_call('system', 'Seçilen ses kullanılamıyor; başka ses kullanılmadı, yanıt yazılı korundu.')
 
     def test_phone_audio_acceptance_failure_is_reported_and_temp_file_removed(self):
         from modules import phone

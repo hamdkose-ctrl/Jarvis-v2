@@ -12,9 +12,10 @@ import subprocess
 import tempfile
 import threading
 import time
+from typing import Callable
 import wave
 
-from modules.voice_core import SpeechRequest, VoiceSpec
+from modules.voice_core import VoiceSpec
 
 
 class OfflineVoiceUnavailable(RuntimeError):
@@ -131,7 +132,7 @@ class WavePlayer:
         self.device = device
         self.frames_per_write = frames_per_write
 
-    def __call__(self, audio: bytes, cancel: threading.Event) -> None:
+    def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         _validate_wave(audio)
         if cancel.is_set():
             return
@@ -139,8 +140,14 @@ class WavePlayer:
         with wave.open(io.BytesIO(audio), "rb") as wf:
             with sd.RawOutputStream(samplerate=wf.getframerate(), channels=wf.getnchannels(),
                                     dtype="int16", device=self.device) as stream:
+                started = False
                 while not cancel.is_set():
                     chunk = wf.readframes(self.frames_per_write)
                     if not chunk:
                         break
                     stream.write(chunk)
+                    if not started:
+                        started = True
+                        # The output stream accepted the first real PCM frame. This is
+                        # the player boundary, not proof that a human heard sound.
+                        on_start()

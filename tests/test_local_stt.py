@@ -107,13 +107,15 @@ class LocalSttTests(unittest.TestCase):
             self.assertEqual(local_stt.transcribe(raw),'Şartnameyi özetle Dosyayı aç')
 
     def test_unrecognized_local_speech_is_announced_and_never_uses_cloud(self):
+        # STT failure feedback goes through the single voice owner (announce_active),
+        # never a cloud recognize and never a second local player.
         for text,spoken in ((None,1),('aç',0)):
             with self.subTest(text=text),patch.object(voice,'_engine',side_effect=AssertionError('cloud')), \
-                 patch.object(local_stt,'transcribe',return_value=text),patch.object(voice,'speak') as speak:
+                 patch.object(local_stt,'transcribe',return_value=text),patch('modules.voice_runtime.announce_active') as announce:
                 self.assertEqual(voice.recognize(b'\0\0',announce_fail=True,local=True),text)
-                self.assertEqual(speak.call_count,spoken)
-        with patch.object(local_stt,'transcribe',return_value=None),patch.object(voice,'speak') as speak:
-            voice.recognize(b'\0\0',announce_fail=False,local=True);speak.assert_not_called()
+                self.assertEqual(announce.call_count,spoken)
+        with patch.object(local_stt,'transcribe',return_value=None),patch('modules.voice_runtime.announce_active') as announce:
+            voice.recognize(b'\0\0',announce_fail=False,local=True);announce.assert_not_called()
 
     def test_listen_reports_capture_before_transcription(self):
         order=[]
@@ -247,7 +249,10 @@ class LocalSttTests(unittest.TestCase):
     def test_manual_local_session_does_not_enable_live_or_barge_listener(self):
         self.settings['local_stt_enabled']=True
         runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py']),live=SimpleNamespace(enabled=Mock(side_effect=AssertionError('Live'))))
-        session=VoiceSession(runtime)
+        # This test is about manual-local listening (no Live, no barge), not the
+        # speech lane; stub the single owner so the minimal mock needs no catalog.
+        with patch('modules.voice_runtime.maybe_start',return_value=(None,False)):
+            session=VoiceSession(runtime)
         self.assertTrue(session.manual_local_stt);self.assertFalse(session.live_on)
         session._barge_watch(threading.Event())
 
@@ -258,13 +263,19 @@ class LocalSttTests(unittest.TestCase):
             prepare.assert_called_once_with('base')
 
     def test_manual_mode_voice_picker_uses_regular_tts_not_live(self):
+        from modules.voice_core import VoiceCatalog, VoiceSpec
         bridge=WebVoice()
-        profile=SimpleNamespace(data={'prefs':{}},set_pref=Mock())
+        profile=SimpleNamespace(slug='alice',data={'prefs':{}},set_pref=Mock())
         live=SimpleNamespace(enabled=Mock(side_effect=AssertionError('Live voice picker')))
         bridge._runtime=SimpleNamespace(config=SimpleNamespace(load_settings=lambda:{'local_stt_enabled':True}),
             _p=lambda:profile,_live=lambda:live,voice=SimpleNamespace(VOICES={'tr_erkek':('Kerem','tr-TR-AhmetNeural')}),engine=SimpleNamespace(events=Mock()))
         self.assertNotIn('live',bridge.voice_options())
-        self.assertTrue(bridge.voice_set('tr_erkek'))
+        # Selecting the exact regular (Edge) identity goes through the single owner;
+        # the Live voice picker is never consulted.
+        catalog=VoiceCatalog((VoiceSpec('tr_erkek','Kerem','edge','tr-TR-AhmetNeural'),))
+        lane=Mock();lane.catalog=catalog;lane.check_voice.side_effect=catalog.require
+        with patch('modules.voice_runtime.active',return_value=lane):
+            self.assertTrue(bridge.voice_set('tr_erkek'))
         profile.set_pref.assert_called_once_with('voice','tr_erkek')
 
 

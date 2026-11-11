@@ -46,7 +46,7 @@ class VoiceCoreTests(unittest.TestCase):
         calls = []
         coordinator = self.start(
             lambda spec, text, cancel: (calls.append(spec.voice_id) or b"audio"),
-            lambda audio, cancel: None,
+            lambda audio, cancel, on_start: None,
         )
         self.assertTrue(coordinator.submit(request(1, "female_calm")))
         self.until(1)
@@ -62,7 +62,7 @@ class VoiceCoreTests(unittest.TestCase):
         def synth(spec, text, cancel):
             calls.append(spec.voice_id)
             raise OSError("offline engine unavailable")
-        coordinator = self.start(synth, lambda audio, cancel: self.fail("should not play"))
+        coordinator = self.start(synth, lambda audio, cancel, on_start: self.fail("should not play"))
         self.assertTrue(coordinator.submit(request(1)))
         self.until(1)
         self.assertEqual(calls, ["male_calm"])
@@ -78,8 +78,9 @@ class VoiceCoreTests(unittest.TestCase):
                 entered.set()
                 self.assertTrue(release.wait(2))
             return b"audio"
-        def play(audio, cancel):
+        def play(audio, cancel, on_start):
             played.append(True)
+            on_start()
         coordinator = self.start(synth, play)
         self.assertTrue(coordinator.submit(request(1)))
         self.assertTrue(entered.wait(1))
@@ -101,7 +102,7 @@ class VoiceCoreTests(unittest.TestCase):
             entered.set()
             self.assertTrue(release.wait(2))
             return b"audio"
-        coordinator = self.start(synth, lambda audio, cancel: self.fail("cancelled audio played"))
+        coordinator = self.start(synth, lambda audio, cancel, on_start: self.fail("cancelled audio played"))
         self.assertTrue(coordinator.submit(request(1)))
         self.assertTrue(entered.wait(1))
         try:
@@ -123,7 +124,7 @@ class VoiceCoreTests(unittest.TestCase):
                 entered.set()
                 self.assertTrue(released.wait(2))
             return b"audio"
-        coordinator = self.start(synth, lambda audio, cancel: played.append(audio))
+        coordinator = self.start(synth, lambda audio, cancel, on_start: played.append(audio))
         self.assertTrue(coordinator.submit(request(1, lane="background")))
         self.assertTrue(entered.wait(1))
         try:
@@ -153,7 +154,7 @@ class VoiceCoreTests(unittest.TestCase):
             entered.set()
             self.assertTrue(release.wait(2))
             return b"a"
-        coordinator = VoiceCoordinator(catalog(), synth, lambda a, c: None, self.on_report, max_pending=1)
+        coordinator = VoiceCoordinator(catalog(), synth, lambda a, c, s: None, self.on_report, max_pending=1)
         self.coordinator = coordinator
         self.assertTrue(coordinator.submit(request(1)))
         self.assertTrue(entered.wait(1))

@@ -74,7 +74,7 @@ def probe(
         return result
     result["synthesis"] = "valid_pcm"
     try:
-        play(audio, cancel)
+        play(audio, cancel, lambda: None)
     except Exception:
         _record_failure("modules/voice_acceptance.py:playback")
         result["playback"] = "failed"

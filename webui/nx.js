@@ -2388,6 +2388,7 @@ function onEvent(m){
   else if(k==='step'){onStep(m);return}
   else if(k==='system'){toast(String(m.t).slice(0,180));S.live.push({role:'system',text:m.t,ts:Date.now()/1000});S.waiting=false;if(S.page==='chat')drawMsgs()}
   else if(k==='state'){S.orb=m.t||'idle';dockState();{const hh=$('.hhey');if(hh){hh.classList.toggle('live',S.orb==='listening');const sm=hh.querySelector('small');if(sm)sm.textContent=heyTxt()}const hc=$('.hcore');if(hc)hc.dataset.s=S.orb}$$('.mic').forEach(b=>b.classList.toggle('live',S.orb==='listening'));if(S.page==='home'){const r=$('.ready');if(r){const[a,b]=STATE_TXT[S.orb]||STATE_TXT.idle;r.querySelector('b').textContent=a;r.querySelector('small').textContent=b}}}
+  else if(k==='speech'){let id=null;try{id=JSON.parse(m.x||'{}')}catch(e){}S.speech=id||null;const hc=$('.hcore');if(hc&&id){hc.dataset.speechGoal=id.goal_id||'';hc.dataset.speechTurn=id.turn_id||'';hc.dataset.speechId=id.speech_id||''}return}
   else if(k==='share'){S.snap=S.snap||{};S.snap.mode=m.t||null;drawMiniPreview();if(S.page==='vision')render()}
   else if(k==='nav'){navTo(m.t);return}
   else if(k==='ui'){uiVoice(m.t);return}

@@ -80,9 +80,10 @@ class GuardTests(unittest.TestCase):
             self.assertIsNone(stt_guard.reject('Sí'))
 
     def test_recognize_rejects_foreign_gemini_text_without_fallback_call(self):
+        # STT uyarısı tek ses sahibinden (_say_feedback → voice_runtime) çıkar; eski voice.speak yolu değil.
         announce = Mock()
         with patch.object(voice, '_engine', return_value='gemini'), patch.object(llm, 'transcribe', return_value='Sí'), \
-                patch.object(voice, 'speak', announce), patch.object(voice._rec, 'recognize_google') as google:
+                patch.object(voice, '_say_feedback', announce), patch.object(voice._rec, 'recognize_google') as google:
             self.assertIsNone(voice.recognize(b'\0\0' * 1600, announce_fail=True))
         google.assert_not_called()
         announce.assert_called_once()

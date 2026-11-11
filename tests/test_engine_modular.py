@@ -34,6 +34,12 @@ class ModularEngineTests(unittest.TestCase):
                     handler.close()
         self.addCleanup(close_test_handlers)
         self.addCleanup(context._prefetch_pool.shutdown, wait=False, cancel_futures=True)
+        def close_voice_lane():
+            from modules import voice_runtime
+            lane = voice_runtime.active()
+            if lane is not None:
+                lane.close()
+        self.addCleanup(close_voice_lane)
         return context
 
     def test_entry_point_is_small_and_components_do_not_import_main(self):
@@ -112,7 +118,10 @@ class ModularEngineTests(unittest.TestCase):
 
     def test_voice_sessions_do_not_share_wake_continuation_state(self):
         runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text','--mute']),live=SimpleNamespace(enabled=Mock()))
-        first,second=VoiceSession(runtime),VoiceSession(runtime)
+        # Wake-state isolation is independent of the single output owner; mock its
+        # setup so two sessions can be compared without registering a global lane.
+        with patch('modules.voice_runtime.maybe_start',return_value=(None,False)):
+            first,second=VoiceSession(runtime),VoiceSession(runtime)
         first.state['awake_until']=100
         self.assertEqual(second.state['awake_until'],0)
         self.assertFalse(first.listening_enabled);self.assertFalse(first.speak_enabled)
@@ -148,12 +157,18 @@ class ModularEngineTests(unittest.TestCase):
             self.assertEqual(fake.events.put.call_count,1)
 
     def test_extracted_speech_uses_selected_voice_and_respects_mute(self):
-        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text']),live=SimpleNamespace(enabled=Mock()),flags={'speak':True,'mic':False},emit=Mock(),threading=SimpleNamespace(Event=threading.Event,Thread=Mock()),voice=SimpleNamespace(speak=Mock()),_voice_opts=lambda:{'voice':'tr-TR-EmelNeural','rate':-8})
-        session=VoiceSession(runtime)
+        # The selected profile voice key and rate go to the single owner (lane.say),
+        # never to a legacy runtime.voice.speak path; mute enqueues nothing.
+        lane=Mock();lane.say.return_value=threading.Event()
+        person=SimpleNamespace(slug='alice',data={'prefs':{'voice':'tr_kadin','rate':-8}})
+        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text']),live=SimpleNamespace(enabled=Mock()),flags={'speak':True,'mic':False},emit=Mock(),threading=SimpleNamespace(Event=threading.Event,Thread=Mock()),profile=person,voice=SimpleNamespace(speak=Mock()),_record_failure=lambda *a:None)
+        with patch('modules.voice_runtime.maybe_start',return_value=(lane,False)):
+            session=VoiceSession(runtime)
         session.speak('Merhaba',slow=True)
-        runtime.voice.speak.assert_called_once_with('Merhaba',voice='tr-TR-EmelNeural',rate=-15)
+        lane.say.assert_called_once_with('alice','tr_kadin','Merhaba',background=False,rate=-15,kind='reply',turn_id='')
+        runtime.voice.speak.assert_not_called()
         runtime.flags['speak']=False;session.speak('Duyulmamalı')
-        self.assertEqual(runtime.voice.speak.call_count,1)
+        self.assertEqual(lane.say.call_count,1)
 
     def test_voice_stop_and_rejected_registration_release_listening(self):
         context=self.context();context.emit=Mock()
