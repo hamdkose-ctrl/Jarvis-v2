@@ -46,7 +46,8 @@ def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
     return tuple(offers[:max_offers])
 
 
-def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str) -> None:
+def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
+                                 *, plan_version: int, node_digest: str) -> None:
     """Never clobber a projected result, terminal job, or an accepted success.
 
     If a provider stops or fails, its started first attempt is durably fenced
@@ -56,7 +57,16 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str) -> None:
     root = goal_executor._owner_root(owner)
     with goal_job_control.locked(root, job_id):
         state = goal_state_store.load(root / (job_id + ".goalstate.json"))
-        if (state["owner"], state["job_id"]) != (owner, job_id):
+        if ((state["owner"], state["job_id"]) != (owner, job_id)
+                or state["state"] not in ("pending", "running")):
+            return
+        # A late worker failure must NEVER annotate a revised plan or a
+        # cancelled/closed goal. An old attempt's journal belongs to its
+        # original canonical command, not an arbitrary reused node ID.
+        current_plan = state.get("goal_plan")
+        if (not isinstance(current_plan, dict)
+                or current_plan.get("plan_version") != plan_version
+                or goal_plan_gate.fingerprints(current_plan).get(node_id) != node_digest):
             return
         if any(
             isinstance(row, dict) and row.get("kind") == "worker_result"
@@ -146,5 +156,8 @@ def execute_offer(profile, offer, *, stop_event=None):
         )
         return True
     except Exception:
-        _record_failed_if_unaccepted(selected.owner, selected.job_id, selected.node_id)
+        _record_failed_if_unaccepted(
+            selected.owner, selected.job_id, selected.node_id,
+            plan_version=selected.plan_version, node_digest=selected.node_digest,
+        )
         raise

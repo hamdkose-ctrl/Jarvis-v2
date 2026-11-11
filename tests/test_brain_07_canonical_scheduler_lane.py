@@ -263,6 +263,101 @@ class SchedulerOfferTests(unittest.TestCase):
             )
         self.assertEqual(before, self.record_path.read_bytes())
 
+    def test_duplicate_wake_cannot_start_same_canonical_attempt(self):
+        from types import SimpleNamespace
+        started = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        calls = []
+        errors = []
+
+        def worker(owner, task, deps):
+            calls.append(task['id'])
+            started.set()
+            self.assertTrue(release.wait(5))
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified once',
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        offer = self.offers()[0]
+        def first_run():
+            try:
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), offer,
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \
+             patch.object(untrusted_flow, 'observe'):
+            thread = threading.Thread(target=first_run)
+            thread.start()
+            try:
+                self.assertTrue(started.wait(8))
+                with self.assertRaises(canonical_scheduler_lane.DispatchFenceError):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=OWNER), offer,
+                    )
+            finally:
+                release.set()
+                thread.join(8)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(errors, repr(errors))
+        self.assertEqual(calls, ['left'])
+
+    def test_cancellation_rejects_old_worker_result_without_journal_write(self):
+        from types import SimpleNamespace
+        started = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+        errors = []
+
+        def worker(owner, task, deps):
+            started.set()
+            self.assertTrue(release.wait(5))
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Late result',
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        offer = self.offers()[0]
+        def run():
+            try:
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), offer,
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \
+             patch.object(untrusted_flow, 'observe'):
+            thread = threading.Thread(target=run)
+            thread.start()
+            try:
+                self.assertTrue(started.wait(8))
+                state = goal_state_store.load(self.path)
+                cancelled = core_state_reducer.apply(state, {
+                    'op': 'set_state', 'state': 'cancelled',
+                    'reason_code': 'TEST_USER_CANCEL',
+                    'expected_version': state['version'],
+                })
+                goal_state_store.compare_and_swap(
+                    self.path, expected_version=state['version'],
+                    next_state=cancelled,
+                )
+                record_before = self.record_path.read_bytes()
+            finally:
+                release.set()
+                thread.join(8)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(errors, 'Cancelled worker may not succeed')
+        self.assertEqual(record_before, self.record_path.read_bytes())
+        saved = goal_state_store.load(self.path)
+        self.assertEqual(saved['state'], 'cancelled')
+        self.assertFalse(any(row.get('kind') == 'worker_result'
+                             for row in saved['evidence']))
+
     def test_discovery_requires_published_running_records(self):
         found = canonical_scheduler_dispatch.discover(OWNER)
         self.assertEqual([o.selection.node_id for o in found], ['left', 'right'])

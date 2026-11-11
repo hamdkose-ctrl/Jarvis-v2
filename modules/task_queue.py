@@ -396,6 +396,25 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     _DAILY_NEXT=now+60
                     try:_DAILY_NOTIFY()
                     except Exception:_record_failure('modules/task_queue.py:daily_notify')
+                # Canonical goals do not require a pre-existing SQLite queue.
+                # The existing Scheduler inspects registered users directly,
+                # without creating a second owner poller or opening a DB.
+                # A missing/foreign profile fails closed per owner.
+                if (canonical_profile_resolver is not None
+                        and allowed_owners is not None):
+                    try:
+                        registered = sorted(allowed_owners())
+                    except Exception:
+                        _record_failure('modules/task_queue.py:canonical_owners')
+                        registered = ()
+                    for registered_owner in registered:
+                        if stop_event.is_set():return
+                        try:
+                            profile = canonical_profile_resolver(registered_owner)
+                            if getattr(profile, 'slug', None) == registered_owner:
+                                admit_canonical(registered_owner, profile)
+                        except Exception:
+                            _record_failure('modules/task_queue.py:canonical_owner')
                 if not service_store.ROOT.exists():continue
                 # Least-recently-admitted owners first; a busy owner cannot
                 # starve a later owner when the bounded pool is saturated.
@@ -410,10 +429,6 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     from modules import outbox,task_agents,privacy
                     try:
                         admit_owner(path.stem)
-                        if canonical_profile_resolver is not None:
-                            profile = canonical_profile_resolver(path.stem)
-                            if getattr(profile, 'slug', None) == path.stem:
-                                admit_canonical(path.stem, profile)
                         from modules import source_watch
                         source_watch.poll(path.stem,source_notify)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):
