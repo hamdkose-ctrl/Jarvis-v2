@@ -1,57 +1,71 @@
-# BRAIN-07 — canonical DAG in the existing Scheduler (draft)
+# BRAIN-07 — canonical DAG in the existing Scheduler (integration draft)
 
-## Starting point / reviewed boundaries
+## Existing authority and scheduler boundaries
 
-The engine currently launches **one** `task_queue.start` Scheduler. That
-Scheduler owns a bounded pool of owner ticks, while live, owner-bound goal
-execution and permission decisions are in `goal_executor` and
-`specialist_orchestrator`. `GoalState` and `ExecutionRecord` remain the
-only lifecycle/output authorities. A generic queue worker cannot simply
-pretend to be the active user's runtime profile.
+The production engine starts **one** `task_queue.start` Scheduler. The same
+loop now admits bounded, registered-owner canonical workers without creating
+another poller, GoalState store, or separate trust domain. Existing
+`goal_executor`, `specialist_orchestrator`, `runtime_execution_gate`,
+`resource_leases` and `worker_result_commit` remain authoritative.
 
-## First implementation in this draft PR
+## Published readiness (pure data; never execution authority)
 
-`canonical_scheduler_lane.ready_offers(owner, job_id)` is a bounded,
-read-only adapter for canonical `task.research` and `task.account` nodes
-already published in an existing `ExecutionRecord`. It requires:
+`canonical_scheduler_lane.ready_offers` selects only previously published
+`task.research` and `task.account` steps from the current canonical
+GoalPlan and durable ExecutionRecord. Each offer pins owner, job, node,
+plan-version, journal snapshot and dependency evidence. Revalidation rejects
+stale/foreign revisions, already-started or failed attempts, and effectful
+or unregistered capabilities. A dependent research child requires accepted
+canonical evidence and exact persisted predecessor result digests, with
+independent domain verification.
 
-1. matching owner/job identity, active canonical GoalState, a real running
-   ExecutionRecord file, and accepted plan readiness;
-2. an exactly matching, uniquely published queued first-attempt step;
-3. current canonical and journal snapshots, whose identities are pinned in
-   `ReadyOffer` and re-checked by `revalidate_offer`;
-4. for a research child, independently checked, *persisted* predecessor
-   output digests and domain proof using the existing `dependency_evidence`.
+## Production dispatch connected within the same PR
 
-Invalid, effectful, already running, failed/previously attempted,
-user-replanned or stale nodes never authorize dispatch.
+- `task_queue.start` also scans registered owner goals **on its existing
+  loop**, whether or not the owner has an SQLite queue record. It runs
+  at most three simultaneous canonical worker threads globally and two
+  per owner; other scheduled queue workers and source-watch/outbox polls
+  retain their existing code paths.
+- The `engine_loop` resolver checks the registered owner identity. A
+  background worker uses a pinned, minimal owner-only runtime facade rather
+  than borrowing mutable foreground `runtime.profile` or acquiring the
+  long-lived user-switch execution lock. Voice/command event handling is
+  therefore not held behind an external worker call.
+- `canonical_scheduler_dispatch.execute_offer` reserves one still-queued,
+  first-attempt node under the existing per-job journal control lock and
+  rechecks the pinned canonical plan. The existing specialist worker performs
+  DecisionAuthority, permission, capability, dependency, and native
+  ResourceLease/OS command locks. No explicit worker dispatch can grant
+  itself an approval, retry an effect, or rebase an old plan.
+- A successful worker result is accepted through the existing WorkerResult
+  envelope and deterministic Core CAS **before**
+  `canonical_output_projection.project_accepted` appends the validated
+  clean output to the durable ExecutionRecord. Both use the same short
+  per-job control lock. Failed/late workers cannot overwrite an accepted
+  output or attach their attempt to a cancelled/replanned goal.
+- On a failed first attempt, the journal records a non-success only when
+  the current canonical plan still exactly matches and no success was
+  previously accepted. A crash or unknown result is not blindly retried.
 
-This module **does not actually run work yet**. An offer is not a
-ResourceLease, a permission token or evidence of success. The draft PR
-remains in progress until production integration follows.
+## Executable acceptance
 
-## Complete within this same PR before ready/merge
+The same PR carries actual-disk tests for two concurrent independent
+research roots followed by a dependent research child, exact verified
+predecessor projection, wrong owner, duplicate wake, cancellation while a
+worker is live, and a real Scheduler loop which keeps source polling during
+long-running workers. External research is mocked solely at the provider
+boundary; the Scheduler, specialist, leases, WorkerResult CAS and journal
+remain the real production code.
 
-- Wire candidate scanning into the **existing** `task_queue.start` loop,
-  with an explicit owner-bound runtime resolver rather than borrowing the
-  foreground profile or creating a second Scheduler.
-- Before worker execution, check exact ready offer, DecisionAuthority, user
-  permission and current capability adapter. Acquire existing
-  command/resource claims; no automatic retry of effects.
-- Dispatch independent safe roots in bounded parallel lanes and dependent
-  research only after canonical WorkerResult CAS, accepted output projection
-  (#586), and persisted predecessor-domain evidence.
-- Ensure that a WorkerResult committed during actual execution is projected
-  to `ExecutionRecord` **without clobbering a concurrent writer or stale
-  in-memory job**. Legacy `goal_executor._save` is also a writer and must not
-  overwrite projected results. No new journal/Global GoalState.
-- Add end-to-end tests for actual worker/owner contexts, two roots plus child,
-  stale revisions, concurrent record writes, cancellation/lease loss and
-  voice lane responsiveness. Run Windows CI and real PC acceptance at the
-  last SHA.
+**Do not mark ready or merge** until both Windows CI and the physical Windows
+PC watcher have `passed` for the **final identical HEAD SHA**. Success on an
+older commit is insufficient. The main BRAIN-07 follow-up issue #584 remains
+open for wider adapter coverage, richer recovery, global Goal completion,
+and the full independent Windows acceptance matrix.
 
 ## Non-goals / invariants
 
-No autonomous capability discovery/install, Ollama requirement, second
-Scheduler, forged approval, auto-replayed external effect, or immediate
-retirement of the legacy Brain path. Keep Brain and Core independent.
+No autonomous skill discovery or installation, Ollama prerequisite, second
+Scheduler, fabricated permission, automatic external-effect replay, or
+premature retirement of legacy Brain. Brain and deterministic Core stay
+independent.

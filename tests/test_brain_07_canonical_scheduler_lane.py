@@ -392,6 +392,9 @@ class SchedulerOfferTests(unittest.TestCase):
 
         sqlite = self.store / 'sqlite'
         sqlite.mkdir()
+        # Alice deliberately has NO queue SQLite; Bob's source-watch DB
+        # proves the existing scheduler poll continues while Alice works.
+        (sqlite / 'bob.sqlite3').touch()
         barrier = threading.Barrier(2, timeout=9)
         finished = threading.Event()
         root_entered = threading.Event()
@@ -418,6 +421,11 @@ class SchedulerOfferTests(unittest.TestCase):
             if task['id'] in ('left', 'right'):
                 root_entered.set()
                 barrier.wait()
+                # Prove the central Scheduler polls Bob DURING both active
+                # Alice workers, not after their results have been accepted.
+                self.assertTrue(
+                    poll_while_busy.wait(7), 'Owner source poll blocked by worker',
+                )
             else:
                 self.assertEqual(set(deps), {'left', 'right'})
                 finished.set()
@@ -450,7 +458,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 stack.enter_context(patch.object(module, attribute, value))
             task_queue.start(
                 stop,
-                allowed_owners=lambda: {OWNER},
+                allowed_owners=lambda: {OWNER, 'bob'},
                 canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
             )
             try:
