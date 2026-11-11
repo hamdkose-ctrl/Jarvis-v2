@@ -84,6 +84,11 @@ class ExternalGoalCancellationTests(unittest.TestCase):
         # A terminal mirror of the old journal is not a fresh Core cancel.
         goal_executor._ensure(self.runtime, saved)
 
+    def test_legacy_projected_cancellation_cannot_be_reopened(self):
+        saved, _record = self.legacy_terminal_and_snapshot('cancelled')
+        with self.assertRaises(requests_state.Cancelled):
+            goal_executor._ensure(self.runtime, saved)
+
     def test_foreign_cancel_after_legacy_projection_blocks_stale_resume(self):
         saved, record = self.legacy_terminal_and_snapshot()
         changed = dict(saved, state='cancelled')

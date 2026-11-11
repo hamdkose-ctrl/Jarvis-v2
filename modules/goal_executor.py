@@ -392,7 +392,8 @@ def _ensure(runtime,job):
             'LEGACY_PROJECTED', 'LEGACY_STATE_SYNCED',
         }
         local_reopen=(
-            legacy_terminal
+            current['state']=='done'
+            and legacy_terminal
             and job.get('state') not in {'done','cancelled'}
             and type(job.get('_canonical_version')) is int
             and job['_canonical_version']==current['version']

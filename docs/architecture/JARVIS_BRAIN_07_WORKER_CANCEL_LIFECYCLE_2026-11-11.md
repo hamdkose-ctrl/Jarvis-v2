@@ -23,3 +23,10 @@ the outer goal loop now preserves the original cancellation outcome without
 attempting to overwrite that terminal journal snapshot. The normal in-process
 cancel path still writes its own cancellation if canonical state remains
 active. No remote operation is cancelled or retried by this adjustment.
+
+### Cancelled is terminal even for legacy projections
+
+The narrowly allowed legacy resume concerns **done** snapshots only.
+A durable **cancelled** snapshot is never reopened as a stale worker,
+even when its last audit reason was a compatibility projection and the
+ExecutionRecord appears fresh.
