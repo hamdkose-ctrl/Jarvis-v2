@@ -17,7 +17,8 @@ import release_guard
 from modules import (
     core_state_reducer, dependency_evidence, execution_record,
     goal_executor, goal_plan_gate, goal_state, goal_state_store, goal_tools,
-    runtime_worker_result, specialist_orchestrator, worker_result_hook,
+    resource_leases, runtime_worker_result, scheduler_resource_gate,
+    specialist_orchestrator, worker_result_hook,
 )
 
 OWNER = 'alice'
@@ -142,13 +143,16 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
                 'state': 'done', 'text': 'verified child',
                 'verification': {'fixture': 'child', 'test_only': True},
             }, enriched)
-            runtime_worker_result.accept_and_commit(wrapped, expected)
+            with scheduler_resource_gate.dependent_research_worker(
+                goal_executor._RESOURCE_LEASES, enriched, expected,
+            ) as commit_checked:
+                commit_checked(wrapped)
             with self.assertRaises(goal_plan_gate.PlanFenceError):
                 runtime_worker_result.prepare(
                     identity('child'), 'research', DATA,
                 )
-            # Exact previously accepted WorkerResult is idempotent, but a
-            # fresh worker cannot be launched for the completed child.
+            # Exact accepted-command replay is idempotent without another
+            # worker launch; a fresh result without a ticket fails Core CAS.
             runtime_worker_result.accept_and_commit(wrapped, expected)
         self.assertEqual(
             len(goal_state_store.load(self.canonical_path)['evidence']), 3,
@@ -164,13 +168,16 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
                 'state': 'done', 'text': 'reported synthesis',
                 'verification': {'fixture': 'child', 'test_only': True},
             }, enriched)
-            modified = execution_record.load(self.owner_root, OWNER, JOB)
-            modified['outputs']['left']['text'] = 'replaced after dispatch'
-            release_guard.atomic(
-                self.record_path, execution_record.encode(modified),
-            )
-            with self.assertRaises(goal_plan_gate.PlanFenceError):
-                runtime_worker_result.accept_and_commit(output, expected)
+            with scheduler_resource_gate.dependent_research_worker(
+                goal_executor._RESOURCE_LEASES, enriched, expected,
+            ) as commit_checked:
+                modified = execution_record.load(self.owner_root, OWNER, JOB)
+                modified['outputs']['left']['text'] = 'replaced after dispatch'
+                release_guard.atomic(
+                    self.record_path, execution_record.encode(modified),
+                )
+                with self.assertRaises(goal_plan_gate.PlanFenceError):
+                    commit_checked(output)
         self.assertEqual(
             len(goal_state_store.load(self.canonical_path)['evidence']), 2,
         )
@@ -181,24 +188,85 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
             enriched, expected = runtime_worker_result.prepare(
                 identity('child'), 'research', DATA,
             )
-        output = worker_result_hook.wrap_output({
-            'state': 'done', 'text': 'stale synthesis',
-            'verification': {'fixture': 'child', 'test_only': True},
-        }, enriched)
-        current = goal_state_store.load(self.canonical_path)
-        edited = core_state_reducer.apply(current, {
-            'op': 'mutate_goal_intent', 'operation': 'revise',
-            'text': 'new required sources', 'priority': None,
-            'reason_code': 'USER_CORRECTION',
-            'expected_version': current['version'],
-        })
-        goal_state_store.compare_and_swap(
-            self.canonical_path, expected_version=current['version'],
-            next_state=edited,
+            output = worker_result_hook.wrap_output({
+                'state': 'done', 'text': 'stale synthesis',
+                'verification': {'fixture': 'child', 'test_only': True},
+            }, enriched)
+            with scheduler_resource_gate.dependent_research_worker(
+                goal_executor._RESOURCE_LEASES, enriched, expected,
+            ) as commit_checked:
+                current = goal_state_store.load(self.canonical_path)
+                edited = core_state_reducer.apply(current, {
+                    'op': 'mutate_goal_intent', 'operation': 'revise',
+                    'text': 'new required sources', 'priority': None,
+                    'reason_code': 'USER_CORRECTION',
+                    'expected_version': current['version'],
+                })
+                goal_state_store.compare_and_swap(
+                    self.canonical_path, expected_version=current['version'],
+                    next_state=edited,
+                )
+                with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+                    commit_checked(output)
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 2,
         )
+
+    def test_new_dependent_worker_result_cannot_commit_without_core_ticket(self):
+        self.both()
         with patch.object(goal_tools, 'verify', return_value=True):
-            with self.assertRaises(goal_state_store.PersistedStateConflict):
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+            output = worker_result_hook.wrap_output({
+                'state': 'done', 'text': 'unleased synthesis',
+                'verification': {'fixture': 'child', 'test_only': True},
+            }, enriched)
+            with self.assertRaisesRegex(
+                scheduler_resource_gate.ReadOnlyAdmissionError,
+                'requires a live Core command lease',
+            ):
                 runtime_worker_result.accept_and_commit(output, expected)
+        self.assertEqual(
+            len(goal_state_store.load(self.canonical_path)['evidence']), 2,
+        )
+
+    def test_duplicate_dependent_research_command_conflicts_with_live_lease(self):
+        self.both()
+        with patch.object(goal_tools, 'verify', return_value=True):
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+            with scheduler_resource_gate.dependent_research_worker(
+                goal_executor._RESOURCE_LEASES, enriched, expected,
+            ):
+                with self.assertRaises(resource_leases.LeaseConflict):
+                    with scheduler_resource_gate.dependent_research_worker(
+                        goal_executor._RESOURCE_LEASES, enriched, expected,
+                    ):
+                        self.fail('A duplicate command entered the worker scope.')
+        self.assertEqual(goal_executor._RESOURCE_LEASES._commands, {})
+
+    def test_expired_dependent_command_cannot_commit(self):
+        self.both()
+        clock = [100.0]
+        table = resource_leases.LeaseTable(clock=lambda: clock[0])
+        with patch.object(goal_tools, 'verify', return_value=True):
+            enriched, expected = runtime_worker_result.prepare(
+                identity('child'), 'research', DATA,
+            )
+            output = worker_result_hook.wrap_output({
+                'state': 'done', 'text': 'late synthesis',
+                'verification': {'fixture': 'child', 'test_only': True},
+            }, enriched)
+            with scheduler_resource_gate.dependent_research_worker(
+                table, enriched, expected, ttl=2,
+            ) as commit_checked:
+                clock[0] = 103.0
+                with self.assertRaisesRegex(
+                    scheduler_resource_gate.ReadOnlyAdmissionError, 'lease lost',
+                ):
+                    commit_checked(output)
         self.assertEqual(
             len(goal_state_store.load(self.canonical_path)['evidence']), 2,
         )

@@ -19,7 +19,7 @@ from typing import Callable
 _RESOURCE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _ALLOWED_KINDS = frozenset((
-    "file", "window", "browser_session", "gmail_account", "provider",
+    "file", "command", "window", "browser_session", "gmail_account", "provider",
 ))
 
 
@@ -37,9 +37,9 @@ def resource_key(kind: str, target: str | None = None) -> str:
         return kind
     if kind not in _ALLOWED_KINDS or not isinstance(target, str):
         raise ValueError("Unsupported or missing resource target.")
-    if kind == "file":
+    if kind in ("file", "command"):
         if not _HEX64.fullmatch(target):
-            raise ValueError("File lease requires a canonical 64-hex artifact ID.")
+            raise ValueError("File/command lease requires a canonical 64-hex ID.")
     elif kind == "window":
         if (len(target) > 20 or not target.isascii() or not target.isdecimal()
                 or int(target) <= 0 or str(int(target)) != target):
