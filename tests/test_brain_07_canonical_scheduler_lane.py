@@ -443,6 +443,25 @@ class SchedulerOfferTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime_worker_result.CanonicalWorkerDeadline(object(), 10)
 
+    def test_deadline_elapsed_during_prepare_never_invokes_provider(self):
+        now = [10.0]
+        stop = threading.Event()
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            stop, 3, clock=lambda: now[0],
+        )
+        with patch.object(goal_tools, 'execute') as provider:
+            with runtime_worker_result.scheduler_stop_scope(deadline):
+                # The initial Scheduler check passed; slow preparation then
+                # exhausted the deadline. This is the last pre-provider gate.
+                now[0] = 14.0
+                with self.assertRaises(
+                    runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+                ):
+                    worker_result_hook.execute(
+                        None, 'research', dict(DATA), {}, {'owner': OWNER},
+                    )
+            provider.assert_not_called()
+
     def test_real_scheduler_worker_deadline_fences_late_core_cas_no_replay(self):
         """A provider returning after a deadline never becomes Core success.
 
