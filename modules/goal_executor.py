@@ -383,7 +383,37 @@ def _ensure(runtime,job):
     if current['owner']!=job['owner'] or current['job_id']!=job['id']:
         raise requests_state.Cancelled('Canonical hedef kimliği değişti; worker durduruldu.')
     if current['state'] in {'done','cancelled'}:
-        raise requests_state.Cancelled('Hedef başka bir yürütmede kapatıldı; yeni adım başlatılmadı.')
+        # Compatibility: a legacy-synced terminal snapshot is not a new
+        # canonical cancellation decision. The existing resume/revalidation
+        # path may reopen a *freshly saved* legacy execution after it proves
+        # its exact journal + canonical snapshot are still current.
+        # A foreign cancel/write changes one of those snapshots and fails.
+        legacy_terminal=current['audit'][-1]['reason_code'] in {
+            'LEGACY_PROJECTED', 'LEGACY_STATE_SYNCED',
+        }
+        local_reopen=(
+            legacy_terminal
+            and job.get('state') not in {'done','cancelled'}
+            and type(job.get('_canonical_version')) is int
+            and job['_canonical_version']==current['version']
+            and isinstance(job.get('_execution_snapshot'),str)
+            and bool(job['_execution_snapshot'])
+            and not any(
+                row['reason_code']=='OPERATOR_CUTOVER_PROMOTED'
+                for row in current['audit']
+            )
+        )
+        if local_reopen:
+            # Do not silently trust an old local snapshot after another
+            # process has cancelled or replaced the ExecutionRecord.
+            try:
+                goal_job_control.assert_fresh(_owner_root(job['owner']),job)
+            except (ValueError,FileNotFoundError) as exc:
+                raise requests_state.Cancelled(
+                    'Eski hedef yürütme kaydı değişti; worker durduruldu.'
+                ) from exc
+        else:
+            raise requests_state.Cancelled('Hedef başka bir yürütmede kapatıldı; yeni adım başlatılmadı.')
 
 
 
