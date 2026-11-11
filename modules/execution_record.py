@@ -11,13 +11,19 @@ journal only for jobs saved before the record existed.
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 SCHEMA = 'jarvis.execution_record.v1'
 SUFFIX = '.execution.json'
 MAX_BYTES = 16_000_000
 REQUIRED = frozenset({'id', 'owner', 'request', 'state', 'goals', 'steps', 'outputs'})
+# Windows atomic os.replace can briefly deny a concurrent reader's open.
+# Retry only this OS sharing/access error, never invalid or untrusted bytes.
+_WINDOWS = os.name == 'nt'
+_READ_RETRY_DELAYS = (0.0, 0.01, 0.02, 0.04, 0.08)
 _JOB_ID = re.compile(r'[a-f0-9]{16}')
 
 
@@ -46,9 +52,22 @@ def encode(job: dict) -> bytes:
 
 
 def _read(path: Path):
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
-        raise ValueError('Hedef yürütme kaydı geçersiz.')
-    return json.loads(path.read_text(encoding='utf-8'))
+    # On Windows a reader can briefly lose an open race with the existing
+    # atomic ExecutionRecord replacement. Bound that transient window to
+    # 150 ms; persistent permission denial still raises the original error.
+    # Recheck type, symlink and size on every attempt. JSON/schema/owner
+    # errors are never retried or treated as a successful snapshot.
+    for delay in _READ_RETRY_DELAYS:
+        if delay:
+            time.sleep(delay)
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
+                raise ValueError('Hedef yürütme kaydı geçersiz.')
+            return json.loads(path.read_text(encoding='utf-8'))
+        except PermissionError:
+            if not _WINDOWS or delay == _READ_RETRY_DELAYS[-1]:
+                raise
+    raise AssertionError('ExecutionRecord read retry exhausted unexpectedly.')
 
 
 def load(root, owner: str, job_id: str) -> dict:
