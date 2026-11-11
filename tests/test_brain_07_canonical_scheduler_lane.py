@@ -498,6 +498,9 @@ class SchedulerOfferTests(unittest.TestCase):
         )
 
     def test_restart_audit_core_failed_attempt_requires_reconciliation(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
         self.accept('left', state='failed')
         result = canonical_restart_audit.inspect(OWNER, JOB)
         self.assertEqual(result.nodes[0].status, 'failed_accepted')
