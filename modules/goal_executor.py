@@ -368,6 +368,22 @@ def _ensure(runtime,job):
     with _LOCK:
         if (job['owner'],job['id']) in _CANCEL_REQUESTED:raise requests_state.Cancelled('Seçilen hedef için iptal istendi.')
     if runtime.profile.slug!=job['owner']:raise requests_state.Cancelled('Kullanıcı değişti; önceki hedef durduruldu.')
+    # Another Jarvis process never shares this process's in-memory cancel set.
+    # Inspect only terminal durable lifecycle; independent accepted worker
+    # evidence may advance the canonical version without cancelling this job.
+    from modules import goal_state_store
+    path=_owner_root(job['owner'])/(job['id']+'.goalstate.json')
+    if path.is_symlink():
+        raise requests_state.Cancelled('Canonical hedef kaydı güvenli değil; worker durduruldu.')
+    if not path.exists():
+        if job.get('_canonical_version') is not None:
+            raise requests_state.Cancelled('Canonical hedef kaydı kayboldu; worker durduruldu.')
+        return
+    current=goal_state_store.load(path)
+    if current['owner']!=job['owner'] or current['job_id']!=job['id']:
+        raise requests_state.Cancelled('Canonical hedef kimliği değişti; worker durduruldu.')
+    if current['state'] in {'done','cancelled'}:
+        raise requests_state.Cancelled('Hedef başka bir yürütmede kapatıldı; yeni adım başlatılmadı.')
 
 
 
@@ -438,6 +454,8 @@ def _record(runtime,job,step,approval=None):
         step['started']=True;_save(job)
         from modules import model_wait
         with model_wait.guard(lambda:_ensure(runtime,job)):
+            # A separate process might cancel the goal after the last save.
+            _ensure(runtime,job)
             output=specialist_orchestrator.execute_step(runtime,job,step,_identity(job,step),approval=approval)
         if not isinstance(output,dict) or output.get('state') not in {'done','failed','blocked','approval','unavailable'}:
             raise ValueError('Araç durumlu bir sonuç döndürmedi.')
