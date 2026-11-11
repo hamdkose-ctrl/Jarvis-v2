@@ -96,6 +96,29 @@ class LiveCanonicalAccountLeaseTests(unittest.TestCase):
             )
         return result, execute
 
+    def test_independent_lease_tables_still_conflict_on_same_account(self):
+        # Simulate separately started schedulers in a single process with
+        # different memory tables. Cross-process OS behavior is exercised in
+        # the dedicated subprocess lock tests.
+        enriched, expected = runtime_worker_result.prepare(
+            identity(), 'account', DATA,
+        )
+        other_table = resource_leases.LeaseTable(clock=lambda: self.now[0])
+        with scheduler_resource_gate.account_read_worker(
+            self.table, enriched, expected,
+        ):
+            with self.assertRaises(resource_leases.LeaseConflict):
+                with scheduler_resource_gate.account_read_worker(
+                    other_table, enriched, expected,
+                ):
+                    self.fail('Duplicated account resource was admitted.')
+        with scheduler_resource_gate.account_read_worker(
+            other_table, enriched, expected,
+        ):
+            pass
+        self.assertEqual(self.table._commands, {})
+        self.assertEqual(other_table._commands, {})
+
     def test_account_read_claim_is_held_through_cas_and_released(self):
         result, execute = self.run_worker(callback=lambda: self.assertEqual(
             sum(self.table.occupied(k) for k in list(self.table._holders)), 1,
