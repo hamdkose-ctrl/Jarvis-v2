@@ -218,3 +218,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
 - BRAIN-05 hedef değişiklikleri canonical `goal_intent` reducer/CAS yolunu kullanır; ExecutionRecord türetilmiş görünümüdür. Kart sürümü ve execution özeti işlem sırasında yeniden doğrulanır; eski worker yeni kaydı ezemez. Kilit model/araç çağrısı boyunca tutulmaz. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
+
+## BRAIN-07 canonical worker deadline (12 Kasım 2026; kabul bekliyor)
+
+- Mevcut Scheduler her read-only canonical worker için 300 saniyelik kooperatif süre sınırı taşır. Python/provider iş parçacığını zorla kesmez; dış isteğin gerçekleşmediğini veya etkisiz olduğunu iddia etmez. Süre dolunca Core WorkerResult kabul kapısında geç başarı reddedilir; otomatik tekrar yapılmaz. ResourceLease ve OS claim gerçek provider dönerken bırakılmaz.
+- Worker provider adapterına girmeden hemen önce mevcut Scheduler stop/deadline tokenı yeniden kontrol edilir. Legacy/unscheduled işlere global timeout uygulanmaz. Ses şeridi ayrı kalır. Ayrıntı: docs/agents/gorev-cekirdegi.md; test: tests/test_brain_07_canonical_scheduler_lane.py.
