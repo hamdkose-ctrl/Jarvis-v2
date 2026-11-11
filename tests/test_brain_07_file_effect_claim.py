@@ -216,7 +216,9 @@ class FileEffectClaimTests(unittest.TestCase):
         child = self.holder(chosen)
         try:
             with patch.object(file_ops.files, 'match_folder',
-                              return_value=(self.folder, 'Belgeler', False)):
+                              return_value=(self.folder, 'Belgeler', False)), \
+                 patch.object(file_ops, '_roots',
+                              return_value=[source_folder, self.folder]):
                 message = file_ops.execute_typed(
                     'move', owner='alice', path=str(source), folder='belgeler',
                 )

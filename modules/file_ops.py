@@ -183,9 +183,9 @@ def _move(command: str, owner: str = "") -> str | None:
             final = files._free_name(requested)
             with _claim_chosen_file_target(requested, final):
                 shutil.move(str(source), str(final))
+                _record([[str(final), str(source), _digest(final)]], owner)
         except OSError as exc:
             return f"Dosyayı taşıyamadım: {exc}"
-        _record([[str(final), str(source), _digest(final)]], owner)
         return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
     return _with_file_claims((source, folder / source.name), apply)
 
@@ -252,9 +252,9 @@ def _create(command: str, owner: str = "") -> str | None:
             with _claim_chosen_file_target(requested, final):
                 with final.open('x', encoding='utf-8') as stream:
                     stream.write(content + ("\n" if content else ""))
+                _record([[str(final), "", _digest(final)]], owner)
         except OSError as exc:
             return f"Dosyayı oluşturamadım: {exc}"
-        _record([[str(final), "", _digest(final)]], owner)
         return (f"{label} klasöründe {final.name} dosyasını oluşturdum" + (" ve içine yazdım." if content else ".")
                 + " İstersen “son dosya işlemini geri al” de.")
     return _with_file_claims((folder / name,), apply)
@@ -345,7 +345,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
                     target = files._free_name(requested)
                     with _claim_chosen_file_target(requested, target):
                         shutil.move(str(source), str(target))
-                    _record([[str(target), str(source), _digest(target)]], owner)
+                        _record([[str(target), str(source), _digest(target)]], owner)
                 except OSError:
                     return "Dosyayı güvenli biçimde taşıyamadım."
                 return f"{source.name} dosyasını {label} klasörüne taşıdım."
@@ -388,7 +388,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
             with _claim_chosen_file_target(requested, target):
                 with target.open('x', encoding='utf-8', errors='strict') as stream:
                     stream.write(content + ("\n" if content else ""))
-            _record([[str(target), "", _digest(target)]], owner)
+                _record([[str(target), "", _digest(target)]], owner)
         except OSError:
             return "Metin dosyasını güvenli biçimde oluşturamadım."
         return f"{label} klasöründe {target.name} dosyasını oluşturdum."
