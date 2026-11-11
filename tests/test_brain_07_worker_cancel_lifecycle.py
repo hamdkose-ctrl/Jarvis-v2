@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from modules import core_state_reducer, goal_executor, goal_state, goal_state_store, requests_state, specialist_orchestrator
+import release_guard
+from modules import core_state_reducer, execution_record, goal_executor, goal_job_control, goal_state, goal_state_store, requests_state, specialist_orchestrator
 
 OWNER = 'alice'
 JOB = '0123456789abcdef'
@@ -58,6 +59,43 @@ class ExternalGoalCancellationTests(unittest.TestCase):
                     self.runtime, self.job, {'id': 's1', 'tool': 'research'},
                 )
             worker.assert_not_called()
+
+    def legacy_terminal_and_snapshot(self, status='done'):
+        current = goal_state_store.load(self.path)
+        changed = core_state_reducer.apply(current, {
+            'op': 'set_state', 'state': status,
+            'reason_code': 'LEGACY_STATE_SYNCED',
+            'expected_version': current['version'],
+        })
+        goal_state_store.compare_and_swap(
+            self.path, expected_version=current['version'], next_state=changed,
+        )
+        saved = {
+            'id': JOB, 'owner': OWNER, 'request': 'read public page',
+            'state': 'paused', 'goals': [], 'steps': [], 'outputs': {},
+        }
+        record = execution_record.path_for(self.path.parent, JOB)
+        release_guard.atomic(record, execution_record.encode(saved))
+        goal_job_control.capture(self.path.parent, saved)
+        return saved, record
+
+    def test_legacy_projection_resume_requires_fresh_execution_snapshot(self):
+        saved, _record = self.legacy_terminal_and_snapshot()
+        # A terminal mirror of the old journal is not a fresh Core cancel.
+        goal_executor._ensure(self.runtime, saved)
+
+    def test_foreign_cancel_after_legacy_projection_blocks_stale_resume(self):
+        saved, record = self.legacy_terminal_and_snapshot()
+        changed = dict(saved, state='cancelled')
+        release_guard.atomic(record, execution_record.encode(changed))
+        with self.assertRaises(requests_state.Cancelled):
+            goal_executor._ensure(self.runtime, saved)
+
+    def test_stale_canonical_version_blocks_legacy_projection_resume(self):
+        saved, _record = self.legacy_terminal_and_snapshot()
+        saved['_canonical_version'] -= 1
+        with self.assertRaises(requests_state.Cancelled):
+            goal_executor._ensure(self.runtime, saved)
 
     def test_external_completion_blocks_stale_worker(self):
         self.terminal('done')
