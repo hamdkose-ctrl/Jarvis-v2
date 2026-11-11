@@ -413,6 +413,117 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertEqual(journal['outputs']['left']['state'], 'failed')
         self.assertEqual([o.selection.node_id for o in self.offers()], ['right'])
 
+    def test_canonical_worker_deadline_token_distinguishes_stop_and_expiry(self):
+        now = [10.0]
+        parent = threading.Event()
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            parent, 2, clock=lambda: now[0],
+        )
+        self.assertFalse(deadline.is_set())
+        self.assertIsNone(deadline.stop_reason())
+        with runtime_worker_result.scheduler_stop_scope(deadline):
+            runtime_worker_result.require_scheduler_active()
+            now[0] = 12.0
+            self.assertEqual(deadline.stop_reason(), 'worker_deadline')
+            with self.assertRaises(
+                runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+            ):
+                runtime_worker_result.require_scheduler_active()
+        # Scope resets on failure; no global kill switch leaks to foreground.
+        runtime_worker_result.require_scheduler_active()
+        parent.set()
+        self.assertEqual(deadline.stop_reason(), 'scheduler_stopped')
+        with self.assertRaisesRegex(RuntimeError, 'Scheduler stopped'):
+            with runtime_worker_result.scheduler_stop_scope(deadline):
+                self.fail('A stopped Scheduler may not start another worker.')
+        with self.assertRaises(ValueError):
+            runtime_worker_result.CanonicalWorkerDeadline(parent, 0)
+        with self.assertRaises(ValueError):
+            runtime_worker_result.CanonicalWorkerDeadline(parent, float('nan'))
+        with self.assertRaises(ValueError):
+            runtime_worker_result.CanonicalWorkerDeadline(object(), 10)
+
+    def test_real_scheduler_worker_deadline_fences_late_core_cas_no_replay(self):
+        """A provider returning after a deadline never becomes Core success.
+
+        This executes the actual canonical dispatcher, specialist, lease,
+        WorkerResult acceptance and ExecutionRecord path. Only the network
+        provider is synthetic and the worker deadline clock is controlled.
+        """
+        from types import SimpleNamespace
+
+        entered = threading.Event()
+        release = threading.Event()
+        parent = threading.Event()
+        now = [100.0]
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            parent, 10, clock=lambda: now[0],
+        )
+        self.addCleanup(release.set)
+        errors = []
+
+        def worker(owner, task, dependencies):
+            self.assertEqual(owner, OWNER)
+            self.assertEqual(task['id'], 'left')
+            self.assertEqual(dependencies, {})
+            entered.set()
+            self.assertTrue(release.wait(6), 'Provider was never released')
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Late source was read',
+                'source': DATA['url'], 'source_chars': 200,
+            })
+
+        offer = self.offers()[0]
+
+        def invoke():
+            try:
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), offer, stop_event=deadline,
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \
+             patch.object(untrusted_flow, 'observe'):
+            thread = threading.Thread(target=invoke, name='deadline-fence-test')
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(8), 'Canonical read did not start')
+                # Timeout cannot imply that an in-flight read never reached
+                # its provider. We only fence a late accepted result.
+                now[0] = 111.0
+                self.assertEqual(deadline.stop_reason(), 'worker_deadline')
+                self.assertTrue(thread.is_alive())
+            finally:
+                release.set()
+                thread.join(8)
+
+        self.assertFalse(thread.is_alive(), 'Worker thread leaked')
+        self.assertTrue(any(isinstance(
+            exc, runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+        ) for exc in errors), repr(errors))
+        canonical = goal_state_store.load(self.path)
+        self.assertEqual(canonical['state'], 'pending')
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result'
+            for row in canonical['evidence']
+        ))
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        self.assertEqual(journal['steps'][0]['state'], 'failed')
+        self.assertEqual(
+            journal['outputs']['left']['reason_code'],
+            'CANONICAL_WORKER_DEADLINE_UNACCEPTED',
+        )
+        self.assertIn('never retry automatically',
+                      journal['outputs']['left']['text'])
+        self.assertEqual(
+            canonical_restart_audit.inspect(OWNER, JOB).nodes[0].status,
+            'failed_unaccepted',
+        )
+        self.assertEqual(
+            [item.selection.node_id for item in self.offers()], ['right'],
+        )
+
     def test_scheduler_stop_before_claim_leaves_exact_record_unchanged(self):
         from types import SimpleNamespace
         stop = threading.Event()
