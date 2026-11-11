@@ -8,6 +8,7 @@ effectful capabilities and dependent steps until verified predecessors exist.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -276,3 +277,149 @@ def require_account_result_lease(accepted: dict) -> None:
         raise ReadOnlyAdmissionError('Account result exact execution fence mismatched.')
     if not leases.validate(ticket):
         raise ReadOnlyAdmissionError('Account result resource lease expired.')
+
+
+# Only the in-process existing goal executor lease table may supply this
+# scoped fence. It is not a cross-process durable claim or worker authority.
+_DEPENDENT_RESEARCH_RESULT_LEASE = ContextVar(
+    'jarvis_dependent_research_result_lease', default=None,
+)
+
+
+@contextmanager
+def dependent_research_worker(
+    leases: resource_leases.LeaseTable, identity: dict, expected: dict,
+    *, ttl: float = 60.0,
+):
+    """Own one canonical research-child command from dispatch through CAS.
+
+    Different jobs/steps remain parallel; duplicate wakes for the same
+    canonical node/attempt conflict on one command-scoped resource key.
+    """
+    if (not isinstance(leases, resource_leases.LeaseTable)
+            or not isinstance(identity, dict)
+            or not isinstance(expected, dict)
+            or expected.get('capability_id') != 'task.research'
+            or type(expected.get('plan_version')) is not int
+            or expected.get('owner') != identity.get('owner')
+            or expected.get('job_id') != identity.get('job_id')
+            or expected.get('step_id') != identity.get('task_id')
+            or type(expected.get('attempt')) is not int
+            or expected['attempt'] != identity.get('attempt')):
+        raise ReadOnlyAdmissionError('Dependent research command identity invalid.')
+    from modules import dependency_evidence, runtime_worker_result
+    state = runtime_worker_result.canonical_snapshot(identity)
+    selected = goal_plan_gate.candidate(
+        state, owner=expected['owner'], job_id=expected['job_id'],
+        node_id=expected['step_id'],
+    )
+    if (expected.get('node_digest') != selected.node_digest
+            or expected['plan_version'] != selected.plan_version
+            or expected.get('command_id') !=
+            f"{selected.node_id}:{expected['attempt']}:p{selected.plan_version}"
+            or expected.get('expected_job_version') != state['version']):
+        raise ReadOnlyAdmissionError('Dependent research plan command fence invalid.')
+    node = goal_plan_gate.validate_dependent_research_attempt(
+        state, selected, attempt=expected['attempt'],
+    )
+    dependency_evidence.require_persisted_research_dependencies(identity, node)
+    # A dedicated command namespace prevents a misleading global "provider"
+    # lease and leaves independent read-only jobs parallel.
+    digest = hashlib.sha256(json.dumps(
+        [selected.owner, selected.job_id, selected.node_id,
+         selected.plan_version, expected['command_id']],
+        ensure_ascii=False, separators=(',', ':'),
+    ).encode('utf-8')).hexdigest()
+    key = resource_leases.resource_key('command', digest)
+    ticket = leases.acquire(
+        owner=selected.owner, job_id=selected.job_id,
+        step_id=selected.node_id, plan_version=selected.plan_version,
+        command_id=expected['command_id'], keys=(key,), ttl=ttl,
+    )
+    lock = threading.RLock()
+    holder = [ticket]
+    stop = threading.Event()
+    lost = threading.Event()
+
+    def require_current() -> None:
+        if lost.is_set() or not leases.validate(holder[0]):
+            raise ReadOnlyAdmissionError('Dependent research command lease lost.')
+        current = runtime_worker_result.canonical_snapshot(identity)
+        if current['version'] != expected['expected_job_version']:
+            raise ReadOnlyAdmissionError('Dependent research GoalState changed during worker.')
+        chosen = goal_plan_gate.candidate(
+            current, owner=selected.owner, job_id=selected.job_id,
+            node_id=selected.node_id,
+        )
+        if (chosen.plan_version != selected.plan_version
+                or chosen.node_digest != selected.node_digest):
+            raise ReadOnlyAdmissionError('Dependent research plan was replaced.')
+        refreshed = goal_plan_gate.validate_dependent_research_attempt(
+            current, chosen, attempt=expected['attempt'],
+        )
+        dependency_evidence.require_persisted_research_dependencies(
+            identity, refreshed,
+        )
+
+    def pulse() -> None:
+        while not stop.wait(ttl / 3):
+            with lock:
+                try:
+                    holder[0] = leases.heartbeat(holder[0], ttl=ttl)
+                except resource_leases.LeaseFenceError:
+                    lost.set()
+                    return
+
+    def commit_checked(output: dict) -> dict:
+        with lock:
+            require_current()
+            token = _DEPENDENT_RESEARCH_RESULT_LEASE.set(
+                (leases, holder[0], expected),
+            )
+            try:
+                return runtime_worker_result.accept_and_commit(output, expected)
+            finally:
+                _DEPENDENT_RESEARCH_RESULT_LEASE.reset(token)
+
+    thread = threading.Thread(
+        target=pulse, name='canonical-research-command-lease', daemon=True,
+    )
+    started = False
+    try:
+        with lock:
+            require_current()
+        thread.start()
+        started = True
+        yield commit_checked
+    finally:
+        stop.set()
+        if started:
+            thread.join()
+        with lock:
+            if leases.validate(holder[0]):
+                leases.release(holder[0])
+
+
+def require_dependent_research_result_lease(accepted: dict) -> None:
+    """Core CAS may accept a new dependent result only from a live command."""
+    binding = _DEPENDENT_RESEARCH_RESULT_LEASE.get()
+    if not isinstance(binding, tuple) or len(binding) != 3:
+        raise ReadOnlyAdmissionError(
+            'Dependent research result requires a live Core command lease.'
+        )
+    leases, ticket, expected = binding
+    fields = (
+        'owner', 'job_id', 'step_id', 'command_id', 'attempt',
+        'expected_job_version', 'capability_id', 'capability_version',
+        'input_digest', 'plan_version', 'node_digest',
+    )
+    if (not isinstance(leases, resource_leases.LeaseTable)
+            or not isinstance(ticket, resource_leases.LeaseTicket)
+            or not isinstance(expected, dict)
+            or any(accepted.get(field) != expected.get(field) for field in fields)
+            or (ticket.owner, ticket.job_id, ticket.step_id,
+                ticket.plan_version, ticket.command_id) !=
+               (accepted['owner'], accepted['job_id'], accepted['step_id'],
+                accepted['plan_version'], accepted['command_id'])
+            or not leases.validate(ticket)):
+        raise ReadOnlyAdmissionError('Dependent research exact command lease invalid.')

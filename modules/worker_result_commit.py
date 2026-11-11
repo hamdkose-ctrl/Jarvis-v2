@@ -243,6 +243,12 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
                 },
                 node,
             )
+            # Direct, concurrent or stale worker callers cannot bypass the
+            # existing in-process scheduler command lease at result CAS.
+            from modules import scheduler_resource_gate
+            scheduler_resource_gate.require_dependent_research_result_lease(
+                accepted,
+            )
         else:
             goal_plan_gate.validate_root_attempt(
                 current, selection, attempt=accepted['attempt'],
