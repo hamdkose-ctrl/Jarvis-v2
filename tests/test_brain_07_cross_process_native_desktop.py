@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import desktop_agent as agent
+from modules import desktop_agent as agent, resource_leases
 
 
 _HOLD_DESKTOP = """
@@ -152,7 +152,7 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
         self.assertNotEqual(other_store.resolve(), self.root.resolve())
         child = self.start_other_process(foreign_store=other_store)
         try:
-            self.assertTrue((other_store / '.').is_dir())
+            self.assertTrue(other_store.is_dir())
             with patch.object(agent, '_run_claimed') as native:
                 result = agent.handle(
                     'alice', 'PC görevi: Hesap Makinesi | 12 ile 7 topla',
@@ -189,7 +189,7 @@ class CrossProcessNativeDesktopTests(unittest.TestCase):
             self.skipTest('Creating a symlink is unavailable on this host')
         with patch.object(agent, '_PHYSICAL_DESKTOP_CLAIM_ROOT', alias):
             with self.assertRaisesRegex(
-                __import__('modules.resource_leases', fromlist=['LeaseConflict']).LeaseConflict,
+                resource_leases.LeaseConflict,
                 'symlink',
             ):
                 with agent._desktop_claim():
