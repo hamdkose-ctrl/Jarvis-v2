@@ -113,12 +113,12 @@ class SchedulerOfferTests(unittest.TestCase):
         canonical_output_projection.project_accepted(OWNER, JOB, 'left', result)
         with patch.object(goal_tools, 'verify', return_value=True) as verified:
             ready = self.offers()
-        self.assertEqual(
-            [offer.selection.node_id for offer in ready],
-            ['right', 'child'],
-        )
-        verified.assert_called()
-        canonical_scheduler_lane.revalidate_offer(ready[-1])
+            self.assertEqual(
+                [offer.selection.node_id for offer in ready],
+                ['right', 'child'],
+            )
+            canonical_scheduler_lane.revalidate_offer(ready[-1])
+            verified.assert_called()
 
     def test_user_intent_edit_invalidates_previous_offer(self):
         before = self.offers()[0]
