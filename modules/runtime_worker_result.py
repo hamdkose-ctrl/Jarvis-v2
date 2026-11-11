@@ -94,7 +94,7 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         # Read canonical acceptance evidence BEFORE invoking the real worker.
         # The same old plan root may be retried only with a later failed
         # attempt; success, stale user intent and malformed proof fail closed.
-        if reconcile_existing is not True:
+        if reconcile_existing is not True and not node['depends_on']:
             goal_plan_gate.validate_root_attempt(
                 snapshot, selection, attempt=attempt,
             )
