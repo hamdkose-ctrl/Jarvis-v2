@@ -11,11 +11,14 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from config import DATA_DIR
 import release_guard
-from modules import completion_policy, execution_record, failure_policy, goal_job_control, goal_tools, llm, privacy, requests_state, task_tools
+from modules import completion_policy, execution_record, failure_policy, goal_job_control, goal_tools, llm, privacy, requests_state, resource_leases, task_tools
 from modules.diagnostics import record_failure as _record_failure
 
 STORE=DATA_DIR/'goals'
 _LOCK=threading.RLock()
+# The EXISTING goal execution owner holds the one in-process resource table.
+# This is not a second Scheduler or durable cross-process ownership.
+_RESOURCE_LEASES=resource_leases.LeaseTable()
 _ACTIVE=set()
 _ACTIVE_JOBS={}
 # Sağlayıcı/ağ kaynaklı sınıflar: bu sınıflarda kullanıcıya ham sağlayıcı/ağ metni değil,
@@ -113,7 +116,8 @@ def _save(job,*,move_pointer=True):
     root=_root(job['owner'])
     with goal_job_control.locked(root,job['id']):
         if '_canonical_version' in job:
-            job['_canonical_version']=goal_job_control.own_worker_version(root,job['id'],job['_canonical_version'])
+            job['_canonical_version']=goal_job_control.own_worker_version(
+                root,job['id'],job['_canonical_version'],owner=job['owner'])
         goal_job_control.assert_fresh(root,job)
         job['updated']=time.time()
         payload=goal_job_control.persistent(job)
@@ -408,6 +412,19 @@ def _context(job):
 
 def _record(runtime,job,step,approval=None):
     _ensure(runtime,job)
+    # A transient version marker is not authority: if the canonical sidecar
+    # still exists, a forged/missing _canonical_version must not allow a
+    # dependent step to checkpoint before preflight. Legacy jobs without a
+    # sidecar retain the previous path.
+    canonical_path = _root(job['owner']) / (job['id'] + '.goalstate.json')
+    if (job.get('_canonical_version') is not None
+            or canonical_path.exists() or canonical_path.is_symlink()):
+        from modules import dependency_evidence
+        dependency_evidence.preflight_durable_step(
+            _identity(job,step), step, job.get('outputs'),
+            owner=job['owner'], job_id=job['id'],
+            canonical_required=True,
+        )
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     from modules import brain_delegate,specialist_orchestrator

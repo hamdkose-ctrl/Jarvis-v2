@@ -19,13 +19,20 @@ def wrap_output(output: dict, identity: dict) -> dict:
     planned = set(worker_result.PLAN_FENCE).intersection(identity)
     if planned and planned != set(worker_result.PLAN_FENCE):
         raise ValueError('Eksik plan fence: eski schema ile sessiz düşüş yasak.')
+    proof = {
+        'state': output.get('state'),
+        'verification': copy.deepcopy(output.get('verification')),
+    }
+    if planned and output.get('state') == 'done':
+        # The previous Core contract proved *that* the root was accepted, but
+        # did not bind its ExecutionRecord output bytes to that acceptance.
+        # No legacy/v1 envelope changes and no unverified retroactive upgrade.
+        from modules import dependency_evidence
+        proof['output_sha256'] = dependency_evidence.output_sha256(output)
     envelope = {
         'schema': worker_result.PLAN_SCHEMA if planned else worker_result.SCHEMA,
         'status': 'succeeded' if output.get('state') == 'done' else 'failed',
-        'evidence': [{
-            'state': output.get('state'),
-            'verification': copy.deepcopy(output.get('verification')),
-        }],
+        'evidence': [proof],
         **{key: copy.deepcopy(identity[key]) for key in required},
         **{key: copy.deepcopy(identity[key]) for key in worker_result.PLAN_FENCE if key in planned},
     }
@@ -39,4 +46,8 @@ def execute(runtime, kind, data, dependencies, identity, *, approval=None):
     """Call the current goal_tools adapter and fence only this invocation's result."""
     from modules import goal_tools
     result = goal_tools.execute(runtime, kind, data, dependencies, identity, approval=approval)
+    if isinstance(result, dict) and result.get('state') == 'done':
+        # A worker's "done" claim is not Core acceptance. Verify signed task
+        # evidence / local readback before it can reach a success CAS commit.
+        goal_tools.verify(result, identity['owner'])
     return wrap_output(result, identity)

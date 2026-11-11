@@ -19,7 +19,7 @@ from typing import Callable
 _RESOURCE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _ALLOWED_KINDS = frozenset((
-    "file", "window", "browser_session", "gmail_account", "provider",
+    "file", "command", "window", "browser_session", "gmail_account", "provider",
 ))
 
 
@@ -37,9 +37,9 @@ def resource_key(kind: str, target: str | None = None) -> str:
         return kind
     if kind not in _ALLOWED_KINDS or not isinstance(target, str):
         raise ValueError("Unsupported or missing resource target.")
-    if kind == "file":
+    if kind in ("file", "command"):
         if not _HEX64.fullmatch(target):
-            raise ValueError("File lease requires a canonical 64-hex artifact ID.")
+            raise ValueError("File/command lease requires a canonical 64-hex ID.")
     elif kind == "window":
         if (len(target) > 20 or not target.isascii() or not target.isdecimal()
                 or int(target) <= 0 or str(int(target)) != target):
@@ -87,6 +87,7 @@ class LeaseTable:
         self._serial = 0
         self._lock = threading.RLock()
         self._holders: dict[str, int] = {}
+        self._commands: dict[tuple[str, str, str, int, str], int] = {}
         self._active: dict[int, LeaseTicket] = {}
 
     def _expire(self, now: float) -> None:
@@ -97,6 +98,10 @@ class LeaseTable:
     def _discard(self, serial: int) -> None:
         ticket = self._active.pop(serial, None)
         if ticket is not None:
+            command = (ticket.owner, ticket.job_id, ticket.step_id,
+                       ticket.plan_version, ticket.command_id)
+            if self._commands.get(command) == serial:
+                self._commands.pop(command)
             for key in ticket.keys:
                 if self._holders.get(key) == serial:
                     self._holders.pop(key)
@@ -120,6 +125,11 @@ class LeaseTable:
         with self._lock:
             now = self._clock()
             self._expire(now)
+            command = (owner, job_id, step_id, plan_version, command_id)
+            if command in self._commands:
+                # A duplicate dispatch may accidentally derive different keys.
+                # The same execution must never hold two live lease tickets.
+                raise LeaseConflict("This command already has a live lease.")
             if any(key in self._holders for key in keys):
                 raise LeaseConflict("One or more resources are already leased.")
             self._serial += 1
@@ -128,6 +138,7 @@ class LeaseTable:
                 plan_version, command_id, keys, now + ttl,
             )
             self._active[ticket.serial] = ticket
+            self._commands[command] = ticket.serial
             for key in keys:
                 self._holders[key] = ticket.serial
             return ticket

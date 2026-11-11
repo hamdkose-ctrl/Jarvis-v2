@@ -108,7 +108,55 @@ def execute_step(runtime,job,step,identity,*,approval=None):
 
 def _execute_step(runtime,job,step,identity,*,approval=None):
     if runtime.profile.slug!=job['owner']:raise PermissionError('Uzman görevinin sahibi değişti.')
-    deps={key:job['outputs'][key] for key in step['depends']}
+    # A canonical dependent must never trust in-memory ExecutionRecord outputs
+    # solely because they are present or say "done". Validate the exact
+    # accepted predecessor-output hashes and domain readback *before* any
+    # DecisionAuthority, checkpoint, worker, model or provider invocation.
+    # Legacy/unplanned dependencies retain their original execution path.
+    # Always inspect canonical authority; a caller could strip both the
+    # dependency list and durable version from a dependent step.
+    from modules import dependency_evidence, goal_plan_gate
+    deps=None
+    job_id=job.get('id')
+    identity_job_id=identity.get('job_id') if isinstance(identity,dict) else None
+    # A planned job cannot lose its ExecutionRecord ID before the predecessor
+    # proof is checked. Reject this early: domain re-verification must never
+    # obscure a missing canonical execution identity. Some historical direct
+    # specialist calls legitimately have no job['id'] and no canonical plan.
+    if not isinstance(job_id,str) and isinstance(identity_job_id,str):
+        from modules import runtime_worker_result
+        try:
+            canonical=runtime_worker_result.canonical_snapshot(identity)
+        except FileNotFoundError:
+            if job.get('_canonical_version') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                ) from None
+        else:
+            if canonical.get('goal_plan') is not None:
+                raise goal_plan_gate.PlanFenceError(
+                    'Canonical specialist requires exact ExecutionRecord job ID.'
+                )
+    # Legacy direct specialist calls can lack a durable job ID entirely.
+    # But a canonical job may have its runtime dependency list or version
+    # marker stripped, so file-backed authority is checked whenever the
+    # execution identity gives us an addressable owner/job pair.
+    if isinstance(job_id,str) or isinstance(identity_job_id,str):
+        deps=dependency_evidence.preflight_durable_step(
+            identity, step, job.get('outputs'),
+            owner=job['owner'], job_id=job_id if isinstance(job_id,str) else identity_job_id,
+            canonical_required=job.get('_canonical_version') is not None,
+        )
+        if deps is not None and job_id != identity_job_id:
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical specialist requires exact ExecutionRecord job ID.'
+            )
+    elif isinstance(identity,dict) and 'version' in identity:
+        raise goal_plan_gate.PlanFenceError(
+            'Versioned specialist execution has no durable job ID.'
+        )
+    if deps is None:
+        deps={key:job['outputs'][key] for key in step['depends']}
     # ``desktop`` is an existing goal adapter, not a new worker.  It joins the
     # same Core gate before native UIA/CUA/C# adapters can be introduced.
     # State setters enter the durable effect/receipt path only when they have
@@ -160,21 +208,67 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
     if step['tool']=='research':
         from modules import research_evidence
         if research_evidence.news_requested(job['request']):
+            from contextlib import nullcontext
             from modules import model_free_news
-            snapshot=step.get('pipeline_receipt')
-            if snapshot is not None:
-                from modules import task_results
-                task_results.verify(snapshot,owner=job['owner'])
-                if snapshot.get('source')!=step['input'].get('url'):
-                    raise ValueError('Pipeline kanıtı araştırma adresiyle eşleşmiyor.')
-                output=model_free_news.receipt(snapshot['news_article'],job['request'])
-            else:
-                output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
-            if expected is not None:
-                from modules import runtime_worker_result,worker_result_hook
-                output=worker_result_hook.wrap_output(output,identity)
-                output=runtime_worker_result.accept_and_commit(output,expected)
-            return output
+            news_scope = nullcontext(None)
+            if (expected is not None and 'plan_version' in expected
+                    and deps):
+                from modules import goal_executor, scheduler_resource_gate
+                news_scope = scheduler_resource_gate.dependent_research_worker(
+                    goal_executor._RESOURCE_LEASES, identity, expected,
+                )
+            with news_scope as dependent_commit:
+                snapshot=step.get('pipeline_receipt')
+                if snapshot is not None:
+                    from modules import task_results
+                    task_results.verify(snapshot,owner=job['owner'])
+                    if snapshot.get('source')!=step['input'].get('url'):
+                        raise ValueError('Pipeline kanıtı araştırma adresiyle eşleşmiyor.')
+                    output=model_free_news.receipt(snapshot['news_article'],job['request'])
+                else:
+                    output=model_free_news.run(job['owner'],step['input'],job['request'],source_only=identity.get('source_only') is True)
+                if expected is not None:
+                    from modules import runtime_worker_result,worker_result_hook
+                    if isinstance(output,dict) and output.get('state')=='done':
+                        goal_tools.verify(output,job['owner'])
+                    output=worker_result_hook.wrap_output(output,identity)
+                    output=(dependent_commit(output) if dependent_commit is not None
+                            else runtime_worker_result.accept_and_commit(output,expected))
+                return output
+
+    if (expected is not None and 'plan_version' in expected
+            and expected['capability_id'] == 'task.research' and deps):
+        # A planned research child owns a command ticket across the real
+        # worker and its final canonical CAS. Root and legacy calls are not
+        # upgraded to an implicit research lease.
+        from modules import goal_executor, scheduler_resource_gate, worker_result_hook
+        with scheduler_resource_gate.dependent_research_worker(
+            goal_executor._RESOURCE_LEASES, identity, expected,
+        ) as commit_checked:
+            research_output=worker_result_hook.execute(
+                runtime,step['tool'],step['input'],deps,identity,
+                approval=worker_approval,
+            )
+            if isinstance(research_output,dict) and research_output.get('state')=='approval':
+                return research_output
+            return commit_checked(research_output)
+
+    if (expected is not None and 'plan_version' in expected
+            and step['tool'] == 'account'):
+        # The existing durable goal executor owns one in-process lease table.
+        # Only this explicitly supported, read-only canonical capability is
+        # live-wired. Permission/DecisionAuthority already ran above, and
+        # neither account read nor ResourceLease authorizes a write/effect.
+        from modules import goal_executor,scheduler_resource_gate,worker_result_hook
+        with scheduler_resource_gate.account_read_worker(
+            goal_executor._RESOURCE_LEASES, identity, expected,
+        ) as commit_checked:
+            account_output=worker_result_hook.execute(
+                runtime,step['tool'],step['input'],deps,identity,approval=worker_approval,
+            )
+            if isinstance(account_output,dict) and account_output.get('state')=='approval':
+                return account_output
+            return commit_checked(account_output)
 
     if expected is not None:
         from modules import runtime_worker_result,worker_result_hook
@@ -186,6 +280,9 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
         if step['tool']=='browser' and isinstance(output,dict) and output.get('state')=='done':
             from modules import runtime_worker_result,worker_result_hook
             if runtime_worker_result.durable_identity(identity):
+                # Browser's prepare path bypasses worker_result_hook.execute.
+                # It must meet the same domain verification before Core CAS.
+                goal_tools.verify(output,job['owner'])
                 fenced_identity,browser_expected=runtime_worker_result.prepare(identity,step['tool'],step['input'])
                 fenced=worker_result_hook.wrap_output(output,fenced_identity)
                 return runtime_worker_result.accept_and_commit(fenced,browser_expected)

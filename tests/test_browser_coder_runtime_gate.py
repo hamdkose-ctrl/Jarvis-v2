@@ -102,10 +102,12 @@ class BrowserCoderRuntimeGateTests(unittest.TestCase):
              patch('modules.goal_tools.execute',return_value=native) as execute, \
              patch('modules.runtime_worker_result.durable_identity',return_value=True), \
              patch('modules.runtime_worker_result.prepare',return_value=(enriched,expected)) as prepare, \
+             patch('modules.goal_tools.verify',return_value=True) as verify, \
              patch('modules.worker_result_hook.wrap_output',return_value=fenced) as wrap, \
              patch('modules.runtime_worker_result.accept_and_commit',return_value=native) as accept:
             output=specialist_orchestrator.execute_step(self.runtime(),self.job(),step,self.identity('browser'))
         execute.assert_called_once()
+        verify.assert_called_once_with(native,'alice')
         prepare.assert_called_once()
         wrap.assert_called_once_with(native,enriched)
         accept.assert_called_once_with(fenced,expected)

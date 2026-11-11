@@ -19,7 +19,12 @@ _FENCE = (
 
 def _fence_expected(identity: dict, kind: str, data: dict):
     """Reuse an already accepted command fence for idempotent reconciliation."""
-    enriched, candidate = runtime_worker_result.prepare(identity, kind, data)
+    # Recovery is read-only and must reuse an accepted exact command below.
+    # Skip the *new worker* preflight (an already succeeded root is not ready
+    # for dispatch), never the plan/identity fence or CAS idempotency check.
+    enriched, candidate = runtime_worker_result.prepare(
+        identity, kind, data, reconcile_existing=True,
+    )
     from modules import goal_executor
     path = goal_executor._root(candidate['owner']) / (candidate['job_id'] + '.goalstate.json')
     state = goal_state_store.load(path)
@@ -78,6 +83,10 @@ def accept_and_commit(output: dict | None, identity: dict, kind: str, data: dict
         return output
     if not runtime_worker_result.durable_identity(identity):
         return output
+    # Check the original durable execution fence before any verification
+    # readback, then verify domain evidence before the canonical CAS commit.
     enriched, expected = _fence_expected(identity, kind, data)
+    from modules import goal_tools
+    goal_tools.verify(output, identity['owner'])
     fenced = copy.deepcopy(output) if '_worker_result' in output else worker_result_hook.wrap_output(output, enriched)
     return runtime_worker_result.accept_and_commit(fenced, expected)

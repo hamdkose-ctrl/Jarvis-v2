@@ -38,7 +38,8 @@ def canonical_version(identity: dict) -> int:
     return canonical_snapshot(identity)['version']
 
 
-def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None):
+def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int | None = None,
+            reconcile_existing: bool = False):
     if not isinstance(identity, dict):
         raise ValueError('Worker kimliği geçersiz.')
     # Default durable execution reads the single canonical GoalState snapshot.
@@ -77,11 +78,29 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
         )
         node = goal_plan_gate.revalidate(snapshot, selection)
         if node['depends_on']:
-            # BRAIN-06C cannot infer verified predecessor completion from a
-            # claim or old worker log. BRAIN-06D/07 will supply this proof.
-            raise ValueError('Bağımlı plan node doğrulanmış predecessor kanıtı olmadan başlatılamaz.')
+            # BRAIN-07L is deliberately limited to a first-attempt read-only
+            # research child. It re-reads the canonical accepted predecessor
+            # outputs from the existing persisted ExecutionRecord; merely
+            # ready DAG topology is not worker dispatch authority.
+            goal_plan_gate.validate_dependent_research_attempt(
+                snapshot, selection, attempt=attempt,
+            )
+            from modules import dependency_evidence
+            dependency_evidence.require_persisted_research_dependencies(
+                identity, node,
+            )
         if node['capability_id'] != row['id'] or node['input'] != data:
             raise ValueError('Worker capability/input canonical plan node ile eşleşmiyor.')
+        # Read canonical acceptance evidence BEFORE invoking the real worker.
+        # The same old plan root may be retried only with a later failed
+        # attempt; success, stale user intent and malformed proof fail closed.
+        if reconcile_existing is not True and not node['depends_on']:
+            goal_plan_gate.validate_root_attempt(
+                snapshot, selection, attempt=attempt,
+            )
+        # Reconciliation never launches a worker. Its caller MUST still find
+        # an already accepted exact execution fence before committing any
+        # planned observation; worker_result_commit enforces idempotency.
         expected.update({
             'command_id': f"{step_id}:{attempt}:p{selection.plan_version}",
             'plan_version': selection.plan_version,
