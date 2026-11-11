@@ -37,7 +37,7 @@ class VoiceAcceptanceTests(unittest.TestCase):
 
     def test_two_output_stages_need_explicit_human_confirmation(self):
         heard = []
-        player = Mock(side_effect=lambda audio, cancelled: heard.append(len(audio)))
+        player = Mock(side_effect=lambda audio, cancelled, on_start: (heard.append(len(audio)), on_start()))
         with patch("modules.voice_acceptance._record_failure"):
             result = probe(self.spec, lambda s, t, c: wave_audio(), player,
                            lambda: "evet")
@@ -56,7 +56,7 @@ class VoiceAcceptanceTests(unittest.TestCase):
         ):
             with self.subTest(answer=answer):
                 result = probe(self.spec, lambda s, t, c: wave_audio(),
-                               lambda a, c: None, lambda: answer)
+                               lambda a, c, s: None, lambda: answer)
                 self.assertEqual(result["playback"], "returned")
                 self.assertEqual(result["verdict"], verdict)
                 self.assertEqual(result["human_heard"], heard)
@@ -88,7 +88,7 @@ class VoiceAcceptanceTests(unittest.TestCase):
 
     def test_noninteractive_session_cannot_fake_confirmation(self):
         result = probe(self.spec, lambda s, t, c: wave_audio(),
-                       lambda a, c: None, Mock(side_effect=EOFError()))
+                       lambda a, c, s: None, Mock(side_effect=EOFError()))
         self.assertEqual(result["playback"], "returned")
         self.assertEqual(result["verdict"], "not_verified")
 

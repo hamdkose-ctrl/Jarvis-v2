@@ -33,7 +33,7 @@ class PrivacyVoiceTests(unittest.TestCase):
                 self.assertEqual(voice._engine(), "off")
                 self.assertEqual(voice._google_text(object()), "")
                 with patch.object(voice._rec, "recognize_google", side_effect=AssertionError("Google'a gitti")), \
-                     patch.object(voice, "speak"):
+                     patch.object(voice, "_off_notice"):
                     self.assertIsNone(voice.recognize(b"\x00\x00" * 1600))
 
     def test_normal_mode_keeps_cloud_engine(self):

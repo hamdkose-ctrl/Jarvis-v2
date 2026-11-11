@@ -132,7 +132,7 @@ class OfflineVoiceTests(unittest.TestCase):
                 chunks.append(data)
                 cancel.set()
         with patch.dict(sys.modules, {"sounddevice": SimpleNamespace(RawOutputStream=lambda **kwargs: Stream())}):
-            WavePlayer(frames_per_write=256)(wav_bytes(), cancel)
+            WavePlayer(frames_per_write=256)(wav_bytes(), cancel, lambda: None)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(len(chunks[0]), 256 * 2)
 
@@ -141,7 +141,7 @@ class OfflineVoiceTests(unittest.TestCase):
         cancel.set()
         with patch.dict(sys.modules, {"sounddevice": SimpleNamespace(
                 RawOutputStream=lambda **kwargs: self.fail("must not open output"))}):
-            WavePlayer()(wav_bytes(), cancel)
+            WavePlayer()(wav_bytes(), cancel, lambda: self.fail("must not report playback start"))
 
 
 if __name__ == "__main__":

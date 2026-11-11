@@ -1,9 +1,13 @@
-"""VOICE-02A: explicitly enabled, single-owner Piper speech route for engine.
+"""Single always-active speech owner for the engine (Piper opt-in, exact Edge default).
 
-The user's existing per-profile voice key remains authoritative. All synthesis
-and playback runs in VoiceCoordinator's foreground lane; no LLM/Ollama,
-automatic model installation, network fallback, or alternate voice selection.
-This is a gated integration, not evidence of human-audible Windows output.
+The user's per-profile voice key and rate remain the only identity authority. An
+explicit, valid Voice Core config selects offline Piper voices; otherwise the
+existing exact Edge catalog runs inside the SAME VoiceCoordinator, so installs
+without Piper keep speaking. An invalid explicit config fails closed and never
+silently falls back to another engine or identity. All synthesis/playback runs in
+the coordinator's dedicated worker; no LLM/Ollama, automatic model download or
+mid-request voice switch. This is a gated integration, not evidence of
+human-audible Windows output.
 """
 from __future__ import annotations
 
@@ -11,9 +15,11 @@ import json
 from pathlib import Path
 import shutil
 import threading
+import time
 
 from modules.diagnostics import record_failure as _record_failure
 from modules.voice_core import SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec
+from modules.voice_edge import EdgePlayer, EdgeSynthesizer
 from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer
 
 
@@ -70,25 +76,47 @@ def _read_config(path: Path):
     return VoiceCatalog(tuple(specs))
 
 
+def _edge_catalog(runtime) -> VoiceCatalog:
+    """The living exact-Edge voice table is the default catalog's single source."""
+    voices = getattr(getattr(runtime, "voice", None), "VOICES", None)
+    if not isinstance(voices, dict) or not voices:
+        raise VoiceConfigurationError("Edge ses kataloğu bulunamadı.")
+    specs = []
+    for key, entry in voices.items():
+        if key not in _ALLOWED_VOICES or not isinstance(entry, (tuple, list)) or len(entry) != 2:
+            raise VoiceConfigurationError("Edge ses kataloğu geçersiz.")
+        label, name = entry
+        if not isinstance(label, str) or not label.strip() or len(label) > 100:
+            raise VoiceConfigurationError("Edge ses etiketi geçersiz.")
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            raise VoiceConfigurationError("Edge ses adı geçersiz.")
+        specs.append(VoiceSpec(key, label, "edge", name))
+    return VoiceCatalog(tuple(specs))
+
+
 def maybe_start(runtime):
-    """Return (voice_lane, explicitly_enabled); absent/disabled config keeps legacy."""
+    """Return (voice_lane, piper_enabled); the lane is the single active owner.
+
+    Absent/disabled Piper config selects the exact Edge catalog inside the same
+    coordinator. An invalid explicit config raises and fails closed (no Edge
+    fallback), so a requested-but-broken local voice never becomes another voice.
+    """
     global _BLOCK_LEGACY
     _BLOCK_LEGACY = False
     data_dir = getattr(runtime, "DATA_DIR", None)
-    if not isinstance(data_dir, Path):
-        return None, False
-    config_path = data_dir / CONFIG_NAME
-    catalog = _read_config(config_path)
-    if catalog is None:
-        return None, False
-    root = data_dir / "voice_models"
-    lane = VoiceLane(runtime, catalog, PiperSynthesizer(root), WavePlayer())
+    catalog = _read_config(data_dir / CONFIG_NAME) if isinstance(data_dir, Path) else None
+    if catalog is not None:
+        lane = VoiceLane(runtime, catalog, PiperSynthesizer(data_dir / "voice_models"), WavePlayer())
+        enabled = True
+    else:
+        lane = VoiceLane(runtime, _edge_catalog(runtime), EdgeSynthesizer(), EdgePlayer())
+        enabled = False
     try:
         register(lane)
     except VoiceConfigurationError:
         lane.close()
         raise
-    return lane, True
+    return lane, enabled
 
 
 def register(lane):
@@ -122,8 +150,31 @@ def interrupt_active() -> bool:
     return True
 
 
-def announce_active(text: str) -> bool:
-    """Route direct local privacy notices through the same owner when enabled."""
+def handoff_to_listen(timeout: float = 0.6) -> bool:
+    """Safe push-to-talk handoff: cut speech, verify output stopped, then allow mic.
+
+    Returns True only when no speech is outstanding (the player acknowledged the
+    interrupt), so the microphone never opens onto Jarvis's own speaker output.
+    This is half-duplex stop-then-listen, not full-duplex AEC. If the player does
+    not stop within the bound, returns False and the caller keeps its protection.
+    The wait is on local playback acknowledgement only — never model/disk/network.
+    """
+    lane = active()
+    if lane is None or not lane.is_busy():
+        return True
+    lane.interrupt()
+    deadline = time.monotonic() + max(0.0, timeout)
+    while lane.is_busy() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return not lane.is_busy()
+
+
+def announce_active(text: str, *, background: bool = True) -> bool:
+    """Route direct local notices/STT feedback through the same owner when active.
+
+    background=True for privacy/device notices; background=False for foreground
+    STT feedback ("anlayamadım") that answers the user's current turn.
+    """
     lane = active()
     if lane is None:
         return bool(_BLOCK_LEGACY)
@@ -135,10 +186,10 @@ def announce_active(text: str) -> bool:
     raw_rate = owner.data["prefs"].get("rate", 0)
     rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
     try:
-        lane.say(owner.slug, voice_key, text, background=True, rate=rate)
+        lane.say(owner.slug, voice_key, text, background=background, rate=rate)
     except ValueError:
         # No fallback to Edge or a different local identity.
-        runtime.emit("system", "Seçilen yerel ses kurulu değil; bildirim yalnız yazılı gösterildi.")
+        runtime.emit("system", "Seçilen ses kurulu değil; bildirim yalnız yazılı gösterildi.")
     return True
 
 
@@ -153,10 +204,76 @@ class VoiceLane:
         self._closed = False
         self._coordinator = VoiceCoordinator(
             catalog, synthesize, play, self._receipt, max_pending=8,
+            stages=self._stage_event, validate=self._privacy_gate,
         )
 
+    def _stage_event(self, request: SpeechRequest, stage: str) -> None:
+        """Present the real player boundary, never enqueue/WAV readiness, as speech.
+
+        ``playback_started`` comes from the adapter's own player callback, so the
+        orb only claims "speaking" when audio actually starts. Identity travels as
+        JSON in the existing extra channel so the UI can correlate the related
+        card; a late stage event never idles a newer utterance (idle is owned by
+        the busy-guarded receipt) and never fronts the user's window.
+        """
+        if self._closed:
+            return
+        if stage == "playback_started":
+            # Register what Jarvis actually plays so the living echo guard rejects
+            # the speaker's own output returning to the mic. Only real playback
+            # registers: a privacy-rejected or cancelled utterance never plays, so
+            # it must not suppress a matching user command. This is independent of
+            # the UI presentation owner gate below.
+            try:
+                from modules import stt_guard
+                stt_guard.note_said(request.text)
+            except Exception:
+                _record_failure("modules/voice_runtime.py:echo")
+        try:
+            if request.owner != self.runtime.pc_profile().slug:
+                return
+            if stage == "playback_started":
+                self.runtime.emit("state", "speaking")
+            identity = {
+                "speech_id": request.request_id, "voice_id": request.voice_id,
+                "kind": request.kind, "turn_id": request.turn_id,
+                "event_id": request.event_id, "goal_id": request.goal_id,
+                "artifact_id": request.artifact_id, "approval_id": request.approval_id,
+            }
+            self.runtime.emit("speech", stage, json.dumps(identity, ensure_ascii=False))
+        except Exception:
+            _record_failure("modules/voice_runtime.py:stage")
+
+    def _privacy_gate(self, request: SpeechRequest) -> str:
+        """Audible owner/privacy boundary, checked at enqueue and before playback.
+
+        Offline Piper voices are unaffected by privacy mode. Online Edge voices
+        must not egress in local-only mode; identity is kept. Separately, a queued
+        utterance whose owner is no longer the active desktop user must never reach
+        the physical speaker: switching users mid-queue must not leak the previous
+        user's audio to the new one. The UI stage/receipt already gate on owner;
+        this closes the audible boundary. It fails closed so an unreadable profile
+        never plays audio to an unknown user.
+        """
+        try:
+            if request.owner != self.runtime.pc_profile().slug:
+                return "VOICE_OWNER_SWITCHED"
+        except Exception:
+            _record_failure("modules/voice_runtime.py:owner_gate")
+            return "VOICE_OWNER_SWITCHED"
+        spec = self.catalog.require(request.voice_id)
+        if spec.backend == "edge":
+            from modules import privacy
+            if privacy.mode() == "yerel":
+                return "VOICE_PRIVACY_LOCAL_ONLY"
+        return ""
+
     def check_voice(self, voice_id: str):
-        """Do not persist a new voice choice when its local model is missing."""
+        """Do not persist a new voice choice when its local model is missing.
+
+        An exact Edge voice is a real catalog identity; its online availability is
+        only known at synthesis, so it is never pre-blocked or substituted here.
+        """
         spec = self.catalog.require(voice_id)
         if isinstance(self._synthesize, PiperSynthesizer):
             try:
@@ -171,15 +288,27 @@ class VoiceLane:
         return spec
 
     def say(self, owner: str, voice_id: str, text: str, *,
-            background: bool = False, rate: int = 0):
-        """Enqueue without waiting for synthesis or blocking caller's Core work."""
+            background: bool = False, rate: int = 0, kind: str = "reply",
+            turn_id: str = "", event_id: str = "", goal_id: str = "",
+            artifact_id: str = "", approval_id: str = "", ttl_seconds: float = 0.0):
+        """Enqueue without waiting for synthesis or blocking caller's Core work.
+
+        An unknown identity raises (no receipt, no fallback). A bounded-queue,
+        closed, invalid or privacy refusal is a typed rejected receipt and an
+        already-acknowledged Event, never a silent drop or a second voice. The
+        result identity (turn/event/goal/artifact) is supplied by the caller's
+        Core context; voice never invents it and only carries it for presentation
+        and explicit invalidation.
+        """
         voice_id = voice_id if isinstance(voice_id, str) else ""
         self.catalog.require(voice_id)  # explicit exact voice; no implicit fallback
         request_id = self.runtime.secrets.token_hex(16)
         request = SpeechRequest(owner=owner, request_id=request_id,
                                 voice_id=voice_id, text=text,
                                 lane="background" if background else "foreground",
-                                rate=rate)
+                                rate=rate, kind=kind, turn_id=turn_id, event_id=event_id,
+                                goal_id=goal_id, artifact_id=artifact_id,
+                                approval_id=approval_id, ttl_seconds=ttl_seconds)
         done = threading.Event()
         with self._lock:
             if self._closed:
@@ -194,7 +323,6 @@ class VoiceLane:
             raise
         if not accepted:
             self._forget(request_id)
-            raise ValueError("Voice Core konuşma kuyruğu dolu; farklı sesle tekrar denenmedi.")
         return done
 
     def _forget(self, request_id: str):
@@ -205,14 +333,30 @@ class VoiceLane:
         if done is not None:
             done.set()
 
+    def _notice_for(self, receipt) -> str | None:
+        if receipt.status == "failed":
+            return "Seçilen ses üretilemedi veya oynatılamadı; başka sese geçilmedi, yanıt yazılı korundu."
+        if receipt.status == "rejected":
+            if receipt.reason_code == "VOICE_PRIVACY_LOCAL_ONLY":
+                return "Yerel modda çevrimiçi ses buluta gönderilmez; ses tercihin korundu, yanıt yalnız yazılı gösterildi."
+            if receipt.reason_code == "VOICE_QUEUE_FULL":
+                return "Ses kuyruğu dolu; bu yanıtın sesi atlandı, yazılı sonuç korundu."
+            if receipt.reason_code == "VOICE_CLOSED":
+                return None
+            if receipt.reason_code == "VOICE_OWNER_SWITCHED":
+                return None  # another user's audio; this user gets their own result, not a notice
+            return "Ses bu sonuç için geçerli değil; yazılı sonuç korundu."
+        return None
+
     def _receipt(self, receipt):
         self._forget(receipt.request_id)
         if self._closed:
             return
         try:
             if receipt.owner == self.runtime.pc_profile().slug:
-                if receipt.status == "failed":
-                    self.runtime.emit("system", "Seçilen yerel ses üretilemedi veya oynatılamadı; başka sese geçilmedi.")
+                notice = self._notice_for(receipt)
+                if notice:
+                    self.runtime.emit("system", notice)
                 if not self.busy_event.is_set():
                     self.runtime.emit("state", "idle")
         except Exception:
@@ -221,6 +365,10 @@ class VoiceLane:
     def interrupt(self):
         self._coordinator.interrupt_speech()  # NEVER cancels GoalState/worker
         # Busy remains set until the worker acknowledges pending receipts.
+
+    def invalidate(self, **selectors) -> int:
+        """Drop queued/active audio for an explicit Core result identity."""
+        return self._coordinator.invalidate(**selectors)
 
     def close(self):
         global _ACTIVE, _BLOCK_LEGACY

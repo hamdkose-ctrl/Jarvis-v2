@@ -197,10 +197,14 @@ def main(runtime, ui=None):
 
             if kind == "listen" and getattr(voice_session, "voice_lane", None) is not None \
                     and voice_session.voice_lane.is_busy():
-                # Explicit one-shot recording must not transcribe Jarvis's own
-                # speaker output. Barge-in wake detection is a separate channel.
-                runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
-                continue
+                # Push-to-talk safe handoff: cut speech and verify the player stopped
+                # before opening the mic, so one-shot recording never transcribes
+                # Jarvis's own speaker output. If output does not stop in time, keep
+                # the protection. Barge-in wake detection is a separate channel.
+                from modules import voice_runtime
+                if not voice_runtime.handoff_to_listen():
+                    runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
+                    continue
 
             if kind == "listen" and voice_session.live_on and runtime.live.get() is not None and runtime.live.enabled():
                 runtime.live.get().wake()

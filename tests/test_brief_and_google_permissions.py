@@ -1,8 +1,9 @@
 """Sabah özeti aynı kullanıcıya bir kez gider; Google izin uyarıları her hizmetin kendi düğmesini gösterir.
 
 Regresyonlar (14 Ekim 2026):
-- Canlı (Gemini Live) mod açıkken arka plan iletisi (sabah özeti, hatırlatma) önce `_emit_for` ile sohbete yazılıyor,
-  sonra Live sesiyle okunurken transkripti ikinci kez sohbet balonu oluyordu.
+- Arka plan iletisi (sabah özeti, hatırlatma) önce sohbete yazılıyor, sonra seslendirilirken ikinci kez
+  sohbet balonu oluyordu. O dönem canlı (Gemini Live) sesi transkripti kendisi basıyordu; tek ses çıkış
+  sahibine göçte bu koruma `shown`/`background` ile sahibine notice olarak sıraya alma sözleşmesine taşındı.
 - Özet kontrolü ile `last_brief` kaydı arasında yavaş model çağrısı vardı; aynı anda iki çalışma iki özet üretebilirdi.
   Profil süreç içinde önbelleklidir, yeniden başlatma örtüşmesinde önceki sürecin yazdığı kaydı görmüyordu.
 - Gmail/Takvim izni düşünce uyarı "Görevler iznini ver" düğmesini söylüyordu: kullanıcıya özel izin yolu eski
@@ -106,22 +107,30 @@ class MorningBriefOnceTests(unittest.TestCase):
 class BackgroundSpeechNotDuplicatedTests(unittest.TestCase):
     def session(self, source=''):
         from modules.engine_voice import VoiceSession
-        live = Mock()
-        runtime = SimpleNamespace(flags={'speak': True, 'mic': True}, _cur_source=source,
-                                  live=SimpleNamespace(get=lambda: live, enabled=lambda: True))
+        lane = Mock()
+        lane.say.return_value = Mock(is_set=Mock(return_value=True))
+        runtime = SimpleNamespace(
+            flags={'speak': True, 'mic': True}, _cur_source=source, _cur_rid='rid-1',
+            profile=SimpleNamespace(slug='hamdi', data={'prefs': {'voice': 'tr_erkek'}}),
+            emit=Mock(), threading=SimpleNamespace(Thread=Mock()))
         session = VoiceSession.__new__(VoiceSession)
-        session.runtime, session.speak_enabled, session.live_on = runtime, True, True
-        return session, live
+        session.runtime, session.speak_enabled = runtime, True
+        session.voice_lane, session.voice_core_fault = lane, None
+        return session, lane
 
-    def test_already_shown_background_text_is_not_a_second_bubble(self):
-        session, live = self.session(source='ses')
+    def test_already_shown_background_text_is_enqueued_as_notice_not_a_bubble(self):
+        session, lane = self.session(source='ses')
         session.speak('Günaydın Hamdi', shown=True)
-        self.assertTrue(live.say.call_args.kwargs['suppress_ui'])
+        # The chat already carries this text; the single owner must enqueue it as a
+        # background notice, never re-present it as a fresh foreground reply bubble.
+        self.assertTrue(lane.say.call_args.kwargs['background'])
+        self.assertEqual(lane.say.call_args.kwargs['kind'], 'notice')
 
-    def test_live_reply_still_shows_when_not_written(self):
-        session, live = self.session(source='ses')
+    def test_reply_still_foreground_when_not_written(self):
+        session, lane = self.session(source='ses')
         session.speak('Merhaba')
-        self.assertFalse(live.say.call_args.kwargs['suppress_ui'])
+        self.assertFalse(lane.say.call_args.kwargs['background'])
+        self.assertEqual(lane.say.call_args.kwargs['kind'], 'reply')
 
     def test_owner_tagged_say_events_are_marked_shown(self):
         src = (ROOT / 'modules' / 'engine_loop.py').read_text(encoding='utf-8')

@@ -206,14 +206,14 @@ class VoiceSession:
         self.voice_core_fault = None
         from modules import voice_runtime
         try:
-            self.voice_lane, _enabled = voice_runtime.maybe_start(runtime)
+            self.voice_lane, piper_enabled = voice_runtime.maybe_start(runtime)
         except ValueError:
             runtime._record_failure('modules/engine_voice.py:voice_core_setup')
             voice_runtime.block_legacy_on_fault()
             # An explicitly requested invalid configuration must never silently
             # fall back to Edge, SAPI or a different user's voice.
             self.voice_core_fault = "Voice Core yapılandırması hatalı. Ses değiştirilmedi; yanıt yazılı kalacak."
-        if self.voice_lane is not None:
+        if self.voice_lane is not None and piper_enabled:
             runtime.emit("system", "Yerel Voice Core etkin: ses arka planda oynatılır, seçili ses değişmez.")
 
     def close(self):
@@ -255,53 +255,41 @@ class VoiceSession:
 
     def speak(self, text: str, slow: bool = False, shown: bool = False) -> None:
         runtime = self.runtime
-        if self.speak_enabled and runtime.flags["speak"]:
-            if getattr(self, "voice_core_fault", None):
-                runtime.emit("system", self.voice_core_fault)
-                return
-            lane = getattr(self, "voice_lane", None)
-            if lane is not None:
-                # Existing per-user voice preference is the only voice identity
-                # authority. Do not reuse Edge/SAPI when an exact Piper model is
-                # absent. Enqueue returns immediately; Core work continues.
-                prefs = runtime.profile.data["prefs"]
-                voice_key = prefs.get("voice") or "tr_erkek"
-                raw_rate = prefs.get("rate", 0)
-                rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
-                if slow:
-                    rate = min(rate, -15)
-                try:
-                    done = lane.say(runtime.profile.slug, voice_key, text,
-                                    background=shown, rate=rate)
-                except ValueError:
-                    runtime._record_failure('modules/engine_voice.py:voice_core_submit')
-                    runtime.emit("system", "Seçilen yerel ses kullanılamıyor veya kuyruk dolu; başka ses kullanılmadı.")
-                    return
-                if not done.is_set():
-                    runtime.emit("state", "speaking")
-                    runtime.threading.Thread(
-                        target=self._barge_watch, args=(done,), daemon=True,
-                    ).start()
-                return
-            # Canlı mod açıksa TÜM PC sesli yanıtlarını aynı Gemini Live sesiyle okut.
-            # Yazı/web cevabı zaten arayüze bir kez yazıldığı için Live transkriptinin ikinci kez
-            # sohbet geçmişine düşmesini `suppress_ui=True` ile engelliyoruz.
-            # shown=True: arka plan iletisi (sabah özeti, hatırlatma, Google izni) `_emit_for` ile zaten yazıldı.
-            if self.live_on and runtime.live.get() is not None and runtime.live.enabled():
-                runtime.live.get().say(text, suppress_ui=shown or (runtime._cur_source in ("yazı", "web")) or slow, exact=True, slow=slow)
-                return
-            runtime.emit("state", "speaking")
-            done = runtime.threading.Event()
-            runtime.threading.Thread(target=self._barge_watch, args=(done,), daemon=True).start()
-            opts = runtime._voice_opts()
-            if slow:
-                opts["rate"] = min(opts.get("rate", -8), -15)   # ders anlatımı: daha da yavaş
-            try:
-                error = runtime.voice.speak(text, **opts)
-                if isinstance(error, str):
-                    runtime.emit("system", error)
-            finally:
-                done.set()
+        if not (self.speak_enabled and runtime.flags["speak"]):
+            return
+        if getattr(self, "voice_core_fault", None):
+            runtime.emit("system", self.voice_core_fault)
+            return
+        lane = getattr(self, "voice_lane", None)
+        if lane is None:
+            # The single owner is absent only after a reported fault; never open
+            # a second Edge/SAPI/Live speech path from here.
+            return
+        # Existing per-user voice preference is the only voice identity authority.
+        # Enqueue returns immediately; Core work continues. A refusal is a typed
+        # receipt with a written notice, not a fallback to another voice.
+        prefs = runtime.profile.data["prefs"]
+        voice_key = prefs.get("voice") or "tr_erkek"
+        raw_rate = prefs.get("rate", 0)
+        rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
+        if slow:
+            rate = min(rate, -15)
+        try:
+            done = lane.say(runtime.profile.slug, voice_key, text,
+                            background=shown, rate=rate,
+                            kind="notice" if shown else "reply",
+                            turn_id=getattr(runtime, "_cur_rid", None) or "")
+        except ValueError:
+            runtime._record_failure('modules/engine_voice.py:voice_core_submit')
+            runtime.emit("system", "Seçilen ses kullanılamıyor; başka ses kullanılmadı, yanıt yazılı korundu.")
+            return
+        if not done.is_set():
+            # "speaking" is claimed by the lane at the real playback_started
+            # boundary, not here at enqueue: synthesis/queue acceptance is not
+            # audible speech. Barge-in watching still starts for the live utterance.
+            runtime.threading.Thread(
+                target=self._barge_watch, args=(done,), daemon=True,
+            ).start()
 
     def offline_wake_step(self) -> bool:
         runtime = self.runtime

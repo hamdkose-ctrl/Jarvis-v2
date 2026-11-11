@@ -78,8 +78,9 @@ class ChunkedSpeechTests(unittest.TestCase):
         def synth(voice, text, cancel):
             starts.append((voice.voice_id, text))
             return text.encode("utf-8")
-        def play(audio, cancel):
+        def play(audio, cancel, on_start):
             played.append(audio.decode("utf-8"))
+            on_start()
         lane = self.start(synth, play)
         unrelated_goal = threading.Event()
         unrelated_goal.set()
@@ -99,7 +100,7 @@ class ChunkedSpeechTests(unittest.TestCase):
             self.assertTrue(text.strip())
             chunks.append(text)
             return b"audio"
-        lane = self.start(synth, lambda audio, cancel: None)
+        lane = self.start(synth, lambda audio, cancel, on_start: on_start())
         text = (" " * 900) + "Merhaba, bu konuşma devam ediyor."
         self.assertTrue(lane.submit(request("spaces", text)))
         self.until(1)
@@ -117,7 +118,7 @@ class ChunkedSpeechTests(unittest.TestCase):
             entered.set()
             self.assertTrue(released.wait(3))
             return b"audio"
-        lane = self.start(synth, lambda audio, cancel: played.append(audio))
+        lane = self.start(synth, lambda audio, cancel, on_start: (played.append(audio), on_start()))
         try:
             self.assertTrue(lane.submit(request("long", "Merhaba! " * 180)))
             self.assertTrue(entered.wait(1))
@@ -139,7 +140,7 @@ class ChunkedSpeechTests(unittest.TestCase):
             entered.set()
             self.assertTrue(released.wait(3))
             return b"audio"
-        lane = self.start(synth, lambda audio, cancel: None)
+        lane = self.start(synth, lambda audio, cancel, on_start: on_start())
         try:
             self.assertTrue(lane.submit(request("active", "Merhaba")))
             self.assertTrue(entered.wait(1))
@@ -165,7 +166,7 @@ class ChunkedSpeechTests(unittest.TestCase):
             entered.set()
             self.assertTrue(released.wait(3))
             return b"audio"
-        lane = self.start(synth, lambda audio, cancel: None)
+        lane = self.start(synth, lambda audio, cancel, on_start: on_start())
         try:
             self.assertTrue(lane.submit(request("active", "A")))
             self.assertTrue(entered.wait(1))
@@ -177,17 +178,22 @@ class ChunkedSpeechTests(unittest.TestCase):
             self.assertEqual(self.receipts[0].request_id, "queued")
             self.assertEqual(self.receipts[0].status, "cancelled")
             self.assertFalse(lane.submit(request("after-close", "C")))
+            closed_receipt = self.receipts[-1]
+            self.assertEqual((closed_receipt.request_id, closed_receipt.status,
+                              closed_receipt.reason_code),
+                             ("after-close", "rejected", "VOICE_CLOSED"))
         finally:
             released.set()
-        self.until(2)
-        self.assertEqual({x.request_id for x in self.receipts}, {"active", "queued"})
+        self.until(3)
+        self.assertEqual({x.request_id for x in self.receipts},
+                         {"active", "queued", "after-close"})
 
     def test_mid_sentence_synthesis_failure_never_plays_later_chunks(self):
         calls, played = [], []
         def synth(voice, text, cancel):
             calls.append(text)
             return b"audio" if len(calls) == 1 else b""
-        lane = self.start(synth, lambda audio, cancel: played.append(audio))
+        lane = self.start(synth, lambda audio, cancel, on_start: (played.append(audio), on_start()))
         self.assertTrue(lane.submit(request("failed", "Devam! " * 260)))
         self.until(1)
         self.assertEqual(len(calls), 2)
@@ -206,7 +212,7 @@ class ChunkedSpeechTests(unittest.TestCase):
                 started.set()
                 self.assertTrue(released.wait(3))
             return b"audio"
-        lane = self.start(synth, lambda audio, cancel: played.append(audio))
+        lane = self.start(synth, lambda audio, cancel, on_start: (played.append(audio), on_start()))
         try:
             self.assertTrue(lane.submit(request("background", "Bildirim. " * 210,
                                                 lane="background", voice="tr_erkek")))

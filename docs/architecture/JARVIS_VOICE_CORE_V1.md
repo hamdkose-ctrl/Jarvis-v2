@@ -1,6 +1,6 @@
 # Jarvis Voice Core v1 — Architecture and bounded rollout
 
-Status: VOICE-01 foundation only. This document is a target contract, NOT a live speech cutover.
+Status: VOICE-V2 unified output cutover (see the VOICE-V2 section at the end). `modules/voice_runtime.py` is now the single always-active speech owner for every assistant utterance; the legacy `voice.py`/Live speech paths are retired. This is still **not** evidence of human-audible Windows output or measured latency/AEC — those remain manual PC acceptance.
 
 ## Invariants
 
@@ -27,10 +27,10 @@ The Coordinator does **not** choose an alternate TTS provider or a new voice, cr
 
 ## Existing implementation seams
 
-- `modules/engine_loop.py` currently emits text and then calls `VoiceSession.speak` in its request-processing loop while holding `audio_lock`; an Edge/network wait can therefore occupy that loop. Move it into the dedicated speech lane **only after** cancellation, output identity and visible UI behavior are preserved.
-- `modules/engine_voice.py` currently dispatches to `voice.speak` or Live, and `modules/engine_context.py:_voice_opts` reads the user's selected voice. Reuse the existing preference data and voice choices; do not add a second preference authority.
-- `modules/voice.py` currently implements Edge TTS, pyttsx3 local mode, and Windows MCI playback. Media-only `modules/local_narration.py` supports Piper/SAPI WAV rendering. None of these is automatically a voice-identity-compatible fallback.
-- Gemini Live `enabled()` currently returns False. Do not design Voice Core to depend on Live or Ollama.
+- `modules/engine_loop.py` routes assistant text through `VoiceSession.speak`, which now enqueues to the single `VoiceLane`; it no longer holds an Edge/network wait in the request loop. The microphone transcription path gates on `voice_runtime.handoff_to_listen()` (cut → verify stopped → open mic), half-duplex, not AEC.
+- `modules/engine_voice.py` dispatches only to `VoiceLane.say` (single owner). `modules/engine_context.py:_voice_opts`/`set_profile_rate` read/write the user's one selected voice and bounded rate. There is no second preference authority and no `voice.speak`/Live speech branch left.
+- `modules/voice.py` now holds ONLY the living microphone/STT/privacy surface (`recognize`, `listen`, `VOICES`, guards) and `stop_speaking` as the single-owner router to `voice_runtime.interrupt_active`. Its former Edge TTS, pyttsx3 local mode, MCI playback, `_local_say/_play_mp3/_chunks/_seq/_stop_flag/TTS_*` machinery was retired in the VOICE-V2 cutover below. Media-only `modules/local_narration.py` (produces audio FILES, not assistant speaker speech) is unaffected.
+- Gemini Live `enabled()` returns False; Voice Core does not depend on Live or Ollama. The Live engine/settings/`voice_timing` bridge retirement is a separate cross-boundary item.
 
 ## Stage gates
 
@@ -121,3 +121,30 @@ Web UI reports `rate_supported=true` **only** when a local `VoiceLane` is active
 VOICE-02B manual listening CLI also accepts `--rate -20`, `--rate 0` or `--rate 20` with the **same** `--voice-id`, `--model`, `--model-root` and `--license-reviewed`; it reports `requested_rate` without asserting the sound has the requested duration/quality. This command must be run by a human on their Windows speakers for each explicitly approved model. Invalid rate or missing licence confirmation fails before audio. It does not change the persisted user preference.
 
 **This is not yet human-audible rate/prosody acceptance.** Operator must test actual Piper CLI version, selected Turkish models at slow/normal/fast rates on Windows speakers, pronunciation and latency between long-speech chunks. Keep VOICE-02A opt-in, no unapproved model downloads or replacement of the active voice until manually accepted with the VOICE-02B procedure.
+
+## VOICE-V2 — Unified always-active speech owner and legacy retirement
+
+`modules/voice_runtime.py` is now the single, always-active speech-output owner for every assistant utterance. When `voice_core.json` is explicitly enabled and valid, the offline Piper catalog runs inside the coordinator; otherwise the living exact-Edge voice table (`voice.VOICES`) runs as an EXACT-voice adapter of the SAME `VoiceCoordinator` — not a separate legacy loop. An install without Piper therefore keeps speaking, and an invalid explicit config fails closed (no silent Edge/SAPI substitution). The per-user `prefs.voice`/`prefs.rate` remain the sole identity authority; each request snapshots `voice_id` and rate; rendering never switches to another voice.
+
+Retired in this cutover (zero production callers verified):
+- `modules/voice.py` `speak`, `_local_say`, `_play_mp3`, `_chunks`, `_clean`, `_seq`, `_stop_flag`, `_fallback`, `TTS_VOICE`, `TTS_RATE`, `PAUSE`, `last_speech_end` and the `asyncio/ctypes/os/queue/tempfile/threading/edge_tts/pyttsx3` imports. `voice.stop_speaking` is retained purely as the single-owner router to `voice_runtime.interrupt_active`.
+- The independent Live/`voice.speak` speech branch inside `VoiceSession.speak`; the former `tests/test_voice_shutdown.py` that bound only to those deleted internals (its behaviors are covered by `test_voice_core`, `test_voice_output_contract` and `test_voice_edge`).
+
+Preserved living capabilities that the retirement had to keep:
+- **Echo guard:** `stt_guard.note_said(text)` is now registered at the real `playback_started` boundary in `VoiceLane._stage_event`, so only audio that actually reaches the speaker suppresses a matching user command; a privacy-, invalidation- or owner-rejected utterance never registers.
+- **Bounded synthesis:** `EdgeSynthesizer` now runs the online stream under an `asyncio.wait_for` deadline (default 45s, parity with the retired legacy timeout and Piper's 40s); expiry is a typed `EdgeVoiceUnavailable` → coordinator `failed` receipt + written notice, so a hung service cannot stick the single worker or the mic handoff forever.
+
+New production behavior added in VOICE-V2:
+- **Audible owner boundary (§5):** `VoiceLane._privacy_gate`, checked at enqueue and before every playback chunk, now also rejects a request whose `owner` is not the active desktop profile (`VOICE_OWNER_SWITCHED`). Switching users mid-queue can no longer leak the previous user's still-queued audio into the new user's session; the drop is silent (no misleading written notice), and the new user's own result is unaffected. Regression: `test_speech_for_another_owner_never_reaches_the_player`, `test_user_switch_stops_queued_old_owner_audio_before_playback`.
+- **Real playback/UI stages:** `speech/{accepted,synthesizing,audio_ready,playback_started}` and `state/speaking` are presented only from the player's own `on_start` boundary, never from enqueue or WAV readiness, are owner-gated, and a late/cancelled receipt cannot idle a newer utterance (idle is owned by the busy-guarded receipt). The user's window is never force-fronted.
+- **Safe output→input handoff:** `voice_runtime.handoff_to_listen(timeout)` cuts speech, waits only on the local playback acknowledgement, and opens the mic only when output actually stopped; if it does not stop within the bound the caller keeps its one-shot-listen protection.
+- **Backpressure/typed receipts:** bounded 8-pending queue yields `VOICE_QUEUE_FULL`, closed owner `VOICE_CLOSED`, invalid/privacy `VOICE_PRIVACY_LOCAL_ONLY`; every refusal is a typed receipt + already-acknowledged Event, never a silent drop, and a failed/absent playback never marks a completed task failed (written result preserved).
+
+`SpeechRequest` schema `speech.request.v2` carries the caller-supplied result identity — `kind, turn_id, event_id, goal_id, artifact_id, approval_id, ttl_seconds` — which voice only presents and uses for explicit, identity-targeted `invalidate(*, owner, goal_id, turn_id, event_id, request_id)` (empty selector refused, so a state refresh can never blind-clear the queue). Foreground conversation preempts only the audio notification, never its GoalState.
+
+**Brain/integration points NOT closed by this voice branch (recorded, not implemented here):**
+1. No producer-facing Scheduler hook exists: `resource_leases.py` `_ALLOWED_KINDS` has no output-device/speech kind and no production `LeaseTable`/`Scheduler` consumes one. Voice exposes busy state through `active()/is_busy()/busy_event/handoff_to_listen`, consumed by the microphone handoff only. Serializing physical-output occupancy under the Scheduler requires a Brain-side resource kind + consult — no second lease table will be added from the voice side.
+2. "sus" → response-*generation* cancellation needs a Brain consumer: the response identity already exists (`requests_state.cancel(owner, rid)`, `response_waiters`), and the voice side is ready via `invalidate(turn_id=...)`, but wiring "may signal response generation without touching GoalState" is a Brain call, kept as speech-only here per the tested contract.
+3. Gemini Live engine + `live_mode/live_beep/live_headphones/live_silence_ms/live_idle_seconds` Brain settings + the `voice_timing` bridge retirement cross Brain canonical-settings authority and shared engine files; Live is fully inert (`enabled()` False, `live_on` False, `start` never called) so the single-owner goal is already met, and the retirement is tracked as a separate cross-boundary item. Living STT helpers in `live.py` (`DEFAULT_FIXES`/`parse_fixes`/`apply_fixes`/`_migrate_fixes`/`_fixes_prompt`, consumed by `learning.py` and `web.py`) must be relocated to an independent owner first.
+
+**Verified here:** unified owner, exact-voice identity/rate snapshot, no auto voice switch, foreground/background priority, bounded queue + adapter error typed receipts, `Sus` does not cancel Core work, late TTS/receipt cannot restore old audio/idle new speech, single playback owner, real-playback echo guard, bounded Edge synthesis, audible owner-switch boundary, Ollama-independent. **Not measured (PC acceptance):** human-audible Windows output/two-identity quality, AEC/full-duplex, §12 p95/p99 latency budgets, 15-min load underrun, cold model start. **Pre-existing out-of-scope flakes (base `1a96749`, untouched):** `test_live_deadline_blocks_side_effect` and `EngineClarifyTests.test_voice_and_typed_bare_close_...` leak a real model call in voice **input** routing.

@@ -27,7 +27,7 @@ class PiperRateTests(unittest.TestCase):
             calls.append((spec.voice_id, spec.asset_id, spec.speaking_rate))
             return b"pcm"
         catalog = voice_catalog()
-        coordinator = VoiceCoordinator(catalog, synth, lambda audio, cancel: None, report)
+        coordinator = VoiceCoordinator(catalog, synth, lambda audio, cancel, on_start: on_start(), report)
         try:
             for idx, speed in enumerate((25, -20, 0)):
                 self.assertTrue(coordinator.submit(SpeechRequest(
