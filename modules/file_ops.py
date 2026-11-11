@@ -253,26 +253,28 @@ def undo(owner: str = "") -> str:
     for entry in reversed(pairs):
         new, old = entry[0], entry[1]
         try:
-            if not os.path.exists(new):
-                pending.append(entry)
-                continue
-            if old == "":
-                # Oluşturulan dosya yalnız Jarvis'in yazdığı içerikle aynıysa silinir.
-                if len(entry) > 2 and _digest(Path(new)) == entry[2]:
-                    os.remove(new)
-                    done += 1
-                else:
+            # Undo must participate in the SAME path ownership as the
+            # original operation. No stale receipt can authorize a blind move.
+            paths = (Path(new), Path(old)) if old else (Path(new),)
+            with file_resource_guard.claim_paths(*paths):
+                if not os.path.exists(new):
                     pending.append(entry)
-            elif len(entry) > 2 and _digest(Path(new)) != entry[2]:
-                # Taşınan/yeniden adlandırılan dosya sonradan değiştirildiyse kimliğini koru.
-                pending.append(entry)
-            elif os.path.exists(old):
-                # Eski konum doluysa üzerine yazma; kayıt sonraki deneme için kalsın.
-                pending.append(entry)
-            else:
-                shutil.move(new, old)
-                done += 1
-        except OSError:
+                    continue
+                if old == "":
+                    # Delete only if Jarvis-owned content still matches.
+                    if len(entry) > 2 and _digest(Path(new)) == entry[2]:
+                        os.remove(new)
+                        done += 1
+                    else:
+                        pending.append(entry)
+                elif len(entry) > 2 and _digest(Path(new)) != entry[2]:
+                    pending.append(entry)
+                elif os.path.exists(old):
+                    pending.append(entry)
+                else:
+                    shutil.move(new, old)
+                    done += 1
+        except (OSError, resource_leases.LeaseConflict):
             pending.append(entry)
     try:
         if pending:

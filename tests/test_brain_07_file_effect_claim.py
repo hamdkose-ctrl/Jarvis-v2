@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import file_ops, file_resource_guard
+from modules import file_ops, file_resource_guard, file_worker_extensions
 
 
 _HOLD = """
@@ -101,6 +101,31 @@ class FileEffectClaimTests(unittest.TestCase):
             )
             self.assertIn('adını', done)
             self.assertEqual((self.folder / 'changed.txt').read_text(encoding='utf-8'), 'free')
+        finally:
+            self.close_holder(child)
+
+    def test_undo_cannot_reverse_file_while_another_worker_owns_it(self):
+        changed = self.folder / 'changed.txt'
+        original = self.folder / 'original.txt'
+        changed.write_text('unchanged', encoding='utf-8')
+        file_ops._record([[str(changed), str(original), file_ops._digest(changed)]], 'alice')
+        child = self.holder(changed)
+        try:
+            result = file_ops.undo('alice')
+            self.assertIn('geri alamadım', result)
+            self.assertTrue(changed.exists())
+            self.assertFalse(original.exists())
+        finally:
+            self.close_holder(child)
+
+    def test_patch_text_joins_same_resource_claim(self):
+        target = self.folder / 'not.txt'
+        target.write_text('before', encoding='utf-8')
+        child = self.holder(target)
+        try:
+            with self.assertRaises(file_worker_extensions.FileWorkerExtensionError):
+                file_worker_extensions.patch_text(target, {'before':'after'})
+            self.assertEqual(target.read_text(encoding='utf-8'), 'before')
         finally:
             self.close_holder(child)
 

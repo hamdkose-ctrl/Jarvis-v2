@@ -35,11 +35,14 @@ def claim_paths(*paths):
         keys.add(resource_leases.resource_key('file', digest))
         # Hardlinks with distinct paths still refer to the same physical file.
         if path.is_file():
-            stat = path.stat(follow_symlinks=False)
-            identifier = f'{stat.st_dev}:{stat.st_ino}'
-            keys.add(resource_leases.resource_key(
-                'file', hashlib.sha256(identifier.encode('ascii')).hexdigest(),
-            ))
+            info = path.stat(follow_symlinks=False)
+            # Some Windows filesystems report a zero inode for every file.
+            # A non-unique alias must NEVER become a global file mutex.
+            if info.st_ino:
+                identifier = f'{info.st_dev}:{info.st_ino}'
+                keys.add(resource_leases.resource_key(
+                    'file', hashlib.sha256(identifier.encode('ascii')).hexdigest(),
+                ))
     # Sorted, non-blocking multi-claim acquisition prevents circular waits.
     # ExitStack releases already acquired keys if a later key is occupied.
     with ExitStack() as stack:

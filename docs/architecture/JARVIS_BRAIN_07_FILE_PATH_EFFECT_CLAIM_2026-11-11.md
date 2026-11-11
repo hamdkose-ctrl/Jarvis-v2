@@ -20,3 +20,14 @@ resource coverage or BRAIN-07 closeout. External programs may still edit
 files; these locks are not an OS-level filesystem transaction.
 
 Acceptance: exact-head Windows CI and matching PC watcher PASS.
+
+## Additional cooperative writers in this PR
+
+`file_ops.undo` now rechecks each receipt's source/old path inside the
+same OS claim as forward rename/move/create operations before changing it.
+`file_worker_extensions.patch_text` performs its bounded validation,
+read and write under the file claim; `create_pptx` (including injected
+writer) reserves the exact destination before saving. Claims are only
+held while changing local files. Other report/media writer adapters remain
+outside this package. An inode value of zero is not trusted as a physical
+identity to avoid blocking unrelated files on some Windows filesystems.
