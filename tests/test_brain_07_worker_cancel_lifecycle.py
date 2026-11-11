@@ -117,6 +117,36 @@ class ExternalGoalCancellationTests(unittest.TestCase):
         with self.assertRaises(goal_state_store.PersistedStateCorruption):
             goal_executor._ensure(self.runtime, self.job)
 
+    def test_run_does_not_overwrite_foreign_terminal_on_cancellation(self):
+        self.terminal('cancelled')
+        before = self.path.read_bytes()
+        with (
+            patch.object(goal_executor, 'read_job', return_value=self.job),
+            patch.object(goal_executor, '_loop',
+                         side_effect=requests_state.Cancelled('external cancel')),
+            patch.object(goal_executor, '_save') as save,
+        ):
+            with self.assertRaisesRegex(requests_state.Cancelled, 'external cancel'):
+                goal_executor._run(
+                    self.runtime, 'devam', resume=True, job_id=JOB,
+                )
+            save.assert_not_called()
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_local_cancel_still_persists_when_goal_is_running(self):
+        with (
+            patch.object(goal_executor, 'read_job', return_value=self.job),
+            patch.object(goal_executor, '_loop',
+                         side_effect=requests_state.Cancelled('local cancel')),
+            patch.object(goal_executor, '_save') as save,
+        ):
+            with self.assertRaisesRegex(requests_state.Cancelled, 'local cancel'):
+                goal_executor._run(
+                    self.runtime, 'devam', resume=True, job_id=JOB,
+                )
+            save.assert_called_once()
+        self.assertEqual(self.job['state'], 'cancelled')
+
     def test_other_job_cancel_does_not_stop_active_job(self):
         other_id = 'fedcba9876543210'
         other = goal_state.new(owner=OWNER, job_id=other_id, goal='other goal', authority='canonical')

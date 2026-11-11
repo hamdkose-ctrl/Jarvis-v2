@@ -948,6 +948,20 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
         try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
                          resume=resume)
         except requests_state.Cancelled:
+            # The original cancellation might be a durable terminal decision
+            # made by another process. Do not attempt a stale journal write:
+            # it cannot revive canonical state, but its version conflict could
+            # hide the meaningful cancellation from the caller.
+            from modules import goal_state_store
+            path=_owner_root(owner)/(job['id']+'.goalstate.json')
+            if path.is_symlink():
+                raise
+            if path.exists():
+                current=goal_state_store.load(path)
+                if (current['owner'],current['job_id'])!=(owner,job['id']):
+                    raise
+                if current['state'] in {'done','cancelled'}:
+                    raise
             job['state']='cancelled';_save(job);raise
 
 

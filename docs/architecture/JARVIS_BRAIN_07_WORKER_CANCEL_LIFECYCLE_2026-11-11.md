@@ -15,3 +15,11 @@ Unrelated accepted evidence can advance the GoalState version without being
 misinterpreted as cancellation. No second Scheduler is introduced.
 
 Acceptance: exact-head Windows CI and matching real-PC watcher PASS.
+
+### Foreign-terminal cancellation propagation
+
+When the worker detects a durable terminal state written by another process,
+the outer goal loop now preserves the original cancellation outcome without
+attempting to overwrite that terminal journal snapshot. The normal in-process
+cancel path still writes its own cancellation if canonical state remains
+active. No remote operation is cancelled or retried by this adjustment.
