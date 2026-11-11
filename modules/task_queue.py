@@ -311,16 +311,16 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
                 return False
 
             def work():
+                from modules import task_agents
                 token=llm._key_context.set(owner)
                 try:
                     if not stop_event.is_set():
                         tick(owner, notify)
+                except task_agents.Busy:
+                    # A user-owned synchronous job has the same owner.
+                    pass
                 except Exception:
-                    from modules import task_agents
-                    # Busy is normal when a synchronous user-owned job runs.
-                    # Any other failure must not stop the single poll loop.
-                    if not isinstance(__import__('sys').exc_info()[1], task_agents.Busy):
-                        _record_failure('modules/task_queue.py:owner_tick')
+                    _record_failure('modules/task_queue.py:owner_tick')
                 finally:
                     llm._key_context.reset(token)
 
