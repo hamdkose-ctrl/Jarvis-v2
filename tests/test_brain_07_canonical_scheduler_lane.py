@@ -388,7 +388,7 @@ class SchedulerOfferTests(unittest.TestCase):
             except Exception as exc:
                 failures.append(exc)
 
-        with patch.object(task_agents, 'worker', side_effect=worker), \\
+        with patch.object(task_agents, 'worker', side_effect=worker), \
              patch.object(untrusted_flow, 'observe'):
             thread = threading.Thread(target=run, name='stop-fence-test')
             thread.start()
