@@ -423,6 +423,7 @@ def _record(runtime,job,step,approval=None):
         dependency_evidence.preflight_durable_step(
             _identity(job,step), step, job.get('outputs'),
             owner=job['owner'], job_id=job['id'],
+            canonical_required=True,
         )
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']

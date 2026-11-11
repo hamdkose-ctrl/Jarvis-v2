@@ -375,6 +375,47 @@ class DurableSpecialistDependencyGateTests(unittest.TestCase):
         worker.assert_not_called()
         self.assertEqual(altered['state'], 'pending')
 
+    def test_missing_canonical_record_fails_closed_for_bound_specialist(self):
+        self.both()
+        self.canonical_path.unlink()
+        with (patch('modules.runtime_execution_gate.plan_task') as decision,
+              patch.object(goal_tools, 'execute') as worker):
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'canonical GoalState'):
+                self.attempt()
+        decision.assert_not_called()
+        worker.assert_not_called()
+
+    def test_explicit_plan_identity_cannot_downgrade_when_state_missing(self):
+        self.both()
+        self.canonical_path.unlink()
+        hinted = {**identity('child'), 'plan_version': 1}
+        with patch('modules.runtime_execution_gate.plan_task') as decision:
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'canonical GoalState'):
+                self.attempt(identity_override=hinted)
+        decision.assert_not_called()
+
+    def test_legacy_versioned_identity_without_canonical_sidecar_is_unplanned(self):
+        legacy_identity = {'version': 1, 'owner': OWNER,
+                           'job_id': 'job-1', 'task_id': 'root'}
+        self.assertIsNone(dependency_evidence.preflight_durable_step(
+            legacy_identity,
+            {'id': 'root', 'tool': 'research', 'input': DATA, 'depends': []},
+            {}, owner=OWNER, job_id='job-1',
+        ))
+
+    def test_canonical_step_rejects_missing_execution_job_id(self):
+        self.both()
+        missing = {key:value for key,value in self.job.items() if key != 'id'}
+        with patch('modules.runtime_execution_gate.plan_task') as decision:
+            with self.assertRaisesRegex(goal_plan_gate.PlanFenceError,
+                                         'ExecutionRecord job ID'):
+                specialist_orchestrator._execute_step(
+                    self.runtime, missing, self.step, identity('child'),
+                )
+        decision.assert_not_called()
+
     def test_unplanned_legacy_dependency_behavior_is_unchanged(self):
         state = goal_state_store.load(self.canonical_path)
         # Replace test fixture with a standalone canonical snapshot without

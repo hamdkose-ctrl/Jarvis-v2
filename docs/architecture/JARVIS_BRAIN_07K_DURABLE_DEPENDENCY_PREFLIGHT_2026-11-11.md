@@ -21,7 +21,8 @@ A canonical dependent cannot silently downgrade to an unversioned legacy identit
 - Missing on-disk journal, forged in-memory output, forged persisted output, or synchronized disk+memory forgery against canonical SHA-256 => deny
 - User intent correction, stale domain receipt or non-durable/foreign execution identity => deny
 - `goal_executor._record` fails before running state, checkpoint, or attempt start when a predecessor is invalid
-- Unplanned older specialist execution stays operational
+- Unplanned older specialist execution stays operational, including standalone versioned legacy calls without a canonical sidecar or even without a durable job ID
+- Executor-proven canonical work and explicitly plan-fenced identities fail closed when the canonical sidecar vanishes; a missing ExecutionRecord job ID cannot downgrade planned specialist work
 
 ## Explicit exclusions and remaining work
 

@@ -126,6 +126,7 @@ def bind_predecessor_outputs(
 def preflight_durable_step(
     identity: dict, step: dict, journal_outputs: dict, *,
     owner: str | None = None, job_id: str | None = None,
+    canonical_required: bool = False,
 ) -> dict[str, dict] | None:
     """Validate canonical dependent inputs at the existing specialist boundary.
 
@@ -155,6 +156,10 @@ def preflight_durable_step(
             try:
                 current = goal_state_store.load(path)
             except FileNotFoundError:
+                if canonical_required:
+                    raise goal_plan_gate.PlanFenceError(
+                        'Expected canonical GoalState is missing.'
+                    ) from None
                 return None
             if current.get('goal_plan') is not None:
                 raise goal_plan_gate.PlanFenceError(
@@ -163,7 +168,19 @@ def preflight_durable_step(
         return None
     if not isinstance(step, dict) or not isinstance(journal_outputs, dict):
         raise goal_plan_gate.PlanFenceError('Durable step or outputs invalid.')
-    state = runtime_worker_result.canonical_snapshot(identity)
+    try:
+        state = runtime_worker_result.canonical_snapshot(identity)
+    except FileNotFoundError:
+        # Standalone historical specialist/approval calls can use versioned
+        # identities without a canonical GoalState. Do not turn those into
+        # planned DAG work. Conversely, an executor-proven canonical job or
+        # explicitly plan-fenced identity must never downgrade on file loss.
+        if (canonical_required or 'plan_version' in identity
+                or 'node_digest' in identity):
+            raise goal_plan_gate.PlanFenceError(
+                'Expected canonical GoalState is missing.'
+            ) from None
+        return None
     if state.get('goal_plan') is None:
         return None
 
