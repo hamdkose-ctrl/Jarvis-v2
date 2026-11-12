@@ -974,6 +974,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         stop = RapidStop()
         messages = []
         completed = threading.Event()
+        callback_returned = threading.Event()
+        callback_results = []
         def research_worker(owner, task, dependencies):
             self.assertEqual(owner, self.owner)
             self.assertEqual(dependencies, {})
@@ -985,7 +987,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             messages.append((owner, ident, text))
             completed.set()
         def finished(owner, ident):
-            canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            try:
+                callback_results.append(canonical_goal_flow.complete_and_deliver(
+                    owner, ident, notify,
+                ))
+            finally:
+                # The sink event precedes the durable delivered write.
+                callback_returned.set()
         try:
             with ExitStack() as patches:
                 for obj, attribute, value in (
@@ -1014,17 +1022,12 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
-                # notify() fires before the final durable delivery-marker
-                # commit. Its callback event proves only sink invocation, not
-                # that the Scheduler worker has finished its journal write.
-                # Wait for durable state instead of racing the callback thread.
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    state, journal = self.persisted(job_id)
-                    if journal.get('_canonical_delivery') == 'delivered':
-                        break
-                    completed.wait(.025)
-                    time.sleep(.025)
+                # Callback return, not the sink event, proves the journal
+                # had a chance to persist its terminal delivery marker.
+                self.assertTrue(callback_returned.wait(25),
+                    'Canonical completion callback did not return after notification')
+                self.assertEqual(callback_results, [True],
+                    'Canonical completion callback did not durably deliver')
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
