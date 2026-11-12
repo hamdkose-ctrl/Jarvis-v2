@@ -179,9 +179,10 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         from modules.brain_model_understanding import _apply_semantic_fences, ProposedAction, UnderstandingProposal
         utterance = "Kamerayı aç"
         base = deterministic(utterance)
+        from modules.brain_contracts import PendingOwner
         guarded = replace(
-            base, conversation_relation=ConversationRelation.CONTINUE_ACTIVE,
-            pending_owner="session.pending_msg.text", confidence=Confidence.LOW)
+            base, conversation_relation=ConversationRelation.ANSWER_TO_PENDING,
+            pending_owner=PendingOwner.MESSAGE_TEXT, confidence=Confidence.LOW)
         proposal = UnderstandingProposal(
             operation="direct_action", conversation_relation=ConversationRelation.NEW_REQUEST,
             temporal_need=TemporalNeed.UNSURE, confidence=Confidence.HIGH,
