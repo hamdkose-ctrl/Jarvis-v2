@@ -930,6 +930,89 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 worker.join(10)
 
 
+    def test_scheduler_restart_resumes_verified_completion_without_worker_replay(self):
+        # A process may die after the last accepted output projection but
+        # before its one-shot completion callback. No worker may be repeated.
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+        def research_worker(owner, task, dependencies):
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Durably projected result',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+        with patch.object(task_agents, 'worker', research_worker), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), offer,
+            ))
+        before_state, before_journal = self.persisted(job_id)
+        self.assertEqual(before_state['state'], 'pending')
+        self.assertEqual(before_journal['outputs']['first']['state'], 'done')
+        self.assertFalse(before_journal.get('_canonical_delivery'))
+
+        offers = canonical_scheduler_dispatch.recoverable_completions(self.owner)
+        self.assertEqual([row.job_id for row in offers], [job_id])
+        stop = RapidStop()
+        sent = []
+        completed = threading.Event()
+        def sink(owner, ident, text):
+            sent.append((owner, ident, text))
+            completed.set()
+        def finished(owner, ident):
+            canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+
+        try:
+            with ExitStack() as patches:
+                for obj, attribute, value in (
+                    (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                    (task_queue, '_THREAD', None),
+                    (task_queue, '_OWNER_TICKS', {}),
+                    (task_queue, '_CANONICAL_WORKERS', {}),
+                    (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                    (task_queue, '_LAST_ADMITTED', {}),
+                    (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                    (task_queue, '_DAILY_NOTIFY', None),
+                ):
+                    patches.enter_context(patch.object(obj, attribute, value))
+                patches.enter_context(patch.object(
+                    model_wait, 'ask', return_value=json.dumps({
+                        'action': 'complete', 'goal': 0, 'evidence': ['first'],
+                    }),
+                ))
+                with patch.object(task_agents, 'worker',
+                                  side_effect=AssertionError('worker replay')) as worker:
+                    task_queue.start(
+                        stop, allowed_owners=lambda: {self.owner},
+                        canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                        canonical_result_notify=finished,
+                    )
+                    self.assertTrue(completed.wait(25), 'Recovery callback never ran')
+                    worker.assert_not_called()
+                    # The sink can be called before delivery marker persistence.
+                    until = time.monotonic() + 6
+                    while time.monotonic() < until:
+                        state, record = self.persisted(job_id)
+                        if record.get('_canonical_delivery') == 'delivered':
+                            break
+                        time.sleep(.025)
+                    state, record = self.persisted(job_id)
+                    self.assertEqual(state['state'], 'done')
+                    self.assertEqual(record['_canonical_delivery'], 'delivered')
+                    self.assertEqual(len(sent), 1)
+                    self.assertEqual(sent[0][:2], (self.owner, job_id))
+                    self.assertIn('Durably projected result', sent[0][2])
+                    self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+                        self.owner,
+                    ), ())
+        finally:
+            stop.set()
+            if task_queue._THREAD is not None:
+                task_queue._THREAD.join(10)
+            for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                worker.join(10)
+
     def test_foreground_accepts_second_independent_goal_while_worker_is_running(self):
         entered = threading.Event()
         release = threading.Event()
