@@ -133,7 +133,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
 
     def test_workbench_revision_uses_core_bound_owner_digest_and_path_permission(self):
         source = self._record_recent_workbench()
-        with patch("modules.nxapi.allowed", return_value=source) as allowed, \\
+        with patch("modules.nxapi.allowed", return_value=source) as allowed, \
              patch.object(workbench, "handle", return_value="NEW TABLE") as worker:
             entry, output, feedback = self.typed(
                 "Tabloyu Word olarak ver", "workbench.followup",
@@ -183,7 +183,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         schedule = {"days": [{"day": "Pazartesi", "blocks": [
             {"topic": "Matematik", "text": "ders", "minutes": 30},
         ]}], "days_left": None}
-        with patch("modules.study._state", return_value={"docs": ["lesson"]}), \\
+        with patch("modules.study._state", return_value={"docs": ["lesson"]}), \
              patch("modules.studyexam.plan", return_value=schedule) as worker:
             entry, output, feedback = self.typed(
                 "Ders programımı söyle", "study.read", {"view": "plan"})
@@ -193,7 +193,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         worker.assert_called_once()
 
     def test_study_focus_is_typed_and_unconfigured_sources_are_reported(self):
-        with patch("modules.study._state", return_value={"docs": []}), \\
+        with patch("modules.study._state", return_value={"docs": []}), \
              patch("modules.studyexam.focus",
                    side_effect=AssertionError("no study material")) as worker:
             entry, output, _ = self.typed(
