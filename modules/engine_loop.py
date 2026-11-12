@@ -8,6 +8,8 @@ def _log_core_feedback(runtime, entry):
     Returns that same BrainFeedback (or None) so the caller can ground its
     failure presentation in it instead of re-classifying the exception.
     """
+    if entry is None:
+        return None
     from modules import brain_entry
     row = brain_entry.last_feedback()
     if row is not None and row.request_id == entry.request_id:
@@ -158,7 +160,8 @@ def main(runtime, ui=None):
             result = event_channels.deliver(
                 runtime, verified_owner,
                 {'source': 'canonical_goal', 'kind': 'completed',
-                 'payload': {'text': text, 'job_id': verified_job}},
+                 'payload': {'text': text, 'job_id': verified_job,
+                             'event_id': 'canonical:' + verified_job}},
                 title='Jarvis araştırma sonucu',
             )
             if result is None:
@@ -359,24 +362,36 @@ def main(runtime, ui=None):
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
-                    entry = brain_entry.prepare(
-                        runtime, owner=owner, request_id=runtime._cur_rid,
-                        text=cmd, source=source, model_understanding=True,
-                    )
-                    from modules import brain_echo
-                    brain_echo.present(runtime, entry)
+                    # Explicit owner + 16-hex job ID is a read-only protocol.
+                    # It must not invoke Brain, a model, Scheduler or fanout.
+                    from modules import canonical_goal_flow
+                    explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
+                    entry = None
+                    if explicit_read is None:
+                        entry = brain_entry.prepare(
+                            runtime, owner=owner, request_id=runtime._cur_rid,
+                            text=cmd, source=source, model_understanding=True,
+                        )
+                        from modules import brain_echo
+                        brain_echo.present(runtime, entry)
 
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
                     try:
                         t_cmd = runtime.time.time()
-                        runtime._llm.take_route()
+                        if explicit_read is None:
+                            runtime._llm.take_route()
                         try:
-                            out, brain_feedback, brain_job_id = brain_entry.handoff(runtime, entry, runtime.handle, cmd)
-                            runtime.log.info(
-                                "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
-                                runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
-                            )
+                            if explicit_read is not None:
+                                out, brain_feedback, brain_job_id = explicit_read, None, None
+                            else:
+                                out, brain_feedback, brain_job_id = brain_entry.handoff(
+                                    runtime, entry, runtime.handle, cmd,
+                                )
+                                runtime.log.info(
+                                    "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
+                                    runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
+                                )
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
                                 continue
                         except runtime.requests_state.Cancelled as exc:

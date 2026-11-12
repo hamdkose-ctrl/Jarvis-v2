@@ -110,17 +110,128 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.run_goal.assert_not_called()
 
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
-        with patch.object(model_wait, 'ask', side_effect=[
-            json.dumps(research_tasks('first')),
-            json.dumps(research_tasks('different')),
-        ]):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))) as planner:
             rid, _, _, job_id = self.typed_turn()
             state_before, journal_before = self.persisted(job_id)
             _, answer, fb, duplicate = self.typed_turn(rid=rid)
+        planner.assert_called_once()
         self.assertEqual(job_id, duplicate)
         self.assertEqual(fb.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
         self.assertIn('ikinci kez başlatılmadı', answer)
         self.assertEqual(self.persisted(job_id), (state_before, journal_before))
+
+    def test_request_id_collision_rejects_before_any_planner_call(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
+            rid, _, _, job_id = self.typed_turn()
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('model called for an existing request')):
+            with self.assertRaises(ValueError):
+                canonical_goal_flow.try_create(
+                    self.owner, rid, 'Different request under an existing ID',
+                )
+        self.assertEqual(self.persisted(job_id)[1]['request_id'], rid)
+
+    def test_partial_publication_retry_fails_before_any_planner_call(self):
+        rid = 'partial-publication-id'
+        actual_atomic = canonical_goal_flow.release_guard.atomic
+
+        def crash_before_record(path, content):
+            if str(path).endswith('.execution.json'):
+                raise OSError('simulated half-published journal')
+            return actual_atomic(path, content)
+
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))), \
+                patch.object(canonical_goal_flow.release_guard, 'atomic',
+                             side_effect=crash_before_record):
+            with self.assertRaises(OSError):
+                canonical_goal_flow.try_create(self.owner, rid, 'Read two sources')
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('model called after partial publication')):
+            with self.assertRaises(ValueError):
+                canonical_goal_flow.try_create(self.owner, rid, 'Read two sources')
+
+    def _completed_with_unknown_delivery(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+
+        def research_worker(owner, task, dependencies):
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Source-backed comparison',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+
+        with patch.object(task_agents, 'worker', research_worker), \
+                patch.object(untrusted_flow, 'observe', lambda *_: None):
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), offer,
+            ))
+
+        def uncertain_sink(owner, ident, content):
+            state, record = self.persisted(ident)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(record['_canonical_delivery'], 'reserved')
+            self.assertEqual(record['_canonical_result_text'], content)
+            self.assertEqual(record['_canonical_result_event_id'], 'canonical:' + ident)
+            raise ConnectionError('UI status unknown after fanout')
+
+        notified = Mock(side_effect=uncertain_sink)
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0, 'evidence': ['first']}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+        notified.assert_called_once()
+        return job_id
+
+    def test_reserved_result_stays_readable_without_model_worker_or_notification(self):
+        job_id = self._completed_with_unknown_delivery()
+        before = self.persisted(job_id)
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('read must not call a model')):
+            result = canonical_goal_flow.read_result_command(
+                self.owner, 'hedef sonucu ' + job_id,
+            )
+        self.assertIn('Source-backed comparison', result)
+        self.assertIn(job_id, result)
+        self.assertEqual(before, self.persisted(job_id))
+        notify = Mock()
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
+        notify.assert_not_called()
+
+    def test_reserved_result_read_rejects_foreign_owner_and_tampered_output(self):
+        job_id = self._completed_with_unknown_delivery()
+        foreign = canonical_goal_flow.read_result_command(
+            'another-owner', 'hedef sonucu ' + job_id,
+        )
+        self.assertNotIn('Source-backed comparison', foreign)
+        self.assertIsNone(canonical_goal_flow.read_result_command(
+            self.owner, 'araştırmanın sonucu nedir',
+        ))
+        root = goal_executor._owner_root(self.owner)
+        altered = execution_record.load(root, self.owner, job_id)
+        altered['outputs']['first']['text'] = 'Forged result should never be shown'
+        canonical_goal_flow.release_guard.atomic(
+            execution_record.path_for(root, job_id), execution_record.encode(altered),
+        )
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.read_completed_result(self.owner, job_id)
+        response = canonical_goal_flow.read_result_command(
+            self.owner, 'hedef sonucu ' + job_id,
+        )
+        self.assertNotIn('Forged result', response)
+
+    def test_queued_result_query_never_claims_done_or_starts_model(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('pending query must not call model')):
+            message = canonical_goal_flow.read_result_command(
+                self.owner, 'hedef sonucu ' + job_id,
+            )
+        self.assertIn('henüz', message)
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
 
     def test_effectful_plan_keeps_existing_legacy_permission_path(self):
         writer = {'tasks': [{
@@ -231,6 +342,11 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
+                self.assertEqual(journal['_canonical_result_event_id'], 'canonical:' + job_id)
+                self.assertIn('Source-backed comparison', journal['_canonical_result_text'])
+                self.assertIn('Source-backed comparison', canonical_goal_flow.read_completed_result(
+                    self.owner, job_id,
+                ))
                 self.assertEqual(journal['goals'][0]['state'], 'done')
                 self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
                 self.assertEqual(len(messages), 1)

@@ -9,13 +9,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import threading
 import time
 
 import release_guard
 from modules.diagnostics import record_failure as _record_failure
 from modules import (
-    canonical_plan_evidence, completion_policy,
+    canonical_output_projection, canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
     goal_state_store, llm, model_wait, task_agents, task_tools,
@@ -25,6 +26,7 @@ _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
 _READ_ONLY = frozenset({'research', 'account'})
+_RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 
 
 def _canonical_plan(tasks):
@@ -51,6 +53,28 @@ def _canonical_plan(tasks):
     return goal_state.validate_goal_plan(plan)
 
 
+def _existing_request(root, owner: str, job_id: str, request_id: str, text: str):
+    """Find a published identity under the caller's existing per-job lock."""
+    record_path = execution_record.path_for(root, job_id)
+    state_path = root / (job_id + '.goalstate.json')
+    if not (record_path.exists() or record_path.is_symlink()
+            or state_path.exists() or state_path.is_symlink()):
+        return None
+    if (record_path.is_symlink() or state_path.is_symlink()
+            or not record_path.is_file() or not state_path.is_file()):
+        raise ValueError('Incomplete canonical publication requires review.')
+    record = execution_record.load(root, owner, job_id)
+    state = goal_state_store.load(state_path)
+    if (record.get('request_id') != request_id or record.get('request') != text
+            or state['owner'] != owner or state['job_id'] != job_id
+            or state['goal'] != text.strip()
+            or goal_state.authority(state) != 'canonical'
+            or not isinstance(state.get('goal_plan'), dict)):
+        raise ValueError('Canonical request identity collision or incomplete publication.')
+    return (job_id, 'Bu araştırma isteği zaten kayıtlı; ikinci kez başlatılmadı. '
+            f'Sonucu "hedef sonucu {job_id}" yazarak sorgulayabilirsin.')
+
+
 def try_create(owner: str, request_id: str, text: str):
     """Return (job_id, reply) only for an admissible typed read-only proposal.
 
@@ -61,6 +85,16 @@ def try_create(owner: str, request_id: str, text: str):
         return None
     if not isinstance(request_id, str) or not request_id.strip():
         return None
+
+    job_id = hashlib.sha256(
+        (owner + '\x00' + request_id).encode('utf-8')
+    ).hexdigest()[:16]
+    root = goal_executor._root(owner)
+    # Ordinary client retries must not spend model tokens.
+    with goal_job_control.locked(root, job_id):
+        prior = _existing_request(root, owner, job_id, request_id, text)
+        if prior is not None:
+            return prior
 
     # Same planner used by task_agents for its multi-node task format. No
     # duplicate free-text classifier, model/router, or autonomous capability.
@@ -82,27 +116,13 @@ def try_create(owner: str, request_id: str, text: str):
     except (KeyError, TypeError, ValueError):
         return None
 
-    job_id = hashlib.sha256(
-        (owner + '\x00' + request_id).encode('utf-8')
-    ).hexdigest()[:16]
-    root = goal_executor._root(owner)
     record_path = execution_record.path_for(root, job_id)
     state_path = root / (job_id + '.goalstate.json')
     with goal_job_control.locked(root, job_id):
-        if record_path.exists() or state_path.exists():
-            # The same client request may be handed off twice; only its exact
-            # previously published owner/request may be acknowledged again.
-            if not record_path.is_file() or not state_path.is_file():
-                raise ValueError('Incomplete canonical publication requires review.')
-            existing = execution_record.load(root, owner, job_id)
-            state = goal_state_store.load(state_path)
-            if (existing.get('request_id') != request_id
-                    or existing.get('request') != text
-                    or state['owner'] != owner or state['job_id'] != job_id
-                    or goal_state.authority(state) != 'canonical'
-                    or not isinstance(state.get('goal_plan'), dict)):
-                raise ValueError('Canonical request identity collision or incomplete publication.')
-            return job_id, 'Bu araştırma isteği zaten kayıtlı; ikinci kez başlatılmadı.'
+        # Two concurrent copies can both plan; only one may publish.
+        prior = _existing_request(root, owner, job_id, request_id, text)
+        if prior is not None:
+            return prior
 
         job = {
             'id': job_id, 'owner': owner, 'request_id': request_id,
@@ -130,7 +150,8 @@ def try_create(owner: str, request_id: str, text: str):
         release_guard.atomic(record_path, execution_record.encode(job))
     # Do not move the legacy latest-pointer: it would turn an independent
     # canonical job into the blocking foreground legacy single-goal target.
-    return job_id, 'Araştırma arka plana alındı. Diğer isteklerini yazabilirsin.'
+    return (job_id, 'Araştırma arka plana alındı. Diğer isteklerini yazabilirsin. '
+            f'Sonuç hazır olduğunda "hedef sonucu {job_id}" yazabilirsin.')
 
 
 def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
@@ -200,6 +221,19 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     if decision['decision'] != completion_policy.COMPLETE:
         return False
 
+    # Prepare result text before declaring global completion. A render error
+    # cannot strand a terminal goal with no written result to recover.
+    preview = copy.deepcopy(job)
+    preview['goals'][0].update(state='done', evidence=list(node_ids))
+    preview['state'] = 'done'
+    try:
+        message = goal_executor.render(preview)
+    except Exception:
+        _record_failure('modules/canonical_goal_flow.py:completion_render')
+        return False
+    if not isinstance(message, str) or not message.strip():
+        return False
+
     state_path = root / (job_id + '.goalstate.json')
     record_path = execution_record.path_for(root, job_id)
     with goal_job_control.locked(root, job_id):
@@ -216,6 +250,8 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         )
         completed['state'] = 'done'
         completed['_canonical_delivery'] = 'reserved'
+        completed['_canonical_result_text'] = message
+        completed['_canonical_result_event_id'] = 'canonical:' + job_id
         completed['updated'] = time.time()
         # Keep the Core CAS and proof/journal fence inside its authorized
         # compat commit adapter. A journal 'done' cannot precede Core success.
@@ -223,7 +259,6 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
             state_path, owner=owner, job_id=job_id, proof=proof,
         )
         release_guard.atomic(record_path, execution_record.encode(completed))
-    message = goal_executor.render(completed)
     try:
         notify(owner, job_id, message)
     except Exception:
@@ -237,6 +272,76 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
             saved['updated'] = time.time()
             release_guard.atomic(record_path, execution_record.encode(saved))
     return True
+
+
+def read_completed_result(owner: str, job_id: str) -> str:
+    """Read an owner-bound Core-completed result without a model or resend."""
+    root = goal_executor._owner_root(owner)
+    record_path = execution_record.path_for(root, job_id)
+    state_path = root / (job_id + '.goalstate.json')
+    if (not root.is_dir() or record_path.is_symlink() or state_path.is_symlink()
+            or not record_path.is_file() or not state_path.is_file()):
+        raise ValueError('Completed canonical result is not available.')
+    with goal_job_control.locked(root, job_id):
+        state = goal_state_store.load(state_path)
+        journal = execution_record.load(root, owner, job_id)
+        plan = state.get('goal_plan')
+        goals = journal.get('goals')
+        steps = journal.get('steps')
+        outputs = journal.get('outputs')
+        if ((state['owner'], state['job_id']) != (owner, job_id)
+                or goal_state.authority(state) != 'canonical'
+                or state['state'] != 'done'
+                or state['audit'][-1]['reason_code'] != 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED'
+                or not isinstance(plan, dict)
+                or journal.get('state') != 'done'
+                or journal.get('request') != state['goal']
+                or journal.get('_canonical_delivery') not in ('reserved', 'delivered')
+                or not isinstance(goals, list) or len(goals) != 1
+                or goals[0].get('state') != 'done'
+                or not isinstance(steps, list) or not isinstance(outputs, dict)):
+            raise ValueError('Only verified completed canonical result may be read.')
+        node_ids = tuple(node['id'] for node in plan['nodes'])
+        evidence = goals[0].get('evidence')
+        if (not isinstance(evidence, list) or len(evidence) != len(node_ids)
+                or set(evidence) != set(node_ids)
+                or len(steps) != len(node_ids) or set(outputs) != set(node_ids)):
+            raise ValueError('Completion journal differs from the accepted plan.')
+        for node in plan['nodes']:
+            matching = [step for step in steps
+                        if isinstance(step, dict) and step.get('id') == node['id']]
+            if (len(matching) != 1 or matching[0].get('state') != 'done'
+                    or matching[0].get('tool') != node['capability_id'].removeprefix('task.')
+                    or matching[0].get('input') != node['input']
+                    or matching[0].get('depends') != node['depends_on']
+                    or not isinstance(outputs[node['id']], dict)):
+                raise ValueError('Completed step differs from accepted plan.')
+            # Existing accepted Core hash/manifest/audit verifier, with only
+            # its final authorized terminal transition ignored for READS.
+            canonical_output_projection._accepted_row(
+                state, owner, job_id, node, outputs[node['id']],
+                allow_completed_read=True,
+            )
+        result = journal.get('_canonical_result_text')
+        if not isinstance(result, str) or not result.strip():
+            # Older completed journal without the new frozen result snapshot.
+            result = goal_executor.render(journal)
+        if not isinstance(result, str) or not result.strip():
+            raise ValueError('Completed result is unreadable.')
+    return (f'Kayıtlı hedef sonucu — {job_id}:\n\n' + result +
+            '\n\nBu sorgu bildirim göndermez veya işi tekrar çalıştırmaz.')
+
+
+def read_result_command(owner: str, text: str) -> str | None:
+    """A bounded explicit result-ID protocol; never an NL intent classifier."""
+    match = _RESULT_QUERY.fullmatch(text.strip()) if isinstance(text, str) else None
+    if match is None:
+        return None
+    try:
+        return read_completed_result(owner, match.group(1).lower())
+    except (FileNotFoundError, ValueError, PermissionError, OSError, TypeError, KeyError):
+        return ('Bu kimliğe ait doğrulanmış tamamlanmış sonuç henüz görüntülenemiyor. '
+                'Hiçbir iş yeniden başlatılmadı ve bildirim tekrar gönderilmedi.')
 
 
 def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
