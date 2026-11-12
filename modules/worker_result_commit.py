@@ -62,13 +62,14 @@ def _read_only_manifest(capability_id: str) -> dict | None:
 
 
 def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
-    """Allow a late *different root* only across accepted worker evidence.
+    """Adopt only accepted *independent root* progress during read-only work.
 
-    A concurrent read-only root can legitimately finish after another root
-    moves the canonical version. Never rebase over user edits, state changes,
-    plan revisions, unknown evidence, a dependent node or a duplicate node.
-    This proves only that the intervening CAS writes were accepted worker
-    results; it grants no scheduler, permission, lease or completion authority.
+    Independent roots and one specifically supported Gmail indexed-read child
+    may commit after an unrelated root succeeds. A dependent account result
+    must still pass current-plan readiness, exact persisted predecessor proof,
+    and its live account lease INSIDE the same Core CAS lock below.
+    No user edit, plan revision, unknown evidence, other child, effect, or
+    duplicate can be adopted; this does not authorize worker replay.
     """
     from modules import goal_plan_gate
     expected_version = accepted['expected_job_version']
@@ -92,7 +93,15 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
         (n for n in current['goal_plan']['nodes']
          if n['id'] == accepted['step_id']), None,
     )
-    if active is None or active['depends_on']:
+    if active is None:
+        return False
+    if active['depends_on'] and not (
+            accepted['capability_id'] == 'task.account'
+            and active['capability_id'] == 'task.account'
+            and len(active['depends_on']) == 1):
+        # Other dependent workers deliberately retain their strict CAS
+        # version fence. This narrow Gmail child gets a fresh full
+        # predecessor/lease recheck later in _commit_once().
         return False
     canonical = json.dumps(
         active['input'], ensure_ascii=False, sort_keys=True,
