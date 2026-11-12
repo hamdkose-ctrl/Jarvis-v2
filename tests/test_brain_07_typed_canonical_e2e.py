@@ -285,3 +285,31 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                                   'another-owner', foreign)['owner'],
             'another-owner',
         )
+
+
+    def test_all_workers_done_still_requires_semantic_core_completion(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+        def worker(owner, task, dependencies):
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'An incomplete research answer',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+        with patch.object(task_agents, 'worker', worker), \
+                patch.object(untrusted_flow, 'observe', lambda *_: None):
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), offer,
+            ))
+        proof = canonical_plan_evidence.certify_projected_plan(self.owner, job_id)
+        self.assertEqual(proof.job_id, job_id)
+        notified = Mock()
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask', 'question': 'Not enough evidence'}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        notified.assert_not_called()
