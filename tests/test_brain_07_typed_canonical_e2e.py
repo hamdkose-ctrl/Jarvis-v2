@@ -1284,6 +1284,183 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
         self.run_goal.assert_not_called()
 
+    def test_real_scheduler_gmail_child_completes_before_running_research_root(self):
+        """Production Scheduler: root research + Gmail list overlap, Gmail
+        child commits first, then late independent research must be accepted.
+
+        This is a real pinned Scheduler thread/lease/Core/delivery integration
+        test with synthetic provider/model outputs, not a live Gmail test.
+        """
+        tasks = {'tasks': [
+            {'id': 'research', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article',
+                       'question': 'compare'}},
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread',
+                       'limit': 5}},
+            {'id': 'read', 'agent': 'account', 'depends': ['unread'],
+             'input': {'service': 'gmail', 'operation': 'read_message',
+                       'index': 1}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'Araştır ve okunmamış ilk Gmail mesajını oku.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        research_entered, research_release = threading.Event(), threading.Event()
+        read_entered, delivered = threading.Event(), threading.Event()
+        observed = []
+        errors = []
+        sink_calls = []
+        lock = threading.Lock()
+        stop = RapidStop()
+
+        def worker(owner, task, dependencies):
+            self.assertEqual(owner, self.owner)
+            name = task['id']
+            with lock:
+                observed.append((name, tuple(sorted(dependencies))))
+            if name == 'research':
+                research_entered.set()
+                self.assertTrue(research_release.wait(45),
+                                'Research provider never released')
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Research completed after Gmail child',
+                    'source': 'https://example.test/article', 'source_chars': 200,
+                })
+            if name == 'unread':
+                self.assertEqual(dependencies, {})
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                    'limit': 5,
+                    'items': [{'id': 'mail-001', 'from': 'source@example.test',
+                               'subject': 'Original subject'}],
+                    'query': 'is:unread in:inbox', 'fetched_at': time.time(),
+                    'has_more': False,
+                }
+            else:
+                self.assertEqual(name, 'read')
+                self.assertEqual(set(dependencies), {'unread'})
+                self.assertTrue(task_results.verify(dependencies['unread'], owner=owner))
+                self.assertEqual(
+                    dependencies['unread']['snapshot']['items'][0]['id'],
+                    'mail-001',
+                )
+                read_entered.set()
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'read_message',
+                    'fetched_at': time.time(),
+                    'message': {
+                        'id': 'mail-001', 'from': 'source@example.test',
+                        'subject': 'Original subject', 'body': 'Verified Gmail contents',
+                        'truncated': False, 'format': 'plain',
+                    },
+                }
+            return task_results.seal('account', {
+                'state': 'done',
+                'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
+            })
+
+        def sink(owner, ident, text):
+            with lock:
+                sink_calls.append((owner, ident, text))
+            delivered.set()
+
+        def complete(owner, ident):
+            try:
+                canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+            except Exception as exc:
+                errors.append(exc)
+                raise
+
+        with ExitStack() as patches:
+            for obj, attribute, value in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+            ):
+                patches.enter_context(patch.object(obj, attribute, value))
+            patches.enter_context(patch.object(
+                model_wait, 'ask', return_value=json.dumps({
+                    'action': 'complete', 'goal': 0,
+                    'evidence': ['research', 'unread', 'read'],
+                }),
+            ))
+            # Register cleanup LAST: join live threads while pinned registries
+            # and provider mocks are still installed, before Windows temp
+            # owner/job *.control.lock files are removed.
+            def close_scheduler():
+                research_release.set()
+                stop.set()
+                scheduler = task_queue._THREAD
+                if scheduler is not None:
+                    scheduler.join(12)
+                    self.assertFalse(scheduler.is_alive())
+                for active in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    active.join(12)
+                    self.assertFalse(active.is_alive(),
+                                     'Worker leaked a test owner-file lock')
+            patches.callback(close_scheduler)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=complete,
+            )
+            self.assertTrue(research_entered.wait(15),
+                            'Independent research root never started')
+            self.assertTrue(read_entered.wait(20),
+                            'Gmail child never started after verified unread list')
+            # The Gmail child may only start after its exact accepted list;
+            # it must be able to finish independently while research is held.
+            deadline = time.monotonic() + 12
+            while time.monotonic() < deadline:
+                state, journal = self.persisted(job_id)
+                if journal['outputs'].get('read', {}).get('state') == 'done':
+                    break
+                time.sleep(.025)
+            self.assertEqual(journal['outputs'].get('read', {}).get('state'), 'done')
+            self.assertNotIn('research', journal['outputs'])
+            self.assertEqual(state['state'], 'pending')
+            self.assertFalse(delivered.is_set(),
+                             'Global completion ran before every root was accepted')
+            research_release.set()
+            self.assertTrue(delivered.wait(25),
+                            'Late independent root CAS or delivery never completed')
+            # Delivery notification may precede the durable delivered marker.
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                state, journal = self.persisted(job_id)
+                if journal.get('_canonical_delivery') == 'delivered':
+                    break
+                time.sleep(.025)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal.get('_canonical_delivery'), 'delivered')
+            self.assertEqual(set(journal['outputs']), {'research', 'unread', 'read'})
+            self.assertTrue(all(step['state'] == 'done' for step in journal['steps']))
+            self.assertEqual(
+                {row['step_id'] for row in state['evidence']
+                 if row.get('kind') == 'worker_result'
+                 and row.get('status') == 'succeeded'},
+                {'research', 'unread', 'read'},
+            )
+            self.assertEqual(len(sink_calls), 1)
+            self.assertEqual(sink_calls[0][:2], (self.owner, job_id))
+            self.assertIn('Verified Gmail contents', sink_calls[0][2])
+            self.assertFalse(errors, repr(errors))
+            self.assertEqual(set(name for name, _ in observed),
+                             {'research', 'unread', 'read'})
+            self.assertEqual(next(deps for name, deps in observed if name == 'read'),
+                             ('unread',))
+            self.run_goal.assert_not_called()
+
     def test_canonical_gmail_indexed_read_rejects_unverified_or_wrong_parent(self):
         valid = [
             {'id': 'unread', 'agent': 'account', 'depends': [],
