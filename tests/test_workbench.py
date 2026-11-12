@@ -227,12 +227,18 @@ class WorkbenchPhysicalClaimTests(unittest.TestCase):
         workbench.write_output(output, 'Ready', [('Sheet1', [['header'], ['value']])])
         self.assertTrue(output.exists())
         from openpyxl import load_workbook
-        with load_workbook(output) as workbook:
+        workbook = load_workbook(output)
+        try:
             self.assertEqual(workbook.active['A2'].value, 'value')
+        finally:
+            workbook.close()
         with self.assertRaises(resource_leases.LeaseConflict):
             workbench.write_output(output, 'Overwrite', [('Sheet1', [['new']])])
-        with load_workbook(output) as workbook:
+        workbook = load_workbook(output)
+        try:
             self.assertEqual(workbook.active['A2'].value, 'value')
+        finally:
+            workbook.close()
 
 
 class FileCommandTests(unittest.TestCase):
