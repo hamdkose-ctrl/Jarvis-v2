@@ -221,3 +221,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
 - BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal bağlanır; tam kanıtlı sonuç kurtarılır; Gmail indeksli okuma yalnız Core-kabul+project edilmiş listeye bağlanır.
+
+
+## BRAIN-03 #613 (kabul bekliyor)
+
+Yeni typed `screen.text`/OCR, `device.share`, `voice.rate`, `brief.read`, owner-bound `workbench.followup`, `study.read` ile kabul edilmiş model-CHAT için legacy-effect fence aynı tek PR'dadır. Tam fiziksel raw domain göçü **YAPILMADI**. Hiçbir CI/PC veya canlı model PASS gösterilemez; yeni SHA acceptance'dan önce issue #545 kapanmaz. `tests/test_brain_03_typed_domain_wiring.py`, `tests/test_brain_03_final_authority_cutover.py`; kaynak: `docs/architecture/JARVIS_BRAIN_03_FINAL_AUTHORITY_INVENTORY_2026-11-13.md`.

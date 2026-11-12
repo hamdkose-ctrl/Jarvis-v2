@@ -211,3 +211,6 @@ yok.
 listesi/detay paneli ve kategori filtrelerini düz dilde açıklayan bir
 pencere açar. Saf arayüz değişikliği, backend'e dokunmadı;
 `node --check webui/nx.js` ile sözdizimi doğrulandı.
+
+
+**BRAIN-03 #613 accepted CHAT fallback ayrımı:** Model CHAT kararı kabul edildiyse son görsel retry'ını tetikleyen eski ham domain parser'a cümle geri bırakılmaz. `visual_chat.handle` ayrıca olumlu tam retry grameri ister; gerçek Cloudflare/PNG canlı üretimi test edilmedi, accepted-chat/şüpheli quoted data Full model holdout açık.

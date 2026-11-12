@@ -84,3 +84,18 @@ Riskli domain effect'lerini yalnız dosya sayısı azalsın diye silme.
 Kabul: aynı PR HEAD SHA üzerinde Windows CI completed/success + gerçek
 PC watcher Genel/Validation passed; ayrıca canlı model Full holdout
 UNMEASURED ise PASS iddia edilmez. Henüz hiçbir yeni kabul yapılmadı.
+
+
+### Bu tek PR içindeki ilave gerçek kod göçü (henüz CI/PC kabulü yok)
+
+- `screen.text` → Core `screen_text`: `read|copy|error_note` enum'unu Core doğrular; OCR/clipboard/profil notu yürütmesi `engine_intents` üzerinden mevcut effect sahibine bağlandı; ekran gizlilik kontrolü ve OCR sonrası iptal çiti var.
+- `device.share` → `share_control`: `screen|camera|stop` enum'u mevcut `engine_output.set_share` privacy/Vision/UI/audit yoluna bağlıdır.
+- `voice.rate` → `voice_rate`: `faster|slower` sadece mevcut `engine_context.set_profile_rate` ve `voice_runtime` ile uygulanır, ikinci ses kimliği yazıcısı yok.
+- `brief.read` → `daily_brief`: var olan kişisel günlük özet okuma adaptörü.
+- `workbench.followup` → `workbench_followup`: son tablo işinin owner-bağlı SHA-256 snapshot kimliği canonical `ActiveContext`te salt-okunur sunulur. Core yalnız `revise` ve `excel|word|pdf` onaylı biçimini kabul eder; mevcut `workbench.handle` çalışmadan önce snapshot/owner ve `nxapi.allowed` tekrar doğrulanır. Son tablonun path'i model önerisinin yetki alanı değildir.
+- `study.read` → `study_read`: ders programı ve konu odağı mevcut `studyexam` worker'ı üzerinde ortak `study_read` effect sahibiyle tipli okuma. Hoca aktif ders devamı ve `_study_intent` model başarısızlığı fallback'i korunur.
+- Birincil model CHAT kararı artık `MODEL_CHAT_DECIDED` kapalı protokol izi taşır; `_use_existing_handler` bu turu ham kamera/not/cascade seçicilerine geri bırakmaz. Model yanıtı yoksa iz yoktur ve mevcut deterministik fallback korunur. Mevcut exact `_FILE_CMD`, explicit PC/workflow, yayın/güncelleme protokolleri kendi bounded sahibinde kalır.
+- **Fiziksel emeklilik:** `modules/engine_context.py` içindeki caller-zero `_user_command = _user_controls` uyumluluk takma adı kaldırıldı. Not/takvim, OCR'ın eski raw fallback'i, Workbench'in eski serbest followup'ı, Hoca, `_extra_commands` kolları HENÜZ fiziksel silinmedi.
+- **Regresyonlar:** `tests/test_brain_03_typed_domain_wiring.py`, `tests/test_brain_03_final_authority_cutover.py`, `tests/test_brain_primary_understanding.py` ve mevcut caller guard güncellendi. Testler, full Windows CI, gerçek PC watcher ve canlı model Full holdout bu dalın yeni SHA'sı için **henüz çalıştırılmadı**. Kabul edilmemiş hiçbir sonucu PASS sayma.
+
+**Kalan BRAIN-03 blokları:** not/takvim edit/delete raw authority; `_extra_commands` domain'lerinin tamamında canonical worker önkoşul ve fallback paritesi; Workbench eski raw takip yolunun caller-zero olması; Hoca başlatma/uzman ajan capability migration; kamera/ses seçimi ve model-yok/negation gerçek Full holdout; tüm kodun fiziksel temizliği. Dört Bitti koşulundan 2 ve 4 açık, 3 test/ci/PC ile henüz kanıtlanmadı; #545 **AÇIK**.
