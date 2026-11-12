@@ -525,6 +525,39 @@ class SchedulerOfferTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime_worker_result.CanonicalWorkerDeadline(object(), 10)
 
+    def test_scheduler_deadline_propagates_to_request_checkpoints_and_resets(self):
+        from modules import requests_state
+        clock = [50.0]
+        stopped = threading.Event()
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            stopped, 2, clock=lambda: clock[0],
+        )
+        # No current request ID is required by the background worker;
+        # the request checkpoints must still enforce the Scheduler token.
+        with runtime_worker_result.scheduler_stop_scope(deadline):
+            requests_state.check()
+            clock[0] = 52.0
+            with self.assertRaises(
+                runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+            ):
+                requests_state.check()
+            # A model/provider worker inherits this same ContextVar even
+            # when its body is run under a copied thread context.
+            import contextvars
+            ctx = contextvars.copy_context()
+            with self.assertRaises(
+                runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+            ):
+                ctx.run(requests_state.check)
+        # An unrelated foreground request is not affected by a finished
+        # Scheduler attempt, and a newly started attempt keeps its own token.
+        requests_state.check()
+        stopped.set()
+        with self.assertRaisesRegex(RuntimeError, 'Scheduler stopped'):
+            with runtime_worker_result.scheduler_stop_scope(deadline):
+                requests_state.check()
+        requests_state.check()
+
     def test_deadline_elapsed_during_prepare_never_invokes_provider(self):
         now = [10.0]
         stop = threading.Event()

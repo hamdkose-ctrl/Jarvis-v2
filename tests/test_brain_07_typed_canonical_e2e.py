@@ -860,6 +860,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         stop = RapidStop()
         messages = []
         completed = threading.Event()
+        callback_returned = threading.Event()
+        callback_results = []
         def research_worker(owner, task, dependencies):
             self.assertEqual(owner, self.owner)
             self.assertEqual(dependencies, {})
@@ -871,7 +873,15 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             messages.append((owner, ident, text))
             completed.set()
         def finished(owner, ident):
-            canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            try:
+                callback_results.append(canonical_goal_flow.complete_and_deliver(
+                    owner, ident, notify,
+                ))
+            finally:
+                # The sink's completed event fires BEFORE the durable
+                # reserved -> delivered commit. Only the callback return
+                # means that second write has finished (or failed).
+                callback_returned.set()
         try:
             with ExitStack() as patches:
                 for obj, attribute, value in (
@@ -900,17 +910,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
-                # notify() fires before the final durable delivery-marker
-                # commit. Its callback event proves only sink invocation, not
-                # that the Scheduler worker has finished its journal write.
-                # Wait for durable state instead of racing the callback thread.
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    state, journal = self.persisted(job_id)
-                    if journal.get('_canonical_delivery') == 'delivered':
-                        break
-                    completed.wait(.025)
-                    time.sleep(.025)
+                # Do not race the post-notify durable delivery write with a
+                # fixed five-second disk-polling window. Wait for the actual
+                # worker callback to return, then assert BOTH its success
+                # and the persisted Core/journal evidence. This is stricter
+                # than treating notify() as completion or sleeping longer.
+                self.assertTrue(
+                    callback_returned.wait(25),
+                    'Canonical completion callback did not return after notification',
+                )
+                self.assertEqual(
+                    callback_results, [True],
+                    'Canonical completion callback returned without a durable delivery commit',
+                )
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
@@ -1028,6 +1040,75 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             # Backstop for an exception before installing the ExitStack
             # callback; the callback itself joins under pinned mocks.
             stop.set()
+
+    def test_canonical_gmail_deadline_stops_second_provider_request(self):
+        """Real canonical account specialist: one expired remote list read
+        must not start the next Gmail metadata request or mint Core success.
+        """
+        from modules import google_api, llm, runtime_worker_result
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread', 'limit': 5}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'Beş okunmamış e-postanın başlığını getir.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        clock = [10.0]
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            threading.Event(), 2, clock=lambda: clock[0],
+        )
+        calls = []
+
+        def completed_list():
+            calls.append('list')
+            # Simulate a provider response that arrived only after the
+            # canonical worker deadline; actual Gmail is never contacted.
+            clock[0] = 12.0
+            return {'messages': [{'id': 'mail001'}]}
+
+        class Messages:
+            def list(self, **_kwargs):
+                return SimpleNamespace(execute=completed_list)
+
+            def get(self, **_kwargs):
+                calls.append('metadata')
+                raise AssertionError('Expired worker started second Gmail call')
+
+        messages = Messages()
+        fake_service = SimpleNamespace(
+            users=lambda: SimpleNamespace(messages=lambda: messages),
+        )
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+        owner_token = llm._key_context.set(self.owner)
+        try:
+            with patch.object(google_api, '_service', return_value=fake_service), \
+                 patch.object(untrusted_flow, 'observe', lambda *_: None):
+                with self.assertRaises(
+                    runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+                ):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner), offer,
+                        stop_event=deadline,
+                    )
+        finally:
+            llm._key_context.reset(owner_token)
+        self.assertEqual(calls, ['list'])
+        state, journal = self.persisted(job_id)
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result'
+            and row.get('status') == 'succeeded'
+            for row in state['evidence']
+        ))
+        self.assertEqual(journal['steps'][0]['state'], 'failed')
+        self.assertEqual(
+            journal['outputs']['unread'].get('reason_code'),
+            'CANONICAL_WORKER_DEADLINE_UNACCEPTED',
+        )
+        # Failed first attempt is terminal without user-controlled
+        # reconciliation; the live Scheduler may not replay a provider.
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
 
     def test_canonical_gmail_indexed_read_waits_for_accepted_list(self):
         """Typed request -> Core plan -> real specialist/leases/CAS -> delivery.
@@ -1311,6 +1392,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         read_entered, delivered = threading.Event(), threading.Event()
         observed = []
         errors = []
+        callback_attempts = []
         sink_calls = []
         lock = threading.Lock()
         stop = RapidStop()
@@ -1369,9 +1451,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
         def complete(owner, ident):
             try:
-                canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+                result = canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+                with lock:
+                    callback_attempts.append((ident, result))
+                return result
             except Exception as exc:
-                errors.append(exc)
+                with lock:
+                    errors.append(repr(exc))
                 raise
 
         with ExitStack() as patches:
@@ -1432,8 +1518,53 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.assertFalse(delivered.is_set(),
                              'Global completion ran before every root was accepted')
             research_release.set()
-            self.assertTrue(delivered.wait(25),
-                            'Late independent root CAS or delivery never completed')
+            if not delivered.wait(25):
+                # The real-PC watcher publishes only a bounded unittest tail,
+                # not the live Scheduler's swallowed exception details. Keep
+                # this diagnostic strictly to synthetic test data and IDs:
+                # distinguish worker Core CAS rejection, missing projection,
+                # completion-proof rejection, and an uncalled callback. Never
+                # call complete_and_deliver() again to mask lost delivery.
+                state, journal = self.persisted(job_id)
+                try:
+                    proof = canonical_plan_evidence.certify_projected_plan(
+                        self.owner, job_id,
+                    )
+                    proof_state = 'projected:' + str(proof.goal_version)
+                except Exception as exc:
+                    proof_state = type(exc).__name__ + ':' + str(exc)[:220]
+                with lock:
+                    seen = list(observed)
+                    completed_callbacks = list(callback_attempts)
+                    callbacks_errors = list(errors)
+                self.fail('Late research/delivery stalled: ' + repr({
+                    'core_version': state['version'],
+                    'core_state': state['state'],
+                    'core_evidence': [
+                        (x.get('step_id'), x.get('status'), x.get('attempt'))
+                        for x in state.get('evidence', [])
+                        if isinstance(x, dict) and x.get('kind') == 'worker_result'
+                    ],
+                    'core_audit': [
+                        (x.get('op'), x.get('reason_code'))
+                        for x in state.get('audit', [])[-5:]
+                    ],
+                    'journal_steps': [
+                        (x.get('id'), x.get('state'), x.get('reason_code'))
+                        for x in journal.get('steps', [])
+                    ],
+                    'projected_outputs': sorted(journal.get('outputs', {})),
+                    'delivery_marker': journal.get('_canonical_delivery'),
+                    'completion_proof': proof_state,
+                    'observed_workers': seen,
+                    'completion_callbacks': completed_callbacks,
+                    'completion_exceptions': callbacks_errors,
+                    'live_workers': [
+                        (key[2], thread.is_alive())
+                        for key, thread in tuple(task_queue._CANONICAL_WORKERS.items())
+                        if key[1] == job_id
+                    ],
+                }))
             # Delivery notification may precede the durable delivered marker.
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:

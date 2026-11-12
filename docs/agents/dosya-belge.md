@@ -2,6 +2,10 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## BRAIN-03 Core planı ile Workbench takip kapısı — 12 Kasım 2026 (takip PR, kabul bekliyor)
+
+`main_documents._file_command` iki farklı yolu içerir: tırnaklı tam dosya yolu taşıyan kesin UI dosya protokolü (`runtime._FILE_CMD`) ve son tablo işini ham metindeki `tabloyu Word'de ver` / `sütun ekle` ifadeleriyle tekrar eden `workbench.followup`. Core tarafından doğrulanmış bir planın metni veri olabilir; bu nedenle erken `brain_precedence.file_command` kapısı yalnız doğrulanmış plan varken kesin UI biçimini kabul eder, serbest Workbench takip aramasına düşmez. Plansız eski Workbench takip istekleri ve izinli tırnaklı UI dosya komutları çalışmaya devam eder. Üretim dikişi regresyonları not/hâtırlatma başlığındaki alıntıların mevcut tabloyu yeniden üretmemesini, legacy takip komutunun ve açık UI yolunun korunmasını sınar. CI/PC/canlı model kabulü bu PR'da henüz ölçülmedi.
+
 ## PC Worker ile kapsam ayrımı — son karar, 25 Ekim 2026
 
 Hamdi'nin ayrıca kurduğu "PC Worker" ajanı, uygulama kontrolü (UIA/Office adapter/Browser/Hermes-CUA/native) yanında genel dosya işlerini de (bulma, oluşturma, taşıma, yeniden adlandırma, silme, geri alma; dağınık klasör/masaüstü düzenleme) kapsıyor. Bu, `modules/file_ops.py`'nin tek dosya taşıma/yeniden adlandırma/oluşturma/geri alma işiyle ve dosya çalışma alanı planının "5. adım" olarak düşünülen onaylı toplu düzenleme (taşıma/yeniden adlandırma/arşivleme) fikriyle doğrudan örtüşüyor.

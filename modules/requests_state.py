@@ -64,6 +64,24 @@ def _save_terminal_state():
 _current = ContextVar('jarvis_request', default=None)
 _budget_deadline = ContextVar('jarvis_budget_deadline', default=None)
 _budget_cancel = ContextVar('jarvis_budget_cancel', default=None)
+# The request layer cannot import Brain/Core; the canonical Scheduler may
+# attach one additional cooperative stop/deadline callback for its worker
+# thread. Every existing requests_state.check() then fences the next
+# network/model/read step without replacing request cancellation authority.
+_worker_probe = ContextVar('jarvis_worker_cooperative_probe', default=None)
+
+
+@contextmanager
+def worker_probe(callback):
+    """Add an optional current-thread cooperative fence, never an authority."""
+    if not callable(callback):
+        raise ValueError('Worker probe must be callable.')
+    token = _worker_probe.set(callback)
+    try:
+        yield
+    finally:
+        _worker_probe.reset(token)
+
 
 @contextmanager
 def budget(seconds, *, cancel=None):
@@ -151,6 +169,9 @@ def activate(user, rid, *, complete=True):
             _current.reset(token)
 
 def check():
+    probe = _worker_probe.get()
+    if probe is not None:
+        probe()
     cancelled=_budget_cancel.get()
     if cancelled is not None and cancelled.is_set():raise Cancelled('Model beklemesi bitti; yeni deneme başlatılmadı.')
     deadline=_budget_deadline.get()
