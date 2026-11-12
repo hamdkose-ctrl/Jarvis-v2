@@ -12,18 +12,24 @@ import os
 import stat
 from pathlib import Path
 
-from config import DATA_DIR
 from modules import resource_leases
+
+# A physical file has one OS-account claim namespace, regardless of which
+# JARVIS_DATA_DIR a running Jarvis instance uses. Keep per-instance journals
+# in DATA_DIR; only live resource arbitration belongs here.
+_FILE_EFFECT_CLAIM_ROOT = Path.home() / '.jarvis' / 'file-effect-claims'
 
 
 @contextmanager
 def claim_paths(*paths):
     if not paths or len(paths) > 16:
         raise ValueError('File effect resource set must contain 1–16 paths.')
-    root = DATA_DIR / 'file_resource_claims'
-    if root.is_symlink():
+    root = _FILE_EFFECT_CLAIM_ROOT
+    if root.parent.is_symlink() or root.is_symlink():
         raise resource_leases.LeaseConflict('Shared file claim directory invalid.')
     root.mkdir(parents=True, exist_ok=True)
+    if root.is_symlink():
+        raise resource_leases.LeaseConflict('Shared file claim directory was replaced.')
     def snapshot(path):
         if path.is_symlink():
             raise resource_leases.LeaseConflict('File effect cannot target a symlink.')
