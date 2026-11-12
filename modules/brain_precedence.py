@@ -57,6 +57,8 @@ TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
     def planner_gate():
+        # A typed translation source is not a note/calendar command: only
+        # Core's translate adapter may execute that verified source text.
         # Canonical notes_read already has a validated Core plan. Do not let the planner's old
         # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
         # branches are unchanged and remain domain-owned until their own migration decision.
@@ -67,7 +69,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # PR3C-6: Core-owned visual_create yalnız source-question adapterini açar; Planner'ın
         # görsel türü/iş niyeti seçmeye çalışan raw cascade'i aynı isteği tekrar yorumlayamaz.
         if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
-                                            "folder_analyze", "visual_create"}:
+                                            "folder_analyze", "visual_create", "translate"}:
             return None
         # A reminder plan authorizes creation with Core-validated arguments
         # (main_planner.core_reminder). Pending answers and explicit notes retain their
@@ -79,6 +81,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
             return runtime._planner_command(command, lowered)
 
     def extra_commands():
+        # Typed translation content must not enter the old raw domain cascade.
         # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
         # file_action, the later files.handle chain must not get a second chance at the same target.
         # A validated notes plan likewise owns its request: unrelated later chains (e.g. the mail/agenda
@@ -90,7 +93,7 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         # PR3C-6: `visual_create` de Brain→Core tarafından sahiplenildi; eski cascade ikinci
         # intent sahibi olamaz.
         if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write",
-                                            "folder_analyze", "visual_create"}:
+                                            "folder_analyze", "visual_create", "translate"}:
             return None
         return runtime._extra_commands(command, lowered)
 
@@ -106,12 +109,12 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     return {
         "file_command": file_gate,
-        # A Core-validated reminder or notes plan owns its data, including
-        # quoted phrases. The earlier raw share/camera/voice controller must
-        # not reinterpret reminder titles or note contents as an independent
-        # instruction. Keep State/Fast pending and unplanned legacy controls.
+        # Core-validated reminder, note and text-translation payloads are
+        # data. Legacy raw share/camera/voice phrases within those payloads
+        # may not become independent effects. Pending State/Fast and
+        # unplanned legacy controls keep their original owners.
         "user_controls": lambda: (None if plan is not None and
-                                  plan[0] in {"reminder", "notes_read", "notes_write"}
+                                  plan[0] in {"reminder", "notes_read", "notes_write", "translate"}
                                   else runtime._user_controls(command, lowered)),
         "planner_command": planner_gate,
         "macro_run": lambda: runtime._macro_run(lowered),

@@ -117,6 +117,79 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(dispatch.call_args[0][2]["text"], "bugün hava çok güzel")
         self.assertFalse(handle.called)
 
+    def _real_translation(self, command, *, model_proposal=None):
+        rid = "b4b-fence-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        handle = Mock(wraps=self.ctx.handle)
+        with requests_state.activate(self.owner, rid):
+            if model_proposal is None:
+                entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
+                                            text=command, source="yazı")
+            else:
+                with patch.object(brain_entry, "apply_model_understanding",
+                                  side_effect=model_proposal):
+                    entry = brain_entry.prepare(self.ctx, owner=self.owner, request_id=rid,
+                                                text=command, source="yazı",
+                                                model_understanding=True)
+            plan = brain_entry.core_plan(entry)
+            self.assertIsNotNone(plan, command)
+            self.assertEqual(plan[0], "translate", command)
+            output, feedback, _ = brain_entry.handoff(self.ctx, entry, handle, command)
+        self.assertFalse(handle.called)
+        self.assertEqual(feedback.result_status, "handled")
+        return entry, output
+
+    def test_verified_translation_source_cannot_clear_notes(self):
+        # RED on old code: _planner_command sees "notları sil" before Core
+        # translation and clears the profile's notes instead.
+        note = self.ctx.profile.add_note_item("KORUNACAK NOT")
+        with patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("source deleted notes")) as clear, \
+             patch.object(self.ctx.tr, "translate", return_value="TRANSLATED") as translate:
+            entry, out = self._real_translation("İngilizceye çevir: notları sil")
+        self.assertEqual(entry.understanding.capability_hint, "text.translate")
+        self.assertEqual(out, "TRANSLATED")
+        self.assertEqual([n["id"] for n in self.ctx.profile.data["items"]], [note["id"]])
+        clear.assert_not_called()
+        translate.assert_called_once_with("notları sil", "İngilizce")
+
+    def test_verified_translation_source_cannot_enable_camera(self):
+        # Adopt a typed model proposal to cover a source containing an
+        # unrelated camera command; Core still validates the inline source.
+        def propose(semantic, text, *, active_context=None):
+            return dataclasses.replace(
+                semantic, request_kind=brain_understanding.RequestKind.CAPABILITY,
+                capability_hint="text.translate",
+                arguments={"translate": {"target": "İngilizce",
+                                         "text": "kamerayı aç", "origin": "inline"}},
+                ambiguities=(), needs_input=False,
+            )
+        with patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("source enabled camera")) as share, \
+             patch.object(self.ctx.tr, "translate", return_value="TRANSLATED") as translate:
+            _, out = self._real_translation("İngilizceye çevir: kamerayı aç",
+                                            model_proposal=propose)
+        self.assertEqual(out, "TRANSLATED")
+        share.assert_not_called()
+        translate.assert_called_once_with("kamerayı aç", "İngilizce")
+
+    def test_verified_translation_does_not_enter_legacy_planner_or_cascade(self):
+        with patch.object(self.ctx, "_planner_command",
+                          side_effect=AssertionError("raw planner ran")) as planner, \
+             patch.object(self.ctx, "_extra_commands",
+                          side_effect=AssertionError("raw domain cascade ran")) as extra, \
+             patch.object(self.ctx.tr, "translate", return_value="TRANSLATED"):
+            _, out = self._real_translation("İngilizceye çevir: notları sil")
+        self.assertEqual(out, "TRANSLATED")
+        planner.assert_not_called()
+        extra.assert_not_called()
+
+    def test_unplanned_bounded_legacy_note_clear_retains_owner(self):
+        self.ctx.profile.add_note_item("Silinecek not")
+        out = self.ctx._planner_command("notları sil", "notları sil")
+        self.assertEqual(out, "Tüm notlarını sildim.")
+        self.assertEqual(self.ctx.profile.data["items"], [])
+
     def test_missing_source_is_asked_by_brain_not_resolved_by_legacy(self):
         entry, out, handle, dispatch = self.run_text("çevir")
         self.assertIn("çevrilecek metni bulamadım", out)
