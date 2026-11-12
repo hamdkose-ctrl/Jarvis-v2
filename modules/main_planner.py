@@ -61,7 +61,7 @@ def _note_fix(runtime, command: str, cmd_lower: str) -> str | None:
         return None
     last = items[-1]
     cl = cmd_lower.strip(' .!?')
-    if runtime.re.fullmatch('son not(?:u|umu)?\\s+(?:sil|kaldır|iptal et)\\w*', cl):
+    if runtime.re.fullmatch('son not(?:u|umu)?\\s+(?:sil|kaldır|iptal et)', cl):
         runtime.profile.delete_note_item(last['id'])
         return f"Son notu sildim: {last['text']}"
     m = runtime.re.match('^son not(?:u|umu)?\\s+(?:düzelt|değiştir)\\w*\\s*[:,]?\\s+(.+)$', cl)
@@ -557,6 +557,12 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
     "yarınki hatırlatmayı 1 saat ertele", "toplantıyı cumaya kaydır", "bugünkünü atla" (tekrarlayanda yalnız sıradaki oluşum)."""
     from datetime import datetime, timedelta
     tr = _say_to_postpone(_fold(text))
+    # Negated and quoted words are not legacy reminder mutation authority.
+    # This veto leaves the actual Core capability and fallback executor alone.
+    if (re.search(r"\b(?:silme|kaldirma|iptal etme|erteleme|oteleme|kaydirma|atlama)\b", tr)
+            or re.search(r"\b(?:sil|kaldir|iptal et|ertele|otele|kaydir|atla)\b\s+demedim\b", tr)
+            or re.search(r"""["“”]|'[^']{3,}'""", text)):
+        return None
     if not _EDIT_ASK.search(tr):
         return None
     skip = bool(runtime.re.search(r"\batla\b|\batlar\s+misin|\batlayabilir", tr))
@@ -658,7 +664,7 @@ _NOTE_DATE = re.compile(r"\b(?:bugunku|bugun|dunku|dun|gecen haftaki|gecen hafta
 _NOTE_FILLER = re.compile(r"\b(?:benim|bana|aldigim|yazdigim|kaydettigim|tuttugum|ile ilgili|hakkindaki|hakkinda|icinde|icindeki|"
                           r"olan|var mi|var|mi|mu|neydi|nelerdi|neler|nerede|ne|bir|su|bu|o|ara|bul|goster|oku|ya)\b")
 _NOTE_EDIT = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:(?:su|bu)\s+)?(?:duzelt|degistir|guncelle)\w*\s*[:,]?\s*(?P<new>.*)$")
-_NOTE_DEL = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:sil|kaldir|iptal et)\w*$")
+_NOTE_DEL = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:sil|kaldir|iptal et)$")
 _MONTHS = ('Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara')
 _FOUND: dict = {}                     # kullanıcı -> (son bulunan notun kimliği, zaman): "o notu düzelt" için
 # Core hands a typed window label to the notes domain; this maps it to the legacy date phrase.

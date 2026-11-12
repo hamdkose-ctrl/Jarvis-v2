@@ -184,7 +184,14 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
 
 def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
     """Existing sharing and voice controls; profile intent belongs to Core."""
-    # Ekran paylaşımı ve kamera
+    # Ekran paylaşımı ve kamera. Model unavailable fallback cannot treat
+    # quoted/negated phrases as effects; accepted model actions use Core.
+    if (runtime.re.search(r"""["“”]|'[^']{3,}'""", command)
+            or runtime.re.search(
+                r"\b(?:açma|acma|başlatma|baslatma|kapatma|durdurma|paylaşma|paylasma)\b"
+                r"|\b(?:aç|ac|başlat|baslat|kapat|durdur|paylaş|paylas)\s+(?:demedim|deme|demiyorum|ne demek)\b",
+                cmd_lower)):
+        return None
     # "paylaşımı kapat/durdur/bitir" (ekran ya da kamera, hangisi açıksa): mevcut kapatma yolu
     if runtime.re.search(r"\bpayla[şs](?:ı|i)m(?:ı|i|ımı|imi)?\s+(?:kapat|durdur|bitir|sonlandır|kes)\w*|"
                          r"\bpayla[şs]may(?:ı|i)\s+(?:kapat|durdur|bitir|kes|bırak)\w*", cmd_lower):

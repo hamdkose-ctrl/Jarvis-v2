@@ -196,6 +196,30 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertIsNone(self.ctx._session().pending_confirm)
         clear.assert_not_called()
 
+    def test_failed_model_negated_note_reminder_camera_effects_are_safe(self):
+        from modules import brain_model_understanding
+        self.ctx.profile.add_note_item("Market alışverişi")
+        self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx.profile, "delete_note_item",
+                          side_effect=AssertionError("negated note deleted")) as note_delete, \
+             patch.object(self.ctx.profile, "delete_event",
+                          side_effect=AssertionError("negated reminder deleted")) as event_delete, \
+             patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("quoted camera activated")) as share:
+            for utterance in (
+                    "son notu silme", "market notunu silme",
+                    "ilaç hatırlatmasını silme", "ilaç hatırlatmasını sil demedim",
+                    "kamerayı açma", "kamerayı aç demedim",
+                    "Ali'ye 'kamerayı aç' mesaj gönder"):
+                with self.subTest(utterance=utterance):
+                    self.turn_real(utterance, model_understanding=True)
+        note_delete.assert_not_called()
+        event_delete.assert_not_called()
+        share.assert_not_called()
+        self.assertEqual(len(self.ctx.profile.data["items"]), 1)
+        self.assertEqual(len(self.ctx.profile.data["events"]), 1)
+
     def test_failed_model_exact_note_clear_requires_real_state_gate_confirmation(self):
         from modules import brain_model_understanding
         old = self.ctx.profile.add_note_item("KORUNACAK")
