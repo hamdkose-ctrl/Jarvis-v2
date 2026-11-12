@@ -223,6 +223,16 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         self.assertTrue(cascade_arms <= set(self.RAW_SEMANTIC_DOORS),
                         msg=str(sorted(cascade_arms - set(self.RAW_SEMANTIC_DOORS))))
 
+    def test_exact_undo_has_one_core_worker_caller_and_no_raw_parser(self):
+        # This is a real AST caller-zero retirement (not a renamed handler).
+        self.assertEqual(set(production_callers("undo_organize")),
+                         {"modules/engine_intents.py"})
+        source = (ROOT / "modules" / "engine_tools.py").read_text(encoding="utf-8")
+        start = source.index("def _extra_commands(")
+        body = source[start:source.find("\ndef ", start + 1)]
+        self.assertNotIn("undo_organize(", body)
+        self.assertNotIn("düzenlemey[ie] geri al", body)
+
     def test_the_retired_city_door_has_no_production_owner_left(self):
         # BRAIN-03 dilim 1: şehir set/reset effect'inin yazma dikişi iki sahibe iner —
         # varsayılanı kuran `engine_context` ve kanonical planı yürüten `engine_intents`.

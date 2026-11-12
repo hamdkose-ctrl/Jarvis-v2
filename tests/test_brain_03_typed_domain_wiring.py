@@ -453,6 +453,25 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(output, "WEB KAPALI")
         youtube.assert_not_called()
 
+    def test_model_grounding_rejects_invented_note_and_reminder_target(self):
+        from modules import brain_model_understanding as model
+        self.assertTrue(model._arguments_are_grounded(
+            capability_id="notes.add", supplied={"text": "Raporu teslim et"},
+            sources={"text": "Raporu teslim et"},
+            text="Not al: Raporu teslim et"))
+        self.assertFalse(model._arguments_are_grounded(
+            capability_id="notes.add", supplied={"text": "Notları sil"},
+            sources={"text": "Notları sil"},
+            text="Not al: Raporu teslim et"))
+        self.assertTrue(model._arguments_are_grounded(
+            capability_id="reminders.manage",
+            supplied={"operation": "delete", "title": "Rapor"},
+            sources={"title": "Rapor"}, text="Rapor hatırlatmasını sil"))
+        self.assertFalse(model._arguments_are_grounded(
+            capability_id="reminders.manage",
+            supplied={"operation": "delete", "title": "Ekip"},
+            sources={}, text="Rapor hatırlatmasını sil"))
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
