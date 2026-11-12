@@ -6,8 +6,10 @@ projection are used; external providers and desktop remain untouched.
 from __future__ import annotations
 
 import copy
+import sys
 import tempfile
 import threading
+import traceback
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
@@ -972,6 +974,20 @@ class SchedulerOfferTests(unittest.TestCase):
                 if not child_started:
                     journal = execution_record.load(self.owner_root, OWNER, JOB)
                     canonical = goal_state_store.load(self.path)
+                    # On a real Windows runner, an accepted Core result with a
+                    # still-running ExecutionRecord does not identify whether
+                    # projection is delayed, deadlocked or already failed.
+                    # Preserve worker stacks at the failure point rather than
+                    # guessing or extending the timing limit again.
+                    frames = sys._current_frames()
+                    worker_stacks = {
+                        thread.name: ''.join(traceback.format_stack(
+                            frames[thread.ident], limit=14,
+                        ))[-3800:]
+                        for thread in threading.enumerate()
+                        if thread.name.startswith('jarvis-canonical-')
+                        and thread.ident in frames
+                    }
                     self.fail(
                         'Dependent node was not dispatched; durable steps='
                         + repr([(step['id'], step['state'],
@@ -985,6 +1001,7 @@ class SchedulerOfferTests(unittest.TestCase):
                                 for row in canonical['evidence']
                                 if isinstance(row, dict)
                                 and row.get('kind') == 'worker_result'])
+                        + '; canonical worker stacks=' + repr(worker_stacks)
                     )
                 self.assertTrue(poll_while_busy.is_set(), 'Scheduler poll blocked on worker')
                 # The worker sets "finished" before its Core CAS and durable
