@@ -1,5 +1,7 @@
 # JARVIS BRAIN MIGRATION MAP V1
 
+**BRAIN-03 tek-PR final cutover — TASLAK / #545 OPEN (13 Kasım 2026).** Baz `main@c910d46214bcf500078b8a640b0ea3d9a5baa188`. Bu dalın ilk değişikliği, Core tarafından doğrulanmış tüm planların ham `_user_controls`, genel `_planner_command` ve `_extra_commands` tarafından ikinci kez yorumlanmasını engellemeyi hedefler. Korunan dar istisnalar: `_FILE_CMD` tırnaklı açık UI protokolü, profilde kayıtlı **tam eşleşen** makro tetikleyicisi, `reminder` planının mevcut Core-bağlı açık `not al:` uyumluluğu. Model semantiği kabulü / Full holdout **UNMEASURED**; yeni branch için Windows CI ve gerçek PC watcher **HENÜZ DOĞRULANMADI**. Bu aşama bütün legacy sahiplerin söküldüğü anlamına gelmez; dört Bitti koşulu BRAIN-03 için henüz sağlanmadı. Denetim: `docs/architecture/JARVIS_BRAIN_03_FINAL_AUTHORITY_INVENTORY_2026-11-13.md`.
+
 **Durum:** canonical migration denetimi — production davranışı değiştirmez.  
 **İlk denetim kaynağı:** `origin/main` @ `344c1c7cc5290f63753908d1b7fe8b3d48c5a521`  
 **Düzeltme tabanı:** `origin/main` @ `7c2d08913e53c0695df73eed0cff5e622ded56d3`  

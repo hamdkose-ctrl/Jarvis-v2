@@ -1,5 +1,7 @@
 # Dosya, belge ve klasör (AGENTS.md alan notları)
 
+**BRAIN-03 tek-PR dosya sahiplik notu (TASLAK):** Typed Core planında `_file_command` yalnız `_FILE_CMD` tırnaklı kullanıcı UI komutunu görebilir. Doğal dil Workbench follow-up henüz emekli değildir ve #545 kapsamında gerçek ActiveContext/Reference Resolver/Core parity gerektirir. Dosya worker'larının `nxapi.allowed` / symlink / izin kontrolleri değiştirilmedi.
+
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
 ## BRAIN-03 Core planı ile Workbench takip kapısı — 12 Kasım 2026 (PR #608 MERGED)

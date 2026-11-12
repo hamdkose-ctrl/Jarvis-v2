@@ -74,6 +74,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
+- **BRAIN-03 final accepted-plan boundary (henüz kabul değil):** Geçerli Core planı raw ses/kamera/paylaşım, planner veya extra cascade üzerinden ikinci bir effect seçtiremez. Kayıtlı tam makro, explicit tırnaklı dosya UI ve `reminder` için Core-bağlı eski note-add sözleşmesi korunur. Kalan doğal-dil domain parser'ları #545 kapsamındadır; full cutover ve dört Bitti koşulu sağlanmadan faz kapanmaz. `tests/test_brain_03_final_authority_cutover.py` / `tests/test_visual_chat.py` CI/PC kabulü gerektirir.
 - **BRAIN-03 hatırlatma sınırı:** Doğrulanmış `reminder` planı yalnız oluşturur; alıntıdaki not/etkinlik silme veya erteleme sözleri mevcut kayıtları değiştirmez. Plansız eski komutlar, açık `not al:` ve pending cevapları korunur. Ayrıntı: `docs/agents/mail-takvim.md`; test: `tests/test_brain_03_reminder_core_fence.py`.
 
 ## Testler

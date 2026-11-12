@@ -1,5 +1,7 @@
 # Mail, takvim ve hatırlatma (AGENTS.md alan notları)
 
+**BRAIN-03 tek-PR Core plan sınırı (TASLAK):** Tam `CorePlan` üretildiğinde `reminder` haricinde planner'ın ham not/takvim parser'ına ikinci kez girilmez. `reminder` için zaten var olan `main_planner.core_reminder` adaptörü ve açık `not al:` sahiplik istisnası korunur. Plansız eski not sil/düzelt, takvim ve hatırlatma erteleme komutları henüz canonical migration parity kazanmadığı için emekli edilmiş sayılmaz; #545 OPEN.
+
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
 ## BRAIN-03: doğrulanmış hatırlatma metninden ham mutasyon yetkisi çıkmaz (12 Kasım 2026; #597 merge edildi, takip paketi kabul bekliyor)

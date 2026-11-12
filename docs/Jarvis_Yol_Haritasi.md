@@ -1,5 +1,7 @@
 # Jarvis Yol Haritası — Hasat Listesi Yapım Sırası
 
+**BRAIN-03 tek-PR final cutover — TASLAK / #545 OPEN (13 Kasım 2026).** Baz `main@c910d46214bcf500078b8a640b0ea3d9a5baa188`. Bu dalın ilk değişikliği, Core tarafından doğrulanmış tüm planların ham `_user_controls`, genel `_planner_command` ve `_extra_commands` tarafından ikinci kez yorumlanmasını engellemeyi hedefler. Korunan dar istisnalar: `_FILE_CMD` tırnaklı açık UI protokolü, profilde kayıtlı **tam eşleşen** makro tetikleyicisi, `reminder` planının mevcut Core-bağlı açık `not al:` uyumluluğu. Model semantiği kabulü / Full holdout **UNMEASURED**; yeni branch için Windows CI ve gerçek PC watcher **HENÜZ DOĞRULANMADI**. Bu aşama bütün legacy sahiplerin söküldüğü anlamına gelmez; dört Bitti koşulu BRAIN-03 için henüz sağlanmadı. Denetim: `docs/architecture/JARVIS_BRAIN_03_FINAL_AUTHORITY_INVENTORY_2026-11-13.md`.
+
 Tarih: 25 Ekim 2026 · Hamdi · Durum güncellemesi: 26 Ekim 2026 (main 5cae9b9, "bitti" kuralına göre yeniden değerlendirildi) · 28 Ekim 2026 (Faz 1'e #437 model-bağımsız haber hattı maddesi eklendi) · 29 Ekim 2026 (Faz 0 kapanış durumu güncel `main` ve merge edilmiş cutover/guard işleriyle yeniden hizalandı; gerçek-PC cutover + exact-main final acceptance kanıtlarıyla Faz 0 kapatıldı)
 
 ## "Bitti" kuralı
