@@ -74,7 +74,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
-- **BRAIN-03 doğrulanmış hatırlatma / ham mutasyon sınırı:** Core `reminder` planı yalnız yeni hatırlatma oluşturur; alıntı içindeki not silme/düzeltme veya önceki hatırlatmayı silme/erteleme sözleri ikinci işlem başlatamaz. `main_planner.core_reminder` yalnız Core'un doğruladığı plan kapsamındadır; planı olmayan eski not ve hatırlatma silme/erteleme komutları, pending cevapları ve mevcut açık not ekleme önceliği korunur. Regresyonlar: `tests/test_brain_03_reminder_core_fence.py`; yeni dalın exact-HEAD Windows CI/PC ve gerçek model kabulü ayrıca gerekir.
+- **BRAIN-03 hatırlatma sınırı:** Doğrulanmış `reminder` planı yalnız oluşturur; alıntıdaki not/etkinlik silme veya erteleme sözleri mevcut kayıtları değiştirmez. Plansız eski komutlar, açık `not al:` ve pending cevapları korunur. Ayrıntı: `docs/agents/mail-takvim.md`; test: `tests/test_brain_03_reminder_core_fence.py`.
 
 ## Testler
 
