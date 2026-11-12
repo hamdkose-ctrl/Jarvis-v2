@@ -158,6 +158,19 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
         self.assertEqual(other_ticket.keys, ticket.keys)
         self.leases.release(other_ticket)
 
+    def test_distinct_provider_services_have_independent_conservative_keys(self):
+        gmail = scheduler_resource_gate._typed_resource_keys(
+            {'capability_id': 'task.account',
+             'input': {'service': 'gmail', 'operation': 'list_unread'}}, 'alice',
+        )
+        telegram = scheduler_resource_gate._typed_resource_keys(
+            {'capability_id': 'task.account',
+             'input': {'service': 'telegram', 'operation': 'list_updates'}}, 'bob',
+        )
+        self.assertNotEqual(gmail, telegram)
+        self.assertEqual(gmail, ('gmail_account:shared',))
+        self.assertEqual(telegram, ('provider:telegram-shared',))
+
     def test_stale_goalstate_version_or_revision_cannot_use_old_ticket(self):
         old_state = snapshot()
         selection = candidate(old_state)

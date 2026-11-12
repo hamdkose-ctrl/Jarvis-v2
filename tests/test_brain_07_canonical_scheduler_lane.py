@@ -21,7 +21,7 @@ from modules import (
     canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
     goal_executor, goal_state, goal_state_store, goal_tools,
-    runtime_worker_result, task_agents, task_results, untrusted_flow,
+    runtime_worker_result, scheduler_resource_gate, task_agents, task_results, untrusted_flow,
     worker_result_hook,
 )
 
@@ -74,6 +74,10 @@ class SchedulerOfferTests(unittest.TestCase):
         patch_store = patch.object(goal_executor, 'STORE', self.store)
         patch_store.start()
         self.addCleanup(patch_store.stop)
+        claim = patch.object(scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT',
+                             self.store / 'provider-claims')
+        claim.start()
+        self.addCleanup(claim.stop)
 
     def offers(self):
         return canonical_scheduler_lane.ready_offers(OWNER, JOB)

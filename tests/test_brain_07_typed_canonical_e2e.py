@@ -26,6 +26,7 @@ from modules import (
     canonical_scheduler_dispatch, execution_record, goal_executor,
     goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
     smart_router, task_agents, task_queue, task_results, untrusted_flow,
+    scheduler_resource_gate,
 )
 from modules import brain_model_understanding as envelope
 
@@ -56,6 +57,12 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         super().setUp()
         self.mocks = ExitStack()
         self.addCleanup(self.mocks.close)
+        # Shared provider claim namespace must be real but isolated from
+        # another test's OS-user or a currently running Jarvis instance.
+        self.mocks.enter_context(patch.object(
+            scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT',
+            goal_executor.STORE / '_test_provider_claims',
+        ))
         for target, value in (
             ('modules.llm.current_user', lambda: self.owner),
             ('modules.llm.provider', lambda: 'groq'),
