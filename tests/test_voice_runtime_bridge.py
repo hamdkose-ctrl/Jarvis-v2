@@ -356,6 +356,50 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertEqual(heard, ["A işinin cevabı", "B işinin sonraki bildirimi"],
                          "the stopped turn stays silent and the other job is still heard")
 
+    def test_sus_mutes_the_turn_whose_request_finished_while_its_audio_was_playing(self):
+        # The normal answer flow marks the request done while its audio is still on
+        # the speaker, so the mute cannot depend on the request lifecycle: "sus"
+        # arriving mid-utterance mutes that turn by identity even when the record
+        # already says done. A later utterance of the same turn then stays silent,
+        # while another finished job keeps its own spoken result.
+        self._requests_isolated()
+        heard = []
+        started = threading.Event()
+        release = threading.Event()
+
+        def synth(spec, text, cancel):
+            heard.append(text)
+            started.set()
+            self.assertTrue(release.wait(2))
+            return b"audio"
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import voice
+        for rid in ("turn-A", "job-B"):
+            self.assertTrue(requests_state.register("alice", rid))
+            with requests_state.activate("alice", rid):
+                pass                       # the handler returned; the record is 'done'
+        first = lane.say("alice", "tr_kadin", "Bitmiş cevabın sesi", turn_id="turn-A")
+        self.assertTrue(started.wait(1))
+        voice.stop_speaking()              # "sus" while the finished answer is audible
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertTrue(requests_state.speech_muted("alice", "turn-A"),
+                        '"sus" mutes the turn it stopped even after its request completed')
+        late = lane.say("alice", "tr_kadin", "Aynı turun geciken sesi", turn_id="turn-A")
+        self.assertTrue(late.is_set(), "the refused utterance is acknowledged, never left waiting")
+        notice = lane.say("alice", "tr_kadin", "B işinin bildirimi", turn_id="job-B",
+                          background=True)
+        self.assertTrue(notice.wait(2))
+        self.assertEqual(heard, ["Bitmiş cevabın sesi", "B işinin bildirimi"],
+                         "the stopped turn is silent, the other finished job is still heard")
+        self.assertFalse(requests_state.is_cancelled("alice", "turn-A"),
+                         '"sus" still cancels no Core work, finished or not')
+
     def test_sus_never_mutes_a_request_the_lane_was_never_given(self):
         # Nothing had reached the speaker yet, so there is no speech to mute: the
         # mute scope cannot be extended to a request the voice owner never saw.
@@ -1123,6 +1167,54 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertTrue(first.wait(2))
         self.assertTrue(second.wait(2))
         self.assertEqual([b"audio"], started)     # the wedged chunk was the last of it
+
+    def test_the_new_users_greeting_never_mixes_with_the_unstopped_old_audio(self):
+        # The review's remaining boundary: if the device ignores the stop signal,
+        # the previous user's audio in the speaker is NOT claimed to be cut. What
+        # is proven here is the safety that still holds without that claim: the one
+        # output worker never plays the new user's greeting over it, and no further
+        # chunk of the previous user's utterance starts after the switch.
+        began, release = threading.Event(), threading.Event()
+        playing, overlap, threads = [], [], []
+        guard = threading.Lock()
+
+        def play(audio, cancel, on_start):
+            threads.append(threading.current_thread().name)
+            with guard:
+                if playing:
+                    overlap.append(list(playing))   # two utterances on the device at once
+                playing.append(audio)
+            on_start()
+            if audio == b"eski":
+                began.set()
+                release.wait(3)                    # ignores cancel, like a wedged device
+            with guard:
+                playing.remove(audio)
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"eski" if text.startswith("Alice") else b"yeni",
+            play,
+        )
+        voice_runtime.register(lane)
+        old = lane.say("alice", "tr_kadin", "Alice konuşuyor")
+        self.assertTrue(began.wait(2))
+        self.rt.pc_profile = lambda: SimpleNamespace(slug="bob", data={"prefs": {}})
+        self.rt.profile = SimpleNamespace(slug="bob", data={"prefs": {"voice": "tr_kadin"}})
+        with patch.object(voice_runtime, "_record_failure") as failure:
+            stopped = voice_runtime.on_owner_switch("alice", timeout=0.05)
+        self.assertFalse(stopped, "the unverified device cut is never reported as done")
+        greeting = lane.say("bob", "tr_kadin", "Merhaba Bob", turn_id="bob-greeting")
+        time.sleep(0.05)
+        self.assertEqual(playing, [b"eski"], "the greeting waits behind the uncut audio")
+        self.assertFalse(greeting.is_set(), "no new speech starts while the device is stuck")
+        release.set()
+        self.assertTrue(old.wait(2))
+        self.assertTrue(greeting.wait(2))
+        self.assertEqual(overlap, [], "one output owner never mixes two users' audio")
+        self.assertEqual(set(threads), {"jarvis-voice-output"},
+                         "both utterances played on the single production output worker")
+        self.assertFalse(lane.is_busy())
 
     def test_a_same_turn_answer_arriving_after_the_cut_is_still_cut(self):
         # The window between the drain and the mute: a late answer for the turn the

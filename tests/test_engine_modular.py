@@ -304,7 +304,10 @@ class UserSwitchAudibleStopTests(unittest.TestCase):
 
     def test_a_switch_whose_stop_was_not_verified_says_so(self):
         # The greeting is what the new user hears as the switch result, so an
-        # unverified stop must not be presented as a clean one.
+        # unverified stop must not be presented as a clean one. The wording also
+        # must not claim a physical device cut nobody verified, while still saying
+        # the one guarantee the single output owner does provide: the new user's
+        # own answer never plays over the leftover audio.
         from modules import engine_context
         for stopped, expected in ((True, 'Merhaba Bob.'),
                                   (False, 'Merhaba Bob. Önceki kullanıcının sesi')):
@@ -315,4 +318,9 @@ class UserSwitchAudibleStopTests(unittest.TestCase):
                     message = engine_context._switch_user(rt, 'Bob')
                 stop.assert_called_once_with('alice')
                 self.assertTrue(message.startswith(expected), message)
+                if stopped:
+                    self.assertNotIn("Önceki kullanıcının", message)
+                else:
+                    self.assertIn("kesilemedi", message, message)
+                    self.assertIn("üst üste binmez", message, message)
 

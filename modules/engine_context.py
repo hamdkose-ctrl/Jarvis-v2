@@ -175,11 +175,15 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         if not voice_runtime.on_owner_switch(previous_owner):
             # The player did not acknowledge the stop inside the bound. Greeting the
             # new user as if it had would claim a stop that was not verified, so the
-            # switch says what is still true: whatever is already in the speaker was
-            # not cut, and the previous user's remaining chunks stay silent because
-            # the owner gate now names this new user.
-            speech_stop = (" Önceki kullanıcının sesi hoparlörde tamamen kesilemedi;"
-                           " kalan bölümleri bu oturumda çalmaz.")
+            # switch says exactly the two things that are true and nothing more: the
+            # audio already in the speaker was not cut and can run on for its own
+            # length, while no further chunk of the previous user's utterance starts
+            # because the owner gate now names this new user. The one output owner
+            # also means the new user's own speech queues behind that leftover
+            # audio rather than playing over it (tests/test_voice_runtime_bridge.py).
+            speech_stop = (" Önceki kullanıcının sesi kesilemedi; çalmakta olan bölüm"
+                           " kısa süre devam edebilir ama kalan bölümleri çalmaz,"
+                           " senin yanıtın da onunla üst üste binmez.")
     from modules import hooks
     hooks.observe("session", {"event": "user_switched", "created": bool(created)}, owner=runtime.profile.slug)
     runtime._session().last_doc = None            # bir kullanıcının analizi diğerine kaydedilmesin
