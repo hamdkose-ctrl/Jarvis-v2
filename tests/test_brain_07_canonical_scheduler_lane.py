@@ -92,6 +92,28 @@ class SchedulerOfferTests(unittest.TestCase):
         runtime_worker_result.accept_and_commit(wrapped, expected)
         return output
 
+    def test_completion_recovery_never_wakes_unknown_or_unprojected_attempt(self):
+        # No evidence means no completion callback, even on a fresh Scheduler.
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            OWNER,
+        ), ())
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        self.assertEqual(canonical_restart_audit.inspect(OWNER, JOB).nodes[0].status,
+                         'started_unknown')
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            OWNER,
+        ), ())
+        # Core accepted evidence without an intact projected output is not
+        # proof of safe global completion, even if another node is queued.
+        self.accept('left')
+        self.assertEqual(canonical_restart_audit.inspect(OWNER, JOB).nodes[0].status,
+                         'accepted_unprojected')
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            OWNER,
+        ), ())
+
     def test_initial_independent_roots_only_and_strict_limit(self):
         self.assertEqual(
             [offer.selection.node_id for offer in self.offers()],

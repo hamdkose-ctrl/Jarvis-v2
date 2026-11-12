@@ -7,6 +7,7 @@ Core WorkerResult CAS remain the only execution/acceptance path.
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
 from bisect import bisect_right
 import re
 import threading
@@ -16,7 +17,8 @@ from types import SimpleNamespace
 import release_guard
 from modules.diagnostics import record_failure as _record_failure
 from modules import (
-    canonical_output_projection, canonical_scheduler_lane, execution_record,
+    canonical_output_projection, canonical_restart_audit,
+    canonical_scheduler_lane, execution_record,
     goal_executor, goal_job_control, goal_plan_gate, goal_state_store,
     runtime_worker_result, specialist_orchestrator,
 )
@@ -24,7 +26,70 @@ from modules import (
 _JOB_RECORD = re.compile(r"([a-f0-9]{16})\.execution\.json\Z")
 # Cursor affects fairness only; readiness/authority are always re-read from disk.
 _SCAN_CURSOR = {}
+_RECOVERY_CURSOR = {}
 _SCAN_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class CompletionRecoveryOffer:
+    owner: str
+    job_id: str
+    goal_version: int
+    plan_version: int
+    record_digest: str
+
+
+def recoverable_completions(owner: str, *, max_jobs: int = 8,
+                            max_results: int = 1) -> tuple[CompletionRecoveryOffer, ...]:
+    """Offer only already-projected, Core-accepted goals for semantic wakeup.
+
+    No planner, provider, worker, delivery or journal mutation happens here.
+    The existing completion callback re-certifies all evidence and CAS-fences
+    the final decision. Partial/unknown attempts never qualify.
+    """
+    if (type(max_jobs) is not int or not 1 <= max_jobs <= 32
+            or type(max_results) is not int or not 1 <= max_results <= 8):
+        raise ValueError("Completion recovery scan limits invalid.")
+    root = goal_executor._owner_root(owner)
+    if not root.is_dir() or root.is_symlink():
+        return ()
+    paths = sorted(root.glob("*.execution.json"))
+    if not paths:
+        return ()
+    with _SCAN_LOCK:
+        cursor_key = (str(root), owner)
+        index = bisect_right(
+            [path.name for path in paths], _RECOVERY_CURSOR.get(cursor_key, ""),
+        )
+        batch = (paths[index:] + paths[:index])[:max_jobs]
+        _RECOVERY_CURSOR[cursor_key] = batch[-1].name
+    offered = []
+    for path in batch:
+        match = _JOB_RECORD.fullmatch(path.name)
+        if not match or path.is_symlink() or not path.is_file():
+            continue
+        job_id = match.group(1)
+        try:
+            with goal_job_control.locked(root, job_id):
+                snapshot = canonical_restart_audit.inspect(owner, job_id)
+                if not snapshot.nodes or any(
+                    node.status != "accepted_projected" for node in snapshot.nodes
+                ):
+                    continue
+                record = execution_record.load(root, owner, job_id)
+                if (record.get("_canonical_delivery")
+                        or goal_job_control.fingerprint(record) != snapshot.record_digest):
+                    continue
+                offered.append(CompletionRecoveryOffer(
+                    owner, job_id, snapshot.goal_version,
+                    snapshot.plan_version, snapshot.record_digest,
+                ))
+                if len(offered) >= max_results:
+                    break
+        except (ValueError, PermissionError, OSError, TypeError, KeyError, IndexError):
+            # Corrupt/foreign/changed evidence never causes a recovery callback.
+            continue
+    return tuple(offered)
 
 
 def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
