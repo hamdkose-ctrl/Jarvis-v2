@@ -458,7 +458,7 @@ def write_output(destination: Path, title: str, sheets: list[tuple[str, list[lis
         os.close(fd)
         try:
             write_content(content, temp)
-            with open(temp, 'rb') as source:
+            with open(temp, 'rb+') as source:
                 os.fsync(source.fileno())
             os.link(temp, destination)
         finally:
