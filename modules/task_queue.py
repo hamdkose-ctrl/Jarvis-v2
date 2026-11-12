@@ -22,6 +22,9 @@ _CANONICAL_WORKERS={}
 _LAST_CANONICAL_ADMITTED={}
 _MAX_CANONICAL_WORKERS=3
 _MAX_CANONICAL_PER_OWNER=2
+# Soft timeout for each read-only worker. Expiry fences Core CAS but cannot
+# forcibly abort a provider call; keep its OS resource claim until return.
+_CANONICAL_WORKER_DEADLINE_SECONDS=300
 _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
@@ -375,11 +378,19 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 # this new OS thread begins executing; late-bound locals must
                 # never transplant one worker into another user's context.
                 def work(candidate=offer, pinned_owner=owner, pinned_profile=profile):
+                    from modules import runtime_worker_result
                     token = llm._key_context.set(pinned_owner)
                     try:
                         if not stop_event.is_set():
+                            # Each thread gets its own clock-based deadline.
+                            # A stuck provider remains in the bounded pool;
+                            # we never release an in-flight OS claim to launch
+                            # a duplicate command or treat timeout as success.
+                            deadline = runtime_worker_result.CanonicalWorkerDeadline(
+                                stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS,
+                            )
                             canonical_scheduler_dispatch.execute_offer(
-                                pinned_profile, candidate, stop_event=stop_event,
+                                pinned_profile, candidate, stop_event=deadline,
                             )
                     except Exception:
                         _record_failure('modules/task_queue.py:canonical_dispatch')
