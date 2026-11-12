@@ -20,7 +20,7 @@ from test_brain_pr3_raw_text_authority import _CanonicalAuthorityHarness
 from modules import (
     brain_entry, canonical_goal_flow, canonical_plan_evidence,
     canonical_scheduler_dispatch, execution_record, goal_executor,
-    goal_state_store, model_wait, requests_state, service_store,
+    goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
     task_agents, task_queue, task_results, untrusted_flow,
 )
 from modules import brain_model_understanding as envelope
@@ -100,6 +100,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(len(job_id), 16)
         state, journal = self.persisted(job_id)
         self.assertEqual(state['authority'], 'canonical')
+        self.assertEqual(state['version'], 1)
+        self.assertEqual(state['audit'][-1]['reason_code'], 'CORE_GOAL_PLAN_ACCEPTED')
         self.assertEqual(state['goal_plan']['plan_version'], 1)
         self.assertEqual([row['id'] for row in state['goal_plan']['nodes']], ['first', 'second'])
         self.assertEqual([row['state'] for row in journal['steps']], ['queued', 'queued'])
@@ -148,6 +150,16 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(tuple(root.glob('*.execution.json')), ())
         self.assertEqual(len(tuple(root.glob('*.goalstate.json'))), 1)
         self.assertEqual(tuple(canonical_scheduler_dispatch.discover(self.owner)), ())
+
+    def test_core_completion_adapter_rejects_missing_projected_proof(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        path = goal_executor._owner_root(self.owner) / (job_id + '.goalstate.json')
+        with self.assertRaises(goal_state_compat.ReconcilePolicyError):
+            goal_state_compat.commit_verified_goal_completion(
+                path, owner=self.owner, job_id=job_id, proof=None,
+            )
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
 
     def test_semantic_refusal_never_marks_completed_or_sends_result(self):
         with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):

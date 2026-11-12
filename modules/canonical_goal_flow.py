@@ -14,7 +14,7 @@ import time
 
 import release_guard
 from modules import (
-    canonical_plan_evidence, completion_policy, core_state_reducer,
+    canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
     goal_state_store, llm, model_wait, task_agents, task_tools,
@@ -117,16 +117,11 @@ def try_create(owner: str, request_id: str, text: str):
             } for row in plan['nodes']],
             'outputs': {},
         }
-        initial = goal_state.new(
-            owner=owner, job_id=job_id, goal=text, authority='canonical',
-        )
-        goal_state_store.create(state_path, initial)
-        # There is no cross-file atomic transaction. Publish Core plan first,
-        # then the matching queued record under the SAME per-job control lock.
-        # A crash between these writes leaves no schedulable matching pair.
-        saved = goal_state_compat.apply_goal_plan(
-            state_path, owner=owner, job_id=job_id,
-            expected_version=initial['version'], plan=plan,
+        # Publish the born-canonical, already Core-planned state through the
+        # authorized compat adapter. The second (execution) file is NOT atomic
+        # with it; the existing Scheduler refuses an unmatched pair.
+        saved = goal_state_compat.create_canonical_planned_goal(
+            state_path, owner=owner, job_id=job_id, goal=text, plan=plan,
         )
         goal_plan_gate.ready_read_only_candidates(
             saved, owner=owner, job_id=job_id,
@@ -220,16 +215,10 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         completed['state'] = 'done'
         completed['_canonical_delivery'] = 'reserved'
         completed['updated'] = time.time()
-        # Core is the only global completion authority. A journal 'done'
-        # cannot be published unless this deterministic CAS succeeds.
-        next_state = core_state_reducer.apply(state, {
-            'op': 'set_state', 'state': 'done',
-            'expected_version': state['version'],
-            'reason_code': 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED',
-        })
-        goal_state_store.compare_and_swap(
-            state_path, expected_version=state['version'],
-            next_state=next_state,
+        # Keep the Core CAS and proof/journal fence inside its authorized
+        # compat commit adapter. A journal 'done' cannot precede Core success.
+        goal_state_compat.commit_verified_goal_completion(
+            state_path, owner=owner, job_id=job_id, proof=proof,
         )
         release_guard.atomic(record_path, execution_record.encode(completed))
     message = goal_executor.render(completed)
