@@ -157,6 +157,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             day = (now + timedelta(days=1 if period == "tomorrow" else 0)).strftime("%Y-%m-%d")
             return runtime._agenda_text(day, "Yarın" if period == "tomorrow" else "Bugün")
         case "reminder_manage":
+            # Core validates a grounded exact title; the approval is bound
+            # to this owner and one immutable event snapshot. Even a bad
+            # model decision cannot delete without a second user confirmation.
             from modules import requests_state
             requests_state.check()
             wanted = a["title"].casefold()
@@ -167,15 +170,17 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return "Bu adla bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
             if len(matched) != 1:
                 return "Bu adla birden fazla Jarvis hatırlatması var; hangisi olduğunu netleştir."
-            target = matched[0]
-            requests_state.check()
-            old_title = target["title"]
-            old_when = target["when"]
-            if not runtime.profile.delete_event(target["id"]):
-                return "Hatırlatmanın silindiğini doğrulayamadım."
-            extra = " (tekrarlayan kaydın bütün tekrarları)" if target.get("repeat") else ""
-            return (f"Sildim: {old_title}, {runtime.whenmod.describe(old_when, now=runtime.datetime.now())}"
-                    + extra + ". Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
+            event = matched[0]
+            runtime._session().pending_confirm = {
+                "action": "reminder_delete",
+                "owner": runtime.profile.slug,
+                "event_id": event["id"],
+                "title": event["title"],
+                "when": event["when"],
+                "repeat": event.get("repeat"),
+            }
+            return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
+                    "Evet ya da hayır de. Google Takvim'e dokunmam.")
         case "study_read":
             from modules import engine_tools
             return engine_tools.study_read(runtime, a["view"])

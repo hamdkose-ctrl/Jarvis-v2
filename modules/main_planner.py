@@ -878,6 +878,39 @@ def core_reminder(args: dict):
         _CORE_REMINDER.reset(token)
 
 
+def delete_reminder_confirmed(runtime, proposal: dict) -> str:
+    """Execute only the previously Core-validated, owner-bound exact approval.
+
+    No raw sentence is re-parsed here. The confirmation is invalidated by
+    owner changes, duplicate titles, reschedule, or a changed repeat rule.
+    """
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
+        return "Hatırlatma onayının sahibi değişti; hiçbir kayıt silinmedi."
+    expected = {k: proposal.get(k) for k in ("event_id", "title", "when", "repeat")}
+    if type(expected["event_id"]) is not int or type(expected["title"]) is not str:
+        return "Hatırlatma onayı doğrulanamadı; hiçbir kayıt silinmedi."
+    matches = [e for e in runtime.profile.data.get("events", [])
+               if isinstance(e, dict) and e.get("id") == expected["event_id"]
+               and e.get("title") == expected["title"]
+               and e.get("when") == expected["when"]
+               and e.get("repeat") == expected["repeat"]]
+    same_title = [e for e in runtime.profile.data.get("events", [])
+                  if isinstance(e, dict) and isinstance(e.get("title"), str)
+                  and e["title"].casefold() == expected["title"].casefold()]
+    if len(matches) != 1 or len(same_title) != 1:
+        return "Hatırlatma onayından sonra kayıt değişti veya hedef belirsiz; hiçbir kayıt silinmedi."
+    requests_state.check()
+    if not runtime.profile.delete_event(expected["event_id"]):
+        return "Hatırlatma silme işlemini doğrulayamadım; silindi demiyorum."
+    from modules import whenmod
+    detail = " (tekrarlayan kaydın bütün tekrarları)" if expected["repeat"] else ""
+    return (f"Sildim: {expected['title']}, "
+            f"{whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
+            "Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
+
+
 def reminder_create(runtime, parsed: dict) -> str:
     """Execute a parsed/validated reminder creation through the existing conflict-confirm pipeline."""
     if parsed.get('repeat') == 'unknown':

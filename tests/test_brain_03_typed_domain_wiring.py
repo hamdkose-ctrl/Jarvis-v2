@@ -258,9 +258,17 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 {"operation": "delete", "title": "Ekip Toplantısı"})
         self.assertEqual(brain_entry.core_plan(entry),
                          ("reminder_manage", {"operation": "delete", "title": "Ekip Toplantısı"}))
-        self.assertEqual(feedback.result_status, "handled")
-        self.assertIn("Sildim: Ekip Toplantısı", output)
-        delete.assert_called_once_with(17)
+        self.assertEqual(feedback.result_status, "needs_input")
+        self.assertIn("onaylıyor musun", output)
+        pending = self.ctx._session().pending_confirm
+        self.assertEqual(pending["event_id"], 17)
+        self.assertEqual(pending["owner"], self.owner)
+        delete.assert_not_called()
+        from modules import main_planner
+        with patch.object(self.ctx.profile, "delete_event", return_value=True) as confirmed:
+            reply = main_planner.delete_reminder_confirmed(self.ctx, pending)
+        self.assertIn("Sildim: Ekip Toplantısı", reply)
+        confirmed.assert_called_once_with(17)
 
     def test_duplicate_title_cannot_silently_delete_other_events(self):
         self.ctx.profile.data["events"] = [
@@ -274,6 +282,23 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 {"operation": "delete", "title": "Ekip"})
         self.assertIn("birden fazla", output)
         delete.assert_not_called()
+
+    def test_reminder_confirmation_refuses_foreign_or_changed_event(self):
+        from modules import main_planner
+        event = {"id": 9, "title": "Rapor", "when": "2026-11-15T09:00"}
+        self.ctx.profile.data["events"] = [event]
+        saved = {"action": "reminder_delete", "owner": self.owner,
+                 "event_id": 9, "title": "Rapor",
+                 "when": "2026-11-15T09:00", "repeat": None}
+        with patch.object(self.ctx.profile, "delete_event",
+                          side_effect=AssertionError("stale delete")) as worker:
+            bad_owner = {**saved, "owner": "foreign"}
+            self.assertIn("sahibi değişti",
+                          main_planner.delete_reminder_confirmed(self.ctx, bad_owner))
+            event["when"] = "2026-11-16T09:00"
+            self.assertIn("kayıt değişti",
+                          main_planner.delete_reminder_confirmed(self.ctx, saved))
+        worker.assert_not_called()
 
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (

@@ -206,6 +206,11 @@ def handle(runtime, command: str):
                         return 'Bilgisayarı kapatma komutu kabul edilmedi; kapatma zamanlandı demiyorum.'
                     runtime.privacy.audit("bilgisayarı kapatma", "60 sn zamanlandı")
                     return "Bilgisayarı 60 saniye içinde kapatmak üzere zamanladım. İptal için kapatmayı iptal et de."
+                if isinstance(action, dict) and action.get('action') == 'reminder_delete':
+                    # Bounded canonical pending_confirm response only. It cannot
+                    # target a different owner or a changed event since preview.
+                    from modules import main_planner
+                    return main_planner.delete_reminder_confirmed(runtime, action)
                 if isinstance(action, dict) and action.get('action') == 'close_app':
                     name = str(action.get('name') or '').strip()
                     if name:

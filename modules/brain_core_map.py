@@ -787,7 +787,8 @@ def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
                "day_plan": frozenset({"today", "tomorrow"}),
                "week_plan": frozenset({"this", "next", "seven"}),
                "upcoming": frozenset({None})}
-    if type(view) is not str or view not in choices or period not in choices[view]:
+    if (type(view) is not str or view not in choices
+            or type(period) not in (str, type(None)) or period not in choices[view]):
         return None
     return {"view": view, "period": period}
 
