@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import test_brain_closeout_a  # noqa: F401
 from modules import brain_entry, engine_runtime, requests_state
+from modules.brain_contracts import RequestKind
 
 
 class NotesFinalAuthorityTests(unittest.TestCase):
@@ -82,6 +83,73 @@ class NotesFinalAuthorityTests(unittest.TestCase):
         self.assertEqual(rows[market["id"]], "süt ve ekmek")
         self.assertEqual(rows[other["id"]], "kitap listesi sefiller")
         self.assertIn("Düzelttim", out)
+
+
+    def _assert_core_note_update_does_not_execute_quoted_control(self, quoted_text):
+        market = self.add("market listesi süt")
+        self.assertIsNone(self.ctx._session().pending_voice)
+        # The old raw user-controls gate would capture sharing/camera and even
+        # voice selection before Core dispatch. Guard the effect boundary.
+        with patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("quoted note content started capture")) as share:
+            entry, out, feedback, handler = self.through_brain(
+                "market notunu düzelt: " + quoted_text,
+                forbid_legacy_lookup=True,
+            )
+        self.assertEqual(entry.understanding.capability_hint, "notes.write")
+        self.assertEqual(entry.understanding.arguments.get("notes"), {
+            "operation": "update", "id": str(market["id"]), "text": quoted_text,
+        })
+        self.assertFalse(handler.called)
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIn("Düzelttim", out)
+        self.assertEqual(market["text"], quoted_text)
+        self.assertIsNone(self.ctx._session().pending_voice)
+        share.assert_not_called()
+
+    def test_core_note_update_screen_phrase_is_only_new_note_text(self):
+        self._assert_core_note_update_does_not_execute_quoted_control("ekranı paylaş")
+
+    def test_core_note_update_camera_phrase_is_only_new_note_text(self):
+        self._assert_core_note_update_does_not_execute_quoted_control("kamerayı aç")
+
+    def test_core_note_update_voice_phrase_cannot_open_voice_selection(self):
+        self._assert_core_note_update_does_not_execute_quoted_control("sesimi değiştir")
+
+    def test_core_notes_read_with_quoted_share_phrase_has_single_core_owner(self):
+        # A model-proposed notes read is injected at the same production
+        # Understanding seam; Core revalidates the typed payload independently.
+        self.add("ekranı paylaş")
+        command = "notlarımı oku: 'ekranı paylaş'"
+        def propose_read(semantic, text, *, active_context=None):
+            return dataclasses.replace(
+                semantic, request_kind=RequestKind.CAPABILITY,
+                capability_hint="notes.read", arguments={"notes": {"which": "all"}},
+                ambiguities=(), needs_input=False,
+            )
+        rid = "notes-quote-" + uuid.uuid4().hex[:8]
+        requests_state.register(self.owner, rid)
+        handler = Mock(wraps=self.ctx.handle)
+        with requests_state.activate(self.owner, rid), \
+             patch.object(brain_entry, "apply_model_understanding", side_effect=propose_read), \
+             patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("note read started capture")) as share:
+            entry = brain_entry.prepare(
+                self.ctx, owner=self.owner, request_id=rid, text=command,
+                source="yazı", model_understanding=True,
+            )
+            self.assertEqual(brain_entry.core_plan(entry), ("notes_read", {"which": "all"}))
+            out, feedback, _ = brain_entry.handoff(self.ctx, entry, handler, command)
+        self.assertIn("ekranı paylaş", out)
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertFalse(handler.called)
+        share.assert_not_called()
+
+    def test_unplanned_screen_share_retains_existing_raw_control_owner(self):
+        with patch.object(self.ctx, "set_share", return_value="PAYLASIM") as share:
+            reply = self.ctx._user_controls("ekranı paylaş", "ekranı paylaş")
+        self.assertEqual(reply, "PAYLASIM")
+        share.assert_called_once_with("screen")
 
     def test_ambiguous_named_delete_never_mutates_or_falls_to_legacy_resolver(self):
         one = self.add("market listesi süt")
