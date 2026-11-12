@@ -3,6 +3,7 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 import json
+import hashlib
 import re
 import threading
 from contextlib import contextmanager
@@ -878,6 +879,29 @@ def core_reminder(args: dict):
         _CORE_REMINDER.reset(token)
 
 
+def _notes_snapshot_digest(runtime) -> str:
+    """A stable owner-local snapshot; the pending confirmation never stores note bodies."""
+    rows = [(row.get("id"), row.get("text"))
+            for row in runtime.profile.data.get("items", []) if isinstance(row, dict)]
+    raw = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def clear_notes_confirmed(runtime, proposal: dict) -> str:
+    """Bounded State-confirmation effect; no raw command selection at approval."""
+    from modules import requests_state
+    requests_state.check()
+    if (not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug
+            or not isinstance(proposal.get("digest"), str)
+            or proposal["digest"] != _notes_snapshot_digest(runtime)):
+        return "Not silme onayı geçersiz veya notların değişti; hiçbir not silinmedi."
+    if not runtime.profile.data.get("items"):
+        return "Not defterin zaten boş."
+    requests_state.check()
+    runtime.profile.clear_note_items()
+    return "Tüm notlarını sildim."
+
+
 def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     """Execute only the previously Core-validated, owner-bound exact approval.
 
@@ -983,18 +1007,41 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     # Keep legitimate unplanned note commands and exact note-add syntax intact.
     core_reminder_active = _CORE_REMINDER.get() is not None
     if not core_reminder_active:
-        m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)
+        # The old re.search accepted 'notları silme' (negative) and quoted
+        # instructions inside unrelated messages. These destructive legacy
+        # escape hatches must be full-utterance exact protocols, not semantic
+        # substrings. The canonical model/Core note writer stays primary.
+        exact = cmd_lower.strip(" .!?")
+        if exact.startswith(("lütfen ", "lutfen ")):
+            exact = exact.split(" ", 1)[1]
+        m = runtime.re.fullmatch(
+            r"\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b"
+            r"|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", exact)
         if m:
             idx = int(m.group(1) or m.group(2))
-            items = runtime.profile.data['items']
+            items = runtime.profile.data["items"]
             if 1 <= idx <= len(items):
                 gone = items[idx - 1]
-                runtime.profile.delete_note_item(gone['id'])
+                runtime.profile.delete_note_item(gone["id"])
                 return f"Notu sildim: {gone['text']}"
-            return 'Böyle bir numaralı not yok.'
-        if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
-            runtime.profile.clear_note_items()
-            return 'Tüm notlarını sildim.'
+            return "Böyle bir numaralı not yok."
+        clear_words = {
+            "notları sil", "notları temizle", "notları hepsini sil",
+            "notlarımı sil", "notlarımı temizle",
+            "tüm notları sil", "tum notlari sil", "bütün notları sil",
+            "butun notlari sil", "notları tamamen sil",
+        }
+        if exact in clear_words:
+            if runtime._session().pending_confirm:
+                return "Önce açık onayı tamamla veya iptal et; yeni silme onayı başlatılmadı."
+            if not runtime.profile.data.get("items"):
+                return "Not defterin zaten boş."
+            runtime._session().pending_confirm = {
+                "action": "notes_clear",
+                "owner": runtime.profile.slug,
+                "digest": _notes_snapshot_digest(runtime),
+            }
+            return "Tüm notlarını silmemi onaylıyor musun? Evet veya hayır de."
     # The indexed/named note lookup also contains update/delete effects.
     looked = None if core_reminder_active else _note_lookup(runtime, command, cmd_lower)
     if looked is not None:

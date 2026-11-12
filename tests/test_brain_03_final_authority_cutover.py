@@ -148,6 +148,39 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(feedback.result_status, "handled")
         file_gate.assert_called_once_with(command)
 
+    def test_legacy_negative_and_quoted_note_clear_never_mutates_in_model_fallback(self):
+        note = self.ctx.profile.add_note_item("ASIL NOT")
+        from modules import main_planner
+        with patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("negative note deletion")) as clear:
+            for command in ("notları silme", "Ali'ye 'tüm notları sil' mesaj gönder",
+                            "notları sil demedim"):
+                with self.subTest(command=command):
+                    reply = main_planner._planner_command(
+                        self.ctx, command, self.ctx._tr_lower(command))
+                    self.assertNotEqual(reply, "Tüm notlarını sildim.")
+        self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]],
+                         [note["id"]])
+        clear.assert_not_called()
+
+    def test_legacy_exact_note_clear_requires_owner_bound_state_confirmation(self):
+        note = self.ctx.profile.add_note_item("ASIL NOT")
+        from modules import main_planner
+        command = "tüm notları sil"
+        with patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("clear before approval")) as clear:
+            response = main_planner._planner_command(self.ctx, command, command)
+        self.assertIn("onaylıyor musun", response)
+        clear.assert_not_called()
+        proposal = self.ctx._session().pending_confirm
+        self.assertEqual(proposal["action"], "notes_clear")
+        self.assertEqual(proposal["owner"], self.owner)
+        with patch.object(self.ctx.profile, "clear_note_items") as do_clear:
+            self.assertIn("sildim", main_planner.clear_notes_confirmed(self.ctx, proposal))
+        do_clear.assert_called_once()
+        invalid = {**proposal, "owner": "foreign"}
+        self.assertIn("geçersiz", main_planner.clear_notes_confirmed(self.ctx, invalid))
+
     def test_unplanned_control_still_has_its_existing_owner(self):
         with patch.object(self.ctx, "_file_command", return_value=None), \
              patch.object(self.ctx, "_user_controls", return_value="PAYLASIM") as controls:

@@ -171,6 +171,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if len(matched) != 1:
                 return "Bu adla birden fazla Jarvis hatırlatması var; hangisi olduğunu netleştir."
             event = matched[0]
+            if runtime._session().pending_confirm:
+                return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
             runtime._session().pending_confirm = {
                 "action": "reminder_delete",
                 "owner": runtime.profile.slug,
