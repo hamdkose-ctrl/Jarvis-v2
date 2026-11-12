@@ -1,0 +1,24 @@
+# BRAIN-07 typed user → canonical background research → written result (12 Nov 2026)
+
+## Scope and truthful status
+
+Implementation is proposed on branch \`gpt/brain-07-typed-canonical-e2e\`, based on \`main@9630ba76de3ed15a7f38d38118fa979e6ad3350b\`. PR number and final HEAD must be taken from live GitHub after submission. **No Windows CI, physical PC watcher, full validation, RED run, or real-model product acceptance is claimed by this note.** Tracker #584 remains open. Voice, router, persona, wider BRAIN-08 approval/recovery, BRAIN-10 response architecture, and BRAIN-11 product acceptance are out of scope.
+
+## Production execution path
+
+- The real typed \`brain_entry.prepare → brain_entry.handoff → goal_resolver.resolve\` CREATE path calls \`canonical_goal_flow.try_create\` for typed text only; no regex intent classifier is added. Unadmitted/effectful plans retain their established legacy permissioned path.
+- The **existing** \`task_agents._SYSTEM\` task-graph planner returns its validated task DAG. The adapter accepts only a static manifest-verified read-only \`task.research\` or \`task.account\` first attempt. Only research nodes may depend on previously proven task nodes, matching the existing canonical scheduler lane. It validates full tool inputs. Planner JSON is not execution authorization.
+- Core first creates a born-canonical GoalState then commits its bounded \`goal_plan\` using \`goal_state_compat.apply_goal_plan\`/CAS, publishes a matching queued ExecutionRecord under the existing \`goal_job_control.locked\` control lock and does **not** change \`latest.json\`. Two separate files are NOT an atomic transaction; if a write is missing, existing scheduler readiness rejects the incomplete pair. A second identical client request cannot republish the same job/attempt.
+- The **one existing** \`task_queue.start\` scheduler discovers and dispatches offers via \`canonical_scheduler_dispatch.execute_offer\`. It does not adopt mutable foreground profile context, grant permissions, auto-retry uncertain effects or hold a global execution lock across provider calls.
+- On successful worker projection the scheduler supplies a completion wake. \`canonical_plan_evidence.certify_projected_plan\` verifies **all** current-plan accepted projected outputs and domain evidence. A separate existing goal-executor semantic \`complete\` proposal is checked against *exactly* those node IDs and the existing \`completion_policy\` domain gate. Only deterministic Core \`set_state(done)\` CAS can close the global goal.
+- Written output uses \`event_channels.deliver\`, which looks up the owning registered user profile. A durable \`_canonical_delivery='reserved'\` record is written before external fanout to prevent blind duplicate sends when effects are unknown. After successful send it is marked \`delivered\`. This is **at-most-once automatic delivery**, not transactional exactly-once; a crash between reservation and send may require explicit operator recovery. Two competing worker wakes are coalesced under the per-job completion guard, not an extra scheduler.
+
+## New regression tests / acceptance still required
+
+\`tests/test_brain_07_typed_canonical_e2e.py\` exercises real typed Brain preparation/handoff, canonical GoalPlan and ExecutionRecord, same-request idempotence, effectful legacy fallback, partial publication crash, complete-plan/semantic-incomplete separation, real scheduler worker projection and one written delivery, foreground second independent goal during live provider, and foreign owner refusal. The only simulated boundaries are semantic model/worker provider transport and registered-profile stubs. Existing scheduler suites also cover node dependencies, duplicate wake, stale plan/cancel/deadline, and native resource fences.
+
+**Not executed in this authoring environment:** new RED/GREEN tests, full \`python -X utf8 -m modules.validation\`, Windows CI exact-head run and physical PC watcher exact-head acceptance. Their result must be attached separately and cannot be inferred from the previous #595 success. No auto polling or merge after PR creation; follow \`docs/agents/pr-test-bekleme.md\`.
+
+## Remaining BRAIN-07 (do not close tracker)
+
+Provider hard I/O timeout/thread lifetime, cross-restart durable reconciliation, unknown external effects, broader OS-account/native resource conflicts, lifecycle pause/resume/cancel, deadline and lease failure variants, 15–20 actual Windows E2E scenarios, real-model semantic acceptance, and reliable recovery of an at-most-once reserved but unsent notification. Wider approval/recovery stays BRAIN-08 and broader response system BRAIN-10. Keep Brain and deterministic Core independent.
