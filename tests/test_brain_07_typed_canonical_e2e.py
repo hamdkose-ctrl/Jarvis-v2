@@ -772,6 +772,120 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notify))
         notify.assert_not_called()
 
+    def _accepted_canonical_research_for_crash_test(self):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+
+        def research_worker(owner, task, dependencies):
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified crash-safe source',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+
+        with patch.object(task_agents, 'worker', research_worker), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), offer,
+            ))
+        return job_id
+
+    def test_core_done_before_record_crash_preserves_owner_readable_result(self):
+        """RED: final CAS succeeded; second-file crash must not erase result."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        root = goal_executor._owner_root(self.owner)
+        state_path = root / (job_id + '.goalstate.json')
+        original = canonical_goal_flow.release_guard.atomic
+
+        def crash_on_final_journal(path, data):
+            if (str(path).endswith('.execution.json')
+                    and goal_state_store.load(state_path)['state'] == 'done'):
+                raise OSError('simulated process death after Core terminal CAS')
+            return original(path, data)
+
+        sink = Mock()
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={
+                              'action': 'complete', 'goal': 0,
+                              'evidence': ['first'],
+                          }), patch.object(canonical_goal_flow.release_guard,
+                                           'atomic', side_effect=crash_on_final_journal):
+            with self.assertRaises(OSError):
+                canonical_goal_flow.complete_and_deliver(self.owner, job_id, sink)
+        sink.assert_not_called()
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['state'], 'running')
+        # No model, worker, Core mutation or resend may occur during owner
+        # result read; the pre-CAS frozen reply must be verifiable on disk.
+        before = self.persisted(job_id)
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('read triggered model')):
+            result = canonical_goal_flow.read_completed_result(
+                self.owner, job_id,
+            )
+        self.assertIn('Verified crash-safe source', result)
+        self.assertEqual(self.persisted(job_id), before)
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, sink,
+        ))
+        sink.assert_not_called()
+        foreign = canonical_goal_flow.read_result_command(
+            'not-this-owner', 'hedef sonucu ' + job_id,
+        )
+        self.assertNotIn('Verified crash-safe source', foreign)
+
+        # A local modified frozen result must never pass just because the
+        # terminal Core CAS and accepted predecessor outputs are genuine.
+        forged = execution_record.load(root, self.owner, job_id)
+        forged['_canonical_result_text'] = 'FORGED SECRET RESULT'
+        original(execution_record.path_for(root, job_id),
+                 execution_record.encode(forged))
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.read_completed_result(self.owner, job_id)
+
+    def test_pre_core_cas_crash_cannot_expose_uncompleted_result(self):
+        """RED: pre-CAS prepared record is durable but never a completion."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sink = Mock()
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={
+                              'action': 'complete', 'goal': 0,
+                              'evidence': ['first'],
+                          }), patch.object(
+                              goal_state_compat, 'commit_verified_goal_completion',
+                              side_effect=OSError('simulated pre-CAS crash')):
+            with self.assertRaises(OSError):
+                canonical_goal_flow.complete_and_deliver(self.owner, job_id, sink)
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        self.assertEqual(
+            journal['_canonical_result_event_id'], 'canonical:' + job_id,
+        )
+        self.assertIn('Verified crash-safe source',
+                      journal['_canonical_result_text'])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.read_completed_result(self.owner, job_id)
+        sink.assert_not_called()
+
+        # Re-evaluate completion with accepted outputs, never start or replay
+        # any external worker. Only the semantic proposal runs again.
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={
+                              'action': 'complete', 'goal': 0,
+                              'evidence': ['first'],
+                          }), patch.object(task_agents, 'worker',
+                                           side_effect=AssertionError('worker replay')):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, sink,
+            ))
+        sink.assert_called_once()
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'delivered')
+
     def test_reserved_result_read_rejects_foreign_owner_and_tampered_output(self):
         job_id = self._completed_with_unknown_delivery()
         foreign = canonical_goal_flow.read_result_command(
@@ -860,6 +974,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         stop = RapidStop()
         messages = []
         completed = threading.Event()
+        callback_returned = threading.Event()
+        callback_results = []
         def research_worker(owner, task, dependencies):
             self.assertEqual(owner, self.owner)
             self.assertEqual(dependencies, {})
@@ -871,7 +987,15 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             messages.append((owner, ident, text))
             completed.set()
         def finished(owner, ident):
-            canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            try:
+                callback_results.append(canonical_goal_flow.complete_and_deliver(
+                    owner, ident, notify,
+                ))
+            finally:
+                # The sink's completed event fires BEFORE the durable
+                # reserved -> delivered commit. Only the callback return
+                # means that second write has finished (or failed).
+                callback_returned.set()
         try:
             with ExitStack() as patches:
                 for obj, attribute, value in (
@@ -900,17 +1024,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
-                # notify() fires before the final durable delivery-marker
-                # commit. Its callback event proves only sink invocation, not
-                # that the Scheduler worker has finished its journal write.
-                # Wait for durable state instead of racing the callback thread.
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    state, journal = self.persisted(job_id)
-                    if journal.get('_canonical_delivery') == 'delivered':
-                        break
-                    completed.wait(.025)
-                    time.sleep(.025)
+                # Do not race the post-notify durable delivery write with a
+                # fixed five-second disk-polling window. Wait for the actual
+                # worker callback to return, then assert BOTH its success
+                # and the persisted Core/journal evidence. This is stricter
+                # than treating notify() as completion or sleeping longer.
+                self.assertTrue(
+                    callback_returned.wait(25),
+                    'Canonical completion callback did not return after notification',
+                )
+                self.assertEqual(
+                    callback_results, [True],
+                    'Canonical completion callback returned without a durable delivery commit',
+                )
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
