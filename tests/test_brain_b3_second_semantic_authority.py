@@ -223,6 +223,19 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         self.assertTrue(cascade_arms <= set(self.RAW_SEMANTIC_DOORS),
                         msg=str(sorted(cascade_arms - set(self.RAW_SEMANTIC_DOORS))))
 
+    def test_taildrop_global_pending_and_raw_choice_parser_are_physically_gone(self):
+        source = (ROOT / "modules" / "filesend.py").read_text(encoding="utf-8")
+        handler = source[source.index("def handle("):source.index("def set_target(")]
+        self.assertNotIn('_pending["files"]', source)
+        self.assertNotIn('_pending.update(', source)
+        self.assertNotIn('if _pending', handler)
+        self.assertNotIn('order = {"bir"', handler)
+        self.assertIn("owner: str | None", handler)
+        gate_source = (ROOT / "modules" / "brain_gates.py").read_text(encoding="utf-8")
+        self.assertIn('filesend.pending.select', gate_source)
+        core_source = (ROOT / "modules" / "engine_intents.py").read_text(encoding="utf-8")
+        self.assertIn('case "filesend_select"', core_source)
+
     def test_exact_undo_has_one_core_worker_caller_and_no_raw_parser(self):
         # This is a real AST caller-zero retirement (not a renamed handler).
         self.assertEqual(set(production_callers("undo_organize")),

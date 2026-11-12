@@ -116,6 +116,32 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
         screenshot.assert_not_called()
         self.sent.assert_not_called()
 
+    def test_direct_send_refuses_a_symlink_even_when_only_match(self):
+        outside = Path(self.temp.name) / "secret.txt"
+        outside.write_text("do not send", encoding="utf-8")
+        alias = self.files[0].parent / "alias.pdf"
+        try:
+            alias.symlink_to(outside)
+        except OSError:
+            self.skipTest("Platform test ortamı symlink oluşturamıyor.")
+        with patch.object(filesend, "find", return_value=[alias]):
+            reply = filesend.handle("rapor dosyasını telefonuma gönder", owner=self.owner)
+        self.assertIn("sembolik bağlantı", reply)
+        self.sent.assert_not_called()
+
+    def test_expired_selection_does_not_transfer(self):
+        self.open_choice()
+        filesend._pending_by_owner[self.owner]["expires"] = 0
+        self.assertIn("süresi doldu", filesend.select_pending(self.owner, 1))
+        self.assertIsNone(filesend.pending_choices(self.owner))
+        self.sent.assert_not_called()
+
+    def test_unbound_raw_one_is_not_a_secondary_file_selector(self):
+        self.open_choice()
+        self.assertIsNone(filesend.handle("1", owner=self.owner))
+        self.assertIsNotNone(filesend.pending_choices(self.owner))
+        self.sent.assert_not_called()
+
     def test_non_offered_substring_does_not_transfer_any_file(self):
         self.open_choice()
         entry, result, handler, feedback = self.turn_real("report-a", model_understanding=False)

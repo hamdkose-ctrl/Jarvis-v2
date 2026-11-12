@@ -340,13 +340,19 @@ def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
                 pass
     if re.search(r"son indir|indirdiğim|son dosya", what):
         p = _latest_download()
-        return send(p) if p else "İndirilenler klasöründe dosya bulamadım."
+        if p is None:
+            return "İndirilenler klasöründe dosya bulamadım."
+        if _file_proof(p) is None:
+            return "İndirilen dosyanın izinli ve değişmemiş bir dosya olduğunu doğrulayamadım; göndermedim."
+        return send(p)
     if not what or _VAGUE.fullmatch(what):
         return ASK                    # "telefona dosya gönder": hangi dosya olduğu belli değil, rastgele seçme
     found = find(what)
     if not found:
         return f"“{what}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
     if len(found) == 1 or _score_gap(what, found):
+        if _file_proof(found[0]) is None:
+            return "Dosya izinli klasörün dışında veya sembolik bağlantı; göndermedim."
         return send(found[0])
     if not owner or not remember_pending(owner, found):
         return "Birkaç dosya eşleşiyor ama güvenli seçim açamadım. Dosyanın tam adını söyle."
