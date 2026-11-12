@@ -3,13 +3,16 @@ import concurrent.futures
 from contextlib import closing
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from modules import router_quota as q, smart_router as router
 
-NOW = 1794300000.
+# Keep the synthetic policy within its verified window when the test suite runs.
+# A fixed November 2026 epoch expired on 2026-11-12 and broke unrelated CI.
+NOW = time.time()
 
 def policy(**changes):
     row = dict(rpm=5, rpd=9, tpm=100, tpd=180,
@@ -47,6 +50,11 @@ class AtomicTokenQuotaTests(unittest.TestCase):
         for units in (None, 0, -1, True, 1.5, 2_000_001):
             with self.subTest(units=units), self.assertRaises(q.ReservationUnavailable):
                 self.reserve(units)
+        self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
+
+    def test_expired_trusted_policy_still_fails_closed(self):
+        with self.assertRaises(q.ReservationUnavailable):
+            self.reserve(25, now=NOW+2*86400)
         self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
 
     def test_malformed_or_partial_token_policy_fails_closed(self):
