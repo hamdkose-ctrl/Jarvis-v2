@@ -129,6 +129,18 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
         case "daily_brief":
             return runtime._daily_briefing()
+        case "notes_manage":
+            from modules import main_planner
+            if runtime._session().pending_confirm:
+                return "Önce açık onayı tamamla veya iptal et; yeni not silme onayı başlatılmadı."
+            if not runtime.profile.data.get("items"):
+                return "Not defterin zaten boş."
+            runtime._session().pending_confirm = {
+                "action": "notes_clear",
+                "owner": runtime.profile.slug,
+                "digest": main_planner._notes_snapshot_digest(runtime),
+            }
+            return "Tüm notlarını silmemi onaylıyor musun? Evet veya hayır de."
         case "notes_add":
             # Exact user-owned text was checked for grounding by the model
             # envelope and length/nonempty value by Core. Old note timestamp,

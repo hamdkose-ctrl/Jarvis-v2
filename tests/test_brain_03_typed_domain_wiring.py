@@ -633,6 +633,25 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         send.assert_called_once_with(candidates[1])
         handler.assert_not_called()
 
+    def test_notes_full_clear_typed_core_requires_existing_state_yes_protocol(self):
+        from modules import main_planner
+        old = self.ctx.profile.add_note_item("ÖNEMLİ NOT")
+        with patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("clear without consent")) as clear:
+            entry, preview, feedback = self.typed(
+                "tüm notları sil", "notes.manage", {"operation": "clear_all"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("notes_manage", {"operation": "clear_all"}))
+        self.assertIn("onaylıyor musun", preview)
+        self.assertEqual(feedback.result_status, "needs_input")
+        self.assertEqual(self.ctx.profile.data["items"][0]["id"], old["id"])
+        clear.assert_not_called()
+        approved, result, handler, status = self.turn_real("evet", model_understanding=False)
+        self.assertEqual(approved.state_gate.protocol, "session.pending_confirm.confirm")
+        self.assertEqual(status.result_status, "handled")
+        self.assertIn("Tüm notlarını sildim", result)
+        self.assertEqual(self.ctx.profile.data["items"], [])
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -646,6 +665,8 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("notes.add", {"text": ""}),
             ("notes.add", {"text": "x" * 5000}),
             ("notes.add", {"text": "ok", "permission": True}),
+            ("notes.manage", {"operation": "clear_all", "id": "another-note"}),
+            ("notes.manage", {"operation": "delete_last"}),
             ("calendar.read", {"view": "agenda", "period": "seven"}),
             ("calendar.read", {"view": "week_plan", "period": "tomorrow"}),
             ("calendar.read", {"view": "erase", "period": "today"}),

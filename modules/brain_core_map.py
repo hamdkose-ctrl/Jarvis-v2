@@ -881,6 +881,14 @@ def _worktrack_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"kind": kind, "project": project.strip()}
 
 
+def _notes_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Only an explicit user-confirmed all-notes deletion. Individual notes
+    # already use the canonical notes.write referenced-note contract.
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    return {"operation": "clear_all"} if arguments.get("operation") == "clear_all" else None
+
+
 def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core validates a new user note. The note body must be grounded by Brain."""
     if set(arguments) - {"original_text", "text"}:
@@ -1160,6 +1168,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "study.read": ("study_read", _study_read_args),
     # Migration of planner semantic authority to typed, existing domain effects.
     "notes.add": ("notes_add", _note_add_args),
+    "notes.manage": ("notes_manage", _notes_manage_args),
     "calendar.read": ("agenda_read", _agenda_read_args),
     "reminders.manage": ("reminder_manage", _reminder_manage_args),
     "tasks.manage": ("tasks_manage", _tasks_manage_args),
