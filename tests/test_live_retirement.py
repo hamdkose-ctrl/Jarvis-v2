@@ -150,7 +150,7 @@ class CallerZeroResidueTests(unittest.TestCase):
 
     Kod duruyor ama kimse çağırmıyor: bu "temizlendi" demek değildir. Kayıt bu testte ve
     docs/agents/ses-video.md + docs/architecture/JARVIS_VOICE_COMM_V3_DEVIR.md içinde; sahibi
-    Brain (#579) ve learning. Test, yüzey sessizce "yaşıyor" gibi kalmasın diye caller-zero
+    Brain ve learning. Test, yüzey sessizce "yaşıyor" gibi kalmasın diye caller-zero
     durumunu açıkça kanıtlar.
     """
 
