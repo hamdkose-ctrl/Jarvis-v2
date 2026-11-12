@@ -132,7 +132,7 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
             self.assertNotEqual(tickets[0].keys, tickets[1].keys)
             self.assertTrue(all(self.leases.validate(t) for t in tickets))
 
-    def test_email_account_key_is_scoped_to_exact_owner(self):
+    def test_email_account_key_serializes_distinct_owners_without_verified_subject(self):
         params = {"service": "gmail", "operation": "list_unread", "limit": 3}
         owner = snapshot(nodes=[
             node("read_mail", "task.account", payload=params),
@@ -144,10 +144,19 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
             self.leases, owner, candidate(owner, "read_mail"), attempt=2,
         )
         self.assertTrue(ticket.keys[0].startswith("gmail_account:"))
+        self.assertEqual(ticket.keys, ("gmail_account:shared",))
+        # The same physical external account can be connected to two Jarvis
+        # profile names. An owner-derived hash must never be its sole fence.
+        with self.assertRaises(resource_leases.LeaseConflict):
+            scheduler_resource_gate.admit(
+                self.leases, other, candidate(other, "read_mail"), attempt=1,
+            )
+        self.leases.release(ticket)
         other_ticket = scheduler_resource_gate.admit(
             self.leases, other, candidate(other, "read_mail"), attempt=1,
         )
-        self.assertNotEqual(ticket.keys, other_ticket.keys)
+        self.assertEqual(other_ticket.keys, ticket.keys)
+        self.leases.release(other_ticket)
 
     def test_stale_goalstate_version_or_revision_cannot_use_old_ticket(self):
         old_state = snapshot()
