@@ -111,6 +111,7 @@ class FileEffectClaimTests(unittest.TestCase):
 
     def test_shared_claim_directory_symlink_is_rejected(self):
         root = file_resource_guard._FILE_EFFECT_CLAIM_ROOT
+        root.parent.mkdir(parents=True, exist_ok=True)
         destination = self.base / 'attacker-controlled'
         destination.mkdir()
         try:
