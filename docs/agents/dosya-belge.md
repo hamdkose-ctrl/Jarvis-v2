@@ -2,9 +2,9 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
-## BRAIN-03 Core planı ile Workbench takip kapısı — 12 Kasım 2026 (takip PR, kabul bekliyor)
+## BRAIN-03 Core planı ile Workbench takip kapısı — 12 Kasım 2026 (PR #608 MERGED)
 
-`main_documents._file_command` iki farklı yolu içerir: tırnaklı tam dosya yolu taşıyan kesin UI dosya protokolü (`runtime._FILE_CMD`) ve son tablo işini ham metindeki `tabloyu Word'de ver` / `sütun ekle` ifadeleriyle tekrar eden `workbench.followup`. Core tarafından doğrulanmış bir planın metni veri olabilir; bu nedenle erken `brain_precedence.file_command` kapısı yalnız doğrulanmış plan varken kesin UI biçimini kabul eder, serbest Workbench takip aramasına düşmez. Plansız eski Workbench takip istekleri ve izinli tırnaklı UI dosya komutları çalışmaya devam eder. Üretim dikişi regresyonları not/hâtırlatma başlığındaki alıntıların mevcut tabloyu yeniden üretmemesini, legacy takip komutunun ve açık UI yolunun korunmasını sınar. CI/PC/canlı model kabulü bu PR'da henüz ölçülmedi.
+`main_documents._file_command` iki farklı yolu içerir: tırnaklı tam dosya yolu taşıyan kesin UI dosya protokolü (`runtime._FILE_CMD`) ve son tablo işini ham metindeki `tabloyu Word'de ver` / `sütun ekle` ifadeleriyle tekrar eden `workbench.followup`. Core tarafından doğrulanmış bir planın metni veri olabilir; bu nedenle erken `brain_precedence.file_command` kapısı yalnız doğrulanmış plan varken kesin UI biçimini kabul eder, serbest Workbench takip aramasına düşmez. Plansız eski Workbench takip istekleri ve izinli tırnaklı UI dosya komutları çalışmaya devam eder. Üretim dikişi regresyonları not/hâtırlatma başlığındaki alıntıların mevcut tabloyu yeniden üretmemesini, legacy takip komutunun ve açık UI yolunun korunmasını sınar. #608 head `40e843b7d22b` Windows CI #43279576877 SUCCESS + aynı SHA PC watcher general/validation PASSED; merge `c2f2d542c1b9`. Canlı model holdout'u ölçülmedi.
 
 ## PC Worker ile kapsam ayrımı — son karar, 25 Ekim 2026
 

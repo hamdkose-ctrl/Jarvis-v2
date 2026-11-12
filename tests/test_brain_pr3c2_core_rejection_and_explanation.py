@@ -115,10 +115,15 @@ class CoreRejectionFenceTests(_Pr3c2Harness):
 
     def test_a_validated_typed_proposal_still_executes_exactly_once(self):
         self.reset()
-        _entry, out, _handle, _ = self.turn("şu notu ingilizceye çevir")
+        entry, out, handle, feedback = self.turn("şu notu ingilizceye çevir")
+        self.assertEqual(entry.understanding.capability_hint, "text.translate")
+        self.assertEqual(brain_entry.core_plan(entry)[0], "translate")
         self.assertEqual(out, "ÇEVİRİ")
+        self.assertEqual(feedback.result_status, "handled")
         self.ctx.tr.translate.assert_called_once()
-        self.ctx._extra_commands.assert_called_once()   # claim sırasındaki mevcut cascade sözleşmesi
+        # A Core-validated translation owns its source: the legacy raw-text
+        # cascade may neither reinterpret it nor produce a second effect.
+        self.ctx._extra_commands.assert_not_called()
 
 
 class ExplanationRequestAuthorityTests(_Pr3c2Harness):
