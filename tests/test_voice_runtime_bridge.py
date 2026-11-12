@@ -829,7 +829,8 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         from modules import engine_background
         events = []
         profile = SimpleNamespace(slug="alice", data={"prefs": {}},
-                                  due_events=lambda now: [{"id": 7, "title": "İlaç"}])
+                                  due_events=lambda now: [{"id": 7, "title": "İlaç",
+                                                           "fired": "2026-11-12T09:00"}])
         stub = SimpleNamespace(
             list_users=lambda: ["alice"], _get_profile=lambda name: profile,
             datetime=SimpleNamespace(now=lambda: None), _emit_for=lambda *a, **k: None,
@@ -839,6 +840,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         engine_background._reminder_tick(stub)
         self.assertEqual(events, [("say", "Hatırlatma: İlaç", "alice", {
             "kind": "reminder", "event_id": "reminder:7",
+            "turn_id": "reminder:7@2026-11-12T09:00",
             "ttl_seconds": engine_background.REMINDER_SPEECH_TTL_SECONDS})])
 
     def test_a_queued_reminder_is_dropped_when_the_user_deletes_the_record(self):
@@ -861,12 +863,14 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         )
         voice_runtime.register(lane)
         from modules import engine_background, main_planner
-        record = {"id": 7, "title": "İlaç"}
+        record = {"id": 7, "title": "İlaç", "fired": "2026-11-12T09:00"}
         first = lane.say("alice", "tr_kadin", "uzun yanıt")
         self.assertTrue(entered.wait(1))
         queued = lane.say("alice", "tr_kadin", "Hatırlatma: İlaç", background=True,
-                          kind="reminder", event_id=engine_background.reminder_speech_id(record))
-        main_planner._drop_queued_reminder_speech(record)
+                          kind="reminder",
+                          event_id=engine_background.reminder_speech_id(record),
+                          turn_id=engine_background.reminder_occurrence_id(record))
+        main_planner._drop_queued_reminder_speech(self.rt, record)
         release.set()
         self.assertTrue(first.wait(2))
         self.assertTrue(queued.wait(2))
@@ -897,6 +901,292 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertEqual(heard, ["Hatırlatma: İlaç"])
         self.assertFalse(lane.is_busy())
         self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted))
+
+    def _reminder_owner(self, name="Alice"):
+        """A real Profile as the audible desktop user, in an isolated user store."""
+        from modules import personalization
+        users = Path(self.temp.name) / "users"
+        users.mkdir(exist_ok=True)
+        self.enterContext(patch.object(personalization, "USERS_DIR", users))
+        profile = personalization.Profile(name)
+        profile.data["prefs"]["voice"] = "tr_kadin"
+        self.rt.profile = profile
+        self.rt.pc_profile = lambda: profile
+        return profile
+
+    def _reminder_chain(self, clock):
+        """The real reminder pipeline with only the synthesizer and player replaced.
+
+        ``Profile.due_events`` → ``engine_background._reminder_tick`` →
+        ``('say', text, owner, identity)`` → ``VoiceSession.speak`` → ``VoiceLane`` →
+        ``VoiceCoordinator``, which is exactly how ``engine_loop`` dispatches a queued
+        event. The record/occurrence identity that reaches the speaker is therefore
+        produced by the production code, not by the test.
+        """
+        from modules import engine_background
+        from modules.engine_voice import VoiceSession
+        heard = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: heard.append(text) or b"audio",
+            lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime, session.speak_enabled = self.rt, True
+        session.voice_lane, session.voice_core_fault = lane, None
+        self.enterContext(patch.object(VoiceSession, "_barge_watch", Mock()))
+        events = []
+        stub = SimpleNamespace(
+            list_users=lambda: [self.rt.profile.name],
+            _get_profile=lambda name: self.rt.profile,
+            datetime=SimpleNamespace(now=clock), _emit_for=lambda *a, **k: None,
+            pc_profile=lambda: self.rt.pc_profile(),
+            threading=SimpleNamespace(Thread=Mock()),
+            notify=Mock(), events=SimpleNamespace(put=events.append),
+        )
+
+        def ring(replayed=None):
+            arrivals = replayed
+            if arrivals is None:
+                events.clear()
+                engine_background._reminder_tick(stub)
+                arrivals = list(events)
+            for _kind, text, _owner, identity in arrivals:
+                session.speak(text, shown=True, identity=dict(identity))
+            deadline = time.monotonic() + 2
+            while lane.is_busy() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return arrivals
+
+        return ring, heard, lane
+
+    @staticmethod
+    def _daily(profile, when="2026-11-12T09:00", repeat="daily"):
+        profile.data["events"].append({"id": 7, "title": "İlaç", "when": when,
+                                       "notified": False, "repeat": repeat})
+
+    def test_the_next_day_of_a_repeating_reminder_is_still_heard_out_loud(self):
+        # Record identity and occurrence identity are separate on purpose: the
+        # calendar keeps one id for a daily record, so an identity built from the
+        # record alone makes tomorrow's ring a duplicate of the one already heard.
+        from datetime import datetime
+        now = datetime(2026, 11, 12, 9, 0)
+        profile = self._reminder_owner()
+        self._daily(profile)
+        ring, heard, lane = self._reminder_chain(lambda: now)
+        first = ring()
+        self.assertEqual(["Hatırlatma: İlaç"], heard)
+        now = datetime(2026, 11, 13, 9, 0)
+        second = ring()
+        self.assertEqual(["Hatırlatma: İlaç"] * 2, heard)   # not a duplicate of yesterday
+        # The same record on a weekly rule: a repeating record only ever stores its
+        # next ring, so this is the state a weekly record has on its own day.
+        now = datetime(2026, 11, 19, 9, 0)
+        profile.data["events"][0].update(
+            repeat=f"weekly:{datetime(2026, 11, 19).weekday()}", when="2026-11-19T09:00")
+        third = ring()
+        self.assertEqual(["Hatırlatma: İlaç"] * 3, heard)
+        # What carried each of those deliveries: the record stays the same, the
+        # occurrence is what duplicate protection sees.
+        self.assertEqual("reminder:7", first[0][3]["event_id"])
+        self.assertEqual(["reminder:7@2026-11-12T09:00", "reminder:7@2026-11-13T09:00",
+                          "reminder:7@2026-11-19T09:00"],
+                         [event[0][3]["turn_id"] for event in (first, second, third)])
+        self.assertFalse(lane.is_busy())
+
+    def test_one_occurrence_is_never_announced_twice_even_when_replayed(self):
+        # The other half of the split: replaying the very same occurrence is still
+        # one delivery, and it does not depend on the delivered-result memory
+        # having forgotten anything.
+        from datetime import datetime
+        now = datetime(2026, 11, 12, 9, 0)
+        profile = self._reminder_owner()
+        self._daily(profile)
+        ring, heard, lane = self._reminder_chain(lambda: now)
+        first = ring()
+        ring(replayed=first)
+        ring(replayed=first)
+        self.assertEqual(["Hatırlatma: İlaç"], heard)
+        self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted))
+        self.assertFalse(lane.is_busy())
+
+    def test_a_snoozed_and_a_moved_occurrence_are_each_heard(self):
+        from datetime import datetime
+        now = datetime(2026, 11, 12, 9, 0)
+        profile = self._reminder_owner()
+        self._daily(profile)
+        ring, heard, lane = self._reminder_chain(lambda: now)
+        ring()
+        self.assertEqual(["Hatırlatma: İlaç"], heard)
+        profile.snooze_event(7, "2026-11-12T09:30")    # "10 dakika sonra tekrar hatırla"
+        now = datetime(2026, 11, 12, 9, 30)
+        snoozed = ring()
+        self.assertEqual(["Hatırlatma: İlaç"] * 2, heard)
+        self.assertEqual("reminder:7@2026-11-12T09:30", snoozed[0][3]["turn_id"])
+        profile.reschedule_event(7, "2026-11-12T11:00")  # "saat 11'e çek"
+        now = datetime(2026, 11, 12, 11, 0)
+        moved = ring()
+        self.assertEqual(["Hatırlatma: İlaç"] * 3, heard)
+        self.assertEqual("reminder:7@2026-11-12T11:00", moved[0][3]["turn_id"])
+        self.assertFalse(lane.is_busy())
+
+    def test_two_users_with_the_same_record_id_are_each_announced(self):
+        # Record ids are per-profile, so Bob's record 7 can carry Alice's exact id
+        # and title. Alice having heard hers cannot mark Bob's as already delivered.
+        from datetime import datetime
+        from modules import personalization
+        now = datetime(2026, 11, 12, 9, 0)
+        alice = self._reminder_owner("Alice")
+        self._daily(alice)
+        ring, heard, lane = self._reminder_chain(lambda: now)
+        ring()
+        self.assertEqual(["Hatırlatma: İlaç"], heard)
+        bob = personalization.Profile("Bob")
+        bob.data["prefs"]["voice"] = "tr_kadin"
+        self._daily(bob)                                # same id, same title, same time
+        self.rt.profile = bob
+        self.rt.pc_profile = lambda: bob
+        self.assertTrue(voice_runtime.on_owner_switch("alice", timeout=1))
+        own = ring()
+        self.assertEqual(["Hatırlatma: İlaç"] * 2, heard)   # Bob hears his own reminder
+        self.assertEqual("reminder:7@2026-11-12T09:00", own[0][3]["turn_id"])
+        self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted))
+
+    def test_a_reminder_drop_selects_the_users_own_record_only(self):
+        # Same record id and sentence for two users: the correction one of them
+        # makes may only discard that user's queued audio, never the other's.
+        entered, release = threading.Event(), threading.Event()
+        heard = []
+
+        def synth(spec, text, cancel):
+            heard.append(text)
+            if text == "uzun yanıt":
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return b"audio"
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import engine_background, main_planner
+        record = {"id": 7, "title": "İlaç", "fired": "2026-11-12T09:00"}
+        identity = {"kind": "reminder",
+                    "event_id": engine_background.reminder_speech_id(record),
+                    "turn_id": engine_background.reminder_occurrence_id(record)}
+        first = lane.say("alice", "tr_kadin", "uzun yanıt")   # holds the worker
+        self.assertTrue(entered.wait(1))
+        alices = lane.say("alice", "tr_kadin", "Hatırlatma: İlaç", background=True, **identity)
+        self.rt.profile = SimpleNamespace(slug="bob", data={"prefs": {"voice": "tr_kadin"}})
+        self.rt.pc_profile = lambda: self.rt.profile
+        bobs = lane.say("bob", "tr_kadin", "Hatırlatma: İlaç", background=True, **identity)
+        self.assertEqual(1, main_planner._drop_queued_reminder_speech(self.rt, record))
+        # The pre-fix selector (record id alone) sees the other user's item too,
+        # which is exactly what Bob's correction must not do.
+        self.assertEqual(1, voice_runtime.invalidate(event_id=identity["event_id"],
+                                                     turn_id=identity["turn_id"]))
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertTrue(alices.wait(2))
+        self.assertTrue(bobs.wait(2))
+        self.assertEqual(["uzun yanıt"], heard)
+
+    def test_a_player_that_ignores_cancel_still_cannot_reach_the_new_user(self):
+        # §4-A with the uncooperative player the review asked for: the stop is not
+        # claimed when the device never honours cancel, and while the old chunk is
+        # still in the speaker no further audio of the previous user can start.
+        began, release = threading.Event(), threading.Event()
+        started = []
+
+        def play(audio, cancel, on_start):
+            started.append(audio)
+            on_start()
+            began.set()
+            release.wait(3)     # ignores cancel: a wedged stream, as on a real device
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio", play,
+        )
+        voice_runtime.register(lane)
+        first = lane.say("alice", "tr_kadin", "Birinci")
+        self.assertTrue(began.wait(2))
+        second = lane.say("alice", "tr_kadin", "İkinci")
+        self.rt.pc_profile = lambda: SimpleNamespace(slug="bob", data={"prefs": {}})
+        with patch.object(voice_runtime, "_record_failure") as failure:
+            self.assertFalse(voice_runtime.on_owner_switch("alice", timeout=0.05))
+        failure.assert_called_once_with("modules/voice_runtime.py:owner_switch_stop")
+        self.assertEqual([b"audio"], started)     # nothing new reached the speaker
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertTrue(second.wait(2))
+        self.assertEqual([b"audio"], started)     # the wedged chunk was the last of it
+
+    def test_a_same_turn_answer_arriving_after_the_cut_is_still_cut(self):
+        # The window between the drain and the mute: a late answer for the turn the
+        # user just stopped is enqueued inside it, so it carries the new generation
+        # and the mute is not yet visible to it. The turn-targeted drop after the
+        # mute is what stops the audio that already started.
+        began, stopped = threading.Event(), []
+        in_window = threading.Event()
+        arriving = []
+
+        def synth(spec, text, cancel):
+            return b"ilk" if text.startswith("Turun") else b"gec"
+
+        def play(audio, cancel, on_start):
+            on_start()
+            if audio == b"gec":
+                began.set()
+                stopped.append(cancel.wait(2))  # the cooperative player honours cancel
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, play,
+        )
+        voice_runtime.register(lane)
+        from modules import requests_state
+        done = lane.say("alice", "tr_kadin", "Turun ilk konuşması", turn_id="t1")
+        self.assertTrue(done.wait(2))          # t1 is the turn this owner last heard
+        real_mute = requests_state.mute_speech
+
+        def mute_in_the_window(user, rid=None):
+            if not in_window.is_set() and rid == "t1":
+                in_window.set()
+                arriving.append(
+                    lane.say(user, "tr_kadin", "Aynı turun geciken yanıtı", turn_id="t1"))
+                self.assertTrue(began.wait(2))  # it is already at the real player
+                return real_mute(user, rid)
+            return real_mute(user, rid)
+
+        with patch.object(requests_state, "mute_speech", side_effect=mute_in_the_window):
+            self.assertTrue(voice_runtime.interrupt_active())
+        deadline = time.monotonic() + 2
+        while lane.is_busy() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(in_window.is_set())        # the answer really arrived inside the cut
+        self.assertTrue(arriving[0].wait(2))       # acknowledged, never silently lost
+        self.assertEqual([True], stopped)        # the stop reached the audio in progress
+        self.assertFalse(lane.is_busy())
+
+    def test_sus_without_the_late_answer_leaves_nothing_to_cut(self):
+        # Control for the window test above: the same stop with no answer arriving
+        # inside it cuts nothing and stays quiet.
+        stopped = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio",
+            lambda audio, cancel, on_start: (on_start(), stopped.append(cancel.wait(0.2))),
+        )
+        voice_runtime.register(lane)
+        done = lane.say("alice", "tr_kadin", "Konuşma", turn_id="t1")
+        self.assertTrue(done.wait(2))
+        self.assertEqual([False], stopped)
+        self.assertTrue(voice_runtime.interrupt_active())
+        self.assertEqual([False], stopped)
+        self.assertFalse(lane.is_busy())
 
     def test_unstarted_mci_playback_is_a_failed_receipt_not_a_spoken_answer(self):
         # §4-D at the real user flow: the production EdgePlayer runs against a

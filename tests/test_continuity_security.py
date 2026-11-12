@@ -211,6 +211,7 @@ class SchedulerTests(unittest.TestCase):
         emitted=Mock();q=queue.Queue()
         ns={'list_users':lambda:['A'],'_get_profile':lambda name:owner,'datetime':datetime,'_emit_for':emitted,'pc_profile':lambda:owner,'events':q,
             'reminder_speech_id':engine_background.reminder_speech_id,
+            'reminder_occurrence_id':engine_background.reminder_occurrence_id,
             'REMINDER_SPEECH_TTL_SECONDS':engine_background.REMINDER_SPEECH_TTL_SECONDS}
         functions('main.py',['_reminder_tick'],ns);ns['_reminder_tick']()
         emitted.assert_called_once_with(owner,'assistant','Hatırlatma: Reminder','hatırlatma')

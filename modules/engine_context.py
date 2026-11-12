@@ -165,13 +165,21 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         runtime._guest = runtime.profile.name             # telefondan: yalnızca o telefonun kullanıcısı (bilgisayar etkilenmez)
     runtime._sessions.reset(runtime.profile.slug)
     runtime._sessions._owner.set(runtime.profile.slug)
+    speech_stop = ""
     if runtime.pc_profile().slug != previous_owner:
         # The audible speaker owner changed: stop the previous user's queued and
         # in-progress speech before the new user is greeted, so their audio never
         # continues into the new session. Called after the profile reassignment so
         # the per-chunk owner gate also rejects not-yet-started stale speech.
         from modules import voice_runtime
-        voice_runtime.on_owner_switch(previous_owner)
+        if not voice_runtime.on_owner_switch(previous_owner):
+            # The player did not acknowledge the stop inside the bound. Greeting the
+            # new user as if it had would claim a stop that was not verified, so the
+            # switch says what is still true: whatever is already in the speaker was
+            # not cut, and the previous user's remaining chunks stay silent because
+            # the owner gate now names this new user.
+            speech_stop = (" Önceki kullanıcının sesi hoparlörde tamamen kesilemedi;"
+                           " kalan bölümleri bu oturumda çalmaz.")
     from modules import hooks
     hooks.observe("session", {"event": "user_switched", "created": bool(created)}, owner=runtime.profile.slug)
     runtime._session().last_doc = None            # bir kullanıcının analizi diğerine kaydedilmesin
@@ -184,11 +192,12 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
     runtime.log.info("Kullanıcı: %s", runtime.profile.name)
     if created:
         return (f"Merhaba {runtime.profile.name}, senin için yeni bir profil açtım. "
-                "Hedefini söylemek için hedefim, sesini seçmek için sesimi seç de.")
+                "Hedefini söylemek için hedefim, sesini seçmek için sesimi seç de." + speech_stop)
     goals = runtime.profile.data["goals"]
     if goals:
-        return f"Merhaba {runtime.profile.name}. Hedefin: {goals[-1]}. Kaldığımız yerden devam edebiliriz."
-    return f"Merhaba {runtime.profile.name}."
+        return (f"Merhaba {runtime.profile.name}. Hedefin: {goals[-1]}. "
+                f"Kaldığımız yerden devam edebiliriz.{speech_stop}")
+    return f"Merhaba {runtime.profile.name}." + speech_stop
 
 def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
     """Existing sharing and voice controls; profile intent belongs to Core."""

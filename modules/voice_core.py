@@ -33,10 +33,14 @@ def delivery_key(request: SpeechRequest) -> tuple | None:
     Only a request that names its own result can be a duplicate: two different
     turns may legitimately answer with the very same sentence, so an utterance
     with no result identity is never deduplicated.
+
+    The owner is part of the key even though it is always present. Record ids
+    are per-profile, so two users can announce the same id with the same
+    sentence; marking one of them delivered must not silence the other.
     """
-    identity = (request.turn_id, request.event_id, request.goal_id,
-                request.state_version, request.artifact_id, request.approval_id)
-    return (identity, request.text.strip()) if any(identity) else None
+    result = (request.turn_id, request.event_id, request.goal_id,
+              request.state_version, request.artifact_id, request.approval_id)
+    return ((request.owner, *result), request.text.strip()) if any(result) else None
 
 
 def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS) -> tuple[str, ...]:

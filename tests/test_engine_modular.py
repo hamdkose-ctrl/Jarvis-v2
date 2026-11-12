@@ -302,3 +302,17 @@ class UserSwitchAudibleStopTests(unittest.TestCase):
             engine_context._switch_user(rt, 'Bob')
         stop.assert_not_called()   # the machine's audible owner did not change
 
+    def test_a_switch_whose_stop_was_not_verified_says_so(self):
+        # The greeting is what the new user hears as the switch result, so an
+        # unverified stop must not be presented as a clean one.
+        from modules import engine_context
+        for stopped, expected in ((True, 'Merhaba Bob.'),
+                                  (False, 'Merhaba Bob. Önceki kullanıcının sesi')):
+            with self.subTest(stopped=stopped):
+                rt = self.runtime('web')
+                with patch('modules.voice_runtime.on_owner_switch', return_value=stopped) as stop, \
+                        patch('modules.pc_guide.stop'), patch('modules.hooks.observe'):
+                    message = engine_context._switch_user(rt, 'Bob')
+                stop.assert_called_once_with('alice')
+                self.assertTrue(message.startswith(expected), message)
+

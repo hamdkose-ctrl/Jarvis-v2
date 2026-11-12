@@ -157,6 +157,12 @@ def interrupt_active() -> bool:
     speech being heard, not about every request. Nothing is cancelled: Core keeps
     the written result, the GoalState and the running work, and "dur/stop" stays
     the explicit Core-level stop.
+
+    The mute is applied after the cut, so a same-turn answer enqueued inside that
+    window would carry the post-interrupt generation and survive the fence. The
+    turn-targeted drop after the mute closes it: whatever arrived in between is
+    discarded by identity, and whatever arrives later is refused by the now-visible
+    mute at its own gate.
     """
     lane = active()
     if lane is None:
@@ -171,6 +177,8 @@ def interrupt_active() -> bool:
             requests_state.mute_speech(owner, turn_id)
     except Exception:
         _record_failure("modules/voice_runtime.py:mute_speech")
+    for turn_id in turns:
+        invalidate(turn_id=turn_id)
     return True
 
 
@@ -203,6 +211,15 @@ def on_owner_switch(previous_owner: str, timeout: float = 0.6) -> bool:
     window between a synthesis/playback start and the switch. Returns False (and
     records a privacy-safe failure) when the player did not stop in time, so the
     switch never claims a stop that was not verified.
+
+    What a False still guarantees: the caller has already re-pointed the audible
+    owner, so no further chunk of the previous user's utterance — queued or the
+    remainder of the one being played — can start after this returns. Only the
+    audio the physical device still holds is unverified, which is exactly what the
+    caller must not paper over. Nothing here touches Core work: a running goal or
+    background job of the previous user keeps its written result and its own
+    cancellation scope ("dur/stop"), and the new user's session cannot be silenced
+    by this call because it selects the previous owner alone.
     """
     lane = active()
     if lane is None or not previous_owner:

@@ -65,9 +65,23 @@ def reminder_speech_id(event) -> str:
 
     The record id, not the occurrence time: a rescheduled or skipped reminder keeps
     its identity, so an utterance still waiting in the queue can be dropped when the
-    user corrects the record, and the same record is never announced twice.
+    user corrects the record. It is deliberately NOT the duplicate-delivery identity:
+    a repeating record announces the same sentence at every occurrence under this same
+    id, so the occurrence has to be named separately (``reminder_occurrence_id``).
     """
     return f"reminder:{event.get('id')}"
+
+
+def reminder_occurrence_id(event) -> str:
+    """The speech identity of one ringing of a reminder record.
+
+    ``due_events`` stamps ``fired`` with the occurrence it just released (a snoozed
+    repeat rings with its snooze time) and a one-off record keeps its own ``when``,
+    so this names the occurrence while ``reminder_speech_id`` names the record. Two
+    occurrences of the same daily reminder therefore stay two separate deliveries,
+    and a retry of the occurrence that was already heard is still the same one.
+    """
+    return f"{reminder_speech_id(event)}@{event.get('fired') or event.get('when')}"
 
 
 def _reminder_tick(runtime):
@@ -84,6 +98,7 @@ def _reminder_tick(runtime):
                 # long the audio stays honest while Jarvis is busy with an answer.
                 runtime.events.put(("say", msg, owner.slug, {
                     "kind": "reminder", "event_id": reminder_speech_id(ev),
+                    "turn_id": reminder_occurrence_id(ev),
                     "ttl_seconds": REMINDER_SPEECH_TTL_SECONDS}))
 
 def _reminder_loop(runtime):
