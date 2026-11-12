@@ -157,13 +157,17 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
 
     def test_send_phone_owner_resolves_the_file_before_the_transport(self):
         from modules import filesend
-        target = Path('rapor.pdf')
-        with patch.object(filesend, 'find', return_value=[target]) as found, \
-             patch.object(filesend, 'send', return_value='Telefona gönderdim: rapor.pdf') as sent:
-            out = filesend.handle('rapor dosyasını telefonuma gönder')
-        self.assertEqual(out, 'Telefona gönderdim: rapor.pdf')
-        sent.assert_called_once_with(target)
-        found.assert_called_once()
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            target = folder / 'rapor.pdf'
+            target.write_text('report', encoding='utf-8')
+            with patch.object(filesend, '_folders', return_value=[folder]), \
+                 patch.object(filesend, 'find', return_value=[target]) as found, \
+                 patch.object(filesend, 'send', return_value='Telefona gönderdim: rapor.pdf') as sent:
+                out = filesend.handle('rapor dosyasını telefonuma gönder')
+            self.assertEqual(out, 'Telefona gönderdim: rapor.pdf')
+            sent.assert_called_once_with(target)
+            found.assert_called_once()
 
     def test_ambiguous_send_request_asks_instead_of_guessing_a_file(self):
         from modules import filesend

@@ -223,7 +223,7 @@ def _filesend_match(reference: ContextReference, text: str, owner: str, request_
     # clarification, do not accept fuzzy/substring names for this effect.
     numbers = {"birinci": 1, "ilk": 1, "ikinci": 2, "üçüncü": 3,
                "ucuncu": 3, "dördüncü": 4, "dorduncu": 4}
-    numeric = re.fullmatch(r"([1-4])(?:\\s*\\.?\\s*(?:numara|numarayı|olanı))?", text)
+    numeric = re.fullmatch(r"([1-4])(?:\s*\.?\s*(?:numara|numarayı|olanı))?", text)
     selected = int(numeric.group(1)) if numeric else numbers.get(text)
     if selected is None:
         exact = [i + 1 for i, name in enumerate(names) if _norm(name) == text]

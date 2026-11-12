@@ -324,7 +324,7 @@ def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
     what = m.group(1).strip()
     if owner:
         cancel_pending(owner)  # A new explicit request supersedes old file choices.
-    if re.search(r"ekran\\s*görüntü|ekranı", what):
+    if re.search(r"ekran\s*görüntü|ekranı", what):
         from modules import privacy, requests_state
         if (blocked := privacy.blocked("screen")):
             return blocked
