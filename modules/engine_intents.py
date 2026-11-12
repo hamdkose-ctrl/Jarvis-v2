@@ -173,15 +173,26 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             event = matched[0]
             if runtime._session().pending_confirm:
                 return "Önce açık onayı tamamla veya iptal et; yeni hatırlatma onayı başlatılmadı."
+            operation = a["operation"]
+            if operation == "skip" and not event.get("repeat"):
+                return "Bu tek seferlik bir hatırlatma; sonraki tekrar atlanamaz."
+            if operation == "postpone" and len(str(event.get("when") or "")) == 10 and a["minutes"] % 1440:
+                return "Tüm gün hatırlatması yalnız tam gün ertelenebilir."
             runtime._session().pending_confirm = {
-                "action": "reminder_delete",
+                "action": "reminder_delete" if operation == "delete" else "reminder_modify",
+                "operation": operation,
+                "minutes": a.get("minutes"),
                 "owner": runtime.profile.slug,
                 "event_id": event["id"],
                 "title": event["title"],
                 "when": event["when"],
                 "repeat": event.get("repeat"),
+                "base": event.get("base"),
             }
-            return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
+            intent_text = ("silmemi" if operation == "delete" else
+                           "sıradaki tekrarını atlamamı" if operation == "skip" else
+                           f"{a['minutes']} dakika ertelememi")
+            return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
         case "browser_page":
             from modules import browser

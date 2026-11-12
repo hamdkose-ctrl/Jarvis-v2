@@ -102,7 +102,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "learning.manage": frozenset({"text", "old", "index"}),
     "workbench.followup": frozenset({"format"}),
     "notes.add": frozenset({"text"}),
-    "reminders.manage": frozenset({"title"}),
+    "reminders.manage": frozenset({"title", "duration"}),
     "tasks.manage": frozenset({"text"}),
     "kb.query": frozenset({"question"}),
     "worktrack.read": frozenset({"project"}),
@@ -308,9 +308,11 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "period": ["today", "tomorrow", "this", "next", "seven", None],
                 "constraint": "view=agenda/day_plan requires today/tomorrow; week_plan requires this/next/seven; upcoming requires null"}
     if capability_id == "reminders.manage":
-        return {"operation": ["delete"], "title": "verbatim unique existing reminder title",
-                "argument_sources": ["title"],
-                "constraint": "single named reminder only; no all/ordinal/guess/id; no edits or rescheduling"}
+        return {"operation": ["delete", "postpone", "skip"],
+                "title": "verbatim unique existing reminder title",
+                "duration": "verbatim delay from user such as 10 dakika, 1 saat, 2 gün, yarına; ONLY for postpone",
+                "argument_sources": ["title", "duration"],
+                "constraint": "single exact named reminder; every mutation needs user yes confirmation; skip requires a recurring reminder; no all/ordinal/id/guessed delay"}
     if capability_id == "study.read":
         return {"view": ["plan", "focus"]}
     if capability_id == "workbench.followup":
@@ -431,8 +433,8 @@ _CAPABILITY_PURPOSES = {
         "read the user's today/tomorrow agenda, daily plan, weekly plan, or upcoming reminders",
         "read-only; no write to Google Calendar or browser navigation"),
     "reminders.manage": (
-        "delete exactly one existing Jarvis reminder whose complete title the user explicitly names",
-        "requires grounded title from utterance; refuse multiple matches and any bulk, implicit or fuzzy deletion; Google Calendar stays untouched"),
+        "delete, postpone or skip one exact named Jarvis reminder using an explicitly spoken delay",
+        "requires grounded title and optional grounded delay, unique target and State yes/no approval; no bulk or fuzzy mutation; Google untouched"),
     "study.read": (
         "read the user's existing study schedule or exam-topic focus recommendations",
         "read-only study view; requires already configured study materials; active lesson answers stay in Hoca pending state"),

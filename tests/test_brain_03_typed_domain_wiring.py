@@ -572,6 +572,42 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         advance.assert_called_once_with(self.ctx.profile)
         teach.assert_called_once_with(self.ctx.profile)
 
+    def test_reminder_postpone_requires_exact_confirmation_and_valid_delay(self):
+        from modules import main_planner
+        event = {"id": 12, "title": "Rapor", "when": "2026-11-15T09:00"}
+        self.ctx.profile.data["events"] = [event]
+        with patch.object(self.ctx.profile, "reschedule_event",
+                          side_effect=AssertionError("mutated before approval")) as worker:
+            entry, output, feedback = self.typed(
+                "Rapor hatırlatmasını 10 dakika ertele", "reminders.manage",
+                {"operation": "postpone", "title": "Rapor", "duration": "10 dakika"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("reminder_manage", {"operation": "postpone", "title": "Rapor", "minutes": 10}))
+        self.assertIn("onaylıyor musun", output)
+        self.assertEqual(feedback.result_status, "needs_input")
+        worker.assert_not_called()
+        pending = self.ctx._session().pending_confirm
+        with patch.object(self.ctx.profile, "reschedule_event") as commit:
+            response = main_planner.modify_reminder_confirmed(self.ctx, pending)
+        self.assertIn("erteledim", response)
+        commit.assert_called_once_with(12, "2026-11-15T09:10")
+
+    def test_reminder_postpone_rejects_stale_or_foreign_snapshot(self):
+        from modules import main_planner
+        event = {"id": 11, "title": "İlaç", "when": "2026-11-15T08:00"}
+        self.ctx.profile.data["events"] = [event]
+        proposal = {"action": "reminder_modify", "operation": "postpone", "minutes": 20,
+                    "owner": self.owner, "event_id": 11, "title": "İlaç",
+                    "when": "2026-11-15T08:00", "repeat": None, "base": None}
+        with patch.object(self.ctx.profile, "reschedule_event",
+                          side_effect=AssertionError("stale reminder mutated")) as worker:
+            self.assertIn("başka kullanıcıya", main_planner.modify_reminder_confirmed(
+                self.ctx, {**proposal, "owner": "other"}))
+            event["when"] = "2026-11-16T08:00"
+            self.assertIn("kayıt değişmiş", main_planner.modify_reminder_confirmed(
+                self.ctx, proposal))
+        worker.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -590,6 +626,9 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("calendar.read", {"view": "erase", "period": "today"}),
             ("reminders.manage", {"operation": "delete", "id": "fake", "title": "Team"}),
             ("reminders.manage", {"operation": "clear_all", "title": "Team"}),
+            ("reminders.manage", {"operation": "postpone", "title": "Team", "duration": "999 gün"}),
+            ("reminders.manage", {"operation": "postpone", "title": "Team"}),
+            ("reminders.manage", {"operation": "skip", "title": "Team", "duration": "1 saat"}),
             ("tasks.manage", {"operation": "delete", "text": "A"}),
             ("tasks.manage", {"operation": "complete", "text": ""}),
             ("tasks.manage", {"operation": "list", "text": "secret"}),

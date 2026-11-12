@@ -908,6 +908,63 @@ def clear_notes_confirmed(runtime, proposal: dict) -> str:
     return "Tüm notlarını sildim."
 
 
+def modify_reminder_confirmed(runtime, proposal: dict) -> str:
+    """One owner-bound, exact-snapshot State confirmation of a Core operation."""
+    from datetime import datetime, timedelta
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
+        return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
+    operation = proposal.get("operation")
+    minutes = proposal.get("minutes")
+    if operation not in {"postpone", "skip"}:
+        return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
+    if operation == "postpone" and (type(minutes) is not int or not 1 <= minutes <= 10080):
+        return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
+    if type(proposal.get("event_id")) is not int or not isinstance(proposal.get("title"), str):
+        return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
+    events = runtime.profile.data.get("events", [])
+    same_id = [event for event in events if isinstance(event, dict) and event.get("id") == proposal["event_id"]]
+    same_title = [event for event in events if isinstance(event, dict)
+                  and isinstance(event.get("title"), str)
+                  and event["title"].casefold() == proposal["title"].casefold()]
+    if len(same_id) != 1 or len(same_title) != 1:
+        return "Hatırlatma hedefi artık tek değil; hiçbir kayıt değiştirilmedi."
+    ev = same_id[0]
+    if any(ev.get(field) != proposal.get(field) for field in ("title", "when", "repeat", "base")):
+        return "Hatırlatma onayından sonra kayıt değişmiş; işlem yapılmadı."
+    now = runtime.datetime.now()
+    when = str(ev["when"])
+    allday = len(when) == 10
+    try:
+        if operation == "skip":
+            if not ev.get("repeat") or allday:
+                return "Bu hatırlatmanın sıradaki tekrarı güvenli biçimde atlanamıyor."
+            current = datetime.strptime(when[:16], "%Y-%m-%dT%H:%M")
+            base = ev.get("base") or current.strftime("%H:%M")
+            clock = datetime.strptime(base, "%H:%M").time()
+            following = runtime.whenmod.next_occurrence(
+                ev["repeat"], datetime.combine(current.date(), clock),
+                clock.hour, clock.minute)
+            new_when = following.strftime("%Y-%m-%dT%H:%M")
+            requests_state.check()
+            runtime.profile.reschedule_event(ev["id"], new_when)
+            return (f"{ev['title']}: sıradaki tekrarı atladım. "
+                    f"Sıradaki: {runtime.whenmod.describe(new_when, now)}.")
+        if allday and minutes % 1440:
+            return "Bu tüm gün kaydı; yalnız gün olarak erteleyebilirsin."
+        start = datetime.strptime(when, "%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+        shifted = (now if not allday and start <= now and minutes < 1440 else start) + timedelta(minutes=minutes)
+        requests_state.check()
+        if ev.get("repeat"):
+            return _edit_repeating(runtime, ev, shifted, f"{minutes} dakika", "erteledim", now)
+        new_when = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
+        runtime.profile.reschedule_event(ev["id"], new_when)
+        return f"{ev['title']} kaydını erteledim: {runtime.whenmod.describe(new_when, now)}."
+    except (ValueError, TypeError, KeyError):
+        return "Hatırlatma tarihi veya tekrarı doğrulanamadı; hiçbir değişiklik yapılmadı."
+
+
 def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     """Execute only the previously Core-validated, owner-bound exact approval.
 
@@ -918,14 +975,15 @@ def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     requests_state.check()
     if not isinstance(proposal, dict) or proposal.get("owner") != runtime.profile.slug:
         return "Hatırlatma onayının sahibi değişti; hiçbir kayıt silinmedi."
-    expected = {k: proposal.get(k) for k in ("event_id", "title", "when", "repeat")}
+    expected = {k: proposal.get(k) for k in ("event_id", "title", "when", "repeat", "base")}
     if type(expected["event_id"]) is not int or type(expected["title"]) is not str:
         return "Hatırlatma onayı doğrulanamadı; hiçbir kayıt silinmedi."
     matches = [e for e in runtime.profile.data.get("events", [])
                if isinstance(e, dict) and e.get("id") == expected["event_id"]
                and e.get("title") == expected["title"]
                and e.get("when") == expected["when"]
-               and e.get("repeat") == expected["repeat"]]
+               and e.get("repeat") == expected["repeat"]
+               and e.get("base") == expected["base"]]
     same_title = [e for e in runtime.profile.data.get("events", [])
                   if isinstance(e, dict) and isinstance(e.get("title"), str)
                   and e["title"].casefold() == expected["title"].casefold()]

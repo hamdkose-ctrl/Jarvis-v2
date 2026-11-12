@@ -209,6 +209,9 @@ def handle(runtime, command: str):
                 if isinstance(action, dict) and action.get('action') == 'notes_clear':
                     from modules import main_planner
                     return main_planner.clear_notes_confirmed(runtime, action)
+                if isinstance(action, dict) and action.get('action') == 'reminder_modify':
+                    from modules import main_planner
+                    return main_planner.modify_reminder_confirmed(runtime, action)
                 if isinstance(action, dict) and action.get('action') == 'reminder_delete':
                     # Bounded canonical pending_confirm response only. It cannot
                     # target a different owner or a changed event since preview.

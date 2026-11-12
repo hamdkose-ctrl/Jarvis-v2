@@ -908,14 +908,27 @@ def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """One exact-title reminder deletion; no model-supplied event id or bulk scope."""
-    if set(arguments) - {"original_text", "operation", "title"}:
+    if set(arguments) - {"original_text", "operation", "title", "duration"}:
         return None
-    if arguments.get("operation") != "delete":
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip"}:
         return None
     title = arguments.get("title")
     if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
         return None
-    return {"operation": "delete", "title": title.strip()}
+    if operation in {"delete", "skip"}:
+        return {"operation": operation, "title": title.strip()} if arguments.get("duration") is None else None
+    duration = arguments.get("duration")
+    if not isinstance(duration, str) or len(duration) > 40:
+        return None
+    if duration in {"yarına", "yarin", "yarına kadar"}:
+        return {"operation": operation, "title": title.strip(), "minutes": 1440}
+    parsed = re.fullmatch(r"([1-9]\\d{0,2})\\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
+    if parsed is None:
+        return None
+    count, unit = int(parsed.group(1)), parsed.group(2)
+    minutes = count * {"dakika": 1, "dk": 1, "saat": 60, "gün": 1440, "gun": 1440}[unit]
+    return {"operation": operation, "title": title.strip(), "minutes": minutes} if 1 <= minutes <= 10080 else None
 
 
 def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
