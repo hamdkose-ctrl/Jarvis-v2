@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from modules import file_ops, file_resource_guard, file_worker_extensions
@@ -19,7 +20,8 @@ import sys
 import time
 from pathlib import Path
 from modules import file_resource_guard
-file_resource_guard.DATA_DIR = Path(sys.argv[1])
+if file_resource_guard._FILE_EFFECT_CLAIM_ROOT != Path(sys.argv[1]):
+    raise RuntimeError('Physical file claim root incorrectly follows DATA_DIR')
 with file_resource_guard.claim_paths(Path(sys.argv[2])):
     Path(sys.argv[3]).write_text('held', encoding='utf-8')
     time.sleep(30)
@@ -33,8 +35,11 @@ class FileEffectClaimTests(unittest.TestCase):
         self.base = Path(temp.name)
         self.folder = self.base / 'Belgeler'
         self.folder.mkdir()
+        self.fake_home = self.base / 'same-os-account-home'
+        self.fake_home.mkdir()
         for obj, attr, value in (
-            (file_resource_guard, 'DATA_DIR', self.base / 'claims'),
+            (file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+             self.fake_home / '.jarvis' / 'file-effect-claims'),
             (file_ops, 'DATA_DIR', self.base / 'journal'),
             (file_ops, '_roots', lambda: [self.folder]),
             (file_ops, '_permission_decision', lambda *_: None),
@@ -45,14 +50,23 @@ class FileEffectClaimTests(unittest.TestCase):
         file_ops.DATA_DIR.mkdir()
         self.cwd = Path(__file__).resolve().parents[1]
 
-    def holder(self, path):
+    def holder(self, path, *, other_data_dir=False):
         flag = self.base / 'held.flag'
         if flag.exists():
             flag.unlink()
+        env = os.environ.copy()
+        # The second Python process derives its claim root naturally at
+        # import time from the same synthetic OS home, not an injected lock.
+        env['HOME'] = str(self.fake_home)
+        env['USERPROFILE'] = str(self.fake_home)
+        if other_data_dir:
+            env['JARVIS_DATA_DIR'] = str(self.base / 'different-jarvis-data')
         child = subprocess.Popen(
-            [sys.executable, '-c', _HOLD, str(file_resource_guard.DATA_DIR),
+            [sys.executable, '-c', _HOLD,
+             str(file_resource_guard._FILE_EFFECT_CLAIM_ROOT),
              str(path), str(flag)],
             cwd=self.cwd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            env=env,
         )
         deadline = time.monotonic() + 8
         while not flag.exists() and child.poll() is None and time.monotonic() < deadline:
@@ -71,6 +85,81 @@ class FileEffectClaimTests(unittest.TestCase):
             child.kill()
         child.wait(timeout=10)
         child.stderr.close()
+
+    def test_distinct_data_roots_share_one_physical_file_claim(self):
+        """Two Jarvis instances on one OS account cannot claim the same file.
+
+        The helper starts with a different JARVIS_DATA_DIR; the trusted
+        physical claim root is deliberately identical. An unrelated file
+        remains independent, and OS release after child death is proved.
+        """
+        shared = self.folder / 'shared.txt'
+        unrelated = self.folder / 'independent.txt'
+        shared.write_text('original', encoding='utf-8')
+        unrelated.write_text('other', encoding='utf-8')
+        child = self.holder(shared, other_data_dir=True)
+        try:
+            with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                with file_resource_guard.claim_paths(shared):
+                    self.fail('A different data root bypassed the OS claim')
+            with file_resource_guard.claim_paths(unrelated):
+                self.assertEqual(unrelated.read_text(encoding='utf-8'), 'other')
+            self.assertEqual(shared.read_text(encoding='utf-8'), 'original')
+        finally:
+            self.close_holder(child)
+        with file_resource_guard.claim_paths(shared):
+            self.assertEqual(shared.read_text(encoding='utf-8'), 'original')
+
+    def test_shared_claim_directory_symlink_is_rejected(self):
+        root = file_resource_guard._FILE_EFFECT_CLAIM_ROOT
+        root.parent.mkdir(parents=True, exist_ok=True)
+        destination = self.base / 'attacker-controlled'
+        destination.mkdir()
+        try:
+            root.symlink_to(destination, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Directory symlinks unavailable')
+        target = self.folder / 'safe.txt'
+        target.write_text('safe', encoding='utf-8')
+        with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+            with file_resource_guard.claim_paths(target):
+                self.fail('Claim directory symlink should fail closed')
+        self.assertEqual(target.read_text(encoding='utf-8'), 'safe')
+
+    def test_report_writer_joins_physical_claim_and_never_overwrites(self):
+        """Writer report output contends with file_ops on actual OS claim."""
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        destination = root / 'Jarvis Görevler' / 'alice' / '01234567-rapor.md'
+        destination.parent.mkdir(parents=True)
+        task = {
+            'agent': 'writer',
+            'input': {'instruction': 'Rapor oluştur', 'filename': 'rapor.md'},
+        }
+
+        def produce():
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(model_wait, 'ask', return_value='Verified report'), \
+                 patch.object(task_workers.uuid, 'uuid4',
+                              return_value=SimpleNamespace(hex='0123456789abcdef')):
+                return task_agents.worker('alice', task, {})
+
+        child = self.holder(destination, other_data_dir=True)
+        try:
+            with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                produce()
+            self.assertFalse(destination.exists())
+        finally:
+            self.close_holder(child)
+
+        accepted = produce()
+        self.assertEqual(accepted['state'], 'done')
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+        # Same generated name is never overwritten, even after the OS lock
+        # was released. A preexisting artifact is an effect, not a retry slot.
+        with self.assertRaises(FileExistsError):
+            produce()
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
 
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
