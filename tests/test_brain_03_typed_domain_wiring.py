@@ -351,22 +351,40 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             {"id": 14, "text": "Rapor hazırla", "done": False},
             {"id": 15, "text": "Rapor", "done": False},
         ]
-        with patch.object(tasks, "toggle") as toggle:
+        with patch.object(tasks, "complete_exact", return_value="Rapor") as complete:
             _, output, feedback = self.typed(
                 "Rapor görevini bitir", "tasks.manage",
                 {"operation": "complete", "text": "Rapor"})
         self.assertEqual(feedback.result_status, "handled")
         self.assertIn("tamamlandı", output)
-        toggle.assert_called_once_with(self.ctx.profile, 15)
+        complete.assert_called_once_with(self.ctx.profile, "Rapor")
         self.ctx.profile.data["tasks"].append(
             {"id": 16, "text": "Rapor", "done": False})
-        with patch.object(tasks, "toggle",
-                          side_effect=AssertionError("ambiguous completion")) as toggle:
+        with patch.object(tasks, "complete_exact", return_value=None) as complete:
             _, output, _ = self.typed(
                 "Rapor görevini bitir", "tasks.manage",
                 {"operation": "complete", "text": "Rapor"})
         self.assertIn("tek bir", output)
-        toggle.assert_not_called()
+        complete.assert_called_once_with(self.ctx.profile, "Rapor")
+
+    def test_task_completion_domain_is_exact_atomic_and_idempotent(self):
+        from modules import tasks
+        self.ctx.profile.data["tasks"] = [
+            {"id": 1, "text": "Rapor", "done": False},
+            {"id": 2, "text": "Rapor hazırla", "done": False},
+        ]
+        with patch.object(self.ctx.profile, "save") as save:
+            self.assertEqual(tasks.complete_exact(self.ctx.profile, "Rapor"), "Rapor")
+            self.assertIsNone(tasks.complete_exact(self.ctx.profile, "Rapor"))
+        self.assertTrue(self.ctx.profile.data["tasks"][0]["done"])
+        self.assertFalse(self.ctx.profile.data["tasks"][1]["done"])
+        save.assert_called_once()
+        self.ctx.profile.data["tasks"].append({"id": 3, "text": "Rapor", "done": False})
+        self.ctx.profile.data["tasks"][0]["done"] = False
+        with patch.object(self.ctx.profile, "save",
+                          side_effect=AssertionError("ambiguous write")) as save:
+            self.assertIsNone(tasks.complete_exact(self.ctx.profile, "Rapor"))
+        save.assert_not_called()
 
     def test_kb_question_uses_existing_read_only_worker(self):
         from modules import kb

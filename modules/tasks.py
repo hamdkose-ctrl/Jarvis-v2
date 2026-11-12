@@ -39,6 +39,36 @@ def toggle(profile, tid: int) -> None:
     raise ValueError('Bu kullanıcıda seçilen görev bulunamadı.')
 
 
+def complete_exact(profile, text: str) -> str | None:
+    """Complete one exact open task in the domain's existing profile lock.
+
+    Core selects the operation and grounded title. The worker never chooses
+    intent from raw text; it atomically checks one open exact title and sets
+    only False -> True, so concurrent/repeated calls cannot toggle it back.
+    """
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(text, str) or not text.strip():
+        return None
+    matches = [task for task in _tasks(profile)
+               if isinstance(task, dict) and not task.get("done")
+               and isinstance(task.get("text"), str)
+               and lower(task["text"]) == lower(text.strip())]
+    if len(matches) != 1:
+        return None
+    selected = matches[0]
+    old = (selected.get("done", False), selected.get("done_ts", ""))
+    selected["done"] = True
+    selected["done_ts"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        requests_state.check()
+        profile.save()
+    except BaseException:
+        selected["done"], selected["done_ts"] = old
+        raise
+    return selected["text"]
+
+
 def delete(profile, tid: int) -> None:
     if not any(t['id'] == tid for t in _tasks(profile)):
         raise ValueError('Bu kullanıcıda seçilen görev bulunamadı.')
@@ -109,6 +139,7 @@ def _locked(fn):
 
 add = _locked(add)
 toggle = _locked(toggle)
+complete_exact = _locked(complete_exact)
 delete = _locked(delete)
 clear_done = _locked(clear_done)
 counts = _locked(counts)

@@ -219,20 +219,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if operation == "add":
                 task = tasks.add(runtime.profile, a["text"])
                 return f"Görev ekledim: {task['text']}."
-            # Completion is exact, single-owner and only for one open task.
-            from modules import requests_state
-            requests_state.check()
-            title = a["text"].casefold()
-            candidates = [task for task in runtime.profile.data.get("tasks", [])
-                          if isinstance(task, dict) and not task.get("done")
-                          and isinstance(task.get("text"), str)
-                          and task["text"].casefold() == title]
-            if len(candidates) != 1:
+            completed = tasks.complete_exact(runtime.profile, a["text"])
+            if completed is None:
                 return ("Bu adla tek bir açık görev bulamadım; "
                         "hiçbir görevi tamamlandı olarak işaretlemedim.")
-            requests_state.check()
-            tasks.toggle(runtime.profile, candidates[0]["id"])
-            return f"“{candidates[0]['text']}” görevini tamamlandı olarak işaretledim."
+            return f"“{completed}” görevini tamamlandı olarak işaretledim."
         case "kb_query":
             from modules import kb
             return kb.answer(runtime.profile, a["question"])
