@@ -56,10 +56,16 @@ def scheduler_stop_scope(stop_event):
     """Bind a single Scheduler stop token to this synchronous worker thread."""
     if stop_event is not None and not callable(getattr(stop_event, 'is_set', None)):
         raise ValueError('Canonical Scheduler stop token invalid.')
+    from modules import requests_state
     token = _SCHEDULER_STOP.set(stop_event)
     try:
-        require_scheduler_active()
-        yield
+        # The Scheduler's own stop/deadline token remains authoritative.
+        # Existing requests_state.check() sites in Gmail, research readers
+        # and model waits now stop before their NEXT provider/read step.
+        # A currently blocked provider still cannot be forcibly interrupted.
+        with requests_state.worker_probe(require_scheduler_active):
+            require_scheduler_active()
+            yield
     finally:
         _SCHEDULER_STOP.reset(token)
 
