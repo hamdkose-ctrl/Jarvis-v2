@@ -774,3 +774,7 @@ Dilim4 exact-head kabulü (9 Kasım 2026, `bb85f9b64a34b1c87449d5985210db4740c1a
 
 
 **BRAIN-03 PR #613 (13 Kasım, kabul bekliyor):** 6 yeni tipli Core route (OCR, share, voice rate, günlük özet, Workbench ve ders okuma) ile `MODEL_CHAT_DECIDED` ikinci-semantiği kesen production fence eklendi; eski `_user_command` alias'ı fiziksel silindi. Başarılı terminal migration iddiası yok: planner, uzman domain cascade, fallback parity, kabul testleri ve Full holdout açık. İlgili tam durum: `docs/architecture/JARVIS_BRAIN_03_FINAL_AUTHORITY_INVENTORY_2026-11-13.md`. BRAIN-07 #610'un main'deki kodu değişmeyecek.
+
+
+**BRAIN-07 FINAL-B / PR #612 (12 Kasım 2026, DRAFT — kabul edilmedi):** Dosya effect OS-kilitlerinin kökü artık Jarvis veri dizinine göre değil, aynı Windows OS hesabına göre sabit `~/.jarvis/file-effect-claims` altında. Böylece farklı `JARVIS_DATA_DIR` kullanan iki ayrı Jarvis işlemi aynı fiziksel dosyayı aynı key üzerinde kilitler. `task_workers` Markdown rapor oluşturma yolu da aynı fiziksel dosya claim'ine girer, `open('x')` ile var olan dosyayı asla ezmez; okuma ve hash doğrulaması kilit altında kalır. İkinci Python işleminde farklı data root, çakışan/bağımsız dosya, symlink ve süreç ölümü sonrası release testleri eklendi. Eski sürümler aynı kilit namespace'ini kullanmadığından karışık sürüm çalışması desteklenmiyor; provider bağlantı kimliği ve tüm native writer kapsamı hâlâ #584'te açık. Bu PR'nın exact-SHA Windows CI ve gerçek PC watcher PASS koşulları tamamlanmadan merge edilmez.
+

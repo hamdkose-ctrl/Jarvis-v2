@@ -329,8 +329,10 @@ class SchedulerOfferTests(unittest.TestCase):
             try:
                 canonical_scheduler_dispatch.execute_offer(runtime, offer)
             except Exception as exc:
-                errors.append(exc)
+                # Preserve the exact Windows failure location on the next PC run.
+                errors.append(''.join(traceback.format_exception(exc)))
 
+        from modules import goal_job_control
         with patch.object(task_agents, 'worker', side_effect=safe_worker), \
              patch.object(untrusted_flow, 'observe'):
             left = self.offers()[0]
@@ -338,7 +340,11 @@ class SchedulerOfferTests(unittest.TestCase):
             first.start()
             try:
                 for _ in range(300):
-                    recorded = execution_record.load(self.owner_root, OWNER, JOB)
+                    # Match the production per-job lock: an unlocked Windows
+                    # read can keep a handle open across atomic os.replace.
+                    # Never hold this lock while waiting on the worker barrier.
+                    with goal_job_control.locked(self.owner_root, JOB):
+                        recorded = execution_record.load(self.owner_root, OWNER, JOB)
                     if recorded['steps'][0]['state'] == 'running':
                         break
                     threading.Event().wait(.01)
