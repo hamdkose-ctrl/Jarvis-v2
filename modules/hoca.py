@@ -506,6 +506,42 @@ def _finished(profile) -> str:
     return "Ders bitti." + tail
 
 
+def control_typed(profile, *, operation: str, step: int, question: str, answer: str = "") -> str:
+    """One explicit State-confirmed lesson reply, not an NL dispatcher.
+
+    Recheck step/question at execution so a stale observed answer cannot
+    grade or advance a later lesson, including on profile/lesson switch.
+    """
+    from modules import requests_state
+    requests_state.check()
+    lesson = active(profile)
+    pending = lesson.get("pending") if isinstance(lesson, dict) else None
+    if (not isinstance(pending, dict) or not isinstance(step, int) or isinstance(step, bool)
+            or lesson.get("active") != step or pending.get("step") != step
+            or pending.get("question") != question or not isinstance(question, str)
+            or not question):
+        return "Ders sorusu değişti; bu cevapla işlem yapmadım."
+    if operation == "exit":
+        stop(profile)
+        return "Dersi bıraktım. İstediğinde 'hoca modu: konu' diye yeniden başlarız."
+    if operation == "next":
+        if not advance(profile):
+            return _finished(profile)
+        return _lesson_text(profile)
+    if operation == "give_up":
+        return (f"Doğrusu: {give_up(profile)}\\nBu adımı zayıf konulara yazdım; "
+                "devam etmek için 'sonraki adım' de.")
+    if operation != "answer" or not isinstance(answer, str) or not answer.strip():
+        return "Ders cevabını doğrulayamadım; işlem başlatılmadı."
+    graded = grade(profile, answer)
+    if graded["correct"]:
+        if not current_step(profile):
+            return f"{graded['feedback']}\\n\\n" + _finished(profile)
+        return f"{graded['feedback']}\\n\\n" + _lesson_text(profile)
+    return (f"{graded['feedback']}\\nDoğrusu: {graded['expected']}\\n"
+            "Bu adımı zayıf konulara yazdım; devam etmek için 'sonraki adım' de.")
+
+
 def handle(profile, text: str, enabled: bool = True) -> str | None:
     """Hoca modu cümlesini işler; hoca modunun olmadığı her cümle için None döner (normal yol)."""
     if not enabled:

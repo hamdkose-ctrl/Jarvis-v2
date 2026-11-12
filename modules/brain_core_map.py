@@ -1228,6 +1228,21 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
 
 def state_plan(protocol: str | None, selection: Any, level: Any,
                pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
+    if protocol == "hoca.lesson.control":
+        if not isinstance(pending_snapshot, Mapping) or set(pending_snapshot) != {"step", "question"}:
+            return None
+        step, question = pending_snapshot["step"], pending_snapshot["question"]
+        if (type(step) is not int or step < 0 or not isinstance(question, str)
+                or not question.strip() or len(question) > 3000):
+            return None
+        if selection in {"next", "exit", "give_up"}:
+            return ("hoca_control", {"operation": selection, "step": step, "question": question})
+        if isinstance(selection, str) and selection.startswith("answer:"):
+            answer = selection[len("answer:"):].strip()
+            if 0 < len(answer) <= 500 and "\x00" not in answer:
+                return ("hoca_control", {"operation": "answer", "answer": answer,
+                                         "step": step, "question": question})
+        return None
     if protocol == "filesend.pending.select":
         return ("filesend_select", {"index": selection}) if type(selection) is int and 1 <= selection <= 4 else None
     if protocol == "filesend.pending.cancel":

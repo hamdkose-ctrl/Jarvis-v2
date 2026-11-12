@@ -198,6 +198,25 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if service == "youtube":
                 return media.youtube(a["query"])
             return media.spotify(a["query"])
+        case "hoca_control":
+            from config import load_settings
+            from modules import hoca
+            settings = load_settings()
+            if not bool(settings.get("hoca_enabled", True)):
+                return "Hoca modu kapalı. Ayarlardan etkinleştirip tekrar dene."
+            try:
+                message = hoca.control_typed(
+                    runtime.profile, operation=a["operation"], step=a["step"],
+                    question=a["question"], answer=a.get("answer", ""),
+                )
+            except hoca.HocaError as exc:
+                return str(exc)
+            if settings.get("hoca_voice_full"):
+                try:
+                    runtime._session().speech_override = runtime.richtext.speakable(message)
+                except Exception:
+                    runtime._record_failure("modules.engine_intents:hoca_control_voice")
+            return message
         case "hoca_start":
             from modules import requests_state, hoca
             from config import load_settings

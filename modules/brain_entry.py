@@ -1192,6 +1192,15 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
             if len(refs) != 1:
                 return None
             pending_snapshot = refs[0].provenance.get("value")
+        if gate.protocol == "hoca.lesson.control":
+            # Canonical State reply is bound to the exact observed lesson
+            # question/step; no arbitrary input or unowned course identifier.
+            refs = [ref for ref in entry.active_context.pending_references
+                    if ref.source == "profile.hoca" and ref.id == "lesson.pending"
+                    and ref.owner == entry.owner]
+            if len(refs) != 1:
+                return None
+            pending_snapshot = dict(refs[0].provenance)
         return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)
     fast = entry.fast_gate
     if fast is not None and fast.matched:

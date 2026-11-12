@@ -490,6 +490,37 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             supplied={"operation": "delete", "title": "Ekip"},
             sources={}, text="Rapor hatırlatmasını sil"))
 
+    def test_hoca_pending_answer_has_one_state_core_owner_and_stale_fence(self):
+        from modules import hoca
+        state = self.ctx.profile.data.setdefault("hoca", {})
+        lesson = {"active": 0, "done": False, "topic": "Hücre",
+                  "steps": [{"title": "Hücre", "goal": "Amaç"}],
+                  "pending": {"step": 0, "question": "Hücre nedir?"}}
+        # The actual profile schema lives in hoca.active; use a spy at that
+        # seam but let Brain observe a genuine profile pending reference.
+        self.ctx.profile.data["hoca"] = {"lesson": lesson}
+        with patch.object(hoca, "active", return_value=lesson), \\
+             patch.object(hoca, "grade", return_value={
+                 "correct": False, "feedback": "Yanlış", "expected": "Bir yapı"}) as grade, \\
+             patch("config.load_settings", return_value={"hoca_enabled": True}):
+            entry, output, handler, feedback = self.turn_real(
+                "cevap: test", model_understanding=False)
+        self.assertTrue(entry.state_gate.matched)
+        self.assertEqual(entry.state_gate.protocol, "hoca.lesson.control")
+        self.assertEqual(entry.state_gate.selection, "answer:test")
+        self.assertIn("Doğrusu", output)
+        self.assertEqual(feedback.result_status, "handled")
+        handler.assert_not_called()
+        grade.assert_called_once_with(self.ctx.profile, "test")
+        with patch.object(hoca, "active", return_value={
+                 **lesson, "pending": {"step": 1, "question": "Başka soru"}}), \\
+             patch.object(hoca, "grade",
+                          side_effect=AssertionError("stale answer graded")) as grade:
+            rejected = hoca.control_typed(self.ctx.profile, operation="answer",
+                                           step=0, question="Hücre nedir?", answer="test")
+        self.assertIn("değişti", rejected)
+        grade.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),

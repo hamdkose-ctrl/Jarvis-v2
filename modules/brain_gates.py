@@ -376,7 +376,18 @@ def _hoca_match(reference: ContextReference, text: str, owner: str, request_id: 
         "dersi bitir": "exit", "dersten çık": "exit",
     }
     selection = options.get(text)
-    return _hit(owner, request_id, "state", "hoca.lesson.control", selection, "BOUNDED_HOCA_CONTROL") if selection else None
+    if selection:
+        return _hit(owner, request_id, "state", "hoca.lesson.control", selection, "BOUNDED_HOCA_CONTROL")
+    # A question may only accept a bounded explicit answer in its own
+    # owner-bound pending slot. No other utterance is a Hoca follow-up.
+    answer = re.fullmatch(r"(?:cevap|cevabım)\\s*[:,\\-]\\s*(.{1,500})", text, re.S)
+    if answer and answer.group(1).strip():
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    "answer:" + answer.group(1).strip(), "BOUNDED_HOCA_ANSWER")
+    if text in {"bilmiyorum", "bilmem", "pas", "pas geçiyorum"}:
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    "give_up", "BOUNDED_HOCA_GIVE_UP")
+    return None
 
 
 def _desktop_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
