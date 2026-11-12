@@ -155,6 +155,7 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         return f"Bu telefonda kullanıcıyı değiştirmek için sağ üstteki kullanıcı menüsünden {p.name} seç."
     from modules import pc_guide
     pc_guide.stop()
+    previous_owner = runtime.pc_profile().slug   # hoparlörün şu anki sahibi (geçiş öncesi)
     runtime.profile = runtime._get_profile(name)
     runtime.profile.save()
     runtime._llm.set_user_context(runtime.profile.slug)
@@ -164,6 +165,13 @@ def _switch_user(runtime, name: str, created: bool = False) -> str:
         runtime._guest = runtime.profile.name             # telefondan: yalnızca o telefonun kullanıcısı (bilgisayar etkilenmez)
     runtime._sessions.reset(runtime.profile.slug)
     runtime._sessions._owner.set(runtime.profile.slug)
+    if runtime.pc_profile().slug != previous_owner:
+        # The audible speaker owner changed: stop the previous user's queued and
+        # in-progress speech before the new user is greeted, so their audio never
+        # continues into the new session. Called after the profile reassignment so
+        # the per-chunk owner gate also rejects not-yet-started stale speech.
+        from modules import voice_runtime
+        voice_runtime.on_owner_switch(previous_owner)
     from modules import hooks
     hooks.observe("session", {"event": "user_switched", "created": bool(created)}, owner=runtime.profile.slug)
     runtime._session().last_doc = None            # bir kullanıcının analizi diğerine kaydedilmesin

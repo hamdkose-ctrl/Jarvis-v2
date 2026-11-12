@@ -2,29 +2,6 @@
 from __future__ import annotations
 import contextlib
 
-def prepare_live_tool(runtime, fn, *args):
-    """Register before executor/PC-lock waiting, keeping the captured PC owner."""
-    owner = runtime.pc_profile()
-    rid = runtime.secrets.token_hex(16)
-    if not runtime.requests_state.register(owner.slug, rid):
-        raise ValueError("İstek kabul edilmedi; yeniden söyle.")
-    def run():
-        try:
-            with runtime.as_user(owner.name), runtime.requests_state.activate(owner.slug, rid):
-                previous = (runtime._cur_source, runtime._cur_rid)
-                runtime._cur_source, runtime._cur_rid = "ses", rid
-                try:
-                    runtime.requests_state.check()
-                    result = fn(*args)
-                    runtime.requests_state.check()
-                    return result
-                finally:
-                    runtime._cur_source, runtime._cur_rid = previous
-        except BaseException:
-            runtime.requests_state.cancel(owner.slug, rid)
-            raise
-    return run
-
 def _pc_context(runtime, fn):
     from functools import wraps
     @wraps(fn)
@@ -48,37 +25,6 @@ def _pc_context(runtime, fn):
             raise
     return wrapped
 
-def _live_prompt(runtime) -> str:
-    """Canlı oturum talimatının kalıcı bağlamı (uzunluk tercihi, aktif modlar, onay bekleyenler).
-
-    Bellek/geçmiş seçimi burada yapılmaz. Bu fonksiyon bağlantı anında bir kez çağrılır,
-    o yüzden elinde çözülecek bir soru yoktur; soru-bağımlı ilgi seçimi her turda canonical
-    yoldan gelir (runtime.handle → profile.system_prompt(soru) → ilgili bilgi ve kural).
-    Assembly salt-okunurdur: profil yazan hiçbir şey çağrılmaz.
-    """
-    d = runtime.profile.data
-    parts = []
-    parts.append("Kullanıcı bilgisayarda bir işi nasıl yapacağını adım adım öğrenmek istediğinde komut aracına 'PC yardımı: <kullanıcının amacı>' ilet. PC rehberliği açıkken 'yaptım', 'anlamadım', 'hangi düğme', 'devam et' ve 'dur' sözlerini komut aracına 'PC rehberliği: <kullanıcının sözü>' olarak ilet; ekrana bakmadan kendin adım veya hedef uydurma. Panel sonucu tek adımdır; kısaca seslendir.")
-    from modules import pc_guide
-    if pc_guide.active(runtime.profile.slug):
-        parts.append("PC rehberliği şu an açık; bu işe ilişkin bütün takip isteklerini PC rehberliği komutuna ilet.")
-    from modules import developer
-    if developer.status(runtime.profile.slug)['enabled']:
-        parts.append("Geliştirme modu açık. Proje, kod, tasarım, görsel ve bunları değiştiren takip isteklerini kullanıcının sözüyle komut aracına ilet. Sonucun tamamı sohbette gösterilir; yalnız kısa sonucu seslendir.")
-    if d["prefs"].get("verbosity", "orta") == "uzun":
-        parts.append("Kullanıcı ayrıntılı cevap sevdiğini söyledi; gerektiğinde daha uzun anlat.")
-    from modules import learning
-    pending = learning.pending_prompt(runtime.profile)
-    if pending:
-        parts.append(pending)
-    from config import load_settings
-    words = [w.strip() for w in (load_settings().get("stt_words") or "").split(",") if w.strip()]
-    words += runtime._live_vocab()[:25]
-    if words:
-        parts.append("Kullanıcının sık söylediği özel ad ve terimler (bunları doğru anla ve doğru yaz): "
-                     + ", ".join(dict.fromkeys(words)) + ".")
-    assistant_name = str(load_settings().get("assistant_name") or runtime.ASSISTANT_NAME).strip() or "Jarvis"
-    return runtime.live.build_prompt(assistant_name, runtime.profile.name, "\n".join(parts))
 
 def _recent_turns(runtime, slug: str, hours: float = 2.0, limit: int = 12) -> list[tuple[str, str]]:
     """Kalıcı geçmişten (sesli + yazılı) son konuşmalar: [(rol, metin)], yalnızca son 'hours' saat."""
@@ -93,46 +39,8 @@ def _recent_turns(runtime, slug: str, hours: float = 2.0, limit: int = 12) -> li
            for r in rows if r.get("role") in ("user", "assistant") and str(r.get("ts", "")) >= cut]
     return out[-limit:]
 
-def live_session_opened(runtime) -> None:
-    """Oturum açma olayı: onay sorusu bu oturumda sorulacaksa zamanını işaretler.
 
-    Yazma burada, talimat kurulurken değil: assembly salt-okunur kalır, olayın sahibi yazar.
-    """
-    from modules import learning
-    owner = runtime.pc_profile()
-    if learning.pending_ask_due(owner):
-        learning.mark_pending_ask(owner)
 
-def _live_session_end(runtime, convo: list[tuple[str, str]]) -> None:
-    """Canlı konuşma bitince: kalıcı bilgi adaylarını çıkar, onaya koy (onaysız hafızaya yazılmaz)."""
-    from modules import learning
-    owner = runtime.pc_profile()
-    if not learning.enabled(owner): return
-    added = []
-    for role, text in convo:
-        if role == "user": added.extend(learning.observe(owner, text))
-    if added:
-        runtime.emit("system", f"Konuşmadan {len(added)} yeni şey öğrendim: " + "; ".join(added)
-                  + ". Hafıza sayfasından onaylayabilir ya da “öğrendiklerini kaydet” diyebilirsin.")
-
-def _live_vocab(runtime) -> list[str]:
-    """Ses tanımanın doğru yazması gereken çevre adları: kişiler, projeler, kullanıcılar, şehir, sık uygulamalar."""
-    words: list[str] = []
-    try:
-        d = runtime.profile.data
-        words += list((d.get("contacts") or {}).keys())
-        city = d["prefs"].get("city")
-        if city:
-            words.append(str(city))
-        words += [u for u in runtime.list_users()]
-        from modules import worktrack
-        st = worktrack.settings()
-        words += list(st.get("vip") or []) + list(st.get("projects") or [])
-        apps = [a for a in runtime.system_control.installed_apps() if 3 <= len(a) <= 20 and not runtime.re.search(r"uninstall|update|setup|redist|runtime", a)]
-        words += [a.title() for a in apps[:15]]
-    except Exception:
-        runtime._record_failure('main.py:_live_vocab')
-    return [w.strip() for w in dict.fromkeys(words) if isinstance(w, str) and 2 <= len(w.strip()) <= 30]
 
 def _sounds_like_wake(runtime, text: str) -> bool:
     """Duyulan cümlede uyandırma adına çok benzeyen bir kelime var mı (ad yanlış duyulmuş olabilir)."""
@@ -200,7 +108,6 @@ class VoiceSession:
         from config import load_settings
         self.manual_local_stt = bool(load_settings().get('local_stt_enabled', False))
         runtime._manual_local_stt = self.manual_local_stt
-        self.live_on = self.listening_enabled and not self.manual_local_stt and runtime.live.enabled()
         self.state = {"awake_until": 0.0}
         self.voice_lane = None
         self.voice_core_fault = None
@@ -253,7 +160,15 @@ class VoiceSession:
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS   # şimdi söyleneni ad beklemeden dinle
             runtime.log.info("Konuşma kesildi: Hey Jarvis")
 
-    def speak(self, text: str, slow: bool = False, shown: bool = False) -> None:
+    def speak(self, text: str, slow: bool = False, shown: bool = False,
+              identity: dict | None = None) -> None:
+        """Say one utterance. `identity` is the result it presents, as Core named it.
+
+        A background notice that knows which reminder/event/approval it announces
+        passes turn/event/goal/version/artifact/approval ids here; the queue uses
+        them for currency, duplicate delivery and explicit invalidation. Absent
+        identity means an ordinary conversational answer and is never deduplicated.
+        """
         runtime = self.runtime
         if not (self.speak_enabled and runtime.flags["speak"]):
             return
@@ -274,11 +189,15 @@ class VoiceSession:
         rate = raw_rate if type(raw_rate) is int and -40 <= raw_rate <= 40 else 0
         if slow:
             rate = min(rate, -15)
+        # The producer names the result; the turn it belongs to is the engine's
+        # current request id unless the notice already knows a better one.
+        carried = dict(identity or {})
+        kind = carried.pop("kind", "notice" if shown else "reply")
+        turn_id = carried.pop("turn_id", None) or (getattr(runtime, "_cur_rid", None) or "")
         try:
             done = lane.say(runtime.profile.slug, voice_key, text,
-                            background=shown, rate=rate,
-                            kind="notice" if shown else "reply",
-                            turn_id=getattr(runtime, "_cur_rid", None) or "")
+                            background=shown, rate=rate, kind=kind,
+                            turn_id=turn_id, **carried)
         except ValueError:
             runtime._record_failure('modules/engine_voice.py:voice_core_submit')
             runtime.emit("system", "Seçilen ses kullanılamıyor; başka ses kullanılmadı, yanıt yazılı korundu.")
@@ -355,8 +274,7 @@ class VoiceSession:
         while not runtime.stop_event.is_set():
             lane = getattr(self, "voice_lane", None)
             if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                    or (lane is not None and lane.is_busy()) \
-                    or (runtime.live.get() is not None and runtime.live.enabled()):
+                    or (lane is not None and lane.is_busy()):
                 runtime.stop_event.wait(0.1)
                 continue
 
@@ -392,8 +310,7 @@ class VoiceSession:
             try:
                 with runtime.audio_lock:
                     if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                            or (lane is not None and lane.is_busy()) \
-                            or (runtime.live.get() is not None and runtime.live.enabled()):
+                            or (lane is not None and lane.is_busy()):
                         continue
                     in_session = runtime.time.time() < self.state["awake_until"]
                     abort = runtime._AnyAbort(

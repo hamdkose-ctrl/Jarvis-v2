@@ -23,7 +23,7 @@ Claude için çoklu çalışma alanı anahtarı kullanıyorsan sağlayıcının 
 
 OpenAI Responses ve Claude Messages bağlantıları sohbet, akıl yürütme, kod üretme ve Jarvis'in kayıtlı işlemlerinin yönlendirilmesinde kullanılır. Seçilen model destekliyorsa ekran/kamera görüntüsü analizi de bu sağlayıcıya gider. Modelin desteklemediği bir istek hata olarak bildirilir; Gemini'ye gizlice yönlendirilmez.
 
-OpenAI/Claude seçiliyken Gemini Live sohbeti devreden çıkar; mevcut ses tanıma → seçilen yapay zekâ → normal seslendirme yolu kullanılır. Uyandırma dinleyicisinin bu yola geçebilmesi için standart dinleyici canlı modla birlikte hazırlanır, canlı mod açıkken mikrofonu açmaz. Mikrofon kapalı bayrağı korunur. Bu paket OpenAI Realtime veya Claude için ayrı gerçek zamanlı ses akışı eklemez.
+OpenAI/Claude seçiliyken sesli sohbet ayrı bir gerçek zamanlı sağlayıcı gerektirmez: tanıma `voice.recognize` (bulut) veya `local_stt` (yerel) üzerinden, anlam seçilen modelden, konuşma tek ses sahibinden (`voice_runtime`) gider. (Eski "Gemini Live sohbeti devreden çıkar" cümlesi 11 Kasım 2026'da emekli edilen canlı hat içindi; artık böyle bir oturum ve anahtarı yoktur — kanıt `tests/test_live_retirement.py`.) Yerel ses denemesinde arka plan uyandırma dinleyicisi açılmaz, mikrofon kapalı bayrağı korunur. Bu paket OpenAI Realtime veya Claude için ayrı gerçek zamanlı ses akışı eklemez.
 
 Ses tanıma ve anlamsal gömme ayrı mevcut işlevlerdir: OpenAI/Claude anahtarı bunların Gemini/Google veya yerel Ollama gereksinimlerini otomatik değiştirmez. İsteğe bağlı sağlayıcı anahtarları tüm Jarvis işlevlerinin tek anahtarla çalışacağını garanti etmez.
 

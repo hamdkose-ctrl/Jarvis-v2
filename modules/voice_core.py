@@ -21,6 +21,22 @@ SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", 
 SPEECH_STAGES = ("accepted", "synthesizing", "audio_ready", "playback_started")
 _ID_CHARS = 128
 _MAX_TTL_SECONDS = 3600.0
+# How many announced results are remembered as delivered. A recency bound keeps
+# this from growing with uptime; forgetting only allows a *later* repeat, and Core
+# re-offers of an utterance that never played release their claim immediately.
+DELIVERED_RESULTS_KEPT = 64
+
+
+def delivery_key(request: SpeechRequest) -> tuple | None:
+    """Which result this utterance presents, or None for plain conversation.
+
+    Only a request that names its own result can be a duplicate: two different
+    turns may legitimately answer with the very same sentence, so an utterance
+    with no result identity is never deduplicated.
+    """
+    identity = (request.turn_id, request.event_id, request.goal_id,
+                request.state_version, request.artifact_id, request.approval_id)
+    return (identity, request.text.strip()) if any(identity) else None
 
 
 def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS) -> tuple[str, ...]:
@@ -204,6 +220,7 @@ class VoiceCoordinator:
         self._current_request: SpeechRequest | None = None
         self._current_lane: str | None = None
         self._cancel_reason = "VOICE_INTERRUPTED"
+        self._delivered: dict[tuple, str] = {}   # announced result identity -> request id
         self._worker = threading.Thread(target=self._run, name="jarvis-voice-output", daemon=True)
         self._worker.start()
 
@@ -219,29 +236,76 @@ class VoiceCoordinator:
             return False
         with self._lock:
             closed = self._closed.is_set()
+            key = delivery_key(request)
+            duplicate = not closed and key in self._delivered
+            evicted: SpeechRequest | None = None
             full = False
-            if not closed:
+            if not closed and not duplicate:
                 self._sequence += 1
                 priority = 0 if request.lane == "foreground" else 1
+                entry = (priority, self._sequence, self._generation, request, spec, self._clock())
                 try:
-                    self._pending.put_nowait(
-                        (priority, self._sequence, self._generation, request, spec, self._clock())
-                    )
+                    self._pending.put_nowait(entry)
                 except queue.Full:
-                    full = True
+                    # A full notice queue must never cost the user an answer.
+                    evicted = self._evict_notice_for_speech_locked(priority)
+                    if evicted is not None:
+                        # A second Full is unreachable: every other submitter holds
+                        # this lock and the worker's get() only ever frees room.
+                        self._pending.put_nowait(entry)
+                    else:
+                        full = True
                 if not full and request.lane == "foreground" and self._current_lane == "background":
                     # Urgent conversation preempts only the audio notification, not its GoalState.
                     if self._current_cancel is not None:
                         self._cancel_reason = "VOICE_INTERRUPTED"
                         self._current_cancel.set()
+                if not full and key is not None:
+                    self._delivered[key] = request.request_id
+                    while len(self._delivered) > DELIVERED_RESULTS_KEPT:
+                        self._delivered.pop(next(iter(self._delivered)))
         if closed:
             self._notify(request, "rejected", "VOICE_CLOSED")
+            return False
+        if duplicate:
+            # §7: one result is announced once. The claim belongs to the utterance
+            # that already holds it, so this refusal cannot cancel that one.
+            self._notify(request, "rejected", "VOICE_DUPLICATE_DELIVERY")
             return False
         if full:
             self._notify(request, "rejected", "VOICE_QUEUE_FULL")
             return False
+        if evicted is not None:
+            self._notify(evicted, "cancelled", "VOICE_NOTICE_EVICTED")
         self._stage(request, "accepted")
         return True
+
+    def _evict_notice_for_speech_locked(self, priority: int) -> SpeechRequest | None:
+        """Free exactly one slot by coalescing the stalest waiting notification.
+
+        Called while the queue is full. Only a WAITING notice less urgent than
+        the arrival is eligible: the utterance already in the player is preempted
+        by the caller, and a queued foreground answer is itself user speech —
+        dropping it would answer the newest question by discarding an earlier
+        real one. Because the condition needs a strictly higher priority, a
+        background arrival never evicts anything and keeps its own typed
+        backpressure receipt instead. Within the eligible notices the oldest
+        loses first, since a newer notification already supersedes its
+        information; the priority queue pops notices in submission order, so the
+        first eligible entry it yields is the oldest.
+        """
+        waiting = self._drain_waiting_locked()
+        # The entry's first field is the lane-derived urgency, so a strict
+        # comparison cannot promote a notice over an answer.
+        index = next((pos for pos, item in enumerate(waiting) if item[0] > priority), -1)
+        if index < 0:
+            for item in waiting:
+                self._pending.put_nowait(item)
+            return None
+        dropped = waiting.pop(index)
+        for item in waiting:
+            self._pending.put_nowait(item)
+        return dropped[3]
 
     def invalidate(self, *, owner: str = "", goal_id: str = "", turn_id: str = "",
                    event_id: str = "", request_id: str = "") -> int:
@@ -285,16 +349,26 @@ class VoiceCoordinator:
                 return items
             self._pending.task_done()
 
-    def interrupt_speech(self) -> None:
-        """Interrupt playback and acknowledge all queued audio, not Core work."""
+    def interrupt_speech(self) -> tuple[SpeechRequest, ...]:
+        """Interrupt playback and acknowledge all queued audio, not Core work.
+
+        The cut utterances are returned so the caller can see exactly which
+        speech this stop covered; deciding what that means for later answers is
+        not the coordinator's authority and nothing here signals a cancellation
+        to a GoalState or work queue.
+        """
         with self._lock:
             self._generation += 1
             self._cancel_reason = "VOICE_INTERRUPTED"
+            active = self._current_request
             if self._current_cancel is not None:
                 self._current_cancel.set()
             discarded = self._drain_waiting_locked()
+        stopped = tuple(([active] if active is not None else [])
+                        + [item[3] for item in discarded])
         for item in discarded:
             self._notify(item[3], "cancelled", "VOICE_INTERRUPTED")
+        return stopped
 
     def close(self) -> None:
         """Close without joining the TTS worker or leaving waiting receipts open."""
@@ -336,7 +410,16 @@ class VoiceCoordinator:
         with self._lock:
             return self._cancel_reason
 
-    def _notify(self, request: SpeechRequest, status: str, reason: str) -> None:
+    def _notify(self, request: SpeechRequest, status: str, reason: str,
+                *, played: bool = False) -> None:
+        if not played:
+            # An utterance that never started is not a delivery: Core may re-offer
+            # the same result (a full queue, an interrupt) and must not be silenced
+            # by its own earlier attempt.
+            with self._lock:
+                key = delivery_key(request)
+                if self._delivered.get(key) == request.request_id:
+                    self._delivered.pop(key, None)
         receipt = SpeechReceipt(request.request_id, request.owner, request.voice_id, status, reason,
                                 turn_id=request.turn_id, event_id=request.event_id,
                                 goal_id=request.goal_id, kind=request.kind)
@@ -373,17 +456,17 @@ class VoiceCoordinator:
                 if self._expired(request, enqueued_at):
                     self._notify(request, "cancelled", "VOICE_TTL_EXPIRED")
                     continue
+                status, reason = "played", "VOICE_PLAYBACK_RETURNED"
+                announced_ready = False
+                announced_start = False
+
+                def on_start() -> None:
+                    nonlocal announced_start
+                    if not announced_start:
+                        announced_start = True
+                        self._stage(request, "playback_started")
+
                 try:
-                    status, reason = "played", "VOICE_PLAYBACK_RETURNED"
-                    announced_ready = False
-                    announced_start = False
-
-                    def on_start() -> None:
-                        nonlocal announced_start
-                        if not announced_start:
-                            announced_start = True
-                            self._stage(request, "playback_started")
-
                     self._stage(request, "synthesizing")
                     for chunk in split_speech_text(request.text):
                         if cancel.is_set():
@@ -414,11 +497,12 @@ class VoiceCoordinator:
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
-                    self._notify(request, status, reason)
+                    self._notify(request, status, reason, played=announced_start)
                 except Exception:
                     _record_failure('modules/voice_core.py:adapter')
                     self._notify(request, "cancelled" if cancel.is_set() else "failed",
-                                 self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED")
+                                 self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED",
+                                 played=announced_start)
             finally:
                 with self._lock:
                     if self._current_cancel is cancel:

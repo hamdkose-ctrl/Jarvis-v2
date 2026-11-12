@@ -86,8 +86,7 @@ _SETTINGS = {
     'assistant_name':str,'wake_word':str,'wake_aliases':list,'wake_is_name':bool,
     'wake_engine':str,'wake_sensitivity':int,'session_seconds':int,'input_device':str,
     'announce_unknown':bool,'camera_index':int,'stt_engine':str,'stt_words':str,
-    'followup_no_wake':bool,'live_mode':bool,'live_voice':str,'live_headphones':bool,
-    'live_beep':bool,'live_silence_ms':int,'live_idle_seconds':int,'stt_fixes':str,
+    'followup_no_wake':bool,'wake_beep':bool,'stt_fixes':str,
 }
 _UI = {'nx_theme':str,'nx_notify':bool,'learn_from_chat':bool}
 

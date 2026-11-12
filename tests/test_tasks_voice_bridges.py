@@ -28,7 +28,7 @@ class TaskVoiceBridgeTests(unittest.TestCase):
 
     def voice(self):
         profile=SimpleNamespace(slug='alice', data={'prefs':{}}, set_pref=Mock())
-        bridge=WebVoice();bridge._runtime=SimpleNamespace(_p=lambda:profile,engine=SimpleNamespace(events=Mock()),voice=SimpleNamespace(VOICES={'woman':('Kadın',)}),config=Mock(),_live=lambda:SimpleNamespace(enabled=lambda:False))
+        bridge=WebVoice();bridge._runtime=SimpleNamespace(_p=lambda:profile,engine=SimpleNamespace(events=Mock()),voice=SimpleNamespace(VOICES={'woman':('Kadın',)}),config=Mock())
         bridge._runtime.config.load_settings.return_value = {}
         return bridge,profile
 

@@ -4,6 +4,7 @@ All adapters and audio devices are mocked. These tests do not prove physical
 speaker output or real Turkish model quality.
 """
 import json
+import os
 import secrets
 import tempfile
 import threading
@@ -13,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from modules import voice_runtime
+from modules import requests_state, voice_runtime
 from modules.engine_voice import VoiceSession
 from modules.voice_core import VoiceCatalog, VoiceSpec
 
@@ -243,6 +244,137 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertTrue(done.wait(2))
         self.assertEqual(played, [])
 
+    def _requests_isolated(self):
+        """Speech mutes must never touch the real ~/.jarvis request journal."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.enterContext(patch.object(requests_state, "_journal", Path(temp.name) / "requests.json"))
+        saved = dict(requests_state._records)
+        requests_state._records.clear()
+
+        def restore():
+            requests_state._records.clear()
+            requests_state._records.update(saved)
+        self.addCleanup(restore)
+
+    def test_sus_mutes_the_stopped_turns_speech_not_the_running_request(self):
+        # §6 speech scope: the answer the model finishes after "sus" must never
+        # restart audio, while the request keeps running with its written result
+        # and the next turn is still answered out loud.
+        self._requests_isolated()
+        heard = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: heard.append(text) or b"audio",
+            lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import voice
+        self.assertTrue(requests_state.register("alice", "turn-1"))
+        self.assertTrue(lane.say("alice", "tr_kadin", "İlk cevap", turn_id="turn-1").wait(2))
+        voice.stop_speaking()          # the shared web/voice/phone stop entry
+        self.assertTrue(requests_state.speech_muted("alice", "turn-1"))
+        late = lane.say("alice", "tr_kadin", "Modelden sonra geldi", turn_id="turn-1")
+        self.assertTrue(late.is_set(), "a refused utterance is acknowledged, never left waiting")
+        self.assertTrue(requests_state.register("alice", "turn-2"))
+        self.assertTrue(lane.say("alice", "tr_kadin", "Yeni sorunun cevabı", turn_id="turn-2").wait(2))
+        self.assertEqual(heard, ["İlk cevap", "Yeni sorunun cevabı"])
+        self.assertFalse(requests_state.is_cancelled("alice", "turn-1"),
+                         '"sus" is a mute, not a task cancel')
+        self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted),
+                         "quiet was requested; a muted turn must not complain about itself")
+
+    def test_sus_stops_the_remaining_chunks_of_an_utterance_already_playing(self):
+        # An answer cut mid-sentence must not synthesize or play its next chunk;
+        # the cooperative cancel is what bounds it, verified through the real
+        # shared stop entry rather than a mock of the worker.
+        self._requests_isolated()
+        heard = []
+        started = threading.Event()
+        release = threading.Event()
+
+        def synth(spec, text, cancel):
+            heard.append(text)
+            started.set()
+            self.assertTrue(release.wait(2))
+            return b"audio"
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import voice
+        self.assertTrue(requests_state.register("alice", "turn-1"))
+        first = lane.say("alice", "tr_kadin", "Birinci cümle. " + ("dolgu " * 200), turn_id="turn-1")
+        self.assertTrue(started.wait(1))
+        voice.stop_speaking()
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertEqual(len(heard), 1, "the stopped turn never synthesizes its remaining chunk")
+
+    def test_sus_keeps_the_other_jobs_later_spoken_result_while_muting_its_own(self):
+        # Two independent jobs run for the same user. Jarvis is speaking job A's
+        # answer when "sus" is said. The mute belongs to that speech and to its
+        # late audio only: job B, which the voice owner was never given, keeps the
+        # spoken result it will send later. Verified through the shared stop entry
+        # and the real lane/queue, not through a mock of the stop itself.
+        self._requests_isolated()
+        heard = []
+        started = threading.Event()
+        release = threading.Event()
+
+        def synth(spec, text, cancel):
+            heard.append(text)
+            started.set()
+            self.assertTrue(release.wait(2))
+            return b"audio"
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import voice
+        self.assertTrue(requests_state.register("alice", "turn-A"))
+        self.assertTrue(requests_state.register("alice", "job-B"))
+        first = lane.say("alice", "tr_kadin", "A işinin cevabı", turn_id="turn-A")
+        self.assertTrue(started.wait(1))
+        voice.stop_speaking()
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertTrue(requests_state.speech_muted("alice", "turn-A"))
+        self.assertFalse(requests_state.speech_muted("alice", "job-B"),
+                         'the other job\'s future spoken result is not muted by "sus"')
+        self.assertFalse(requests_state.is_cancelled("alice", "job-B"),
+                         '"sus" cancels no Core work')
+        late = lane.say("alice", "tr_kadin", "A'nın modelden sonra biten cevabı", turn_id="turn-A")
+        self.assertTrue(late.is_set(), "a refused utterance is acknowledged, never left waiting")
+        notice = lane.say("alice", "tr_kadin", "B işinin sonraki bildirimi",
+                          turn_id="job-B", background=True)
+        self.assertTrue(notice.wait(2))
+        self.assertEqual(heard, ["A işinin cevabı", "B işinin sonraki bildirimi"],
+                         "the stopped turn stays silent and the other job is still heard")
+
+    def test_sus_never_mutes_a_request_the_lane_was_never_given(self):
+        # Nothing had reached the speaker yet, so there is no speech to mute: the
+        # mute scope cannot be extended to a request the voice owner never saw.
+        self._requests_isolated()
+        heard = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: heard.append(text) or b"audio",
+            lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import voice
+        self.assertTrue(requests_state.register("alice", "job-B"))
+        voice.stop_speaking()
+        self.assertFalse(requests_state.speech_muted("alice", "job-B"))
+        self.assertTrue(lane.say("alice", "tr_kadin", "B işinin bildirimi",
+                                 turn_id="job-B", background=True).wait(2))
+        self.assertEqual(heard, ["B işinin bildirimi"])
+
     def test_voice_session_never_calls_legacy_speech_when_lane_enabled(self):
         lane = Mock()
         result = threading.Event()
@@ -251,7 +383,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         rt.threading = SimpleNamespace(Thread=Mock())
         rt.voice = SimpleNamespace(speak=Mock())
         session = VoiceSession.__new__(VoiceSession)
-        session.runtime, session.speak_enabled, session.live_on = rt, True, False
+        session.runtime, session.speak_enabled = rt, True
         session.voice_lane, session.voice_core_fault = lane, None
         session.speak("Metin", shown=True)
         lane.say.assert_called_once_with("alice", "tr_kadin", "Metin", background=True, rate=0,
@@ -267,7 +399,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         rt = self.rt
         rt.voice = SimpleNamespace(speak=Mock())
         session = VoiceSession.__new__(VoiceSession)
-        session.runtime, session.speak_enabled, session.live_on = rt, True, False
+        session.runtime, session.speak_enabled = rt, True
         session.voice_lane, session.voice_core_fault = lane, None
         session.speak("Metin")
         rt.voice.speak.assert_not_called()
@@ -287,7 +419,6 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         bridge._runtime = SimpleNamespace(
             _p=lambda: person,
             config=SimpleNamespace(load_settings=lambda: {"local_stt_enabled": False}),
-            _live=lambda: self.fail("local voice should never inspect Gemini Live"),
             engine=SimpleNamespace(events=SimpleNamespace(put=voice_events.append)),
         )
         with patch("modules.voice_runtime.active", return_value=lane):
@@ -318,7 +449,7 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         rt.voice = SimpleNamespace(speak=Mock())
         rt.profile.data["prefs"]["rate"] = 20
         session = VoiceSession.__new__(VoiceSession)
-        session.runtime, session.speak_enabled, session.live_on = rt, True, False
+        session.runtime, session.speak_enabled = rt, True
         session.voice_lane, session.voice_core_fault = lane, None
         session.speak("Normal hız")
         session.speak("Yavaş anlat", slow=True)
@@ -545,8 +676,70 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
                               if k == "speech" and t == "playback_started"]), 1)
         self.assertFalse(any(k == "system" for k, _m in self.rt.emitted))  # no leaked notice
 
+    def test_owner_switch_cancels_started_playback_at_the_real_player(self):
+        # §4-A: the previous user's speech that had ALREADY begun must be stopped
+        # at the real player when the desktop user switches, and their queued
+        # audio must drop too. This exercises the coordinator, the lane owner
+        # bookkeeping and on_owner_switch together — not a mock's own behavior.
+        began = threading.Event()
+        started = []
+        def play(audio, cancel, on_start):
+            started.append(audio)
+            on_start()
+            began.set()             # the real player has actually started
+            cancel.wait(2)          # a real MCI stream blocks until stop is honored
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio", play,
+        )
+        voice_runtime.register(lane)
+        first = lane.say("alice", "tr_kadin", "Birinci")      # starts playing and blocks
+        self.assertTrue(began.wait(2))                        # switch only after real start
+        second = lane.say("alice", "tr_kadin", "İkinci")      # queued behind the blocked first
+        self.assertTrue(lane.outstanding_owner("alice"))
+        self.rt.pc_profile = lambda: SimpleNamespace(slug="bob", data={"prefs": {}})
+        self.assertTrue(voice_runtime.on_owner_switch("alice", timeout=2))  # verified stop
+        self.assertTrue(first.wait(2))
+        self.assertTrue(second.wait(2))
+        self.assertEqual(started, [b"audio"])                 # the old audio never resumed
+        self.assertFalse(lane.outstanding_owner("alice"))     # every prior utterance acknowledged
+        self.assertFalse(any(k == "system" for k, _m in self.rt.emitted))  # no leak notice to bob
+
     def test_handoff_with_no_speech_allows_microphone_immediately(self):
         self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.05))
+
+    def test_full_notice_queue_still_answers_the_current_user(self):
+        # §4-C: background notifications used to occupy every bounded slot, so the
+        # user's actual question was refused with VOICE_QUEUE_FULL and the
+        # preemption never happened. The queue bound is kept: the stalest waiting
+        # notice gives up only its AUDIO (its written result stays Core's), the
+        # question is answered, and no phony user-facing notice is emitted.
+        release = threading.Event()
+        began = threading.Event()
+
+        def play(audio, cancel, on_start):
+            on_start()
+            began.set()                 # the real player owns the output now
+            self.assertTrue(release.wait(2))
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio", play,
+        )
+        voice_runtime.register(lane)
+        talking = lane.say("alice", "tr_kadin", "Konuşma")
+        self.assertTrue(began.wait(2))
+        notices = [lane.say("alice", "tr_kadin", f"Bildirim {i}", background=True,
+                            kind="progress", goal_id="g1") for i in range(8)]
+        question = lane.say("alice", "tr_kadin", "Şu anki soru")
+        self.assertTrue(notices[0].wait(2))   # the dropped notice is acknowledged, not lost
+        self.assertFalse(any(k == "system" for k, _m in self.rt.emitted))
+        release.set()
+        self.assertTrue(talking.wait(2))
+        self.assertTrue(question.wait(2))
+        self.assertTrue(all(done.wait(2) for done in notices[1:]))
+        self.assertFalse(lane.is_busy())      # nothing sticks the mic handoff
 
     def test_real_playback_registers_echo_guard_for_mic(self):
         # The living echo guard (stt_guard) must learn what Jarvis actually plays,
@@ -629,6 +822,120 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertTrue(lane.is_busy())  # protection kept: mic must not open yet
         release.set()
         self.assertTrue(done.wait(2))
+
+    def test_reminder_producer_names_the_result_it_announces(self):
+        # §7: the notice that asks for speech says which record it announces, so
+        # currency, duplicate delivery and invalidation all have a real identity.
+        from modules import engine_background
+        events = []
+        profile = SimpleNamespace(slug="alice", data={"prefs": {}},
+                                  due_events=lambda now: [{"id": 7, "title": "İlaç"}])
+        stub = SimpleNamespace(
+            list_users=lambda: ["alice"], _get_profile=lambda name: profile,
+            datetime=SimpleNamespace(now=lambda: None), _emit_for=lambda *a, **k: None,
+            pc_profile=lambda: profile, threading=SimpleNamespace(Thread=Mock()),
+            notify=Mock(), events=SimpleNamespace(put=events.append),
+        )
+        engine_background._reminder_tick(stub)
+        self.assertEqual(events, [("say", "Hatırlatma: İlaç", "alice", {
+            "kind": "reminder", "event_id": "reminder:7",
+            "ttl_seconds": engine_background.REMINDER_SPEECH_TTL_SECONDS})])
+
+    def test_a_queued_reminder_is_dropped_when_the_user_deletes_the_record(self):
+        # §7 invalidation now has a production caller: the planner that changes
+        # the calendar record drops only that record's waiting audio, and the
+        # utterance already playing keeps going.
+        entered, release = threading.Event(), threading.Event()
+        heard = []
+
+        def synth(spec, text, cancel):
+            heard.append(text)
+            if text == "uzun yanıt":
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return b"audio"
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            synth, lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        from modules import engine_background, main_planner
+        record = {"id": 7, "title": "İlaç"}
+        first = lane.say("alice", "tr_kadin", "uzun yanıt")
+        self.assertTrue(entered.wait(1))
+        queued = lane.say("alice", "tr_kadin", "Hatırlatma: İlaç", background=True,
+                          kind="reminder", event_id=engine_background.reminder_speech_id(record))
+        main_planner._drop_queued_reminder_speech(record)
+        release.set()
+        self.assertTrue(first.wait(2))
+        self.assertTrue(queued.wait(2))
+        self.assertEqual(heard, ["uzun yanıt"])
+
+    def test_the_same_reminder_is_never_announced_twice_out_loud(self):
+        # A second tick or a retry for the same record must not reach the
+        # speaker again; the user already heard it, so nothing is complained about.
+        heard = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "Kadın", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: heard.append(text) or b"audio",
+            lambda audio, cancel, on_start: on_start(),
+        )
+        voice_runtime.register(lane)
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime, session.speak_enabled = self.rt, True
+        session.voice_lane, session.voice_core_fault = lane, None
+        # Barge-in watching needs the real wake-word listener; this test is about
+        # what reaches the speaker, so it is not started here.
+        self.enterContext(patch.object(VoiceSession, "_barge_watch", Mock()))
+        identity = {"kind": "reminder", "event_id": "reminder:7"}
+        session.speak("Hatırlatma: İlaç", shown=True, identity=identity)
+        deadline = time.monotonic() + 2
+        while lane.is_busy() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        session.speak("Hatırlatma: İlaç", shown=True, identity=identity)
+        self.assertEqual(heard, ["Hatırlatma: İlaç"])
+        self.assertFalse(lane.is_busy())
+        self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted))
+
+    def test_unstarted_mci_playback_is_a_failed_receipt_not_a_spoken_answer(self):
+        # §4-D at the real user flow: the production EdgePlayer runs against a
+        # winmm that accepts "play" but never reports "playing". The utterance
+        # must never be filed as played, the UI must never claim speaking, the
+        # written result must survive with an honest notice, no other voice may
+        # be tried, and the single worker must not stay busy (mic handoff works).
+        from modules import voice_edge
+
+        class NeverPlayingWinmm:
+            def __init__(self):
+                self.path = None
+
+            def __call__(self, command, buffer, length, hwnd):
+                if command.startswith("open "):
+                    self.path = command.split('"')[1]
+                if command.startswith("status ") and buffer is not None:
+                    buffer.value = "stopped"
+                return 0
+
+        winmm = NeverPlayingWinmm()
+        synthesis = []
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "edge", "tr-TR-EmelNeural"),)),
+            lambda spec, text, cancel: synthesis.append(text) or b"mp3",
+            voice_edge.EdgePlayer(poll_seconds=0, grace_seconds=0.05, wait_seconds=1.0),
+        )
+        voice_runtime.register(lane)
+        with patch.object(voice_edge, "_mci_send", return_value=winmm):
+            done = lane.say("alice", "tr_kadin", "Ses hiç başlamadı")
+            self.assertTrue(done.wait(2))
+        self.assertEqual(synthesis, ["Ses hiç başlamadı"])   # the exact voice was tried once
+        self.assertNotIn(("state", "speaking"), self.rt.emitted)  # never claimed as speaking
+        self.assertTrue(any("üretilemedi" in message for _k, message in self.rt.emitted))
+        self.assertEqual([t for k, t, _x in self.rt.events if k == "speech"],
+                         ["accepted", "synthesizing", "audio_ready"])  # no playback_started
+        self.assertFalse(lane.is_busy())
+        self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.5))
+        self.assertFalse(os.path.exists(winmm.path))         # temp file released on the error path
 
 
 if __name__ == "__main__":

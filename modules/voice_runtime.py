@@ -30,6 +30,9 @@ _ALLOWED_VOICES = frozenset({
 _ACTIVE_LOCK = threading.Lock()
 _ACTIVE = None
 _BLOCK_LEGACY = False  # explicit configuration fault must not trigger a second voice
+# A recency bound on "whose speech was last audible", so the record cannot grow
+# with uptime; the mute scope of "sus" only ever consults the current owner.
+_LAST_AUDIBLE_OWNERS_KEPT = 8
 
 
 class VoiceConfigurationError(ValueError):
@@ -143,10 +146,31 @@ def legacy_blocked() -> bool:
 
 
 def interrupt_active() -> bool:
+    """Stop audible speech now, and keep that speech's own late answers off the speaker.
+
+    "Sus" is the speech scope of the three cancel scopes: the queued and active
+    audio is interrupted here, and the turn that audio carried is speech-muted, so
+    the remaining chunks of that answer and a model response for the same turn that
+    arrives later cannot restart output the user just stopped. The mute is bounded
+    to that turn: a background job the user has in flight but that was never given
+    to the voice owner keeps its future spoken result, because "sus" was about the
+    speech being heard, not about every request. Nothing is cancelled: Core keeps
+    the written result, the GoalState and the running work, and "dur/stop" stays
+    the explicit Core-level stop.
+    """
     lane = active()
     if lane is None:
         return False
-    lane.interrupt()
+    turns = lane.interrupt()
+    if not turns:
+        return True
+    try:
+        from modules import requests_state
+        owner = lane.runtime.pc_profile().slug
+        for turn_id in turns:
+            requests_state.mute_speech(owner, turn_id)
+    except Exception:
+        _record_failure("modules/voice_runtime.py:mute_speech")
     return True
 
 
@@ -167,6 +191,51 @@ def handoff_to_listen(timeout: float = 0.6) -> bool:
     while lane.is_busy() and time.monotonic() < deadline:
         time.sleep(0.01)
     return not lane.is_busy()
+
+
+def on_owner_switch(previous_owner: str, timeout: float = 0.6) -> bool:
+    """A user switch must never leak the previous owner's audio to the new one.
+
+    Targeted (not a blind clear): drop the previous owner's queued AND active
+    speech, then verify the real player acknowledged the stop within a bound.
+    Because the caller reassigns the active profile first, a request that had not
+    yet started is also rejected by the per-chunk owner gate — this closes the
+    window between a synthesis/playback start and the switch. Returns False (and
+    records a privacy-safe failure) when the player did not stop in time, so the
+    switch never claims a stop that was not verified.
+    """
+    lane = active()
+    if lane is None or not previous_owner:
+        return True
+    lane.invalidate(owner=previous_owner)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while lane.outstanding_owner(previous_owner) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if lane.outstanding_owner(previous_owner):
+        _record_failure("modules/voice_runtime.py:owner_switch_stop")
+        return False
+    return True
+
+
+def invalidate(**selectors) -> int:
+    """Core says a result is no longer current; drop only that result's audio.
+
+    This is the production entry for the explicit invalidation the contract has
+    always allowed: a caller that changes or cancels a reminder, goal result or
+    approval uses it so an utterance still waiting in the queue never announces
+    something the user has just corrected. Nothing is invented here — an empty
+    selector is refused by the coordinator, unrelated speech keeps its order, and
+    the written chat result and GoalState are untouched. Returns how many
+    utterances were dropped (0 when no owner is registered).
+    """
+    lane = active()
+    if lane is None:
+        return 0
+    try:
+        return lane.invalidate(**selectors)
+    except Exception:
+        _record_failure("modules/voice_runtime.py:invalidate")
+        return 0
 
 
 def announce_active(text: str, *, background: bool = True) -> bool:
@@ -200,6 +269,7 @@ class VoiceLane:
         self._synthesize = synthesize
         self._lock = threading.RLock()
         self._outstanding = {}
+        self._last_audible = {}  # owner -> turn id of the speech it last heard
         self.busy_event = threading.Event()
         self._closed = False
         self._coordinator = VoiceCoordinator(
@@ -219,6 +289,14 @@ class VoiceLane:
         if self._closed:
             return
         if stage == "playback_started":
+            # Remember whose speech the speaker last carried: "sus" may only mute
+            # the turn the user actually heard, never a job that never spoke.
+            if request.turn_id:
+                with self._lock:
+                    self._last_audible.pop(request.owner, None)
+                    self._last_audible[request.owner] = request.turn_id
+                    while len(self._last_audible) > _LAST_AUDIBLE_OWNERS_KEPT:
+                        self._last_audible.pop(next(iter(self._last_audible)))
             # Register what Jarvis actually plays so the living echo guard rejects
             # the speaker's own output returning to the mic. Only real playback
             # registers: a privacy-rejected or cancelled utterance never plays, so
@@ -238,6 +316,7 @@ class VoiceLane:
                 "speech_id": request.request_id, "voice_id": request.voice_id,
                 "kind": request.kind, "turn_id": request.turn_id,
                 "event_id": request.event_id, "goal_id": request.goal_id,
+                "state_version": request.state_version,
                 "artifact_id": request.artifact_id, "approval_id": request.approval_id,
             }
             self.runtime.emit("speech", stage, json.dumps(identity, ensure_ascii=False))
@@ -245,7 +324,7 @@ class VoiceLane:
             _record_failure("modules/voice_runtime.py:stage")
 
     def _privacy_gate(self, request: SpeechRequest) -> str:
-        """Audible owner/privacy boundary, checked at enqueue and before playback.
+        """Audible owner/privacy/suspension boundary, checked at enqueue and per chunk.
 
         Offline Piper voices are unaffected by privacy mode. Online Edge voices
         must not egress in local-only mode; identity is kept. Separately, a queued
@@ -254,6 +333,16 @@ class VoiceLane:
         user's audio to the new one. The UI stage/receipt already gate on owner;
         this closes the audible boundary. It fails closed so an unreadable profile
         never plays audio to an unknown user.
+
+        The third check is the speech cancel scope (§6): "Sus" mutes the turn whose
+        audio it stopped, so the remaining chunks of that answer and a late model
+        response for the same turn never restart audio. Only the turn that was on
+        the speaker is muted — a different job the user has running keeps its own
+        future spoken result. This is presentation only: the written result, the
+        GoalState and the running work are untouched. An unreadable mute check keeps
+        speaking, because a lost answer would be worse than the noise the user asked
+        to stop, and unlike the owner check this is a preference, not a privacy
+        boundary.
         """
         try:
             if request.owner != self.runtime.pc_profile().slug:
@@ -261,6 +350,13 @@ class VoiceLane:
         except Exception:
             _record_failure("modules/voice_runtime.py:owner_gate")
             return "VOICE_OWNER_SWITCHED"
+        if request.turn_id:
+            try:
+                from modules import requests_state
+                if requests_state.speech_muted(request.owner, request.turn_id):
+                    return "VOICE_SUSPENDED_TURN"
+            except Exception:
+                _record_failure("modules/voice_runtime.py:mute_gate")
         spec = self.catalog.require(request.voice_id)
         if spec.backend == "edge":
             from modules import privacy
@@ -289,16 +385,16 @@ class VoiceLane:
 
     def say(self, owner: str, voice_id: str, text: str, *,
             background: bool = False, rate: int = 0, kind: str = "reply",
-            turn_id: str = "", event_id: str = "", goal_id: str = "",
+            turn_id: str = "", event_id: str = "", goal_id: str = "", state_version: int = 0,
             artifact_id: str = "", approval_id: str = "", ttl_seconds: float = 0.0):
         """Enqueue without waiting for synthesis or blocking caller's Core work.
 
         An unknown identity raises (no receipt, no fallback). A bounded-queue,
         closed, invalid or privacy refusal is a typed rejected receipt and an
         already-acknowledged Event, never a silent drop or a second voice. The
-        result identity (turn/event/goal/artifact) is supplied by the caller's
-        Core context; voice never invents it and only carries it for presentation
-        and explicit invalidation.
+        result identity (turn/event/goal/version/artifact) is supplied by the
+        caller's Core context; voice never invents it and only carries it for
+        presentation, duplicate protection and explicit invalidation.
         """
         voice_id = voice_id if isinstance(voice_id, str) else ""
         self.catalog.require(voice_id)  # explicit exact voice; no implicit fallback
@@ -307,13 +403,14 @@ class VoiceLane:
                                 voice_id=voice_id, text=text,
                                 lane="background" if background else "foreground",
                                 rate=rate, kind=kind, turn_id=turn_id, event_id=event_id,
-                                goal_id=goal_id, artifact_id=artifact_id,
+                                goal_id=goal_id, state_version=state_version,
+                                artifact_id=artifact_id,
                                 approval_id=approval_id, ttl_seconds=ttl_seconds)
         done = threading.Event()
         with self._lock:
             if self._closed:
                 raise ValueError("Voice Core kapatılmış.")
-            self._outstanding[request_id] = done
+            self._outstanding[request_id] = (owner, done)
             self.busy_event.set()
         try:
             accepted = self._coordinator.submit(request)
@@ -327,11 +424,22 @@ class VoiceLane:
 
     def _forget(self, request_id: str):
         with self._lock:
-            done = self._outstanding.pop(request_id, None)
+            entry = self._outstanding.pop(request_id, None)
             if not self._outstanding:
                 self.busy_event.clear()
-        if done is not None:
-            done.set()
+        if entry is not None:
+            entry[1].set()
+
+    def outstanding_owner(self, owner: str) -> bool:
+        """True while any accepted-but-unacknowledged request belongs to owner.
+
+        The player/adapter acknowledges stop by completing its receipt, which
+        forgets the id here; so a cleared set for the previous owner is the real
+        stop signal, not a UI-hide assumption.
+        """
+        with self._lock:
+            return any(current_owner == owner
+                       for current_owner, _done in self._outstanding.values())
 
     def _notice_for(self, receipt) -> str | None:
         if receipt.status == "failed":
@@ -345,6 +453,10 @@ class VoiceLane:
                 return None
             if receipt.reason_code == "VOICE_OWNER_SWITCHED":
                 return None  # another user's audio; this user gets their own result, not a notice
+            if receipt.reason_code == "VOICE_SUSPENDED_TURN":
+                return None  # the user asked for quiet; silence is the requested behavior
+            if receipt.reason_code == "VOICE_DUPLICATE_DELIVERY":
+                return None  # the same result was already announced; no second notice
             return "Ses bu sonuç için geçerli değil; yazılı sonuç korundu."
         return None
 
@@ -362,9 +474,30 @@ class VoiceLane:
         except Exception:
             _record_failure("modules/voice_runtime.py:receipt")
 
-    def interrupt(self):
-        self._coordinator.interrupt_speech()  # NEVER cancels GoalState/worker
+    def interrupt(self) -> tuple[str, ...]:
+        """Cut audible audio and return exactly the turns that audio belonged to.
+
+        The scope is the utterance in the player, the utterances still waiting in
+        the speech queue, and the turn this owner last actually heard. A request
+        the lane was never given is not in the scope, so stopping one conversation
+        cannot silence a different job's later spoken result.
+        """
+        stopped = self._coordinator.interrupt_speech()  # NEVER cancels GoalState/worker
         # Busy remains set until the worker acknowledges pending receipts.
+        turns = []
+        for request in stopped:
+            if request.turn_id and request.turn_id not in turns:
+                turns.append(request.turn_id)
+        owners = {request.owner for request in stopped}
+        try:
+            owners.add(self.runtime.pc_profile().slug)
+        except Exception:
+            _record_failure("modules/voice_runtime.py:interrupt_owner")
+        for owner in sorted(owners):
+            last = self._last_audible.get(owner)
+            if last and last not in turns:
+                turns.append(last)
+        return tuple(turns)
 
     def invalidate(self, **selectors) -> int:
         """Drop queued/active audio for an explicit Core result identity."""

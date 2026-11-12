@@ -57,6 +57,19 @@ def _emit_for(runtime, owner, kind, text, source="", rid=None):
         except Exception:
             runtime._record_failure('main.py:_emit_for')
 
+REMINDER_SPEECH_TTL_SECONDS = 120.0
+
+
+def reminder_speech_id(event) -> str:
+    """The stable speech identity of one reminder record (Core names it, voice carries it).
+
+    The record id, not the occurrence time: a rescheduled or skipped reminder keeps
+    its identity, so an utterance still waiting in the queue can be dropped when the
+    user corrects the record, and the same record is never announced twice.
+    """
+    return f"reminder:{event.get('id')}"
+
+
 def _reminder_tick(runtime):
     for name in runtime.list_users():
         owner = runtime._get_profile(name)
@@ -67,7 +80,11 @@ def _reminder_tick(runtime):
             if topic:
                 runtime.threading.Thread(target=runtime.notify.send, args=(topic, "Jarvis hatırlatma", ev["title"]), daemon=True).start()
             if owner.slug == runtime.pc_profile().slug:
-                runtime.events.put(("say", msg, owner.slug))
+                # The written notice is delivered either way; the TTL only bounds how
+                # long the audio stays honest while Jarvis is busy with an answer.
+                runtime.events.put(("say", msg, owner.slug, {
+                    "kind": "reminder", "event_id": reminder_speech_id(ev),
+                    "ttl_seconds": REMINDER_SPEECH_TTL_SECONDS}))
 
 def _reminder_loop(runtime):
     while not runtime.stop_event.is_set():
@@ -175,7 +192,7 @@ def _scheduled_brief(runtime, startup_delay: bool = False) -> None:
                 return
             owner.set_pref('last_brief', today)
         runtime._emit_for(owner, 'assistant', text)
-        runtime.events.put(('say', text, owner.slug))
+        runtime.events.put(('say', text, owner.slug, {'kind': 'notice', 'event_id': f'brief:{today}'}))
     except Exception:
         runtime._record_failure('modules/engine_background.py:_scheduled_brief')
     finally:

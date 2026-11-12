@@ -51,6 +51,8 @@ const live={snap:{user:{slug:'me'},flags:{}},orb:'idle',page:'home',hist:[],live
 const bridge={S:live,ACT,store:{get(k,d){return d},set(){}},BUST:{},UI_CALM:()=>false,matchMedia:()=>({matches:false}),window:{JarvisHologram:{mount(stage,options){calls.push(options);return {destroy(){},replay(){}}}}},document:{querySelectorAll(){return []}},settingsOpen:()=>false,$:()=>null,$$:()=>[],dockState(){},refreshSoon(){}};
 vm.runInNewContext(nx.slice(nx.indexOf('let HOME_HOLOGRAM='),nx.indexOf('// ---- İkinci ana ekran')),bridge);
 bridge.mountBust({});const bound=calls[0];assert.equal(bound.getState(),'idle');
+const hlStart=nx.indexOf('// SPEECH HIGHLIGHT START'),hlEnd=nx.indexOf('// SPEECH HIGHLIGHT END',hlStart);assert(hlStart>-1&&hlEnd>hlStart,'ses vurgusu bloğu işaretleri bulunmalı');
+vm.runInNewContext(nx.slice(hlStart,hlEnd),bridge);   // onEvent'in çağırdığı GERÇEK yardımcılar, taklit değil
 const eventStart=nx.indexOf('function onEvent(m){'),eventEnd=nx.indexOf('function connect',eventStart);assert(eventEnd>eventStart);
 vm.runInNewContext(nx.slice(eventStart,eventEnd),bridge);
 for(const state of ['listening','thinking','speaking','idle']){bridge.onEvent({k:'state',t:state,user:'me'});assert.equal(bound.getState(),state)}

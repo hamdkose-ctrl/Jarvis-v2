@@ -534,6 +534,16 @@ def _snooze_repeating(runtime, ev: dict, tr: str, now) -> str | None:
             f"Sıradaki normal tekrar değişmedi: {runtime.whenmod.describe(ev['when'], now)}.")
 
 
+def _drop_queued_reminder_speech(ev: dict) -> None:
+    """A reminder the user just deleted, skipped or moved must not be announced later.
+
+    The written chat result and the calendar record are the authority; only audio
+    still waiting in the speech queue is dropped, and only for this record's id.
+    """
+    from modules import engine_background, voice_runtime
+    voice_runtime.invalidate(event_id=engine_background.reminder_speech_id(ev))
+
+
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
     """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
     from datetime import datetime
@@ -541,6 +551,7 @@ def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> s
     base = ev.get('base') or cur.strftime('%H:%M')
     out = new_when.strftime('%Y-%m-%dT%H:%M')
     runtime.profile.reschedule_event(ev['id'], out, base=None if out[11:16] == base else base)
+    _drop_queued_reminder_speech(ev)
     after = datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time())
     following = runtime.whenmod.next_occurrence(ev['repeat'], after, int(base[:2]), int(base[3:]))
     msg = f"{ev['title']} kaydının sıradaki tekrarını {said} {verb}: {runtime.whenmod.describe(out, now)}."
@@ -591,10 +602,12 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
         nxt = runtime.whenmod.next_occurrence(ev['repeat'], datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time()),
                                               int(base[:2]), int(base[3:]))
         runtime.profile.reschedule_event(ev['id'], nxt.strftime('%Y-%m-%dT%H:%M'))
+        _drop_queued_reminder_speech(ev)
         return (f"{ev['title']}: {runtime.whenmod.describe(ev['when'], now)} tekrarını atladım. "
                 f"Sıradaki: {runtime.whenmod.describe(nxt.strftime('%Y-%m-%dT%H:%M'), now)}.")
     if not postpone:
         runtime.profile.delete_event(ev['id'])
+        _drop_queued_reminder_speech(ev)
         extra = ' (tekrarlayan kaydın bütün tekrarlarını kaldırdım)' if ev.get('repeat') else ''
         return (f"Sildim: {ev['title']}, {runtime.whenmod.describe(ev['when'], now)}{extra}. Yalnız Jarvis kaydıdır; "
                 f"Google Takvim'e dokunmadım. Yanlışsa aynı kaydı yeniden ekleyebilirsin.")
@@ -649,6 +662,7 @@ def _edit_reminder(runtime, text: str, now) -> str | None:
         return _edit_repeating(runtime, ev, new, said, verb, now)
     out = new.strftime('%Y-%m-%d') if allday else new.strftime('%Y-%m-%dT%H:%M')
     runtime.profile.reschedule_event(ev['id'], out)
+    _drop_queued_reminder_speech(ev)
     return f"{ev['title']} kaydını {said} {verb}: {runtime.whenmod.describe(out, now)}."
 
 
@@ -1175,7 +1189,9 @@ def _morning_brief(runtime) -> None:
                 return
             owner.set_pref('last_brief', today)
         runtime._emit_for(owner, 'assistant', text)
-        runtime.events.put(('say', text, owner.slug))
+        # The day's brief is one result: naming it keeps the scheduled and opening
+        # paths from announcing the same briefing twice out loud.
+        runtime.events.put(('say', text, owner.slug, {'kind': 'notice', 'event_id': f'brief:{today}'}))
     except Exception:
         _record_failure('main.py:_morning_brief')
     finally:

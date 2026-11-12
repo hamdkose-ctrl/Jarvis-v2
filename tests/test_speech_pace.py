@@ -4,10 +4,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 class SpeechPace(unittest.TestCase):
-    def test_prompt_and_web_use_calm_pace(self):
-        src = open(os.path.join(os.path.dirname(__file__), "..", "modules", "live.py"), encoding="utf-8").read()
-        self.assertIn("Konuşma HIZIN: sakin", src)
-        self.assertIn("slow: bool = False", src)
+    def test_slow_lane_reduces_the_owner_rate(self):
+        # "Cevap hızı" (live_silence_ms) Live'a aitti ve emekli oldu. Sakin anlatım yetkisi artık
+        # tek ses sahibinin gerçek hız indirimindedir: speak(slow=True) çalma hızını düşürür.
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from modules import engine_voice
+
+        submitted = []
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.speak_enabled = True
+        session.voice_lane = SimpleNamespace(
+            say=lambda slug, voice, text, **kw: submitted.append(dict(text=text, **kw))
+            or Mock(is_set=lambda: True))
+        session.runtime = SimpleNamespace(
+            flags={'speak': True}, emit=Mock(), log=Mock(), _cur_rid='tur1',
+            profile=SimpleNamespace(slug='hamdi', data={'prefs': {'voice': 'tr_erkek', 'rate': 20}}))
+
+        session.speak('Sakin anlatım', slow=True)
+        session.speak('Normal anlatım')
+
+        self.assertEqual([item['rate'] for item in submitted], [-15, 20])
+        self.assertEqual([item['turn_id'] for item in submitted], ['tur1', 'tur1'])
+
+    def test_calm_study_narration_uses_the_slow_lane(self):
         from web_study import WebStudy
         from types import SimpleNamespace
         from unittest.mock import Mock

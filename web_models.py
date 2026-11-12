@@ -88,8 +88,6 @@ class WebModels:
         runtime = self._runtime
         runtime.llm.set_user_context(runtime._p().slug)
         runtime.llm.set_provider(provider, model or None, url or None)
-        if provider in ('openai', 'anthropic') and runtime._live().get() is not None:
-            runtime._live().get().close()
         runtime.privacy.audit('model sağlayıcı', f'{provider} {model}'.strip())
         return runtime.llm.status()
 
@@ -113,8 +111,6 @@ class WebModels:
         runtime = self._runtime
         from modules import smart_router
         state = smart_router.configure(runtime._p().slug, cloud_free_confirmed)
-        if not runtime.llm.gemini_aux_allowed() and runtime._live().get() is not None:
-            runtime._live().get().close()
         return {'ok': True, 'msg': 'Model bağlantısı ve seçim tercihleri kaydedildi.', 'status': state}
 
     def groq_key_save(self, key: str='', model: str='', activate: bool=False) -> dict:
