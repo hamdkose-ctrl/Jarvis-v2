@@ -38,6 +38,8 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
                           side_effect=AssertionError("note deleted")) as delete, \
              patch.object(self.ctx, "_note_fix",
                           side_effect=AssertionError("raw note correction")) as fix, \
+             patch.object(main_planner, "_edit_reminder",
+                          side_effect=AssertionError("raw reminder edit")) as edit, \
              patch.object(main_planner, "_reminder_or_confirm",
                           return_value="HATIRLATMA OLUSTURULDU") as create:
             entry, result, _handler, feedback = self.turn_real(
@@ -50,6 +52,7 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             bulk.assert_not_called()
             delete.assert_not_called()
             fix.assert_not_called()
+            edit.assert_not_called()
 
     def test_quoted_bulk_delete_is_only_reminder_title(self):
         self.ctx.profile.add_note_item("Hassas not")
@@ -92,6 +95,51 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
                 self.turn_real(command, model_understanding=True)
             clear.assert_not_called()
         self.assertEqual(len(self.ctx.profile.data["items"]), 1)
+
+    def test_typed_creation_title_cannot_delete_existing_reminder(self):
+        self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
+        before = [(e["id"], e["when"]) for e in self.ctx.profile.data["events"]]
+        self._verified_reminder(
+            "Yarın bana 'ilaç hatırlatmasını sil' ifadesini hatırlat",
+            "ilaç hatırlatmasını sil",
+        )
+        self.assertEqual([(e["id"], e["when"]) for e in self.ctx.profile.data["events"]], before)
+
+    def test_typed_creation_title_cannot_reschedule_existing_reminder(self):
+        self.ctx.profile.add_event("Toplantı", "2026-11-15T09:00")
+        before = [(e["id"], e["when"]) for e in self.ctx.profile.data["events"]]
+        self._verified_reminder(
+            "Yarın 'toplantıyı 10 dakika ertele' cümlesini hatırlat",
+            "toplantıyı 10 dakika ertele",
+        )
+        self.assertEqual([(e["id"], e["when"]) for e in self.ctx.profile.data["events"]], before)
+
+    def test_typed_creation_does_not_need_legacy_reminder_keyword(self):
+        self._verified_reminder(
+            "Yarın saat dokuzda kahve almayı bana anımsat",
+            "Kahve al",
+        )
+
+    def test_unplanned_legacy_reminder_delete_keeps_existing_behavior(self):
+        self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
+        reply = self.ctx._planner_command(
+            "ilaç hatırlatmasını sil", "ilaç hatırlatmasını sil",
+        )
+        self.assertIn("Sildim: İlaç", reply)
+        self.assertEqual(self.ctx.profile.data["events"], [])
+
+    def test_direct_core_reminder_dispatch_does_not_reclassify_raw_edit(self):
+        self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
+        with patch.object(main_planner, "_reminder_or_confirm",
+                          return_value="HATIRLATMA OLUSTURULDU") as create:
+            reply = main_planner.reminder_core(
+                self.ctx,
+                {"title": "ilaç hatırlatmasını sil", "when": "2026-11-13T09:00", "repeat": None},
+                "ilaç hatırlatmasını sil", "ilaç hatırlatmasını sil",
+            )
+            self.assertEqual(reply, "HATIRLATMA OLUSTURULDU")
+            create.assert_called_once_with(self.ctx, "ilaç hatırlatmasını sil", "2026-11-13T09:00")
+        self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
     def test_without_core_plan_exact_legacy_notes_delete_remains_supported(self):
         self.ctx.profile.add_note_item("Not")
