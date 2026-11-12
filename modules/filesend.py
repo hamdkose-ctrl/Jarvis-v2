@@ -96,6 +96,8 @@ def send(path: Path) -> str:
     if not path.is_file():
         return f"{path.name} dosyasını bulamadım."
     ip, name = tgt
+    from modules import requests_state
+    requests_state.check()
     mb = path.stat().st_size / 1_048_576
     try:
         r = subprocess.run([exe, "file", "cp", str(path), f"{ip}:"], capture_output=True, text=True,
@@ -215,10 +217,18 @@ def _latest_download() -> Path | None:
 
 
 def _screenshot() -> Path:
+    """Create a unique private screenshot, not a predictable global filename."""
     import pyautogui
-    p = Path(tempfile.gettempdir()) / f"ekran_{time.strftime('%Y%m%d_%H%M%S')}.png"
-    pyautogui.screenshot(str(p))
-    return p
+    from modules import requests_state
+    requests_state.check()
+    with tempfile.NamedTemporaryFile(prefix="jarvis-taildrop-", suffix=".png", delete=False) as fd:
+        p = Path(fd.name)
+    try:
+        pyautogui.screenshot(str(p))
+        return p
+    except BaseException:
+        p.unlink(missing_ok=True)
+        raise
 
 
 def _ago(p: Path) -> str:
@@ -227,7 +237,12 @@ def _ago(p: Path) -> str:
 
 
 # ------------------------------------------------------------------ komutlar
-_TO_PHONE = re.compile(r"(.*?)\s*(?:'?[yn]?[ıiuü]\s+)?telefon(?:um)?[ay]?\s*(?:gönder|at|yolla|aktar|ilet)\w*", re.I)
+# A trailing \w* turned "gönderme" (do NOT send) into "gönder".
+# Only affirmative exact transfer verbs remain in the legacy fallback.
+_TO_PHONE = re.compile(
+    r"(.*?)\s*(?:'?[yn]?[ıiuü]\s+)?telefon(?:um)?[ay]?\s*"
+    r"(?:gönder|at|yolla|aktar|ilet|gönderir misin|gönderebilir misin|atar mısın)"
+    r"(?:\s+(?:lütfen|lutfen))?", re.I)
 
 
 def _file_proof(path: Path) -> tuple | None:
@@ -309,14 +324,20 @@ def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
     what = m.group(1).strip()
     if owner:
         cancel_pending(owner)  # A new explicit request supersedes old file choices.
-    if re.search(r"ekran\s*görüntü|ekranı", what):
+    if re.search(r"ekran\\s*görüntü|ekranı", what):
+        from modules import privacy, requests_state
+        if (blocked := privacy.blocked("screen")):
+            return blocked
+        requests_state.check()
         p = _screenshot()
-        res = send(p)
         try:
-            p.unlink()
-        except OSError:
-            pass
-        return res.replace(p.name, "Ekran görüntüsü")
+            res = send(p)
+            return res.replace(p.name, "Ekran görüntüsü")
+        finally:
+            try:
+                p.unlink()
+            except OSError:
+                pass
     if re.search(r"son indir|indirdiğim|son dosya", what):
         p = _latest_download()
         return send(p) if p else "İndirilenler klasöründe dosya bulamadım."

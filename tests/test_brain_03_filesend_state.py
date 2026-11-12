@@ -85,7 +85,6 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
     def test_symlink_and_escaped_path_never_enter_owner_choice(self):
         outside = Path(self.temp.name) / "private.txt"
         outside.write_text("secret", encoding="utf-8")
-        from pathlib import Path
         wrong = self.files[0].parent / "linked.txt"
         try:
             wrong.symlink_to(outside)
@@ -99,6 +98,22 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
         reply = filesend.handle("rapor dosyasını telefonuma gönder")
         self.assertIn("güvenli seçim", reply)
         self.assertIsNone(filesend.pending_choices(self.owner))
+        self.sent.assert_not_called()
+
+    def test_negative_transfer_verb_does_not_send_even_with_match(self):
+        self.assertIsNone(filesend.handle(
+            "rapor dosyasını telefonuma gönderme", owner=self.owner))
+        self.assertIsNone(filesend.pending_choices(self.owner))
+        self.sent.assert_not_called()
+
+    def test_screen_privacy_denial_blocks_capture_and_transfer(self):
+        from modules import privacy
+        with patch.object(privacy, "blocked", return_value="EKRAN KAPALI"), \
+             patch.object(filesend, "_screenshot",
+                          side_effect=AssertionError("privacy bypassed")) as screenshot:
+            reply = filesend.handle("ekran görüntüsünü telefonuma gönder", owner=self.owner)
+        self.assertEqual(reply, "EKRAN KAPALI")
+        screenshot.assert_not_called()
         self.sent.assert_not_called()
 
     def test_non_offered_substring_does_not_transfer_any_file(self):

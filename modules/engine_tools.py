@@ -400,8 +400,8 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     11. `file_ops` (C) tek dosya taşı/yeniden adlandır/oluştur/geri al; 12. düzenlemeyi geri al
         ve 13. klasör düzenleme planı (C, §22 bounded onay akışı) → BRAIN-MIG-052/048 PR3C.
     14. `filesend` (C): Taildrop dosya gönderimi; "hangisi?" cevabını kendi 180 sn'lik modül-içi
-        bekleyen listesiyle tüketir — bu, kanonical `pending_answer_owned` sahibi olmayan ikinci
-        bir bekleyen yetkisidir ve PR3C'de kanonical clarification'a bağlanmalı (§33 yasağı).
+        bekleyen listesiyle tüketir — artık State Gate `filesend.pending.*` ve Core üzerinden owner/expiry/file-proof
+        doğrulamasından sonra tüketilir. İlk transfer isteği model fallback'inde kalır.
     15. `worktrack`, 16. `files`, 17. `media`, 18. `_mail_handle`, 19. `notify` (C): alanların
         kendi yürütme kapıları; hiçbiri kanonical karar sonrası genel domain seçimi yapmamalı,
         kanonical capability'leri gelene kadar PR3C envanterindedir.
