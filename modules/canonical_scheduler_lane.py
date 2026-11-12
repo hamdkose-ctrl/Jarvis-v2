@@ -53,6 +53,10 @@ def _load(owner: str, job_id: str) -> tuple[dict, dict]:
     if (record.get('state') != 'running'
             or not isinstance(record.get('request'), str)
             or not record['request'].strip()
+            # GoalState.new trims only outer whitespace; internal request
+            # bytes must remain bound to the Core-accepted goal. The model
+            # or an altered journal cannot substitute a different task.
+            or record['request'].strip() != state['goal']
             or not isinstance(record.get('steps'), list)
             or not isinstance(record.get('outputs'), dict)):
         raise DispatchFenceError('ExecutionRecord is not a running goal journal.')

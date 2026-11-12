@@ -165,16 +165,18 @@ def execute_offer(profile, offer, *, stop_event=None):
         job["updated"] = time.time()
         release_guard.atomic(record_path, execution_record.encode(job))
 
-    # The identity is built by the current goal executor, never from a model
-    # supplied command/lease. Its pinned revision is rechecked in prepare().
-    runtime = SimpleNamespace(profile=SimpleNamespace(slug=selected.owner))
-    identity = goal_executor._identity(job, step)
-    identity["_canonical_scheduler_offer"] = {
-        "owner": selected.owner, "job_id": selected.job_id,
-        "node_id": selected.node_id, "plan_version": selected.plan_version,
-        "node_digest": selected.node_digest,
-    }
     try:
+        # Preflight after persisting a first-attempt claim is part of that
+        # attempt. A malformed identity must not escape the failure fence
+        # and strand an unaccepted 'running' journal forever.
+        # The identity is built by the current goal executor, not a model.
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug=selected.owner))
+        identity = goal_executor._identity(job, step)
+        identity["_canonical_scheduler_offer"] = {
+            "owner": selected.owner, "job_id": selected.job_id,
+            "node_id": selected.node_id, "plan_version": selected.plan_version,
+            "node_digest": selected.node_digest,
+        }
         # This synchronous thread-bound scope travels through the existing
         # specialist/lease/WorkerResult path. A stop during provider execution
         # fences the Core CAS, even if the external task later returns "done".
