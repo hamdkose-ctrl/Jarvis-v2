@@ -948,22 +948,29 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
                 return _reminder_or_confirm(runtime, title, when)
     if runtime.re.fullmatch('(notlarım(ı (oku|göster|say))?|notlarımı (oku|göster|say)|notları (oku|göster|say)|notlar)', cmd_lower.strip(' .!?')):
         return runtime._notes_text()
-    m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)
-    if m:
-        idx = int(m.group(1) or m.group(2))
-        items = runtime.profile.data['items']
-        if 1 <= idx <= len(items):
-            gone = items[idx - 1]
-            runtime.profile.delete_note_item(gone['id'])
-            return f"Notu sildim: {gone['text']}"
-        return 'Böyle bir numaralı not yok.'
-    if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
-        runtime.profile.clear_note_items()
-        return 'Tüm notlarını sildim.'
+    # A Core-validated reminder supplies the operation and title. Its quoted
+    # title can contain a note-deletion phrase; a raw-text note edit/delete
+    # must not reinterpret that title as authority to mutate notes.
+    # Keep legitimate unplanned note commands and exact note-add syntax intact.
+    core_reminder_active = _CORE_REMINDER.get() is not None
+    if not core_reminder_active:
+        m = runtime.re.search("\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", cmd_lower)
+        if m:
+            idx = int(m.group(1) or m.group(2))
+            items = runtime.profile.data['items']
+            if 1 <= idx <= len(items):
+                gone = items[idx - 1]
+                runtime.profile.delete_note_item(gone['id'])
+                return f"Notu sildim: {gone['text']}"
+            return 'Böyle bir numaralı not yok.'
+        if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
+            runtime.profile.clear_note_items()
+            return 'Tüm notlarını sildim.'
     looked = _note_lookup(runtime, command, cmd_lower)
     if looked is not None:
         return looked
-    fixed = runtime._note_fix(command, cmd_lower)
+    # Note corrections (including last-note delete) are also raw-text effects.
+    fixed = None if core_reminder_active else runtime._note_fix(command, cmd_lower)
     if fixed is not None:
         return fixed
     text = runtime._note_text(command, cmd_lower)
