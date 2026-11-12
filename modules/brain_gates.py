@@ -219,11 +219,19 @@ def _filesend_match(reference: ContextReference, text: str, owner: str, request_
     if text in _CANCEL or text in {"hiçbiri", "hicbiri"}:
         return _hit(owner, request_id, "state", "filesend.pending.cancel",
                     "cancel", "BOUNDED_FILE_TRANSFER_CANCEL")
-    index = choice_index(text, list(names))
-    if index is None:
+    # A file transfer can leave the machine. Unlike open-ended domain
+    # clarification, do not accept fuzzy/substring names for this effect.
+    numbers = {"birinci": 1, "ilk": 1, "ikinci": 2, "üçüncü": 3,
+               "ucuncu": 3, "dördüncü": 4, "dorduncu": 4}
+    numeric = re.fullmatch(r"([1-4])(?:\\s*\\.?\\s*(?:numara|numarayı|olanı))?", text)
+    selected = int(numeric.group(1)) if numeric else numbers.get(text)
+    if selected is None:
+        exact = [i + 1 for i, name in enumerate(names) if _norm(name) == text]
+        selected = exact[0] if len(exact) == 1 else None
+    if selected is None or selected > len(names):
         return None
     return _hit(owner, request_id, "state", "filesend.pending.select",
-                index + 1, "BOUNDED_FILE_TRANSFER_SELECTION")
+                selected, "BOUNDED_FILE_TRANSFER_SELECTION")
 
 
 def _session_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
