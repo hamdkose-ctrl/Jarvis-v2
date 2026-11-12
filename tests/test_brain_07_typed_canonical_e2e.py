@@ -7,6 +7,8 @@ domain evidence, and first-party completion code remain live.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -244,6 +246,415 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(len(tuple((goal_executor.STORE / self.owner).glob(
             '*.execution.json',
         ))), 2)
+        self.run_goal.assert_not_called()
+
+    def test_concurrent_valid_plans_admit_only_one_model_decision(self):
+        first_entered = threading.Event()
+        release = threading.Event()
+        started_second = threading.Event()
+        calls = []
+        original = canonical_goal_flow.try_create
+        guard = threading.Lock()
+
+        def observe(*args):
+            with guard:
+                if first_entered.is_set():
+                    started_second.set()
+            return original(*args)
+
+        def planned(*args, **kwargs):
+            with guard:
+                calls.append(1)
+                count = len(calls)
+            if count == 1:
+                first_entered.set()
+                self.assertTrue(release.wait(12), 'First planning never released')
+                return json.dumps(research_tasks('first'))
+            return json.dumps(research_tasks('different'))
+
+        with patch.object(model_wait, 'ask', side_effect=planned), \
+                patch.object(canonical_goal_flow, 'try_create', side_effect=observe):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(self.typed_turn, rid='parallel-valid-valid')
+                try:
+                    self.assertTrue(first_entered.wait(10))
+                    second = pool.submit(self.typed_turn, rid='parallel-valid-valid')
+                    self.assertTrue(started_second.wait(10))
+                finally:
+                    release.set()
+                one = first.result(timeout=20)
+                two = second.result(timeout=20)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(one[3], two[3])
+        self.assertEqual(self.persisted(one[3])[1]['steps'][0]['id'], 'first')
+        self.run_goal.assert_not_called()
+
+    def test_invalid_first_plan_has_durable_one_shot_legacy_fallback(self):
+        """Invalid-first/valid-second must not create a second canonical Goal."""
+        entered = threading.Event()
+        release = threading.Event()
+        second_entered = threading.Event()
+        calls = []
+        original_try = canonical_goal_flow.try_create
+        effectful = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Save report', 'filename': 'report.md'},
+        }]}
+
+        def planned(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                entered.set()
+                self.assertTrue(release.wait(12))
+                return json.dumps(effectful)
+            return json.dumps(research_tasks('first'))
+
+        def observed(*args):
+            if entered.is_set():
+                second_entered.set()
+            return original_try(*args)
+
+        with patch.object(model_wait, 'ask', side_effect=planned), \
+                patch.object(canonical_goal_flow, 'try_create', side_effect=observed):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(self.typed_turn, rid='parallel-invalid-first')
+                try:
+                    self.assertTrue(entered.wait(10))
+                    second = pool.submit(self.typed_turn, rid='parallel-invalid-first')
+                    self.assertTrue(second_entered.wait(10),
+                                    'Second typed request did not reach admission')
+                    self.assertFalse(first.done())
+                finally:
+                    release.set()
+                first_result = first.result(timeout=20)
+                second_result = second.result(timeout=20)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(first_result[2].reason_code, 'GOAL_CREATE')
+        self.assertEqual(second_result[2].reason_code,
+                         'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
+        self.assertIsNone(second_result[3])
+        self.assertIn('ikinci kez çalıştırılmadı', second_result[1])
+        self.run_goal.assert_called_once()
+        root = goal_executor._owner_root(self.owner)
+        self.assertEqual(tuple(root.glob('*.goalstate.json')), ())
+        self.assertEqual(tuple(root.glob('*.execution.json')), ())
+        # Even a process restart sees a durable refusal, not a new plan.
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('no model for legacy duplicate')):
+            _, _, again, _ = self.typed_turn(rid='parallel-invalid-first')
+        self.assertEqual(again.reason_code, 'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
+        self.run_goal.assert_called_once()
+
+    def test_legacy_receipt_survives_a_separate_process_restart(self):
+        effectful = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Write report', 'filename': 'report.md'},
+        }]}
+        rid, text = 'cross-process-legacy-receipt', 'Write report'
+        with patch.object(model_wait, 'ask', return_value=json.dumps(effectful)):
+            self.assertIsNone(canonical_goal_flow.try_create(self.owner, rid, text))
+        # A fresh interpreter has no in-process mutex, test mocks or request
+        # context. It still must observe the same durable fallback receipt.
+        script = (
+            "import sys\nfrom pathlib import Path\n"
+            "from modules import canonical_goal_flow as c, goal_executor, model_wait\n"
+            "goal_executor.STORE=Path(sys.argv[1])\n"
+            "model_wait.ask=lambda *a,**k: (_ for _ in ()).throw("
+            "AssertionError('duplicate called model'))\n"
+            "result=c.try_create(sys.argv[2],sys.argv[3],sys.argv[4])\n"
+            "assert result[0] is None and 'ikinci kez' in result[1]\n"
+            "print('legacy_duplicate_blocked')\n"
+        )
+        p = subprocess.run(
+            [sys.executable, '-c', script, str(goal_executor.STORE),
+             self.owner, rid, text],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('legacy_duplicate_blocked', p.stdout)
+        self.run_goal.assert_not_called()
+
+    def test_legacy_handoff_receipt_rejects_new_text_and_corruption(self):
+        invalid = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Write report', 'filename': 'report.md'},
+        }]}
+        rid = 'legacy-one-shot-collision'
+        with patch.object(model_wait, 'ask', return_value=json.dumps(invalid)):
+            canonical_goal_flow.try_create(self.owner, rid, 'Write report')
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('should not replan')):
+            with self.assertRaises(ValueError):
+                canonical_goal_flow.try_create(
+                    self.owner, rid, 'Different work with same request ID',
+                )
+        job_id = canonical_goal_flow.hashlib.sha256(
+            (self.owner + '\x00' + rid).encode('utf-8')
+        ).hexdigest()[:16]
+        marker = goal_executor._owner_root(self.owner) / (job_id + '.planning')
+        marker.write_text('corrupt receipt', encoding='utf-8')
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('must fail closed')):
+            with self.assertRaises(ValueError):
+                canonical_goal_flow.try_create(self.owner, rid, 'Write report')
+
+    def test_timeout_first_attempt_never_claims_legacy_or_stale_completion(self):
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def planned(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                entered.set()
+                self.assertTrue(release.wait(12))
+                raise model_wait.ModelWaitTimeout('mock first provider timed out')
+            return json.dumps(research_tasks('first'))
+
+        with patch.object(model_wait, 'ask', side_effect=planned):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(canonical_goal_flow.try_create,
+                                    self.owner, 'timeout-first', 'Read sources')
+                try:
+                    self.assertTrue(entered.wait(10))
+                    second = pool.submit(canonical_goal_flow.try_create,
+                                         self.owner, 'timeout-first', 'Read sources')
+                finally:
+                    release.set()
+                with self.assertRaises(model_wait.ModelWaitTimeout):
+                    first.result(timeout=20)
+                job_id, _ = second.result(timeout=20)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
+        self.run_goal.assert_not_called()
+
+    def test_cancelled_model_cannot_publish_after_its_provider_returns(self):
+        entered = threading.Event()
+        release = threading.Event()
+        rid = 'cancel-during-planning'
+        requests_state.register(self.owner, rid)
+
+        def planned(*args, **kwargs):
+            entered.set()
+            self.assertTrue(release.wait(12))
+            return json.dumps(research_tasks('first'))
+
+        with patch.object(model_wait, 'ask', side_effect=planned):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                def task():
+                    with requests_state.activate(self.owner, rid):
+                        return canonical_goal_flow.try_create(
+                            self.owner, rid, 'Read a source',
+                        )
+                future = pool.submit(task)
+                try:
+                    self.assertTrue(entered.wait(10))
+                    requests_state.cancel(self.owner, rid)
+                finally:
+                    release.set()
+                with self.assertRaises(requests_state.Cancelled):
+                    future.result(timeout=20)
+        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob(
+            '*.goalstate.json',
+        )), ())
+        self.run_goal.assert_not_called()
+
+    def test_cross_process_same_id_planning_guard_excludes_second_process(self):
+        """Directly verify the OS lock with a separately imported Python process."""
+        base = Path(self.temp.name)
+        root = base / 'process-lock-owner'
+        root.mkdir()
+        ready, acquired = base / 'spawn-ready', base / 'spawn-acquired'
+        job_id = '0123456789abcdef'
+        script = ("import sys\nfrom pathlib import Path\n"
+                  "from modules import canonical_goal_flow as m\n"
+                  "root=Path(sys.argv[1])\n"
+                  "Path(sys.argv[3]).write_text('ready')\n"
+                  "with m._planning_once(root,sys.argv[2]):\n"
+                  "    Path(sys.argv[4]).write_text('acquired')\n")
+        proc = None
+        with canonical_goal_flow._planning_once(root, job_id):
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, '-c', script, str(root), job_id,
+                     str(ready), str(acquired)],
+                    cwd=str(Path(__file__).resolve().parents[1]),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True,
+                )
+                deadline = time.monotonic() + 10
+                while not ready.exists() and time.monotonic() < deadline:
+                    self.assertIsNone(proc.poll(), 'Child process exited before lock attempt')
+                    time.sleep(.02)
+                self.assertTrue(ready.exists(), 'Child process failed to start')
+                time.sleep(.2)
+                self.assertFalse(acquired.exists(),
+                                 'Second process entered same-ID critical section')
+            finally:
+                if proc is not None and proc.poll() is not None:
+                    out, err = proc.communicate()
+                    self.assertEqual(proc.returncode, 0, out + err)
+        if proc is not None:
+            try:
+                stdout, stderr = proc.communicate(timeout=15)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+            self.assertEqual(proc.returncode, 0, stderr + stdout)
+        self.assertTrue(acquired.exists())
+
+    def test_concurrent_half_published_goal_does_not_fall_back_to_legacy(self):
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+        original_atomic = canonical_goal_flow.release_guard.atomic
+
+        def held_model(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                entered.set()
+                self.assertTrue(release.wait(12))
+            return json.dumps(research_tasks('first'))
+
+        def partial_write(path, content):
+            if str(path).endswith('.execution.json'):
+                raise OSError('simulated power loss before journal publication')
+            return original_atomic(path, content)
+
+        with patch.object(model_wait, 'ask', side_effect=held_model), \
+                patch.object(canonical_goal_flow.release_guard, 'atomic',
+                             side_effect=partial_write):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(self.typed_turn, rid='concurrent-partial-publication')
+                try:
+                    self.assertTrue(entered.wait(10))
+                    second = pool.submit(self.typed_turn,
+                                         rid='concurrent-partial-publication')
+                finally:
+                    release.set()
+                with self.assertRaises(OSError):
+                    first.result(timeout=20)
+                with self.assertRaises(ValueError):
+                    second.result(timeout=20)
+        self.assertEqual(len(calls), 1)
+        self.run_goal.assert_not_called()
+        root = goal_executor._owner_root(self.owner)
+        self.assertEqual(len(tuple(root.glob('*.goalstate.json'))), 1)
+        self.assertEqual(tuple(root.glob('*.execution.json')), ())
+
+    def test_concurrent_same_request_id_different_text_is_rejected(self):
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def planned(*args, **kwargs):
+            calls.append(1)
+            entered.set()
+            self.assertTrue(release.wait(12))
+            return json.dumps(research_tasks('first'))
+
+        with patch.object(model_wait, 'ask', side_effect=planned):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(canonical_goal_flow.try_create,
+                                    self.owner, 'same-id-conflicting-text', 'First question')
+                try:
+                    self.assertTrue(entered.wait(10))
+                    second = pool.submit(canonical_goal_flow.try_create,
+                                         self.owner, 'same-id-conflicting-text',
+                                         'Different question')
+                finally:
+                    release.set()
+                job_id, _ = first.result(timeout=20)
+                with self.assertRaises(ValueError):
+                    second.result(timeout=20)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.persisted(job_id)[1]['request'], 'First question')
+        self.run_goal.assert_not_called()
+
+    def test_failed_legacy_receipt_write_prevents_any_legacy_effect(self):
+        legacy = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Write file', 'filename': 'unsafe.md'},
+        }]}
+        actual_atomic = canonical_goal_flow.release_guard.atomic
+
+        def fail_receipt(path, content):
+            if str(path).endswith('.planning'):
+                raise OSError('simulated admission receipt fsync error')
+            return actual_atomic(path, content)
+
+        with patch.object(model_wait, 'ask', return_value=json.dumps(legacy)), \
+                patch.object(canonical_goal_flow.release_guard, 'atomic',
+                             side_effect=fail_receipt):
+            with self.assertRaises(OSError):
+                self.typed_turn(rid='legacy-receipt-write-fails')
+        self.run_goal.assert_not_called()
+        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob(
+            '*.execution.json',
+        )), ())
+
+    def test_cancelled_duplicate_waiter_does_not_resume_and_unrelated_id_progresses(self):
+        """Two copies of a cancelled ID fail, while an independent ID completes."""
+        rid = 'cancel-both-concurrent-copies'
+        requests_state.register(self.owner, rid)
+        first_entered = threading.Event()
+        second_entered = threading.Event()
+        release_first = threading.Event()
+        calls = []
+        original_try = canonical_goal_flow.try_create
+
+        def observed(owner, request_id, text):
+            if request_id == rid and first_entered.is_set():
+                second_entered.set()
+            return original_try(owner, request_id, text)
+
+        def planned(prompt, **kwargs):
+            calls.append(prompt)
+            if prompt == 'Slow cancelled read':
+                first_entered.set()
+                self.assertTrue(release_first.wait(12))
+                return json.dumps(research_tasks('cancelled'))
+            return json.dumps(research_tasks('independent'))
+
+        def cancelled_turn():
+            with requests_state.activate(self.owner, rid):
+                return canonical_goal_flow.try_create(self.owner, rid,
+                                                      'Slow cancelled read')
+
+        with patch.object(model_wait, 'ask', side_effect=planned), \
+                patch.object(canonical_goal_flow, 'try_create', side_effect=observed):
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                first = pool.submit(cancelled_turn)
+                try:
+                    self.assertTrue(first_entered.wait(10))
+                    second = pool.submit(cancelled_turn)
+                    self.assertTrue(second_entered.wait(10))
+                    # The same-ID planner is still waiting. A distinct ID
+                    # must be able to publish without acquiring its gate.
+                    independent = pool.submit(canonical_goal_flow.try_create,
+                                              self.owner, 'unrelated-during-cancel',
+                                              'Independent read')
+                    independent_job, _ = independent.result(timeout=8)
+                    requests_state.cancel(self.owner, rid)
+                finally:
+                    release_first.set()
+                for task in (first, second):
+                    with self.assertRaises(requests_state.Cancelled):
+                        task.result(timeout=20)
+        self.assertEqual(self.persisted(independent_job)[1]['request'],
+                         'Independent read')
+        self.assertEqual(len(tuple((goal_executor.STORE / self.owner).glob(
+            '*.goalstate.json',
+        ))), 1)
+        self.run_goal.assert_not_called()
+
+    def test_missing_request_identity_never_starts_legacy(self):
+        with patch.object(model_wait, 'ask') as planner:
+            with self.assertRaises(ValueError):
+                canonical_goal_flow.try_create(self.owner, '', 'Read a source')
+        planner.assert_not_called()
         self.run_goal.assert_not_called()
 
     def test_request_id_collision_rejects_before_any_planner_call(self):

@@ -21,7 +21,7 @@ from modules import (
     canonical_output_projection, canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
-    goal_state_store, llm, model_wait, task_agents, task_tools,
+    goal_state_store, llm, model_wait, requests_state, task_agents, task_tools,
 )
 
 _COMPLETING = set()
@@ -100,23 +100,98 @@ def _planning_once(root, job_id):
             mutex = threading.Lock()
             _PLAN_MUTEXES[key] = mutex
     with mutex:
+        # A duplicate can have been cancelled while waiting for the first
+        # planner. Recheck AFTER OS-lock acquisition as well (cross-process).
+        requests_state.check()
         if planning_path.is_symlink() or planning_path.with_suffix(
                 planning_path.suffix + '.lock').is_symlink():
             raise ValueError('Canonical planner control path must not be a symlink.')
         with goal_state_store._exclusive(planning_path):
+            requests_state.check()
             yield
 
 
-def try_create(owner: str, request_id: str, text: str):
-    """Return (job_id, reply) only for an admissible typed read-only proposal.
+_LEGACY_ADMISSION_SCHEMA = 'jarvis.canonical_legacy_admission.v1'
 
-    Unsupported/effectful proposals return None to the established legacy
-    permission path. No worker or resource claim is made during planning.
+
+def _legacy_admission_path(root, job_id):
+    return root / (job_id + '.planning')
+
+
+def _legacy_admission_identity(owner, request_id, text, job_id):
+    # Owner namespace, request ID and exact user text are bound without
+    # persisting raw request content in an additional file.
+    expected_id = hashlib.sha256(
+        (owner + '\x00' + request_id).encode('utf-8')
+    ).hexdigest()[:16]
+    if expected_id != job_id:
+        raise ValueError('Canonical admission request identity differs.')
+    return {
+        'schema': _LEGACY_ADMISSION_SCHEMA,
+        'job_id': job_id,
+        'request_sha256': hashlib.sha256(
+            (owner + '\x00' + request_id).encode('utf-8')
+        ).hexdigest(),
+        'text_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+        'result': 'legacy_claimed',
+    }
+
+
+def _legacy_admitted(root, owner, request_id, text, job_id):
+    """Durable one-shot fallback receipt, NOT a second Goal/worker store.
+
+    The outer per-request planning gate owns the .planning.lock OS lock.
+    An unreadable, changed or foreign receipt is never interpreted as new.
+    """
+    path = _legacy_admission_path(root, job_id)
+    if path.is_symlink():
+        raise ValueError('Legacy admission receipt cannot be a symlink.')
+    if not path.exists():
+        return False
+    if not path.is_file() or path.stat().st_size > 2048:
+        raise ValueError('Legacy admission receipt is invalid.')
+    try:
+        receipt = json.loads(path.read_text(encoding='utf-8'))
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError('Legacy admission receipt is unreadable.') from exc
+    if receipt != _legacy_admission_identity(owner, request_id, text, job_id):
+        raise ValueError('Legacy admission identity collision or corruption.')
+    return True
+
+
+def _claim_legacy_once(root, owner, request_id, text, job_id):
+    if _legacy_admitted(root, owner, request_id, text, job_id):
+        raise ValueError('Legacy handoff already claimed.')
+    path = _legacy_admission_path(root, job_id)
+    receipt = _legacy_admission_identity(owner, request_id, text, job_id)
+    # The receipt precedes the first legacy execution. Crash before execution
+    # is a conservative blocked retry, never a license to replay the effect.
+    release_guard.atomic(path, json.dumps(
+        receipt, ensure_ascii=False, sort_keys=True,
+    ).encode('utf-8'))
+
+
+def _legacy_duplicate_reply():
+    return (
+        None,
+        'Bu istek kimliği daha önce eski hedef yürütücüsüne devredildi; '
+        'ikinci kez çalıştırılmadı. İlk çalıştırmanın sonucu burada '
+        'doğrulanmadı; hedef durumunu ayrı kontrol et.',
+    )
+
+
+def try_create(owner: str, request_id: str, text: str):
+    """Admit one request ID to canonical or one-shot legacy fallback.
+
+    An unsupported first plan returns None only AFTER a durable single
+    fallback claim. Subsequent identical attempts return a no-op reply.
+    No worker is authorized by the planner or this receipt.
     """
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
-        return None
+        # An uncorrelated request must not silently allocate a legacy UUID.
+        raise ValueError('Canonical typed request ID is required.')
 
     job_id = hashlib.sha256(
         (owner + '\x00' + request_id).encode('utf-8')
@@ -132,8 +207,13 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
+        receipt = _legacy_admitted(root, owner, request_id, text, job_id)
+        if prior is not None and receipt:
+            raise ValueError('Canonical and legacy admission cannot coexist.')
         if prior is not None:
             return prior
+        if receipt:
+            return _legacy_duplicate_reply()
 
     # Same planner used by task_agents for its multi-node task format. No
     # duplicate free-text classifier, model/router, or autonomous capability.
@@ -153,15 +233,32 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
         tasks = task_agents.validate(proposed['tasks'])
         plan = _canonical_plan(tasks)
     except (KeyError, TypeError, ValueError):
+        # Unsupported/invalid FIRST planner decision is still a decision
+        # for this request ID. Persist its one-shot legacy handoff before
+        # returning None so a concurrent/restarted duplicate cannot launch
+        # a different canonical plan while legacy might be effectful.
+        requests_state.check()
+        with goal_job_control.locked(root, job_id):
+            prior = _existing_request(root, owner, job_id, request_id, text)
+            if prior is not None:
+                return prior
+            _claim_legacy_once(root, owner, request_id, text, job_id)
         return None
 
     record_path = execution_record.path_for(root, job_id)
     state_path = root / (job_id + '.goalstate.json')
     with goal_job_control.locked(root, job_id):
-        # Two concurrent copies can both plan; only one may publish.
+        # A timed-out provider response or a cancellation cannot publish
+        # new work after the request has been stopped.
+        requests_state.check()
         prior = _existing_request(root, owner, job_id, request_id, text)
+        receipt = _legacy_admitted(root, owner, request_id, text, job_id)
+        if prior is not None and receipt:
+            raise ValueError('Canonical and legacy admission cannot coexist.')
         if prior is not None:
             return prior
+        if receipt:
+            return _legacy_duplicate_reply()
 
         job = {
             'id': job_id, 'owner': owner, 'request_id': request_id,
