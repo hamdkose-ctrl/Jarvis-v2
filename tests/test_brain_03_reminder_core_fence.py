@@ -182,11 +182,19 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             create.assert_called_once_with(self.ctx, "ilaç hatırlatmasını sil", "2026-11-13T09:00")
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
-    def test_without_core_plan_exact_legacy_notes_delete_remains_supported(self):
+    def test_without_core_plan_exact_legacy_notes_delete_requires_confirmation(self):
+        from modules import main_planner
         self.ctx.profile.add_note_item("Not")
-        # BRAIN-03 does not silently remove an unmigrated feature.
+        # No model path still recognizes the exact user request, but bulk
+        # deletion cannot execute before a bounded State approval.
         reply = self.ctx._planner_command("notları sil", "notları sil")
-        self.assertIn("Tüm notlarını sildim", reply)
+        self.assertIn("onaylıyor musun", reply)
+        self.assertEqual(len(self.ctx.profile.data["items"]), 1)
+        approval = self.ctx._session().pending_confirm
+        self.assertEqual(approval["owner"], self.owner)
+        self.assertEqual(approval["action"], "notes_clear")
+        self.assertIn("Tüm notlarını sildim",
+                      main_planner.clear_notes_confirmed(self.ctx, approval))
         self.assertEqual(self.ctx.profile.data["items"], [])
 
     def test_explicit_note_add_still_precedes_reminder_until_parity_cutover(self):

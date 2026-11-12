@@ -172,7 +172,8 @@ class CanonicalOrganizePreviewTests(_OrganizeHarness):
     def test_the_undo_sentence_is_not_an_organize_preview(self):
         self.seed(self.desktop, "a.txt")
         entry, _out, _handle, _ = self.preview("düzenlemeyi geri al")
-        self.assertNotEqual(entry.understanding.capability_hint, ORGANIZE_CAPABILITY)
+        self.assertEqual(entry.fast_gate.protocol, "fast.file.organize.undo")
+        self.assertIsNone(entry.understanding)
         self.assertIsNone(self.ctx._session().pending_organize)
         self.assertEqual(self.tree(self.desktop), ["a.txt"])
 
@@ -397,8 +398,12 @@ class LegacyOrganizeFrontDoorRetiredTests(unittest.TestCase):
         self.assertFalse(hasattr(files, "wants_organize"),
                          "files.py ham cümleden düzenleme niyeti çıkarmaya devam ediyor")
 
-    def test_the_undo_branch_stays_with_its_owner(self):
-        self.assertIn("undo_organize(runtime.profile.slug)", ENGINE_TOOLS_SOURCE)
+    def test_the_undo_worker_is_only_core_called_not_raw_parser(self):
+        from modules import engine_intents
+        import inspect
+        self.assertNotIn("undo_organize(runtime.profile.slug)", ENGINE_TOOLS_SOURCE)
+        self.assertIn("undo_organize(runtime.profile.slug)",
+                      inspect.getsource(engine_intents.dispatch))
 
 
 def result_status(feedback) -> str:
