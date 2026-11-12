@@ -44,23 +44,30 @@ def _load(owner: str, job_id: str) -> tuple[dict, dict]:
     if (path.is_symlink() or not path.is_file()
             or state_path.is_symlink() or not state_path.is_file()):
         raise DispatchFenceError('Exact canonical and ExecutionRecord files required.')
-    state = goal_state_store.load(state_path)
-    if ((state['owner'], state['job_id']) != (owner, job_id)
-            or goal_state.authority(state) != 'canonical'
-            or state['state'] not in ('pending', 'running')):
-        raise DispatchFenceError('The canonical goal is not schedulable.')
-    record = execution_record.load(root, owner, job_id)
-    if (record.get('state') != 'running'
-            or not isinstance(record.get('request'), str)
-            or not record['request'].strip()
-            # GoalState.new trims only outer whitespace; internal request
-            # bytes must remain bound to the Core-accepted goal. The model
-            # or an altered journal cannot substitute a different task.
-            or record['request'].strip() != state['goal']
-            or not isinstance(record.get('steps'), list)
-            or not isinstance(record.get('outputs'), dict)):
-        raise DispatchFenceError('ExecutionRecord is not a running goal journal.')
-    return state, record
+    # Scheduler discovery must not open the ExecutionRecord while another
+    # worker atomically replaces it. On Windows, a concurrent reader can
+    # reject os.replace with PermissionError *after* Core accepted the
+    # WorkerResult, leaving an accepted-but-unprojected attempt. The existing
+    # short OS job lock already protects writers; share it for BOTH snapshots.
+    # This is reentrant for the already-locked pre-dispatch revalidation path.
+    with goal_job_control.locked(root, job_id):
+        state = goal_state_store.load(state_path)
+        if ((state['owner'], state['job_id']) != (owner, job_id)
+                or goal_state.authority(state) != 'canonical'
+                or state['state'] not in ('pending', 'running')):
+            raise DispatchFenceError('The canonical goal is not schedulable.')
+        record = execution_record.load(root, owner, job_id)
+        if (record.get('state') != 'running'
+                or not isinstance(record.get('request'), str)
+                or not record['request'].strip()
+                # GoalState.new trims only outer whitespace; internal request
+                # bytes must remain bound to the Core-accepted goal. The model
+                # or an altered journal cannot substitute a different task.
+                or record['request'].strip() != state['goal']
+                or not isinstance(record.get('steps'), list)
+                or not isinstance(record.get('outputs'), dict)):
+            raise DispatchFenceError('ExecutionRecord is not a running goal journal.')
+        return state, record
 
 
 def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer, ...]:
