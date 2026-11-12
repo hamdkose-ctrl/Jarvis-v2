@@ -886,7 +886,16 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.assertEqual(set(saved['outputs']), {'left', 'right', 'child'})
                 self.assertTrue(
                     all(step['state'] == 'done' for step in saved['steps']),
-                    f"Canonical worker projection not durable: {[(step['id'], step['state']) for step in saved['steps']]}",
+                    "Canonical worker projection not durable: "
+                    + repr([(step['id'], step['state']) for step in saved['steps']])
+                    + '; output states/reasons='
+                    + repr({key: (value.get('state'), value.get('reason_code'), value.get('text'))
+                            for key, value in saved['outputs'].items()})
+                    + '; completed worker calls=' + repr(list(observed))
+                    + '; accepted Core evidence='
+                    + repr([(row.get('step_id'), row.get('status'))
+                            for row in goal_state_store.load(self.path)['evidence']
+                            if isinstance(row, dict) and row.get('kind') == 'worker_result']),
                 )
                 self.assertEqual(set(observed), {'left', 'right', 'child'})
             finally:

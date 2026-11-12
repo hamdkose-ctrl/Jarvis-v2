@@ -13,6 +13,7 @@ import threading
 import time
 
 import release_guard
+from modules.diagnostics import record_failure as _record_failure
 from modules import (
     canonical_plan_evidence, completion_policy,
     execution_record, goal_executor,
@@ -180,6 +181,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     try:
         proposal = _semantic_proposal(owner, job, node_ids)
     except Exception:
+        _record_failure('modules/canonical_goal_flow.py:semantic_completion')
         # A model/provider failure never becomes a successful Goal.
         return False
     if (proposal.get('action') != 'complete'
@@ -225,6 +227,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     try:
         notify(owner, job_id, message)
     except Exception:
+        _record_failure('modules/canonical_goal_flow.py:result_delivery')
         # Could have reached one sink already. Never resend blindly.
         return False
     with goal_job_control.locked(root, job_id):

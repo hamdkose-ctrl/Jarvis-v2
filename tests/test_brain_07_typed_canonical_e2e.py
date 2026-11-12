@@ -217,6 +217,17 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
+                # notify() fires before the final durable delivery-marker
+                # commit. Its callback event proves only sink invocation, not
+                # that the Scheduler worker has finished its journal write.
+                # Wait for durable state instead of racing the callback thread.
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    state, journal = self.persisted(job_id)
+                    if journal.get('_canonical_delivery') == 'delivered':
+                        break
+                    completed.wait(.025)
+                    time.sleep(.025)
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
