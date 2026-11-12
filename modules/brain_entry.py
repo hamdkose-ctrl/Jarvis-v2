@@ -1198,9 +1198,18 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
             refs = [ref for ref in entry.active_context.pending_references
                     if ref.source == "profile.hoca" and ref.id == "lesson.pending"
                     and ref.owner == entry.owner]
-            if len(refs) != 1:
+            if len(refs) == 1:
+                pending_snapshot = dict(refs[0].provenance)
+            elif not refs:
+                active = [ref for ref in entry.active_context.active_task_references
+                          if ref.source == "profile.hoca" and ref.id == "lesson"
+                          and ref.owner == entry.owner
+                          and ref.provenance.get("has_pending") is False]
+                if len(active) != 1:
+                    return None
+                pending_snapshot = {"step": active[0].provenance.get("active"), "question": ""}
+            else:
                 return None
-            pending_snapshot = dict(refs[0].provenance)
         return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)
     fast = entry.fast_gate
     if fast is not None and fast.matched:

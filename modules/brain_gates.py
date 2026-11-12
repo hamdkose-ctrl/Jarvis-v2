@@ -369,18 +369,27 @@ def _learning_match(reference: ContextReference, text: str, owner: str, request_
 
 
 def _hoca_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
-    if reference.source != "profile.hoca" or reference.id != "lesson.pending":
+    if reference.source != "profile.hoca" or reference.id not in {"lesson", "lesson.pending"}:
+        return None
+    pending = reference.id == "lesson.pending"
+    # The active lesson card is only authoritative for controls when there
+    # is NO pending question; otherwise the pending slot would conflict with
+    # the same exact command and produce two equal-ranked State matches.
+    if not pending and reference.provenance.get("has_pending") is not False:
         return None
     options = {
-        "sonraki adım": "next", "bir sonraki adım": "next", "ilerle": "next", "geç": "next",
-        "dersi bitir": "exit", "dersten çık": "exit",
+        "sonraki adım": "next", "bir sonraki adım": "next", "ilerle": "next",
+        "geç": "next", "dersi bitir": "exit", "dersten çık": "exit",
+        "zayıf konular": "weak", "eksik konular": "weak",
     }
     selection = options.get(text)
     if selection:
-        return _hit(owner, request_id, "state", "hoca.lesson.control", selection, "BOUNDED_HOCA_CONTROL")
-    # A question may only accept a bounded explicit answer in its own
-    # owner-bound pending slot. No other utterance is a Hoca follow-up.
-    answer = re.fullmatch(r"(?:cevap|cevabım)\\s*[:,\\-]\\s*(.{1,500})", text, re.S)
+        return _hit(owner, request_id, "state", "hoca.lesson.control",
+                    selection, "BOUNDED_HOCA_CONTROL")
+    if not pending:
+        return None
+    # No unprefixed free-text answer can bypass model/normal conversation.
+    answer = re.fullmatch(r"(?:cevap|cevabım)\s*[:,\-]\s*(.{1,500})", text, re.S)
     if answer and answer.group(1).strip():
         return _hit(owner, request_id, "state", "hoca.lesson.control",
                     "answer:" + answer.group(1).strip(), "BOUNDED_HOCA_ANSWER")

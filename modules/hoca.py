@@ -516,11 +516,18 @@ def control_typed(profile, *, operation: str, step: int, question: str, answer: 
     requests_state.check()
     lesson = active(profile)
     pending = lesson.get("pending") if isinstance(lesson, dict) else None
-    if (not isinstance(pending, dict) or not isinstance(step, int) or isinstance(step, bool)
-            or lesson.get("active") != step or pending.get("step") != step
-            or pending.get("question") != question or not isinstance(question, str)
-            or not question):
+    if (not isinstance(lesson, dict) or type(step) is not int or step < 0
+            or lesson.get("active") != step or not isinstance(question, str)
+            or (question and (not isinstance(pending, dict)
+                              or pending.get("step") != step
+                              or pending.get("question") != question))
+            or (not question and isinstance(pending, dict)
+                and pending.get("step") == step and pending.get("question"))):
         return "Ders sorusu değişti; bu cevapla işlem yapmadım."
+    if operation == "weak":
+        weak = weak_topics(profile)
+        return ("Zayıf konuların: " + ", ".join(w["title"] for w in weak)
+                if weak else "Şu an zayıf konun yok.")
     if operation == "exit":
         stop(profile)
         return "Dersi bıraktım. İstediğinde 'hoca modu: konu' diye yeniden başlarız."
@@ -528,10 +535,10 @@ def control_typed(profile, *, operation: str, step: int, question: str, answer: 
         if not advance(profile):
             return _finished(profile)
         return _lesson_text(profile)
-    if operation == "give_up":
+    if operation == "give_up" and question:
         return (f"Doğrusu: {give_up(profile)}\\nBu adımı zayıf konulara yazdım; "
                 "devam etmek için 'sonraki adım' de.")
-    if operation != "answer" or not isinstance(answer, str) or not answer.strip():
+    if operation != "answer" or not question or not isinstance(answer, str) or not answer.strip():
         return "Ders cevabını doğrulayamadım; işlem başlatılmadı."
     graded = grade(profile, answer)
     if graded["correct"]:

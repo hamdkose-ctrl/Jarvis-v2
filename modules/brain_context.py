@@ -439,6 +439,9 @@ def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], lis
             "started": lesson.get("started"),
             "step_title": step.get("title"),
             "step_goal": step.get("goal"),
+            "has_pending": bool(isinstance(lesson.get("pending"), Mapping)
+                                and lesson["pending"].get("step") == active
+                                and lesson["pending"].get("question")),
         },
     ))
     hoca_pending = lesson.get("pending")

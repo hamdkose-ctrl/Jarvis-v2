@@ -553,6 +553,25 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(output, "AĞ İZNİ YOK")
         execute.assert_not_called()
 
+    def test_hoca_control_without_pending_question_advances_without_raw_parser(self):
+        from modules import hoca
+        lesson = {"active": 0, "done": False, "topic": "Hücre",
+                  "steps": [{"title": "Birinci", "goal": "Temel"},
+                            {"title": "İkinci", "goal": "İleri"}],
+                  "pending": None}
+        self.ctx.profile.data["hoca"] = {"lesson": lesson}
+        with patch.object(hoca, "advance", return_value=True) as advance, \
+             patch.object(hoca, "_lesson_text", return_value="İKİNCİ") as teach, \
+             patch("config.load_settings", return_value={"hoca_enabled": True}):
+            entry, output, handler, feedback = self.turn_real(
+                "sonraki adım", model_understanding=False)
+        self.assertEqual(entry.state_gate.protocol, "hoca.lesson.control")
+        self.assertEqual(output, "İKİNCİ")
+        self.assertEqual(feedback.result_status, "handled")
+        handler.assert_not_called()
+        advance.assert_called_once_with(self.ctx.profile)
+        teach.assert_called_once_with(self.ctx.profile)
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
