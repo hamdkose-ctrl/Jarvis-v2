@@ -1380,6 +1380,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         read_entered, delivered = threading.Event(), threading.Event()
         observed = []
         errors = []
+        callback_attempts = []
         sink_calls = []
         lock = threading.Lock()
         stop = RapidStop()
@@ -1438,9 +1439,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
 
         def complete(owner, ident):
             try:
-                canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+                result = canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+                with lock:
+                    callback_attempts.append((ident, result))
+                return result
             except Exception as exc:
-                errors.append(exc)
+                with lock:
+                    errors.append(repr(exc))
                 raise
 
         with ExitStack() as patches:
@@ -1501,8 +1506,53 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             self.assertFalse(delivered.is_set(),
                              'Global completion ran before every root was accepted')
             research_release.set()
-            self.assertTrue(delivered.wait(25),
-                            'Late independent root CAS or delivery never completed')
+            if not delivered.wait(25):
+                # The real-PC watcher publishes only a bounded unittest tail,
+                # not the live Scheduler's swallowed exception details. Keep
+                # this diagnostic strictly to synthetic test data and IDs:
+                # distinguish worker Core CAS rejection, missing projection,
+                # completion-proof rejection, and an uncalled callback. Never
+                # call complete_and_deliver() again to mask lost delivery.
+                state, journal = self.persisted(job_id)
+                try:
+                    proof = canonical_plan_evidence.certify_projected_plan(
+                        self.owner, job_id,
+                    )
+                    proof_state = 'projected:' + str(proof.goal_version)
+                except Exception as exc:
+                    proof_state = type(exc).__name__ + ':' + str(exc)[:220]
+                with lock:
+                    seen = list(observed)
+                    completed_callbacks = list(callback_attempts)
+                    callbacks_errors = list(errors)
+                self.fail('Late research/delivery stalled: ' + repr({
+                    'core_version': state['version'],
+                    'core_state': state['state'],
+                    'core_evidence': [
+                        (x.get('step_id'), x.get('status'), x.get('attempt'))
+                        for x in state.get('evidence', [])
+                        if isinstance(x, dict) and x.get('kind') == 'worker_result'
+                    ],
+                    'core_audit': [
+                        (x.get('op'), x.get('reason_code'))
+                        for x in state.get('audit', [])[-5:]
+                    ],
+                    'journal_steps': [
+                        (x.get('id'), x.get('state'), x.get('reason_code'))
+                        for x in journal.get('steps', [])
+                    ],
+                    'projected_outputs': sorted(journal.get('outputs', {})),
+                    'delivery_marker': journal.get('_canonical_delivery'),
+                    'completion_proof': proof_state,
+                    'observed_workers': seen,
+                    'completion_callbacks': completed_callbacks,
+                    'completion_exceptions': callbacks_errors,
+                    'live_workers': [
+                        (key[2], thread.is_alive())
+                        for key, thread in tuple(task_queue._CANONICAL_WORKERS.items())
+                        if key[1] == job_id
+                    ],
+                }))
             # Delivery notification may precede the durable delivered marker.
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:
