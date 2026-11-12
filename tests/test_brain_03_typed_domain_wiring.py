@@ -392,6 +392,35 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(feedback.result_status, "handled")
         report.assert_called_once_with("weekly", None)
 
+    def test_plain_hoca_lesson_starts_from_typed_core_worker(self):
+        from modules import hoca
+        with patch("config.load_settings", return_value={"hoca_enabled": True}), \
+             patch.object(hoca, "start", return_value={
+                 "topic": "Hücre", "steps": [{"title": "Giriş"}]}) as start, \
+             patch.object(hoca, "_lesson_text", return_value="DERS İÇERİĞİ") as teach:
+            entry, output, feedback = self.typed(
+                "Hücre konusunu öğret", "hoca.lesson.start",
+                {"topic": "Hücre"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("hoca_start", {"topic": "Hücre"}))
+        self.assertIn("DERS İÇERİĞİ", output)
+        self.assertEqual(feedback.result_status, "handled")
+        start.assert_called_once_with(self.ctx.profile, "Hücre", level="")
+        teach.assert_called_once_with(self.ctx.profile)
+
+    def test_hoca_disabled_config_prevents_worker_call(self):
+        from modules import hoca
+        with patch("config.load_settings", return_value={"hoca_enabled": False}), \
+             patch.object(hoca, "start",
+                          side_effect=AssertionError("disabled Hoca started")) as start:
+            entry, output, feedback = self.typed(
+                "Hücre konusunu öğret", "hoca.lesson.start",
+                {"topic": "Hücre"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("hoca_start", {"topic": "Hücre"}))
+        self.assertIn("kapalı", output)
+        start.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -416,6 +445,9 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("kb.query", {"question": ""}),
             ("worktrack.read", {"kind": "delete"}),
             ("worktrack.read", {"kind": "status", "project": True}),
+            ("hoca.lesson.start", {"topic": ""}),
+            ("hoca.lesson.start", {"topic": "İçerik", "source": "/secret.pdf"}),
+            ("hoca.lesson.start", {"topic": "İçerik", "level": "unknown"}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),

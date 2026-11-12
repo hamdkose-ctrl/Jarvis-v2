@@ -106,6 +106,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "tasks.manage": frozenset({"text"}),
     "kb.query": frozenset({"question"}),
     "worktrack.read": frozenset({"project"}),
+    "hoca.lesson.start": frozenset({"topic", "level"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -248,6 +249,11 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "hoca.lesson.start":
+        return {"topic": "the verbatim requested lesson subject",
+                "level": ["başlangıç", "orta", "ileri", None],
+                "argument_sources": ["topic", "level"],
+                "constraint": "new plain-topic lesson; no guessed course_id, source, URL, local file or bulk action"}
     if capability_id == "tasks.manage":
         return {"operation": ["list", "add", "complete"],
                 "text": "verbatim user-provided task title; omit on list",
@@ -360,6 +366,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "hoca.lesson.start": (
+        "begin a new plain-topic teaching lesson with the existing Hoca lesson-plan and teaching worker",
+        "requires grounded topic and optional grounded level; enabled-setting checked in worker; existing active lesson pending/answer flow keeps ownership"),
     "tasks.manage": (
         "list the user's open tasks, add a grounded task or mark one exact-title open task complete",
         "no bulk delete and no fuzzy match; Core validates operation, original task body and owner"),

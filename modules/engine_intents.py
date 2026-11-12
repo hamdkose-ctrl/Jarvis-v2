@@ -181,6 +181,19 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             }
             return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
+        case "hoca_start":
+            from modules import requests_state, hoca
+            from config import load_settings
+            requests_state.check()
+            if not bool(load_settings().get("hoca_enabled", True)):
+                return "Hoca modu kapalı. Ayarlardan etkinleştirip tekrar dene."
+            try:
+                lesson = hoca.start(runtime.profile, a["topic"], level=a.get("level", ""))
+                requests_state.check()
+                return (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım.\n\n"
+                        + hoca._lesson_text(runtime.profile))
+            except hoca.HocaError as exc:
+                return str(exc)
         case "tasks_manage":
             from modules import tasks
             operation = a["operation"]

@@ -768,6 +768,20 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "topic", "level"}:
+        return None
+    topic = arguments.get("topic")
+    if not isinstance(topic, str) or not topic.strip() or "\x00" in topic or len(topic) > 160:
+        return None
+    level = arguments.get("level")
+    if level is None:
+        return {"topic": topic.strip()}
+    if type(level) is not str or level not in {"başlangıç", "orta", "ileri"}:
+        return None
+    return {"topic": topic.strip(), "level": level}
+
+
 def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation", "text"}:
         return None
@@ -1076,6 +1090,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "tasks.manage": ("tasks_manage", _tasks_manage_args),
     "kb.query": ("kb_query", _kb_query_args),
     "worktrack.read": ("worktrack_read", _worktrack_read_args),
+    "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
