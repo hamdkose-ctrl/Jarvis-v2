@@ -70,6 +70,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
+- **B07-FINAL-A kapanış çalışması (#610, henüz DRAFT):** Core `done` CAS ile ikinci ExecutionRecord kaydı arasındaki crash penceresinde frozen read-only sonucu yalnız Core + exact WorkerResult çıktısı doğrulanınca sahibine okut; ikinci bildirim, worker replay veya otomatik effect yetkisi üretme. Kaynak/test kabulü için #584 ve PR son SHA'sı esas alınır. Bu kayıt PASS/merge iddiası değildir.
+
 ## BRAIN-04 action_batch
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
