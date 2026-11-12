@@ -421,6 +421,38 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertIn("kapalı", output)
         start.assert_not_called()
 
+    def test_browser_summary_reads_only_core_grounded_page(self):
+        from modules import browser
+        with patch.object(browser, "summarize", return_value="SAYFA ÖZETİ") as summarize:
+            entry, output, feedback = self.typed(
+                "https://example.org/blog sayfasını özetle",
+                "browser.page.read", {"url": "https://example.org/blog"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("browser_page", {"url": "https://example.org/blog"}))
+        self.assertEqual(output, "SAYFA ÖZETİ")
+        self.assertEqual(feedback.result_status, "handled")
+        summarize.assert_called_once_with("https://example.org/blog")
+
+    def test_media_search_uses_exact_existing_worker_and_privacy(self):
+        from modules import media
+        with patch.object(media, "youtube", return_value="ARAMA") as youtube:
+            entry, output, feedback = self.typed(
+                "YouTube'da caz aç", "media.search",
+                {"service": "youtube", "query": "caz"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("media_search", {"service": "youtube", "query": "caz"}))
+        self.assertEqual(output, "ARAMA")
+        self.assertEqual(feedback.result_status, "handled")
+        youtube.assert_called_once_with("caz")
+        with patch.object(self.ctx.privacy, "blocked", return_value="WEB KAPALI"), \
+             patch.object(media, "youtube",
+                          side_effect=AssertionError("privacy bypassed")) as youtube:
+            _, output, _ = self.typed(
+                "YouTube'da caz aç", "media.search",
+                {"service": "youtube", "query": "caz"})
+        self.assertEqual(output, "WEB KAPALI")
+        youtube.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -448,6 +480,14 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("hoca.lesson.start", {"topic": ""}),
             ("hoca.lesson.start", {"topic": "İçerik", "source": "/secret.pdf"}),
             ("hoca.lesson.start", {"topic": "İçerik", "level": "unknown"}),
+            ("browser.page.read", {"url": "file:///tmp/secret"}),
+            ("browser.page.read", {"url": "http://127.0.0.1/admin"}),
+            ("browser.page.read", {"url": "http://localhost/"}),
+            ("browser.page.read", {"url": "https://user:pass@example.org/"}),
+            ("browser.page.read", {"url": "https://example.org:5000/"}),
+            ("media.search", {"service": "youtube", "query": ""}),
+            ("media.search", {"service": "music_home", "query": "payload"}),
+            ("media.search", {"service": "arbitrary", "query": "song"}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),

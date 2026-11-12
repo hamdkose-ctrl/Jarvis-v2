@@ -181,6 +181,21 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             }
             return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
+        case "browser_page":
+            from modules import browser
+            return browser.summarize(a["url"])
+        case "media_search":
+            from modules import media
+            if (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            service = a["service"]
+            if service == "music_home":
+                return media.open_music()
+            if service == "youtube_home":
+                return media.youtube("")
+            if service == "youtube":
+                return media.youtube(a["query"])
+            return media.spotify(a["query"])
         case "hoca_start":
             from modules import requests_state, hoca
             from config import load_settings

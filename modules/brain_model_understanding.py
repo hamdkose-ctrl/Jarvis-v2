@@ -107,6 +107,8 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "kb.query": frozenset({"question"}),
     "worktrack.read": frozenset({"project"}),
     "hoca.lesson.start": frozenset({"topic", "level"}),
+    "browser.page.read": frozenset({"url"}),
+    "media.search": frozenset({"query"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -249,6 +251,15 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "browser.page.read":
+        return {"url": "verbatim full public HTTP(S) URL mentioned in user's utterance",
+                "argument_sources": ["url"],
+                "constraint": "summarize only; no open URL/credentials/localhost/automation"}
+    if capability_id == "media.search":
+        return {"service": ["youtube", "spotify", "music_home", "youtube_home"],
+                "query": "verbatim music/video title supplied by user, except for home",
+                "argument_sources": ["query"],
+                "constraint": "opens user's media service search; not a claim that playback succeeded"}
     if capability_id == "hoca.lesson.start":
         return {"topic": "the verbatim requested lesson subject",
                 "level": ["başlangıç", "orta", "ileri", None],
@@ -366,6 +377,12 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "browser.page.read": (
+        "summarize an explicitly supplied public web page through the existing safe browser reader",
+        "HTTP(S) URL must be grounded, Core disallows private host / credentials, public_sources revalidates DNS and redirects and web privacy"),
+    "media.search": (
+        "open user-requested YouTube/Spotify content search or default music service",
+        "Core validates only service and spoken query; existing media worker opens search/results, never reports verified playback"),
     "hoca.lesson.start": (
         "begin a new plain-topic teaching lesson with the existing Hoca lesson-plan and teaching worker",
         "requires grounded topic and optional grounded level; enabled-setting checked in worker; existing active lesson pending/answer flow keeps ownership"),

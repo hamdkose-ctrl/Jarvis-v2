@@ -768,6 +768,47 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _browser_page_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Only a public HTTP(S) page URL; public_sources repeats DNS/redirect checks."""
+    if set(arguments) - {"original_text", "url"}:
+        return None
+    url = arguments.get("url")
+    if not isinstance(url, str) or len(url) > 2048 or not url.strip() or any(ord(x) <= 32 for x in url):
+        return None
+    from urllib.parse import urlsplit
+    import ipaddress
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if parsed.scheme not in {"https", "http"} or not host or "." not in host:
+            return None
+        if parsed.username or parsed.password or parsed.port is not None or host.endswith((".local", ".internal", ".localhost")):
+            return None
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            return None
+    except ValueError:
+        return None
+    return {"url": url}
+
+
+def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "service", "query"}:
+        return None
+    service = arguments.get("service")
+    if type(service) is not str or service not in {"youtube", "spotify", "music_home", "youtube_home"}:
+        return None
+    query = arguments.get("query")
+    if service.endswith("_home"):
+        return {"service": service} if query is None else None
+    if not isinstance(query, str) or not query.strip() or "\x00" in query or len(query) > 200:
+        return None
+    return {"service": service, "query": query.strip()}
+
+
 def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "topic", "level"}:
         return None
@@ -1091,6 +1132,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "kb.query": ("kb_query", _kb_query_args),
     "worktrack.read": ("worktrack_read", _worktrack_read_args),
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
+    "browser.page.read": ("browser_page", _browser_page_args),
+    "media.search": ("media_search", _media_search_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
