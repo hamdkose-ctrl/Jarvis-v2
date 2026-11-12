@@ -96,7 +96,7 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
 
     def test_ambiguous_choices_without_owner_are_not_process_global(self):
         reply = filesend.handle("rapor dosyasını telefonuma gönder")
-        self.assertIn("güvenli seçim", reply)
+        self.assertIn("kullanıcı doğrulanamadı", reply)
         self.assertIsNone(filesend.pending_choices(self.owner))
         self.sent.assert_not_called()
 

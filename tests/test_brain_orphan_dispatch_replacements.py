@@ -164,7 +164,7 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
             with patch.object(filesend, '_folders', return_value=[folder]), \
                  patch.object(filesend, 'find', return_value=[target]) as found, \
                  patch.object(filesend, 'send', return_value='Telefona gönderdim: rapor.pdf') as sent:
-                out = filesend.handle('rapor dosyasını telefonuma gönder')
+                out = filesend.handle('rapor dosyasını telefonuma gönder', owner='test-owner')
             self.assertEqual(out, 'Telefona gönderdim: rapor.pdf')
             sent.assert_called_once_with(target)
             found.assert_called_once()
@@ -174,7 +174,7 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
         send = Mock()
         with patch.object(filesend, 'find', side_effect=AssertionError('belirsiz istekte dosya aranmaz')), \
              patch.object(filesend, 'send', send):
-            out = filesend.handle('şu dosyayı telefonuma gönder')
+            out = filesend.handle('şu dosyayı telefonuma gönder', owner='test-owner')
         self.assertEqual(out, filesend.ASK)
         send.assert_not_called()
 

@@ -627,6 +627,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("reminders.manage", {"operation": "delete", "id": "fake", "title": "Team"}),
             ("reminders.manage", {"operation": "clear_all", "title": "Team"}),
             ("reminders.manage", {"operation": "postpone", "title": "Team", "duration": "999 gün"}),
+            ("reminders.manage", {"operation": "postpone", "title": "Team", "duration": "az sonra"}),
             ("reminders.manage", {"operation": "postpone", "title": "Team"}),
             ("reminders.manage", {"operation": "skip", "title": "Team", "duration": "1 saat"}),
             ("tasks.manage", {"operation": "delete", "text": "A"}),

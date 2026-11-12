@@ -923,7 +923,7 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     if duration in {"yarına", "yarin", "yarına kadar"}:
         return {"operation": operation, "title": title.strip(), "minutes": 1440}
-    parsed = re.fullmatch(r"([1-9]\\d{0,2})\\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
+    parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
     if parsed is None:
         return None
     count, unit = int(parsed.group(1)), parsed.group(2)
