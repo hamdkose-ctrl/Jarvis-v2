@@ -521,6 +521,38 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertIn("değişti", rejected)
         grade.assert_not_called()
 
+    def test_typed_taildrop_start_never_uses_raw_selector(self):
+        from modules import filesend
+        with patch.object(filesend, "transfer_typed", return_value="SENT") as transfer, \
+             patch.object(filesend, "handle",
+                          side_effect=AssertionError("raw Taildrop selector called")) as legacy:
+            entry, output, feedback = self.typed(
+                "Rapor PDF dosyasını telefonuma gönder", "filesend.transfer",
+                {"operation": "search", "query": "Rapor PDF"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("filesend_transfer", {"operation": "search", "query": "Rapor PDF"}))
+        self.assertEqual(output, "SENT")
+        self.assertEqual(feedback.result_status, "handled")
+        transfer.assert_called_once_with(self.owner, "search", "Rapor PDF")
+        legacy.assert_not_called()
+
+    def test_notify_typed_operation_is_profile_bound_and_web_privacy_checked(self):
+        from modules import notify
+        with patch.object(notify, "execute_typed", return_value="KAPANDI") as execute:
+            _, output, feedback = self.typed(
+                "Telefon bildirimini kapat", "notify.manage",
+                {"operation": "disable"})
+        self.assertEqual(output, "KAPANDI")
+        self.assertEqual(feedback.result_status, "handled")
+        execute.assert_called_once_with("disable", self.ctx.profile.data["prefs"], self.ctx.profile.save)
+        with patch.object(self.ctx.privacy, "blocked", return_value="AĞ İZNİ YOK"), \
+             patch.object(notify, "execute_typed",
+                          side_effect=AssertionError("privacy bypass")) as execute:
+            _, output, _ = self.typed(
+                "Telefon bildirimi test gönder", "notify.manage", {"operation": "test"})
+        self.assertEqual(output, "AĞ İZNİ YOK")
+        execute.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -556,6 +588,11 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("media.search", {"service": "youtube", "query": ""}),
             ("media.search", {"service": "music_home", "query": "payload"}),
             ("media.search", {"service": "arbitrary", "query": "song"}),
+            ("filesend.transfer", {"operation": "search", "query": ""}),
+            ("filesend.transfer", {"operation": "screenshot", "query": "secret"}),
+            ("filesend.transfer", {"operation": "path", "query": "A"}),
+            ("notify.manage", {"operation": "send_all"}),
+            ("notify.manage", {"operation": "enable", "topic": "attacker"}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),

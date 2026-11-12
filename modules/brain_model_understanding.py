@@ -109,6 +109,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "hoca.lesson.start": frozenset({"topic", "level"}),
     "browser.page.read": frozenset({"url"}),
     "media.search": frozenset({"query"}),
+    "filesend.transfer": frozenset({"query"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -138,7 +139,7 @@ _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
     "workbench.followup", "study.read",
     "notes.add", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
-    "browser.page.read", "media.search",
+    "browser.page.read", "media.search", "filesend.transfer", "notify.manage",
 })
 
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
@@ -265,6 +266,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "filesend.transfer":
+        return {"operation": ["latest", "screenshot", "search"],
+                "query": "verbatim file description requested by user; only for search",
+                "argument_sources": ["query"],
+                "constraint": "no absolute path or phone identity; candidate selection remains owner-local State and Core"}
+    if capability_id == "notify.manage":
+        return {"operation": ["enable", "disable", "test"],
+                "constraint": "enable/disable notifications, or send exactly one test message"}
     if capability_id == "browser.page.read":
         return {"url": "verbatim full public HTTP(S) URL mentioned in user's utterance",
                 "argument_sources": ["url"],
@@ -391,6 +400,12 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "filesend.transfer": (
+        "send the explicitly requested screenshot, latest downloaded file or named document to the user's existing Tailscale phone",
+        "no arbitrary file paths or peer identities; the domain validates owner, privacy, path identity and pending selection"),
+    "notify.manage": (
+        "enable, disable or test the user's ntfy phone notifications",
+        "Core validates the closed operation; profile provides the topic and permission"),
     "browser.page.read": (
         "summarize an explicitly supplied public web page through the existing safe browser reader",
         "HTTP(S) URL must be grounded, Core disallows private host / credentials, public_sources revalidates DNS and redirects and web privacy"),

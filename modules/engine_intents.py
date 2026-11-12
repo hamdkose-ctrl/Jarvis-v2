@@ -198,6 +198,15 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if service == "youtube":
                 return media.youtube(a["query"])
             return media.spotify(a["query"])
+        case "filesend_transfer":
+            from modules import filesend
+            return filesend.transfer_typed(runtime.profile.slug, a["operation"], a.get("query", ""))
+        case "notify_manage":
+            from modules import notify
+            operation = a["operation"]
+            if operation in {"enable", "test"} and (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            return notify.execute_typed(operation, runtime.profile.data["prefs"], runtime.profile.save)
         case "hoca_control":
             from config import load_settings
             from modules import hoca

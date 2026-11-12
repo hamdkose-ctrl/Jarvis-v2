@@ -768,6 +768,27 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _filesend_transfer_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "query"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"latest", "screenshot", "search"}:
+        return None
+    query = arguments.get("query")
+    if operation in {"latest", "screenshot"}:
+        return {"operation": operation} if query is None else None
+    if not isinstance(query, str) or not query.strip() or "\x00" in query or len(query) > 200:
+        return None
+    return {"operation": "search", "query": query.strip()}
+
+
+def _notify_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    operation = arguments.get("operation")
+    return {"operation": operation} if type(operation) is str and operation in {"enable", "disable", "test"} else None
+
+
 def _browser_page_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Only a public HTTP(S) page URL; public_sources repeats DNS/redirect checks."""
     if set(arguments) - {"original_text", "url"}:
@@ -1134,6 +1155,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),
+    "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
+    "notify.manage": ("notify_manage", _notify_manage_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
