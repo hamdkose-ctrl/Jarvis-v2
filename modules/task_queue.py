@@ -306,7 +306,7 @@ def is_cancelled(owner,qid):
 
 
 def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
-          canonical_profile_resolver=None):
+          canonical_profile_resolver=None, canonical_result_notify=None):
     """One engine-owned scheduler loop, dispatching bounded owner workers.
 
     Queue workers use tick() and its existing SQLite claim. Optional canonical
@@ -389,9 +389,11 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                             deadline = runtime_worker_result.CanonicalWorkerDeadline(
                                 stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS,
                             )
-                            canonical_scheduler_dispatch.execute_offer(
+                            completed = canonical_scheduler_dispatch.execute_offer(
                                 pinned_profile, candidate, stop_event=deadline,
                             )
+                            if completed and canonical_result_notify is not None:
+                                canonical_result_notify(pinned_owner, candidate.selection.job_id)
                     except Exception:
                         _record_failure('modules/task_queue.py:canonical_dispatch')
                     finally:

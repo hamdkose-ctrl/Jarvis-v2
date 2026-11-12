@@ -107,6 +107,21 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
                          "GOAL_CANCELLATION_NEGATED")
 
     if operation is GoalOperation.CREATE:
+        # Only real typed-entry turns opt into the supported canonical read-only
+        # background lane. Unsupported DAGs remain on the existing permissioned
+        # legacy path; this is a transport boundary, not a free-text classifier.
+        if getattr(entry, 'source', None) == 'yazı':
+            from modules import canonical_goal_flow
+            queued = canonical_goal_flow.try_create(owner, str(entry.request_id), text)
+            if queued is not None:
+                job_id, message = queued
+                # A duplicate of an already claimed LEGACY handoff is a
+                # no-op observation, never a second legacy goal. Do not
+                # falsely report that a canonical background job was queued.
+                reason = ('GOAL_CANONICAL_BACKGROUND_QUEUED' if job_id is not None
+                          else 'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
+                return Resolution(message=message, result_status='handled',
+                                  reason_code=reason, job_id=job_id)
         # Kart modelin "yeni hedef" niyetinin taşıyıcısıdır; kalıcı hedef cümlesi ise
         # kullanıcının kendi sözüdür. Boş bir cümleyi burada yeniden yorumlamayız:
         # `goal_executor._run` "Somut hedef gerekli." ile kendisi refusal verir.
