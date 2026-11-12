@@ -25,7 +25,7 @@ class ProjectionFenceError(ValueError):
 
 
 def _accepted_row(current: dict, owner: str, job_id: str,
-                  node: dict, output: dict) -> dict:
+                  node: dict, output: dict, *, allow_completed_read: bool = False) -> dict:
     plan = current.get('goal_plan')
     if not isinstance(plan, dict):
         raise ProjectionFenceError('Canonical GoalPlan missing.')
@@ -74,12 +74,21 @@ def _accepted_row(current: dict, owner: str, job_id: str,
     audit_index, audit_row = appends[position]
     if audit_row['reason_code'] != 'WORKER_RESULT_ACCEPTED':
         raise ProjectionFenceError('Accepted WorkerResult audit reason missing.')
-    # No intent edit, plan replacement or terminal lifecycle may happen after
-    # this result before its bytes have been projected to the durable record.
+    # Projection itself remains live-only; it never uses terminal read mode.
+    # A separately authorized owner-scoped result QUERY may ignore exactly
+    # the final Core semantic-completion transition. User edits, plan changes
+    # and any other intervening audit event must still reject the proof.
+    later = current['audit'][audit_index + 1:]
+    if allow_completed_read:
+        if (current['state'] != 'done' or not later
+                or later[-1]['op'] != 'set_state'
+                or later[-1]['reason_code'] != 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED'):
+            raise ProjectionFenceError('Only Core-verified terminal results can be read.')
+        later = later[:-1]
     if any(
         audit['op'] != 'append_evidence'
         or audit['reason_code'] != 'WORKER_RESULT_ACCEPTED'
-        for audit in current['audit'][audit_index + 1:]
+        for audit in later
     ):
         raise ProjectionFenceError('Canonical goal changed after worker acceptance.')
 

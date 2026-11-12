@@ -3,16 +3,13 @@ import concurrent.futures
 from contextlib import closing
 import sqlite3
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from modules import router_quota as q, smart_router as router
 
-# Keep the synthetic policy within its verified window when the test suite runs.
-# A fixed November 2026 epoch expired on 2026-11-12 and broke unrelated CI.
-NOW = time.time()
+NOW = 1794300000.
 
 def policy(**changes):
     row = dict(rpm=5, rpd=9, tpm=100, tpd=180,
@@ -124,9 +121,17 @@ class AtomicTokenQuotaTests(unittest.TestCase):
                                             token_budget=50))
         adapter=Mock(return_value='ok')
         specs=(router.ModelSpec('groq','exact'),)
+        # The fixture's verified policy is anchored to NOW. Exercise the
+        # real SQLite quota reservation at that same synthetic instant:
+        # otherwise this test starts failing just because wall time passed
+        # expires_at, not because the token-budget acceptance regressed.
+        real_reserve = q.reserve
+        def reserve_at_fixture_clock(*args, **kwargs):
+            return real_reserve(*args, now=NOW, **kwargs)
         with patch.object(router,'plan',return_value=router.RoutePlan(specs,(),2)), \
              patch.object(router,'_STORE',self.directory), \
-             patch.object(router,'_LAST',{}),patch.object(router,'_HEALTH',{}):
+             patch.object(router,'_LAST',{}),patch.object(router,'_HEALTH',{}), \
+             patch.object(q,'reserve',side_effect=reserve_at_fixture_clock):
             result=router.run_request(router.ModelRequest(owner='alice',
                        max_output_tokens=25,token_budget=95),adapter)
         self.assertEqual(result.text,'ok')
