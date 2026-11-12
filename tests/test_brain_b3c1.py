@@ -112,12 +112,22 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(actual, self.file.resolve())
         self.assertFalse(handle.called)
 
-    def test_front_gate_file_command_beats_core_plan(self):
+    def test_unquoted_file_request_uses_core_without_legacy_file_gate(self):
+        # A validated natural-language file target is not an exact UI file
+        # command. The raw file gate's Workbench followup may not override it.
+        # Exact quoted-path UI priority is guarded separately in
+        # test_brain_notes_final_authority.
         with patch("modules.engine_intents.dispatch", return_value="ÖZET") as dispatch, \
-             patch.object(self.ctx, "_file_command", return_value="DÜĞME", create=True):
+             patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("raw file gate ran"), create=True) as raw:
             entry, out, handle = self.through_brain("rapor.txt dosyasını özetle")
-        self.assertEqual(out, "DÜĞME")
-        dispatch.assert_not_called()
+        self.assertEqual(out, "ÖZET")
+        self.assertEqual(brain_entry.core_plan(entry), (
+            "file_action", {"operation": "summarize", "path": str(self.file)},
+        ))
+        self.assertEqual(dispatch.call_args.args[1], "file_action")
+        raw.assert_not_called()
+        self.assertFalse(handle.called)
 
     def test_summary_without_candidate_asks_and_never_guesses(self):
         self.rows = []
