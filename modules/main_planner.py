@@ -1079,8 +1079,8 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
         if exact.startswith(("lütfen ", "lutfen ")):
             exact = exact.split(" ", 1)[1]
         m = runtime.re.fullmatch(
-            r"\\b(\\d{1,3})\\.?\\s*(?:numaralı\\s*)?notu?\\s*sil\\b"
-            r"|\\bnotu?\\s*(\\d{1,3})\\s*(?:'?i\\s*)?sil\\b", exact)
+            r"\b(\d{1,3})\.?\s*(?:numaralı\s*)?notu?\s*sil\b"
+            r"|\bnotu?\s*(\d{1,3})\s*(?:'?i\s*)?sil\b", exact)
         if m:
             idx = int(m.group(1) or m.group(2))
             items = runtime.profile.data["items"]

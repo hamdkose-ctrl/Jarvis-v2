@@ -181,6 +181,21 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         invalid = {**proposal, "owner": "foreign"}
         self.assertIn("geçersiz", main_planner.clear_notes_confirmed(self.ctx, invalid))
 
+    def test_legacy_exact_ordinal_note_delete_still_works_but_negation_does_not(self):
+        from modules import main_planner
+        first = self.ctx.profile.add_note_item("SİLİNECEK")
+        second = self.ctx.profile.add_note_item("KALACAK")
+        with patch.object(self.ctx.profile, "delete_note_item",
+                          wraps=self.ctx.profile.delete_note_item) as delete:
+            self.assertIsNone(main_planner._planner_command(
+                self.ctx, "2. notu silme", "2. notu silme"))
+            self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]],
+                             [first["id"], second["id"]])
+            reply = main_planner._planner_command(self.ctx, "1. notu sil", "1. notu sil")
+        self.assertIn("Notu sildim", reply)
+        delete.assert_called_once_with(first["id"])
+        self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [second["id"]])
+
     def test_failed_model_negated_note_delete_is_safe_in_real_production_turn(self):
         from modules import brain_model_understanding
         original = self.ctx.profile.add_note_item("KORUNACAK")
