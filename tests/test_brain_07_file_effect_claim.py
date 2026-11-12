@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from modules import file_ops, file_resource_guard, file_worker_extensions
@@ -124,6 +125,41 @@ class FileEffectClaimTests(unittest.TestCase):
             with file_resource_guard.claim_paths(target):
                 self.fail('Claim directory symlink should fail closed')
         self.assertEqual(target.read_text(encoding='utf-8'), 'safe')
+
+    def test_report_writer_joins_physical_claim_and_never_overwrites(self):
+        """Writer report output contends with file_ops on actual OS claim."""
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        destination = root / 'Jarvis Görevler' / 'alice' / '01234567-rapor.md'
+        destination.parent.mkdir(parents=True)
+        task = {
+            'agent': 'writer',
+            'input': {'instruction': 'Rapor oluştur', 'filename': 'rapor.md'},
+        }
+
+        def produce():
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(model_wait, 'ask', return_value='Verified report'), \
+                 patch.object(task_workers.uuid, 'uuid4',
+                              return_value=SimpleNamespace(hex='0123456789abcdef')):
+                return task_agents.worker('alice', task, {})
+
+        child = self.holder(destination, other_data_dir=True)
+        try:
+            with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                produce()
+            self.assertFalse(destination.exists())
+        finally:
+            self.close_holder(child)
+
+        accepted = produce()
+        self.assertEqual(accepted['state'], 'done')
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+        # Same generated name is never overwritten, even after the OS lock
+        # was released. A preexisting artifact is an effect, not a retry slot.
+        with self.assertRaises(FileExistsError):
+            produce()
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
 
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
