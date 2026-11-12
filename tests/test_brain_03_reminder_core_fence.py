@@ -82,6 +82,37 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
         )
         self.assertEqual(len(self.ctx.profile.data["items"]), 1)
 
+
+    def test_typed_reminder_quote_cannot_start_screen_sharing(self):
+        # A quoted title is data, never a second instruction to capture screen.
+        with patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("screen share changed")) as share:
+            self._verified_reminder(
+                "Yarın bana 'ekranı paylaş' sözünü hatırlat", "ekranı paylaş",
+            )
+            share.assert_not_called()
+
+    def test_typed_reminder_quote_cannot_open_camera(self):
+        with patch.object(self.ctx, "set_share",
+                          side_effect=AssertionError("camera changed")) as share:
+            self._verified_reminder(
+                "Yarın bana 'kamerayı aç' cümlesini hatırlat", "kamerayı aç",
+            )
+            share.assert_not_called()
+
+    def test_typed_reminder_quote_cannot_start_voice_selection(self):
+        self.assertIsNone(self.ctx._session().pending_voice)
+        self._verified_reminder(
+            "Yarın bana 'sesimi değiştir' demeyi hatırlat", "sesimi değiştir",
+        )
+        self.assertIsNone(self.ctx._session().pending_voice)
+
+    def test_unplanned_legacy_sharing_still_uses_its_existing_owner(self):
+        with patch.object(self.ctx, "set_share", return_value="PAYLASIM ACILDI") as share:
+            reply = self.ctx._user_controls("ekranı paylaş", "ekranı paylaş")
+            self.assertEqual(reply, "PAYLASIM ACILDI")
+            share.assert_called_once_with("screen")
+
     def test_typed_reminder_exception_cannot_start_note_delete(self):
         self.ctx.profile.add_note_item("Hassas not")
         command = "Yarın bana 'notları sil' diye hatırlat"

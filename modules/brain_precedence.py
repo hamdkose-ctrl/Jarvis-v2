@@ -96,7 +96,12 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     return {
         "file_command": lambda: runtime._file_command(command),
-        "user_controls": lambda: runtime._user_controls(command, lowered),
+        # A Core-validated reminder CREATE owns the entire utterance. Quoted
+        # share/camera/voice phrases in its title must never trigger the legacy
+        # raw-text controller. Pending state is owned by the State Gate.
+        # Other legacy turns preserve their original user-control priority.
+        "user_controls": lambda: (None if plan is not None and plan[0] == "reminder"
+                                  else runtime._user_controls(command, lowered)),
         "planner_command": planner_gate,
         "macro_run": lambda: runtime._macro_run(lowered),
         "extra_commands": extra_commands,
