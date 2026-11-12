@@ -19,7 +19,8 @@ import sys
 import time
 from pathlib import Path
 from modules import file_resource_guard
-file_resource_guard._FILE_EFFECT_CLAIM_ROOT = Path(sys.argv[1])
+if file_resource_guard._FILE_EFFECT_CLAIM_ROOT != Path(sys.argv[1]):
+    raise RuntimeError('Physical file claim root incorrectly follows DATA_DIR')
 with file_resource_guard.claim_paths(Path(sys.argv[2])):
     Path(sys.argv[3]).write_text('held', encoding='utf-8')
     time.sleep(30)
@@ -33,8 +34,11 @@ class FileEffectClaimTests(unittest.TestCase):
         self.base = Path(temp.name)
         self.folder = self.base / 'Belgeler'
         self.folder.mkdir()
+        self.fake_home = self.base / 'same-os-account-home'
+        self.fake_home.mkdir()
         for obj, attr, value in (
-            (file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT', self.base / 'account-claims'),
+            (file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+             self.fake_home / '.jarvis' / 'file-effect-claims'),
             (file_ops, 'DATA_DIR', self.base / 'journal'),
             (file_ops, '_roots', lambda: [self.folder]),
             (file_ops, '_permission_decision', lambda *_: None),
@@ -50,6 +54,10 @@ class FileEffectClaimTests(unittest.TestCase):
         if flag.exists():
             flag.unlink()
         env = os.environ.copy()
+        # The second Python process derives its claim root naturally at
+        # import time from the same synthetic OS home, not an injected lock.
+        env['HOME'] = str(self.fake_home)
+        env['USERPROFILE'] = str(self.fake_home)
         if other_data_dir:
             env['JARVIS_DATA_DIR'] = str(self.base / 'different-jarvis-data')
         child = subprocess.Popen(
