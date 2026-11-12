@@ -860,6 +860,8 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         stop = RapidStop()
         messages = []
         completed = threading.Event()
+        callback_returned = threading.Event()
+        callback_results = []
         def research_worker(owner, task, dependencies):
             self.assertEqual(owner, self.owner)
             self.assertEqual(dependencies, {})
@@ -871,7 +873,15 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             messages.append((owner, ident, text))
             completed.set()
         def finished(owner, ident):
-            canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            try:
+                callback_results.append(canonical_goal_flow.complete_and_deliver(
+                    owner, ident, notify,
+                ))
+            finally:
+                # The sink's completed event fires BEFORE the durable
+                # reserved -> delivered commit. Only the callback return
+                # means that second write has finished (or failed).
+                callback_returned.set()
         try:
             with ExitStack() as patches:
                 for obj, attribute, value in (
@@ -900,17 +910,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
-                # notify() fires before the final durable delivery-marker
-                # commit. Its callback event proves only sink invocation, not
-                # that the Scheduler worker has finished its journal write.
-                # Wait for durable state instead of racing the callback thread.
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    state, journal = self.persisted(job_id)
-                    if journal.get('_canonical_delivery') == 'delivered':
-                        break
-                    completed.wait(.025)
-                    time.sleep(.025)
+                # Do not race the post-notify durable delivery write with a
+                # fixed five-second disk-polling window. Wait for the actual
+                # worker callback to return, then assert BOTH its success
+                # and the persisted Core/journal evidence. This is stricter
+                # than treating notify() as completion or sleeping longer.
+                self.assertTrue(
+                    callback_returned.wait(25),
+                    'Canonical completion callback did not return after notification',
+                )
+                self.assertEqual(
+                    callback_results, [True],
+                    'Canonical completion callback returned without a durable delivery commit',
+                )
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
