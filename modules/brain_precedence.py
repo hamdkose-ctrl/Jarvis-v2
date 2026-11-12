@@ -69,14 +69,15 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
         if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
                                             "folder_analyze", "visual_create"}:
             return None
-        # A reminder plan is executed BY the planner at its own creation slot with the Core-validated
-        # arguments (main_planner.core_reminder): earlier planner branches (pending answers, notes,
-        # edit/snooze) answer first and later branches (calendar, agenda) are never reached.
-        if plan is None or plan[0] != "reminder":
-            return runtime._planner_command(command, lowered)
-        from modules import main_planner
-        with main_planner.core_reminder(plan[1]):
-            return runtime._planner_command(command, lowered)
+        # A Core-validated reminder must not be reclassified from the raw utterance.
+        # The old _planner_command searches for note deletion BEFORE reminder creation:
+        # "remind me to 'delete notes'" could otherwise erase notes rather than
+        # create the agreed reminder. Keep the existing typed reminder domain
+        # executor (including edit/snooze and confirmation), not a second planner.
+        if plan is not None and plan[0] == "reminder":
+            from modules import main_planner
+            return main_planner.reminder_core(runtime, dict(plan[1]), command, lowered)
+        return runtime._planner_command(command, lowered)
 
     def extra_commands():
         # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
