@@ -171,80 +171,80 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
 
 def _complete_once(owner: str, job_id: str, notify) -> bool:
     """Attempt only one evidence-verified Core completion and event delivery."""
-        try:
-            proof = canonical_plan_evidence.certify_projected_plan(owner, job_id)
-        except (canonical_plan_evidence.PlanEvidenceError, ValueError, OSError):
+    try:
+        proof = canonical_plan_evidence.certify_projected_plan(owner, job_id)
+    except (canonical_plan_evidence.PlanEvidenceError, ValueError, OSError):
+        return False
+    root = goal_executor._owner_root(owner)
+    with goal_job_control.locked(root, job_id):
+        job = execution_record.load(root, owner, job_id)
+        if (goal_job_control.fingerprint(job) != proof.record_digest
+                or job.get('state') != 'running' or job.get('_canonical_delivery')):
             return False
-        root = goal_executor._owner_root(owner)
-        with goal_job_control.locked(root, job_id):
-            job = execution_record.load(root, owner, job_id)
-            if (goal_job_control.fingerprint(job) != proof.record_digest
-                    or job.get('state') != 'running' or job.get('_canonical_delivery')):
-                return False
-        node_ids = tuple(node_id for node_id, _ in proof.output_digests)
-        try:
-            proposal = _semantic_proposal(owner, job, node_ids)
-        except Exception:
-            # A model/provider failure never becomes a successful Goal.
-            return False
-        if (proposal.get('action') != 'complete'
-                or type(proposal.get('goal')) is not int
-                or proposal['goal'] != 0
-                or not isinstance(proposal.get('evidence'), list)
-                or len(proposal['evidence']) != len(node_ids)
-                or set(proposal['evidence']) != set(node_ids)):
-            return False
-        if len(job['goals']) != 1:
-            return False
-        decision = completion_policy.evaluate_evidence(
-            goal_executor._check_news_completion,
-            job, job['goals'][0], list(node_ids), final=True,
-        )
-        if decision['decision'] != completion_policy.COMPLETE:
-            return False
+    node_ids = tuple(node_id for node_id, _ in proof.output_digests)
+    try:
+        proposal = _semantic_proposal(owner, job, node_ids)
+    except Exception:
+        # A model/provider failure never becomes a successful Goal.
+        return False
+    if (proposal.get('action') != 'complete'
+            or type(proposal.get('goal')) is not int
+            or proposal['goal'] != 0
+            or not isinstance(proposal.get('evidence'), list)
+            or len(proposal['evidence']) != len(node_ids)
+            or set(proposal['evidence']) != set(node_ids)):
+        return False
+    if len(job['goals']) != 1:
+        return False
+    decision = completion_policy.evaluate_evidence(
+        goal_executor._check_news_completion,
+        job, job['goals'][0], list(node_ids), final=True,
+    )
+    if decision['decision'] != completion_policy.COMPLETE:
+        return False
 
-        state_path = root / (job_id + '.goalstate.json')
-        record_path = execution_record.path_for(root, job_id)
-        with goal_job_control.locked(root, job_id):
-            state = goal_state_store.load(state_path)
-            current = execution_record.load(root, owner, job_id)
-            if (state['owner'] != owner or state['job_id'] != job_id
-                    or state['version'] != proof.goal_version
-                    or goal_job_control.fingerprint(current) != proof.record_digest
-                    or state['state'] not in ('running', 'pending')):
-                return False
-            completed = copy.deepcopy(current)
-            completed['goals'][0].update(
-                state='done', evidence=list(node_ids),
-            )
-            completed['state'] = 'done'
-            completed['_canonical_delivery'] = 'reserved'
-            completed['updated'] = time.time()
-            # Core is the only global completion authority. A journal 'done'
-            # cannot be published unless this deterministic CAS succeeds.
-            next_state = core_state_reducer.apply(state, {
-                'op': 'set_state', 'state': 'done',
-                'expected_version': state['version'],
-                'reason_code': 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED',
-            })
-            goal_state_store.compare_and_swap(
-                state_path, expected_version=state['version'],
-                next_state=next_state,
-            )
-            release_guard.atomic(record_path, execution_record.encode(completed))
-        message = goal_executor.render(completed)
-        try:
-            notify(owner, job_id, message)
-        except Exception:
-            # Could have reached one sink already. Never resend blindly.
+    state_path = root / (job_id + '.goalstate.json')
+    record_path = execution_record.path_for(root, job_id)
+    with goal_job_control.locked(root, job_id):
+        state = goal_state_store.load(state_path)
+        current = execution_record.load(root, owner, job_id)
+        if (state['owner'] != owner or state['job_id'] != job_id
+                or state['version'] != proof.goal_version
+                or goal_job_control.fingerprint(current) != proof.record_digest
+                or state['state'] not in ('running', 'pending')):
             return False
-        with goal_job_control.locked(root, job_id):
-            saved = execution_record.load(root, owner, job_id)
-            if saved.get('_canonical_delivery') == 'reserved':
-                saved['_canonical_delivery'] = 'delivered'
-                saved['updated'] = time.time()
-                release_guard.atomic(record_path, execution_record.encode(saved))
-        return True
+        completed = copy.deepcopy(current)
+        completed['goals'][0].update(
+            state='done', evidence=list(node_ids),
+        )
+        completed['state'] = 'done'
+        completed['_canonical_delivery'] = 'reserved'
+        completed['updated'] = time.time()
+        # Core is the only global completion authority. A journal 'done'
+        # cannot be published unless this deterministic CAS succeeds.
+        next_state = core_state_reducer.apply(state, {
+            'op': 'set_state', 'state': 'done',
+            'expected_version': state['version'],
+            'reason_code': 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED',
+        })
+        goal_state_store.compare_and_swap(
+            state_path, expected_version=state['version'],
+            next_state=next_state,
+        )
+        release_guard.atomic(record_path, execution_record.encode(completed))
+    message = goal_executor.render(completed)
+    try:
+        notify(owner, job_id, message)
+    except Exception:
+        # Could have reached one sink already. Never resend blindly.
+        return False
+    with goal_job_control.locked(root, job_id):
+        saved = execution_record.load(root, owner, job_id)
+        if saved.get('_canonical_delivery') == 'reserved':
+            saved['_canonical_delivery'] = 'delivered'
+            saved['updated'] = time.time()
+            release_guard.atomic(record_path, execution_record.encode(saved))
+    return True
 
 
 def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
