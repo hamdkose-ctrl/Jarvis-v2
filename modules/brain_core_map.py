@@ -747,6 +747,20 @@ _SHARE_OPERATIONS = frozenset({"screen", "camera", "stop"})
 _VOICE_RATE_DIRECTIONS = frozenset({"faster", "slower"})
 
 
+def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    # Only the bounded revision/format choice comes from the model. Owner,
+    # target paths and revision identity come from canonical ActiveContext.
+    if set(arguments) - {"original_text", "operation", "format"}:
+        return None
+    if arguments.get("operation") != "revise":
+        return None
+    output = arguments.get("format")
+    formats = {None: None, "excel": ".xlsx", "word": ".docx", "pdf": ".pdf"}
+    if type(output) not in (str, type(None)) or output not in formats:
+        return None
+    return {"format": formats[output]}
+
+
 def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation"}:
         return None
@@ -972,6 +986,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "device.share": ("share_control", _share_args),
     "voice.rate": ("voice_rate", _voice_rate_args),
     "brief.read": ("daily_brief", _empty_action_args),
+    "workbench.followup": ("workbench_followup", _workbench_followup_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),

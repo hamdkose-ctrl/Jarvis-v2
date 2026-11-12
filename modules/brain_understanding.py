@@ -2712,6 +2712,11 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 for ref in (() if active_context is None else active_context.active_artifacts)
                 if ref.owner == result.owner and ref.id == "last_doc"
                 and ref.source == "session_state" and ref.provenance.get("document_digest")
+            ) + tuple(
+                {"slot": "last_workbench", "label": "recent document table"}
+                for ref in (() if active_context is None else active_context.active_artifacts)
+                if ref.owner == result.owner and ref.id == "last_workbench"
+                and ref.source == "workbench" and ref.provenance.get("digest")
             ),
         )
         if proposal is None:

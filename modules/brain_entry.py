@@ -306,6 +306,15 @@ def _build_context(runtime: Any, owner: str, request_id: str,
         raise ValueError("ActiveContext owner/request fence eşleşmiyor.")
     active = _with_app_target_evidence(active, runtime)
     active = _with_recipient_evidence(active, runtime)
+    # An ephemeral Workbench job is a canonical owner-scoped artifact by
+    # opaque digest only; its stored file paths never enter the model.
+    from modules import workbench
+    digest = workbench.snapshot_digest(owner)
+    if digest is not None:
+        active = _append_artifact(active, ContextReference(
+            id="last_workbench", kind="artifact", source="workbench", owner=owner,
+            provenance={"digest": digest},
+        ))
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
     return _append_artifact(active, artifact)
@@ -997,6 +1006,16 @@ def core_plan(entry: EntryResult) -> tuple[str, dict[str, object]] | None:
         if not isinstance(digest, str) or len(digest) != 64:
             return None
         plan = (plan[0], {"document_owner": entry.owner, "document_digest": digest})
+    if plan is not None and plan[0] == "workbench_followup":
+        references = [ref for ref in entry.active_context.active_artifacts
+                      if ref.owner == entry.owner and ref.id == "last_workbench"
+                      and ref.source == "workbench" and ref.kind == "artifact"]
+        if len(references) != 1:
+            return None
+        digest = references[0].provenance.get("digest")
+        if not isinstance(digest, str) or len(digest) != 64:
+            return None
+        plan = ("workbench_followup", {**plan[1], "expected_digest": digest})
     photo_plan = plan is not None and plan[0] == "photo_action"
     if photo_plan:
         selected, ambiguous = _canonical_photo_path(entry)

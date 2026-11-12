@@ -100,6 +100,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "macro.teach": frozenset({"trigger"}),
     "macro.manage": frozenset({"trigger"}),
     "learning.manage": frozenset({"text", "old", "index"}),
+    "workbench.followup": frozenset({"format"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -242,6 +243,10 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "workbench.followup":
+        return {"operation": ["revise"], "format": ["excel", "word", "pdf", None],
+                "argument_sources": ["format"],
+                "target": "owner-scoped last_workbench artifact only"}
     if capability_id in {"screen.text", "device.share", "voice.rate", "brief.read"}:
         if capability_id == "screen.text":
             return {"operation": ["read", "copy", "error_note"]}
@@ -325,6 +330,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "workbench.followup": (
+        "revise or export an already created document table in the same user's recent Workbench session",
+        "requires session_artifacts.last_workbench; format must be grounded in the user's utterance; Core binds owner and revision"),
     "screen.text": (
         "read the visible screen text with OCR, copy that text to clipboard, or save a visible error to the current user's notes",
         "choose one closed operation; Core checks screen privacy before OCR and the existing owner does the work"),

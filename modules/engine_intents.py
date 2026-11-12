@@ -129,6 +129,13 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
         case "daily_brief":
             return runtime._daily_briefing()
+        case "workbench_followup":
+            from modules import workbench
+            return workbench.followup_typed(
+                runtime.profile.slug, command,
+                expected_digest=str(a.get("expected_digest") or ""),
+                fmt=a.get("format"),
+            )
         case "user_manage":
             from modules import user_command_domain
             return user_command_domain.user_manage(runtime, a)
