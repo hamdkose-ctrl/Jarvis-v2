@@ -49,6 +49,11 @@ class AtomicTokenQuotaTests(unittest.TestCase):
                 self.reserve(units)
         self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
 
+    def test_expired_trusted_policy_still_fails_closed(self):
+        with self.assertRaises(q.ReservationUnavailable):
+            self.reserve(25, now=NOW+2*86400)
+        self.assertFalse((self.directory/'atomic_requests.sqlite3').exists())
+
     def test_malformed_or_partial_token_policy_fails_closed(self):
         for bad in ({'tpm':True}, {'tpd':None}, {'tpm':None},
                     {'tpm':101, 'tpd':100}, {'tpm':0},
