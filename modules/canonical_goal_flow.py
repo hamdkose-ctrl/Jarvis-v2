@@ -97,7 +97,8 @@ def try_create(owner: str, request_id: str, text: str):
             if (existing.get('request_id') != request_id
                     or existing.get('request') != text
                     or state['owner'] != owner or state['job_id'] != job_id
-                    or state.get('goal_plan') != plan):
+                    or goal_state.authority(state) != 'canonical'
+                    or not isinstance(state.get('goal_plan'), dict)):
                 raise ValueError('Canonical request identity collision or incomplete publication.')
             return job_id, 'Bu araştırma isteği zaten kayıtlı; ikinci kez başlatılmadı.'
 
