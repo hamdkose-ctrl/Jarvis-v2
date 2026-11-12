@@ -20,7 +20,8 @@ from modules import (
     canonical_output_projection, canonical_restart_audit,
     canonical_scheduler_lane, execution_record,
     goal_executor, goal_job_control, goal_plan_gate, goal_state_store,
-    runtime_worker_result, specialist_orchestrator,
+    runtime_worker_result, specialist_orchestrator, resource_leases,
+    scheduler_resource_gate, requests_state,
 )
 
 _JOB_RECORD = re.compile(r"([a-f0-9]{16})\.execution\.json\Z")
@@ -132,7 +133,8 @@ def discover(owner: str, *, max_jobs: int = 8, max_offers: int = 2):
 
 def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
                                  *, plan_version: int, node_digest: str,
-                                 deadline_expired: bool = False) -> None:
+                                 deadline_expired: bool = False,
+                                  outcome_reason: str | None = None) -> None:
     """Never clobber a projected result, terminal job, or an accepted success.
 
     If a provider stops or fails, its started first attempt is durably fenced
@@ -187,6 +189,9 @@ def _record_failed_if_unaccepted(owner: str, job_id: str, node_id: str,
             job["outputs"][node_id]["reason_code"] = (
                 "CANONICAL_WORKER_DEADLINE_UNACCEPTED"
             )
+        elif outcome_reason is not None:
+            # Typed unaccepted failures are recovery information, never retry authority.
+            job["outputs"][node_id]["reason_code"] = outcome_reason
         job["updated"] = time.time()
         release_guard.atomic(path, execution_record.encode(job))
 
@@ -262,6 +267,19 @@ def execute_offer(profile, offer, *, stop_event=None):
             plan_version=selected.plan_version, node_digest=selected.node_digest,
             deadline_expired=isinstance(
                 exc, runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+            ),
+            outcome_reason=(
+                'CANONICAL_RESOURCE_BUSY_UNACCEPTED'
+                if isinstance(exc, resource_leases.LeaseConflict) else
+                'CANONICAL_RESOURCE_LEASE_LOST_UNACCEPTED'
+                if isinstance(exc, resource_leases.LeaseFenceError) else
+                'CANONICAL_GOAL_REVOKED_UNACCEPTED'
+                if isinstance(exc, runtime_worker_result.CanonicalWorkerRevoked)
+                else 'CANONICAL_WORKER_CANCELLED_UNACCEPTED'
+                if isinstance(exc, requests_state.Cancelled)
+                else 'CANONICAL_ADMISSION_REJECTED_UNACCEPTED'
+                if isinstance(exc, scheduler_resource_gate.ReadOnlyAdmissionError)
+                else None
             ),
         )
         raise

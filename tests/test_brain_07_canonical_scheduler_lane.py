@@ -256,6 +256,35 @@ class SchedulerOfferTests(unittest.TestCase):
         self.assertEqual([item.selection.node_id for item in self.offers()],
                          ['right'])
 
+    def test_resource_busy_and_lease_lost_are_distinct_unaccepted_reasons(self):
+        from types import SimpleNamespace
+        from modules import resource_leases
+        for exc, expected in (
+            (resource_leases.LeaseConflict('busy'),
+             'CANONICAL_RESOURCE_BUSY_UNACCEPTED'),
+            (resource_leases.LeaseFenceError('lost'),
+             'CANONICAL_RESOURCE_LEASE_LOST_UNACCEPTED'),
+        ):
+            with self.subTest(expected=expected):
+                offer = next(o for o in self.offers()
+                             if o.selection.node_id in ('left', 'right'))
+                with patch('modules.specialist_orchestrator.execute_step',
+                           side_effect=exc):
+                    with self.assertRaises(type(exc)):
+                        canonical_scheduler_dispatch.execute_offer(
+                            SimpleNamespace(slug=OWNER), offer,
+                        )
+                job = execution_record.load(self.owner_root, OWNER, JOB)
+                self.assertEqual(job['outputs'][offer.selection.node_id]['reason_code'],
+                                 expected)
+                self.assertNotIn(
+                    offer.selection.node_id,
+                    [o.selection.node_id for o in self.offers()],
+                    'Failed first attempt must never be blindly reoffered',
+                )
+        self.assertFalse(any(row.get('kind') == 'worker_result'
+                             for row in goal_state_store.load(self.path)['evidence']))
+
     def test_completed_step_or_started_step_is_never_offered(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
         job['steps'][0]['state'] = 'running'
