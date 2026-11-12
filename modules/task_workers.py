@@ -363,10 +363,20 @@ def run(owner, task, dependencies):
             text+=research_evidence.unavailable_footer(task['execution']['unavailable_sources'])
         review=research_evidence.cross_source_review(dependencies)
         if review:text+=review['text']
+        from modules import file_resource_guard
         root=Path(nxapi.FILES_DIR)/'Jarvis Görevler'/owner; root.mkdir(parents=True,exist_ok=True)
-        path=root/(uuid.uuid4().hex[:8]+'-'+filename); path.write_text(text,encoding='utf-8')
-        if path.read_text(encoding='utf-8')!=text: raise OSError('Rapor doğrulanamadı.')
-        return {'state':'done','text':text,'file':str(path),'verified':True,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+        path=root/(uuid.uuid4().hex[:8]+'-'+filename)
+        # This effectful report writer must share the same physical-file OS
+        # claim as file_ops/PPTX/patch_text, even across different DATA_DIRs.
+        # Exclusive create also refuses an existing artifact: a UUID collision
+        # is not permission to overwrite another worker's report.
+        with file_resource_guard.claim_paths(path):
+            with path.open('x', encoding='utf-8') as report:
+                report.write(text)
+            if path.read_text(encoding='utf-8')!=text:
+                raise OSError('Rapor doğrulanamadı.')
+            digest=hashlib.sha256(path.read_bytes()).hexdigest()
+        return {'state':'done','text':text,'file':str(path),'verified':True,'sha256':digest,
                 **({'news_report_evidence':{'sources':dependencies,'unavailable':task.get('execution',{}).get('unavailable_sources',[])}} if news_report else {}),
                 **({'source_conflict':review['status']} if review else {})}
     if kind=='verify':
