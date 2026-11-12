@@ -219,4 +219,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
-- BRAIN-05: `goal_intent` reducer/CAS asıldır; ExecutionRecord türetilir. Versiyon/özet yeniden doğrulanır, eski worker yazamaz; model/araç boyunca kilit yoktur. BRAIN-07: canonical worker, GoalState hedefi ile ExecutionRecord isteği uyuşmazsa başlatılmaz.
+- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal isteği eşleşmeli; yalnız tam kanıtlı çıktı, worker tekrarı olmadan tamamlanmaya alınır.

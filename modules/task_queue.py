@@ -19,6 +19,9 @@ _LAST_ADMITTED={}
 # Read-only canonical workers belong to this same scheduler loop, not another
 # background poller. No owner may monopolize the bounded global pool.
 _CANONICAL_WORKERS={}
+# A recovered completion is attempted once per Scheduler process/snapshot.
+# No repeated model billing every five seconds on semantic rejection/failure.
+_CANONICAL_RESUME_ATTEMPTED=set()
 _LAST_CANONICAL_ADMITTED={}
 _MAX_CANONICAL_WORKERS=3
 _MAX_CANONICAL_PER_OWNER=2
@@ -409,6 +412,49 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                 # the next tick, even if earlier owners remain permanently busy.
                 _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
 
+        def admit_recovered_completion(owner):
+            if canonical_result_notify is None or stop_event.is_set():
+                return
+            from modules import canonical_scheduler_dispatch
+            for key, worker in tuple(_CANONICAL_WORKERS.items()):
+                if not worker.is_alive():
+                    _CANONICAL_WORKERS.pop(key, None)
+            if (len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS
+                    or sum(key[0] == owner for key in _CANONICAL_WORKERS)
+                       >= _MAX_CANONICAL_PER_OWNER):
+                return
+            for candidate in canonical_scheduler_dispatch.recoverable_completions(
+                    owner, max_results=1):
+                key = (owner, candidate.job_id, '__canonical_completion__',
+                       candidate.goal_version, candidate.record_digest)
+                if (key in _CANONICAL_RESUME_ATTEMPTED
+                        or any(active_key[0] == owner
+                               and active_key[1] == candidate.job_id
+                               for active_key in _CANONICAL_WORKERS)):
+                    continue
+
+                def recover(offer=candidate, pinned_owner=owner):
+                    token = llm._key_context.set(pinned_owner)
+                    try:
+                        if not stop_event.is_set():
+                            # Callback owns the existing proof recheck, Core CAS,
+                            # and owner-targeted delivery. Never launch workers.
+                            canonical_result_notify(pinned_owner, offer.job_id)
+                    except Exception:
+                        _record_failure('modules/task_queue.py:completion_recovery')
+                    finally:
+                        llm._key_context.reset(token)
+
+                _CANONICAL_RESUME_ATTEMPTED.add(key)
+                worker = threading.Thread(
+                    target=recover, daemon=True,
+                    name='jarvis-canonical-recover-'+owner[:16],
+                )
+                _CANONICAL_WORKERS[key] = worker
+                worker.start()
+                _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
+                break
+
         def loop():
             global _DAILY_NEXT
             while not stop_event.wait(5):
@@ -437,6 +483,7 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                             profile = canonical_profile_resolver(registered_owner)
                             if getattr(profile, 'slug', None) == registered_owner:
                                 admit_canonical(registered_owner, profile)
+                                admit_recovered_completion(registered_owner)
                         except Exception:
                             _record_failure('modules/task_queue.py:canonical_owner')
                 if not service_store.ROOT.exists():continue
