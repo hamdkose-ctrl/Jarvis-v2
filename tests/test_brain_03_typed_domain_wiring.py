@@ -670,11 +670,22 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         candidates = [{"id": "a", "text": "Çizim", "where": "is"},
                       {"id": "b", "text": "Çizim kontrolü", "where": "is"}]
         with patch.object(handoff, "pending", return_value=candidates), \
-             patch.object(handoff, "_svc") as service:
+             patch.object(handoff, "_svc") as service, \
+             patch.object(handoff, "_lid", return_value="test-list"):
             service.return_value.tasks.return_value.patch.return_value.execute.return_value = {}
             self.assertIsNone(handoff.complete_exact("çiz"))
             self.assertEqual(handoff.complete_exact("Çizim"), "Çizim")
-        service.return_value.tasks.return_value.patch.assert_called_once()
+        service.return_value.tasks.return_value.patch.assert_called_once_with(
+            tasklist="test-list", task="a", body={"status": "completed"})
+
+    def test_notify_fallback_negation_does_not_enable_or_send(self):
+        from modules import notify
+        prefs = {}
+        with patch.object(notify, "execute_typed",
+                          side_effect=AssertionError("negated notification executed")) as run:
+            self.assertIsNone(notify.handle("telefon bildirimini açma", prefs, lambda: None))
+            self.assertIsNone(notify.handle("telefona mesaj gönderme", prefs, lambda: None))
+        run.assert_not_called()
 
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
