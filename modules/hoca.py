@@ -536,16 +536,16 @@ def control_typed(profile, *, operation: str, step: int, question: str, answer: 
             return _finished(profile)
         return _lesson_text(profile)
     if operation == "give_up" and question:
-        return (f"Doğrusu: {give_up(profile)}\\nBu adımı zayıf konulara yazdım; "
+        return (f"Doğrusu: {give_up(profile)}\nBu adımı zayıf konulara yazdım; "
                 "devam etmek için 'sonraki adım' de.")
     if operation != "answer" or not question or not isinstance(answer, str) or not answer.strip():
         return "Ders cevabını doğrulayamadım; işlem başlatılmadı."
     graded = grade(profile, answer)
     if graded["correct"]:
         if not current_step(profile):
-            return f"{graded['feedback']}\\n\\n" + _finished(profile)
-        return f"{graded['feedback']}\\n\\n" + _lesson_text(profile)
-    return (f"{graded['feedback']}\\nDoğrusu: {graded['expected']}\\n"
+            return f"{graded['feedback']}\n\n" + _finished(profile)
+        return f"{graded['feedback']}\n\n" + _lesson_text(profile)
+    return (f"{graded['feedback']}\nDoğrusu: {graded['expected']}\n"
             "Bu adımı zayıf konulara yazdım; devam etmek için 'sonraki adım' de.")
 
 

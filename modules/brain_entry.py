@@ -598,10 +598,16 @@ def _open_core_pending(runtime: Any) -> frozenset[str]:
     except Exception:
         _record_failure("modules/brain_entry.py:core_pending_snapshot")
         return frozenset()
-    return frozenset(
+    result = {
         field for field in brain_context._PENDING_FIELDS
         if getattr(state, field, None) not in (None, False, "", (), [], {})
-    )
+    }
+    # A Taildrop clarification is a real Core pending slot, not a prose
+    # success. Macro/batch execution must stop at this boundary.
+    from modules import filesend
+    if filesend.pending_choices(runtime.profile.slug) is not None:
+        result.add("pending_filesend")
+    return frozenset(result)
 
 
 @contextmanager

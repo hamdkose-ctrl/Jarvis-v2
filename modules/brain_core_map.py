@@ -907,7 +907,7 @@ def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """One exact-title reminder deletion; no model-supplied event id or bulk scope."""
+    """Core checks one grounded exact-title reminder change; no arbitrary ids or bulk."""
     if set(arguments) - {"original_text", "operation", "title", "duration"}:
         return None
     operation = arguments.get("operation")

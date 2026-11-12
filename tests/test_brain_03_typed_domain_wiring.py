@@ -608,6 +608,31 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 self.ctx, proposal))
         worker.assert_not_called()
 
+    def test_typed_taildrop_ambiguous_target_returns_needs_input_and_state_resume(self):
+        from modules import filesend
+        from pathlib import Path
+        root = Path(self.temp.name) / "Downloads"
+        root.mkdir(exist_ok=True)
+        candidates = [root / "a.pdf", root / "b.pdf"]
+        for name in candidates:
+            name.write_text("data", encoding="utf-8")
+        with patch.object(filesend, "_folders", return_value=[root]), \
+             patch.object(filesend, "find", return_value=candidates), \
+             patch.object(filesend, "_score_gap", return_value=False), \
+             patch.object(filesend, "send", return_value="TRANSFER_OK") as send:
+            entry, reply, feedback = self.typed(
+                "Rapor dosyasını telefonuma gönder", "filesend.transfer",
+                {"operation": "search", "query": "Rapor"})
+            self.assertIn("hangisini", reply)
+            self.assertEqual(feedback.result_status, "needs_input")
+            resume, result, handler, resume_feedback = self.turn_real(
+                "2", model_understanding=False)
+        self.assertEqual(resume.state_gate.protocol, "filesend.pending.select")
+        self.assertEqual(result, "TRANSFER_OK")
+        self.assertEqual(resume_feedback.result_status, "handled")
+        send.assert_called_once_with(candidates[1])
+        handler.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
