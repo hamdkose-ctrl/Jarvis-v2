@@ -70,6 +70,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
+- **B07-FINAL-A (#610 DRAFT):** Core CAS–ExecutionRecord kesintisinde sonuç yalnız Core ve exact WorkerResult kanıtıyla sahibine okutulur. Bildirim/replay tekrar edilmez. Kabul: #584 ve aynı SHA CI+PC; PASS/merge değil.
+
 ## BRAIN-04 action_batch
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.

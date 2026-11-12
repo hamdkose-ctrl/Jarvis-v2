@@ -7,6 +7,7 @@ Only first-attempt, manifest-verified read-only tasks enter this lane.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from contextlib import contextmanager
 import hashlib
 import json
@@ -401,20 +402,36 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
                 or goal_job_control.fingerprint(current) != proof.record_digest
                 or state['state'] not in ('running', 'pending')):
             return False
-        completed = copy.deepcopy(current)
+        # A crash between terminal Core CAS and this second JSON file must
+        # not permanently erase the verified written result. Freeze ONLY its
+        # display bytes and event identity in the still-running journal before
+        # the terminal CAS. No 'done' flag or delivery authorization exists yet.
+        # This pre-commit record is not a second GoalState or an outbox.
+        prepared = copy.deepcopy(current)
+        prepared['_canonical_result_text'] = message
+        prepared['_canonical_result_event_id'] = 'canonical:' + job_id
+        prepared['updated'] = time.time()
+        release_guard.atomic(record_path, execution_record.encode(prepared))
+        # The original proof already certified every accepted output and
+        # checked both snapshots; under the SAME job lock, the only journal
+        # changes above were our frozen result metadata and updated timestamp.
+        # Bind its new exact fingerprint before the existing Core adapter CAS.
+        prepared_proof = replace(
+            proof, record_digest=goal_job_control.fingerprint(prepared),
+        )
+        goal_state_compat.commit_verified_goal_completion(
+            state_path, owner=owner, job_id=job_id, proof=prepared_proof,
+        )
+        # The terminal state is now Core-authorized. Recording the outcome and
+        # reserved delivery may fail on disk: an owner-only READ of the frozen
+        # pre-CAS result remains possible after verifying terminal Core proof.
+        completed = copy.deepcopy(prepared)
         completed['goals'][0].update(
             state='done', evidence=list(node_ids),
         )
         completed['state'] = 'done'
         completed['_canonical_delivery'] = 'reserved'
-        completed['_canonical_result_text'] = message
-        completed['_canonical_result_event_id'] = 'canonical:' + job_id
         completed['updated'] = time.time()
-        # Keep the Core CAS and proof/journal fence inside its authorized
-        # compat commit adapter. A journal 'done' cannot precede Core success.
-        goal_state_compat.commit_verified_goal_completion(
-            state_path, owner=owner, job_id=job_id, proof=proof,
-        )
         release_guard.atomic(record_path, execution_record.encode(completed))
     try:
         notify(owner, job_id, message)
@@ -451,17 +468,28 @@ def read_completed_result(owner: str, job_id: str) -> str:
                 or state['state'] != 'done'
                 or state['audit'][-1]['reason_code'] != 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED'
                 or not isinstance(plan, dict)
-                or journal.get('state') != 'done'
                 or journal.get('request') != state['goal']
-                or journal.get('_canonical_delivery') not in ('reserved', 'delivered')
                 or not isinstance(goals, list) or len(goals) != 1
-                or goals[0].get('state') != 'done'
                 or not isinstance(steps, list) or not isinstance(outputs, dict)):
             raise ValueError('Only verified completed canonical result may be read.')
         node_ids = tuple(node['id'] for node in plan['nodes'])
         evidence = goals[0].get('evidence')
-        if (not isinstance(evidence, list) or len(evidence) != len(node_ids)
-                or set(evidence) != set(node_ids)
+        finished = (
+            journal.get('state') == 'done'
+            and journal.get('_canonical_delivery') in ('reserved', 'delivered')
+            and goals[0].get('state') == 'done'
+            and isinstance(evidence, list)
+            and len(evidence) == len(node_ids)
+            and set(evidence) == set(node_ids)
+        )
+        torn_after_core_cas = (
+            journal.get('state') == 'running'
+            and journal.get('_canonical_delivery') is None
+            and journal.get('_canonical_result_event_id') == 'canonical:' + job_id
+            and goals[0].get('state') == 'pending'
+            and evidence == []
+        )
+        if (not (finished or torn_after_core_cas)
                 or len(steps) != len(node_ids) or set(outputs) != set(node_ids)):
             raise ValueError('Completion journal differs from the accepted plan.')
         for node in plan['nodes']:
@@ -480,13 +508,30 @@ def read_completed_result(owner: str, job_id: str) -> str:
                 allow_completed_read=True,
             )
         result = journal.get('_canonical_result_text')
-        if not isinstance(result, str) or not result.strip():
+        if torn_after_core_cas:
+            # Never trust a cached but uncommitted string on its own. Prove
+            # the terminal Core transition AND every exact accepted output,
+            # then recompute the original deterministic completed rendering.
+            # A forged/missing frozen string is rejected; no disk mutation,
+            # worker retry or second notification is authorized by a read.
+            preview = copy.deepcopy(journal)
+            preview['goals'][0].update(
+                state='done', evidence=list(node_ids),
+            )
+            preview['state'] = 'done'
+            if (not isinstance(result, str) or not result.strip()
+                    or goal_executor.render(preview) != result):
+                raise ValueError('Frozen completion result could not be verified.')
+        elif not isinstance(result, str) or not result.strip():
             # Older completed journal without the new frozen result snapshot.
             result = goal_executor.render(journal)
         if not isinstance(result, str) or not result.strip():
             raise ValueError('Completed result is unreadable.')
-    return (f'Kayıtlı hedef sonucu — {job_id}:\n\n' + result +
+    note = ('\n\nSonuç Core tarafından tamamlandı; ikinci kayıt kesintiye uğramış '
+            'olabilir. Otomatik bildirim tekrar gönderilmedi.'
+            if torn_after_core_cas else
             '\n\nBu sorgu bildirim göndermez veya işi tekrar çalıştırmaz.')
+    return f'Kayıtlı hedef sonucu — {job_id}:\n\n' + result + note
 
 
 def read_result_command(owner: str, text: str) -> str | None:
