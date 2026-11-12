@@ -230,6 +230,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "worktrack_read":
             from modules import worktrack
             return worktrack.report(a["kind"], a.get("project"))
+        case "filesend_select":
+            from modules import filesend
+            return filesend.select_pending(runtime.profile.slug, a["index"])
+        case "filesend_cancel":
+            from modules import filesend
+            return filesend.cancel_pending(runtime.profile.slug)
         case "file_organize_undo":
             from modules import requests_state
             requests_state.check()

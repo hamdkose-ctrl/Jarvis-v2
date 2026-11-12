@@ -206,6 +206,26 @@ def _job_match(reference: ContextReference, text: str, owner: str, request_id: s
     return None
 
 
+def _filesend_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
+    if reference.source != "filesend" or reference.id != "pending_filesend":
+        return None
+    names = reference.provenance.get("choices")
+    expires = reference.provenance.get("expires")
+    if (not isinstance(names, (tuple, list)) or not 1 <= len(names) <= 4
+            or any(not isinstance(name, str) or not name for name in names)
+            or not isinstance(expires, (int, float)) or isinstance(expires, bool)
+            or expires <= time.time()):
+        return None
+    if text in _CANCEL or text in {"hiçbiri", "hicbiri"}:
+        return _hit(owner, request_id, "state", "filesend.pending.cancel",
+                    "cancel", "BOUNDED_FILE_TRANSFER_CANCEL")
+    index = choice_index(text, list(names))
+    if index is None:
+        return None
+    return _hit(owner, request_id, "state", "filesend.pending.select",
+                index + 1, "BOUNDED_FILE_TRANSFER_SELECTION")
+
+
 def _session_match(reference: ContextReference, text: str, owner: str, request_id: str) -> GateObservation | None:
     if reference.source != "session_state" or reference.id not in _PENDING_SESSION_IDS:
         return None
@@ -416,6 +436,7 @@ def _foreground_open(reference: ContextReference) -> bool:
         or (reference.source == "profile.hoca" and reference.id == "lesson.pending")
         or (reference.source == "desktop_agent" and reference.id == "consent")
         or (reference.source == "engine_commands" and reference.id == "pending_photo")
+        or (reference.source == "filesend" and reference.id == "pending_filesend")
     )
 
 
@@ -445,6 +466,7 @@ def exact_state_gate(
             _goal_match(reference, normalized, owner, request_id)
             or _job_match(reference, normalized, owner, request_id, goal_open=goal_open)
             or _session_match(reference, normalized, owner, request_id)
+            or _filesend_match(reference, normalized, owner, request_id)
             or _learning_match(reference, normalized, owner, request_id)
             or _hoca_match(reference, normalized, owner, request_id)
             or _desktop_match(reference, normalized, owner, request_id)

@@ -317,6 +317,16 @@ def _build_context(runtime: Any, owner: str, request_id: str,
         ))
     active = _append_artifact(active, _pending_photo_artifact(runtime, owner))
     active = _append_pending(active, _pending_photo_reference(runtime, owner))
+    # Taildrop choice is a bounded owner-local State protocol. Never give
+    # the model candidate paths or let filesend.handle parse "1" again.
+    from modules import filesend
+    file_choices = filesend.pending_choices(owner)
+    if file_choices is not None:
+        names, expires = file_choices
+        active = _append_pending(active, ContextReference(
+            id="pending_filesend", kind="pending_state", source="filesend", owner=owner,
+            provenance={"choices": names, "expires": expires},
+        ))
     return _append_artifact(active, artifact)
 
 

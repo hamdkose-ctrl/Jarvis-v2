@@ -12,13 +12,18 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 from config import load_settings, save_settings
 
 _last_os: dict = {"os": "ios"}                  # son bulunan telefonun işletim sistemi (mesaj için)
-_pending: dict = {"t": 0.0, "files": []}       # birden fazla eşleşme olunca "hangisi?" seçimi
+# BRAIN-03: no global "last four files" across profiles. Only opaque
+# owner-scoped, short-lived file observations; selection belongs to State Gate.
+_pending_lock = threading.RLock()
+_pending_by_owner: dict[str, dict] = {}
+_PENDING_TTL = 180.0
 _EXT_HINT = {"pdf": {".pdf"}, "fotograf": {".jpg", ".jpeg", ".png", ".heic"}, "resim": {".jpg", ".jpeg", ".png"},
              "cizim": {".dwg", ".pdf", ".dxf"}, "excel": {".xlsx", ".xls"}, "word": {".docx", ".doc"}}
 _SKIP_EXT = {".tmp", ".crdownload", ".part", ".ini", ".lnk", ".url"}
@@ -225,29 +230,85 @@ def _ago(p: Path) -> str:
 _TO_PHONE = re.compile(r"(.*?)\s*(?:'?[yn]?[ıiuü]\s+)?telefon(?:um)?[ay]?\s*(?:gönder|at|yolla|aktar|ilet)\w*", re.I)
 
 
-def handle(cmd_lower: str) -> str | None:
+def _file_proof(path: Path) -> tuple | None:
+    """Capture a confined, non-symlink candidate; never expose paths to Brain."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        resolved = path.resolve(strict=True)
+        roots = [root.resolve(strict=True) for root in _folders()]
+        if not any(resolved.is_relative_to(root) for root in roots):
+            return None
+        stat = path.stat()
+        return (str(resolved), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    except (OSError, ValueError):
+        return None
+
+
+def remember_pending(owner: str, candidates: list[Path]) -> bool:
+    """Open a bounded owner-local selection, never a global active user slot."""
+    if not isinstance(owner, str) or not owner.strip():
+        return False
+    rows = []
+    for path in candidates[:4]:
+        proof = _file_proof(path)
+        if proof is not None:
+            rows.append((path, proof))
+    with _pending_lock:
+        _pending_by_owner.pop(owner, None)
+        if len(rows) < 2:
+            return False
+        _pending_by_owner[owner] = {"expires": time.time() + _PENDING_TTL, "rows": rows}
+    return True
+
+
+def pending_choices(owner: str) -> tuple[tuple[str, ...], float] | None:
+    """Read-only observation used by Brain's State Gate; no path/phone address."""
+    with _pending_lock:
+        state = _pending_by_owner.get(owner)
+        if not state:
+            return None
+        if time.time() >= state["expires"]:
+            _pending_by_owner.pop(owner, None)
+            return None
+        return (tuple(path.name for path, _ in state["rows"]), state["expires"])
+
+
+def cancel_pending(owner: str) -> str:
+    with _pending_lock:
+        _pending_by_owner.pop(owner, None)
+    return "Tamam, dosyayı göndermiyorum."
+
+
+def select_pending(owner: str, index: int) -> str:
+    """State-confirmed index only. Pop first: one request cannot replay/send twice."""
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(owner, str) or not owner or type(index) is not int:
+        return "Dosya seçimini doğrulayamadım; göndermedim."
+    with _pending_lock:
+        state = _pending_by_owner.pop(owner, None)
+    if not state or time.time() >= state["expires"]:
+        return "Dosya seçiminin süresi doldu; hiçbir dosya göndermedim."
+    rows = state["rows"]
+    if not 1 <= index <= len(rows):
+        return "Geçersiz dosya numarası; hiçbir dosya göndermedim."
+    path, expected = rows[index - 1]
+    if _file_proof(path) != expected:
+        return "Dosya değişmiş veya izinli klasör dışında; göndermedim."
+    requests_state.check()
+    return send(path)
+
+
+def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
+    """Legacy only for initial spoken transfer. No raw follow-up selector exists."""
     t = cmd_lower.strip(" .!?")
-    # "hangisi?" sorusuna cevap: "1", "ikincisi", "2. olanı"
-    if _pending["files"] and time.time() - _pending["t"] < 180:
-        order = {"bir": 1, "birinci": 1, "ilk": 1, "iki": 2, "ikinci": 2, "üç": 3, "üçüncü": 3, "dört": 4, "dördüncü": 4,
-                 "beş": 5, "beşinci": 5}
-        m = re.fullmatch(r"(\d)\s*\.?\s*\w*|(\w+?)(?:si|sı|cisi|cısı|ncisi|ncısı)?(?:\s+olan\w*)?", t)
-        k = None
-        if m and m.group(1):
-            k = int(m.group(1))
-        elif m and m.group(2):
-            k = order.get(m.group(2)) or order.get(t.split()[0])
-        if k and 1 <= k <= len(_pending["files"]):
-            p = _pending["files"][k - 1]
-            _pending["files"] = []
-            return send(p)
-        if re.fullmatch(r"(?:vazgeç|iptal|hiçbiri)\w*", t):
-            _pending["files"] = []
-            return "Tamam, göndermiyorum."
     m = _TO_PHONE.fullmatch(t)
     if not m or not re.search(r"telefon", t):
         return None
     what = m.group(1).strip()
+    if owner:
+        cancel_pending(owner)  # A new explicit request supersedes old file choices.
     if re.search(r"ekran\s*görüntü|ekranı", what):
         p = _screenshot()
         res = send(p)
@@ -266,9 +327,13 @@ def handle(cmd_lower: str) -> str | None:
         return f"“{what}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
     if len(found) == 1 or _score_gap(what, found):
         return send(found[0])
-    _pending.update(t=time.time(), files=found[:4])
-    lst = "; ".join(f"{i}) {p.name} ({_ago(p)})" for i, p in enumerate(found[:4], 1))
-    return f"{len(found[:4])} dosya buldum, hangisini göndereyim? {lst}. Numarasını söylemen yeterli."
+    if not owner or not remember_pending(owner, found):
+        return "Birkaç dosya eşleşiyor ama güvenli seçim açamadım. Dosyanın tam adını söyle."
+    choices = pending_choices(owner)
+    if choices is None:
+        return "Dosya seçim kaydını doğrulayamadım; göndermedim."
+    lst = "; ".join(f"{i}) {name}" for i, name in enumerate(choices[0], 1))
+    return f"{len(choices[0])} dosya buldum, hangisini göndereyim? {lst}. Numarasını söylemen yeterli."
 
 
 def set_target(name: str) -> None:

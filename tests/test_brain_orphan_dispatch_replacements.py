@@ -158,9 +158,7 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
     def test_send_phone_owner_resolves_the_file_before_the_transport(self):
         from modules import filesend
         target = Path('rapor.pdf')
-        pending = {'t': 0, 'files': []}
-        with patch.object(filesend, '_pending', pending), \
-             patch.object(filesend, 'find', return_value=[target]) as found, \
+        with patch.object(filesend, 'find', return_value=[target]) as found, \
              patch.object(filesend, 'send', return_value='Telefona gönderdim: rapor.pdf') as sent:
             out = filesend.handle('rapor dosyasını telefonuma gönder')
         self.assertEqual(out, 'Telefona gönderdim: rapor.pdf')
@@ -170,8 +168,7 @@ class MailMediaAndTransferOwnerTests(unittest.TestCase):
     def test_ambiguous_send_request_asks_instead_of_guessing_a_file(self):
         from modules import filesend
         send = Mock()
-        with patch.object(filesend, '_pending', {'t': 0, 'files': []}), \
-             patch.object(filesend, 'find', side_effect=AssertionError('belirsiz istekte dosya aranmaz')), \
+        with patch.object(filesend, 'find', side_effect=AssertionError('belirsiz istekte dosya aranmaz')), \
              patch.object(filesend, 'send', send):
             out = filesend.handle('şu dosyayı telefonuma gönder')
         self.assertEqual(out, filesend.ASK)

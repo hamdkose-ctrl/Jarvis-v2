@@ -458,7 +458,7 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
     # Exact undo was physically retired from this raw cascade.
     # Only Fast Gate fast.file.organize.undo can reach the existing worker.
     from modules import filesend, worktrack
-    sent = filesend.handle(cmd_lower)                 # "test planını telefonuma gönder" (Tailscale Taildrop)
+    sent = filesend.handle(cmd_lower, owner=runtime.profile.slug)  # Taildrop: only initial request, not pending choice
     if sent is not None:
         return sent
     work = worktrack.handle(cmd_lower, runtime.profile)       # iş takibi: proje durumu, cevap bekleyenler, tarihli işler

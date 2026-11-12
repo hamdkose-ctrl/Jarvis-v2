@@ -1228,6 +1228,10 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
 
 def state_plan(protocol: str | None, selection: Any, level: Any,
                pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
+    if protocol == "filesend.pending.select":
+        return ("filesend_select", {"index": selection}) if type(selection) is int and 1 <= selection <= 4 else None
+    if protocol == "filesend.pending.cancel":
+        return ("filesend_cancel", {}) if selection == "cancel" else None
     if protocol == "learning.pending_facts.select":
         if not isinstance(selection, str) or not isinstance(pending_snapshot, (list, tuple)) or not pending_snapshot:
             return None
