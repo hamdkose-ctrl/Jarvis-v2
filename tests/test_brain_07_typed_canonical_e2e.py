@@ -121,6 +121,33 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertIn('ikinci kez başlatılmadı', answer)
         self.assertEqual(self.persisted(job_id), (state_before, journal_before))
 
+    def test_duplicate_with_unsupported_second_model_plan_never_enters_legacy(self):
+        """A duplicate must win before a different, effectful planner reply.
+
+        Regression for the old order: model validation returned None before
+        checking the existing request, then goal_resolver fell back to
+        goal_executor._run and allocated a second unrelated goal ID.
+        """
+        effectful = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Save report', 'filename': 'report.md'},
+        }]}
+        with patch.object(model_wait, 'ask', side_effect=[
+            json.dumps(research_tasks('first')), json.dumps(effectful),
+        ]) as planner:
+            rid, _, first_fb, job_id = self.typed_turn()
+            before = self.persisted(job_id)
+            _, reply, second_fb, same_job = self.typed_turn(rid=rid)
+        self.assertEqual(first_fb.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        planner.assert_called_once()
+        self.assertEqual(same_job, job_id)
+        self.assertEqual(second_fb.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertIn('ikinci kez başlatılmadı', reply)
+        self.assertEqual(before, self.persisted(job_id))
+        self.run_goal.assert_not_called()
+        root = goal_executor._owner_root(self.owner)
+        self.assertEqual(len(tuple(root.glob('*.execution.json'))), 1)
+
     def test_request_id_collision_rejects_before_any_planner_call(self):
         with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
             rid, _, _, job_id = self.typed_turn()
