@@ -62,14 +62,16 @@ def _read_only_manifest(capability_id: str) -> dict | None:
 
 
 def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
-    """Adopt only accepted *independent root* progress during read-only work.
+    """Adopt only Core-accepted read-only progress without changing intent.
 
-    Independent roots and one specifically supported Gmail indexed-read child
-    may commit after an unrelated root succeeds. A dependent account result
-    must still pass current-plan readiness, exact persisted predecessor proof,
-    and its live account lease INSIDE the same Core CAS lock below.
-    No user edit, plan revision, unknown evidence, other child, effect, or
-    duplicate can be adopted; this does not authorize worker replay.
+    An independent root may finish after a verified Gmail indexed-read child,
+    and that child may finish after another independent root. Only first-attempt,
+    Core-accepted Gmail list→indexed-read children can count as intervening
+    progress for a root; the accepted child's precise shape and all current
+    audit/evidence identities must be revalidated. A dependent child may adopt
+    ONLY intervening independent roots, not another child.
+    Never retry a command or adopt user edits, plan revisions, unknown evidence,
+    unsupported dependents, effects, or missing resource proofs.
     """
     from modules import goal_plan_gate
     expected_version = accepted['expected_job_version']
@@ -111,6 +113,7 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
         return False
     appended = current['evidence'][-len(intervening):]
     seen = set()
+    passed_child = False
     for row in appended:
         if (not isinstance(row, dict) or row.get('kind') != 'worker_result'
                 or row.get('status') not in {'succeeded', 'failed'}
@@ -138,13 +141,34 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
             node['input'], ensure_ascii=False, sort_keys=True,
             separators=(',', ':'), allow_nan=False,
         ).encode('utf-8')
-        if (node['depends_on'] or manifest is None
+        supported_child = (
+            not active['depends_on']
+            and bool(node['depends_on'])
+            and row['status'] == 'succeeded'
+            and attempt == 1
+            and goal_plan_gate.supported_gmail_indexed_dependency(
+                current['goal_plan'], node,
+            )
+        )
+        if ((node['depends_on'] and not supported_child)
+                or manifest is None
                 or selection.node_digest != row.get('node_digest')
                 or node['capability_id'] != row.get('capability_id')
                 or row.get('capability_version') != str(manifest['version'])
                 or row.get('input_digest') != hashlib.sha256(canonical_input).hexdigest()
                 or row.get('command_id') !=
                    f"{step_id}:{attempt}:p{accepted['plan_version']}"):
+            return False
+        passed_child = passed_child or supported_child
+    if passed_child:
+        # Revalidate all Core audit/evidence rows including the accepted
+        # dependency's own first attempt and its predecessor. This is still
+        # only a read-only structural rebase, never worker launch authority.
+        try:
+            goal_plan_gate.ready_read_only_candidates(
+                current, owner=accepted['owner'], job_id=accepted['job_id'],
+            )
+        except goal_plan_gate.PlanFenceError:
             return False
     return True
 
