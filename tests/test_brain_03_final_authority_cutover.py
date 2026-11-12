@@ -181,6 +181,39 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         invalid = {**proposal, "owner": "foreign"}
         self.assertIn("geçersiz", main_planner.clear_notes_confirmed(self.ctx, invalid))
 
+    def test_failed_model_negated_note_delete_is_safe_in_real_production_turn(self):
+        from modules import brain_model_understanding
+        original = self.ctx.profile.add_note_item("KORUNACAK")
+        with patch.object(brain_model_understanding, "propose", return_value=None), \
+             patch.object(self.ctx.profile, "clear_note_items",
+                          side_effect=AssertionError("negative model fallback deleted notes")) as clear:
+            entry, output, handler, feedback = self.turn_real(
+                "notları silme", model_understanding=True)
+        self.assertEqual(
+            [row["id"] for row in self.ctx.profile.data["items"]],
+            [original["id"]],
+        )
+        self.assertIsNone(self.ctx._session().pending_confirm)
+        clear.assert_not_called()
+
+    def test_failed_model_exact_note_clear_requires_real_state_gate_confirmation(self):
+        from modules import brain_model_understanding
+        old = self.ctx.profile.add_note_item("KORUNACAK")
+        with patch.object(brain_model_understanding, "propose", return_value=None):
+            entry, answer, handler, feedback = self.turn_real(
+                "tüm notları sil", model_understanding=True)
+        self.assertIn("onaylıyor musun", answer)
+        self.assertEqual(feedback.result_status, "needs_input")
+        self.assertEqual(len(self.ctx.profile.data["items"]), 1)
+        self.assertEqual(self.ctx._session().pending_confirm["action"], "notes_clear")
+        approved, outcome, _, approved_feedback = self.turn_real(
+            "evet", model_understanding=True)
+        self.assertTrue(approved.state_gate.matched)
+        self.assertEqual(approved.state_gate.protocol, "session.pending_confirm.confirm")
+        self.assertIn("Tüm notlarını sildim", outcome)
+        self.assertEqual(approved_feedback.result_status, "handled")
+        self.assertEqual(self.ctx.profile.data["items"], [])
+
     def test_unplanned_control_still_has_its_existing_owner(self):
         with patch.object(self.ctx, "_file_command", return_value=None), \
              patch.object(self.ctx, "_user_controls", return_value="PAYLASIM") as controls:
