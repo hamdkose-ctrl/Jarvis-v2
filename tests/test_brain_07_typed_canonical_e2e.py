@@ -982,6 +982,23 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                         'action': 'complete', 'goal': 0, 'evidence': ['first'],
                     }),
                 ))
+                # Stop and join while all temporary Scheduler registries
+                # are STILL patched. Otherwise ExitStack restores _THREAD
+                # and _CANONICAL_WORKERS before the outer finally runs,
+                # losing the live recovery thread and leaving a Windows
+                # .control.lock file open during TemporaryDirectory cleanup.
+                def close_patched_scheduler():
+                    stop.set()
+                    scheduler = task_queue._THREAD
+                    if scheduler is not None:
+                        scheduler.join(10)
+                        self.assertFalse(scheduler.is_alive(),
+                                         'Recovery Scheduler thread still alive')
+                    for live in tuple(task_queue._CANONICAL_WORKERS.values()):
+                        live.join(10)
+                        self.assertFalse(live.is_alive(),
+                                         'Recovery worker still owns a Windows file lock')
+                patches.callback(close_patched_scheduler)
                 with patch.object(task_agents, 'worker',
                                   side_effect=AssertionError('worker replay')) as worker:
                     task_queue.start(
@@ -1008,12 +1025,9 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                         self.owner,
                     ), ())
         finally:
+            # Backstop for an exception before installing the ExitStack
+            # callback; the callback itself joins under pinned mocks.
             stop.set()
-            if task_queue._THREAD is not None:
-                task_queue._THREAD.join(10)
-            for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
-                worker.join(10)
-
 
     def test_canonical_gmail_indexed_read_waits_for_accepted_list(self):
         """Typed request -> Core plan -> real specialist/leases/CAS -> delivery.
