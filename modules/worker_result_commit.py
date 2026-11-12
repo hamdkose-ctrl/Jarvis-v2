@@ -175,7 +175,8 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             node_id=accepted['step_id'],
         )
         node = goal_plan_gate.revalidate(current, selection)
-        if ((node['depends_on'] and node['capability_id'] != 'task.research')
+        if ((node['depends_on'] and node['capability_id']
+             not in ('task.research', 'task.account'))
                 or node['capability_id'] != accepted['capability_id']
                 or selection.plan_version != accepted['plan_version']
                 or selection.node_digest != accepted['node_digest']
@@ -234,23 +235,27 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
             # predecessor output. Canonical readiness and the exact persisted
             # output digest/domain receipt are checked again under the same
             # owner/job cross-process lock immediately before Reducer/CAS.
-            goal_plan_gate.validate_dependent_research_attempt(
-                current, selection, attempt=accepted['attempt'],
-            )
             from modules import dependency_evidence
-            dependency_evidence.require_persisted_research_dependencies(
-                {
-                    'version': 1, 'owner': accepted['owner'],
-                    'job_id': accepted['job_id'], 'task_id': accepted['step_id'],
-                },
-                node,
-            )
-            # Direct, concurrent or stale worker callers cannot bypass the
-            # existing in-process scheduler command lease at result CAS.
-            from modules import scheduler_resource_gate
-            scheduler_resource_gate.require_dependent_research_result_lease(
-                accepted,
-            )
+            pinned = {
+                'version': 1, 'owner': accepted['owner'],
+                'job_id': accepted['job_id'], 'task_id': accepted['step_id'],
+            }
+            if node['capability_id'] == 'task.research':
+                goal_plan_gate.validate_dependent_research_attempt(
+                    current, selection, attempt=accepted['attempt'],
+                )
+                dependency_evidence.require_persisted_research_dependencies(pinned, node)
+                # Direct/stale workers cannot bypass the command lease.
+                from modules import scheduler_resource_gate
+                scheduler_resource_gate.require_dependent_research_result_lease(accepted)
+            elif node['capability_id'] == 'task.account':
+                goal_plan_gate.validate_dependent_account_attempt(
+                    current, selection, attempt=accepted['attempt'],
+                )
+                dependency_evidence.require_persisted_account_dependencies(pinned, node)
+                # Account result lease is independently checked below.
+            else:
+                raise goal_plan_gate.PlanFenceError('Dependent tool unsupported.')
         else:
             goal_plan_gate.validate_root_attempt(
                 current, selection, attempt=accepted['attempt'],

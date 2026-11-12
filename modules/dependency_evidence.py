@@ -252,18 +252,17 @@ def preflight_durable_step(
     return bind_predecessor_outputs(state, selected, disk_outputs)
 
 
-def require_persisted_research_dependencies(identity: dict, node: dict) -> dict[str, dict]:
-    """Revalidate a planned research child's readback-bound direct inputs.
-
-    Called from the real pre-worker prepare and from the locked result CAS.
-    It cannot authorize a model-selected dependency list or create a worker.
-    """
+def _require_persisted_dependencies(
+    identity: dict, node: dict, capability: str,
+) -> dict[str, dict]:
+    """Bind already accepted, projected predecessor bytes from the journal."""
     from modules import execution_record, goal_executor
-    if (not isinstance(identity, dict) or not isinstance(node, dict)
-            or node.get('capability_id') != 'task.research'
+    if (capability not in ('task.research', 'task.account')
+            or not isinstance(identity, dict) or not isinstance(node, dict)
+            or node.get('capability_id') != capability
             or not isinstance(node.get('depends_on'), list)
             or not node['depends_on']):
-        raise goal_plan_gate.PlanFenceError('Dependent research boundary invalid.')
+        raise goal_plan_gate.PlanFenceError('Dependent read-only boundary invalid.')
     owner = identity.get('owner')
     job_id = identity.get('job_id')
     if not isinstance(owner, str) or not isinstance(job_id, str):
@@ -272,21 +271,32 @@ def require_persisted_research_dependencies(identity: dict, node: dict) -> dict[
     path = execution_record.path_for(root, job_id)
     if path.is_symlink() or not path.is_file():
         raise goal_plan_gate.PlanFenceError(
-            'Dependent research requires a persisted ExecutionRecord.'
+            'Dependent read-only requires a persisted ExecutionRecord.'
         )
     try:
         persisted = execution_record.load(root, owner, job_id)
     except (OSError, ValueError, TypeError, PermissionError):
         raise goal_plan_gate.PlanFenceError(
-            'Dependent research ExecutionRecord is invalid.'
+            'Dependent read-only ExecutionRecord is invalid.'
         ) from None
     return preflight_durable_step(
         identity,
         {
-            'id': identity.get('task_id'), 'tool': 'research',
+            'id': identity.get('task_id'),
+            'tool': capability.removeprefix('task.'),
             'depends': copy.deepcopy(node['depends_on']),
             'input': copy.deepcopy(node['input']),
         },
         persisted.get('outputs'),
         owner=owner, job_id=job_id, canonical_required=True,
     )
+
+
+def require_persisted_research_dependencies(identity: dict, node: dict) -> dict[str, dict]:
+    """Reverify exact projected research parents before dispatch and Core CAS."""
+    return _require_persisted_dependencies(identity, node, 'task.research')
+
+
+def require_persisted_account_dependencies(identity: dict, node: dict) -> dict[str, dict]:
+    """Reverify exact projected account parents before Gmail indexed read."""
+    return _require_persisted_dependencies(identity, node, 'task.account')
