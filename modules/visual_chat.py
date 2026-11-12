@@ -21,7 +21,12 @@ from modules.image_gen import ImageGenError
 
 _SOURCE_SOHBET = re.compile(r"\bsohbet(?:ten|i)?\b|\bkonu[sş]ma(?:dan)?\b|\bge[cç]mi[sş](?:ten)?\b")
 _SOURCE_DOSYA = re.compile(r"\bdosya(?:dan)?\b|\bbelge(?:den)?\b")
-_RETRY = re.compile(r"\byeniden\s+dene\w*\b|\btekrar\s+dene\w*\b|\bbir\s+daha\s+dene\w*\b")
+# This is an exact retry of an already-owned visual, not a substring intent.
+_RETRY = re.compile(
+    r"(?:lütfen\s+)?(?:yeniden|tekrar|bir\s+daha)\s+"
+    r"dene(?:r\s+misin|yebilir\s+misin|yin)?(?:\s+lütfen)?",
+    re.I,
+)
 
 _HISTORY_LIMIT = 40
 
@@ -80,10 +85,15 @@ def handle(context, command: str, normalized: str) -> str | None:
             if not brain_entry.pending_answer_owned("pending_visual"):
                 return None
             selected = brain_entry.protocol_selection("session.pending_visual.select")
-            if selected == "chat" or (selected is None and _SOURCE_SOHBET.search(normalized)):
+            chat_mentioned = _SOURCE_SOHBET.search(normalized) is not None
+            file_mentioned = _SOURCE_DOSYA.search(normalized) is not None
+            if selected is None and chat_mentioned and file_mentioned:
+                # A raw substring cannot select the source when both are named.
+                return 'Sohbetten mi, dosyadan mı? Tek bir kaynak seç.'
+            if selected == "chat" or (selected is None and chat_mentioned):
                 session.pending_visual = None
                 return _generate(context, owner, pending["text"], _history_text(context, owner), pending["kind"])
-            if selected == "file" or (selected is None and _SOURCE_DOSYA.search(normalized)):
+            if selected == "file" or (selected is None and file_mentioned):
                 session.pending_visual = None
                 return ('Dosyalar sayfasında ilgili dosyayı seç, sonra o dosyanın yanındaki '
                         '"Görselleştir" düğmesine bas — içerik oradan otomatik alınır.')
@@ -91,7 +101,7 @@ def handle(context, command: str, normalized: str) -> str | None:
         session.pending_visual = None   # tanınmayan aşama: kilitlenmesin, normal akışa düşsün
 
     last_visual = getattr(session, "last_visual", None)
-    if _RETRY.search(normalized) and last_visual:
+    if last_visual and _RETRY.fullmatch(normalized.strip(" .!?")):
         return _generate(context, owner, last_visual["text"], last_visual["content"], last_visual["kind"])
 
     # New visual creation is selected by Understanding and dispatched by Core.

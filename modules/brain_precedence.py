@@ -1,17 +1,14 @@
 """Explicit precedence contract between legacy front gates and Brain-planned Core intents.
 
-Core never executes a Brain ``capability_hint`` ahead of a gate that the legacy pipeline
-(``engine_commands.handle``) evaluates *before* the generic fast path. The gates below keep
-exactly that relative order, and ``engine_commands.handle`` consults the same table instead of
-carrying its own copy: the inline gates run in place, the tail range is delegated with
-``claim_tail`` (pinned by tests/test_brain_b3a.py::FrontGatePrecedenceTests and
-tests/test_brain_pr3b_legacy_front_door_authority.py::CascadeOrderContractTests). A gate that
-answers owns the request, so a user macro, a saved custom command, a planner phrase, a Windows
-settings page or a Jarvis self-control command always beats weather/level Core dispatch.
+The gate order is the only owner of legacy front-door precedence. A validated
+Core plan cannot be reinterpreted as a second command by raw controls, general
+planner parsing, or the extra-command cascade. Explicit quoted-path UI commands,
+a registered exact macro trigger and the Core-bound reminder creator's existing
+note-add compatibility are bounded exceptions.
 
-Canonical data requests are the narrow exception when Brain has already produced a validated
-Core plan for the same surface. In that case legacy UI/read gates must not shadow the data
-operation; explicit page/section navigation and unmigrated planner operations stay unchanged.
+This protects accepted typed proposals. It does not retire unmapped legacy
+semantic handlers; BRAIN-03 issue #545 remains open until their Core parity
+and physical removal are proven.
 
 This module decides nothing about permission or effect: it only calls the existing handlers.
 """
@@ -57,45 +54,35 @@ TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
 
 def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
     def planner_gate():
-        # A typed translation source is not a note/calendar command: only
-        # Core's translate adapter may execute that verified source text.
-        # Canonical notes_read already has a validated Core plan. Do not let the planner's old
-        # read/list branch reinterpret the same utterance. Mutation/search/reminder/calendar
-        # branches are unchanged and remain domain-owned until their own migration decision.
-        # PR3C-3: kanonical `file_organize` planı önizlemeyi kendi sahibinde kurar; planner'ın eski
-        # ham-metin dalı aynı cümleye ikinci kez bakamaz (serbest Goal fallback'i de buradan yasak).
-        # PR3C-4: aynı hüküm `folder_analyze` için geçerlidir — klasör taraması yürütücünün tek sahibiyle
-        # yapılır, planner'ın "şunu incele" kalıbı aynı cümleyi ikinci kez yorumlayamaz.
-        # PR3C-6: Core-owned visual_create yalnız source-question adapterini açar; Planner'ın
-        # görsel türü/iş niyeti seçmeye çalışan raw cascade'i aynı isteği tekrar yorumlayamaz.
-        if plan is not None and plan[0] in {"notes_read", "notes_write", "file_action", "file_organize",
-                                            "folder_analyze", "visual_create", "translate"}:
-            return None
-        # A reminder plan authorizes creation with Core-validated arguments
-        # (main_planner.core_reminder). Pending answers and explicit notes retain their
-        # existing owner; legacy event edit/snooze may not reinterpret a quoted title.
-        if plan is None or plan[0] != "reminder":
-            return runtime._planner_command(command, lowered)
-        from modules import main_planner
-        with main_planner.core_reminder(plan[1]):
-            return runtime._planner_command(command, lowered)
+        # An accepted Core plan is not a new raw note/calendar instruction.
+        # Only the established reminder creator has a bounded compatibility
+        # exception for explicit note-add and pending-answer ownership.
+        if plan is not None:
+            if plan[0] != "reminder":
+                return None
+            from modules import main_planner
+            with main_planner.core_reminder(plan[1]):
+                return runtime._planner_command(command, lowered)
+        return runtime._planner_command(command, lowered)
 
     def extra_commands():
-        # Typed translation content must not enter the old raw domain cascade.
-        # The exact quoted-path UI file_command above remains authoritative. For a canonical natural-language
-        # file_action, the later files.handle chain must not get a second chance at the same target.
-        # A validated notes plan likewise owns its request: unrelated later chains (e.g. the mail/agenda
-        # handler reacting to a word like "toplantı") must not answer it instead.
-        # `file_organize` aynı hükmü PR3C-3'ten alır: önizleme sahibini cascade'teki ham kalıp
-        # yeniden yorumlayamaz, geri alma koluna ise plan olmadan (None) ulaşılır.
-        # PR3C-4: `folder_analyze` planının kapısı cascade'in içindeydi; ham kalıp emekli olduğunda
-        # cascade aynı cümleye bir daha bakamaz (klasör taraması yalnız kanonical plandan yürür).
-        # PR3C-6: `visual_create` de Brain→Core tarafından sahiplenildi; eski cascade ikinci
-        # intent sahibi olamaz.
-        if plan is not None and plan[0] in {"file_action", "file_organize", "notes_read", "notes_write",
-                                            "folder_analyze", "visual_create", "translate"}:
-            return None
-        return runtime._extra_commands(command, lowered)
+        # The general raw cascade cannot reclassify a validated Core payload
+        # into a second domain action for the same user turn.
+        return None if plan is not None else runtime._extra_commands(command, lowered)
+
+    def macro_gate():
+        if plan is not None:
+            # A user-saved exact trigger remains authoritative. The legacy
+            # fuzzy suffix aliases are NOT evidence to override a typed plan.
+            profile = getattr(runtime, "profile", None)
+            data = getattr(profile, "data", None)
+            macros = data.get("macros") if isinstance(data, dict) else None
+            keyer = getattr(runtime, "_macro_key", None)
+            if not isinstance(macros, dict) or not callable(keyer):
+                return None
+            if keyer(lowered) not in macros:
+                return None
+        return runtime._macro_run(lowered)
 
     def file_gate():
         # The explicit quoted-path UI protocol still outranks a Core plan.
@@ -109,15 +96,11 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
 
     return {
         "file_command": file_gate,
-        # Core-validated reminder, note and text-translation payloads are
-        # data. Legacy raw share/camera/voice phrases within those payloads
-        # may not become independent effects. Pending State/Fast and
-        # unplanned legacy controls keep their original owners.
-        "user_controls": lambda: (None if plan is not None and
-                                  plan[0] in {"reminder", "notes_read", "notes_write", "translate"}
-                                  else runtime._user_controls(command, lowered)),
+        # All accepted Core plans can carry user data. Only truly
+        # unplanned turns may invoke this raw share/camera/voice recognizer.
+        "user_controls": lambda: (None if plan is not None else runtime._user_controls(command, lowered)),
         "planner_command": planner_gate,
-        "macro_run": lambda: runtime._macro_run(lowered),
+        "macro_run": macro_gate,
         "extra_commands": extra_commands,
     }
 

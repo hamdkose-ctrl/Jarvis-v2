@@ -82,6 +82,16 @@ class SourceAnswerTests(unittest.TestCase):
         self.assertIsNone(ctx.session.pending_visual)
         gen.assert_not_called()
 
+    def test_source_with_both_names_does_not_guess(self):
+        session = self._pending()
+        ctx = _ctx(session, history=[{"text": "A"}])
+        with patch("modules.visual_commands.create_visual",
+                   side_effect=AssertionError("ambiguous source ran worker")) as gen:
+            reply = visual_chat.handle(ctx, "sohbetten değil dosyadan", "sohbetten değil dosyadan")
+        self.assertIn("Tek bir kaynak seç", reply)
+        self.assertIsNotNone(ctx.session.pending_visual)
+        gen.assert_not_called()
+
     def test_unrecognized_reply_reasks_and_keeps_pending(self):
         session = self._pending()
         ctx = _ctx(session)
@@ -113,6 +123,34 @@ class RetryTests(unittest.TestCase):
             reply = visual_chat.handle(ctx, "yeniden dene", "yeniden dene")
         self.assertIn("/x/flowchart_2.png", reply)
         gen.assert_called_once_with("x", "A, B, C", slug="hamdi", kind="flowchart")
+
+
+    def test_retry_negative_or_quoted_text_has_no_worker_effect(self):
+        session = SessionState()
+        session.last_visual = {"text": "x", "content": "A", "kind": "mindmap"}
+        ctx = _ctx(session)
+        negatives = (
+            "yeniden dene demedim", "yeniden dene ne demek?",
+            "bana 'tekrar dene' yaz", "bir daha dene istemiyorum",
+            "yeniden dene ifadesini anlat",
+        )
+        with patch("modules.visual_commands.create_visual",
+                   side_effect=AssertionError("unwanted image generation")) as gen:
+            for text in negatives:
+                with self.subTest(text=text):
+                    self.assertIsNone(visual_chat.handle(ctx, text, text))
+            gen.assert_not_called()
+
+    def test_polite_positive_retry_is_preserved(self):
+        session = SessionState()
+        session.last_visual = {"text": "x", "content": "A", "kind": "mindmap"}
+        ctx = _ctx(session)
+        fake = VisualResult(kind="mindmap", label="zihin haritası", path="/x/new.png")
+        with patch("modules.visual_commands.create_visual", return_value=fake) as gen:
+            reply = visual_chat.handle(ctx, "lütfen yeniden dener misin?",
+                                       "lütfen yeniden dener misin?")
+        self.assertIn("/x/new.png", reply)
+        gen.assert_called_once_with("x", "A", slug="hamdi", kind="mindmap")
 
 
 class ErrorHandlingTests(unittest.TestCase):
