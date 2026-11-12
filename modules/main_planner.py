@@ -966,7 +966,8 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
         if runtime.re.search('notları?\\s+(temizle|sil|hepsini sil)|tüm notları sil', cmd_lower):
             runtime.profile.clear_note_items()
             return 'Tüm notlarını sildim.'
-    looked = _note_lookup(runtime, command, cmd_lower)
+    # The indexed/named note lookup also contains update/delete effects.
+    looked = None if core_reminder_active else _note_lookup(runtime, command, cmd_lower)
     if looked is not None:
         return looked
     # Note corrections (including last-note delete) are also raw-text effects.
