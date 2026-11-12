@@ -288,6 +288,7 @@ class PreservedFencesTests(unittest.TestCase):
             result = apply_model_understanding(with_capability, text)
         self.assertIs(result.request_kind, RequestKind.CHAT)
         self.assertIsNone(result.capability_hint)
+        self.assertIn("MODEL_CHAT_DECIDED", result.reason_codes)
 
     def test_low_confidence_capability_is_not_adopted(self):
         text = "gözüm yanıyor artık ses olmasın"

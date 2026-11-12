@@ -1071,11 +1071,42 @@ def _use_existing_handler(entry: EntryResult) -> bool:
         # stays open; a capability never silently falls through to chat because of a slot.
         return not _pending_owns_turn(entry)
     if semantic.request_kind is RequestKind.CHAT:
-        # Chat is never an open slot's answer. An independent chat-shaped request keeps the
-        # existing handler path (Brain-unmapped phrases such as "hava durumuna bak" still have a
-        # legacy owner); slot consumers are fenced by pending_answer_owned, so the slot survives.
+        # A *validated model CHAT* decision has already determined that this
+        # utterance requests no effect. It cannot be reclassified by legacy
+        # camera/share/note/extra parsers. If the model was unavailable or
+        # rejected, no marker exists and established fallback is preserved.
+        # Bounded pending answers keep their State owner above this branch.
+        if "MODEL_CHAT_DECIDED" in semantic.reason_codes:
+            return False
         return not _pending_owns_turn(entry)
     return False
+
+
+def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: str) -> bool:
+    """Keep bounded user-addressed command protocols even if model says CHAT.
+
+    The predicates are pre-existing exact/explicit protocols, not a new
+    natural-language classifier. Unmapped free-form legacy effects cannot
+    override an accepted no-effect model decision.
+    """
+    semantic = entry.understanding
+    if (semantic is None or semantic.request_kind is not RequestKind.CHAT
+            or "MODEL_CHAT_DECIDED" not in semantic.reason_codes):
+        return False
+    from modules import brain_precedence
+    if (brain_precedence.explicit_desktop_owner_protocol(command)
+            or brain_precedence.explicit_workflow_owner_protocol(command)):
+        return True
+    match = getattr(runtime, "_FILE_CMD", None)
+    if callable(getattr(match, "match", None)) and match.match(command.strip()):
+        return True
+    # Explicit updater/publisher commands retain their existing exact,
+    # idempotence and permission contracts; no substring or fuzzy matching.
+    from modules import git_publish
+    if git_publish.requested(command):
+        return True
+    import updater
+    return updater.command_request(command) is not None
 
 
 def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
@@ -1298,6 +1329,8 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                     # Protokol cevapları tek sahibine gider: cümlenin kendisi hiçbir yerde yeniden sınıflandırılmaz.
                     from modules.engine_intents import dispatch
                     output = dispatch(runtime, lane_plan[0], dict(lane_plan[1]), command, command.casefold())
+                elif _explicit_owner_after_model_chat(runtime, entry, command):
+                    output = handler(command)
                 elif _use_existing_handler(entry):
                     output = handler(command)
                 elif entry.understanding is not None and entry.understanding.request_kind is RequestKind.CONTEXT_CONTROL:

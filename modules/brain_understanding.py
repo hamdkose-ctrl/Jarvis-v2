@@ -2743,6 +2743,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         next_references = proposal.references if proposal.references else result.references
         next_ambiguities = result.ambiguities
         next_reason_codes = result.reason_codes
+        # BRAIN-03: distinguish an accepted model CHAT decision from a model
+        # failure returning the deterministic fallback. Otherwise the old raw
+        # handler may turn a negative/quoted chat utterance into an effect.
+        # This marker carries no model text, permission or effect authority.
+        if proposal.operation == "chat":
+            next_reason_codes = next_reason_codes + ("MODEL_CHAT_DECIDED",)
         next_needs_input = result.needs_input
 
         if request_kind is RequestKind.CLARIFY:
@@ -2755,7 +2761,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             next_ambiguities = ()
             next_needs_input = False
             next_reason_codes = tuple(
-                code for code in result.reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
+                code for code in next_reason_codes if code != "MULTIPLE_TARGET_REFERENCES"
             ) + ("MODEL_REFERENCE_RESOLVED",)
         if request_kind is RequestKind.CAPABILITY and not next_ambiguities:
             next_preview = _preview_text(next_hint, next_arguments, next_references)
