@@ -1029,6 +1029,75 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             # callback; the callback itself joins under pinned mocks.
             stop.set()
 
+    def test_canonical_gmail_deadline_stops_second_provider_request(self):
+        """Real canonical account specialist: one expired remote list read
+        must not start the next Gmail metadata request or mint Core success.
+        """
+        from modules import google_api, llm, runtime_worker_result
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread', 'limit': 5}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'Beş okunmamış e-postanın başlığını getir.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        clock = [10.0]
+        deadline = runtime_worker_result.CanonicalWorkerDeadline(
+            threading.Event(), 2, clock=lambda: clock[0],
+        )
+        calls = []
+
+        def completed_list():
+            calls.append('list')
+            # Simulate a provider response that arrived only after the
+            # canonical worker deadline; actual Gmail is never contacted.
+            clock[0] = 12.0
+            return {'messages': [{'id': 'mail001'}]}
+
+        class Messages:
+            def list(self, **_kwargs):
+                return SimpleNamespace(execute=completed_list)
+
+            def get(self, **_kwargs):
+                calls.append('metadata')
+                raise AssertionError('Expired worker started second Gmail call')
+
+        messages = Messages()
+        fake_service = SimpleNamespace(
+            users=lambda: SimpleNamespace(messages=lambda: messages),
+        )
+        offer = canonical_scheduler_dispatch.discover(self.owner)[0]
+        owner_token = llm._key_context.set(self.owner)
+        try:
+            with patch.object(google_api, '_service', return_value=fake_service), \
+                 patch.object(untrusted_flow, 'observe', lambda *_: None):
+                with self.assertRaises(
+                    runtime_worker_result.CanonicalWorkerDeadlineExceeded,
+                ):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner), offer,
+                        stop_event=deadline,
+                    )
+        finally:
+            llm._key_context.reset(owner_token)
+        self.assertEqual(calls, ['list'])
+        state, journal = self.persisted(job_id)
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result'
+            and row.get('status') == 'succeeded'
+            for row in state['evidence']
+        ))
+        self.assertEqual(journal['steps'][0]['state'], 'failed')
+        self.assertEqual(
+            journal['outputs']['unread'].get('reason_code'),
+            'CANONICAL_WORKER_DEADLINE_UNACCEPTED',
+        )
+        # Failed first attempt is terminal without user-controlled
+        # reconciliation; the live Scheduler may not replay a provider.
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
+
     def test_canonical_gmail_indexed_read_waits_for_accepted_list(self):
         """Typed request -> Core plan -> real specialist/leases/CAS -> delivery.
 
