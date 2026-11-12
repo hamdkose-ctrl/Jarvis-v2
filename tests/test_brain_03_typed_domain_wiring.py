@@ -327,6 +327,71 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 )
                 self.assertNotEqual(gate.protocol, "fast.file.organize.undo")
 
+    def test_tasks_add_and_list_execute_existing_owner_without_raw_parser(self):
+        from modules import tasks
+        with patch.object(tasks, "add",
+                          return_value={"id": 1, "text": "Ekip toplantısı"}) as add:
+            entry, output, feedback = self.typed(
+                "Ekip toplantısı görevini ekle", "tasks.manage",
+                {"operation": "add", "text": "Ekip toplantısı"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("tasks_manage", {"operation": "add", "text": "Ekip toplantısı"}))
+        self.assertEqual(output, "Görev ekledim: Ekip toplantısı.")
+        self.assertEqual(feedback.result_status, "handled")
+        add.assert_called_once_with(self.ctx.profile, "Ekip toplantısı")
+        with patch.object(tasks, "list_text", return_value="LİSTE") as read:
+            _, output, _ = self.typed(
+                "Görevlerimi listele", "tasks.manage", {"operation": "list"})
+        self.assertEqual(output, "LİSTE")
+        read.assert_called_once_with(self.ctx.profile)
+
+    def test_tasks_completion_requires_one_exact_open_title(self):
+        from modules import tasks
+        self.ctx.profile.data["tasks"] = [
+            {"id": 14, "text": "Rapor hazırla", "done": False},
+            {"id": 15, "text": "Rapor", "done": False},
+        ]
+        with patch.object(tasks, "toggle") as toggle:
+            _, output, feedback = self.typed(
+                "Rapor görevini bitir", "tasks.manage",
+                {"operation": "complete", "text": "Rapor"})
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIn("tamamlandı", output)
+        toggle.assert_called_once_with(self.ctx.profile, 15)
+        self.ctx.profile.data["tasks"].append(
+            {"id": 16, "text": "Rapor", "done": False})
+        with patch.object(tasks, "toggle",
+                          side_effect=AssertionError("ambiguous completion")) as toggle:
+            _, output, _ = self.typed(
+                "Rapor görevini bitir", "tasks.manage",
+                {"operation": "complete", "text": "Rapor"})
+        self.assertIn("tek bir", output)
+        toggle.assert_not_called()
+
+    def test_kb_question_uses_existing_read_only_worker(self):
+        from modules import kb
+        with patch.object(kb, "answer", return_value="DOKÜMAN BULGUSU") as answer:
+            entry, output, feedback = self.typed(
+                "Belgelerimde kira ne zaman bitiyor", "kb.query",
+                {"question": "Belgelerimde kira ne zaman bitiyor"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("kb_query", {"question": "Belgelerimde kira ne zaman bitiyor"}))
+        self.assertEqual(output, "DOKÜMAN BULGUSU")
+        self.assertEqual(feedback.result_status, "handled")
+        answer.assert_called_once_with(self.ctx.profile, "Belgelerimde kira ne zaman bitiyor")
+
+    def test_worktrack_status_uses_existing_mail_privacy_worker(self):
+        from modules import worktrack
+        with patch.object(worktrack, "report", return_value="İŞ DURUMU") as report:
+            entry, output, feedback = self.typed(
+                "Bu hafta işte neler oldu", "worktrack.read",
+                {"kind": "weekly"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("worktrack_read", {"kind": "weekly"}))
+        self.assertEqual(output, "İŞ DURUMU")
+        self.assertEqual(feedback.result_status, "handled")
+        report.assert_called_once_with("weekly", None)
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -345,6 +410,12 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("calendar.read", {"view": "erase", "period": "today"}),
             ("reminders.manage", {"operation": "delete", "id": "fake", "title": "Team"}),
             ("reminders.manage", {"operation": "clear_all", "title": "Team"}),
+            ("tasks.manage", {"operation": "delete", "text": "A"}),
+            ("tasks.manage", {"operation": "complete", "text": ""}),
+            ("tasks.manage", {"operation": "list", "text": "secret"}),
+            ("kb.query", {"question": ""}),
+            ("worktrack.read", {"kind": "delete"}),
+            ("worktrack.read", {"kind": "status", "project": True}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),

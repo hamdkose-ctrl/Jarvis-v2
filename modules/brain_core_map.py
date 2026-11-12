@@ -768,6 +768,43 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "text"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"list", "add", "complete"}:
+        return None
+    if operation == "list":
+        return {"operation": "list"} if arguments.get("text") is None else None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 500:
+        return None
+    return {"operation": operation, "text": text.strip()}
+
+
+def _kb_query_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "question"}:
+        return None
+    question = arguments.get("question")
+    if not isinstance(question, str) or not question.strip() or "\x00" in question or len(question) > 1000:
+        return None
+    return {"question": question.strip()}
+
+
+def _worktrack_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "kind", "project"}:
+        return None
+    kind = arguments.get("kind")
+    if type(kind) is not str or kind not in {"status", "reply", "dated", "priority", "weekly"}:
+        return None
+    project = arguments.get("project")
+    if project is None:
+        return {"kind": kind}
+    if not isinstance(project, str) or not project.strip() or "\x00" in project or len(project) > 120:
+        return None
+    return {"kind": kind, "project": project.strip()}
+
+
 def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Core validates a new user note. The note body must be grounded by Brain."""
     if set(arguments) - {"original_text", "text"}:
@@ -1036,6 +1073,9 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "notes.add": ("notes_add", _note_add_args),
     "calendar.read": ("agenda_read", _agenda_read_args),
     "reminders.manage": ("reminder_manage", _reminder_manage_args),
+    "tasks.manage": ("tasks_manage", _tasks_manage_args),
+    "kb.query": ("kb_query", _kb_query_args),
+    "worktrack.read": ("worktrack_read", _worktrack_read_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),

@@ -181,6 +181,34 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             }
             return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
+        case "tasks_manage":
+            from modules import tasks
+            operation = a["operation"]
+            if operation == "list":
+                return tasks.list_text(runtime.profile)
+            if operation == "add":
+                task = tasks.add(runtime.profile, a["text"])
+                return f"Görev ekledim: {task['text']}."
+            # Completion is exact, single-owner and only for one open task.
+            from modules import requests_state
+            requests_state.check()
+            title = a["text"].casefold()
+            candidates = [task for task in runtime.profile.data.get("tasks", [])
+                          if isinstance(task, dict) and not task.get("done")
+                          and isinstance(task.get("text"), str)
+                          and task["text"].casefold() == title]
+            if len(candidates) != 1:
+                return ("Bu adla tek bir açık görev bulamadım; "
+                        "hiçbir görevi tamamlandı olarak işaretlemedim.")
+            requests_state.check()
+            tasks.toggle(runtime.profile, candidates[0]["id"])
+            return f"“{candidates[0]['text']}” görevini tamamlandı olarak işaretledim."
+        case "kb_query":
+            from modules import kb
+            return kb.answer(runtime.profile, a["question"])
+        case "worktrack_read":
+            from modules import worktrack
+            return worktrack.report(a["kind"], a.get("project"))
         case "file_organize_undo":
             from modules import requests_state
             requests_state.check()
