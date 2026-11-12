@@ -100,6 +100,8 @@ def study_read(runtime, view: str, *, missing_reply: bool = True) -> str | None:
     """
     if view not in {'plan', 'focus'}:
         raise ValueError("Study view must be Core-validated.")
+    from modules import requests_state
+    requests_state.check()
     try:
         from modules import study, studyexam
         if not study._state(runtime.profile).get("docs"):
@@ -120,6 +122,8 @@ def study_read(runtime, view: str, *, missing_reply: bool = True) -> str | None:
         items = "; ".join(f"{i + 1}. {f['topic']} (sınavda yüzde {f['weight']:g}, {f['why']})" for i, f in enumerate(fc))
         return (f"Çıkmış sorulara ve senin sonuçlarına göre öncelik sırası: {items}. "
                 f"İstersen {fc[0]['topic']} konusunu anlatmaya başlayayım ya da Çalışma ekranındaki Soru Çöz'den bu konudan soru çözebilirsin.")
+    except (requests_state.Cancelled, PermissionError):
+        raise
     except Exception:
         runtime._record_failure('main.py:_study_intent')
         return ("Ders verisini şu an okuyamadım." if missing_reply else None)

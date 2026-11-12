@@ -122,7 +122,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
 
     def _record_recent_workbench(self):
         source = Path(self.temp.name) / "table.csv"
-        source.write_text("item,value\\nA,1\\n", encoding="utf-8")
+        source.write_text("item,value\nA,1\n", encoding="utf-8")
         with workbench._LOCK:
             workbench._LAST[self.owner] = {
                 "paths": [str(source)], "instruction": "tablo yap",
@@ -201,6 +201,16 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(brain_entry.core_plan(entry), ("study_read", {"view": "focus"}))
         self.assertIn("önce bir konu", output)
         worker.assert_not_called()
+
+    def test_typed_study_preserves_request_cancellation(self):
+        from modules import requests_state
+        with patch("modules.study._state",
+                   side_effect=requests_state.Cancelled("stop")):
+            with self.assertRaises(requests_state.Cancelled):
+                self.typed("Ders programımı oku", "study.read", {"view": "plan"})
+
+    def test_raw_user_command_alias_is_physically_removed(self):
+        self.assertFalse(hasattr(engine_context, "_user_command"))
 
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (

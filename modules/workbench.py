@@ -515,6 +515,8 @@ def _owner_snapshot(owner: str) -> dict | None:
         if not isinstance(source, dict):
             return None
         row = {key: source.get(key) for key in ("paths", "instruction", "at", "ext")}
+        if isinstance(row["paths"], list):
+            row["paths"] = list(row["paths"])
     if (type(row["at"]) not in (int, float) or time.monotonic() - row["at"] > FOLLOW_SECONDS
             or not isinstance(row["paths"], list) or not row["paths"]
             or not all(isinstance(path, str) for path in row["paths"])

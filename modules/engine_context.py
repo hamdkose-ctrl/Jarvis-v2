@@ -241,5 +241,4 @@ def _user_controls(runtime, command: str, cmd_lower: str) -> str | None:
 
     return None
 
-# Compatibility for direct callers; production uses the narrowed controls only.
-_user_command = _user_controls
+# The unused _user_command alias was retired with its zero production callers.
