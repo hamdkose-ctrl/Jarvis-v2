@@ -863,9 +863,9 @@ def notes_summary(runtime, note_id: str | None = None) -> str:
 _REPEAT_HELP = ("Bu tekrarı anlayamadım, yanlış kayıt açmamak için eklemedim. 'her gün 9'da', 'her pazartesi 10'da', "
                 "'hafta içi her gün 8'de' ya da 'her ayın 1'inde' diyebilirsin.")
 
-# Brain flow: the validated Core ``reminder`` arguments are handed to the planner, which consumes them
-# at its OWN creation slot (after pending answers, notes, edit/snooze; before calendar/agenda branches),
-# so the branch order is identical to the legacy path and nothing falls through to later branches.
+# Brain flow: Core-validated reminder arguments authorize CREATION, not raw text editing/deletion.
+# Existing pending answers and explicit note-add syntax retain their owner, but the typed creation
+# is consumed before legacy reminder edit/snooze and agenda branches.
 _CORE_REMINDER: ContextVar["dict | None"] = ContextVar("jarvis_core_reminder", default=None)
 
 
@@ -894,10 +894,7 @@ def reminder_create(runtime, parsed: dict) -> str:
 
 
 def reminder_core(runtime, args: dict, command: str, cmd_lower: str) -> str:
-    """Core ``reminder`` intent: edit/snooze words keep their existing planner path, otherwise create."""
-    edited = _edit_reminder(runtime, cmd_lower, runtime.datetime.now())
-    if edited is not None:
-        return edited
+    """Core ``reminder`` is a validated creation plan; raw words cannot mutate prior events."""
     return reminder_create(runtime, args)
 
 
@@ -978,13 +975,18 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
     if text:
         runtime._add_note(text)
         return f'Not aldım: {text}'
+    core = _CORE_REMINDER.get()
+    if core is not None:
+        # A validated CREATE never turns an embedded quote like 'hatırlatmayı sil'
+        # or 'toplantıyı ertele' into a second raw-text event mutation.
+        # Preserve exact note-add and pending-answer ownership above this point.
+        return reminder_create(runtime, core)
     tr = runtime.whenmod._turkish(cmd_lower)       # ASCII yazım: "yarin 9da ilac hatirlat"
     edited = _edit_reminder(runtime, cmd_lower, now)
     if edited is not None:
         return edited
     if reminder_parse.is_creation_request(cmd_lower):
-        core = _CORE_REMINDER.get()
-        return reminder_create(runtime, core if core is not None else reminder_parse.parse(command, now))
+        return reminder_create(runtime, reminder_parse.parse(command, now))
     read = agenda_read_request(cmd_lower, now)
     if read is not None:
         day_txt = runtime._agenda_text(*read)
