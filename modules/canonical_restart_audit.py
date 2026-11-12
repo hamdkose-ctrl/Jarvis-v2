@@ -66,7 +66,11 @@ def inspect(owner: str, job_id: str) -> RestartSnapshot:
         if ((state['owner'], state['job_id']) != (owner, job_id)
                 or goal_state.authority(state) != 'canonical'
                 or state['state'] not in ('pending', 'running')
-                or journal.get('state') != 'running'):
+                or journal.get('state') != 'running'
+                or not isinstance(journal.get('request'), str)
+                # Do not certify evidence for a journal whose prompt no
+                # longer belongs to the Core goal that authorized its plan.
+                or journal['request'].strip() != state['goal']):
             raise RestartAuditError('Only active canonical goals are inspected.')
         plan = state.get('goal_plan')
         if not isinstance(plan, dict):
