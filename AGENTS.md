@@ -34,7 +34,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (14 bölüm)
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
-- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
+- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (23 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
 - `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (23 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
