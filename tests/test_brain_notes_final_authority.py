@@ -151,6 +151,40 @@ class NotesFinalAuthorityTests(unittest.TestCase):
         self.assertEqual(reply, "PAYLASIM")
         share.assert_called_once_with("screen")
 
+    def test_typed_note_update_does_not_trigger_previous_table_followup(self):
+        note = self.add("market listesi süt")
+        with patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("untyped table followup ran")) as raw:
+            entry, out, feedback, handler = self.through_brain(
+                "market notunu düzelt: tabloyu Word'de ver",
+                forbid_legacy_lookup=True,
+            )
+        self.assertEqual(entry.understanding.capability_hint, "notes.write")
+        self.assertEqual(entry.understanding.arguments.get("notes"), {
+            "operation": "update", "id": str(note["id"]), "text": "tabloyu Word'de ver",
+        })
+        self.assertEqual(note["text"], "tabloyu Word'de ver")
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertFalse(handler.called)
+        raw.assert_not_called()
+
+    def test_unplanned_table_followup_keeps_legacy_file_owner(self):
+        from modules import brain_precedence
+        with patch.object(self.ctx, "_file_command",
+                          return_value="WORKBENCH FOLLOWUP") as raw:
+            claimed = brain_precedence.claim(self.ctx, "tabloyu Word'de ver")
+        self.assertEqual(claimed, ("file_command", "WORKBENCH FOLLOWUP"))
+        raw.assert_called_once_with("tabloyu Word'de ver")
+
+    def test_explicit_quoted_path_ui_file_command_stays_authoritative(self):
+        from modules import brain_precedence
+        ui = '"C:\\Temp\\report.docx" özetle'
+        self.assertIsNotNone(self.ctx._FILE_CMD.match(ui))
+        with patch.object(self.ctx, "_file_command", return_value="UI FILE") as raw:
+            claimed = brain_precedence.claim(self.ctx, ui, ("notes_read", {"which": "all"}))
+        self.assertEqual(claimed, ("file_command", "UI FILE"))
+        raw.assert_called_once_with(ui)
+
     def test_ambiguous_named_delete_never_mutates_or_falls_to_legacy_resolver(self):
         one = self.add("market listesi süt")
         two = self.add("market listesi ekmek")

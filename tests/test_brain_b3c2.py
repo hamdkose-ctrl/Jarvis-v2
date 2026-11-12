@@ -113,12 +113,19 @@ class EndToEndTests(Pipeline):
         self.assertEqual(raw, "ERTELENDİ")
         edit.assert_called_once()
 
-    def test_front_gates_before_planner_still_win(self):
-        with patch.object(brain_precedence, "_present", return_value=True), \
-             patch.object(self.ctx, "_file_command", return_value="ÖZEL"):
+    def test_unquoted_core_reminder_skips_legacy_file_gate(self):
+        # An unquoted reminder is already Core-owned. The earlier file gate
+        # must not interpret its title as an unrelated Workbench followup.
+        # Explicit quoted-path UI commands keep their separate priority.
+        with patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("raw file gate ran")) as raw:
             entry, out, feedback, handle = self.through_brain("yarın saat 10'da toplantıyı hatırlat")
-        self.assertEqual(out, "ÖZEL")
-        self.assertEqual(self.ctx.profile.data["events"], [])
+        self.assertEqual(entry.understanding.capability_hint, "reminder.propose")
+        self.assertEqual(out, "Takvime ekledim: toplantıyı, yarın 10:00.")
+        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["toplantıyı"])
+        self.assertEqual(feedback.result_status, "handled")
+        raw.assert_not_called()
+        self.assertFalse(handle.called)
 
     def test_planner_consumes_the_core_validated_arguments_not_its_own_parse(self):
         plan = ("reminder", {"title": "GERÇEK", "when": "2026-11-01T09:00", "repeat": None})

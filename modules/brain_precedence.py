@@ -94,8 +94,18 @@ def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | No
             return None
         return runtime._extra_commands(command, lowered)
 
+    def file_gate():
+        # The explicit quoted-path UI protocol still outranks a Core plan.
+        # A normal typed plan must not fall into workbench.followup, which
+        # searches raw text and may re-create the last document as a side effect.
+        if plan is not None:
+            explicit = getattr(runtime, "_FILE_CMD", None)
+            if explicit is None or explicit.match(command.strip()) is None:
+                return None
+        return runtime._file_command(command)
+
     return {
-        "file_command": lambda: runtime._file_command(command),
+        "file_command": file_gate,
         # A Core-validated reminder or notes plan owns its data, including
         # quoted phrases. The earlier raw share/camera/voice controller must
         # not reinterpret reminder titles or note contents as an independent
