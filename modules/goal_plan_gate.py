@@ -293,6 +293,36 @@ def validate_dependent_research_attempt(
     return node
 
 
+def validate_dependent_account_attempt(
+    state: dict, selection: NodeCandidate, *, attempt: int,
+) -> dict:
+    """Admit only one first-attempt Gmail list→indexed message read.
+
+    The exact accepted and projected source is separately verified by the
+    durable predecessor binding before provider execution and Core CAS.
+    """
+    if type(attempt) is not int or attempt != 1:
+        raise PlanFenceError('Dependent account requires a fresh first attempt.')
+    node = revalidate(state, selection)
+    source_id = node['depends_on'][0] if len(node['depends_on']) == 1 else None
+    plan = state['goal_plan']
+    source = next((row for row in plan['nodes'] if row['id'] == source_id), None)
+    data = node['input']
+    if (node['capability_id'] != 'task.account' or source is None
+            or source['capability_id'] != 'task.account'
+            or source['input'].get('service') != 'gmail'
+            or source['input'].get('operation') != 'list_unread'
+            or data.get('service') != 'gmail'
+            or data.get('operation') != 'read_message'
+            or type(data.get('index')) is not int
+            or set(data) != {'service', 'operation', 'index'}
+            or selection not in ready_read_only_candidates(
+                state, owner=selection.owner, job_id=selection.job_id,
+            )):
+        raise PlanFenceError('Dependent Gmail read requires accepted list evidence.')
+    return node
+
+
 def revision_reuse_candidates(state: dict, revised_plan: dict) -> tuple[str, ...]:
     """Return structurally unchanged node IDs, *not* verified finished steps.
 

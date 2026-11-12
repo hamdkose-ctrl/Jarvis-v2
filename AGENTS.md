@@ -219,4 +219,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
-- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal isteği eşleşmeli; yalnız tam kanıtlı çıktı, worker tekrarı olmadan tamamlanmaya alınır.
+- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal bağlanır; tam kanıtlı sonuç kurtarılır; Gmail indeksli okuma yalnız Core-kabul+project edilmiş listeye bağlanır.

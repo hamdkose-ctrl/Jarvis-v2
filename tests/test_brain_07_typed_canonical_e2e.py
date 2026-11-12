@@ -7,6 +7,7 @@ domain evidence, and first-party completion code remain live.
 from __future__ import annotations
 
 import json
+import release_guard
 import subprocess
 import sys
 import threading
@@ -21,7 +22,7 @@ from unittest.mock import Mock, patch
 
 from test_brain_pr3_raw_text_authority import _CanonicalAuthorityHarness
 from modules import (
-    brain_entry, canonical_goal_flow, canonical_plan_evidence,
+    account_tools, brain_entry, canonical_goal_flow, canonical_plan_evidence,
     canonical_scheduler_dispatch, execution_record, goal_executor,
     goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
     smart_router, task_agents, task_queue, task_results, untrusted_flow,
@@ -981,6 +982,23 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                         'action': 'complete', 'goal': 0, 'evidence': ['first'],
                     }),
                 ))
+                # Stop and join while all temporary Scheduler registries
+                # are STILL patched. Otherwise ExitStack restores _THREAD
+                # and _CANONICAL_WORKERS before the outer finally runs,
+                # losing the live recovery thread and leaving a Windows
+                # .control.lock file open during TemporaryDirectory cleanup.
+                def close_patched_scheduler():
+                    stop.set()
+                    scheduler = task_queue._THREAD
+                    if scheduler is not None:
+                        scheduler.join(10)
+                        self.assertFalse(scheduler.is_alive(),
+                                         'Recovery Scheduler thread still alive')
+                    for live in tuple(task_queue._CANONICAL_WORKERS.values()):
+                        live.join(10)
+                        self.assertFalse(live.is_alive(),
+                                         'Recovery worker still owns a Windows file lock')
+                patches.callback(close_patched_scheduler)
                 with patch.object(task_agents, 'worker',
                                   side_effect=AssertionError('worker replay')) as worker:
                     task_queue.start(
@@ -1007,11 +1025,134 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                         self.owner,
                     ), ())
         finally:
+            # Backstop for an exception before installing the ExitStack
+            # callback; the callback itself joins under pinned mocks.
             stop.set()
-            if task_queue._THREAD is not None:
-                task_queue._THREAD.join(10)
-            for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
-                worker.join(10)
+
+    def test_canonical_gmail_indexed_read_waits_for_accepted_list(self):
+        """Typed request -> Core plan -> real specialist/leases/CAS -> delivery.
+
+        Only external account provider is mocked; no actual Gmail request
+        or real user's mail data is accessed.
+        """
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread', 'limit': 5}},
+            {'id': 'read', 'agent': 'account', 'depends': ['unread'],
+             'input': {'service': 'gmail', 'operation': 'read_message', 'index': 1}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, reply, feedback, job_id = self.typed_turn(
+                'Okunmamış e-postalarımı listele ve ilkini oku.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertIn(job_id, reply)
+        self.assertEqual([o.selection.node_id for o in
+                          canonical_scheduler_dispatch.discover(self.owner)], ['unread'])
+        observed = []
+        def account_worker(owner, task, deps):
+            self.assertEqual(owner, self.owner)
+            observed.append((task['id'], tuple(deps)))
+            if task['id'] == 'unread':
+                self.assertEqual(deps, {})
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                    'limit': 5, 'items': [{
+                        'id': 'msg_123', 'from': 'sender@example.test',
+                        'subject': 'Verified mail subject',
+                    }],
+                    'fetched_at': time.time(), 'query': 'is:unread in:inbox',
+                    'has_more': False,
+                }
+            else:
+                self.assertEqual(task['id'], 'read')
+                self.assertEqual(task['input']['index'], 1)
+                self.assertEqual(set(deps), {'unread'})
+                self.assertTrue(task_results.verify(deps['unread'], owner=owner))
+                self.assertEqual(deps['unread']['snapshot']['items'][0]['id'],
+                                 'msg_123')
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'read_message',
+                    'fetched_at': time.time(),
+                    'message': {
+                        'id': 'msg_123', 'from': 'sender@example.test',
+                        'subject': 'Verified mail subject', 'body': 'Evidence-backed text',
+                        'truncated': False, 'format': 'plain',
+                    },
+                }
+            return task_results.seal('account', {
+                'state': 'done',
+                'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
+            })
+        with patch.object(task_agents, 'worker', side_effect=account_worker), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            first = canonical_scheduler_dispatch.discover(self.owner)
+            self.assertEqual([o.selection.node_id for o in first], ['unread'])
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), first[0],
+            ))
+            state, journal = self.persisted(job_id)
+            self.assertEqual(journal['outputs']['unread']['state'], 'done')
+            # A substituted Gmail list is not usable even when the enclosing
+            # journal still says "done"; Core committed the previous bytes.
+            record_path = execution_record.path_for(
+                goal_executor._owner_root(self.owner), job_id,
+            )
+            original_bytes = record_path.read_bytes()
+            forged = execution_record.load(
+                goal_executor._owner_root(self.owner), self.owner, job_id,
+            )
+            forged['outputs']['unread']['snapshot']['items'][0]['id'] = 'forged_mail'
+            release_guard.atomic(record_path, execution_record.encode(forged))
+            self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
+            release_guard.atomic(record_path, original_bytes)
+            self.assertEqual([o.selection.node_id for o in
+                              canonical_scheduler_dispatch.discover(self.owner)], ['read'])
+            child = canonical_scheduler_dispatch.discover(self.owner)[0]
+            self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                SimpleNamespace(slug=self.owner), child,
+            ))
+        self.assertEqual(observed, [('unread', ()), ('read', ('unread',))])
+        state, journal = self.persisted(job_id)
+        self.assertEqual(set(journal['outputs']), {'unread', 'read'})
+        self.assertTrue(all(s['state'] == 'done' for s in journal['steps']))
+        accepted = [r['step_id'] for r in state['evidence']
+                    if r.get('kind') == 'worker_result' and r.get('status') == 'succeeded']
+        self.assertEqual(accepted, ['unread', 'read'])
+        notified = Mock()
+        with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
+            'action': 'complete', 'goal': 0, 'evidence': ['unread', 'read'],
+        }):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+        notified.assert_called_once()
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
+        self.run_goal.assert_not_called()
+
+    def test_canonical_gmail_indexed_read_rejects_unverified_or_wrong_parent(self):
+        valid = [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread', 'limit': 5}},
+            {'id': 'read', 'agent': 'account', 'depends': ['unread'],
+             'input': {'service': 'gmail', 'operation': 'read_message', 'index': 1}},
+        ]
+        # An account chain cannot read by index from a foreign or missing list.
+        for changed in (
+            [{'id': 'unread', 'agent': 'account', 'depends': [],
+              'input': {'service': 'drive', 'operation': 'list_files'}}, valid[1]],
+            [valid[0], {**valid[1], 'input': {
+                'service': 'gmail', 'operation': 'read_message',
+                'message_id': 'invented',
+            }}],
+            [valid[0], {**valid[1], 'depends': []}],
+        ):
+            with self.assertRaises(ValueError):
+                canonical_goal_flow._canonical_plan(changed)
+        self.assertEqual(canonical_goal_flow._canonical_plan(valid)['nodes'][1]['depends_on'],
+                         ['unread'])
+
 
     def test_foreground_accepts_second_independent_goal_while_worker_is_running(self):
         entered = threading.Event()

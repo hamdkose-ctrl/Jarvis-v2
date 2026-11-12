@@ -164,17 +164,21 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
                 'Canonical scheduler offer plan changed before worker prepare.'
             )
         if node['depends_on']:
-            # BRAIN-07L is deliberately limited to a first-attempt read-only
-            # research child. It re-reads the canonical accepted predecessor
-            # outputs from the existing persisted ExecutionRecord; merely
-            # ready DAG topology is not worker dispatch authority.
-            goal_plan_gate.validate_dependent_research_attempt(
-                snapshot, selection, attempt=attempt,
-            )
+            # Only two developer-approved dependent read-only forms; both
+            # re-bind exact, accepted and projected predecessor outputs.
             from modules import dependency_evidence
-            dependency_evidence.require_persisted_research_dependencies(
-                identity, node,
-            )
+            if node['capability_id'] == 'task.research':
+                goal_plan_gate.validate_dependent_research_attempt(
+                    snapshot, selection, attempt=attempt,
+                )
+                dependency_evidence.require_persisted_research_dependencies(identity, node)
+            elif node['capability_id'] == 'task.account':
+                goal_plan_gate.validate_dependent_account_attempt(
+                    snapshot, selection, attempt=attempt,
+                )
+                dependency_evidence.require_persisted_account_dependencies(identity, node)
+            else:
+                raise goal_plan_gate.PlanFenceError('Dependent worker not supported.')
         if node['capability_id'] != row['id'] or node['input'] != data:
             raise ValueError('Worker capability/input canonical plan node ile eşleşmiyor.')
         # Read canonical acceptance evidence BEFORE invoking the real worker.

@@ -104,7 +104,7 @@ def ready_offers(owner: str, job_id: str, *, limit: int = 3) -> tuple[ReadyOffer
             # Never revive a previous attempt or an already projected output.
             continue
         if node['depends_on']:
-            if candidate.capability_id != 'task.research':
+            if candidate.capability_id not in ('task.research', 'task.account'):
                 continue
             identity = {
                 'version': 1, 'owner': owner, 'job_id': job_id,
