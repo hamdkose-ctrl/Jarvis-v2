@@ -1015,7 +1015,28 @@ class SchedulerOfferTests(unittest.TestCase):
                         break
                     threading.Event().wait(.05)
                 saved = execution_record.load(self.owner_root, OWNER, JOB)
-                self.assertEqual(set(saved['outputs']), {'left', 'right', 'child'})
+                if set(saved['outputs']) != {'left', 'right', 'child'}:
+                    frames = sys._current_frames()
+                    worker_stacks = {
+                        thread.name: ''.join(traceback.format_stack(
+                            frames[thread.ident], limit=16,
+                        ))[-3800:]
+                        for thread in threading.enumerate()
+                        if thread.name.startswith('jarvis-canonical-')
+                        and thread.ident in frames
+                    }
+                    current = goal_state_store.load(self.path)
+                    self.fail(
+                        'Accepted child was not durably projected: steps='
+                        + repr([(x['id'], x.get('state'), x.get('attempts'))
+                                for x in saved['steps']])
+                        + '; outputs=' + repr(sorted(saved['outputs']))
+                        + '; accepted Core rows=' + repr([
+                            (x.get('step_id'), x.get('status'))
+                            for x in current.get('evidence', [])
+                            if isinstance(x, dict) and x.get('kind') == 'worker_result'])
+                        + '; worker stacks=' + repr(worker_stacks)
+                    )
                 self.assertTrue(
                     all(step['state'] == 'done' for step in saved['steps']),
                     "Canonical worker projection not durable: "
