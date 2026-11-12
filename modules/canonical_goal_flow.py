@@ -14,7 +14,8 @@ import time
 
 import release_guard
 from modules import (
-    canonical_plan_evidence, completion_policy, execution_record, goal_executor,
+    canonical_plan_evidence, completion_policy, core_state_reducer,
+    execution_record, goal_executor,
     goal_job_control, goal_plan_gate, goal_state, goal_state_compat,
     goal_state_store, llm, model_wait, task_agents, task_tools,
 )
@@ -232,9 +233,7 @@ def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
             completed['updated'] = time.time()
             # Core is the only global completion authority. A journal 'done'
             # cannot be published unless this deterministic CAS succeeds.
-            next_state = __import__(
-                'modules.core_state_reducer', fromlist=['apply']
-            ).apply(state, {
+            next_state = core_state_reducer.apply(state, {
                 'op': 'set_state', 'state': 'done',
                 'expected_version': state['version'],
                 'reason_code': 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED',
