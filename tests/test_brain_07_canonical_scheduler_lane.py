@@ -78,6 +78,32 @@ class SchedulerOfferTests(unittest.TestCase):
     def offers(self):
         return canonical_scheduler_lane.ready_offers(OWNER, JOB)
 
+    def test_scheduler_discovery_reads_both_snapshots_inside_existing_job_lock(self):
+        """Deterministic regression: a Windows reader may not race os.replace."""
+        from modules import goal_job_control
+        expected = str((self.owner_root / (JOB + '.control')).absolute())
+        read_state = goal_state_store.load
+        read_record = execution_record.load
+        observed = []
+
+        def checked_state(path):
+            self.assertIn(expected, getattr(goal_job_control._LOCAL, 'held', set()),
+                          'Scheduler opened GoalState outside the shared OS job lock')
+            observed.append('Core')
+            return read_state(path)
+
+        def checked_record(root, owner, job_id):
+            self.assertIn(expected, getattr(goal_job_control._LOCAL, 'held', set()),
+                          'Scheduler opened ExecutionRecord outside the shared OS job lock')
+            observed.append('ExecutionRecord')
+            return read_record(root, owner, job_id)
+
+        with patch.object(goal_state_store, 'load', side_effect=checked_state), \
+             patch.object(execution_record, 'load', side_effect=checked_record):
+            offers = self.offers()
+        self.assertEqual(observed[:2], ['Core', 'ExecutionRecord'])
+        self.assertEqual([o.selection.node_id for o in offers], ['left', 'right'])
+
     def accept(self, step, *, state='done'):
         output = {
             'state': state, 'text': 'evidence ' + step,
