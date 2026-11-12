@@ -70,7 +70,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 | `tools/claude/`, `docs/GELISTIRME_ORTAMI.md` | Claude Code ajanı (`jarvis-kural-denetcisi`), kurulum betiği ve geliştirme ortamı rehberi |
 | `tests/` | Python `unittest` ve Node.js davranış testleri |
 
-- **B07-FINAL-A kapanış çalışması (#610, henüz DRAFT):** Core `done` CAS ile ikinci ExecutionRecord kaydı arasındaki crash penceresinde frozen read-only sonucu yalnız Core + exact WorkerResult çıktısı doğrulanınca sahibine okut; ikinci bildirim, worker replay veya otomatik effect yetkisi üretme. Kaynak/test kabulü için #584 ve PR son SHA'sı esas alınır. Bu kayıt PASS/merge iddiası değildir.
+- **B07-FINAL-A (#610 DRAFT):** Core CAS–ExecutionRecord kesintisinde sonuç yalnız Core ve exact WorkerResult kanıtıyla sahibine okutulur. Bildirim/replay tekrar edilmez. Kabul: #584 ve aynı SHA CI+PC; PASS/merge değil.
 
 ## BRAIN-04 action_batch
 
