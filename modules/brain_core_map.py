@@ -738,6 +738,42 @@ def _translate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+
+# BRAIN-03: these closed operations are Core argument contracts, not a second
+# natural-language classifier. The model chooses from the catalogue; Core
+# validates the enum and the existing domain owner applies each effect.
+_SCREEN_TEXT_OPERATIONS = frozenset({"read", "copy", "error_note"})
+_SHARE_OPERATIONS = frozenset({"screen", "camera", "stop"})
+_VOICE_RATE_DIRECTIONS = frozenset({"faster", "slower"})
+
+
+def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in _SCREEN_TEXT_OPERATIONS:
+        return None
+    return {"operation": operation}
+
+
+def _share_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "action"}:
+        return None
+    action = arguments.get("action")
+    if type(action) is not str or action not in _SHARE_OPERATIONS:
+        return None
+    return {"action": action}
+
+
+def _voice_rate_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "direction"}:
+        return None
+    direction = arguments.get("direction")
+    if type(direction) is not str or direction not in _VOICE_RATE_DIRECTIONS:
+        return None
+    return {"direction": direction}
+
+
 # hint -> (existing Core intent, argument validator). Hints absent here stay on the
 # existing handler path until their own migration.
 def _empty_action_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -930,6 +966,12 @@ def _selfctl_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] | None]]] = {
     "documents.export": ("document_export", _empty_action_args),
     "system.diagnose": ("system_diagnose", _empty_action_args),
+    # BRAIN-03: typed adapters preserve the existing OCR/clipboard/note,
+    # Vision share, voice-rate and personal briefing executors.
+    "screen.text": ("screen_text", _screen_text_args),
+    "device.share": ("share_control", _share_args),
+    "voice.rate": ("voice_rate", _voice_rate_args),
+    "brief.read": ("daily_brief", _empty_action_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),

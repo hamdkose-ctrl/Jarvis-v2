@@ -82,6 +82,53 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "system_diagnose":
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
+        case "screen_text":
+            # Model selected only a closed operation; the existing OCR owner
+            # still owns image capture. No raw-string OCR verb recognition here.
+            if (blocked := runtime.privacy.blocked("screen")):
+                return blocked
+            operation = a["operation"]
+            if operation == "error_note":
+                text = runtime._screen_ocr(
+                    "Ekranda bir hata ya da uyarı mesajı varsa, Türkçe olarak tek cümleyle ne olduğunu "
+                    "ve olası çözümünü yaz. Hata yoksa sadece 'Hata görünmüyor' yaz."
+                )
+                requests_state.check()
+                if not text or "Hata görünmüyor" in text:
+                    return "Ekranda bir hata görünmüyor."
+                normalized = " ".join(text.split())
+                runtime.profile.add_note_item("Ekran hatası: " + normalized)
+                return "Ekrandaki hatayı notlarına ekledim: " + normalized[:200]
+            text = runtime._screen_ocr(
+                "Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini "
+                "koruyarak yaz. Yorum, başlık ya da açıklama ekleme; yalnızca metin."
+            )
+            requests_state.check()
+            if not text:
+                return "Ekranda okunabilir bir metin bulamadım."
+            if operation == "read":
+                return text
+            copied = runtime._copy_text(text)
+            if not copied:
+                return "Metni çıkardım ama panoya kopyalayamadım."
+            return f"Ekrandaki metni panoya kopyaladım ({len(text)} karakter). Başı: “{' '.join(text[:80].split())}…”"
+        case "share_control":
+            # set_share is the single permission/vision/UI/audit effect owner.
+            return runtime.set_share({"screen": "screen", "camera": "camera", "stop": None}[a["action"]])
+        case "voice_rate":
+            # Exactly the same preference writer as the existing spoken/UI
+            # controls; no new voice identity or provider fallback is created.
+            from modules import engine_context, voice_runtime
+            direction = a["direction"]
+            prefs = runtime.profile.data["prefs"]
+            saved = prefs.get("rate", -8)
+            current = saved if type(saved) is int and -40 <= saved <= 40 else -8
+            rate = max(-40, min(40, current + (10 if direction == "faster" else -10)))
+            if not engine_context.set_profile_rate(runtime.profile, rate, lane=voice_runtime.active()):
+                return "Seçilen ses kurulmadığı için konuşma hızı değiştirilmedi."
+            return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
+        case "daily_brief":
+            return runtime._daily_briefing()
         case "user_manage":
             from modules import user_command_domain
             return user_command_domain.user_manage(runtime, a)

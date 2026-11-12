@@ -192,7 +192,7 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "media.handle": {"modules/engine_tools.py"},
         "_mail_handle": {"modules/engine_tools.py"},
         "notify.handle": {"modules/engine_tools.py"},
-        "_screen_ocr": {"modules/engine_tools.py"},
+        "_screen_ocr": {"modules/engine_tools.py", "modules/engine_intents.py"},
     }
 
     def test_every_raw_semantic_door_has_exactly_its_pinned_production_owner(self):

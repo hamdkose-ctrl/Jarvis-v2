@@ -242,6 +242,14 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id in {"screen.text", "device.share", "voice.rate", "brief.read"}:
+        if capability_id == "screen.text":
+            return {"operation": ["read", "copy", "error_note"]}
+        if capability_id == "device.share":
+            return {"action": ["screen", "camera", "stop"]}
+        if capability_id == "voice.rate":
+            return {"direction": ["faster", "slower"]}
+        return {"arguments": {}}
     if capability_id in {"documents.export", "system.diagnose"}:
         return {"arguments": {}, "target": "current.current_output"
                 if capability_id == "documents.export" else "read-only system checks"}
@@ -317,6 +325,18 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "screen.text": (
+        "read the visible screen text with OCR, copy that text to clipboard, or save a visible error to the current user's notes",
+        "choose one closed operation; Core checks screen privacy before OCR and the existing owner does the work"),
+    "device.share": (
+        "explicitly start sharing the screen, start sharing the camera, or stop active sharing",
+        "the user must ask to change sharing; quoted, hypothetical, negated and explanatory statements are not commands"),
+    "voice.rate": (
+        "change speech speed for the selected voice, faster or slower",
+        "do not switch voice identity; the single existing voice preference writer and installed-voice checks remain authoritative"),
+    "brief.read": (
+        "give the current user's daily briefing with their events, weather and available status",
+        "read-only briefing; never schedule, delete or share data as a side effect"),
     "windows.settings.open": (
         "opens a supported Windows Settings page with a closed ms-settings identifier",
         "Core verifies page before Windows receives it; not a Jarvis page or arbitrary URL"),
