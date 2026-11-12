@@ -130,16 +130,23 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(fb.reason_code, 'GOAL_CREATE')
         self.assertIsNone(job_id)
         self.run_goal.assert_called_once()
-        self.assertFalse((goal_executor.STORE / self.owner).exists())
+        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob('*.execution.json')), ())
+        self.assertEqual(tuple((goal_executor.STORE / self.owner).glob('*.goalstate.json')), ())
 
     def test_crashed_partial_publication_is_not_admitted_or_retried(self):
+        actual_atomic = canonical_goal_flow.release_guard.atomic
+        def fail_record_write(path, data):
+            if str(path).endswith('.execution.json'):
+                raise OSError('simulated crash between canonical and journal writes')
+            return actual_atomic(path, data)
         with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))), \
                 patch.object(canonical_goal_flow.release_guard, 'atomic',
-                             side_effect=OSError('simulated crash')):
+                             side_effect=fail_record_write):
             with self.assertRaises(OSError):
                 self.typed_turn()
         root = goal_executor._owner_root(self.owner)
         self.assertEqual(tuple(root.glob('*.execution.json')), ())
+        self.assertEqual(len(tuple(root.glob('*.goalstate.json'))), 1)
         self.assertEqual(tuple(canonical_scheduler_dispatch.discover(self.owner)), ())
 
     def test_semantic_refusal_never_marks_completed_or_sends_result(self):
