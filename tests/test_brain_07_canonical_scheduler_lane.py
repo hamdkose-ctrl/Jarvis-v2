@@ -21,7 +21,7 @@ from modules import (
     canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
     goal_executor, goal_state, goal_state_store, goal_tools,
-    runtime_worker_result, task_agents, task_results, untrusted_flow,
+    runtime_worker_result, scheduler_resource_gate, task_agents, task_results, untrusted_flow,
     worker_result_hook,
 )
 
@@ -74,6 +74,10 @@ class SchedulerOfferTests(unittest.TestCase):
         patch_store = patch.object(goal_executor, 'STORE', self.store)
         patch_store.start()
         self.addCleanup(patch_store.stop)
+        claim = patch.object(scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT',
+                             self.store / 'provider-claims')
+        claim.start()
+        self.addCleanup(claim.stop)
 
     def offers(self):
         return canonical_scheduler_lane.ready_offers(OWNER, JOB)
@@ -255,6 +259,35 @@ class SchedulerOfferTests(unittest.TestCase):
                          'failed_unaccepted')
         self.assertEqual([item.selection.node_id for item in self.offers()],
                          ['right'])
+
+    def test_resource_busy_and_lease_lost_are_distinct_unaccepted_reasons(self):
+        from types import SimpleNamespace
+        from modules import resource_leases
+        for exc, expected in (
+            (resource_leases.LeaseConflict('busy'),
+             'CANONICAL_RESOURCE_BUSY_UNACCEPTED'),
+            (resource_leases.LeaseFenceError('lost'),
+             'CANONICAL_RESOURCE_LEASE_LOST_UNACCEPTED'),
+        ):
+            with self.subTest(expected=expected):
+                offer = next(o for o in self.offers()
+                             if o.selection.node_id in ('left', 'right'))
+                with patch('modules.specialist_orchestrator.execute_step',
+                           side_effect=exc):
+                    with self.assertRaises(type(exc)):
+                        canonical_scheduler_dispatch.execute_offer(
+                            SimpleNamespace(slug=OWNER), offer,
+                        )
+                job = execution_record.load(self.owner_root, OWNER, JOB)
+                self.assertEqual(job['outputs'][offer.selection.node_id]['reason_code'],
+                                 expected)
+                self.assertNotIn(
+                    offer.selection.node_id,
+                    [o.selection.node_id for o in self.offers()],
+                    'Failed first attempt must never be blindly reoffered',
+                )
+        self.assertFalse(any(row.get('kind') == 'worker_result'
+                             for row in goal_state_store.load(self.path)['evidence']))
 
     def test_completed_step_or_started_step_is_never_offered(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
@@ -712,6 +745,61 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.fail('A stopped Scheduler may not enter a worker.')
         # An unrelated standalone legacy/read-only worker has no Scheduler
         # stop token; the failed scope does not permanently contaminate it.
+        runtime_worker_result.require_scheduler_active()
+
+    def test_live_canonical_cancel_fences_next_provider_step_before_worker_result(self):
+        from modules import requests_state
+        offer = self.offers()[0]
+        before = self.path.read_bytes()
+        with runtime_worker_result.scheduler_stop_scope(None, selection=offer.selection):
+            requests_state.check()
+            current = goal_state_store.load(self.path)
+            cancelled = core_state_reducer.apply(current, {
+                'op': 'set_state', 'state': 'cancelled',
+                'reason_code': 'TEST_OWNER_CANCEL',
+                'expected_version': current['version'],
+            })
+            goal_state_store.compare_and_swap(
+                self.path, expected_version=current['version'], next_state=cancelled,
+            )
+            with self.assertRaises(runtime_worker_result.CanonicalWorkerRevoked):
+                requests_state.check()
+        self.assertNotEqual(before, self.path.read_bytes())
+        self.assertEqual(goal_state_store.load(self.path)['state'], 'cancelled')
+        runtime_worker_result.require_scheduler_active()
+
+    def test_live_canonical_plan_edit_fences_next_provider_step(self):
+        from modules import requests_state
+        offer = self.offers()[0]
+        with runtime_worker_result.scheduler_stop_scope(None, selection=offer.selection):
+            current = goal_state_store.load(self.path)
+            updated = core_state_reducer.apply(current, {
+                'op': 'set_goal_plan', 'reason_code': 'TEST_OWNER_REPLAN',
+                'expected_version': current['version'],
+                'plan': {'plan_version': 2, 'nodes': self.nodes},
+            })
+            goal_state_store.compare_and_swap(
+                self.path, expected_version=current['version'], next_state=updated,
+            )
+            with self.assertRaises(runtime_worker_result.CanonicalWorkerRevoked):
+                requests_state.check()
+        self.assertFalse(any(row.get('kind') == 'worker_result'
+                             for row in goal_state_store.load(self.path)['evidence']))
+
+    def test_independent_accepted_root_does_not_revoke_other_running_root(self):
+        from modules import requests_state
+        second = self.offers()[1]
+        with runtime_worker_result.scheduler_stop_scope(None, selection=second.selection):
+            self.accept('left')
+            # Only a verified WorkerResult CAS is a permissible version advance;
+            # this does not rebase a user edit, terminal state or changed plan.
+            requests_state.check()
+            runtime_worker_result.require_scheduler_active()
+
+    def test_canonical_scope_cannot_accept_untyped_or_forged_selection(self):
+        with self.assertRaises(ValueError):
+            with runtime_worker_result.scheduler_stop_scope(None, selection={'owner': OWNER}):
+                self.fail('Untrusted scheduler selection admitted')
         runtime_worker_result.require_scheduler_active()
 
     def test_goal_status_uses_existing_read_only_canonical_restart_proof(self):

@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
-from modules import requests_state, task_results, service_store
+from modules import requests_state, task_results, service_store, file_resource_guard, resource_leases
 
 
 def validate(data):
@@ -83,13 +83,20 @@ def run(owner,data):
               '-r','25','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p']
     if audio:command+=['-c:a','aac']
     command+=['-movflags','+faststart',str(path)]
-    try:
-        subprocess.run(command,capture_output=True,timeout=180,check=True)
-        requests_state.check();metadata=probe(path)
-        if metadata['width']!=1280 or metadata['height']!=720 or abs(metadata['duration']-data.get('duration',10))>1 or bool(audio)!=metadata['has_audio']:
-            raise ValueError('Video boyut/süre/ses kontrolünden geçmedi.')
-        return {'state':'done','text':'Yerel görsel'+(' ve ses' if audio else '')+' kaynağından video üretildi.',
-                'file':str(path),'sha256':task_results.file_digest(path),'media':metadata}
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
+    # Resource claim covers the entire FFmpeg write/verify window, not only
+    # name selection. On crash the OS releases the claim; the incomplete
+    # destination remains evidence for manual recovery, never a retry grant.
+    with file_resource_guard.claim_paths(path):
+        if path.exists() or path.is_symlink():
+            raise resource_leases.LeaseConflict('Video target already exists.')
+        try:
+            subprocess.run(command,capture_output=True,timeout=180,check=True)
+            requests_state.check();metadata=probe(path)
+            if metadata['width']!=1280 or metadata['height']!=720 or abs(metadata['duration']-data.get('duration',10))>1 or bool(audio)!=metadata['has_audio']:
+                raise ValueError('Video boyut/süre/ses kontrolünden geçmedi.')
+            return {'state':'done','text':'Yerel görsel'+(' ve ses' if audio else '')+' kaynağından video üretildi.',
+                    'file':str(path),'sha256':task_results.file_digest(path),'media':metadata}
+        except BaseException:
+            # Only the still-owned freshly-created path may be removed.
+            path.unlink(missing_ok=True)
+            raise

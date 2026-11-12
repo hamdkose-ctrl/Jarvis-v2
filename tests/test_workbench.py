@@ -190,6 +190,57 @@ class DocumentTableTests(unittest.TestCase):
                 workbench.handle("hamdi", [str(self.pdf)], "tablo yap")
 
 
+class WorkbenchPhysicalClaimTests(unittest.TestCase):
+    def setUp(self):
+        from modules import file_resource_guard
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+        patch_root = patch.object(
+            file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+            self.folder / 'same-os-account' / 'claims',
+        )
+        patch_root.start()
+        self.addCleanup(patch_root.stop)
+
+    def test_preexisting_workbook_is_never_replaced_after_unique_name_selection(self):
+        output = self.folder / 'valuable.xlsx'
+        output.write_bytes(b'original user bytes')
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            workbench.write_output(output, 'Claimed', [('Sheet1', [['a'], ['b']])])
+        self.assertEqual(output.read_bytes(), b'original user bytes')
+        self.assertEqual(list(self.folder.glob('.jarvis-table-*')), [])
+
+    def test_competing_physical_claim_blocks_workbook_write_before_conversion(self):
+        from modules import file_resource_guard, resource_leases, conversion
+        output = self.folder / 'claimed.xlsx'
+        with file_resource_guard.claim_paths(output):
+            with patch.object(conversion, 'write_content') as writer:
+                with self.assertRaises(resource_leases.LeaseConflict):
+                    workbench.write_output(output, 'Claimed', [('Sheet1', [['a']])])
+                writer.assert_not_called()
+        self.assertFalse(output.exists())
+
+    def test_workbook_is_published_atomically_without_replace(self):
+        from modules import file_resource_guard, resource_leases
+        output = self.folder / 'fresh.xlsx'
+        workbench.write_output(output, 'Ready', [('Sheet1', [['header'], ['value']])])
+        self.assertTrue(output.exists())
+        from openpyxl import load_workbook
+        workbook = load_workbook(output)
+        try:
+            self.assertEqual(workbook.active['A2'].value, 'value')
+        finally:
+            workbook.close()
+        with self.assertRaises(resource_leases.LeaseConflict):
+            workbench.write_output(output, 'Overwrite', [('Sheet1', [['new']])])
+        workbook = load_workbook(output)
+        try:
+            self.assertEqual(workbook.active['A2'].value, 'value')
+        finally:
+            workbook.close()
+
+
 class FileCommandTests(unittest.TestCase):
     def runtime(self):
         import re

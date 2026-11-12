@@ -12,7 +12,8 @@ import time
 import unittest
 from pathlib import Path
 
-from modules import resource_leases
+from modules import resource_leases, scheduler_resource_gate
+from unittest.mock import patch
 
 
 _SCRIPT = """
@@ -108,6 +109,37 @@ class CrossProcessReadOnlyResourceClaimTests(unittest.TestCase):
             child.wait(timeout=10)
             if child.stderr is not None:
                 child.stderr.close()
+
+    def test_account_claim_root_is_shared_between_owner_names_and_processes(self):
+        # The account fallback is deliberately provider-wide until a trusted
+        # external subject is available. Its OS root must not be owner-specific.
+        shared = self.owner_root / 'provider'
+        with patch.object(scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT', shared):
+            self.assertEqual(scheduler_resource_gate._account_claim_root(), shared)
+            key = resource_leases.resource_key('gmail_account', 'shared')
+            with resource_leases.process_resource_claim(shared, key):
+                child = subprocess.run(
+                    [sys.executable, '-c', _SCRIPT, str(shared), key],
+                    cwd=self.repo_root, capture_output=True, text=True, timeout=20,
+                )
+                self.assertEqual(child.returncode, 19, child.stderr)
+            free = subprocess.run(
+                [sys.executable, '-c', _SCRIPT, str(shared), key],
+                cwd=self.repo_root, capture_output=True, text=True, timeout=20,
+            )
+            self.assertEqual(free.returncode, 0, free.stderr)
+
+    def test_account_claim_root_symlink_fails_closed(self):
+        external = self.owner_root / 'external'
+        external.mkdir()
+        link = self.owner_root / 'provider-link'
+        try:
+            link.symlink_to(external, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Directory symlink requires platform privilege')
+        with patch.object(scheduler_resource_gate, '_ACCOUNT_CLAIM_ROOT', link):
+            with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+                scheduler_resource_gate._account_claim_root()
 
     def test_distinct_resource_keys_remain_independent(self):
         held = resource_leases.resource_key("command", "a" * 64)

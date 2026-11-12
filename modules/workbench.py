@@ -435,6 +435,7 @@ def unique_path(folder: Path, stem: str, ext: str, sources=()) -> Path:
 def write_output(destination: Path, title: str, sheets: list[tuple[str, list[list]]]) -> None:
     from modules.conversion import write_content
     from modules.document_conversion import Block, Content
+    from modules import file_resource_guard, resource_leases
     if destination.suffix == ".xlsx":
         content = Content(title, sheets=sheets)
     else:
@@ -446,13 +447,22 @@ def write_output(destination: Path, title: str, sheets: list[tuple[str, list[lis
         content = Content(title, blocks=blocks)
     import os
     import tempfile
-    fd, temp = tempfile.mkstemp(prefix=".jarvis-table-", suffix=destination.suffix, dir=destination.parent)
-    os.close(fd)
-    try:
-        write_content(content, temp)
-        os.replace(temp, destination)
-    finally:
-        Path(temp).unlink(missing_ok=True)
+    # Claim the requested exact physical path and never overwrite an existing
+    # output. os.replace here used to clobber a file created after unique_path.
+    # A same-directory hardlink gives an atomic NO-REPLACE publish on Windows
+    # NTFS and POSIX; unsupported filesystems fail closed (no blind copy/retry).
+    with file_resource_guard.claim_paths(destination):
+        if destination.exists() or destination.is_symlink():
+            raise resource_leases.LeaseConflict('Workbench output already exists.')
+        fd, temp = tempfile.mkstemp(prefix=".jarvis-table-", suffix=destination.suffix, dir=destination.parent)
+        os.close(fd)
+        try:
+            write_content(content, temp)
+            with open(temp, 'rb+') as source:
+                os.fsync(source.fileno())
+            os.link(temp, destination)
+        finally:
+            Path(temp).unlink(missing_ok=True)
 
 
 def preview(header: list[str], rows: list[list], limit: int = 10) -> str:

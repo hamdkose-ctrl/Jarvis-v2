@@ -27,6 +27,35 @@ class StudioTests(unittest.TestCase):
         self.assertTrue(out['media']['has_audio']);self.assertEqual(out['studio']['scenes'],2)
         self.assertFalse(list(Path(out['file']).parent.glob('studio-*')))
 
+    def test_studio_output_claim_blocks_parallel_final_publish(self):
+        from modules import file_resource_guard, resource_leases
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import uuid
+        output = self.root / 'rendered'
+        output.mkdir()
+        serial = SimpleNamespace(hex='c' * 32)
+        final = output / ('c' * 12 + '-studio.mp4')
+        fake = Mock()
+        def synthetic_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'fake verified render')
+            return SimpleNamespace(returncode=0, stdout='')
+        data = {'scenes': [{'caption': 'Draft', 'duration': 1}]}
+        with (patch.object(file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+                           self.root / 'account-file-claims'),
+              patch.object(uuid, 'uuid4', return_value=serial),
+              patch.object(media_studio, '_frame',
+                           side_effect=lambda scene, size, path: Path(path).write_bytes(b'frame')),
+              patch.object(media_studio.subprocess, 'run', side_effect=synthetic_ffmpeg) as video,
+              patch.object(media_tools, 'probe', return_value={
+                  'width': 1280, 'height': 720, 'duration': 1, 'has_audio': False,
+              })):
+            with file_resource_guard.claim_paths(final):
+                with self.assertRaises(resource_leases.LeaseConflict):
+                    media_studio.run('alice', data, 'ffmpeg', output)
+            self.assertFalse(final.exists())
+            self.assertEqual(video.call_count, 2)
+
     def test_invalid_storyboard_never_calls_renderer(self):
         for data in ({'scenes':[]},{'scenes':[{'duration':1}]},{'scenes':[{'caption':'x','duration':True}]},
                      {'scenes':[{'caption':'x','duration':61}]},{'scenes':[{'caption':'x'*401}]},

@@ -22,6 +22,28 @@ class ReadOnlyAdmissionError(ValueError):
     """Cannot acquire a bounded read-only lease for this canonical plan node."""
 
 
+# Without a provider-verified subject/connection ID the safe fallback is a
+# coarse OS-account/provider namespace, NOT a profile hash. Two Jarvis owners
+# might authorize the same external account. Better serialize independent
+# same-provider reads than silently permit a cross-owner live claim collision.
+# An explicit verified connection identity may replace this conservative key
+# only after an authenticated identity contract and migration acceptance exist.
+_ACCOUNT_CLAIM_ROOT = Path.home() / '.jarvis' / 'provider-read-claims'
+
+
+def _account_claim_root() -> Path:
+    root = _ACCOUNT_CLAIM_ROOT
+    if root.is_symlink() or root.parent.is_symlink():
+        raise ReadOnlyAdmissionError('Provider claim namespace is not trusted.')
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ReadOnlyAdmissionError('Provider claim namespace unavailable.') from exc
+    if root.is_symlink() or not root.is_dir():
+        raise ReadOnlyAdmissionError('Provider claim namespace changed.')
+    return root
+
+
 def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
     """Derive keys from trusted capability metadata and canonical input.
 
@@ -78,13 +100,16 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
         from modules import task_tools
         task_tools.validate_input("account", params)
         service = params["service"]
-        identity = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:24]
+        # A Jarvis owner is not a trusted external account identity. Use one
+        # provider-wide collision key per OS account until a verified account
+        # subject is available. This may serialize two DISTINCT accounts but
+        # cannot accidentally overlap the SAME account through owner aliases.
         if service == "gmail":
-            return (resource_leases.resource_key("gmail_account", identity),)
+            return (resource_leases.resource_key("gmail_account", "shared"),)
         if not isinstance(service, str) or not service.isascii() or not service.islower():
             raise ReadOnlyAdmissionError("Provider identifier invalid.")
-        # Model cannot set arbitrary account IDs or resource keys.
-        return (resource_leases.resource_key("provider", f"{service}-{identity}"),)
+        # A model never supplies the resource key or the provider namespace.
+        return (resource_leases.resource_key("provider", f"{service}-shared"),)
 
     # Stateless research/finance and other read-only kinds are deliberately not
     # mapped to fake global resources. They remain outside this lease gate.
@@ -264,7 +289,7 @@ def account_read_worker(leases: resource_leases.LeaseTable,
         # independently started Jarvis processes. Do not hold the short
         # owner/job GoalState control lock during network/provider execution.
         with resource_leases.process_resource_claim(
-            goal_executor._root(selected.owner), ticket.keys[0],
+            _account_claim_root(), ticket.keys[0],
         ):
             validate_before_dispatch(
                 leases, state, selected, holder[0],

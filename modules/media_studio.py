@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
-from modules import media_tools,local_narration,requests_state,task_results
+from modules import media_tools,local_narration,requests_state,task_results,file_resource_guard,resource_leases
 
 SIZES={'landscape':(1280,720),'portrait':(720,1280),'square':(1080,1080)}
 
@@ -114,6 +114,13 @@ def run(owner,data,ffmpeg,output):
                 '-t',str(total),'-c:v','copy','-c:a','aac','-ar','48000','-b:a','128k','-movflags','+faststart',str(completed)],capture_output=True,timeout=180,check=True)
         requests_state.check();metadata=media_tools.probe(completed)
         if (metadata['width'],metadata['height'])!=size or abs(metadata['duration']-total)>1 or metadata['has_audio']!=bool(audio):raise ValueError('Stüdyo video kontrolü başarısız.')
-        with completed.open('rb') as src,final.open('xb') as dst:__import__('shutil').copyfileobj(src,dst)
-        return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
-                'file':str(final),'sha256':task_results.file_digest(final),'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+        # No other Jarvis process may race this destination; exclusive create
+        # and digest are inside the same OS-account physical file claim.
+        with file_resource_guard.claim_paths(final):
+            if final.exists() or final.is_symlink():
+                raise resource_leases.LeaseConflict('Studio output already exists.')
+            with completed.open('rb') as src,final.open('xb') as dst:
+                __import__('shutil').copyfileobj(src,dst)
+                dst.flush();os.fsync(dst.fileno())
+            return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
+                    'file':str(final),'sha256':task_results.file_digest(final),'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
