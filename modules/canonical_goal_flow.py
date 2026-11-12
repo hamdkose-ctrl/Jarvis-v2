@@ -21,6 +21,7 @@ from modules import (
 )
 
 _COMPLETING = set()
+_RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
 _READ_ONLY = frozenset({'research', 'account'})
 
@@ -168,21 +169,8 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
     return goal_executor._parse(answer)
 
 
-def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
-    """Single evidence-fenced semantic completion and at-most-once delivery.
-
-    The durable reservation is written BEFORE the external UI/event effect.
-    An unknown/partial send is NOT blindly replayed. This is at-most-once
-    automatic delivery, not a claim of transactional exactly-once delivery.
-    """
-    if not callable(notify):
-        raise ValueError('Canonical delivery sink is required.')
-    key = (owner, job_id)
-    with _COMPLETING_LOCK:
-        if key in _COMPLETING:
-            return False
-        _COMPLETING.add(key)
-    try:
+def _complete_once(owner: str, job_id: str, notify) -> bool:
+    """Attempt only one evidence-verified Core completion and event delivery."""
         try:
             proof = canonical_plan_evidence.certify_projected_plan(owner, job_id)
         except (canonical_plan_evidence.PlanEvidenceError, ValueError, OSError):
@@ -257,6 +245,33 @@ def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
                 saved['updated'] = time.time()
                 release_guard.atomic(record_path, execution_record.encode(saved))
         return True
+
+
+def complete_and_deliver(owner: str, job_id: str, notify) -> bool:
+    """Serialize completion per goal; coalesce racing accepted worker wakeups.
+
+    A second root can finish while the first completion callback is verifying
+    an earlier projection. Its wake cannot be dropped: mark one bounded recheck
+    on the same callback owner, without a second scheduler or global lock.
+    """
+    if not callable(notify):
+        raise ValueError('Canonical delivery sink is required.')
+    key = (owner, job_id)
+    with _COMPLETING_LOCK:
+        if key in _COMPLETING:
+            _RECHECK.add(key)
+            return False
+        _COMPLETING.add(key)
+    try:
+        while True:
+            result = _complete_once(owner, job_id, notify)
+            with _COMPLETING_LOCK:
+                again = key in _RECHECK and not result
+                _RECHECK.discard(key)
+                if not again:
+                    _COMPLETING.discard(key)
+                    return result
     finally:
         with _COMPLETING_LOCK:
             _COMPLETING.discard(key)
+            _RECHECK.discard(key)
