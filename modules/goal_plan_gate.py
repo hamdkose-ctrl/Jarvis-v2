@@ -293,6 +293,39 @@ def validate_dependent_research_attempt(
     return node
 
 
+def supported_gmail_indexed_dependency(plan: dict, node: dict) -> bool:
+    """Structural allowlist, not completion proof or dispatch authority.
+
+    Same exact shape guards both fresh dependent-account admission and the
+    already-accepted child rows a concurrent independent root may observe.
+    """
+    if (not isinstance(plan, dict) or not isinstance(node, dict)
+            or node.get('capability_id') != 'task.account'
+            or not isinstance(node.get('depends_on'), list)
+            or len(node['depends_on']) != 1):
+        return False
+    predecessor = next(
+        (row for row in plan.get('nodes', ())
+         if isinstance(row, dict) and row.get('id') == node['depends_on'][0]), None,
+    )
+    data = node.get('input')
+    parent_input = predecessor.get('input') if predecessor is not None else None
+    return (
+        predecessor is not None
+        and predecessor.get('capability_id') == 'task.account'
+        and isinstance(parent_input, dict)
+        and parent_input.get('service') == 'gmail'
+        and parent_input.get('operation') == 'list_unread'
+        and not predecessor.get('depends_on')
+        and isinstance(data, dict)
+        and data.get('service') == 'gmail'
+        and data.get('operation') == 'read_message'
+        and type(data.get('index')) is int
+        and 1 <= data['index'] <= 20
+        and set(data) == {'service', 'operation', 'index'}
+    )
+
+
 def validate_dependent_account_attempt(
     state: dict, selection: NodeCandidate, *, attempt: int,
 ) -> dict:
@@ -304,18 +337,7 @@ def validate_dependent_account_attempt(
     if type(attempt) is not int or attempt != 1:
         raise PlanFenceError('Dependent account requires a fresh first attempt.')
     node = revalidate(state, selection)
-    source_id = node['depends_on'][0] if len(node['depends_on']) == 1 else None
-    plan = state['goal_plan']
-    source = next((row for row in plan['nodes'] if row['id'] == source_id), None)
-    data = node['input']
-    if (node['capability_id'] != 'task.account' or source is None
-            or source['capability_id'] != 'task.account'
-            or source['input'].get('service') != 'gmail'
-            or source['input'].get('operation') != 'list_unread'
-            or data.get('service') != 'gmail'
-            or data.get('operation') != 'read_message'
-            or type(data.get('index')) is not int
-            or set(data) != {'service', 'operation', 'index'}
+    if (not supported_gmail_indexed_dependency(state['goal_plan'], node)
             or selection not in ready_read_only_candidates(
                 state, owner=selection.owner, job_id=selection.job_id,
             )):
