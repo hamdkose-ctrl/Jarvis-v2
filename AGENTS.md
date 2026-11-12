@@ -74,6 +74,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
+- **BRAIN-03 doğrulanmış hatırlatma / not mutasyonu sınırı:** `main_planner._planner_command` mevcut `main_planner.core_reminder` kapsamındayken ham cümledeki silme/düzeltme sözlerini not değiştirme yetkisi saymaz. Kesin not ekleme, Core planı olmayan eski komutlar, mevcut hatırlatma erteleme/onay yolu korunur. Regresyonlar: `tests/test_brain_03_reminder_core_fence.py`; canlı model ve exact-HEAD Windows/PC kabulü ayrıca gerekir.
+
 ## Testler
 
 - Finance alarm fiyatları `finance.quote` ortak girişini kullanır; watcher kaynak sağlayıcıların özel fonksiyonlarını çağırmaz. Göç durumu `docs/agents/finans.md` içindedir.
