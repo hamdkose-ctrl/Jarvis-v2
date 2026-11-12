@@ -768,6 +768,28 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _handoff_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "operation", "where", "text", "when"}:
+        return None
+    operation = arguments.get("operation")
+    if type(operation) is not str or operation not in {"list", "add", "complete"}:
+        return None
+    where = arguments.get("where")
+    if type(where) not in (str, type(None)) or where not in {"is", "ev", None}:
+        return None
+    if operation == "list":
+        return {"operation": operation, "where": where} if arguments.get("text") is None and arguments.get("when") is None else None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 500:
+        return None
+    if operation == "complete":
+        return {"operation": operation, "text": text.strip()} if where is None and arguments.get("when") is None else None
+    when = arguments.get("when", "today")
+    if where not in {"is", "ev"} or type(when) is not str or when not in {"today", "tomorrow"}:
+        return None
+    return {"operation": operation, "where": where, "text": text.strip(), "when": when}
+
+
 def _filesend_transfer_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation", "query"}:
         return None
@@ -1179,6 +1201,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "media.search": ("media_search", _media_search_args),
     "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
     "notify.manage": ("notify_manage", _notify_manage_args),
+    "handoff.manage": ("handoff_manage", _handoff_manage_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),

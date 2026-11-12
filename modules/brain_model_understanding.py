@@ -110,6 +110,7 @@ _USER_OWNED_ARGUMENT_SLOTS = {
     "browser.page.read": frozenset({"url"}),
     "media.search": frozenset({"query"}),
     "filesend.transfer": frozenset({"query"}),
+    "handoff.manage": frozenset({"text"}),
 }
 
 # Kullanıcı-sahibi alanlardan hangileri SAYIDIR. Bu bir doğal dil listesi değildir; hangi
@@ -139,7 +140,7 @@ _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
     "workbench.followup", "study.read",
     "notes.add", "notes.manage", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
-    "browser.page.read", "media.search", "filesend.transfer", "notify.manage",
+    "browser.page.read", "media.search", "filesend.transfer", "notify.manage", "handoff.manage",
 })
 
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
@@ -266,6 +267,12 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "handoff.manage":
+        return {"operation": ["list", "add", "complete"], "where": ["is", "ev", None],
+                "text": "verbatim user provided task title, only for add or complete",
+                "when": ["today", "tomorrow"],
+                "argument_sources": ["text"],
+                "constraint": "never supply Google task ID, token or third-party account; complete only an exact single open task"}
     if capability_id == "filesend.transfer":
         return {"operation": ["latest", "screenshot", "search"],
                 "query": "verbatim file description requested by user; only for search",
@@ -405,6 +412,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "handoff.manage": (
+        "read, add, or complete a named task in the user's existing Google Tasks home/work handoff list",
+        "Core validates location, grounded text and bounded today/tomorrow due date; domain checks one exact open task and existing Google permissions"),
     "filesend.transfer": (
         "send the explicitly requested screenshot, latest downloaded file or named document to the user's existing Tailscale phone",
         "no arbitrary file paths or peer identities; the domain validates owner, privacy, path identity and pending selection"),

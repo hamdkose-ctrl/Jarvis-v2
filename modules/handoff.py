@@ -136,6 +136,48 @@ def complete(query: str) -> str | None:
     return hit["text"]
 
 
+def complete_exact(text: str) -> str | None:
+    """Typed Google Tasks completion: one exact open title, never fuzzy similarity."""
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(text, str) or not text.strip():
+        return None
+    from modules.turkish_text import lower
+    needle = lower(text.strip())
+    hits = [row for row in pending() if lower(row["text"]) == needle]
+    if len(hits) != 1:
+        return None
+    requests_state.check()
+    service = _svc()
+    service.tasks().patch(tasklist=_lid(service), task=hits[0]["id"],
+                          body={"status": "completed"}).execute()
+    return hits[0]["text"]
+
+
+def execute_typed(operation: str, *, where: str | None = None,
+                  text: str = "", when: str | None = None) -> str:
+    """Domain effects; the model never provides a Google task id or token."""
+    from modules import requests_state
+    requests_state.check()
+    if operation == "list":
+        if where not in {"is", "ev", None}:
+            raise ValueError("Unknown handoff location")
+        items = pending(where)
+        label = {"is": "İş için", "ev": "Ev için", None: "Devir listesinde"}[where]
+        return f"{label} {len(items)} not var: {_fmt(items)}." if items else f"{label} bekleyen not yok."
+    if operation == "add":
+        if where not in {"is", "ev"} or not isinstance(text, str) or not text.strip():
+            raise ValueError("Unknown handoff target")
+        due_at = date.today() + timedelta(days=1 if when == "tomorrow" else 0)
+        add(text, where, due_at)
+        label = "yarın" if when == "tomorrow" else "bugün"
+        return f"{NAME[where].capitalize()} listesine ekledim ({label}): {text}"
+    if operation == "complete":
+        result = complete_exact(text)
+        return f"Listeden düşürdüm: {result}" if result else "Tam adıyla eşleşen tek bir açık devir işi bulamadım; değiştirmedim."
+    raise ValueError("Unknown handoff operation")
+
+
 # ------------------------------------------------------------------ konuşmadan anlama
 _WHERE_IS = r"\b(?:işte|iş yerinde|ofiste|şantiyede|sahada|işe gidince|işe vardığımda|iş bilgisayarında|iş için not)\b"
 _WHERE_EV = r"\b(?:evde|eve gidince|eve varınca|eve geçince|ev bilgisayarında|ev için not|akşam evde)\b"

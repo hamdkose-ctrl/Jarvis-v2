@@ -221,6 +221,20 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if service == "youtube":
                 return media.youtube(a["query"])
             return media.spotify(a["query"])
+        case "handoff_manage":
+            from modules import handoff
+            if (blocked := runtime.privacy.blocked("web")):
+                return blocked
+            try:
+                return handoff.execute_typed(
+                    a["operation"], where=a.get("where"),
+                    text=a.get("text", ""), when=a.get("when"))
+            except Exception as exc:
+                from modules import requests_state
+                if isinstance(exc, (requests_state.Cancelled, PermissionError)):
+                    raise
+                runtime._record_failure("modules.engine_intents:handoff_manage")
+                return handoff.explain_error(exc)
         case "filesend_transfer":
             from modules import filesend
             return filesend.transfer_typed(runtime.profile.slug, a["operation"], a.get("query", ""))

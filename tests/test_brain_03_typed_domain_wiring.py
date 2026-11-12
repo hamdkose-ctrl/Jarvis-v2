@@ -652,6 +652,30 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertIn("Tüm notlarını sildim", result)
         self.assertEqual(self.ctx.profile.data["items"], [])
 
+    def test_handoff_typed_add_and_list_only_call_existing_google_tasks_worker(self):
+        from modules import handoff
+        with patch.object(handoff, "execute_typed", return_value="DEVİR") as execute:
+            entry, output, feedback = self.typed(
+                "Yarın işte raporu kontrol edeceğim", "handoff.manage",
+                {"operation": "add", "where": "is", "text": "raporu kontrol edeceğim", "when": "tomorrow"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("handoff_manage", {"operation": "add", "where": "is",
+                                             "text": "raporu kontrol edeceğim", "when": "tomorrow"}))
+        self.assertEqual(output, "DEVİR")
+        self.assertEqual(feedback.result_status, "handled")
+        execute.assert_called_once_with("add", where="is", text="raporu kontrol edeceğim", when="tomorrow")
+
+    def test_handoff_exact_completion_cannot_choose_fuzzy_nearby_task(self):
+        from modules import handoff
+        candidates = [{"id": "a", "text": "Çizim", "where": "is"},
+                      {"id": "b", "text": "Çizim kontrolü", "where": "is"}]
+        with patch.object(handoff, "pending", return_value=candidates), \
+             patch.object(handoff, "_svc") as service:
+            service.return_value.tasks.return_value.patch.return_value.execute.return_value = {}
+            self.assertIsNone(handoff.complete_exact("çiz"))
+            self.assertEqual(handoff.complete_exact("Çizim"), "Çizim")
+        service.return_value.tasks.return_value.patch.assert_called_once()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -698,6 +722,9 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("filesend.transfer", {"operation": "path", "query": "A"}),
             ("notify.manage", {"operation": "send_all"}),
             ("notify.manage", {"operation": "enable", "topic": "attacker"}),
+            ("handoff.manage", {"operation": "add", "where": "other", "text": "check"}),
+            ("handoff.manage", {"operation": "complete", "text": ""}),
+            ("handoff.manage", {"operation": "list", "text": "secret"}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),
