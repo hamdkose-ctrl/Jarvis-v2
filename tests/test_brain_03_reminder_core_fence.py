@@ -113,6 +113,16 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             self.assertEqual(reply, "PAYLASIM ACILDI")
             share.assert_called_once_with("screen")
 
+    def test_typed_reminder_quote_cannot_start_previous_table_followup(self):
+        # The early file gate must not run workbench.followup on title data.
+        with patch.object(self.ctx, "_file_command",
+                          side_effect=AssertionError("previous table regenerated")) as raw:
+            self._verified_reminder(
+                "Yarın bana 'tabloyu Word'de ver' sözünü hatırlat",
+                "tabloyu Word'de ver",
+            )
+        raw.assert_not_called()
+
     def test_typed_reminder_exception_cannot_start_note_delete(self):
         self.ctx.profile.add_note_item("Hassas not")
         command = "Yarın bana 'notları sil' diye hatırlat"
