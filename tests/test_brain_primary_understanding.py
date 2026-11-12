@@ -151,6 +151,48 @@ class OffPatternCapabilityProposalTests(unittest.TestCase):
         self.assertEqual(core_plan(result.capability_hint, result.arguments)[0], "task")
 
 
+class Brain03TypedModelAuthorityTests(unittest.TestCase):
+    """Real validated model envelope, not a forced hint in the transport stub."""
+
+    def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
+        utterance = "Not al: Raporu teslim et"
+        raw_action = action(capability_id="notes.add",
+                            arguments={"text": "Raporu teslim et"})
+        raw_action["argument_sources"] = {"text": "Raporu teslim et"}
+        raw = envelope(actions=[raw_action], confidence="HIGH")
+        base, adopted = applied(utterance, raw, confidence=Confidence.LOW)
+        self.assertIsNot(adopted, base)
+        self.assertEqual(adopted.capability_hint, "notes.add")
+        self.assertEqual(core_plan(adopted.capability_hint, adopted.arguments),
+                         ("notes_add", {"text": "Raporu teslim et"}))
+
+    def test_model_rejects_invented_note_body(self):
+        utterance = "Not al: Raporu teslim et"
+        raw_action = action(capability_id="notes.add",
+                            arguments={"text": "Tüm notları sil"})
+        raw_action["argument_sources"] = {"text": "Tüm notları sil"}
+        raw = envelope(actions=[raw_action], confidence="HIGH")
+        base, adopted = applied(utterance, raw, confidence=Confidence.LOW)
+        self.assertIs(adopted, base)
+
+    def test_new_model_capability_does_not_steal_protected_pending_request(self):
+        from modules.brain_model_understanding import _apply_semantic_fences, ProposedAction, UnderstandingProposal
+        utterance = "Kamerayı aç"
+        base = deterministic(utterance)
+        guarded = replace(
+            base, conversation_relation=ConversationRelation.CONTINUE_ACTIVE,
+            pending_owner="session.pending_msg.text", confidence=Confidence.LOW)
+        proposal = UnderstandingProposal(
+            operation="direct_action", conversation_relation=ConversationRelation.NEW_REQUEST,
+            temporal_need=TemporalNeed.UNSURE, confidence=Confidence.HIGH,
+            actions=(ProposedAction(
+                action_id="a1", capability_id="device.share",
+                arguments={"action": "camera"}, reference_slots=(), depends_on=()),),
+        )
+        self.assertIsNone(_apply_semantic_fences(
+            proposal, guarded, protected_relation=True,
+            resolving_file_ambiguity=False, has_grounded_reference=False))
+
 class NoHintPreconditionTests(unittest.TestCase):
     """`current.capability_hint` model önerisinin ön koşulu olamaz (BRAIN-MIG-108)."""
 

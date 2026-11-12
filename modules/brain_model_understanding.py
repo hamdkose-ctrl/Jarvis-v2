@@ -127,6 +127,20 @@ _GROUNDING_NUMERIC_FIELDS = frozenset({"phone", "index"})
 # yüzeyde yeniden belirmesini blocker sayar).
 _MODEL_DENIED_CAPABILITIES = frozenset({"weather.city.set", "weather.city.reset"})
 
+# BRAIN-03 final cutover: accepted typed Core capabilities must be selectable
+# by the primary model on independent user requests even if the deterministic
+# legacy classifier had LOW confidence. This changes only the model
+# confidence-veto exemption, NOT pending/owner, grounded source, arguments,
+# exact permission, Core validation or effect authority. It is deliberately
+# enumerated, not an open-ended "trust every model action" bypass.
+_MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
+    "screen.text", "device.share", "voice.rate", "brief.read",
+    "workbench.followup", "study.read",
+    "notes.add", "calendar.read", "reminders.manage",
+    "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
+    "browser.page.read", "media.search",
+})
+
 _FILE_OPERATIONS = ("open", "summarize", "analyze", "locate", "list", "compare")
 _REASON_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")
 _CONFIDENCE_RANK = {Confidence.LOW: 0, Confidence.MEDIUM: 1, Confidence.HIGH: 2}
@@ -963,8 +977,11 @@ def _apply_semantic_fences(proposed: UnderstandingProposal, current: Any, *,
     )
     free_context = current.pending_owner is None and (
         current.conversation_relation is ConversationRelation.NEW_REQUEST or artifact_context)
-    model_owned_action = bool(proposed.actions and proposed.actions[0].capability_id
-                              in {"documents.export", "system.diagnose"})
+    model_owned_action = bool(
+        proposed.operation == "direct_action" and len(proposed.actions) == 1
+        and proposed.actions[0].capability_id
+        in _MODEL_OWNED_TYPED_CAPABILITIES | {"documents.export", "system.diagnose"}
+    )
     model_owned_decision = proposed.operation in {'chat','clarify'} or model_owned_action
     # Gerçek sahipliği olmayan serbest turda (pending owner yok, hedef/görev kartı yok) model bir
     # düzeltmeyi sohbet/netleştirme olarak CORRECTION ile adlandırabilir. Etiket kendi anlamıyla
