@@ -34,9 +34,9 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 - `docs/agents/dosya-belge.md`: Dosya, belge ve klasör (14 bölüm)
 - `docs/agents/guncelleme-ci-kota.md`: Güncelleme, CI, model ve kota (23 bölüm)
 - `docs/agents/pr-test-bekleme.md`: PR/test sonucu bekleme kuralı (3 bölüm)
-- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (22 bölüm)
+- `docs/agents/mail-takvim.md`: Mail, takvim ve hatırlatma (23 bölüm)
 - `docs/agents/haber.md`: Haber araştırması ve kaynaklar (18 bölüm)
-- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (22 bölüm)
+- `docs/agents/gorev-cekirdegi.md`: Görev çekirdeği, hedef yürütücüsü ve araçlar; şehir tercihinde koşul/soru ve kibar reset sınırları ve BRAIN-05 Goal Resolver (24 bölüm)
 - `docs/agents/arayuz.md`: Arayüz, ana ekran ve ayarlar (10 bölüm)
 - `docs/agents/ses-video.md`: Ses ve video (7 bölüm)
 - `docs/agents/pc-masaustu.md`: PC ve masaüstü kontrolü (8 bölüm)
@@ -73,6 +73,8 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 ## BRAIN-04 action_batch
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
+
+- **BRAIN-03 doğrulanmış hatırlatma / not mutasyonu sınırı:** `main_planner._planner_command` mevcut `main_planner.core_reminder` kapsamındayken ham cümledeki silme/düzeltme sözlerini not değiştirme yetkisi saymaz. Kesin not ekleme, Core planı olmayan eski komutlar, mevcut hatırlatma erteleme/onay yolu korunur. Regresyonlar: `tests/test_brain_03_reminder_core_fence.py`; canlı model ve exact-HEAD Windows/PC kabulü ayrıca gerekir.
 
 ## Testler
 
@@ -217,4 +219,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
-- BRAIN-05 hedef değişiklikleri canonical `goal_intent` reducer/CAS yolunu kullanır; ExecutionRecord türetilmiş görünümüdür. Kart sürümü ve execution özeti işlem sırasında yeniden doğrulanır; eski worker yeni kaydı ezemez. Kilit model/araç çağrısı boyunca tutulmaz. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
+- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal isteği eşleşmeli; yalnız tam kanıtlı çıktı, worker tekrarı olmadan tamamlanmaya alınır.

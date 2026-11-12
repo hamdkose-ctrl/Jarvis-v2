@@ -6,15 +6,45 @@ inmeden çalışır. Silme ve üzerine yazma yoktur; her işlem geri alınabilir
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import os
 import re
 import shutil
 from pathlib import Path
 
 from config import DATA_DIR
-from modules import files
+from modules import file_resource_guard, files, resource_leases
 from modules.diagnostics import record_failure as _record_failure
 
+
+
+_FILE_BUSY = 'Aynı dosyada başka bir işlem çalışıyor; dosyaya dokunmadım.'
+
+
+def _with_file_claims(paths, operation):
+    """Existing Permission Gate remains independent of path ownership."""
+    try:
+        with file_resource_guard.claim_paths(*paths):
+            return operation()
+    except resource_leases.LeaseConflict:
+        return _FILE_BUSY
+
+
+@contextmanager
+def _claim_chosen_file_target(requested, chosen):
+    """Reserve a collision suffix selected by _free_name as well as its base.
+
+    The caller already holds the requested path claim. If an existing
+    document forces e.g. "report (1).txt", that *actual* path must also be
+    claimed before moving/writing; unrelated files remain independent.
+    """
+    if chosen == requested:
+        yield
+        return
+    with file_resource_guard.claim_paths(chosen):
+        if chosen.exists() or chosen.is_symlink():
+            raise resource_leases.LeaseConflict('Chosen file target changed.')
+        yield
 
 
 def _permission_decision(owner, name, target):
@@ -143,15 +173,21 @@ def _move(command: str, owner: str = "") -> str | None:
     source, (folder, label, _need) = hits[0], destination
     if source.parent.resolve() == folder.resolve():
         return f"{source.name} zaten {label} klasöründe."
-    if reason := _permission_decision(owner, 'Taşı', str(source)):
-        return reason
-    try:
-        final = files._free_name(folder / source.name)
-        shutil.move(str(source), str(final))
-    except OSError as exc:
-        return f"Dosyayı taşıyamadım: {exc}"
-    _record([[str(final), str(source), _digest(final)]], owner)
-    return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
+    def apply():
+        if not source.is_file() or source.is_symlink():
+            return 'Dosya değişti veya taşındı; işlem yapılmadı.'
+        if reason := _permission_decision(owner, 'Taşı', str(source)):
+            return reason
+        try:
+            requested = folder / source.name
+            final = files._free_name(requested)
+            with _claim_chosen_file_target(requested, final):
+                shutil.move(str(source), str(final))
+                _record([[str(final), str(source), _digest(final)]], owner)
+        except OSError as exc:
+            return f"Dosyayı taşıyamadım: {exc}"
+        return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
+    return _with_file_claims((source, folder / source.name), apply)
 
 
 def _rename(command: str, owner: str = "") -> str | None:
@@ -174,16 +210,20 @@ def _rename(command: str, owner: str = "") -> str | None:
     if not new:
         return problem
     target = source.with_name(new)
-    if target.exists() and _fold(target.name) != _fold(source.name):
-        return f"{new} adında bir dosya zaten var; üzerine yazmadım."
-    if reason := _permission_decision(owner, 'Yeniden adlandır', str(source)):
-        return reason
-    try:
-        source.rename(target)
-    except OSError as exc:
-        return f"Adı değiştiremedim: {exc}"
-    _record([[str(target), str(source), _digest(target)]], owner)
-    return f"{source.name} dosyasının adını {new} yaptım. İstersen “son dosya işlemini geri al” de."
+    def apply():
+        if not source.is_file() or source.is_symlink():
+            return 'Dosya değişti veya taşındı; işlem yapılmadı.'
+        if target.exists() and _fold(target.name) != _fold(source.name):
+            return f"{new} adında bir dosya zaten var; üzerine yazmadım."
+        if reason := _permission_decision(owner, 'Yeniden adlandır', str(source)):
+            return reason
+        try:
+            source.rename(target)
+        except OSError as exc:
+            return f"Adı değiştiremedim: {exc}"
+        _record([[str(target), str(source), _digest(target)]], owner)
+        return f"{source.name} dosyasının adını {new} yaptım. İstersen “son dosya işlemini geri al” de."
+    return _with_file_claims((source, target), apply)
 
 
 def _create(command: str, owner: str = "") -> str | None:
@@ -202,16 +242,22 @@ def _create(command: str, owner: str = "") -> str | None:
     if Path(name).suffix.lower() != ".txt":
         name = Path(name).stem + ".txt"
     content = _clean(found.group(3) or "")
-    if reason := _permission_decision(owner, 'Metin dosyası oluştur', str(folder / name)):
-        return reason
-    try:
-        final = files._free_name(folder / name)
-        final.write_text(content + ("\n" if content else ""), encoding="utf-8")
-    except OSError as exc:
-        return f"Dosyayı oluşturamadım: {exc}"
-    _record([[str(final), "", _digest(final)]], owner)
-    return (f"{label} klasöründe {final.name} dosyasını oluşturdum" + (" ve içine yazdım." if content else ".")
-            + " İstersen “son dosya işlemini geri al” de.")
+    def apply():
+        if reason := _permission_decision(owner, 'Metin dosyası oluştur', str(folder / name)):
+            return reason
+        try:
+            requested = folder / name
+            final = files._free_name(requested)
+            # Reserve the *actual* suffix, not only the original basename.
+            with _claim_chosen_file_target(requested, final):
+                with final.open('x', encoding='utf-8') as stream:
+                    stream.write(content + ("\n" if content else ""))
+                _record([[str(final), "", _digest(final)]], owner)
+        except OSError as exc:
+            return f"Dosyayı oluşturamadım: {exc}"
+        return (f"{label} klasöründe {final.name} dosyasını oluşturdum" + (" ve içine yazdım." if content else ".")
+                + " İstersen “son dosya işlemini geri al” de.")
+    return _with_file_claims((folder / name,), apply)
 
 
 def undo(owner: str = "") -> str:
@@ -228,26 +274,28 @@ def undo(owner: str = "") -> str:
     for entry in reversed(pairs):
         new, old = entry[0], entry[1]
         try:
-            if not os.path.exists(new):
-                pending.append(entry)
-                continue
-            if old == "":
-                # Oluşturulan dosya yalnız Jarvis'in yazdığı içerikle aynıysa silinir.
-                if len(entry) > 2 and _digest(Path(new)) == entry[2]:
-                    os.remove(new)
-                    done += 1
-                else:
+            # Undo must participate in the SAME path ownership as the
+            # original operation. No stale receipt can authorize a blind move.
+            paths = (Path(new), Path(old)) if old else (Path(new),)
+            with file_resource_guard.claim_paths(*paths):
+                if not os.path.exists(new):
                     pending.append(entry)
-            elif len(entry) > 2 and _digest(Path(new)) != entry[2]:
-                # Taşınan/yeniden adlandırılan dosya sonradan değiştirildiyse kimliğini koru.
-                pending.append(entry)
-            elif os.path.exists(old):
-                # Eski konum doluysa üzerine yazma; kayıt sonraki deneme için kalsın.
-                pending.append(entry)
-            else:
-                shutil.move(new, old)
-                done += 1
-        except OSError:
+                    continue
+                if old == "":
+                    # Delete only if Jarvis-owned content still matches.
+                    if len(entry) > 2 and _digest(Path(new)) == entry[2]:
+                        os.remove(new)
+                        done += 1
+                    else:
+                        pending.append(entry)
+                elif len(entry) > 2 and _digest(Path(new)) != entry[2]:
+                    pending.append(entry)
+                elif os.path.exists(old):
+                    pending.append(entry)
+                else:
+                    shutil.move(new, old)
+                    done += 1
+        except (OSError, resource_leases.LeaseConflict):
             pending.append(entry)
     try:
         if pending:
@@ -287,29 +335,39 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
             destination, label, _need = hit
             if source.parent.resolve() == destination.resolve():
                 return f"{source.name} zaten {label} klasöründe."
-            if reason := _permission_decision(owner, "Taşı", str(source)):
-                return reason
-            try:
-                target = files._free_name(destination / source.name)
-                shutil.move(str(source), str(target))
-                _record([[str(target), str(source), _digest(target)]], owner)
-            except OSError:
-                return "Dosyayı güvenli biçimde taşıyamadım."
-            return f"{source.name} dosyasını {label} klasörüne taşıdım."
+            def apply_move():
+                if not source.is_file() or source.is_symlink():
+                    return "Dosya değişti; taşıma yapılmadı."
+                if reason := _permission_decision(owner, "Taşı", str(source)):
+                    return reason
+                try:
+                    requested = destination / source.name
+                    target = files._free_name(requested)
+                    with _claim_chosen_file_target(requested, target):
+                        shutil.move(str(source), str(target))
+                        _record([[str(target), str(source), _digest(target)]], owner)
+                except OSError:
+                    return "Dosyayı güvenli biçimde taşıyamadım."
+                return f"{source.name} dosyasını {label} klasörüne taşıdım."
+            return _with_file_claims((source, destination / source.name), apply_move)
         new, problem = _valid_name(name, source)
         if not new:
             return problem
         target = source.with_name(new)
-        if target.exists() and target.resolve() != source.resolve():
-            return f"{new} adında bir dosya zaten var; üzerine yazmadım."
-        if reason := _permission_decision(owner, "Yeniden adlandır", str(source)):
-            return reason
-        try:
-            source.rename(target)
-            _record([[str(target), str(source), _digest(target)]], owner)
-        except OSError:
-            return "Dosyanın adını güvenli biçimde değiştiremedim."
-        return f"{source.name} dosyasının adını {new} yaptım."
+        def apply_rename():
+            if not source.is_file() or source.is_symlink():
+                return "Dosya değişti; yeniden adlandırma yapılmadı."
+            if target.exists() and target.resolve() != source.resolve():
+                return f"{new} adında bir dosya zaten var; üzerine yazmadım."
+            if reason := _permission_decision(owner, "Yeniden adlandır", str(source)):
+                return reason
+            try:
+                source.rename(target)
+                _record([[str(target), str(source), _digest(target)]], owner)
+            except OSError:
+                return "Dosyanın adını güvenli biçimde değiştiremedim."
+            return f"{source.name} dosyasının adını {new} yaptım."
+        return _with_file_claims((source, target), apply_rename)
     hit = files.match_folder(_fold(folder))
     if not hit or hit[1] not in ("Masaüstü", "İndirilenler", "Belgeler"):
         return "Hedef klasör doğrulanamadı; işlem başlatılmadı."
@@ -321,15 +379,20 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
         return problem
     if Path(filename).suffix.lower() != ".txt":
         filename = Path(filename).stem + ".txt"
-    if reason := _permission_decision(owner, "Metin dosyası oluştur", str(destination / filename)):
-        return reason
-    try:
-        target = files._free_name(destination / filename)
-        target.write_text(content + ("\n" if content else ""), encoding="utf-8", errors="strict")
-        _record([[str(target), "", _digest(target)]], owner)
-    except OSError:
-        return "Metin dosyasını güvenli biçimde oluşturamadım."
-    return f"{label} klasöründe {target.name} dosyasını oluşturdum."
+    def apply_create():
+        if reason := _permission_decision(owner, "Metin dosyası oluştur", str(destination / filename)):
+            return reason
+        try:
+            requested = destination / filename
+            target = files._free_name(requested)
+            with _claim_chosen_file_target(requested, target):
+                with target.open('x', encoding='utf-8', errors='strict') as stream:
+                    stream.write(content + ("\n" if content else ""))
+                _record([[str(target), "", _digest(target)]], owner)
+        except OSError:
+            return "Metin dosyasını güvenli biçimde oluşturamadım."
+        return f"{label} klasöründe {target.name} dosyasını oluşturdum."
+    return _with_file_claims((destination / filename,), apply_create)
 
 
 def handle(command: str, owner: str = "") -> str | None:

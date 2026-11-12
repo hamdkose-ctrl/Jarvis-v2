@@ -368,6 +368,53 @@ def _ensure(runtime,job):
     with _LOCK:
         if (job['owner'],job['id']) in _CANCEL_REQUESTED:raise requests_state.Cancelled('Seçilen hedef için iptal istendi.')
     if runtime.profile.slug!=job['owner']:raise requests_state.Cancelled('Kullanıcı değişti; önceki hedef durduruldu.')
+    # Another Jarvis process never shares this process's in-memory cancel set.
+    # Inspect only terminal durable lifecycle; independent accepted worker
+    # evidence may advance the canonical version without cancelling this job.
+    from modules import goal_state_store
+    path=_owner_root(job['owner'])/(job['id']+'.goalstate.json')
+    if path.is_symlink():
+        raise requests_state.Cancelled('Canonical hedef kaydı güvenli değil; worker durduruldu.')
+    if not path.exists():
+        if job.get('_canonical_version') is not None:
+            raise requests_state.Cancelled('Canonical hedef kaydı kayboldu; worker durduruldu.')
+        return
+    current=goal_state_store.load(path)
+    if current['owner']!=job['owner'] or current['job_id']!=job['id']:
+        raise requests_state.Cancelled('Canonical hedef kimliği değişti; worker durduruldu.')
+    if current['state'] in {'done','cancelled'}:
+        # Compatibility: a legacy-synced terminal snapshot is not a new
+        # canonical cancellation decision. The existing resume/revalidation
+        # path may reopen a *freshly saved* legacy execution after it proves
+        # its exact journal + canonical snapshot are still current.
+        # A foreign cancel/write changes one of those snapshots and fails.
+        legacy_terminal=current['audit'][-1]['reason_code'] in {
+            'LEGACY_PROJECTED', 'LEGACY_STATE_SYNCED',
+        }
+        local_reopen=(
+            current['state']=='done'
+            and legacy_terminal
+            and job.get('state') not in {'done','cancelled'}
+            and type(job.get('_canonical_version')) is int
+            and job['_canonical_version']==current['version']
+            and isinstance(job.get('_execution_snapshot'),str)
+            and bool(job['_execution_snapshot'])
+            and not any(
+                row['reason_code']=='OPERATOR_CUTOVER_PROMOTED'
+                for row in current['audit']
+            )
+        )
+        if local_reopen:
+            # Do not silently trust an old local snapshot after another
+            # process has cancelled or replaced the ExecutionRecord.
+            try:
+                goal_job_control.assert_fresh(_owner_root(job['owner']),job)
+            except (ValueError,FileNotFoundError) as exc:
+                raise requests_state.Cancelled(
+                    'Eski hedef yürütme kaydı değişti; worker durduruldu.'
+                ) from exc
+        else:
+            raise requests_state.Cancelled('Hedef başka bir yürütmede kapatıldı; yeni adım başlatılmadı.')
 
 
 
@@ -438,6 +485,8 @@ def _record(runtime,job,step,approval=None):
         step['started']=True;_save(job)
         from modules import model_wait
         with model_wait.guard(lambda:_ensure(runtime,job)):
+            # A separate process might cancel the goal after the last save.
+            _ensure(runtime,job)
             output=specialist_orchestrator.execute_step(runtime,job,step,_identity(job,step),approval=approval)
         if not isinstance(output,dict) or output.get('state') not in {'done','failed','blocked','approval','unavailable'}:
             raise ValueError('Araç durumlu bir sonuç döndürmedi.')
@@ -900,6 +949,20 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
         try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
                          resume=resume)
         except requests_state.Cancelled:
+            # The original cancellation might be a durable terminal decision
+            # made by another process. Do not attempt a stale journal write:
+            # it cannot revive canonical state, but its version conflict could
+            # hide the meaningful cancellation from the caller.
+            from modules import goal_state_store
+            path=_owner_root(owner)/(job['id']+'.goalstate.json')
+            if path.is_symlink():
+                raise
+            if path.exists():
+                current=goal_state_store.load(path)
+                if (current['owner'],current['job_id'])!=(owner,job['id']):
+                    raise
+                if current['state'] in {'done','cancelled'}:
+                    raise
             job['state']='cancelled';_save(job);raise
 
 
@@ -1024,6 +1087,64 @@ def _is_fast_command(command):
     return any(main_planner._PLAN_ASK.search(t) or google_api.is_mail_query(t) for t in forms)
 
 
+
+def _canonical_recovery_status(job):
+    """Report only durable canonical DAG evidence in the explicit status route.
+
+    This is a read-only operator view, not Scheduler admission or permission.
+    A 'started_unknown' worker may still be running: no crash, retry or global
+    completion can be inferred from this view. Legacy/unplanned goals retain
+    the existing concise status response without a new authority path.
+    """
+    from collections import Counter
+    from modules import canonical_restart_audit, goal_state, goal_state_store
+
+    owner, ident = job.get('owner'), job.get('id')
+    if (job.get('state') != 'running' or not isinstance(owner, str)
+            or not isinstance(ident, str) or not re.fullmatch(JOB_ID, ident)):
+        return ''
+    try:
+        root = _owner_root(owner)
+        canonical_path = root / (ident + '.goalstate.json')
+        if not canonical_path.exists():
+            return ''
+        canonical = goal_state_store.load(canonical_path)
+        if (goal_state.authority(canonical) != 'canonical'
+                or canonical.get('goal_plan') is None):
+            return ''
+        snapshot = canonical_restart_audit.inspect(owner, ident)
+    except (ValueError, OSError, TypeError, KeyError, IndexError):
+        # Never claim complete/replayable on unreadable, stale, foreign or
+        # contradictory canonical evidence. Keep the basic status readable.
+        return 'Canonical DAG kanıtı şu anda doğrulanamıyor; otomatik tekrar veya tamamlama izni verilmedi.'
+
+    counts = Counter(item.status for item in snapshot.nodes)
+    lines = [
+        'Canonical DAG kanıtı: '
+        + str(counts['accepted_projected']) + '/' + str(len(snapshot.nodes))
+        + ' adımda Core kabulü ve kayıtlı çıktı eşleşiyor.'
+    ]
+    if counts['accepted_unprojected']:
+        lines.append(
+            'Core kabulü var, kayıtlı çıktı eksik: '
+            + str(counts['accepted_unprojected'])
+            + ' adım; elle kurtarma incelemesi gerekli.'
+        )
+    if counts['started_unknown']:
+        lines.append(
+            'Başlatılmış, sonuç kanıtı henüz yok: '
+            + str(counts['started_unknown'])
+            + ' adım; hâlâ çalışıyor olabilir, otomatik tekrar yapılmaz.'
+        )
+    blocked = counts['failed_unaccepted'] + counts['failed_accepted']
+    if blocked:
+        lines.append('Başarısız ilk deneme: ' + str(blocked)
+                     + ' adım; otomatik tekrar yapılmaz.')
+    if counts['queued_unstarted']:
+        lines.append('Henüz başlamamış: ' + str(counts['queued_unstarted']) + ' adım.')
+    return '\n'.join(lines)
+
+
 def status_summary(job):
     states = {'running': 'çalışıyor', 'done': 'bitti', 'cancelled': 'iptal edildi',
               'approval': 'onay bekliyor', 'question': 'soru bekliyor',
@@ -1049,6 +1170,9 @@ def status_summary(job):
     summary = f"Durum: {states.get(job.get('state'), 'belirsiz')} · {completed}/{len(steps)} adım · {len(urls)} kaynak"
     if report:
         summary += ' · Rapor dosyası: ' + report
+    details = _canonical_recovery_status(job)
+    if details:
+        summary += '\n' + details
     return ('Hedef: ' + request + '\n' if request else '') + summary
 
 

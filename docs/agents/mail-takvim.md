@@ -2,6 +2,12 @@
 
 Bu dosya AGENTS.md'den taşındı; bölümler olduğu gibi, sırası korunarak buradadır. Tarihli bölümler geçmiş kararı anlatır; bir bölüm başka bir bölümle çelişirse tarihi daha yeni ve "son karar" yazan geçerlidir. Kod değişince ilgili bölüm burada güncellenir.
 
+## BRAIN-03: doğrulanmış hatırlatma metninden not silme yetkisi çıkmaz (12 Kasım 2026, kabul bekleyen dal)
+- Üretim karşı örneği: Core `reminder.propose` / `reminder` planı `title="notları sil"` taşıyabilirken `main_planner._planner_command` ham cümlenin içinde `notları sil` arıyor ve hatırlatma oluşturmadan önce notları temizliyordu. Sayı verilmiş not silme ve `_note_lookup` / `_note_fix` de yan etkili eski yorumlayıcılardır.
+- Dar çözüm: mevcut `main_planner.core_reminder` ContextVar kapsamı altında ham not silme, not güncelleme ve son not düzeltme/silme dalları çalışmaz. Normal `not al:` ve Core planı bulunmayan eski komutların çalışması, hatırlatma erteleme ve çakışma soruları korunur. Yeni regex, Core, Scheduler veya ikinci planner eklenmez.
+- Test: `tests/test_brain_03_reminder_core_fence.py` — typed `prepare → handoff → EngineContext.handle` zincirinde alıntı, sayılı silme, not düzeltme, exception, eski note-delete ve explicit note-add önceliği. Kodun eklenmiş olması koşulduğunu kanıtlamaz; exact-head Windows CI ve aynı SHA gerçek PC watcher kabulü beklenir.
+- Kapsam dışı: modelin/Understanding'in yanlış `reminder` proposal üretmesi, provider yokluğunda genel legacy effect fallback'i, aynı request'in durable dedupe'ı, `_edit_reminder` geniş semantik emekliliği ve BRAIN-07 canonical Goal/Scheduler. Bunlar daha geniş BRAIN-03 göçü veya ilgili iş sahiplerinde ayrı kanıt ister.
+
 ## Mail/takvim inceleme düzeltmeleri — 18 Ekim 2026
 - GPT incelemesinden (statik, doğrulanmamış) kod okunarak doğrulanan maddeler: "her 2 günde / iki günde bir / gün aşırı" artık tanınmayan tekrardır, tek seferlik kayıt açmaz, sorulur (`when.parse_repeat`). Tekrarlayan kayıtta dosyada yalnız sıradaki zaman durur; `Profile.events_on` (yarının planı, gündem, sabah özeti) ve çakışma sorusu (`main_planner._conflicts`) artık kuralın o güne düşen oluşumunu da sayar (`when.occurs_on`; ilk zamandan önceki günler sayılmaz).
 - Yarının planında gecikme gerçek bugüne göre: bugünkü bitmemiş görev "gecikmiş" değil "bugün bitmezse yarına kalır".

@@ -27,6 +27,81 @@ def _execution_journal_lock(path, job_id):
     return goal_job_control.locked(parent, job_id)
 
 
+def create_canonical_planned_goal(path, *, owner, job_id, goal, plan):
+    """Publish a born-canonical GoalState with its Core-accepted plan in one file.
+
+    The caller owns the matching queued ExecutionRecord publication under the
+    same job control lock; a missing record must never be schedulable.
+    """
+    with _execution_journal_lock(path, job_id):
+        initial = goal_state.new(
+            owner=owner, job_id=job_id, goal=goal,
+            execution_mode=PROJECTION_EXECUTION_MODE, authority='canonical',
+        )
+        planned = core_state_reducer.apply(initial, {
+            'expected_version': initial['version'], 'op': 'set_goal_plan',
+            'plan': plan, 'reason_code': 'CORE_GOAL_PLAN_ACCEPTED',
+        })
+        return goal_state_store.create(path, planned)
+
+
+def commit_verified_goal_completion(path, *, owner, job_id, proof):
+    """CAS global completion only against one current, fully evidenced plan.
+
+    Semantic acceptance and domain verification happen upstream. This adapter
+    checks the immutable evidence certificate against BOTH durable snapshots
+    under the same per-job lock and never authorizes a worker or model.
+    """
+    from modules import canonical_plan_evidence, dependency_evidence, goal_plan_gate
+
+    if not isinstance(proof, canonical_plan_evidence.ProjectedPlanProof):
+        raise ReconcilePolicyError('Verified projected-plan certificate required.')
+    if (proof.owner, proof.job_id) != (owner, job_id):
+        raise IdentityMismatchError('Completion certificate owner/job mismatch.')
+    with _execution_journal_lock(path, job_id):
+        current = goal_state_store.load(path)
+        if (current['owner'], current['job_id']) != (owner, job_id):
+            raise IdentityMismatchError('GoalState completion identity mismatch.')
+        if (goal_state.authority(current) != 'canonical'
+                or not isinstance(current.get('goal_plan'), dict)
+                or current['state'] not in ('pending', 'running')):
+            raise ReconcilePolicyError('Only active planned canonical goals may complete.')
+        if (current['version'] != proof.goal_version
+                or current['goal_plan']['plan_version'] != proof.plan_version):
+            raise goal_state_store.PersistedStateConflict(
+                'Canonical completion certificate is stale.',
+            )
+        node_ids = tuple(node['id'] for node in current['goal_plan']['nodes'])
+        if tuple(node_id for node_id, _ in proof.output_digests) != node_ids:
+            raise ReconcilePolicyError('Completion certificate does not cover the exact plan.')
+        record = execution_record.load(Path(path).parent, owner, job_id)
+        outputs = record.get('outputs')
+        if (record.get('state') != 'running'
+                or goal_job_control.fingerprint(record) != proof.record_digest
+                or not isinstance(outputs, dict)
+                or set(outputs) != set(node_ids)):
+            raise ReconcilePolicyError('Completion journal/evidence is missing or stale.')
+        for node_id, digest in proof.output_digests:
+            if dependency_evidence.output_sha256(outputs[node_id]) != digest:
+                raise ReconcilePolicyError('Projected output changed since certification.')
+        try:
+            ready = goal_plan_gate.ready_read_only_candidates(
+                current, owner=owner, job_id=job_id,
+            )
+        except goal_plan_gate.PlanFenceError as exc:
+            raise ReconcilePolicyError('Canonical plan evidence fence failed.') from exc
+        if ready:
+            raise ReconcilePolicyError('Some planned workers still lack Core evidence.')
+        updated = core_state_reducer.apply(current, {
+            'op': 'set_state', 'state': 'done',
+            'expected_version': current['version'],
+            'reason_code': 'CANONICAL_SEMANTIC_COMPLETION_VERIFIED',
+        })
+        return goal_state_store.compare_and_swap(
+            path, expected_version=current['version'], next_state=updated,
+        )
+
+
 def apply_goal_intent(path, *, owner, job_id, expected_version, operation, text=None, priority=None):
     """Commit an explicitly requested intent mutation to an existing canonical job."""
     # Reuse the executor's existing short per-job, cross-process control lock.

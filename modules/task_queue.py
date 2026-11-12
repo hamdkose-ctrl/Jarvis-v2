@@ -12,6 +12,23 @@ from modules.diagnostics import record_failure as _record_failure
 
 _START_LOCK=threading.Lock()
 _THREAD=None
+# One bounded pool of scheduled owner executions, owned by the existing
+# scheduler loop. No second task poller or GoalState writer.
+_OWNER_TICKS={}
+_LAST_ADMITTED={}
+# Read-only canonical workers belong to this same scheduler loop, not another
+# background poller. No owner may monopolize the bounded global pool.
+_CANONICAL_WORKERS={}
+# A recovered completion is attempted once per Scheduler process/snapshot.
+# No repeated model billing every five seconds on semantic rejection/failure.
+_CANONICAL_RESUME_ATTEMPTED=set()
+_LAST_CANONICAL_ADMITTED={}
+_MAX_CANONICAL_WORKERS=3
+_MAX_CANONICAL_PER_OWNER=2
+# Soft timeout for each read-only worker. Expiry fences Core CAS but cannot
+# forcibly abort a provider call; keep its OS resource claim until return.
+_CANONICAL_WORKER_DEADLINE_SECONDS=300
+_MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
@@ -214,15 +231,21 @@ def tick(owner, notify=None):
         # Preserve the assigned journal identity across restart; never create
         # a second job from an expired wake if its journal already exists.
         path = task_agents._job_path(task_agents._root(owner), row['job_id'])
-        if path.exists():
-            job = task_agents.continue_job(
-                owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
-            )
-        else:
-            job = task_agents.execute(
-                owner, tasks, row['instruction'],
-                job_id=row['job_id'], queue_id=row['id'],
-            )
+        marker = task_agents._QUEUE_CLAIM.set(
+            (owner, row['id'], row['job_id'], claim),
+        )
+        try:
+            if path.exists():
+                job = task_agents.continue_job(
+                    owner, row['job_id'], queue_id=row['id'], queue_tasks=tasks,
+                )
+            else:
+                job = task_agents.execute(
+                    owner, tasks, row['instruction'],
+                    job_id=row['job_id'], queue_id=row['id'],
+                )
+        finally:
+            task_agents._QUEUE_CLAIM.reset(marker)
         state = 'done' if job['state'] == 'done' else 'cancelled' if job['state'] == 'cancelled' else 'blocked'
         error = ''
     except task_agents.Busy:
@@ -285,11 +308,153 @@ def is_cancelled(owner,qid):
         return not row or row['state']=='cancelled'
 
 
-def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
-    """One engine-owned worker; no boot-time model/network call without queued work."""
+def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
+          canonical_profile_resolver=None, canonical_result_notify=None):
+    """One engine-owned scheduler loop, dispatching bounded owner workers.
+
+    Queue workers use tick() and its existing SQLite claim. Optional canonical
+    workers use the same poll loop, pinned profiles, and the existing Core
+    ResourceLease/WorkerResult fences. Voice is never serialized behind them.
+    """
     global _THREAD
     with _START_LOCK:
         if _THREAD and _THREAD.is_alive():return
+
+        def admit_owner(owner):
+            # The only scheduler thread owns this registry. An owner may not
+            # have two live tick() executions even across consecutive polls.
+            for name, worker in tuple(_OWNER_TICKS.items()):
+                if not worker.is_alive():
+                    _OWNER_TICKS.pop(name, None)
+            if owner in _OWNER_TICKS or len(_OWNER_TICKS) >= _MAX_OWNER_WORKERS:
+                return False
+
+            def work():
+                from modules import task_agents
+                token=llm._key_context.set(owner)
+                try:
+                    if not stop_event.is_set():
+                        tick(owner, notify)
+                except task_agents.Busy:
+                    # A user-owned synchronous job has the same owner.
+                    pass
+                except Exception:
+                    _record_failure('modules/task_queue.py:owner_tick')
+                finally:
+                    llm._key_context.reset(token)
+
+            worker=threading.Thread(
+                target=work, daemon=True, name='jarvis-task-owner-'+owner[:30],
+            )
+            _OWNER_TICKS[owner]=worker
+            _LAST_ADMITTED[owner]=time.monotonic()
+            worker.start()
+            return True
+
+        def admit_canonical(owner, profile):
+            from modules import canonical_scheduler_dispatch
+            # The scheduler thread is the sole mutator of this thread registry.
+            for key, worker in tuple(_CANONICAL_WORKERS.items()):
+                if not worker.is_alive():
+                    _CANONICAL_WORKERS.pop(key, None)
+            if len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS:
+                return
+            active_here = sum(key[0] == owner for key in _CANONICAL_WORKERS)
+            if active_here >= _MAX_CANONICAL_PER_OWNER:
+                return
+            # Never adopt the current foreground profile. A caller must
+            # resolve a registered user and prove its immutable owner slug.
+            if getattr(profile, 'slug', None) != owner:
+                return
+            for offer in canonical_scheduler_dispatch.discover(
+                owner, max_offers=_MAX_CANONICAL_PER_OWNER - active_here,
+            ):
+                selected = offer.selection
+                key = (owner, selected.job_id, selected.node_id, offer.attempt)
+                if key in _CANONICAL_WORKERS:
+                    continue
+                if len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS:
+                    break
+
+                # Bind the pinned owner/profile at thread creation time.
+                # The Scheduler can iterate another registered owner before
+                # this new OS thread begins executing; late-bound locals must
+                # never transplant one worker into another user's context.
+                def work(candidate=offer, pinned_owner=owner, pinned_profile=profile):
+                    from modules import runtime_worker_result
+                    token = llm._key_context.set(pinned_owner)
+                    try:
+                        if not stop_event.is_set():
+                            # Each thread gets its own clock-based deadline.
+                            # A stuck provider remains in the bounded pool;
+                            # we never release an in-flight OS claim to launch
+                            # a duplicate command or treat timeout as success.
+                            deadline = runtime_worker_result.CanonicalWorkerDeadline(
+                                stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS,
+                            )
+                            completed = canonical_scheduler_dispatch.execute_offer(
+                                pinned_profile, candidate, stop_event=deadline,
+                            )
+                            if completed and canonical_result_notify is not None:
+                                canonical_result_notify(pinned_owner, candidate.selection.job_id)
+                    except Exception:
+                        _record_failure('modules/task_queue.py:canonical_dispatch')
+                    finally:
+                        llm._key_context.reset(token)
+
+                thread = threading.Thread(
+                    target=work, daemon=True,
+                    name='jarvis-canonical-'+owner[:16]+'-'+selected.node_id[:16],
+                )
+                _CANONICAL_WORKERS[key] = thread
+                thread.start()
+                # A registered owner with no recent admission goes first on
+                # the next tick, even if earlier owners remain permanently busy.
+                _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
+
+        def admit_recovered_completion(owner):
+            if canonical_result_notify is None or stop_event.is_set():
+                return
+            from modules import canonical_scheduler_dispatch
+            for key, worker in tuple(_CANONICAL_WORKERS.items()):
+                if not worker.is_alive():
+                    _CANONICAL_WORKERS.pop(key, None)
+            if (len(_CANONICAL_WORKERS) >= _MAX_CANONICAL_WORKERS
+                    or sum(key[0] == owner for key in _CANONICAL_WORKERS)
+                       >= _MAX_CANONICAL_PER_OWNER):
+                return
+            for candidate in canonical_scheduler_dispatch.recoverable_completions(
+                    owner, max_results=1):
+                key = (owner, candidate.job_id, '__canonical_completion__',
+                       candidate.goal_version, candidate.record_digest)
+                if (key in _CANONICAL_RESUME_ATTEMPTED
+                        or any(active_key[0] == owner
+                               and active_key[1] == candidate.job_id
+                               for active_key in _CANONICAL_WORKERS)):
+                    continue
+
+                def recover(offer=candidate, pinned_owner=owner):
+                    token = llm._key_context.set(pinned_owner)
+                    try:
+                        if not stop_event.is_set():
+                            # Callback owns the existing proof recheck, Core CAS,
+                            # and owner-targeted delivery. Never launch workers.
+                            canonical_result_notify(pinned_owner, offer.job_id)
+                    except Exception:
+                        _record_failure('modules/task_queue.py:completion_recovery')
+                    finally:
+                        llm._key_context.reset(token)
+
+                _CANONICAL_RESUME_ATTEMPTED.add(key)
+                worker = threading.Thread(
+                    target=recover, daemon=True,
+                    name='jarvis-canonical-recover-'+owner[:16],
+                )
+                _CANONICAL_WORKERS[key] = worker
+                worker.start()
+                _LAST_CANONICAL_ADMITTED[owner] = time.monotonic()
+                break
+
         def loop():
             global _DAILY_NEXT
             while not stop_event.wait(5):
@@ -298,14 +463,43 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None):
                     _DAILY_NEXT=now+60
                     try:_DAILY_NOTIFY()
                     except Exception:_record_failure('modules/task_queue.py:daily_notify')
+                # Canonical goals do not require a pre-existing SQLite queue.
+                # The existing Scheduler inspects registered users directly,
+                # without creating a second owner poller or opening a DB.
+                # A missing/foreign profile fails closed per owner.
+                if (canonical_profile_resolver is not None
+                        and allowed_owners is not None):
+                    try:
+                        registered = sorted(
+                            allowed_owners(),
+                            key=lambda name: (_LAST_CANONICAL_ADMITTED.get(name, 0.0), name),
+                        )
+                    except Exception:
+                        _record_failure('modules/task_queue.py:canonical_owners')
+                        registered = ()
+                    for registered_owner in registered:
+                        if stop_event.is_set():return
+                        try:
+                            profile = canonical_profile_resolver(registered_owner)
+                            if getattr(profile, 'slug', None) == registered_owner:
+                                admit_canonical(registered_owner, profile)
+                                admit_recovered_completion(registered_owner)
+                        except Exception:
+                            _record_failure('modules/task_queue.py:canonical_owner')
                 if not service_store.ROOT.exists():continue
-                for path in sorted(service_store.ROOT.glob('*.sqlite3')):
+                # Least-recently-admitted owners first; a busy owner cannot
+                # starve a later owner when the bounded pool is saturated.
+                owners=sorted(
+                    service_store.ROOT.glob('*.sqlite3'),
+                    key=lambda path: (_LAST_ADMITTED.get(path.stem, 0.0), path.stem),
+                )
+                for path in owners:
                     if stop_event.is_set():return
                     if allowed_owners is not None and path.stem not in allowed_owners():continue
                     token=llm._key_context.set(path.stem)
                     from modules import outbox,task_agents,privacy
                     try:
-                        tick(path.stem,notify)
+                        admit_owner(path.stem)
                         from modules import source_watch
                         source_watch.poll(path.stem,source_notify)
                         if not privacy.blocked('web') and outbox.has_pending(path.stem):

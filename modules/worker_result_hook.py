@@ -44,7 +44,12 @@ def wrap_output(output: dict, identity: dict) -> dict:
 
 def execute(runtime, kind, data, dependencies, identity, *, approval=None):
     """Call the current goal_tools adapter and fence only this invocation's result."""
-    from modules import goal_tools
+    from modules import goal_tools, runtime_worker_result
+    # A canonical worker may have spent its entire budget in planning,
+    # permission or predecessor checks. Recheck immediately at the actual
+    # adapter boundary: an expired attempt must not START provider work.
+    # Unscheduled/legacy calls have no Scheduler stop scope and are unchanged.
+    runtime_worker_result.require_scheduler_active()
     result = goal_tools.execute(runtime, kind, data, dependencies, identity, approval=approval)
     if isinstance(result, dict) and result.get('state') == 'done':
         # A worker's "done" claim is not Core acceptance. Verify signed task

@@ -8,6 +8,8 @@ def _log_core_feedback(runtime, entry):
     Returns that same BrainFeedback (or None) so the caller can ground its
     failure presentation in it instead of re-classifying the exception.
     """
+    if entry is None:
+        return None
     from modules import brain_entry
     row = brain_entry.last_feedback()
     if row is not None and row.request_id == entry.request_id:
@@ -132,8 +134,39 @@ def main(runtime, ui=None):
     def source_notice(owner,event_id,message):
         event_channels.deliver(runtime,owner,{'source':'source_watch','kind':'source_update','payload':{'text':message,'event_id':event_id}},
                                title='Jarvis kaynak takibi')
+    def canonical_profile(owner):
+        # An authenticated, registered profile is required for background
+        # read-only work. Never borrow the mutable foreground runtime.profile.
+        name = next((name for name in runtime.list_users()
+                     if runtime.slugify(name) == owner), None)
+        if name is None:
+            raise PermissionError('Canonical Scheduler owner is not registered.')
+        profile = runtime._get_profile(name)
+        if profile.slug != owner or not profile.exists:
+            raise PermissionError('Canonical Scheduler owner identity changed.')
+        return profile
+
+    def canonical_result_notice(owner, job_id):
+        from modules import canonical_goal_flow
+        def deliver_verified(verified_owner, verified_job, text):
+            result = event_channels.deliver(
+                runtime, verified_owner,
+                {'source': 'canonical_goal', 'kind': 'completed',
+                 'payload': {'text': text, 'job_id': verified_job,
+                             'event_id': 'canonical:' + verified_job}},
+                title='Jarvis araştırma sonucu',
+            )
+            if result is None:
+                raise PermissionError('Canonical result owner is not registered.')
+            if result.get('ui') != 'delivered':
+                raise RuntimeError('Canonical result was not delivered to the owner UI.')
+        canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
+
     task_queue.start(runtime.stop_event,queue_notice,
-                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},source_notify=source_notice)
+                     lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},
+                     source_notify=source_notice,
+                     canonical_profile_resolver=canonical_profile,
+                     canonical_result_notify=canonical_result_notice)
     from modules import webhook_server
     def webhook_event(owner,event):
         event_channels.deliver(runtime,owner,event,title='Jarvis olay')
@@ -323,24 +356,36 @@ def main(runtime, ui=None):
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
-                    entry = brain_entry.prepare(
-                        runtime, owner=owner, request_id=runtime._cur_rid,
-                        text=cmd, source=source, model_understanding=True,
-                    )
-                    from modules import brain_echo
-                    brain_echo.present(runtime, entry)
+                    # Explicit owner + 16-hex job ID is a read-only protocol.
+                    # It must not invoke Brain, a model, Scheduler or fanout.
+                    from modules import canonical_goal_flow
+                    explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
+                    entry = None
+                    if explicit_read is None:
+                        entry = brain_entry.prepare(
+                            runtime, owner=owner, request_id=runtime._cur_rid,
+                            text=cmd, source=source, model_understanding=True,
+                        )
+                        from modules import brain_echo
+                        brain_echo.present(runtime, entry)
 
                     runtime.pause_listening.set()
                     runtime.emit("state", "thinking")
                     try:
                         t_cmd = runtime.time.time()
-                        runtime._llm.take_route()
+                        if explicit_read is None:
+                            runtime._llm.take_route()
                         try:
-                            out, brain_feedback, brain_job_id = brain_entry.handoff(runtime, entry, runtime.handle, cmd)
-                            runtime.log.info(
-                                "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
-                                runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
-                            )
+                            if explicit_read is not None:
+                                out, brain_feedback, brain_job_id = explicit_read, None, None
+                            else:
+                                out, brain_feedback, brain_job_id = brain_entry.handoff(
+                                    runtime, entry, runtime.handle, cmd,
+                                )
+                                runtime.log.info(
+                                    "Brain handoff: rid=%s stage=%s job=%s feedback=%s",
+                                    runtime._cur_rid, entry.stage, brain_job_id or "-", brain_feedback.result_status,
+                                )
                             if not out and cmd == "PC rehberliği: otomatik kontrol":
                                 continue
                         except runtime.requests_state.Cancelled as exc:

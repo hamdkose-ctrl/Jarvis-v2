@@ -296,12 +296,13 @@ _DEPENDENT_RESEARCH_RESULT_LEASE = ContextVar(
 @contextmanager
 def dependent_research_worker(
     leases: resource_leases.LeaseTable, identity: dict, expected: dict,
-    *, ttl: float = 60.0,
+    *, ttl: float = 60.0, allow_root: bool = False,
 ):
-    """Own one canonical research-child command from dispatch through CAS.
+    """Own one canonical research command from dispatch through Core CAS.
 
-    Different jobs/steps remain parallel; duplicate wakes for the same
-    canonical node/attempt conflict on one command-scoped resource key.
+    Default is the existing dependent-only public contract; the explicit
+    root_research_worker wrapper opts into *root-only* admission. Different
+    command identities remain independent and duplicate wakes conflict.
     """
     if (not isinstance(leases, resource_leases.LeaseTable)
             or not isinstance(identity, dict)
@@ -326,10 +327,18 @@ def dependent_research_worker(
             f"{selected.node_id}:{expected['attempt']}:p{selected.plan_version}"
             or expected.get('expected_job_version') != state['version']):
         raise ReadOnlyAdmissionError('Dependent research plan command fence invalid.')
-    node = goal_plan_gate.validate_dependent_research_attempt(
-        state, selected, attempt=expected['attempt'],
-    )
-    dependency_evidence.require_persisted_research_dependencies(identity, node)
+    node = goal_plan_gate.revalidate(state, selected)
+    if not isinstance(allow_root, bool) or bool(node['depends_on']) == allow_root:
+        raise ReadOnlyAdmissionError('Research scope must match root/dependent node.')
+    if allow_root:
+        goal_plan_gate.validate_root_attempt(
+            state, selected, attempt=expected['attempt'],
+        )
+    else:
+        goal_plan_gate.validate_dependent_research_attempt(
+            state, selected, attempt=expected['attempt'],
+        )
+        dependency_evidence.require_persisted_research_dependencies(identity, node)
     # A dedicated command namespace prevents a misleading global "provider"
     # lease and leaves independent read-only jobs parallel.
     digest = hashlib.sha256(json.dumps(
@@ -352,21 +361,46 @@ def dependent_research_worker(
         if lost.is_set() or not leases.validate(holder[0]):
             raise ReadOnlyAdmissionError('Dependent research command lease lost.')
         current = runtime_worker_result.canonical_snapshot(identity)
-        if current['version'] != expected['expected_job_version']:
-            raise ReadOnlyAdmissionError('Dependent research GoalState changed during worker.')
+        if current['version'] < expected['expected_job_version']:
+            raise ReadOnlyAdmissionError('Research GoalState went backwards.')
         chosen = goal_plan_gate.candidate(
             current, owner=selected.owner, job_id=selected.job_id,
             node_id=selected.node_id,
         )
         if (chosen.plan_version != selected.plan_version
                 or chosen.node_digest != selected.node_digest):
-            raise ReadOnlyAdmissionError('Dependent research plan was replaced.')
-        refreshed = goal_plan_gate.validate_dependent_research_attempt(
-            current, chosen, attempt=expected['attempt'],
-        )
-        dependency_evidence.require_persisted_research_dependencies(
-            identity, refreshed,
-        )
+            raise ReadOnlyAdmissionError('Research plan was replaced.')
+        if allow_root:
+            # Independent roots may finish during this worker's lifetime.
+            # Do not reject their accepted CAS advances as a global version
+            # conflict. Never permit an intent edit, plan revision or other
+            # non-WorkerResult mutation to rebase this worker.
+            if current['version'] > expected['expected_job_version']:
+                intervening = current['audit'][
+                    expected['expected_job_version'] + 1:
+                ]
+                if not intervening or any(
+                    row['op'] != 'append_evidence'
+                    or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                    for row in intervening
+                ):
+                    raise ReadOnlyAdmissionError(
+                        'Research root changed after non-worker mutation.'
+                    )
+            goal_plan_gate.validate_root_attempt(
+                current, chosen, attempt=expected['attempt'],
+            )
+        else:
+            if current['version'] != expected['expected_job_version']:
+                raise ReadOnlyAdmissionError(
+                    'Dependent research GoalState changed during worker.'
+                )
+            refreshed = goal_plan_gate.validate_dependent_research_attempt(
+                current, chosen, attempt=expected['attempt'],
+            )
+            dependency_evidence.require_persisted_research_dependencies(
+                identity, refreshed,
+            )
 
     def pulse() -> None:
         while not stop.wait(ttl / 3):
@@ -412,6 +446,22 @@ def dependent_research_worker(
         with lock:
             if leases.validate(holder[0]):
                 leases.release(holder[0])
+
+
+@contextmanager
+def root_research_worker(
+    leases: resource_leases.LeaseTable, identity: dict, expected: dict,
+    *, ttl: float = 60.0,
+):
+    """Live root-only command fence; reuses the dependent research OS claim.
+
+    It never grants an effect, automatic retry, global DAG dispatch or global
+    Goal completion. Core still owns all WorkerResult CAS requirements.
+    """
+    with dependent_research_worker(
+        leases, identity, expected, ttl=ttl, allow_root=True,
+    ) as commit_checked:
+        yield commit_checked
 
 
 def require_dependent_research_result_lease(accepted: dict) -> None:

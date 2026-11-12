@@ -4,8 +4,78 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from modules import capability_manifest, goal_state_store, worker_result
+
+
+class CanonicalWorkerDeadlineExceeded(RuntimeError):
+    """A canonical read-only worker outlived its cooperative time budget."""
+
+
+class CanonicalWorkerDeadline:
+    """One bounded worker attempt, not a provider kill or retry authority.
+
+    The same token represents engine stop and elapsed deadline. It is bound
+    through the existing Scheduler stop ContextVar, so Core rejects results
+    that return after either boundary. It does NOT cancel a blocking provider
+    or release a resource lock while an external call is still in flight.
+    """
+
+    def __init__(self, stop_event, seconds: float, *, clock=time.monotonic):
+        if not callable(getattr(stop_event, 'is_set', None)):
+            raise ValueError('Canonical Scheduler stop event invalid.')
+        if (type(seconds) not in (int, float) or not 1 <= seconds <= 3600
+                or not callable(clock)):
+            raise ValueError('Canonical worker deadline must be 1–3600 seconds.')
+        self._stop_event = stop_event
+        self._clock = clock
+        self._deadline = clock() + seconds
+
+    def stop_reason(self):
+        if self._stop_event.is_set():
+            return 'scheduler_stopped'
+        if self._clock() >= self._deadline:
+            return 'worker_deadline'
+        return None
+
+    def is_set(self):
+        return self.stop_reason() is not None
+
+
+# Only the canonical worker launched by the existing Scheduler binds this
+# cooperative stop check. It must never be mistaken for a durable cancellation
+# decision or an authority to launch/retry an effectful command.
+_SCHEDULER_STOP = ContextVar('jarvis_canonical_scheduler_stop', default=None)
+
+
+@contextmanager
+def scheduler_stop_scope(stop_event):
+    """Bind a single Scheduler stop token to this synchronous worker thread."""
+    if stop_event is not None and not callable(getattr(stop_event, 'is_set', None)):
+        raise ValueError('Canonical Scheduler stop token invalid.')
+    token = _SCHEDULER_STOP.set(stop_event)
+    try:
+        require_scheduler_active()
+        yield
+    finally:
+        _SCHEDULER_STOP.reset(token)
+
+
+def require_scheduler_active():
+    """Cooperative fence directly before Core accepts this worker's result."""
+    stop_event = _SCHEDULER_STOP.get()
+    if stop_event is not None and stop_event.is_set():
+        if (isinstance(stop_event, CanonicalWorkerDeadline)
+                and stop_event.stop_reason() == 'worker_deadline'):
+            raise CanonicalWorkerDeadlineExceeded(
+                'Canonical worker deadline elapsed; stale result not accepted.'
+            )
+        raise RuntimeError(
+            'Canonical Scheduler stopped; stale worker result not accepted.'
+        )
 
 
 def durable_identity(identity: dict) -> bool:
@@ -77,6 +147,22 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
             snapshot, owner=owner, job_id=job_id, node_id=step_id,
         )
         node = goal_plan_gate.revalidate(snapshot, selection)
+        # A scheduler offer is a revision-pinned observation. It must not
+        # silently execute against a newer plan that happened to reuse its
+        # node ID/input; this check runs inside specialist preparation BEFORE
+        # the real provider/worker starts, and the resource guard checks again.
+        dispatch = identity.get('_canonical_scheduler_offer')
+        if dispatch is not None and (
+                not isinstance(dispatch, dict)
+                or set(dispatch) != {'owner', 'job_id', 'node_id', 'plan_version', 'node_digest'}
+                or dispatch != {
+                    'owner': owner, 'job_id': job_id, 'node_id': step_id,
+                    'plan_version': selection.plan_version,
+                    'node_digest': selection.node_digest,
+                }):
+            raise goal_plan_gate.PlanFenceError(
+                'Canonical scheduler offer plan changed before worker prepare.'
+            )
         if node['depends_on']:
             # BRAIN-07L is deliberately limited to a first-attempt read-only
             # research child. It re-reads the canonical accepted predecessor

@@ -158,6 +158,8 @@ def commit(accepted: dict) -> dict:
 
 def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
     """Re-read every plan/identity fence after a concurrent CAS winner."""
+    from modules import runtime_worker_result
+    runtime_worker_result.require_scheduler_active()
     current = goal_state_store.load(path)
     if current['owner'] != accepted['owner'] or current['job_id'] != accepted['job_id']:
         raise ValueError('WorkerResult canonical GoalState kimliğiyle eşleşmiyor.')
@@ -266,6 +268,9 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         'evidence': evidence,
         'reason_code': _REASON,
     })
+    # The worker may have spent time validating predecessor, lease and Core
+    # audit evidence. Refuse to accept a now-stopped Scheduler's old result.
+    runtime_worker_result.require_scheduler_active()
     try:
         saved = goal_state_store.compare_and_swap(
             path, expected_version=current['version'], next_state=next_state
