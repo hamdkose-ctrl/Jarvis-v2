@@ -146,6 +146,66 @@ class SchedulerOfferTests(unittest.TestCase):
         with self.assertRaises(canonical_scheduler_lane.DispatchFenceError):
             self.offers()
 
+    def test_altered_execution_request_never_admits_a_worker_or_restart_proof(self):
+        from types import SimpleNamespace
+
+        previously_offered = self.offers()[0]
+        record = execution_record.load(self.owner_root, OWNER, JOB)
+        record['request'] = 'Change the task without changing the Core goal'
+        release_guard.atomic(self.record_path, execution_record.encode(record))
+        before = self.path.read_bytes(), self.record_path.read_bytes()
+
+        with self.assertRaises(canonical_scheduler_lane.DispatchFenceError):
+            self.offers()
+        self.assertEqual(canonical_scheduler_dispatch.discover(OWNER), ())
+        with self.assertRaises(canonical_restart_audit.RestartAuditError):
+            canonical_restart_audit.inspect(OWNER, JOB)
+
+        # A previously offered candidate cannot cross the claim boundary.
+        with patch('modules.specialist_orchestrator.execute_step') as worker:
+            with self.assertRaises(canonical_scheduler_lane.DispatchFenceError):
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), previously_offered,
+                )
+            worker.assert_not_called()
+
+        status = goal_executor.status_summary(record)
+        self.assertIn('kanıtı şu anda doğrulanamıyor', status)
+        self.assertNotIn('Core kabulü ve kayıtlı çıktı eşleşiyor', status)
+        self.assertEqual(before, (self.path.read_bytes(), self.record_path.read_bytes()))
+
+    def test_outer_request_whitespace_remains_compatible_with_canonical_goal(self):
+        # GoalState.new normalizes leading/trailing spaces, not internal text.
+        record = execution_record.load(self.owner_root, OWNER, JOB)
+        record['request'] = '  Read two sources  '
+        release_guard.atomic(self.record_path, execution_record.encode(record))
+        self.assertEqual([offer.selection.node_id for offer in self.offers()],
+                         ['left', 'right'])
+        self.assertEqual(canonical_restart_audit.inspect(OWNER, JOB).nodes[0].status,
+                         'queued_unstarted')
+
+    def test_identity_preflight_failure_after_claim_is_recorded_without_retry(self):
+        from types import SimpleNamespace
+
+        offer = self.offers()[0]
+        with patch.object(goal_executor, '_identity',
+                          side_effect=ValueError('identity preflight refused')), \
+             patch('modules.specialist_orchestrator.execute_step') as worker:
+            with self.assertRaisesRegex(ValueError, 'identity preflight refused'):
+                canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=OWNER), offer,
+                )
+            worker.assert_not_called()
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        self.assertEqual(journal['steps'][0]['state'], 'failed')
+        self.assertTrue(journal['steps'][0]['started'])
+        self.assertEqual(journal['steps'][0]['attempts'], 1)
+        self.assertEqual(journal['outputs']['left']['state'], 'failed')
+        self.assertEqual(canonical_restart_audit.inspect(OWNER, JOB).nodes[0].status,
+                         'failed_unaccepted')
+        self.assertEqual([item.selection.node_id for item in self.offers()],
+                         ['right'])
+
     def test_completed_step_or_started_step_is_never_offered(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
         job['steps'][0]['state'] = 'running'
