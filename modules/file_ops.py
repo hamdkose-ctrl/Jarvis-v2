@@ -12,6 +12,7 @@ import re
 import shutil
 from pathlib import Path
 
+import release_guard
 from config import DATA_DIR
 from modules import file_resource_guard, files, resource_leases
 from modules.diagnostics import record_failure as _record_failure
@@ -21,10 +22,15 @@ from modules.diagnostics import record_failure as _record_failure
 _FILE_BUSY = 'Aynı dosyada başka bir işlem çalışıyor; dosyaya dokunmadım.'
 
 
-def _with_file_claims(paths, operation):
-    """Existing Permission Gate remains independent of path ownership."""
+def _with_file_claims(paths, operation, owner=''):
+    """Reserve both physical paths and the per-owner undo receipt BEFORE effects.
+
+    Another same-owner Jarvis process must not replace a receipt while the
+    first process moves/creates a file, or undo could consume a stale ledger.
+    The established OS-account file claim is nonblocking, not a new mutex/store.
+    """
     try:
-        with file_resource_guard.claim_paths(*paths):
+        with file_resource_guard.claim_paths(*paths, _undo_path(owner)):
             return operation()
     except resource_leases.LeaseConflict:
         return _FILE_BUSY
@@ -133,7 +139,9 @@ def _choices(hits: list[Path]) -> str:
 
 
 def _record(pairs: list[list[str]], owner: str = "") -> None:
-    _undo_path(owner).write_text(json.dumps(pairs, ensure_ascii=False), encoding="utf-8")
+    # The caller holds the same physical receipt claim throughout the effect.
+    # Atomic replace means a crashed writer leaves the prior complete ledger.
+    release_guard.atomic(_undo_path(owner), json.dumps(pairs, ensure_ascii=False).encode('utf-8'))
 
 
 def _valid_name(new: str, old: Path) -> tuple[str | None, str]:
@@ -187,7 +195,7 @@ def _move(command: str, owner: str = "") -> str | None:
         except OSError as exc:
             return f"Dosyayı taşıyamadım: {exc}"
         return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
-    return _with_file_claims((source, folder / source.name), apply)
+    return _with_file_claims((source, folder / source.name), apply, owner)
 
 
 def _rename(command: str, owner: str = "") -> str | None:
@@ -223,7 +231,7 @@ def _rename(command: str, owner: str = "") -> str | None:
             return f"Adı değiştiremedim: {exc}"
         _record([[str(target), str(source), _digest(target)]], owner)
         return f"{source.name} dosyasının adını {new} yaptım. İstersen “son dosya işlemini geri al” de."
-    return _with_file_claims((source, target), apply)
+    return _with_file_claims((source, target), apply, owner)
 
 
 def _create(command: str, owner: str = "") -> str | None:
@@ -257,7 +265,7 @@ def _create(command: str, owner: str = "") -> str | None:
             return f"Dosyayı oluşturamadım: {exc}"
         return (f"{label} klasöründe {final.name} dosyasını oluşturdum" + (" ve içine yazdım." if content else ".")
                 + " İstersen “son dosya işlemini geri al” de.")
-    return _with_file_claims((folder / name,), apply)
+    return _with_file_claims((folder / name,), apply, owner)
 
 
 def undo(owner: str = "") -> str:
@@ -265,6 +273,16 @@ def undo(owner: str = "") -> str:
     owner = owner or llm._key_context.get() or ''
     if reason := _permission_decision(owner, 'Geri al', 'Son dosya işlemi'):
         return reason
+    # Serialize receipt read -> physical reverse operation -> receipt update.
+    # A concurrent writer that owns this receipt fails before touching a file.
+    try:
+        with file_resource_guard.claim_paths(_undo_path(owner)):
+            return _undo_claimed(owner)
+    except resource_leases.LeaseConflict:
+        return _FILE_BUSY
+
+
+def _undo_claimed(owner: str) -> str:
     try:
         pairs = json.loads(_undo_path(owner).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -311,6 +329,7 @@ def undo(owner: str = "") -> str:
     return "Son dosya işlemini geri alamadım (dosya değişmiş, yerinde değil ya da eski konum dolu); dosyana dokunmadım."
 
 
+
 def execute_typed(operation: str, *, owner: str = "", path: str = "",
                   folder: str = "", name: str = "", content: str = "") -> str:
     """Execute a Brain/Core-validated file mutation; never parses natural language."""
@@ -349,7 +368,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
                 except OSError:
                     return "Dosyayı güvenli biçimde taşıyamadım."
                 return f"{source.name} dosyasını {label} klasörüne taşıdım."
-            return _with_file_claims((source, destination / source.name), apply_move)
+            return _with_file_claims((source, destination / source.name), apply_move, owner)
         new, problem = _valid_name(name, source)
         if not new:
             return problem
@@ -367,7 +386,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
             except OSError:
                 return "Dosyanın adını güvenli biçimde değiştiremedim."
             return f"{source.name} dosyasının adını {new} yaptım."
-        return _with_file_claims((source, target), apply_rename)
+        return _with_file_claims((source, target), apply_rename, owner)
     hit = files.match_folder(_fold(folder))
     if not hit or hit[1] not in ("Masaüstü", "İndirilenler", "Belgeler"):
         return "Hedef klasör doğrulanamadı; işlem başlatılmadı."
@@ -392,7 +411,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
         except OSError:
             return "Metin dosyasını güvenli biçimde oluşturamadım."
         return f"{label} klasöründe {target.name} dosyasını oluşturdum."
-    return _with_file_claims((destination / filename,), apply_create)
+    return _with_file_claims((destination / filename,), apply_create, owner)
 
 
 def handle(command: str, owner: str = "") -> str | None:

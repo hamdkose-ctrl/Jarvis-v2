@@ -209,6 +209,50 @@ class FileEffectClaimTests(unittest.TestCase):
         finally:
             self.close_holder(child)
 
+    def test_second_process_owning_receipt_blocks_file_effect_before_move(self):
+        source = self.folder / 'source.txt'
+        target = self.folder / 'moved.txt'
+        source.write_text('unmodified', encoding='utf-8')
+        receipt = file_ops._undo_path('alice')
+        child = self.holder(receipt, other_data_dir=True)
+        try:
+            message = file_ops.execute_typed(
+                'rename', owner='alice', path=str(source), name='moved.txt',
+            )
+            self.assertIn('başka bir işlem', message)
+            self.assertTrue(source.exists())
+            self.assertFalse(target.exists())
+            self.assertFalse(receipt.exists())
+        finally:
+            self.close_holder(child)
+        message = file_ops.execute_typed(
+            'rename', owner='alice', path=str(source), name='moved.txt',
+        )
+        self.assertIn('adını', message)
+        self.assertTrue(target.exists())
+        self.assertTrue(receipt.exists())
+
+    def test_second_process_owning_receipt_blocks_undo_until_release(self):
+        moved = self.folder / 'changed.txt'
+        original = self.folder / 'original.txt'
+        moved.write_text('stable', encoding='utf-8')
+        file_ops._record(
+            [[str(moved), str(original), file_ops._digest(moved)]], 'alice',
+        )
+        receipt = file_ops._undo_path('alice')
+        old = receipt.read_bytes()
+        child = self.holder(receipt, other_data_dir=True)
+        try:
+            self.assertIn('başka bir işlem', file_ops.undo('alice'))
+            self.assertEqual(receipt.read_bytes(), old)
+            self.assertTrue(moved.exists())
+            self.assertFalse(original.exists())
+        finally:
+            self.close_holder(child)
+        self.assertIn('geri aldım', file_ops.undo('alice'))
+        self.assertTrue(original.exists())
+        self.assertFalse(receipt.exists())
+
     def test_patch_text_joins_same_resource_claim(self):
         target = self.folder / 'not.txt'
         target.write_text('before', encoding='utf-8')
