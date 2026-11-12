@@ -96,11 +96,22 @@ class EndToEndTests(Pipeline):
         self.assertIsInstance(self.ctx._session().pending_event_title, dict)
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)   # nothing added before approval
 
-    def test_planner_edit_and_snooze_words_still_answer_first(self):
-        with patch.object(main_planner, "_edit_reminder", return_value="ERTELENDİ") as edit:
+    def test_typed_creation_does_not_run_legacy_edit_and_unplanned_edit_survives(self):
+        # Former assertion made legacy edit precede a Core-validated CREATE.
+        # That is the dangerous second effect owner fixed by BRAIN-03 #599.
+        with patch.object(main_planner, "_edit_reminder",
+                          side_effect=AssertionError("legacy edit before Core creation")) as edit:
             entry, out, feedback, handle = self.through_brain("yarın saat 10'da toplantıyı hatırlat")
-        self.assertEqual(out, "ERTELENDİ")
-        self.assertEqual(self.ctx.profile.data["events"], [])
+        self.assertEqual(out, "Takvime ekledim: toplantıyı, yarın 10:00.")
+        self.assertEqual([e["title"] for e in self.ctx.profile.data["events"]], ["toplantıyı"])
+        self.assertFalse(handle.called)
+        edit.assert_not_called()
+
+        # Without a Core plan, legacy edit/snooze is still the existing domain owner.
+        with patch.object(main_planner, "_edit_reminder", return_value="ERTELENDİ") as edit:
+            raw = self.ctx._planner_command("toplantıyı ertele", "toplantıyı ertele")
+        self.assertEqual(raw, "ERTELENDİ")
+        edit.assert_called_once()
 
     def test_front_gates_before_planner_still_win(self):
         with patch.object(brain_precedence, "_present", return_value=True), \
