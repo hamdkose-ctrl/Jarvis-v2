@@ -163,6 +163,8 @@ def main(runtime, ui=None):
             )
             if result is None:
                 raise PermissionError('Canonical result owner is not registered.')
+            if result.get('ui') != 'delivered':
+                raise RuntimeError('Canonical result was not delivered to the owner UI.')
         canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
 
     task_queue.start(runtime.stop_event,queue_notice,
