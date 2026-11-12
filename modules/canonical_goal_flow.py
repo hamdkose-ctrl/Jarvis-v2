@@ -7,11 +7,13 @@ Only first-attempt, manifest-verified read-only tasks enter this lane.
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import hashlib
 import json
 import re
 import threading
 import time
+from weakref import WeakValueDictionary
 
 import release_guard
 from modules.diagnostics import record_failure as _record_failure
@@ -75,6 +77,36 @@ def _existing_request(root, owner: str, job_id: str, request_id: str, text: str)
             f'Sonucu "hedef sonucu {job_id}" yazarak sorgulayabilirsin.')
 
 
+# Only two callers for the SAME owner/request ID contend here. This is
+# deliberately NOT the Core/Scheduler control lock: a provider can wait for
+# up to 60 s without blocking other goals' state/worker CAS writes.
+_PLAN_MUTEX_GUARD = threading.Lock()
+_PLAN_MUTEXES = WeakValueDictionary()
+
+
+@contextmanager
+def _planning_once(root, job_id):
+    """Serialize same-ID planner admission across threads and processes.
+
+    A separate .planning.lock OS lock is used to protect multi-process
+    admission. Other IDs do not share it; short Core control sections remain
+    exclusively inside _try_create_planned.
+    """
+    planning_path = root / (job_id + '.planning')
+    key = str(planning_path.absolute())
+    with _PLAN_MUTEX_GUARD:
+        mutex = _PLAN_MUTEXES.get(key)
+        if mutex is None:
+            mutex = threading.Lock()
+            _PLAN_MUTEXES[key] = mutex
+    with mutex:
+        if planning_path.is_symlink() or planning_path.with_suffix(
+                planning_path.suffix + '.lock').is_symlink():
+            raise ValueError('Canonical planner control path must not be a symlink.')
+        with goal_state_store._exclusive(planning_path):
+            yield
+
+
 def try_create(owner: str, request_id: str, text: str):
     """Return (job_id, reply) only for an admissible typed read-only proposal.
 
@@ -90,6 +122,13 @@ def try_create(owner: str, request_id: str, text: str):
         (owner + '\x00' + request_id).encode('utf-8')
     ).hexdigest()[:16]
     root = goal_executor._root(owner)
+    # The per-request planning gate is independent of Core/Scheduler locks,
+    # and is held only for this request's one admission/planning window.
+    with _planning_once(root, job_id):
+        return _try_create_planned(owner, request_id, text, job_id, root)
+
+
+def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root):
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
@@ -152,6 +191,7 @@ def try_create(owner: str, request_id: str, text: str):
     # canonical job into the blocking foreground legacy single-goal target.
     return (job_id, 'Araştırma arka plana alındı. Diğer isteklerini yazabilirsin. '
             f'Sonuç hazır olduğunda "hedef sonucu {job_id}" yazabilirsin.')
+
 
 
 def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):

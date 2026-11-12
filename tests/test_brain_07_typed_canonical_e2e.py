@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
@@ -147,6 +148,103 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.run_goal.assert_not_called()
         root = goal_executor._owner_root(self.owner)
         self.assertEqual(len(tuple(root.glob('*.execution.json'))), 1)
+
+    def test_concurrent_missing_request_cannot_escape_to_legacy_with_unsupported_second_plan(self):
+        """Two real parallel typed turns enter before either record is created.
+
+        A valid canonical planner call is blocked on an event. The other caller
+        enters the same request before publication; under the old two-check
+        design it could receive an unsupported model plan and fall back to
+        goal_executor.run with an unrelated UUID. The new admission gate
+        forces it to observe the first published journal without a model call.
+        """
+        entered_model = threading.Event()
+        entered_second_turn = threading.Event()
+        release_first = threading.Event()
+        guard = threading.Lock()
+        calls = []
+        arrivals = 0
+        rid = 'concurrent-first-admission'
+        original = canonical_goal_flow.try_create
+        effectful = {'tasks': [{
+            'id': 'write', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Write a duplicate', 'filename': 'duplicate.md'},
+        }]}
+
+        def observed_try(*args, **kwargs):
+            nonlocal arrivals
+            with guard:
+                arrivals += 1
+                if arrivals == 2:
+                    entered_second_turn.set()
+            return original(*args, **kwargs)
+
+        def held_model(*args, **kwargs):
+            with guard:
+                calls.append(1)
+                which = len(calls)
+            if which == 1:
+                entered_model.set()
+                if not release_first.wait(15):
+                    raise AssertionError('First planner was never released')
+                return json.dumps(research_tasks('first'))
+            return json.dumps(effectful)
+
+        with patch.object(canonical_goal_flow, 'try_create', side_effect=observed_try), \
+                patch.object(model_wait, 'ask', side_effect=held_model):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(self.typed_turn, rid=rid)
+                try:
+                    self.assertTrue(entered_model.wait(10), 'First model did not start')
+                    second = executor.submit(self.typed_turn, rid=rid)
+                    self.assertTrue(entered_second_turn.wait(10),
+                                    'Second typed turn never entered admission')
+                    # Both callers entered admission before any first
+                    # publication. The first model remains blocked here.
+                    root = goal_executor._owner_root(self.owner)
+                    self.assertEqual(tuple(root.glob('*.execution.json')), ())
+                finally:
+                    release_first.set()
+                first_result = first.result(timeout=20)
+                second_result = second.result(timeout=20)
+        self.assertEqual(len(calls), 1, 'Same request called the DAG planner twice')
+        self.assertEqual(first_result[3], second_result[3])
+        self.assertEqual(first_result[2].reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertEqual(second_result[2].reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertIn('ikinci kez başlatılmadı', second_result[1])
+        self.assertEqual(len(tuple(root.glob('*.execution.json'))), 1)
+        self.run_goal.assert_not_called()
+
+    def test_unrelated_request_planning_is_not_blocked_by_first_provider(self):
+        """The new gate is keyed by request identity, never by owner alone."""
+        first_waiting = threading.Event()
+        first_release = threading.Event()
+
+        def planned(prompt, **kwargs):
+            if 'One source' in prompt:
+                first_waiting.set()
+                if not first_release.wait(15):
+                    raise AssertionError('Independent planner did not release')
+                return json.dumps(research_tasks('first'))
+            return json.dumps(research_tasks('second'))
+
+        with patch.object(model_wait, 'ask', side_effect=planned):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(canonical_goal_flow.try_create,
+                                        self.owner, 'independent-one', 'One source')
+                try:
+                    self.assertTrue(first_waiting.wait(10), 'First request did not plan')
+                    second = executor.submit(canonical_goal_flow.try_create,
+                                             self.owner, 'independent-two', 'Other source')
+                    second_job, _ = second.result(timeout=8)
+                finally:
+                    first_release.set()
+                first_job, _ = first.result(timeout=20)
+        self.assertNotEqual(first_job, second_job)
+        self.assertEqual(len(tuple((goal_executor.STORE / self.owner).glob(
+            '*.execution.json',
+        ))), 2)
+        self.run_goal.assert_not_called()
 
     def test_request_id_collision_rejects_before_any_planner_call(self):
         with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first'))):
