@@ -992,7 +992,9 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                     owner, ident, notify,
                 ))
             finally:
-                # The sink event precedes the durable delivered write.
+                # The sink's completed event fires BEFORE the durable
+                # reserved -> delivered commit. Only the callback return
+                # means that second write has finished (or failed).
                 callback_returned.set()
         try:
             with ExitStack() as patches:
@@ -1022,12 +1024,19 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 self.assertEqual(len(messages), 1)
                 self.assertEqual(messages[0][0:2], (self.owner, job_id))
                 self.assertIn('Source-backed comparison', messages[0][2])
-                # Callback return, not the sink event, proves the journal
-                # had a chance to persist its terminal delivery marker.
-                self.assertTrue(callback_returned.wait(25),
-                    'Canonical completion callback did not return after notification')
-                self.assertEqual(callback_results, [True],
-                    'Canonical completion callback did not durably deliver')
+                # Do not race the post-notify durable delivery write with a
+                # fixed five-second disk-polling window. Wait for the actual
+                # worker callback to return, then assert BOTH its success
+                # and the persisted Core/journal evidence. This is stricter
+                # than treating notify() as completion or sleeping longer.
+                self.assertTrue(
+                    callback_returned.wait(25),
+                    'Canonical completion callback did not return after notification',
+                )
+                self.assertEqual(
+                    callback_results, [True],
+                    'Canonical completion callback returned without a durable delivery commit',
+                )
                 state, journal = self.persisted(job_id)
                 self.assertEqual(state['state'], 'done')
                 self.assertEqual(journal['_canonical_delivery'], 'delivered')
