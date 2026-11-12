@@ -1131,6 +1131,159 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
         self.run_goal.assert_not_called()
 
+    def test_canonical_gmail_child_survives_unrelated_research_root_cas(self):
+        """Real typed Brain→Core→specialist root/child overlap and delivery.
+
+        A Gmail indexed read starts after its accepted list, but before a
+        separate research root finishes. That root's verified Core CAS must
+        not discard the ongoing child's independent, still-leased read result.
+        Provider calls are mocked, not proof of a connected Gmail account.
+        """
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread', 'limit': 5}},
+            {'id': 'research', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article', 'question': 'compare'}},
+            {'id': 'read', 'agent': 'account', 'depends': ['unread'],
+             'input': {'service': 'gmail', 'operation': 'read_message', 'index': 1}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'İlk okunmamış e-postamı oku ve bağımsız kaynağı araştır.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        research_started, research_release = threading.Event(), threading.Event()
+        read_started, read_release = threading.Event(), threading.Event()
+        errors, finished, threads = [], {}, []
+
+        def safe_worker(owner, task, dependencies):
+            self.assertEqual(owner, self.owner)
+            node_id = task['id']
+            if node_id == 'research':
+                research_started.set()
+                self.assertTrue(research_release.wait(12), 'Research worker held')
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Independent source verified',
+                    'source': 'https://example.test/article',
+                    'source_chars': 200,
+                })
+            if node_id == 'unread':
+                self.assertEqual(dependencies, {})
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                    'limit': 5, 'items': [
+                        {'id': 'mail_1', 'from': 'sender@example.test',
+                         'subject': 'First message'},
+                    ],
+                    'fetched_at': time.time(), 'query': 'is:unread in:inbox',
+                    'has_more': False,
+                }
+            else:
+                self.assertEqual(node_id, 'read')
+                self.assertEqual(set(dependencies), {'unread'})
+                self.assertTrue(task_results.verify(
+                    dependencies['unread'], owner=owner,
+                ))
+                self.assertEqual(
+                    dependencies['unread']['snapshot']['items'][0]['id'],
+                    'mail_1',
+                )
+                read_started.set()
+                self.assertTrue(read_release.wait(12), 'Gmail read held')
+                snapshot = {
+                    'owner': owner, 'service': 'gmail', 'operation': 'read_message',
+                    'fetched_at': time.time(), 'message': {
+                        'id': 'mail_1', 'from': 'sender@example.test',
+                        'subject': 'First message', 'body': 'Verified mail body',
+                        'truncated': False, 'format': 'plain',
+                    },
+                }
+            return task_results.seal('account', {
+                'state': 'done',
+                'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
+            })
+
+        def dispatch(offer):
+            try:
+                finished[offer.selection.node_id] = (
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner), offer,
+                    )
+                )
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(task_agents, 'worker', side_effect=safe_worker), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            try:
+                # Start from the real published canonical journal, not a
+                # synthetic accepted parent result.
+                unread = next(x for x in
+                              canonical_scheduler_dispatch.discover(self.owner)
+                              if x.selection.node_id == 'unread')
+                self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=self.owner), unread,
+                ))
+                # Independent research begins and remains in flight.
+                research = next(x for x in
+                                canonical_scheduler_dispatch.discover(self.owner)
+                                if x.selection.node_id == 'research')
+                first = threading.Thread(target=dispatch, args=(research,))
+                threads.append(first)
+                first.start()
+                self.assertTrue(research_started.wait(10))
+                # Now the Gmail child starts on Core-accepted list proof.
+                child = next(x for x in
+                             canonical_scheduler_dispatch.discover(self.owner)
+                             if x.selection.node_id == 'read')
+                second = threading.Thread(target=dispatch, args=(child,))
+                threads.append(second)
+                second.start()
+                self.assertTrue(read_started.wait(10))
+                # Research wins a separate Core CAS while Gmail is still
+                # reading; the child's expected version is now stale.
+                research_release.set()
+                first.join(12)
+                self.assertFalse(first.is_alive())
+                self.assertEqual(finished.get('research'), True, repr(errors))
+                state, record = self.persisted(job_id)
+                self.assertEqual(record['outputs']['research']['state'], 'done')
+                self.assertNotIn('read', record['outputs'])
+                read_release.set()
+                second.join(12)
+                self.assertFalse(second.is_alive())
+                self.assertFalse(errors, repr(errors))
+                self.assertEqual(finished.get('read'), True, repr(errors))
+            finally:
+                research_release.set()
+                read_release.set()
+                for thread in threads:
+                    thread.join(12)
+                    self.assertFalse(thread.is_alive(),
+                                     'A worker still owns its test file lock')
+
+        state, record = self.persisted(job_id)
+        self.assertEqual(set(record['outputs']), {'unread', 'research', 'read'})
+        self.assertEqual(
+            {row['step_id'] for row in state['evidence']
+             if row.get('kind') == 'worker_result'
+             and row.get('status') == 'succeeded'},
+            {'unread', 'research', 'read'},
+        )
+        self.assertTrue(all(row['state'] == 'done' for row in record['steps']))
+        received = Mock()
+        with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
+            'action': 'complete', 'goal': 0,
+            'evidence': ['unread', 'research', 'read'],
+        }):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, received,
+            ))
+        received.assert_called_once()
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
+        self.run_goal.assert_not_called()
+
     def test_canonical_gmail_indexed_read_rejects_unverified_or_wrong_parent(self):
         valid = [
             {'id': 'unread', 'agent': 'account', 'depends': [],
