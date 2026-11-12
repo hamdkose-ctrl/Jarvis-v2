@@ -152,10 +152,24 @@ def main(runtime, ui=None):
             raise PermissionError('Canonical Scheduler owner identity changed.')
         return profile
 
+    def canonical_result_notice(owner, job_id):
+        from modules import canonical_goal_flow
+        def deliver_verified(verified_owner, verified_job, text):
+            result = event_channels.deliver(
+                runtime, verified_owner,
+                {'source': 'canonical_goal', 'kind': 'completed',
+                 'payload': {'text': text, 'job_id': verified_job}},
+                title='Jarvis araştırma sonucu',
+            )
+            if result is None:
+                raise PermissionError('Canonical result owner is not registered.')
+        canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
+
     task_queue.start(runtime.stop_event,queue_notice,
                      lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},
                      source_notify=source_notice,
-                     canonical_profile_resolver=canonical_profile)
+                     canonical_profile_resolver=canonical_profile,
+                     canonical_result_notify=canonical_result_notice)
     from modules import webhook_server
     def webhook_event(owner,event):
         event_channels.deliver(runtime,owner,event,title='Jarvis olay')
