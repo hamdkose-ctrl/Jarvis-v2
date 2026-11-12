@@ -768,6 +768,42 @@ def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | N
     return {"format": formats[output]}
 
 
+def _note_add_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Core validates a new user note. The note body must be grounded by Brain."""
+    if set(arguments) - {"original_text", "text"}:
+        return None
+    text = arguments.get("text")
+    if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 4000:
+        return None
+    return {"text": text.strip()}
+
+
+def _agenda_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Closed read-only calendar views; never infer an edit or external calendar write."""
+    if set(arguments) - {"original_text", "view", "period"}:
+        return None
+    view, period = arguments.get("view"), arguments.get("period")
+    choices = {"agenda": frozenset({"today", "tomorrow"}),
+               "day_plan": frozenset({"today", "tomorrow"}),
+               "week_plan": frozenset({"this", "next", "seven"}),
+               "upcoming": frozenset({None})}
+    if type(view) is not str or view not in choices or period not in choices[view]:
+        return None
+    return {"view": view, "period": period}
+
+
+def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """One exact-title reminder deletion; no model-supplied event id or bulk scope."""
+    if set(arguments) - {"original_text", "operation", "title"}:
+        return None
+    if arguments.get("operation") != "delete":
+        return None
+    title = arguments.get("title")
+    if not isinstance(title, str) or not title.strip() or len(title) > 200 or "\x00" in title:
+        return None
+    return {"operation": "delete", "title": title.strip()}
+
+
 def _screen_text_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation"}:
         return None
@@ -995,6 +1031,10 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "brief.read": ("daily_brief", _empty_action_args),
     "workbench.followup": ("workbench_followup", _workbench_followup_args),
     "study.read": ("study_read", _study_read_args),
+    # Migration of planner semantic authority to typed, existing domain effects.
+    "notes.add": ("notes_add", _note_add_args),
+    "calendar.read": ("agenda_read", _agenda_read_args),
+    "reminders.manage": ("reminder_manage", _reminder_manage_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),

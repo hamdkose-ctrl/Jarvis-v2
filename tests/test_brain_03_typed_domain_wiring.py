@@ -212,6 +212,69 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
     def test_raw_user_command_alias_is_physically_removed(self):
         self.assertFalse(hasattr(engine_context, "_user_command"))
 
+    def test_new_note_is_created_by_core_and_uses_existing_note_owner(self):
+        with patch.object(self.ctx, "_add_note", return_value={"id": 20}) as save, \
+             patch.object(self.ctx, "_planner_command",
+                          side_effect=AssertionError("raw notes parser ran")) as planner:
+            entry, output, feedback = self.typed(
+                "Not al: Uçuş kodunu sakla", "notes.add",
+                {"text": "Uçuş kodunu sakla"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("notes_add", {"text": "Uçuş kodunu sakla"}))
+        self.assertEqual(output, "Not aldım: Uçuş kodunu sakla")
+        self.assertEqual(feedback.result_status, "handled")
+        save.assert_called_once_with("Uçuş kodunu sakla")
+        planner.assert_not_called()
+
+    def test_calendar_today_agenda_reads_existing_owner_only(self):
+        with patch.object(self.ctx, "_agenda_text", return_value="AJANDA") as agenda:
+            entry, output, feedback = self.typed(
+                "Bugün takvimimde ne var", "calendar.read",
+                {"view": "agenda", "period": "today"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("agenda_read", {"view": "agenda", "period": "today"}))
+        self.assertEqual(output, "AJANDA")
+        self.assertEqual(feedback.result_status, "handled")
+        agenda.assert_called_once()
+
+    def test_calendar_week_uses_existing_week_worker(self):
+        from modules import main_planner
+        with patch.object(main_planner, "_week_plan", return_value="HAFTA") as week:
+            entry, output, _ = self.typed(
+                "Önümüzdeki hafta planım", "calendar.read",
+                {"view": "week_plan", "period": "next"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("agenda_read", {"view": "week_plan", "period": "next"}))
+        self.assertEqual(output, "HAFTA")
+        week.assert_called_once_with(self.ctx, "next")
+
+    def test_single_named_reminder_deletion_reuses_profile_owner(self):
+        event = {"id": 17, "title": "Ekip Toplantısı",
+                 "when": "2026-11-14T11:00"}
+        self.ctx.profile.data["events"] = [event]
+        with patch.object(self.ctx.profile, "delete_event", return_value=True) as delete:
+            entry, output, feedback = self.typed(
+                "Ekip Toplantısı hatırlatmasını sil", "reminders.manage",
+                {"operation": "delete", "title": "Ekip Toplantısı"})
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("reminder_manage", {"operation": "delete", "title": "Ekip Toplantısı"}))
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIn("Sildim: Ekip Toplantısı", output)
+        delete.assert_called_once_with(17)
+
+    def test_duplicate_title_cannot_silently_delete_other_events(self):
+        self.ctx.profile.data["events"] = [
+            {"id": 1, "title": "Ekip", "when": "2026-11-14T11:00"},
+            {"id": 2, "title": "Ekip", "when": "2026-11-15T11:00"},
+        ]
+        with patch.object(self.ctx.profile, "delete_event",
+                          side_effect=AssertionError("ambiguous delete")) as delete:
+            _, output, _ = self.typed(
+                "Ekip hatırlatmasını sil", "reminders.manage",
+                {"operation": "delete", "title": "Ekip"})
+        self.assertIn("birden fazla", output)
+        delete.assert_not_called()
+
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
             ("screen.text", {"operation": "delete"}),
@@ -222,6 +285,14 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             ("voice.rate", {"direction": True}),
             ("brief.read", {"delete": True}),
             ("study.read", {"view": "execute"}),
+            ("notes.add", {"text": ""}),
+            ("notes.add", {"text": "x" * 5000}),
+            ("notes.add", {"text": "ok", "permission": True}),
+            ("calendar.read", {"view": "agenda", "period": "seven"}),
+            ("calendar.read", {"view": "week_plan", "period": "tomorrow"}),
+            ("calendar.read", {"view": "erase", "period": "today"}),
+            ("reminders.manage", {"operation": "delete", "id": "fake", "title": "Team"}),
+            ("reminders.manage", {"operation": "clear_all", "title": "Team"}),
             ("workbench.followup", {"operation": "run_code"}),
             ("workbench.followup", {"operation": "revise", "path": "C:/private"}),
             ("workbench.followup", {"operation": "revise", "format": "exe"}),

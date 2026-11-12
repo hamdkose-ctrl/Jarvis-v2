@@ -129,6 +129,53 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
         case "daily_brief":
             return runtime._daily_briefing()
+        case "notes_add":
+            # Exact user-owned text was checked for grounding by the model
+            # envelope and length/nonempty value by Core. Old note timestamp,
+            # profile save and last-note correction remain in domain owner.
+            item_text = a["text"]
+            runtime._add_note(item_text)
+            return f"Not aldım: {item_text}"
+        case "agenda_read":
+            # Calendar reader remains the original Google+Jarvis read worker;
+            # not a new natural language parsing entry or event mutation.
+            from datetime import timedelta
+            from modules import main_planner
+            view, period = a["view"], a["period"]
+            now = runtime.datetime.now()
+            if view == "day_plan":
+                return main_planner._day_plan(runtime, 1 if period == "tomorrow" else 0)
+            if view == "week_plan":
+                return main_planner._week_plan(runtime, period)
+            if view == "upcoming":
+                events = runtime.profile.upcoming(now, 5)
+                if not events:
+                    return "Yaklaşan bir kaydın yok."
+                return "Yaklaşanlar: " + "; ".join(
+                    f"{runtime.whenmod.describe(row['when'], now)} {row['title']}" for row in events
+                ) + "."
+            day = (now + timedelta(days=1 if period == "tomorrow" else 0)).strftime("%Y-%m-%d")
+            return runtime._agenda_text(day, "Yarın" if period == "tomorrow" else "Bugün")
+        case "reminder_manage":
+            from modules import requests_state
+            requests_state.check()
+            wanted = a["title"].casefold()
+            matched = [event for event in runtime.profile.data["events"]
+                       if isinstance(event, dict) and isinstance(event.get("title"), str)
+                       and event["title"].casefold() == wanted]
+            if not matched:
+                return "Bu adla bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
+            if len(matched) != 1:
+                return "Bu adla birden fazla Jarvis hatırlatması var; hangisi olduğunu netleştir."
+            target = matched[0]
+            requests_state.check()
+            old_title = target["title"]
+            old_when = target["when"]
+            if not runtime.profile.delete_event(target["id"]):
+                return "Hatırlatmanın silindiğini doğrulayamadım."
+            extra = " (tekrarlayan kaydın bütün tekrarları)" if target.get("repeat") else ""
+            return (f"Sildim: {old_title}, {runtime.whenmod.describe(old_when, now=runtime.datetime.now())}"
+                    + extra + ". Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
         case "study_read":
             from modules import engine_tools
             return engine_tools.study_read(runtime, a["view"])
