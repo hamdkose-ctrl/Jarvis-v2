@@ -24,7 +24,7 @@ from modules import (
     brain_entry, canonical_goal_flow, canonical_plan_evidence,
     canonical_scheduler_dispatch, execution_record, goal_executor,
     goal_state_compat, goal_state_store, model_wait, requests_state, service_store,
-    task_agents, task_queue, task_results, untrusted_flow,
+    smart_router, task_agents, task_queue, task_results, untrusted_flow,
 )
 from modules import brain_model_understanding as envelope
 
@@ -62,6 +62,12 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             ('modules.smart_router.selection', lambda *args, **kwargs: {'candidates': ['groq']}),
         ):
             self.mocks.enter_context(patch(target, value))
+        # Install ONE router stub per test, not a nested monkeypatch per
+        # request. Two concurrent typed_turn() calls must not restore each
+        # other's previous patched value into the global router module.
+        self.router_stub = self.mocks.enter_context(patch(
+            'modules.smart_router.run', return_value=self.envelope(),
+        ))
 
     def envelope(self):
         return json.dumps({
@@ -78,14 +84,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         rid = rid or ('brain07-' + uuid.uuid4().hex[:12])
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
-            with patch('modules.smart_router.run', return_value=self.envelope()):
-                entry = brain_entry.prepare(
-                    self.ctx, owner=self.owner, request_id=rid,
-                    text=request, source='yazı', model_understanding=True,
-                )
-                result, feedback, job_id = brain_entry.handoff(
-                    self.ctx, entry, Mock(return_value='LEGACY_HANDLER'), request,
-                )
+            entry = brain_entry.prepare(
+                self.ctx, owner=self.owner, request_id=rid,
+                text=request, source='yazı', model_understanding=True,
+            )
+            result, feedback, job_id = brain_entry.handoff(
+                self.ctx, entry, Mock(return_value='LEGACY_HANDLER'), request,
+            )
         return rid, result, feedback, job_id
 
     def persisted(self, job_id):
@@ -94,6 +99,36 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             goal_state_store.load(root / (job_id + '.goalstate.json')),
             execution_record.load(root, self.owner, job_id),
         )
+
+    def test_parallel_typed_turns_share_one_router_stub_without_global_leak(self):
+        """Regression: nested monkeypatches in parallel left a fake router
+        installed for unrelated test modules after their cleanup."""
+        self.assertIs(smart_router.run, self.router_stub)
+        reached = threading.Barrier(2, timeout=10)
+
+        def semantic_reply(*args, **kwargs):
+            # Both threads must be inside the router call concurrently. A
+            # per-turn patch would bypass this fixture stub entirely.
+            reached.wait()
+            return self.envelope()
+
+        self.router_stub.side_effect = semantic_reply
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                left = executor.submit(self.typed_turn, rid='router-identity-left')
+                right = executor.submit(self.typed_turn, rid='router-identity-right')
+                left_result = left.result(timeout=20)
+                right_result = right.result(timeout=20)
+
+        self.assertEqual(self.router_stub.call_count, 2)
+        self.assertIs(smart_router.run, self.router_stub)
+        self.assertNotEqual(left_result[3], right_result[3])
+        self.assertEqual(left_result[2].reason_code,
+                         'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertEqual(right_result[2].reason_code,
+                         'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.run_goal.assert_not_called()
 
     def test_typed_user_request_publishes_matching_core_plan_and_queued_record(self):
         with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('first', 'second'))):
