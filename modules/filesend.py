@@ -315,53 +315,69 @@ def select_pending(owner: str, index: int) -> str:
     return send(path)
 
 
-def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
-    """Legacy only for initial spoken transfer. No raw follow-up selector exists."""
-    t = cmd_lower.strip(" .!?")
-    m = _TO_PHONE.fullmatch(t)
-    if not m or not re.search(r"telefon", t):
-        return None
-    what = m.group(1).strip()
-    if owner:
-        cancel_pending(owner)  # A new explicit request supersedes old file choices.
-    if re.search(r"ekran\s*görüntü|ekranı", what):
-        from modules import privacy, requests_state
+def transfer_typed(owner: str, operation: str, query: str = "") -> str:
+    """Core-selected transfer. No raw intent or arbitrary model path/phone."""
+    from modules import requests_state
+    requests_state.check()
+    if not isinstance(owner, str) or not owner.strip():
+        return "Dosya gönderim sahibini doğrulayamadım; göndermedim."
+    cancel_pending(owner)
+    if operation == "screenshot":
+        from modules import privacy
         if (blocked := privacy.blocked("screen")):
             return blocked
         requests_state.check()
-        p = _screenshot()
+        path = _screenshot()
         try:
-            res = send(p)
-            return res.replace(p.name, "Ekran görüntüsü")
+            return send(path).replace(path.name, "Ekran görüntüsü")
         finally:
             try:
-                p.unlink()
+                path.unlink()
             except OSError:
                 pass
-    if re.search(r"son indir|indirdiğim|son dosya", what):
-        p = _latest_download()
-        if p is None:
+    if operation == "latest":
+        path = _latest_download()
+        if path is None:
             return "İndirilenler klasöründe dosya bulamadım."
-        if _file_proof(p) is None:
+        if _file_proof(path) is None:
             return "İndirilen dosyanın izinli ve değişmemiş bir dosya olduğunu doğrulayamadım; göndermedim."
-        return send(p)
-    if not what or _VAGUE.fullmatch(what):
-        return ASK                    # "telefona dosya gönder": hangi dosya olduğu belli değil, rastgele seçme
-    found = find(what)
+        requests_state.check()
+        return send(path)
+    if operation != "search" or not isinstance(query, str) or not query.strip() or len(query) > 200:
+        return "Dosyanın adını söyle; bu istek doğrulanamadı."
+    found = find(query)
     if not found:
-        return f"“{what}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
-    if len(found) == 1 or _score_gap(what, found):
+        return f"“{query}” adına benzeyen bir dosya bulamadım. İndirilenler, Masaüstü ve Belgeler'e baktım."
+    if len(found) == 1 or _score_gap(query, found):
         if _file_proof(found[0]) is None:
             return "Dosya izinli klasörün dışında veya sembolik bağlantı; göndermedim."
+        requests_state.check()
         return send(found[0])
-    if not owner or not remember_pending(owner, found):
+    if not remember_pending(owner, found):
         return "Birkaç dosya eşleşiyor ama güvenli seçim açamadım. Dosyanın tam adını söyle."
     choices = pending_choices(owner)
     if choices is None:
         return "Dosya seçim kaydını doğrulayamadım; göndermedim."
-    lst = "; ".join(f"{i}) {name}" for i, name in enumerate(choices[0], 1))
-    return f"{len(choices[0])} dosya buldum, hangisini göndereyim? {lst}. Numarasını söylemen yeterli."
+    listed = "; ".join(f"{i}) {name}" for i, name in enumerate(choices[0], 1))
+    return f"{len(choices[0])} dosya buldum, hangisini göndereyim? {listed}. Numarasını söylemen yeterli."
 
+
+def handle(cmd_lower: str, *, owner: str | None = None) -> str | None:
+    """Model-unavailable initial utterance adapter, not an effect owner."""
+    t = cmd_lower.strip(" .!?")
+    m = _TO_PHONE.fullmatch(t)
+    if not m or not re.search(r"telefon", t):
+        return None
+    if not owner:
+        return "Dosya gönderimi için kullanıcı doğrulanamadı; göndermedim."
+    what = m.group(1).strip()
+    if not what or _VAGUE.fullmatch(what):
+        return ASK
+    if re.search(r"ekran\s*görüntü|ekranı", what):
+        return transfer_typed(owner, "screenshot")
+    if re.search(r"son indir|indirdiğim|son dosya", what):
+        return transfer_typed(owner, "latest")
+    return transfer_typed(owner, "search", what)
 
 def set_target(name: str) -> None:
     save_settings(send_target=name)
