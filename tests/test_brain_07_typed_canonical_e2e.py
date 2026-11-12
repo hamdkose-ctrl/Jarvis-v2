@@ -218,3 +218,70 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 task_queue._THREAD.join(10)
             for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
                 worker.join(10)
+
+
+    def test_foreground_accepts_second_independent_goal_while_worker_is_running(self):
+        entered = threading.Event()
+        release = threading.Event()
+        stop = RapidStop()
+        def research_worker(owner, task, dependencies):
+            entered.set()
+            self.assertTrue(release.wait(20), 'Provider gate never released')
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified ' + task['id'],
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+        with ExitStack() as patches:
+            for obj, attribute, value in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', research_worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+            ):
+                patches.enter_context(patch.object(obj, attribute, value))
+            patches.enter_context(patch.object(
+                model_wait, 'ask', side_effect=[
+                    json.dumps(research_tasks('first')),
+                    json.dumps(research_tasks('second')),
+                ],
+            ))
+            _, _, _, first = self.typed_turn('Birinci kaynağı araştır.')
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+            )
+            try:
+                self.assertTrue(entered.wait(15), 'First canonical provider did not start')
+                started = time.monotonic()
+                _, _, feedback, second = self.typed_turn('İkinci bağımsız kaynağı araştır.')
+                self.assertLess(time.monotonic() - started, 8)
+                self.assertNotEqual(first, second)
+                self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+                self.assertEqual(self.persisted(second)[0]['state'], 'pending')
+                self.run_goal.assert_not_called()
+            finally:
+                release.set()
+                stop.set()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(10)
+                for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    worker.join(10)
+
+    def test_unrelated_owner_cannot_observe_foreign_result(self):
+        with patch.object(model_wait, 'ask', return_value=json.dumps(research_tasks('private'))):
+            foreign, _ = canonical_goal_flow.try_create(
+                'another-owner', 'other-request', 'Read a private source',
+            )
+        notify = Mock()
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, foreign, notify))
+        notify.assert_not_called()
+        self.assertEqual(
+            execution_record.load(goal_executor._owner_root('another-owner'),
+                                  'another-owner', foreign)['owner'],
+            'another-owner',
+        )
