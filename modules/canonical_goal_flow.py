@@ -39,8 +39,28 @@ def _canonical_plan(tasks):
     for task in tasks:
         kind = task['agent']
         deps = task.get('depends', [])
-        if kind not in _READ_ONLY or (deps and kind != 'research'):
+        if kind not in _READ_ONLY:
             raise ValueError('Only supported read-only task nodes may be admitted.')
+        if deps and kind != 'research':
+            # Developer-approved, exact Gmail chain only: a verified unread
+            # list can select ONE message by index. No arbitrary account DAG.
+            source = next((row for row in tasks if row['id'] == deps[0]), None) if len(deps) == 1 else None
+            if (kind != 'account' or not isinstance(source, dict)
+                    or source.get('agent') != 'account'
+                    or source.get('input', {}).get('service') != 'gmail'
+                    or source['input'].get('operation') != 'list_unread'
+                    or task.get('input', {}).get('service') != 'gmail'
+                    or task['input'].get('operation') != 'read_message'
+                    or type(task['input'].get('index')) is not int
+                    or set(task['input']) != {'service', 'operation', 'index'}):
+                raise ValueError('Only verified Gmail list→indexed read is supported.')
+        if (kind == 'account' and not deps
+                and task['input'].get('service') == 'gmail'
+                and task['input'].get('operation') == 'read_message'
+                and 'index' in task['input']):
+            # A new canonical request has no implicit, owner-bound mail list.
+            # Unqualified list indices must never select provider messages.
+            raise ValueError('Gmail indexed read requires one verified list dependency.')
         manifest = goal_plan_gate._read_only_manifest('task.' + kind)
         if manifest is None:
             raise ValueError('Capability has no read-only execution manifest.')

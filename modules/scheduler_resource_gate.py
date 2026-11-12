@@ -91,6 +91,21 @@ def _typed_resource_keys(node: dict, owner: str) -> tuple[str, ...]:
     raise ReadOnlyAdmissionError("No scheduler resource mapping for this capability.")
 
 
+def _require_dependent_account(
+    state: dict, selected: goal_plan_gate.NodeCandidate, attempt: int,
+) -> None:
+    """Re-read projected Gmail list proof before leasing and before dispatch."""
+    from modules import dependency_evidence
+    node = goal_plan_gate.validate_dependent_account_attempt(
+        state, selected, attempt=attempt,
+    )
+    identity = {
+        'version': 1, 'owner': selected.owner, 'job_id': selected.job_id,
+        'task_id': selected.node_id, 'attempt': attempt,
+    }
+    dependency_evidence.require_persisted_account_dependencies(identity, node)
+
+
 def _require_attempt(state: dict, selected: goal_plan_gate.NodeCandidate,
                      attempt: int) -> None:
     """A retry is never automatic: only the caller's strictly newer attempt."""
@@ -105,15 +120,18 @@ def admit(
     selected: goal_plan_gate.NodeCandidate, *,
     attempt: int, ttl: float = 30.0,
 ) -> resource_leases.LeaseTicket:
-    """Claim resources only for an independent canonical read-only root node."""
+    """Claim exact read-only roots or one verified Gmail indexed-read child."""
     if not isinstance(leases, resource_leases.LeaseTable):
         raise ReadOnlyAdmissionError("The existing scheduler must supply its lease table.")
     if type(attempt) is not int or not 1 <= attempt <= 1_000_000:
         raise ReadOnlyAdmissionError("Worker attempt invalid.")
     node = goal_plan_gate.revalidate(state, selected)
     if node["depends_on"]:
-        raise ReadOnlyAdmissionError("Dependent node requires verified predecessor evidence.")
-    _require_attempt(state, selected, attempt)
+        if node['capability_id'] != 'task.account':
+            raise ReadOnlyAdmissionError("Dependent resource is not supported.")
+        _require_dependent_account(state, selected, attempt)
+    else:
+        _require_attempt(state, selected, attempt)
     keys = _typed_resource_keys(node, selected.owner)
     return leases.acquire(
         owner=selected.owner,
@@ -144,8 +162,11 @@ def validate_before_dispatch(
         raise ReadOnlyAdmissionError("Worker attempt invalid.")
     node = goal_plan_gate.revalidate(state, selected)
     if node["depends_on"]:
-        raise ReadOnlyAdmissionError("Dependent node requires verified predecessor evidence.")
-    _require_attempt(state, selected, attempt)
+        if node['capability_id'] != 'task.account':
+            raise ReadOnlyAdmissionError("Dependent resource is not supported.")
+        _require_dependent_account(state, selected, attempt)
+    else:
+        _require_attempt(state, selected, attempt)
     expected = (
         selected.owner, selected.job_id, selected.node_id,
         selected.plan_version, f"{selected.node_id}:{attempt}:p{selected.plan_version}",

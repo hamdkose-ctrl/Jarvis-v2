@@ -74,7 +74,7 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - `clarify` ve 2–5 typed action birlikte benimsenir. Core doğrular; bağımlılık domain başarısı ister. Ayrıntı: `docs/agents/gorev-cekirdegi.md`.
 
-- **BRAIN-03 doğrulanmış hatırlatma / not mutasyonu sınırı:** `main_planner._planner_command` mevcut `main_planner.core_reminder` kapsamındayken ham cümledeki silme/düzeltme sözlerini not değiştirme yetkisi saymaz. Kesin not ekleme, Core planı olmayan eski komutlar, mevcut hatırlatma erteleme/onay yolu korunur. Regresyonlar: `tests/test_brain_03_reminder_core_fence.py`; canlı model ve exact-HEAD Windows/PC kabulü ayrıca gerekir.
+- **BRAIN-03 hatırlatma sınırı:** Doğrulanmış `reminder` planı yalnız oluşturur; alıntıdaki not/etkinlik silme veya erteleme sözleri mevcut kayıtları değiştirmez. Plansız eski komutlar, açık `not al:` ve pending cevapları korunur. Ayrıntı: `docs/agents/mail-takvim.md`; test: `tests/test_brain_03_reminder_core_fence.py`.
 
 ## Testler
 
@@ -219,4 +219,4 @@ Alana özgü ayrıntılar `docs/agents/` altındadır. İlgili alanı değiştir
 
 - Brain model kararı, çıktı/teşhis, learning/Git/update: `docs/agents/gorev-cekirdegi.md`. Kullanıcı/makro: alan notu.
 
-- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal isteği eşleşmeli; yalnız tam kanıtlı çıktı, worker tekrarı olmadan tamamlanmaya alınır.
+- BRAIN-05: goal_intent CAS asıldır. BRAIN-07: Core/journal bağlanır; tam kanıtlı sonuç kurtarılır; Gmail indeksli okuma yalnız Core-kabul+project edilmiş listeye bağlanır.
