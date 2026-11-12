@@ -904,10 +904,9 @@ def delete_reminder_confirmed(runtime, proposal: dict) -> str:
     requests_state.check()
     if not runtime.profile.delete_event(expected["event_id"]):
         return "Hatırlatma silme işlemini doğrulayamadım; silindi demiyorum."
-    from modules import whenmod
     detail = " (tekrarlayan kaydın bütün tekrarları)" if expected["repeat"] else ""
     return (f"Sildim: {expected['title']}, "
-            f"{whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
+            f"{runtime.whenmod.describe(expected['when'], runtime.datetime.now())}{detail}. "
             "Yalnız Jarvis kaydıdır; Google Takvim'e dokunmadım.")
 
 

@@ -570,6 +570,15 @@ def deterministic_fast_gate(
     if status is not None:
         return _hit(owner, request_id, "fast", "fast.goal.status", status, "EXACT_LOCAL_READ")
 
+    # Last file-organization undo is an exact, bounded user control.
+    # No substring or natural language classification: the existing
+    # domain executor replays only the owner's own last organize journal.
+    if normalized in {"düzenlemeyi geri al", "duzenlemeyi geri al",
+                      "düzenlemeyi iptal et", "duzenlemeyi iptal et",
+                      "taşıdıklarını geri al", "tasidiklarini geri al"}:
+        return _hit(owner, request_id, "fast", "fast.file.organize.undo",
+                    "undo", "EXACT_LAST_ORGANIZE_UNDO")
+
     if normalized in {"saat kaç", "saat kac", "saat ne", "saati"}:
         return _hit(owner, request_id, "fast", "fast.time.read", "time", "EXACT_LOCAL_READ")
 

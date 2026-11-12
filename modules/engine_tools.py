@@ -455,10 +455,8 @@ def _extra_commands(runtime, command: str, cmd_lower: str) -> str | None:
         runtime.profile.add_note_item("Ekran hatası: " + " ".join(text.split()))
         return "Ekrandaki hatayı notlarına ekledim: " + " ".join(text.split())[:200]
     # PR3C-5: file mutations are handled only by canonical Brain -> Core typed proposals.
-    # Klasör düzenleme geri alması (önizleme artık kanonical: `files.organize` → `file_organize`)
-    if runtime.re.search(r"düzenlemey[ie] geri al|düzenlemeyi iptal et|taşıdıklarını geri", cmd_lower):
-        back = runtime.files.undo_organize(runtime.profile.slug)
-        return "Geri alınacak bir düzenleme kaydı yok." if back is None else f"{back} dosyayı eski yerine taşıdım."
+    # Exact undo was physically retired from this raw cascade.
+    # Only Fast Gate fast.file.organize.undo can reach the existing worker.
     from modules import filesend, worktrack
     sent = filesend.handle(cmd_lower)                 # "test planını telefonuma gönder" (Tailscale Taildrop)
     if sent is not None:

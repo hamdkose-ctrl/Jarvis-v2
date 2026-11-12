@@ -1108,6 +1108,7 @@ FAST_INTENTS: dict[str, tuple[str, dict[str, Any]]] = {
     "fast.date.read": ("fast_date", {}),
     "fast.system.status": ("fast_system_status", {}),
     "fast.speech.stop": ("fast_speech_stop", {}),
+    "fast.file.organize.undo": ("file_organize_undo", {}),
     "fast.mic.toggle": ("app_action", {"action": "set_flag", "params": {"name": "mic", "value": True}}),
 }
 

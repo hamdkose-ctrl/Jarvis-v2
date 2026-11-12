@@ -181,6 +181,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             }
             return (f"'{event['title']}' Jarvis hatırlatmasını silmemi onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
+        case "file_organize_undo":
+            from modules import requests_state
+            requests_state.check()
+            restored = runtime.files.undo_organize(runtime.profile.slug)
+            return ("Geri alınacak bir düzenleme kaydı yok." if restored is None
+                    else f"{restored} dosyayı eski yerine taşıdım.")
         case "study_read":
             from modules import engine_tools
             return engine_tools.study_read(runtime, a["view"])

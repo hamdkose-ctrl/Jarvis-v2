@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import test_brain_pr3_raw_text_authority as baseline
-from modules import brain_core_map, brain_entry, engine_context, engine_intents, workbench
+from modules import brain_context, brain_core_map, brain_entry, engine_context, engine_intents, workbench
 from modules.brain_contracts import RequestKind
 
 
@@ -299,6 +299,33 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             self.assertIn("kayıt değişti",
                           main_planner.delete_reminder_confirmed(self.ctx, saved))
         worker.assert_not_called()
+
+    def test_exact_undo_uses_fast_gate_and_no_raw_cascade(self):
+        with patch.object(self.ctx.files, "undo_organize", return_value=3) as undo, \
+             patch.object(self.ctx, "_extra_commands",
+                          side_effect=AssertionError("old undo parser called")) as cascade, \
+             patch.object(self.ctx, "_planner_command",
+                          side_effect=AssertionError("old planner called")):
+            entry, output, handler, feedback = self.turn_real(
+                "düzenlemeyi geri al", model_understanding=False)
+        self.assertEqual(entry.fast_gate.protocol, "fast.file.organize.undo")
+        self.assertEqual(output, "3 dosyayı eski yerine taşıdım.")
+        self.assertEqual(feedback.result_status, "handled")
+        undo.assert_called_once_with(self.owner)
+        cascade.assert_not_called()
+        handler.assert_not_called()
+
+    def test_nonexact_or_negated_undo_cannot_use_fast_undo_effect(self):
+        from modules import brain_gates
+        for utterance in ("düzenlemeyi geri alma", "düzenlemeyi geri al demedim"):
+            with self.subTest(utterance=utterance):
+                gate = brain_gates.deterministic_fast_gate(
+                    owner=self.owner, request_id="undo-check",
+                    text=utterance,
+                    active_context=brain_context.ActiveContext(
+                        owner=self.owner, request_id="undo-check"),
+                )
+                self.assertNotEqual(gate.protocol, "fast.file.organize.undo")
 
     def test_core_rejects_untrusted_operation_enums_without_effects(self):
         for cap, payload in (
