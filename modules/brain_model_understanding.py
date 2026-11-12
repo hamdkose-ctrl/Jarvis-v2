@@ -243,6 +243,8 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     from modules.brain_core_map import CORE_INTENTS
     if capability_id not in CORE_INTENTS:
         return {}
+    if capability_id == "study.read":
+        return {"view": ["plan", "focus"]}
     if capability_id == "workbench.followup":
         return {"operation": ["revise"], "format": ["excel", "word", "pdf", None],
                 "argument_sources": ["format"],
@@ -330,6 +332,9 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
 # değil bu sözleşmeden ayırsın. Bu bir kelime/regex havuzu değil, capability id -> amaç/önkoşul
 # tanımıdır; biçim ve yetki hükmü yine yalnız Core'un doğrulayıcısındadır.
 _CAPABILITY_PURPOSES = {
+    "study.read": (
+        "read the user's existing study schedule or exam-topic focus recommendations",
+        "read-only study view; requires already configured study materials; active lesson answers stay in Hoca pending state"),
     "workbench.followup": (
         "revise or export an already created document table in the same user's recent Workbench session",
         "requires session_artifacts.last_workbench; format must be grounded in the user's utterance; Core binds owner and revision"),

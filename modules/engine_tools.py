@@ -89,11 +89,22 @@ def _study_intent(runtime, cmd_lower: str) -> str | None:
                         r"zayıf\s+(?:olduğum|konu)|eksik\s+(?:olduğum|konu)|eksiklerim|nereden başla", cmd_lower)
     if not (plan_q or focus_q):
         return None
+    return study_read(runtime, 'plan' if plan_q else 'focus', missing_reply=False)
+
+
+def study_read(runtime, view: str, *, missing_reply: bool = True) -> str | None:
+    """Typed Core study read; never classifies a new natural-language request.
+
+    Existing Hoca mode/pending lesson state stays with hoca.handle. The old
+    raw entry may call this same worker during unavailable-model parity.
+    """
+    if view not in {'plan', 'focus'}:
+        raise ValueError("Study view must be Core-validated.")
     try:
         from modules import study, studyexam
         if not study._state(runtime.profile).get("docs"):
-            return None
-        if plan_q:
+            return ("Çalışma ekranında önce bir konu veya kaynak seçip dersini hazırla." if missing_reply else None)
+        if view == 'plan':
             p = studyexam.plan(runtime.profile)
             if not p.get("days"):
                 return p.get("note") or "Henüz ders programın yok. Çalışma ekranında Programım sekmesinden oluşturabilirsin."
@@ -111,7 +122,7 @@ def _study_intent(runtime, cmd_lower: str) -> str | None:
                 f"İstersen {fc[0]['topic']} konusunu anlatmaya başlayayım ya da Çalışma ekranındaki Soru Çöz'den bu konudan soru çözebilirsin.")
     except Exception:
         runtime._record_failure('main.py:_study_intent')
-        return None
+        return ("Ders verisini şu an okuyamadım." if missing_reply else None)
 
 def _translate_file(runtime, path: str, target: str) -> str:
     from modules import main_documents

@@ -129,6 +129,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             return "Daha hızlı konuşuyorum." if direction == "faster" else "Daha yavaş konuşuyorum."
         case "daily_brief":
             return runtime._daily_briefing()
+        case "study_read":
+            from modules import engine_tools
+            return engine_tools.study_read(runtime, a["view"])
         case "workbench_followup":
             from modules import workbench
             return workbench.followup_typed(

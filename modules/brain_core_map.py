@@ -747,6 +747,13 @@ _SHARE_OPERATIONS = frozenset({"screen", "camera", "stop"})
 _VOICE_RATE_DIRECTIONS = frozenset({"faster", "slower"})
 
 
+def _study_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    if set(arguments) - {"original_text", "view"}:
+        return None
+    view = arguments.get("view")
+    return {"view": view} if type(view) is str and view in {"plan", "focus"} else None
+
+
 def _workbench_followup_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     # Only the bounded revision/format choice comes from the model. Owner,
     # target paths and revision identity come from canonical ActiveContext.
@@ -987,6 +994,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "voice.rate": ("voice_rate", _voice_rate_args),
     "brief.read": ("daily_brief", _empty_action_args),
     "workbench.followup": ("workbench_followup", _workbench_followup_args),
+    "study.read": ("study_read", _study_read_args),
     "windows.settings.open": ("windows_settings_open", _windows_settings_args),
     "jarvis.selfctl": ("selfctl", _selfctl_args),
     "user.manage": ("user_manage", _user_manage_args),
