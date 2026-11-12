@@ -245,7 +245,7 @@ def execute_offer(profile, offer, *, stop_event=None):
         # This synchronous thread-bound scope travels through the existing
         # specialist/lease/WorkerResult path. A stop during provider execution
         # fences the Core CAS, even if the external task later returns "done".
-        with runtime_worker_result.scheduler_stop_scope(stop_event):
+        with runtime_worker_result.scheduler_stop_scope(stop_event, selection=selected):
             result = specialist_orchestrator.execute_step(
                 runtime, job, copy.deepcopy(step), identity,
             )

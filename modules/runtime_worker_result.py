@@ -15,6 +15,10 @@ class CanonicalWorkerDeadlineExceeded(RuntimeError):
     """A canonical read-only worker outlived its cooperative time budget."""
 
 
+class CanonicalWorkerRevoked(RuntimeError):
+    """A canonical goal was cancelled or revised while its worker was running."""
+
+
 class CanonicalWorkerDeadline:
     """One bounded worker attempt, not a provider kill or retry authority.
 
@@ -49,15 +53,27 @@ class CanonicalWorkerDeadline:
 # cooperative stop check. It must never be mistaken for a durable cancellation
 # decision or an authority to launch/retry an effectful command.
 _SCHEDULER_STOP = ContextVar('jarvis_canonical_scheduler_stop', default=None)
+# Immutable NodeCandidate from the real Scheduler, never a model-supplied ID.
+_CANONICAL_SELECTION = ContextVar('jarvis_canonical_scheduler_selection', default=None)
 
 
 @contextmanager
-def scheduler_stop_scope(stop_event):
-    """Bind a single Scheduler stop token to this synchronous worker thread."""
+def scheduler_stop_scope(stop_event, *, selection=None):
+    """Bind Scheduler stop and its exact canonical goal to one worker thread.
+
+    The Core fence checks terminal cancellation/replan before each next model or
+    provider step, not just when the result eventually reaches WorkerResult CAS.
+    A blocked remote request cannot be forcibly cancelled or deemed unissued.
+    """
     if stop_event is not None and not callable(getattr(stop_event, 'is_set', None)):
         raise ValueError('Canonical Scheduler stop token invalid.')
+    if selection is not None:
+        from modules import goal_plan_gate
+        if not isinstance(selection, goal_plan_gate.NodeCandidate):
+            raise ValueError('Canonical worker selection must come from Core.')
     from modules import requests_state
     token = _SCHEDULER_STOP.set(stop_event)
+    selected_token = _CANONICAL_SELECTION.set(selection)
     try:
         # The Scheduler's own stop/deadline token remains authoritative.
         # Existing requests_state.check() sites in Gmail, research readers
@@ -67,7 +83,47 @@ def scheduler_stop_scope(stop_event):
             require_scheduler_active()
             yield
     finally:
+        _CANONICAL_SELECTION.reset(selected_token)
         _SCHEDULER_STOP.reset(token)
+
+
+def _require_canonical_goal_active(selection):
+    """Read current Core authority; admit only independent accepted worker CAS.
+
+    A user correction, changed plan or terminal cancellation must stop the
+    NEXT provider/read operation even if the old worker was already running.
+    The per-job lock is short and never held over provider execution.
+    """
+    from modules import goal_executor, goal_job_control, goal_plan_gate, goal_state
+    root = goal_executor._owner_root(selection.owner)
+    if not root.is_dir() or root.is_symlink():
+        raise CanonicalWorkerRevoked('Canonical owner root unavailable.')
+    with goal_job_control.locked(root, selection.job_id):
+        current = goal_state_store.load(root / (selection.job_id + '.goalstate.json'))
+        plan = current.get('goal_plan')
+        if ((current['owner'], current['job_id']) !=
+                (selection.owner, selection.job_id)
+                or goal_state.authority(current) != 'canonical'
+                or current['state'] not in ('pending', 'running')
+                or not isinstance(plan, dict)
+                or plan.get('plan_version') != selection.plan_version
+                or current['version'] < selection.expected_goal_version):
+            raise CanonicalWorkerRevoked('Canonical goal cancelled, closed or revised.')
+        try:
+            digests = goal_plan_gate.fingerprints(plan)
+            if digests.get(selection.node_id) != selection.node_digest:
+                raise CanonicalWorkerRevoked('Canonical node or prerequisites changed.')
+            advances = current['audit'][selection.expected_goal_version + 1:]
+            if any(row['op'] != 'append_evidence'
+                   or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                   for row in advances):
+                raise CanonicalWorkerRevoked('Non-worker canonical intent mutation.')
+            # Verify accepted worker evidence/audit parity, not just a newer version.
+            goal_plan_gate.ready_read_only_candidates(
+                current, owner=selection.owner, job_id=selection.job_id,
+            )
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            raise CanonicalWorkerRevoked('Canonical plan evidence changed.') from exc
 
 
 def require_scheduler_active():
@@ -82,6 +138,9 @@ def require_scheduler_active():
         raise RuntimeError(
             'Canonical Scheduler stopped; stale worker result not accepted.'
         )
+    selection = _CANONICAL_SELECTION.get()
+    if selection is not None:
+        _require_canonical_goal_active(selection)
 
 
 def durable_identity(identity: dict) -> bool:

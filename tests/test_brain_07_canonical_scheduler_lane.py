@@ -714,6 +714,61 @@ class SchedulerOfferTests(unittest.TestCase):
         # stop token; the failed scope does not permanently contaminate it.
         runtime_worker_result.require_scheduler_active()
 
+    def test_live_canonical_cancel_fences_next_provider_step_before_worker_result(self):
+        from modules import requests_state
+        offer = self.offers()[0]
+        before = self.path.read_bytes()
+        with runtime_worker_result.scheduler_stop_scope(None, selection=offer.selection):
+            requests_state.check()
+            current = goal_state_store.load(self.path)
+            cancelled = core_state_reducer.apply(current, {
+                'op': 'set_state', 'state': 'cancelled',
+                'reason_code': 'TEST_OWNER_CANCEL',
+                'expected_version': current['version'],
+            })
+            goal_state_store.compare_and_swap(
+                self.path, expected_version=current['version'], next_state=cancelled,
+            )
+            with self.assertRaises(runtime_worker_result.CanonicalWorkerRevoked):
+                requests_state.check()
+        self.assertNotEqual(before, self.path.read_bytes())
+        self.assertEqual(goal_state_store.load(self.path)['state'], 'cancelled')
+        runtime_worker_result.require_scheduler_active()
+
+    def test_live_canonical_plan_edit_fences_next_provider_step(self):
+        from modules import requests_state
+        offer = self.offers()[0]
+        with runtime_worker_result.scheduler_stop_scope(None, selection=offer.selection):
+            current = goal_state_store.load(self.path)
+            updated = core_state_reducer.apply(current, {
+                'op': 'set_goal_plan', 'reason_code': 'TEST_OWNER_REPLAN',
+                'expected_version': current['version'],
+                'plan': {'plan_version': 2, 'nodes': self.nodes},
+            })
+            goal_state_store.compare_and_swap(
+                self.path, expected_version=current['version'], next_state=updated,
+            )
+            with self.assertRaises(runtime_worker_result.CanonicalWorkerRevoked):
+                requests_state.check()
+        self.assertFalse(any(row.get('kind') == 'worker_result'
+                             for row in goal_state_store.load(self.path)['evidence']))
+
+    def test_independent_accepted_root_does_not_revoke_other_running_root(self):
+        from modules import requests_state
+        second = self.offers()[1]
+        with runtime_worker_result.scheduler_stop_scope(None, selection=second.selection):
+            self.accept('left')
+            # Only a verified WorkerResult CAS is a permissible version advance;
+            # this does not rebase a user edit, terminal state or changed plan.
+            requests_state.check()
+            runtime_worker_result.require_scheduler_active()
+
+    def test_canonical_scope_cannot_accept_untyped_or_forged_selection(self):
+        with self.assertRaises(ValueError):
+            with runtime_worker_result.scheduler_stop_scope(None, selection={'owner': OWNER}):
+                self.fail('Untrusted scheduler selection admitted')
+        runtime_worker_result.require_scheduler_active()
+
     def test_goal_status_uses_existing_read_only_canonical_restart_proof(self):
         before = self.path.read_bytes(), self.record_path.read_bytes()
         job = execution_record.load(self.owner_root, OWNER, JOB)
