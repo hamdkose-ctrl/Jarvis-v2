@@ -478,7 +478,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                          ("hoca_start", {"topic": "Hücre"}))
         self.assertIn("DERS İÇERİĞİ", output)
         self.assertEqual(feedback.result_status, "handled")
-        start.assert_called_once_with(self.ctx.profile, "Hücre", level="")
+        start.assert_called_once_with(self.ctx.profile, "Hücre", level="", source=None)
         teach.assert_called_once_with(self.ctx.profile)
 
     def test_hoca_disabled_config_prevents_worker_call(self):
