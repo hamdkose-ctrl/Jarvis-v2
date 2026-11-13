@@ -61,6 +61,17 @@ class PrivacyMaskGapTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.assertEqual(privacy.redact(raw, force=True), raw)
 
+    def test_phone_digits_inside_a_long_identifier_are_not_masked(self):
+        # Bir kanal/nesne kimliğinin (YouTube 24 karakter) sonu telefon gibi görünse de numara değildir;
+        # gerçek numaralar maskelenmeye devam eder. Eski Live araç testinden buraya taşındı.
+        identifier = 'a' * 22 + '5551234567'
+        text = privacy.redact('id="' + identifier + '" tel=05551234567; +90 555 123 45 67', force=True)
+        self.assertIn(identifier, text)
+        self.assertNotIn('05551234567', text)
+        self.assertNotIn('+90 555 123 45 67', text)
+        self.assertEqual(text.count('[telefon gizlendi]'), 2)
+        self.assertIn('[telefon gizlendi]', privacy.redact('a5551234567b', force=True))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -206,11 +206,22 @@ class UpdateTests(unittest.TestCase):
 
 class SchedulerTests(unittest.TestCase):
     def test_reminders_delivered_without_processing_command_queue(self):
+        from modules import engine_background
         owner=SimpleNamespace(name='A',slug='a',data={'prefs':{}},due_events=Mock(return_value=[{'title':'Reminder'}]))
         emitted=Mock();q=queue.Queue()
-        ns={'list_users':lambda:['A'],'_get_profile':lambda name:owner,'datetime':datetime,'_emit_for':emitted,'pc_profile':lambda:owner,'events':q}
+        ns={'list_users':lambda:['A'],'_get_profile':lambda name:owner,'datetime':datetime,'_emit_for':emitted,'pc_profile':lambda:owner,'events':q,
+            'reminder_speech_id':engine_background.reminder_speech_id,
+            'reminder_occurrence_id':engine_background.reminder_occurrence_id,
+            'REMINDER_SPEECH_TTL_SECONDS':engine_background.REMINDER_SPEECH_TTL_SECONDS}
         functions('main.py',['_reminder_tick'],ns);ns['_reminder_tick']()
-        emitted.assert_called_once_with(owner,'assistant','Hatırlatma: Reminder','hatırlatma');self.assertEqual(q.get()[0],'say')
+        emitted.assert_called_once_with(owner,'assistant','Hatırlatma: Reminder','hatırlatma')
+        event=q.get()
+        self.assertEqual(event[0],'say')
+        # The spoken notice names the record it announces, so a later correction
+        # of that record can drop exactly this queued audio.
+        self.assertEqual(event[3]['kind'], 'reminder')
+        self.assertTrue(event[3]['event_id'].startswith('reminder:'), event[3])
+        self.assertGreater(event[3]['ttl_seconds'], 0)
     def test_bad_plan_date_does_not_mutate_profile(self):
         from modules import studyexam
         prof=SimpleNamespace(data={},save=Mock())
@@ -450,7 +461,8 @@ class MorningBriefOwnershipTests(unittest.TestCase):
         self.assertEqual(runtime.profile.slug, 'ebru')
         runtime._llm.set_user_context.assert_called_once_with('hamdi')
         runtime._emit_for.assert_called_once_with(owner, 'assistant', 'PC özeti')
-        self.assertEqual(runtime.events.get_nowait(), ('say', 'PC özeti', 'hamdi'))
+        self.assertEqual(runtime.events.get_nowait(),
+                         ('say', 'PC özeti', 'hamdi', {'kind': 'notice', 'event_id': 'brief:2026-10-08'}))
 
     def test_shutdown_before_delay_does_not_fetch_brief_or_mark_seen(self):
         from modules import main_planner

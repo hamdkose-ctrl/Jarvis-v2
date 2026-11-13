@@ -293,6 +293,189 @@ class CoordinatorOutputTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(self.receipts, [])
 
+    def block_one(self, *, max_pending=3):
+        """Occupy the single worker so later submissions are provably WAITING."""
+        self.release = threading.Event()
+        entered = threading.Event()
+        self.heard = []
+
+        def synth(spec, text, cancel):
+            self.heard.append(text)
+            if not entered.is_set():
+                entered.set()
+            self.assertTrue(self.release.wait(2))
+            return b"audio"
+
+        coordinator = VoiceCoordinator(catalog(), synth, lambda a, c, s: s(), self.report,
+                                       max_pending=max_pending, clock=self.clock)
+        self.coordinator = coordinator
+        self.assertTrue(coordinator.submit(request("active", text="ilk yanit")))
+        self.assertTrue(entered.wait(1))
+        return coordinator
+
+    def test_full_notice_queue_never_costs_the_user_their_answer(self):
+        # §4-C: background notifications used to hold every slot, so the current
+        # user speech got VOICE_QUEUE_FULL and the preemption never happened.
+        # The bounded queue is kept; the STALEST waiting notice is coalesced away
+        # instead, and it is the only thing dropped.
+        coordinator = self.block_one(max_pending=3)
+        for name in ("n1", "n2", "n3"):
+            self.assertTrue(coordinator.submit(request(
+                name, text="bildirim-" + name, lane="background", kind="progress",
+                goal_id="g1", turn_id=name)))
+        self.assertTrue(coordinator.submit(request("ask", text="su anki soru",
+                                                   goal_id="g2", turn_id="t2")))
+        try:
+            evicted = [r for r in self.receipts if r.request_id == "n1"]
+            self.assertEqual([(r.status, r.reason_code) for r in evicted],
+                             [("cancelled", "VOICE_NOTICE_EVICTED")])
+            # The receipt carries the result identity so Core can still show the
+            # written result; the goal itself is untouched and the newer notices
+            # keep their place.
+            self.assertEqual((evicted[0].goal_id, evicted[0].turn_id, evicted[0].kind),
+                             ("g1", "n1", "progress"))
+        finally:
+            self.release.set()
+        self.until(5)
+        by_id = {r.request_id: r for r in self.receipts}
+        self.assertEqual(sorted(by_id), ["active", "ask", "n1", "n2", "n3"])
+        self.assertEqual(by_id["n2"].status, "played")   # newest notices survive
+        self.assertEqual(by_id["n3"].status, "played")
+        self.assertEqual(by_id["ask"].status, "played")
+        self.assertNotIn("bildirim-n1", self.heard)      # evicted never reached the adapter
+
+    def test_backpressure_stays_honest_when_no_notice_can_be_coalesced(self):
+        # An answer is user speech too: it is never displaced to make room, so a
+        # queue of foreground replies keeps the typed VOICE_QUEUE_FULL receipt.
+        coordinator = self.block_one(max_pending=1)
+        self.assertTrue(coordinator.submit(request("a1", text="birinci yanit")))
+        self.assertFalse(coordinator.submit(request("a2", text="ikinci yanit")))
+        self.assertFalse(coordinator.submit(request("a3", text="onluk bildirim",
+                                                    lane="background")))
+        reasons = {(r.request_id, r.status, r.reason_code) for r in self.receipts}
+        self.assertEqual(reasons, {("a2", "rejected", "VOICE_QUEUE_FULL"),
+                                   ("a3", "rejected", "VOICE_QUEUE_FULL")})
+        self.release.set()
+        self.until(4)
+        by_id = {r.request_id: r.status for r in self.receipts}
+        self.assertEqual(by_id["a1"], "played")
+        self.assertEqual(by_id["active"], "played")
+
+    def test_one_result_identity_is_announced_once_however_often_core_offers_it(self):
+        # §7: the same reminder/event result must not reach the speaker twice.
+        # The claim is on the result identity, not on the request id, so a second
+        # enqueue of the same announcement is a typed refusal instead of audio.
+        heard = []
+        coordinator = self.start(synth=lambda spec, text, cancel: heard.append(text) or b"audio")
+        self.assertTrue(coordinator.submit(request("n1", text="Toplantın 14:00", kind="reminder",
+                                                    lane="background", event_id="reminder:7")))
+        self.until(1)
+        self.assertFalse(coordinator.submit(request("n2", text="Toplantın 14:00", kind="reminder",
+                                                     lane="background", event_id="reminder:7")))
+        self.assertEqual([(r.request_id, r.status, r.reason_code) for r in self.receipts if r.request_id == "n2"],
+                         [("n2", "rejected", "VOICE_DUPLICATE_DELIVERY")])
+        self.assertEqual(heard, ["Toplantın 14:00"])
+
+    def test_duplicate_protection_never_swallows_an_ordinary_reply_or_a_new_occurrence(self):
+        # Two turns can legitimately answer with the same sentence, and the same
+        # reminder record at a new time is a new result: neither may be silenced
+        # by an over-wide identity match.
+        heard = []
+        coordinator = self.start(synth=lambda spec, text, cancel: heard.append(text) or b"audio")
+        self.assertTrue(coordinator.submit(request("p1", text="Evet")))
+        self.until(1)
+        self.assertTrue(coordinator.submit(request("p2", text="Evet")))
+        self.assertTrue(coordinator.submit(request("t1", text="Evet", turn_id="t1")))
+        self.assertTrue(coordinator.submit(request("t2", text="Evet", turn_id="t2")))
+        self.assertTrue(coordinator.submit(request("r1", text="Su iç", kind="reminder",
+                                                    event_id="reminder:7")))
+        self.assertTrue(coordinator.submit(request("r2", text="Su iç", kind="reminder",
+                                                    event_id="reminder:8")))
+        self.until(6)
+        self.assertEqual(len(heard), 6)
+
+    def test_a_result_that_never_started_keeps_its_next_chance_to_be_heard(self):
+        # Releasing a slot for the user's answer must not also blacklist the
+        # notice it displaced: an utterance that never reached the player is not
+        # a delivery, so Core can offer that same result again.
+        coordinator = self.block_one(max_pending=3)
+        notice = request("n1", text="Rapor hazır", kind="notice", lane="background",
+                         event_id="goal:9", goal_id="g9")
+        self.assertTrue(coordinator.submit(request("n0", text="önceki bildirim", lane="background")))
+        self.assertTrue(coordinator.submit(notice))
+        coordinator.interrupt_speech()          # the waiting notice is cancelled, unplayed
+        self.release.set()
+        self.until(3)                           # both unplayed notices + the active answer
+        self.assertTrue(coordinator.submit(request("n2", text="Rapor hazır", kind="notice",
+                                                    lane="background", event_id="goal:9",
+                                                    goal_id="g9")))
+        self.until(4)
+        self.assertIn("Rapor hazır", self.heard)
+
+    def test_validity_authority_rejects_a_stale_turn_before_any_synthesis(self):
+        # §6 lives in Core, not here: Voice never invents a cancel decision.
+        # The coordinator only honors its validity authority, so a turn the
+        # authority declares stopped cannot reach the adapter, while the next
+        # turn and a turn-less notice are still spoken.
+        heard = []
+        seen = []
+
+        def validity(request):
+            seen.append(request.turn_id)
+            return "VOICE_SUSPENDED_TURN" if request.turn_id == "t1" else ""
+
+        coordinator = self.start(synth=lambda spec, text, cancel: heard.append(text) or b"audio",
+                                 validate=validity)
+        self.assertFalse(coordinator.submit(request("tail", turn_id="t1", text="modelden geç geldi")))
+        refused = [r for r in self.receipts if r.request_id == "tail"][0]
+        self.assertEqual((refused.status, refused.reason_code),
+                         ("rejected", "VOICE_SUSPENDED_TURN"))
+        self.assertEqual((refused.turn_id, refused.kind), ("t1", "reply"))
+        self.assertNotIn("modelden geç geldi", heard)          # never synthesized
+        self.assertTrue(coordinator.submit(request("next", turn_id="t2", text="yeni soru")))
+        self.assertTrue(coordinator.submit(request("note", text="turnsuz bildirim")))
+        self.until(3)
+        self.assertIn("yeni soru", heard)
+        self.assertIn("turnsuz bildirim", heard)
+        self.assertEqual(seen[:3], ["t1", "t2", ""], "authority decides per request, never blanket")
+
+    def test_concurrent_submitters_leave_no_request_unaccounted(self):
+        # several Core threads submitting at once, every request id gets exactly
+        # one terminal receipt and the queue never exceeds its bound.
+        slow = threading.Event()
+
+        def synth(spec, text, cancel):
+            slow.wait(0.005)
+            return b"audio"
+
+        coordinator = self.start(synth=synth, max_pending=2)
+        total, workers = 4, 6
+        ids = [f"u{worker}-{i}" for worker in range(workers) for i in range(total)]
+
+        def push(worker):
+            for i in range(total):
+                ident = f"u{worker}-{i}"
+                coordinator.submit(request(
+                    ident, lane="background" if i % 2 else "foreground",
+                    goal_id="g1" if i % 2 else "", turn_id=ident))
+
+        threads = [threading.Thread(target=push, args=(w,)) for w in range(workers)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(2)
+        self.assertTrue(self._wait_for(lambda: len(self.receipts) == len(ids), 5), self.receipts)
+        self.assertEqual(sorted(r.request_id for r in self.receipts), sorted(ids))
+        self.assertLessEqual(coordinator._pending.qsize(), 2)
+
+    def _wait_for(self, predicate, seconds):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.01)
+        return False
+
 
 if __name__ == "__main__":
     unittest.main()

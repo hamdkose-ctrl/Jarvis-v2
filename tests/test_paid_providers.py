@@ -75,12 +75,6 @@ class PaidProviderTests(unittest.TestCase):
         result=paid.models('alice','anthropic');self.assertEqual([x['id'] for x in result],['model-a','model-b'])
         self.assertTrue(all(x.args[0]=='GET' for x in self.request.call_args_list))
         self.assertTrue(self.request.call_args.args[1].endswith('after_id=model-a'))
-    def test_paid_selection_disables_gemini_live_without_changing_mic(self):
-        from modules import live
-        with patch.object(llm,'provider',return_value='openai'):
-            self.assertFalse(live.enabled())
-        with patch.object(llm,'provider',return_value='anthropic'):
-            self.assertFalse(live.enabled())
     def test_paid_dispatch_never_falls_back_to_gemini(self):
         with patch.object(llm,'provider',return_value='openai'),patch.object(llm,'current_user',return_value='alice'),patch.object(paid,'generate',side_effect=paid.ProviderError('Kota')) as generate,patch.object(llm,'_cli') as gemini:
             with self.assertRaises(paid.ProviderError):llm._send('Merhaba','',500,[])

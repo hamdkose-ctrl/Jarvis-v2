@@ -494,10 +494,8 @@ def ui_settings() -> dict:
     out["tray"] = bool(s.get("tray", True))
     out["autostart"] = autostart_get()
     out["provider"] = s.get("provider") or "gemini"
-    out["live_mode"] = s.get("live_mode", True) is not False
     out["wake_sensitivity"] = int(s.get("wake_sensitivity") or 3)
-    out["live_silence_ms"] = int(s.get("live_silence_ms") or 1100)
-    out["live_beep"] = s.get("live_beep", True) is not False
+    out["wake_beep"] = s.get("wake_beep", True) is not False
     from modules import learning, personalization
     out["learn_from_chat"] = learning.enabled(personalization.Profile(personalization.get_active()))
     bgf = DATA_DIR / "arka_plan.img"
@@ -525,12 +523,10 @@ def ui_set(key: str, value) -> dict:
     elif key == "learn_from_chat":
         from modules import personalization
         personalization.Profile(personalization.get_active()).set_pref(key, bool(value))
-    elif key in ("nx_globe", "nx_notify", "nx_bust", "nx_advanced", "tray", "live_beep", "live_mode", "proactive_suggestions"):
+    elif key in ("nx_globe", "nx_notify", "nx_bust", "nx_advanced", "tray", "wake_beep", "proactive_suggestions"):
         save_settings(**{key: bool(value)})
     elif key == "wake_sensitivity":
         save_settings(wake_sensitivity=max(1, min(5, int(value))))
-    elif key == "live_silence_ms":
-        save_settings(live_silence_ms=max(300, min(2500, int(value))))
     elif key == "bg" and not value:                  # arka plan resmini kaldır (yerine çizilen gece salonu)
         (DATA_DIR / "arka_plan.img").unlink(missing_ok=True)
     elif key == "ai_mode" and value in ("auto", "gemini", "groq", "ollama"):

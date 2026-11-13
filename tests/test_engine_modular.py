@@ -106,7 +106,7 @@ class ModularEngineTests(unittest.TestCase):
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
         context.events.put(('command','selam','web',owner,'one'))
-        voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,live_on=False,state={},speak=Mock())
+        voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,state={},speak=Mock())
         with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'),patch('modules.brain_entry._install_core_guards'):
             context.main(ui=Mock())
         context.handle.assert_called_once_with('selam')
@@ -117,7 +117,7 @@ class ModularEngineTests(unittest.TestCase):
         self.assertFalse(context.pause_listening.is_set())
 
     def test_voice_sessions_do_not_share_wake_continuation_state(self):
-        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text','--mute']),live=SimpleNamespace(enabled=Mock()))
+        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text','--mute']))
         # Wake-state isolation is independent of the single output owner; mock its
         # setup so two sessions can be compared without registering a global lane.
         with patch('modules.voice_runtime.maybe_start',return_value=(None,False)):
@@ -125,7 +125,6 @@ class ModularEngineTests(unittest.TestCase):
         first.state['awake_until']=100
         self.assertEqual(second.state['awake_until'],0)
         self.assertFalse(first.listening_enabled);self.assertFalse(first.speak_enabled)
-        runtime.live.enabled.assert_not_called()
 
     def test_local_button_in_real_loop_uses_local_recognition_and_reports_missing_model(self):
         context=self.context();context.emit=Mock();context._start_hang_watch=Mock()
@@ -136,7 +135,7 @@ class ModularEngineTests(unittest.TestCase):
             raise ValueError('Yerel ses modeli hazır değil.')
         context.voice=SimpleNamespace(HINTS=[],listen=Mock(side_effect=fail_local_listen))
         context.events.put(('listen',))
-        session=SimpleNamespace(manual_local_stt=True,listening_enabled=True,speak_enabled=False,live_on=False,state={})
+        session=SimpleNamespace(manual_local_stt=True,listening_enabled=True,speak_enabled=False,state={})
         with patch('modules.engine_voice.VoiceSession',return_value=session),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
             context.main(ui=Mock())
         self.assertTrue(context.voice.listen.call_args.kwargs['local'])
@@ -161,7 +160,7 @@ class ModularEngineTests(unittest.TestCase):
         # never to a legacy runtime.voice.speak path; mute enqueues nothing.
         lane=Mock();lane.say.return_value=threading.Event()
         person=SimpleNamespace(slug='alice',data={'prefs':{'voice':'tr_kadin','rate':-8}})
-        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text']),live=SimpleNamespace(enabled=Mock()),flags={'speak':True,'mic':False},emit=Mock(),threading=SimpleNamespace(Event=threading.Event,Thread=Mock()),profile=person,voice=SimpleNamespace(speak=Mock()),_record_failure=lambda *a:None)
+        runtime=SimpleNamespace(sys=SimpleNamespace(argv=['main.py','--text']),flags={'speak':True,'mic':False},emit=Mock(),threading=SimpleNamespace(Event=threading.Event,Thread=Mock()),profile=person,voice=SimpleNamespace(speak=Mock()),_record_failure=lambda *a:None)
         with patch('modules.voice_runtime.maybe_start',return_value=(lane,False)):
             session=VoiceSession(runtime)
         session.speak('Merhaba',slow=True)
@@ -221,7 +220,6 @@ class ModularEngineTests(unittest.TestCase):
 
     def test_online_recognition_completed_after_mute_is_discarded(self):
         context=self.context();context.emit=Mock();context.submit=Mock()
-        context.live=SimpleNamespace(get=lambda:None,enabled=lambda:False)
         def listen(**kwargs):
             context.flags['mic']=False;context.stop_event.set()
             return 'hey jarvis merhaba'
@@ -245,7 +243,7 @@ class ModularEngineTests(unittest.TestCase):
         context._start_hang_watch=Mock()
         context.requests_state=SimpleNamespace(is_cancelled=Mock(side_effect=RuntimeError('queue provider failed')))
         context.events.put(('command','selam','web',context.profile.name,'rid'))
-        voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,live_on=False)
+        voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False)
         with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
             with self.assertRaises(RuntimeError):context.main(ui=Mock())
         self.assertTrue(context.stop_event.is_set())
@@ -261,3 +259,68 @@ class ModularEngineTests(unittest.TestCase):
         with patch('builtins.open',handle),patch('faulthandler.cancel_dump_traceback_later'):
             context._start_hang_watch()
         handle().close.assert_called_once()
+
+
+class UserSwitchAudibleStopTests(unittest.TestCase):
+    """_switch_user must connect the user change to the real audible stop."""
+
+    def profile(self, slug, name):
+        p = SimpleNamespace(slug=slug, name=name, exists=True, data={'prefs': {}, 'goals': []})
+        p.save = Mock()
+        return p
+
+    def runtime(self, source):
+        alice = self.profile('alice', 'Alice')
+        rt = SimpleNamespace(
+            _cur_source=source, profile=alice, _guest=None, _home=None,
+            _get_profile=lambda name: self.profile('bob', 'Bob'),
+            _llm=SimpleNamespace(set_user_context=Mock()), set_active=Mock(),
+            _sessions=SimpleNamespace(reset=Mock(), _owner=SimpleNamespace(set=Mock())),
+            _session=lambda: SimpleNamespace(last_doc=None, pending_level=None,
+                                             pending_confirm=None, pending_voice=None,
+                                             pending_event_title=None, pending_msg=None,
+                                             pending_organize=None),
+            log=SimpleNamespace(info=Mock()), slugify=lambda n: n.lower(),
+            list_users=lambda: ['Alice', 'Bob'],
+        )
+        rt.pc_profile = lambda: rt.profile
+        return rt
+
+    def test_pc_owner_switch_stops_previous_owner_speech(self):
+        from modules import engine_context
+        rt = self.runtime('web')
+        with patch('modules.voice_runtime.on_owner_switch') as stop, \
+                patch('modules.pc_guide.stop'), patch('modules.hooks.observe'):
+            engine_context._switch_user(rt, 'Bob')
+        stop.assert_called_once_with('alice')   # previous speaker, not the new one
+
+    def test_phone_switch_does_not_stop_pc_speaker(self):
+        from modules import engine_context
+        rt = self.runtime('telefon')
+        with patch('modules.voice_runtime.on_owner_switch') as stop, \
+                patch('modules.pc_guide.stop'), patch('modules.hooks.observe'):
+            engine_context._switch_user(rt, 'Bob')
+        stop.assert_not_called()   # the machine's audible owner did not change
+
+    def test_a_switch_whose_stop_was_not_verified_says_so(self):
+        # The greeting is what the new user hears as the switch result, so an
+        # unverified stop must not be presented as a clean one. The wording also
+        # must not claim a physical device cut nobody verified, while still saying
+        # the one guarantee the single output owner does provide: the new user's
+        # own answer never plays over the leftover audio.
+        from modules import engine_context
+        for stopped, expected in ((True, 'Merhaba Bob.'),
+                                  (False, 'Merhaba Bob. Önceki kullanıcının sesi')):
+            with self.subTest(stopped=stopped):
+                rt = self.runtime('web')
+                with patch('modules.voice_runtime.on_owner_switch', return_value=stopped) as stop, \
+                        patch('modules.pc_guide.stop'), patch('modules.hooks.observe'):
+                    message = engine_context._switch_user(rt, 'Bob')
+                stop.assert_called_once_with('alice')
+                self.assertTrue(message.startswith(expected), message)
+                if stopped:
+                    self.assertNotIn("Önceki kullanıcının", message)
+                else:
+                    self.assertIn("kesilemedi", message, message)
+                    self.assertIn("üst üste binmez", message, message)
+

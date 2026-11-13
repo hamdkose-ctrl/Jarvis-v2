@@ -271,25 +271,11 @@ class FileTargetAuthorityTests(unittest.TestCase):
 
 
 class LiveContextParityTests(unittest.TestCase):
-    """Live, kendi özel context/authority snapshot'ını kurmaz; assembly salt-okunurdur."""
-
-    def live_prompt_body(self):
-        text = source("engine_voice")
-        return text[text.index("def _live_prompt"):text.index("def ", text.index("def _live_prompt") + 4)]
+    """Canlı yüzey kendi özel context/authority snapshot'ını kurmaz; assembly salt-okunurdur."""
 
     def test_live_has_no_private_history_or_pronoun_resolver(self):
         self.assertNotIn("_context_prompt", identities(source("engine_voice")))
         self.assertNotIn("_context_prompt", identities(source("engine_runtime")))
-
-    def test_live_prompt_selects_no_facts_without_the_canonical_relevance_gate(self):
-        body = self.live_prompt_body()
-        self.assertNotIn('"facts"', body)
-        self.assertNotIn('"goals"', body)
-        # Bağlantı anında çözülecek bir soru yoktur; Live kendi bellek/geçmiş seçicisini kuramaz.
-        self.assertEqual(re.findall(r"learning\.(knowledge_prompt|rules_prompt)", body), [])
-        self.assertNotIn("_recent_turns", body)
-        # Assembly salt-okunur: burada profil yazan hiçbir çağrı yok.
-        self.assertNotIn("save", body)
 
     def test_memory_relevance_has_one_canonical_owner(self):
         # Soru-bağımlı ilgi seçiminin tek sahibi profile.system_prompt(query); her yüzey oradan geçer.
@@ -304,31 +290,13 @@ class LiveContextParityTests(unittest.TestCase):
         self.assertNotIn("profile.save()", body)
         self.assertIn("def pending_ask_due", text)
         self.assertIn("def mark_pending_ask", text)
-
-    def test_session_open_event_owns_the_write(self):
-        self.assertIn("def live_session_opened", source("engine_voice"))
-        self.assertIn("live_session_opened", source("engine_loop"))
+        # Oturum-açılma işareti salt-okunur assembly'de değil, olay sahibinde yazılır.
+        # Live emekli olunca o olayın (live_session_opened) üretim çağrısı kalmadı; bu
+        # borç tests/test_live_retirement.py'da caller-zero olarak açık tutulur.
 
 
 class LiveToolAuthorityTests(unittest.TestCase):
-    """Effect üreten Live araçları canonical request üretir; raw service executor kalmaz."""
-
-    def test_runner_has_no_raw_music_or_task_service_bypass(self):
-        # Servis fonksiyonuna giden tek çit kalmadı: _direct_tool yalnız domain protokol araçlarında.
-        text = source("live_tool_runner")
-        self.assertNotIn("_direct_tool(services.", text.replace(" ", ""))
-        self.assertEqual(text.count("_direct_tool"), 2)
-
-    def test_music_and_handoff_requests_are_canonical_sentences(self):
-        # Cümleler, yazılı yüzeyin deterministik domain gramerlerinin birebir kendisidir.
-        from modules.live_tools import _build_request
-        self.assertEqual(_build_request("muzik_cal", {"sorgu": "ars viwandi", "platform": "youtube"}),
-                         "youtube'da ars viwandi çal")
-        self.assertEqual(_build_request("gorev_ekle", {"metin": "sunucuyu kontrol et", "yer": "iş"}),
-                         "iş için not: sunucuyu kontrol et")
-        self.assertEqual(_build_request("gorev_ekle", {"metin": "sunucuyu kontrol et", "yer": "genel"}),
-                         "görev ekle: sunucuyu kontrol et")
-        self.assertIsNone(_build_request("muzik_cal", {"sorgu": ""}))
+    """Canlı aracın ürettiği canononical cümleler yazılı domain gramerlerinin kendisidir."""
 
     def test_canonical_sentences_reach_the_domain_owners(self):
         from modules import handoff, media
@@ -337,17 +305,6 @@ class LiveToolAuthorityTests(unittest.TestCase):
             yt.assert_called_once_with("ars viwandi")
         self.assertEqual(handoff.parse("iş için not: sunucuyu kontrol et", "iş için not: sunucuyu kontrol et"),
                          ("Sunucuyu kontrol et", "is", handoff.date.today()))
-
-    def test_live_music_and_task_executors_are_retired(self):
-        text = source("live")
-        self.assertNotIn("_play_music", identities(text))
-        self.assertNotIn("_add_handoff", identities(text))
-
-    def test_transport_domain_tools_keep_their_fence(self):
-        # Ses ve yanlış-duyma araçlarının Text yüzeyi grameri yok: domain owner'da kalır, fence korunur.
-        self.assertIn("prepare_tool", identities(source("live_tool_runner")))
-        self.assertIn("prepare_live_tool", identities(source("engine_voice")))
-        self.assertIn("self.prepare_tool", source("live_tool_runner"))
 
 
 class CommandManagerFrontDoorTests(unittest.TestCase):
@@ -386,10 +343,10 @@ QUEUE_DOOR_ALLOWLIST = {
 # I: bellek seçicilerinin sahibi yalnız prompt toplama; karar kapıları learning'i hiç okumaz.
 PROMPT_SELECTORS = frozenset({"knowledge_prompt", "rules_prompt", "pending_prompt"})
 PROMPT_SELECTOR_ALLOWLIST = {
-    # profile.system_prompt(query): Text/Web/Audio/Phone/Live'in tek soru-bağımlı ilgi seçimi.
+    # profile.system_prompt(query): Text/Web/Audio/Phone'un tek soru-bağımlı ilgi seçimi.
+    # pending_prompt yalnız Live talimatına eklenirdi; Live emekli olduğu için üretim
+    # çağrısı kalmadı (borç: tests/test_live_retirement.py).
     "personalization.py": {"knowledge_prompt", "rules_prompt"},
-    # Canlı oturum talimatı bekleyen onayları salt-okunur ekler; işaretlemeyi oturum olayı yapar.
-    "engine_voice.py": {"pending_prompt"},
 }
 GATE_MODULES = ("permission_gate", "capability_decision", "capability_manifest", "runtime_execution_gate",
                 "desktop_agent", "account_tools", "brain_gates", "brain_understanding", "untrusted_flow")

@@ -106,7 +106,7 @@ def _rms(x) -> float:
 
 # openWakeWord skoru mikrofona/odaya göre değişiyor. Yakın testte 0.22 ile 6/10, biraz uzaktan
 # 4/10 görüldü. Dengeli seviye 0.18'e çekildi. Tek çok düşük kareyle yanlış uyanmak yerine
-# canlı dinleyicide art arda iki "yakın skor" da kabul edilir (modules.live); kullanıcı 1-5 ayarlayabilir.
+# art arda iki "yakın skor" da kabul edilir (aşağıda soft_hits); kullanıcı 1-5 ayarlayabilir.
 SENSITIVITY = {1: 0.55, 2: 0.36, 3: 0.18, 4: 0.14, 5: 0.10}   # 1: zor uyanır … 5: çok kolay uyanır
 
 
@@ -195,7 +195,13 @@ def _skip_wake_tail(stream, levels) -> None:
 
 
 def _beep() -> None:
-    """Kısa "dıt": Jarvis'in uyandığını ve komutu dinlediğini duyarsın."""
+    """Kısa "dıt": Jarvis'in uyandığını ve komutu dinlediğini duyarsın.
+
+    Ayarlar › Ses › Uyanma sesi (`wake_beep`) bunu kapatırsa hiçbir ses çalmaz;
+    varsayılan açıktır. Bip kaçırılırsa dinleme yine başlar — bildirim, iş değil.
+    """
+    if load_settings().get("wake_beep", True) is False:
+        return
     try:
         import winsound
         winsound.Beep(1200, 90)

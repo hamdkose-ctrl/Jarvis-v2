@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import test_engine_modular as fixtures
 from web_models import WebModels
 from web_integrations import WebIntegrations
-from modules import live, live_tools, ui_jobs
+from modules import ui_jobs
 
 class BridgeModuleTests(unittest.TestCase):
     def models(self,slug):
@@ -73,13 +73,6 @@ class BridgeModuleTests(unittest.TestCase):
         a.ntfy('on');b.ntfy('on');a.ntfy('off')
         self.assertEqual(a.ntfy('show'),{'on':False,'topic':''})
         self.assertEqual(b.ntfy('show'),{'on':True,'topic':'topic-b'})
-
-    def test_live_canonical_tools_preserve_compatibility(self):
-        for name,args,expected in [('ses_ayarla',{'seviye':120},'ses seviyesini 100 yap'),('parlaklik_ayarla',{'seviye':'bad'},None),('medya',{'eylem':'sonraki'},'sonraki şarkı'),('komut',{'istek':'  dosyamı   aç '},'dosyamı aç'),('unknown',{},None)]:
-            with self.subTest(name=name):
-                self.assertEqual(live_tools._build_request(name,args),expected)
-                self.assertEqual(live._build_request(name,args),expected)
-        self.assertIs(live.TOOLS,live_tools.TOOLS)
 
     def test_classified_dispatch_preserves_document_session(self):
         # doc_* emekliliği: belge özeti artık canonical file_action/summarize. Yürütücü,
