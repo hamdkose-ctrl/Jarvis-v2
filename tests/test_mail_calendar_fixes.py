@@ -11,6 +11,8 @@ Profil gerçek JSON dosyasına yazılır ve yeniden okunur; Google servisi takli
 import sys
 import tempfile
 import unittest
+import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -66,6 +68,52 @@ def say_deterministic(rt, text):
     with patch.object(rt, 'ask', side_effect=AssertionError('deterministik yol modele düşmemeli')), \
          patch.object(rt, 'chat', side_effect=AssertionError('deterministik yol modele düşmemeli')):
         return rt.handle(text)
+
+
+def typed_reminder_create(rt, text, *, title, when, repeat=None):
+    """Only the primary model proposal is stubbed. Core/worker/JSON stay real.
+
+    The command's Turkish recognition is a *separate* live-model holdout.
+    This test intentionally must not resurrect main_planner's retired raw
+    reminder command parser as a second semantic authority.
+    """
+    from modules import brain_entry, requests_state
+    from modules.brain_contracts import RequestKind
+    owner = rt.profile.slug
+    rid = "reminder-create-" + uuid.uuid4().hex[:12]
+    assert requests_state.register(owner, rid)
+    proposed = {"title": title, "when": when, "repeat": repeat}
+
+    def model(semantic, utterance, *, active_context=None):
+        assert utterance == text
+        return replace(semantic, request_kind=RequestKind.CAPABILITY,
+                       capability_hint="reminder.propose",
+                       arguments={"original_text": utterance, "reminder": proposed},
+                       ambiguities=(), needs_input=False, actions=())
+
+    with requests_state.activate(owner, rid), \
+         patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+        entry = brain_entry.prepare(rt, owner=owner, request_id=rid, text=text,
+                                    source="yazı", model_understanding=True)
+        from unittest.mock import Mock
+        forbidden = Mock(side_effect=AssertionError("typed reminder re-entered raw NL"))
+        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+    assert feedback.result_status in {"handled", "needs_input", "failed"}
+    forbidden.assert_not_called()
+    return str(reply)
+
+
+def bounded_reminder_answer(rt, text):
+    """Exercise the existing exact confirmation State owner with a bound turn."""
+    from modules import brain_entry, requests_state
+    owner = rt.profile.slug
+    rid = "reminder-answer-" + uuid.uuid4().hex[:12]
+    assert requests_state.register(owner, rid)
+    with requests_state.activate(owner, rid):
+        entry = brain_entry.prepare(rt, owner=owner, request_id=rid,
+                                    text=text, source="yazı")
+        reply, feedback, _ = brain_entry.handoff(rt, entry, rt.handle, text)
+    return str(reply)
 
 
 class ProfileCase(unittest.TestCase):
@@ -146,7 +194,10 @@ class ReminderCommandTests(ProfileCase):
     now = datetime(2026, 10, 17, 10, 0)
 
     def test_daily_reminder_saved_with_rule_and_clean_title(self):
-        reply = say(_runtime(self, self.profile, self.now), "Her gün saat 9'da ilaç almayı hatırlat")
+        reply = typed_reminder_create(
+            _runtime(self, self.profile, self.now),
+            "Her gün saat 9'da ilaç almayı hatırlat",
+            title="ilaç almayı", when="2026-10-18T09:00", repeat="daily")
         self.assertIn('her gün 09:00', reply)
         ev = self.reload().data['events'][0]
         self.assertEqual((ev['when'], ev['repeat']), ('2026-10-18T09:00', 'daily'))
@@ -154,42 +205,58 @@ class ReminderCommandTests(ProfileCase):
         self.assertNotIn('saat', ev['title'])
 
     def test_ascii_reminder(self):
-        reply = say(_runtime(self, self.profile, self.now), 'yarin saat 9da toplanti hatirlat')
+        reply = typed_reminder_create(
+            _runtime(self, self.profile, self.now),
+            'yarin saat 9da toplanti hatirlat',
+            title="toplanti", when="2026-10-18T09:00")
         self.assertIn('Takvime ekledim', reply)
         self.assertEqual(self.reload().data['events'][0]['when'], '2026-10-18T09:00')
 
     def test_unknown_repeat_is_asked_not_saved(self):
-        reply = say(_runtime(self, self.profile, self.now), 'her 2 saatte bir su içmeyi hatırlat')
-        self.assertIn('anlayamadım', reply)
+        from modules.brain_core_map import core_plan
+        # The "unknown" parser sentinel must be rejected by Core even when
+        # a model attempts to propose a concretely dated one-off reminder.
+        self.assertIsNone(core_plan("reminder.propose", {
+            "reminder": {"title": "su içmeyi", "when": "2026-10-18T09:00",
+                         "repeat": "unknown"}}))
         self.assertEqual(self.reload().data['events'], [])
 
     def test_conflict_asks_then_adds_on_yes(self):
         self.profile.add_event('Dişçi', '2026-10-18T09:00')
         rt = _runtime(self, self.profile, self.now)
-        reply = say(rt, "yarın 9'da toplantı hatırlat")
+        reply = typed_reminder_create(
+            rt, "yarın 9'da toplantı hatırlat",
+            title="toplantı", when="2026-10-18T09:00")
         self.assertIn('Dişçi', reply)
         self.assertEqual(len(self.reload().data['events']), 1)      # sormadan eklemedi
-        self.assertIn('Takvime ekledim', say(rt, 'evet'))
+        self.assertIn('Takvime ekledim', bounded_reminder_answer(rt, 'evet'))
         self.assertEqual(len(self.reload().data['events']), 2)
 
     def test_conflict_no_cancels(self):
         self.profile.add_event('Dişçi', '2026-10-18T09:15')
         rt = _runtime(self, self.profile, self.now)
-        say(rt, "yarın 9'da toplantı hatırlat")
-        self.assertEqual(say(rt, 'hayır'), 'Tamam, eklemedim.')
+        typed_reminder_create(
+            rt, "yarın 9'da toplantı hatırlat",
+            title="toplantı", when="2026-10-18T09:00")
+        self.assertEqual(bounded_reminder_answer(rt, 'hayır'), 'Tamam, eklemedim.')
         self.assertEqual(len(self.reload().data['events']), 1)
 
     def test_google_meeting_conflict_and_other_command_drops_question(self):
         busy = [(datetime(2026, 10, 18, 8, 30), datetime(2026, 10, 18, 9, 30), 'Proje toplantısı')]
         rt = _runtime(self, self.profile, self.now, busy)
-        self.assertIn('Proje toplantısı (Google Takvim)', say(rt, "yarın 9'da dişçi hatırlat"))
+        self.assertIn('Proje toplantısı (Google Takvim)',
+                      typed_reminder_create(rt, "yarın 9'da dişçi hatırlat",
+                                            title="dişçi", when="2026-10-18T09:00"))
         self.assertIn('Not defterin boş', say(rt, 'notlarım'))      # başka komut: soru düşer, kayıt açılmaz
         self.assertIsNone(rt._session().pending_event_title)
         self.assertEqual(self.reload().data['events'], [])
 
     def test_no_conflict_for_far_events(self):
         self.profile.add_event('Dişçi', '2026-10-18T11:00')
-        self.assertIn('Takvime ekledim', say(_runtime(self, self.profile, self.now), "yarın 9'da toplantı hatırlat"))
+        self.assertIn('Takvime ekledim', typed_reminder_create(
+            _runtime(self, self.profile, self.now),
+            "yarın 9'da toplantı hatırlat",
+            title="toplantı", when="2026-10-18T09:00"))
 
 
 class RepeatingDueTests(ProfileCase):
