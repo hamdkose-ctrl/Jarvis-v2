@@ -107,7 +107,21 @@ class ModularEngineTests(unittest.TestCase):
         context.time=SimpleNamespace(time=time.time,sleep=lambda seconds:None)
         context.events.put(('command','selam','web',owner,'one'))
         voice=SimpleNamespace(manual_local_stt=False,listening_enabled=False,speak_enabled=False,state={},speak=Mock())
-        with patch('modules.engine_voice.VoiceSession',return_value=voice),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'),patch('modules.brain_entry._install_core_guards'):
+        # This checks the event-loop handoff and stop lifecycle, not model
+        # availability. A free-language turn now requires the primary model;
+        # mock that external decision seam so the fixture cannot hang in an
+        # unavailable provider while never reaching the handler.
+        def handoff(_runtime, _entry, handler, command):
+            return handler(command), SimpleNamespace(result_status='handled'), None
+        with patch('modules.engine_voice.VoiceSession',return_value=voice), \
+             patch('instance.take_over',return_value=False), \
+             patch('updater.pop_notice',return_value=None), \
+             patch('modules.perf.start'), patch('release_guard.ready'), \
+             patch('modules.brain_entry._install_core_guards'), \
+             patch('modules.brain_entry.prepare',return_value=SimpleNamespace(stage='semantic')), \
+             patch('modules.brain_entry.handoff',side_effect=handoff), \
+             patch('modules.brain_echo.present'), \
+             patch.object(context._llm,'take_route',return_value=None):
             context.main(ui=Mock())
         context.handle.assert_called_once_with('selam')
         voice.speak.assert_called_once_with('Merhaba')
