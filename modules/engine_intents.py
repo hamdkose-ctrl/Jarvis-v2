@@ -510,6 +510,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             level = max(0, min(100, int(a["level"])))
             if a["property"] == "volume":
                 if not runtime.system_control.set_volume(level):
+                    from modules import session_state
+                    session_state.clear_property(runtime._session())
                     return ActionOutcome("Ses seviyesini ayarlayamadım.", False)
                 # An accepted Windows API write is NOT proof of the resulting
                 # system state. Only a fresh endpoint readback may authorize
@@ -518,12 +520,16 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 if type(measured) is int and measured == level:
                     _remember(runtime, "volume")
                     return ActionOutcome(f"Ses seviyesini yüzde {level} yaptım.", True)
+                from modules import session_state
+                session_state.clear_property(runtime._session())
                 return ActionOutcome(
                     "Ses ayarı gönderildi ancak gerçek seviyeyi doğrulayamadım; "
                     "işlemi başarılı saymıyorum.", False)
             if runtime.system_control.set_brightness_verified(level):
                 _remember(runtime, "brightness")
                 return ActionOutcome(f"Ekran parlaklığını yüzde {level} olarak ayarladım.", True)
+            from modules import session_state
+            session_state.clear_property(runtime._session())
             return ActionOutcome("Ekran parlaklığını doğrulayamadım.", False)
         case "audio_action":
             # Eski ham "ses" dallarının tek sahibi: durum tersine çevrilmez, seviye adımı aynı owner'da.
