@@ -41,6 +41,16 @@ class VolumeReadbackTests(unittest.TestCase):
                 self.assertIn("doğrulayamadım", result)
                 self.assertIsNone(session_state.fresh_property(self.state))
 
+    def test_failed_adjustment_invalidates_prior_verified_other_property(self):
+        # After a failed brightness/volume attempt a subsequent bare "20"
+        # must not silently reuse an older and now misleading target.
+        session_state.remember_property(self.state, "brightness")
+        self.control.set_volume.return_value = True
+        self.control.current_volume.return_value = 19
+        result = self.level(20)
+        self.assertFalse(result.ok)
+        self.assertIsNone(session_state.fresh_property(self.state))
+
     def test_failed_volume_api_never_claims_success_or_reads_back(self):
         self.control.set_volume.return_value = False
         result = self.level()
