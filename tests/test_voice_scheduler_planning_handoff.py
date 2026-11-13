@@ -60,6 +60,27 @@ class DeferredPlannerTests(TestCase):
         return (goal_state_store.load(base / (job_id + ".goalstate.json")),
                 execution_record.load(base, owner, job_id))
 
+    def test_real_goal_resolver_selects_live_scheduler_without_sync_planner(self):
+        from modules import goal_resolver
+        from modules.brain_contracts import GoalOperation
+        runtime = SimpleNamespace(profile=SimpleNamespace(slug=self.owner))
+        entry = SimpleNamespace(
+            owner=self.owner, request_id=self.request_id, text=self.text,
+            source="ses", active_context=SimpleNamespace(goal_candidates=()),
+            understanding=SimpleNamespace(goal_operation=GoalOperation.CREATE),
+        )
+        with patch.object(task_queue, "scheduler_active", return_value=True), \
+             patch.object(canonical_planning_queue, "enqueue",
+                          return_value=("0123456789abcdef", "Sıraya alındı.")) as admission, \
+             patch.object(canonical_goal_flow, "try_create",
+                          side_effect=AssertionError("Synchronous planner must not start")):
+            resolved = goal_resolver.resolve(runtime, entry)
+        self.assertEqual(resolved.reason_code, "GOAL_CANONICAL_PLANNING_QUEUED")
+        self.assertEqual(resolved.job_id, "0123456789abcdef")
+        self.assertEqual(resolved.result_status, "handled")
+        admission.assert_called_once_with(self.owner, self.request_id, self.text)
+        self.ask.assert_not_called()
+
     def test_enqueue_creates_exact_owner_bound_durable_pair_without_model(self):
         job_id, message = self.claim()
         self.assertIn("kuyruğuna", message)
