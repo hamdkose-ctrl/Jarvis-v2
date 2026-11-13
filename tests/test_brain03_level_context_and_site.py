@@ -107,6 +107,22 @@ class CanonicalLevelAndSiteTests(_CanonicalAuthorityHarness):
         self.assertEqual(self.ctx.system_control.set_volume.call_args_list,
                          [call(80), call(50), call(20)])
 
+    def test_verified_brightness_60_to_30_reuses_brightness_not_volume(self):
+        self.ctx.system_control.set_brightness_verified.return_value = True
+        self.typed("parlaklığı 60 yap", "pc.level.set",
+                   {"property": "brightness", "level": 60})
+        self.assertEqual(session_state.fresh_property(self.ctx._session()), "brightness")
+        entry, response, _handler, feedback = self.typed(
+            "30", "pc.level.set", {"property": "brightness", "level": 30})
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIn("yüzde 30", str(response))
+        self.assertTrue(any(
+            ref.id == "last_property" and ref.provenance.get("value") == "brightness"
+            for ref in entry.active_context.recent_references))
+        self.ctx.system_control.set_volume.assert_not_called()
+        self.assertEqual(self.ctx.system_control.set_brightness_verified.call_args_list,
+                         [call(60), call(30)])
+
     def test_topic_change_closes_level_context(self):
         self.ctx.system_control.set_volume.return_value = True
         self.ctx.system_control.current_volume.return_value = 80
@@ -153,6 +169,28 @@ class CanonicalLevelAndSiteTests(_CanonicalAuthorityHarness):
         self.assertIn("kabul edilmedi", str(response))
         other.assert_not_called()
         self.ctx.system_control.open_application.assert_not_called()
+
+    def test_explicit_youtube_application_keeps_the_app_target(self):
+        self.typed("YouTube uygulamasını aç", "app.open", {"app": "youtube"})
+        self.ctx.system_control.open_application.assert_called_once_with("youtube")
+
+    def test_site_phrasings_are_routed_by_the_same_typed_worker(self):
+        # No lexical recognizer is tested: semantic proposals are controlled;
+        # the actual live-model holdout is a separate acceptance gate.
+        for text, browser in (
+            ("YouTube'u Chrome ile aç", "chrome"),
+            ("Chrome'da YouTube aç", "chrome"),
+            ("Firefox üzerinden YouTube'u aç", "firefox"),
+        ):
+            with self.subTest(text=text):
+                controller = Mock(open=Mock(return_value=True))
+                with patch.object(media.webbrowser, "get", return_value=controller) as getter:
+                    _entry, _response, _handler, feedback = self.typed(
+                        text, "media.search",
+                        {"service": "youtube_home", "browser": browser})
+                self.assertEqual(feedback.result_status, "handled")
+                getter.assert_called_once_with(browser)
+                controller.open.assert_called_once_with("https://www.youtube.com", new=2)
 
     def test_explicit_chrome_application_is_not_a_youtube_site(self):
         _entry, _response, _handler, feedback = self.typed(
