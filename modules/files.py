@@ -192,10 +192,11 @@ def _content_digest(path: Path) -> str:
 
 def _validated_undo_entries(value):
     if not isinstance(value, list) or any(
-        not isinstance(row, list) or len(row) not in (2, 3)
+        not isinstance(row, list) or len(row) not in (2, 3, 4)
         or any(not isinstance(item, str) or not item for item in row)
-        or (len(row) == 3 and
+        or (len(row) >= 3 and
             (len(row[2]) != 64 or any(ch not in '0123456789abcdef' for ch in row[2])))
+        or (len(row) == 4 and row[3] not in {'intent', 'moved'})
         for row in value
     ):
         raise ValueError('Geri alma kaydı bozuk; dosyalara dokunulmadı.')
@@ -260,12 +261,22 @@ def apply_organize(plan: list[tuple[Path, Path]], owner: str = "",
                             raise resource_leases.LeaseConflict(
                                 'Organize destination was taken before move.'
                             )
-                        shutil.move(str(source), str(final))
-                        moved.append([str(final), str(source), _content_digest(final)])
-                        # Commit the undo entry after EACH completed move, not
-                        # only after the entire batch. No plaintext partial JSON.
+                        # Write-ahead: a process death AFTER the physical move
+                        # but BEFORE its completion marker must leave a durable
+                        # intent that prohibits blind replay or a second batch.
+                        pending = [str(final), str(source),
+                                   _content_digest(source), 'intent']
                         release_guard.atomic(
-                            receipt, json.dumps(moved, ensure_ascii=False).encode('utf-8')
+                            receipt, json.dumps(moved + [pending],
+                                                ensure_ascii=False).encode('utf-8'),
+                        )
+                        shutil.move(str(source), str(final))
+                        pending[3] = 'moved'
+                        moved.append(pending)
+                        # Mark only a proven move. If this write fails, the
+                        # previous 'intent' remains as a manual-review fence.
+                        release_guard.atomic(
+                            receipt, json.dumps(moved, ensure_ascii=False).encode('utf-8'),
                         )
             return len(moved)
     except resource_leases.LeaseConflict as exc:
@@ -299,7 +310,8 @@ def undo_organize(owner: str = "") -> int | None:
                         source, destination = Path(new), Path(old)
                         if (not source.is_file() or source.is_symlink()
                                 or destination.exists() or destination.is_symlink()
-                                or len(entry) != 3
+                                or len(entry) < 3
+                                or (len(entry) == 4 and entry[3] != 'moved')
                                 or _content_digest(source) != entry[2]):
                             blocked.append(entry)
                             continue
