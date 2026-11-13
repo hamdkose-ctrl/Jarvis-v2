@@ -557,11 +557,14 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
     operation = proposal.get("operation")
     minutes = proposal.get("minutes")
-    if operation not in {"postpone", "skip", "snooze"}:
+    if operation not in {"postpone", "skip", "snooze", "move"}:
         return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
     if operation in {"postpone", "snooze"} and (type(minutes) is not int
             or not 1 <= minutes <= (1440 if operation == "snooze" else 10080)):
         return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
+    if operation == "move" and (type(proposal.get("weekday")) is not int
+                                or not 0 <= proposal["weekday"] <= 6):
+        return "Hatırlatma günü doğrulanamadı; değiştirmedim."
     if type(proposal.get("event_id")) is not int or not isinstance(proposal.get("title"), str):
         return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
     events = runtime.profile.data.get("events", [])
@@ -578,6 +581,29 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
     now = runtime.datetime.now()
     when = str(ev["when"])
     allday = len(when) == 10
+    if operation == "move":
+        # A weekday is a closed Core enum, not a path/ID or free-language
+        # rewrite. Resolve the first future matching day from the current
+        # owner's clock; the existing repeat worker retains the base rule.
+        from datetime import date
+        days = (proposal["weekday"] - now.weekday()) % 7 or 7
+        new_date = (now + timedelta(days=days)).date()
+        clock = when[10:16] if len(when) == 16 else ""
+        new_when = new_date.strftime("%Y-%m-%d") + clock
+        try:
+            if ev.get("repeat"):
+                if not clock:
+                    return "Tüm gün tekrarını güvenle kaydıramadım."
+                new_start = datetime.strptime(new_when, "%Y-%m-%dT%H:%M")
+                requests_state.check()
+                return _edit_repeating(runtime, ev, new_start,
+                                       "seçilen güne", "kaydırdım", now)
+            requests_state.check()
+            if not runtime.profile.reschedule_event(ev["id"], new_when):
+                return "Hatırlatmayı kaydedemedim; kaydırdım demiyorum."
+            return f"{ev['title']} kaydını kaydırdım: {runtime.whenmod.describe(new_when, now)}."
+        except (ValueError, TypeError):
+            return "Hatırlatma günü geçersiz; hiçbir kayıt değiştirilmedi."
     if operation == "snooze":
         # Validate the exact fired/notified/snooze state captured at approval,
         # not merely the title/when snapshot. A second notification or snooze
