@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import uuid
 from pathlib import Path
 from modules import llm, privacy, task_results
@@ -377,26 +378,34 @@ def run(owner, task, dependencies):
         if base.is_symlink() or root.is_symlink():
             raise PermissionError('Rapor dizini değiştirildi.')
         path=root/(uuid.uuid4().hex[:8]+'-'+filename)
-        # Reuse the same OS-account physical file claim as file_ops. Create
-        # exclusively, flush and fsync before returning the verified receipt.
-        # On any failed write/check, remove only our own newly created file
-        # while still holding the claim; never adopt or unlink a preexisting
-        # artifact from a colliding generated filename.
+        # A complete fsynced staging file is atomically linked to the
+        # public name under the SAME OS-account physical claim as file_ops.
+        # No partial published report survives a crash, and an existing
+        # generated target is never opened, overwritten or adopted.
         with file_resource_guard.claim_paths(path):
-            created=False
+            staged=None
+            published=False
             try:
-                with path.open('x', encoding='utf-8') as report:
-                    created=True
+                with tempfile.NamedTemporaryFile(
+                    mode='w', encoding='utf-8', dir=root,
+                    prefix='.jarvis-report-', suffix='.md', delete=False,
+                ) as report:
+                    staged=Path(report.name)
                     report.write(text)
                     report.flush()
                     os.fsync(report.fileno())
+                os.link(staged,path)
+                published=True
                 if path.read_text(encoding='utf-8')!=text:
                     raise OSError('Rapor doğrulanamadı.')
                 digest=hashlib.sha256(path.read_bytes()).hexdigest()
-            except Exception:
-                if created:
+            except BaseException:
+                if published:
                     path.unlink(missing_ok=True)
                 raise
+            finally:
+                if staged is not None:
+                    staged.unlink(missing_ok=True)
         return {'state':'done','text':text,'file':str(path),'verified':True,'sha256':digest,
                 **({'news_report_evidence':{'sources':dependencies,'unavailable':task.get('execution',{}).get('unavailable_sources',[])}} if news_report else {}),
                 **({'source_conflict':review['status']} if review else {})}
