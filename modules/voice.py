@@ -28,6 +28,11 @@ VOICES = {
 }
 
 _rec = sr.Recognizer()
+# The Google web service used to be awaited with no bound at all: a hung request
+# kept the engine loop (and, until the capture lock was narrowed, the microphone)
+# waiting for as long as the server kept the socket open. `urlopen` raises the
+# `RequestError` that `recognize` already reports as "service unreachable".
+_rec.operation_timeout = 12
 last_noise: float | None = None   # son dinlemedeki ortam gürültüsü (main.py sessiz mikrofonu algılamak için)
 
 
@@ -57,11 +62,17 @@ def _input_device():
     return matches[0][0]
 
 
-def listen(timeout: int = 6, phrase_limit: int = 12, announce_fail: bool = False,
-           verbose: bool = False, abort=None, cheap: bool = False, gate: bool = False,
-           local: bool = False, on_captured=None) -> str | None:
-    """Mikrofonu dinler, konuşma bitince metne çevirir. Anlaşılmazsa None.
-    abort: threading.Event; kurulursa dinleme hemen bırakılır (Jarvis konuşmaya başlayacağı zaman)."""
+def capture(timeout: int = 6, phrase_limit: int = 12, verbose: bool = False,
+            abort=None, on_captured=None) -> bytes | None:
+    """Record one utterance from the physical microphone and hand back its PCM.
+
+    The stream is closed when this returns, so the device is free while the
+    recording is still only bytes. Turning those bytes into text is `recognize`,
+    a model or network wait, so the callers that own `runtime.audio_lock` keep it
+    over this call and release it before that one instead of holding the only
+    capture device for as long as a provider takes to answer. None means nothing
+    was heard or the wait was aborted.
+    """
     global last_noise
     pre = collections.deque(maxlen=5)   # konuşma başlamadan önceki ~0.3 sn
     frames, started, silent = [], False, 0
@@ -99,7 +110,19 @@ def listen(timeout: int = 6, phrase_limit: int = 12, announce_fail: bool = False
         return None
     if on_captured is not None:             # kayıt bitti, yazıya çevrilirken arayüz "dinliyorum"da kalmasın
         on_captured()
-    return recognize(b"".join(frames), announce_fail, cheap=cheap, gate=gate, local=local)
+    return b"".join(frames)
+
+
+def listen(timeout: int = 6, phrase_limit: int = 12, announce_fail: bool = False,
+           verbose: bool = False, abort=None, cheap: bool = False, gate: bool = False,
+           local: bool = False, on_captured=None) -> str | None:
+    """Mikrofonu dinler, konuşma bitince metne çevirir. Anlaşılmazsa None.
+    abort: threading.Event; kurulursa dinleme hemen bırakılır (Jarvis konuşmaya başlayacağı zaman)."""
+    raw = capture(timeout=timeout, phrase_limit=phrase_limit, verbose=verbose,
+                  abort=abort, on_captured=on_captured)
+    if raw is None:
+        return None
+    return recognize(raw, announce_fail, cheap=cheap, gate=gate, local=local)
 
 
 HINTS: list[str] = []          # main.py doldurur: asistanın adı, kullanıcılar, kişiler, sık kelimeler

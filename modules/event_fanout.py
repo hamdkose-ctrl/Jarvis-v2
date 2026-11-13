@@ -4,7 +4,7 @@ from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
 
-_CHANNELS = frozenset({"ui", "ntfy", "webhook", "telegram", "email", "log"})
+_CHANNELS = frozenset({"ui", "ntfy", "webhook", "telegram", "email", "log", "voice"})
 
 
 def _validate_event(event: dict) -> dict:

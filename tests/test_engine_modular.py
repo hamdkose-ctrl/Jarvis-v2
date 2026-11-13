@@ -130,15 +130,15 @@ class ModularEngineTests(unittest.TestCase):
         context=self.context();context.emit=Mock();context._start_hang_watch=Mock()
         context.list_users=lambda:[context.profile.name]
         context.threading=SimpleNamespace(Thread=Mock(),Timer=Mock())
-        def fail_local_listen(**kwargs):
+        def fail_local_stt(*args, **kwargs):
             context.stop_event.set()
             raise ValueError('Yerel ses modeli hazır değil.')
-        context.voice=SimpleNamespace(HINTS=[],listen=Mock(side_effect=fail_local_listen))
+        context.voice=SimpleNamespace(HINTS=[],capture=Mock(return_value=b''),recognize=Mock(side_effect=fail_local_stt))
         context.events.put(('listen',))
         session=SimpleNamespace(manual_local_stt=True,listening_enabled=True,speak_enabled=False,state={})
         with patch('modules.engine_voice.VoiceSession',return_value=session),patch('instance.take_over',return_value=False),patch('updater.pop_notice',return_value=None),patch('modules.perf.start'),patch('release_guard.ready'):
             context.main(ui=Mock())
-        self.assertTrue(context.voice.listen.call_args.kwargs['local'])
+        self.assertTrue(context.voice.recognize.call_args.kwargs['local'])
         context.emit.assert_any_call('system','Yerel ses modeli hazır değil.')
         self.assertFalse(context.pause_listening.is_set())
         self.assertNotIn('listen_for_wake_word',[str(c) for c in context.threading.Thread.call_args_list])
@@ -220,10 +220,11 @@ class ModularEngineTests(unittest.TestCase):
 
     def test_online_recognition_completed_after_mute_is_discarded(self):
         context=self.context();context.emit=Mock();context.submit=Mock()
-        def listen(**kwargs):
+        def mute_during_recognize(*args,**kwargs):
+            # Kayıt kilidi dışında beklenen yazıya çevirme: ses bitmiş, susturma bu beklemesinde gelmiş.
             context.flags['mic']=False;context.stop_event.set()
             return 'hey jarvis merhaba'
-        context.voice=SimpleNamespace(listen=listen,last_noise=1)
+        context.voice=SimpleNamespace(capture=lambda **kwargs: b'ses',recognize=mute_during_recognize,last_noise=1)
         session=VoiceSession(context)
         with patch.object(session,'offline_wake_step',return_value=False):session.listen_for_wake_word()
         context.submit.assert_not_called()
