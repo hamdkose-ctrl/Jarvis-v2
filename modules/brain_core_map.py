@@ -855,7 +855,7 @@ def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if service == "youtube_home":
         if query is not None or type(browser) is not str or browser not in {"default", "chrome", "firefox"}:
             return None
-        return {"service": service, "browser": browser}
+        return {"service": service, **({"browser": browser} if "browser" in arguments else {})}
     # Explicit browser selection is only supported for the YouTube web-home
     # route. It must never silently change another media capability.
     if "browser" in arguments:
