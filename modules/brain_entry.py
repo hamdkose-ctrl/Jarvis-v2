@@ -483,12 +483,18 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
             allow_file_scan=True,
         )
     if model_understanding:
-        # Exactly one bounded proposal runs after final candidate/reference enrichment.
-        semantic = apply_model_understanding(semantic, text, active_context=active)
-        if "MODEL_DECIDED" not in semantic.reason_codes:
-            # Model was unavailable, invalid, or rejected. Never promote the
-            # deterministic evidence-only guess to an executable intent.
-            semantic = replace(semantic, reason_codes=semantic.reason_codes + ("MODEL_UNAVAILABLE",))
+        # Identity is the admission fence: apply_model_understanding returns the
+        # ORIGINAL evidence result on invalid, rejected or unavailable model
+        # proposals, and a NEW immutable result only on accepted proposals.
+        # Tests can supply a model adapter without forging authority flags.
+        evidence = semantic
+        semantic = apply_model_understanding(evidence, text, active_context=active)
+        if semantic is evidence:
+            semantic = replace(
+                evidence, reason_codes=evidence.reason_codes + ("MODEL_UNAVAILABLE",))
+        elif "MODEL_DECIDED" not in semantic.reason_codes:
+            semantic = replace(
+                semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))
         references = semantic.references
     return EntryResult(owner, request_id, source, text, active, state, fast, candidates, references, semantic)
 
