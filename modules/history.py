@@ -90,6 +90,7 @@ def delete_day(slug, day, deleted_ids=None):
                 return 0
             fd, temporary = tempfile.mkstemp(prefix='.history-delete-', dir=path.parent)
             removed = 0
+            removed_ids = set()
             try:
                 with os.fdopen(fd, 'wb') as output, path.open('rb') as source:
                     for line in source:
@@ -100,13 +101,16 @@ def delete_day(slug, day, deleted_ids=None):
                         if isinstance(row, dict) and str(row.get('ts', '')).startswith(day + ' '):
                             removed += 1
                             if deleted_ids is not None and row.get('id'):
-                                deleted_ids.add(row['id'])
+                                removed_ids.add(row['id'])
                         else:
                             output.write(line)
                     output.flush(); os.fsync(output.fileno())
                 os.replace(temporary, path)
             finally:
                 Path(temporary).unlink(missing_ok=True)
+            # Do not publish UI deletion receipts before durable replacement.
+            if deleted_ids is not None:
+                deleted_ids.update(removed_ids)
             return removed
 
 
