@@ -1172,7 +1172,7 @@ def _core_rejected_proposal(entry: EntryResult) -> bool:
         return False
     if not (set(semantic.arguments) - {"original_text"}):
         return False
-    return not is_sequenced(entry.text) and not _pending_owns_turn(entry)
+    return not _pending_owns_turn(entry)  # rejected partial multi-action proposals must fail closed
 
 
 def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]] | None:
@@ -1398,6 +1398,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         # CORE_HANDOFF_RETURNED onun yerine geçmez (etki mi, ret mi, soru mu ayrımı kaybolur).
         result = feedback(entry, result_status=goal_resolution.result_status,
                           reason_code=goal_resolution.reason_code)
+    elif getattr(output, "ok", None) is False:
+        # A Core/domain ActionOutcome with ok=False is a failure, also for
+        # single actions; the batch path already observes this same signal.
+        result = feedback(entry, result_status="failed", reason_code="CORE_ACTION_FAILED")
     else:
         result = feedback(entry, result_status="handled", reason_code="CORE_HANDOFF_RETURNED")
     _LAST_FEEDBACK.set(result)
