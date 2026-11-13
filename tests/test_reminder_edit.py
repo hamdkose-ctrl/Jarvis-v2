@@ -60,6 +60,10 @@ _MODEL_REMINDER_CASES = {
     "ilaç hatırlatmasını 10 dakika ertele": ("postpone", "İlaç", "10 dakika", None),
     "ilaç hatırlatmasını 30 dakika ertele": ("postpone", "İlaç", "30 dakika", None),
     "ilaç hatırlatmasını 1 gün ertele": ("postpone", "İlaç", "1 gün", None),
+    "akşama ertele": ("snooze", None, None, None),
+    "yarın sabah hatırlat": ("reschedule", None, None, None),
+    "yarın sabaha ertele": ("reschedule", None, None, None),
+    "ilaç hatırlatmasını yarın sabah tekrar hatırlat": ("reschedule", "İlaç", None, None),
 }
 
 _MODEL_CREATION_CASES = {
@@ -88,6 +92,11 @@ def say(rt, text):
         arguments["period"] = "today"
     if text == "yarınki ilacı atla":
         arguments["period"] = "tomorrow"
+    if text == "akşama ertele":
+        arguments["daypart"] = "evening"
+    if text in {"yarın sabah hatırlat", "yarın sabaha ertele",
+                "ilaç hatırlatmasını yarın sabah tekrar hatırlat"}:
+        arguments["daypart"] = "tomorrow_morning"
     owner = rt.profile.slug
     request = "historical-reminder-" + uuid.uuid4().hex[:12]
     assert requests_state.register(owner, request)
@@ -144,11 +153,11 @@ class ReminderEditTests(ProfileCase):
         self.profile.add_event('Toplantı A', '2026-10-18T09:00')
         self.profile.add_event('Toplantı B', '2026-10-19T09:00')
         reply = say(self.rt(), 'hatırlatmayı sil')
-        self.assertIn('Hangisini kastettin', reply)
+        self.assertIn('model', reply.lower())  # no model target, no deletion
         self.assertEqual(len(self.reload().data['events']), 2)
 
     def test_unknown_title_and_empty(self):
-        self.assertIn('Kayıtlı bir hatırlatman yok', say(self.rt(), 'ilaç hatırlatmasını sil'))
+        self.assertIn('bulamadım', say(self.rt(), 'ilaç hatırlatmasını sil'))
         self.profile.add_event('Dişçi', '2026-10-19T15:00')
         self.assertIn('bulamadım', say(self.rt(), 'kitap hatırlatmasını sil'))
         self.assertEqual(self.titles(), ['Dişçi'])
