@@ -269,67 +269,62 @@ class HocaChatTests(unittest.TestCase):
 
 
 class HocaEngineHookTests(unittest.TestCase):
-    """engine_tools._study_intent: hoca satırları, yalnız açık söyleniş ve aktif ders yakalanır."""
+    """BRAIN-03: typed Core lesson-start worker, no retired _study_intent."""
 
     def _runtime(self, profile):
-        import re
         from types import SimpleNamespace
-        from modules import richtext
+        from unittest.mock import Mock
         session = SimpleNamespace(speech_override=None)
-        return SimpleNamespace(profile=profile, re=re, emit=lambda *a: None, _record_failure=lambda *a: None,
-                               _MEDIA_Q=re.compile(r"(?!x)x"), _study_media_topic=lambda t: '',
-                               _session=lambda: session, richtext=richtext)
+        runtime = SimpleNamespace(
+            profile=profile, _session=lambda: session,
+            richtext=richtext, _record_failure=Mock())
+        return runtime, session
 
-    def _call(self, profile, text, enabled=True):
-        from modules import engine_tools
-        with patch('config.load_settings', return_value={'hoca_enabled': enabled}):
-            return engine_tools._study_intent(self._runtime(profile), text)
-
-    def _call_voice_full(self, profile, text):
-        """6. adım: hoca_voice_full açıkken sesli okuma tam metni alır mı (session.speech_override)."""
-        from modules import engine_tools
-        with patch('config.load_settings', return_value={'hoca_enabled': True, 'hoca_voice_full': True}):
-            runtime = self._runtime(profile)
-            reply = engine_tools._study_intent(runtime, text)
-            return reply, runtime._session()
-
-    def test_hoca_closed_open_unrelated_and_active_rows(self):
+    def _start(self, *, enabled=True, voice_full=False):
+        from modules import brain_core_map, engine_intents
         p = Profile()
-        rows_none = [('hoca modu: hücre', False), ('hava nasıl', True), ('sonraki konuya geç', True), ('cevap: x', True)]
-        with patch.object(hoca.llm, 'ask') as ask, patch('modules.study._state', return_value={'docs': []}):
-            for text, enabled in rows_none:
-                self.assertIsNone(self._call(p, text, enabled), text)
-        ask.assert_not_called()
-        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
-            self.assertIn('Hücre neyin birimi?', self._call(p, 'hoca modu: hücre'))
-        with patch.object(hoca.llm, 'ask') as ask, patch('modules.study._state', return_value={'docs': []}):
-            self.assertIsNone(self._call(p, 'hava nasıl'))
-            self.assertIsNone(self._call(p, 'bugün hangi konuya çalışayım'))
-        ask.assert_not_called()
-        nxt = '{"text":"T2","question":"Q2?","answer":"A2"}'
-        with patch.object(hoca.llm, 'ask', return_value=nxt):
-            self.assertIn('Q2?', self._call(p, 'sonraki adıma geç'))
+        runtime, session = self._runtime(p)
+        plan = brain_core_map.core_plan("hoca.lesson.start", {"topic": "hücre"})
+        self.assertEqual(plan, ("hoca_start", {"topic": "hücre"}))
+        with patch("config.load_settings", return_value={
+                    "hoca_enabled": enabled, "hoca_voice_full": voice_full}), \
+             patch("modules.requests_state.check"), \
+             patch.object(hoca, "start",
+                          return_value={"topic": "hücre", "steps": [{}, {}]}) as start, \
+             patch.object(hoca, "_lesson_text",
+                          return_value="Hücre neyin birimi?") as lesson_text:
+            answer = engine_intents.dispatch(runtime, *plan, "hücre konusunu öğret",
+                                             "hücre konusunu öğret")
+        return runtime, session, answer, start, lesson_text
 
-    def test_voice_full_setting_off_leaves_speech_override_untouched(self):
-        p = Profile()
-        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
-            reply = self._call(p, 'hoca modu: hücre')
-        self.assertIn('Hücre neyin birimi?', reply)  # davranış değişmedi; override hiç ayarlanmadı
-
-    def test_voice_full_setting_on_sets_full_text_as_speech_override(self):
-        p = Profile()
-        with patch.object(hoca.llm, 'ask', side_effect=[PLAN, TEACH]):
-            reply, session = self._call_voice_full(p, 'hoca modu: hücre')
-        self.assertIsNotNone(session.speech_override)
-        self.assertEqual(session.speech_override, richtext.speakable(reply))  # kısaltma yok, tam metin (temizlenmiş)
-
-    def test_voice_full_setting_on_without_reply_leaves_override_none(self):
-        p = Profile()
-        with patch.object(hoca.llm, 'ask') as ask, patch('modules.study._state', return_value={'docs': []}):
-            reply, session = self._call_voice_full(p, 'hava nasıl')
-        self.assertIsNone(reply)
+    def test_disabled_hoca_never_starts_or_calls_model(self):
+        _runtime, session, answer, start, text = self._start(enabled=False)
+        self.assertIn("Hoca modu kapalı", answer)
         self.assertIsNone(session.speech_override)
-        ask.assert_not_called()
+        start.assert_not_called()
+        text.assert_not_called()
+
+    def test_typed_hoca_start_uses_only_the_selected_topic(self):
+        _runtime, session, answer, start, text = self._start(enabled=True)
+        self.assertIn("Hücre neyin birimi?", answer)
+        start.assert_called_once()
+        self.assertEqual(start.call_args.args[1], "hücre")
+        text.assert_called_once()
+        self.assertIsNone(session.speech_override)
+
+    def test_voice_full_enabled_sets_single_speech_override(self):
+        _runtime, session, answer, start, text = self._start(
+            enabled=True, voice_full=True)
+        self.assertEqual(session.speech_override, richtext.speakable(answer))
+        start.assert_called_once()
+        text.assert_called_once()
+
+    def test_missing_topic_has_no_core_plan_or_speech_override(self):
+        from modules import brain_core_map
+        runtime, session = self._runtime(Profile())
+        self.assertIsNone(brain_core_map.core_plan("hoca.lesson.start", {"topic": ""}))
+        self.assertIsNone(session.speech_override)
+        self.assertFalse(hasattr(runtime, "_study_intent"))
 
 
 class HocaSnapshotTests(unittest.TestCase):
