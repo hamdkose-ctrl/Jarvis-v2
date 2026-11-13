@@ -451,7 +451,8 @@ def _profile_refs(owner: str, profile: Any) -> tuple[list[ContextReference], lis
             ident="lesson.pending",
             kind="pending_state",
             source="profile.hoca",
-            provenance={"step": hoca_pending.get("step"), "question": hoca_pending.get("question")},
+            provenance={"step": hoca_pending.get("step"), "question": hoca_pending.get("question"),
+                        "started": lesson.get("started"), "course_id": lesson.get("course_id")},
         ))
     return memory, tasks, pending
 

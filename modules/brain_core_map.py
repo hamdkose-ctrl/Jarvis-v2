@@ -1297,21 +1297,25 @@ def fast_plan(protocol: str | None, selection: Any) -> tuple[str, dict[str, Any]
 def state_plan(protocol: str | None, selection: Any, level: Any,
                pending_snapshot: Any = None) -> tuple[str, dict[str, Any]] | None:
     if protocol == "hoca.lesson.control":
-        if not isinstance(pending_snapshot, Mapping) or set(pending_snapshot) != {"step", "question"}:
+        if (not isinstance(pending_snapshot, Mapping)
+                or set(pending_snapshot) != {"step", "question", "started", "course_id"}):
             return None
         step, question = pending_snapshot["step"], pending_snapshot["question"]
+        started, course_id = pending_snapshot["started"], pending_snapshot["course_id"]
         if (type(step) is not int or step < 0 or not isinstance(question, str)
-                or len(question) > 3000):
+                or len(question) > 3000 or (started is not None and type(started) is not int)
+                or (course_id is not None and type(course_id) is not int)):
             return None
+        bound = {"step": step, "question": question,
+                 "started": started, "course_id": course_id}
         if selection in {"next", "exit", "weak"}:
-            return ("hoca_control", {"operation": selection, "step": step, "question": question})
+            return ("hoca_control", {"operation": selection, **bound})
         if selection == "give_up" and question.strip():
-            return ("hoca_control", {"operation": selection, "step": step, "question": question})
+            return ("hoca_control", {"operation": selection, **bound})
         if question.strip() and isinstance(selection, str) and selection.startswith("answer:"):
             answer = selection[len("answer:"):].strip()
             if 0 < len(answer) <= 500 and "\x00" not in answer:
-                return ("hoca_control", {"operation": "answer", "answer": answer,
-                                         "step": step, "question": question})
+                return ("hoca_control", {"operation": "answer", "answer": answer, **bound})
         return None
     if protocol == "filesend.pending.select":
         return ("filesend_select", {"index": selection}) if type(selection) is int and 1 <= selection <= 4 else None

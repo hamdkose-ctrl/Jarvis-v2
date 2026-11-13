@@ -255,6 +255,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 message = hoca.control_typed(
                     runtime.profile, operation=a["operation"], step=a["step"],
                     question=a["question"], answer=a.get("answer", ""),
+                    started=a.get("started"), course_id=a.get("course_id"),
                 )
             except hoca.HocaError as exc:
                 return str(exc)

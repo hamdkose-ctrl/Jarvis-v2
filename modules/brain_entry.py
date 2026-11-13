@@ -1213,7 +1213,12 @@ def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]
                           and ref.provenance.get("has_pending") is False]
                 if len(active) != 1:
                     return None
-                pending_snapshot = {"step": active[0].provenance.get("active"), "question": ""}
+                pending_snapshot = {
+                    "step": active[0].provenance.get("active"),
+                    "question": "",
+                    "started": active[0].provenance.get("started"),
+                    "course_id": active[0].provenance.get("course_id"),
+                }
             else:
                 return None
         return brain_core_map.state_plan(gate.protocol, gate.selection, level, pending_snapshot)

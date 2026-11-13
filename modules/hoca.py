@@ -506,7 +506,9 @@ def _finished(profile) -> str:
     return "Ders bitti." + tail
 
 
-def control_typed(profile, *, operation: str, step: int, question: str, answer: str = "") -> str:
+def control_typed(profile, *, operation: str, step: int, question: str,
+                  answer: str = "", started: int | None = None,
+                  course_id: int | None = None) -> str:
     """One explicit State-confirmed lesson reply, not an NL dispatcher.
 
     Recheck step/question at execution so a stale observed answer cannot
@@ -518,6 +520,7 @@ def control_typed(profile, *, operation: str, step: int, question: str, answer: 
     pending = lesson.get("pending") if isinstance(lesson, dict) else None
     if (not isinstance(lesson, dict) or type(step) is not int or step < 0
             or lesson.get("active") != step or not isinstance(question, str)
+            or lesson.get("started") != started or lesson.get("course_id") != course_id
             or (question and (not isinstance(pending, dict)
                               or pending.get("step") != step
                               or pending.get("question") != question))

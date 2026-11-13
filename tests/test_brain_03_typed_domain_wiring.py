@@ -553,6 +553,22 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(output, "AĞ İZNİ YOK")
         execute.assert_not_called()
 
+    def test_hoca_stale_same_question_but_new_lesson_identity_refuses_grading(self):
+        from modules import hoca
+        lesson = {"active": 0, "started": 55, "course_id": 3, "done": False,
+                  "topic": "Hücre", "steps": [{"title": "Hücre"}],
+                  "pending": {"step": 0, "question": "Hücre nedir?"}}
+        self.ctx.profile.data["hoca"] = {"lesson": lesson}
+        with patch.object(hoca, "grade",
+                          side_effect=AssertionError("stale lesson graded")) as grade:
+            reply = hoca.control_typed(
+                self.ctx.profile, operation="answer", step=0,
+                question="Hücre nedir?", answer="yanıt",
+                started=54, course_id=3,
+            )
+        self.assertIn("değişti", reply)
+        grade.assert_not_called()
+
     def test_hoca_control_without_pending_question_advances_without_raw_parser(self):
         from modules import hoca
         lesson = {"active": 0, "done": False, "topic": "Hücre",
