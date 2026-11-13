@@ -57,6 +57,10 @@ def mark(slug):
         path = _reset_file
         with file_resource_guard.claim_paths(path):
             existing = _disk_snapshot(path)
+            # Do not roll back a known new-chat boundary if an external
+            # process removed/replaced the file with an older snapshot.
+            for owner, cutoff in _resets.items():
+                existing[owner] = max(existing.get(owner, ''), cutoff)
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
             # A clock correction must not reopen conversation context.
             existing[slug] = max(now, existing.get(slug, ''))
@@ -79,20 +83,22 @@ def mark(slug):
 
 
 def recent(slug, rows):
-    """Never reintroduce pre-reset context when a peer process moved the cutoff."""
+    """Read the current cross-process reset snapshot under the same OS claim.
+
+    A path.exists() check *before* the claim was a TOCTOU window: a peer
+    process could publish a reset between the check and returning stale rows.
+    Memory cutoffs are monotonic, even after unexpected file disappearance.
+    """
     with _lock:
-        path = _reset_file
-        if path.exists():
-            try:
-                with file_resource_guard.claim_paths(path):
-                    fresh = _disk_snapshot(path)
-            except (OSError, ValueError, UnicodeError,
-                    resource_leases.LeaseConflict):
-                _record_failure('modules/conversation_reset.py:recent_snapshot')
-                # A transient lock or broken reset file cannot resurrect
-                # potentially stale conversation content.
-                return []
-            _resets.clear()
-            _resets.update(fresh)
-        cutoff = _resets.get(slug, "")
-        return [r for r in rows if str(r.get("ts", "")) > cutoff] if cutoff else rows
+        try:
+            with file_resource_guard.claim_paths(_reset_file):
+                fresh = _disk_snapshot(_reset_file)
+        except (OSError, ValueError, UnicodeError,
+                resource_leases.LeaseConflict):
+            _record_failure('modules/conversation_reset.py:recent_snapshot')
+            # Uncertain history cutoff must never expose older chat content.
+            return []
+        for owner, cutoff in fresh.items():
+            _resets[owner] = max(cutoff, _resets.get(owner, ''))
+        cutoff = _resets.get(slug, '')
+        return [r for r in rows if str(r.get('ts', '')) > cutoff] if cutoff else rows
