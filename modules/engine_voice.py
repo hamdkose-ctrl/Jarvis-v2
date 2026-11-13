@@ -141,6 +141,33 @@ class VoiceSession:
                 runtime.pause_listening.clear()
                 runtime.emit("state", "idle")
 
+    @contextlib.contextmanager
+    def mic_open_during_model_wait(self):
+        """VOICE P3: waiting on a provider is not a reason to be deaf.
+
+        An engine turn holds `pause_listening` for its whole duration, so a bounded
+        model wait (the canonical planner waits up to 60 s) closed the microphone even
+        though the answer it produces tells the user to keep talking. Only this wait
+        window re-opens the existing gate: the owner identity lock, the speech window,
+        capture ownership and every cancel path are untouched, and the previous state
+        is restored exactly when the wait ends.
+        """
+        runtime = self.runtime
+        from config import load_settings
+        lane = self.voice_lane
+        if not self.listening_enabled or self.manual_local_stt or not runtime.flags["mic"] \
+                or not load_settings().get("voice_mic_during_model_wait", True) \
+                or (lane is not None and lane.is_busy()):
+            yield
+            return
+        was_paused = runtime.pause_listening.is_set()
+        runtime.pause_listening.clear()
+        try:
+            yield
+        finally:
+            if was_paused:
+                runtime.pause_listening.set()
+
     def _barge_watch(self, done: threading.Event) -> None:
         runtime = self.runtime
         """Jarvis konuşurken "Hey Jarvis" denirse susup dinlemeye geçer (internetsiz dinleyici hazırsa)."""

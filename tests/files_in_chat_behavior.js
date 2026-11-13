@@ -35,7 +35,7 @@ assert(src.includes('<details class="sdet"><summary>Gelişmiş ses ayarları</su
 const ses=src.slice(src.indexOf("else if(k==='ses'){"),src.indexOf("else if(k==='hafiza'"));
 const dI=ses.indexOf('<details class="sdet">');
 for(const id of ["'vsel'","'aname'"])assert(ses.indexOf(id)>-1&&ses.indexOf(id)<dI,id+' görünür bölümde olmalı');
-for(const id of ["'lstt'","'lsttmodel'","'lsttbeam'","'wsens'","'sfix'","'swords'","'micdev'"])assert(ses.indexOf(id)>dI,id+' gelişmiş bölümde olmalı');
+for(const id of ["'lstt'","'lsttmodel'","'lsttbeam'","'wsens'","'sfix'","'swords'","'micdev'","'mmic'"])assert(ses.indexOf(id)>dI,id+' gelişmiş bölümde olmalı');
 assert(!src.includes('function quickSettings()'),'Sık Kullanılanlar kartı kalkmalı');
 assert(!src.includes('function quickLinks()')&&!src.includes('applySettingsTabs'),'Kısayollar kartı ve otomatik sekmeler kalkmalı');
 assert(src.includes("if(p==='settings'||p==='tools'){S.mnOpen=settingsNode("),'go(settings/tools) menüde ilgili düğümün yan sayfasını açmalı (eski Ayarlar sayfası yok)');
