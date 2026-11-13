@@ -246,13 +246,17 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertEqual(resolved.actions[0].arguments["operation"], "analyze")
         self.assertEqual(resolved.actions[0].arguments["path"], first.provenance["path"])
 
-    def test_ambiguous_file_open_is_not_resolved_by_the_model(self):
+    def test_model_resolves_a_file_open_to_an_offered_exact_slot(self):
         text = "rapor.pdf'i aç"
-        _, _, semantic = ambiguous_files(
+        first, _, semantic = ambiguous_files(
             r"C:\Users\hamdi\Documents\Rapor\rapor.pdf",
             r"C:\Users\hamdi\Downloads\Rapor\son.pdf", text, "rapor.pdf", "son.pdf")
-        self.assertIsNone(asked(file_read("open", ["file_0"]), text, semantic,
-                                file_operation_hint="open"))
+        decision = asked(file_read("open", ["file_0"]), text, semantic,
+                         file_operation_hint="open")
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.references, (first,))
+        self.assertEqual(decision.actions[0].arguments["operation"], "open")
+        self.assertEqual(decision.actions[0].arguments["path"], first.provenance["path"])
 
     def test_model_chat_proposal_cannot_clear_ambiguous_file_target(self):
         text = "rapor.pdf'i aç"
