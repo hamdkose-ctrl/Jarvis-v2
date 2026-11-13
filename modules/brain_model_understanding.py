@@ -1507,11 +1507,16 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 raise ValueError("Model yanıtı Brain sözleşmesini karşılamıyor.")
 
         with requests_state.budget(_MODEL_BUDGET_SECONDS):
-            # Akıllı Yönlendirici tek sağlayıcı seçicidir; buradan yerel yedek düşürülür.
-            raw = smart_router.run(
-                owner, prompt + "\\n" + system, send, route=route,
-                exclude_providers={"ollama"}, include_model=True, validator=validate_response, deadline=deadline,
-            )
+            # Primary understanding uses smart_router.run, not model_wait.ask.
+            # The current voice turn may lend the mic back during this REAL
+            # provider wait while preserving owner, budget and request fences.
+            # No second execution lane or provider selection is introduced.
+            from modules import model_wait
+            with model_wait.interactive_wait():
+                raw = smart_router.run(
+                    owner, prompt + "\\n" + system, send, route=route,
+                    exclude_providers={"ollama"}, include_model=True, validator=validate_response, deadline=deadline,
+                )
             requests_state.check()
         response_received = True
         row = _decode(raw)
