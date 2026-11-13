@@ -249,6 +249,11 @@ def validate_root_attempt(
         state, owner=selection.owner, job_id=selection.job_id,
     )
     if selection in ready:
+        # A previously unattempted node has exactly one authorized initial
+        # command generation. Higher attempts require a durable failed result;
+        # an arbitrary caller must not manufacture a retry before attempt 1.
+        if attempt != 1:
+            raise PlanFenceError('Fresh canonical root requires first attempt.')
         return node
 
     current = goal_state.validate(state)
