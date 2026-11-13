@@ -516,6 +516,18 @@ def exact_state_gate(
         if match is not None:
             matches.append(match)
     if not matches:
+        # "iptal" with no active target is an exact no-op status, not a
+        # free-language command. Never let a chat/model or unrelated domain
+        # interpret it as a new action; do not steal any foreground pending,
+        # active goal or live task-job ownership.
+        if (normalized in _CANCEL and not goal_open
+                and not any(_foreground_open(ref) for ref in rows)
+                and not any(ref.source == "task_agents" and ref.kind == "task_job"
+                            and str(ref.provenance.get("state") or "") in _JOB_OPEN
+                            and ref.provenance.get("stale") is not True
+                            for ref in rows)):
+            return _hit(owner, request_id, "state", "job.empty_cancel",
+                        "noop", "BOUNDED_EMPTY_CANCEL")
         return _miss(owner, request_id, "state", "NO_BOUNDED_STATE_MATCH")
     best_rank = min(_state_rank(match.protocol or "", normalized) for match in matches)
     winners = [match for match in matches if _state_rank(match.protocol or "", normalized) == best_rank]
