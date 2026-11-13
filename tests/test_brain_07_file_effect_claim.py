@@ -255,6 +255,58 @@ class FileEffectClaimTests(unittest.TestCase):
         self.assertEqual(result['sha256'],
                          media_studio.task_results.file_digest(result['file']))
 
+    def test_ffmpeg_single_video_failed_render_never_publishes_partial_output(self):
+        from modules import media_tools, nxapi
+        root = self.base / 'media-files'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'synthetic image')
+        digest = media_tools.task_results.file_digest(image)
+        destination = root / 'Jarvis Görevler' / 'alice'
+
+        def fail_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'incomplete video')
+            raise OSError('encoder interrupted')
+
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(media_tools.service_store, 'identity'), \
+             patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+             patch.object(media_tools.requests_state, 'check'), \
+             patch.object(media_tools.subprocess, 'run', side_effect=fail_ffmpeg):
+            with self.assertRaises(OSError):
+                media_tools.run('alice', {'image': str(image),
+                                          'image_sha256': digest, 'duration': 1})
+        self.assertEqual(list(destination.iterdir()), [],
+                         'No incomplete public video or staging dir may remain')
+
+    def test_ffmpeg_single_video_publishes_verified_complete_output(self):
+        from modules import media_tools, nxapi
+        root = self.base / 'media-files-success'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'synthetic image')
+        digest = media_tools.task_results.file_digest(image)
+        destination = root / 'Jarvis Görevler' / 'alice'
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'complete video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(media_tools.service_store, 'identity'), \
+             patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+             patch.object(media_tools.requests_state, 'check'), \
+             patch.object(media_tools.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}):
+            result = media_tools.run('alice', {'image': str(image),
+                                              'image_sha256': digest, 'duration': 1})
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(Path(result['file']).read_bytes(), b'complete video')
+        self.assertEqual(list(destination.iterdir()), [Path(result['file'])])
+        self.assertEqual(result['sha256'], media_tools.task_results.file_digest(result['file']))
+
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
         target.write_text('original', encoding='utf-8')
