@@ -72,6 +72,37 @@ class CrossProcessReadOnlyResourceClaimTests(unittest.TestCase):
                     f"OS claim was not released: {freed.stderr}",
                 )
 
+    def test_windows_first_byte_lock_collision_is_lease_conflict(self):
+        # Windows can deny writing the initializer byte while a concurrent
+        # process holds that byte range. This is ordinary busy admission,
+        # not a raw PermissionError that should abort concurrent uploads.
+        from modules import resource_leases
+        raw_fdopen = resource_leases.os.fdopen
+
+        class DeniedInitializer:
+            def __init__(self, wrapped):
+                self.wrapped = wrapped
+            def fileno(self):
+                return self.wrapped.fileno()
+            def seek(self, *args):
+                return self.wrapped.seek(*args)
+            def write(self, _data):
+                raise PermissionError('simulated Windows locked byte')
+            def close(self):
+                self.wrapped.close()
+
+        def denied_fdopen(*args, **kwargs):
+            return DeniedInitializer(raw_fdopen(*args, **kwargs))
+
+        key = resource_leases.resource_key('file', 'x' * 64)
+        with patch.object(resource_leases.os, 'fdopen', side_effect=denied_fdopen):
+            with self.assertRaises(resource_leases.LeaseConflict):
+                with resource_leases.process_resource_claim(self.owner_root, key):
+                    self.fail('An uninitialized OS claim must not be accepted')
+        # The failed initialization must close its fd and not strand the key.
+        with resource_leases.process_resource_claim(self.owner_root, key):
+            pass
+
     def test_crashed_worker_releases_os_claim_without_normal_exit(self):
         # A killed process cannot strand the OS lock. This proves only
         # resource reclamation, NOT safe automatic replay of provider calls.
