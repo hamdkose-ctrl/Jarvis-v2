@@ -1330,7 +1330,9 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             and semantic.capability_hint == "pc.level.set"
             and "MODEL_DECIDED" in semantic.reason_codes):
         from modules import session_state
-        session_state.clear_property(runtime._session())
+        session_reader = getattr(runtime, "_session", None)
+        if callable(session_reader):
+            session_state.clear_property(session_reader())
     if (entry.stage == "understanding" and semantic is not None
             and "MODEL_UNAVAILABLE" in semantic.reason_codes):
         # State and Fast lanes have their own exact Core protocols. They never
