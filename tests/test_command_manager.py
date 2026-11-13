@@ -23,7 +23,7 @@ class CommandManagerTests(unittest.TestCase):
         context=self.context('alice'); context.session.pending_desktop=True
         with patch.object(smart_router,'handle',return_value=None), patch.object(system_doctor,'handle',return_value=None), patch.object(task_agents,'handle',return_value=None), patch.object(pc_guide,'handle',return_value=None), patch.object(developer,'handle',return_value=None), patch.object(desktop_agent,'handle',return_value='doğrulama bekliyor') as run, patch.object(desktop_agent,'awaiting',return_value=True):
             self.assertEqual(dispatch(context,'devam et','devam et'), 'doğrulama bekliyor')
-        self.assertEqual(run.call_args.args[:2], ('alice','PC görevi devam'))
+        self.assertEqual(run.call_args.args[:2], ('alice','devam et'))
         from modules.command_manager import awaiting_input
         self.assertTrue(awaiting_input(context.session))
     def context(self, owner='alice'):
@@ -34,19 +34,22 @@ class CommandManagerTests(unittest.TestCase):
         with patch.object(app_actions,'continue_voice',return_value='onay'),patch.object(smart_router,'handle') as router:
             self.assertEqual(dispatch(context,'evet','evet'),'onay');router.assert_not_called()
 
-    def test_development_followups_precede_other_legs_and_keep_session_owner(self):
+    def test_free_language_development_followup_cannot_enter_retired_domain_cascade(self):
         context=self.context('bob')
-        with patch.object(smart_router,'handle',return_value=None),patch.object(system_doctor,'handle',return_value=None),patch.object(task_agents,'handle',return_value=None),patch.object(pc_guide,'handle',return_value=None),patch.object(developer,'handle',return_value='taslak') as edit:
-            self.assertEqual(dispatch(context,'bunu değiştir','bunu değiştir'),'taslak')
-            self.assertEqual(edit.call_args.args[0],'bob')
-            self.assertEqual(context.session.speech_override,'Geliştirme sonucu sohbet ekranında hazır.')
-
-    def test_pc_guidance_keeps_priority_and_full_profile(self):
-        context = self.context('bob')
-        with patch.object(smart_router, 'handle', return_value=None), patch.object(system_doctor, 'handle', return_value=None), patch.object(task_agents, 'handle', return_value=None), patch.object(pc_guide, 'handle', return_value='adım') as guide, patch.object(developer, 'handle') as edit:
-            self.assertEqual(dispatch(context, 'yardım et', 'yardım et'), 'adım')
-            guide.assert_called_once_with(context.profile, 'yardım et')
+        with patch.object(smart_router,'handle',return_value=None),patch.object(system_doctor,'handle',return_value=None),patch.object(task_agents,'handle') as task,patch.object(pc_guide,'handle') as guide,patch.object(developer,'handle',return_value='taslak') as edit:
+            self.assertIsNone(dispatch(context,'bunu değiştir','bunu değiştir'))
             edit.assert_not_called()
+            task.assert_not_called()
+            guide.assert_not_called()
+            self.assertIsNone(context.session.speech_override)
+
+    def test_unscoped_help_does_not_start_pc_guide_without_model_or_core(self):
+        context = self.context('bob')
+        with patch.object(smart_router, 'handle', return_value=None), patch.object(system_doctor, 'handle', return_value=None), patch.object(task_agents, 'handle') as task, patch.object(pc_guide, 'handle', return_value='adım') as guide, patch.object(developer, 'handle') as edit:
+            self.assertIsNone(dispatch(context, 'yardım et', 'yardım et'))
+            guide.assert_not_called()
+            edit.assert_not_called()
+            task.assert_not_called()
 
 
 class EngineControlTests(unittest.TestCase):
@@ -94,8 +97,8 @@ class ExplicitWorkflowPriorityTests(unittest.TestCase):
 
     def test_invalid_workflow_never_falls_through_to_application_or_chat(self):
         context=SimpleNamespace(profile=SimpleNamespace(slug='alice'),session=SimpleNamespace(pending_action={},speech_override=None),emit=Mock())
-        with patch('modules.task_agents.handle',return_value=None),patch('modules.app_actions.continue_voice') as app:
-            with self.assertRaisesRegex(ValueError,'Kullanım'):
-                dispatch(context,'görev akışı kod','görev akışı kod')
+        with patch('modules.task_agents.handle',return_value=None) as task,patch('modules.app_actions.continue_voice') as app:
+            self.assertIsNone(dispatch(context,'görev akışı kod','görev akışı kod'))
         app.assert_not_called()
+        task.assert_not_called()
 
