@@ -477,7 +477,11 @@ def _note_query(value: Any) -> str | None:
 
 
 def _notes_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Core re-validates the read-only notes proposal; the id is checked against the profile at execution."""
+    """Core re-validates read-only notes; unknown top-level fields have no authority."""
+    if (set(arguments) - {"notes", "original_text"}
+            or ("original_text" in arguments
+                and not isinstance(arguments["original_text"], str))):
+        return None
     row = arguments.get("notes")
     if not isinstance(row, Mapping):
         return None
