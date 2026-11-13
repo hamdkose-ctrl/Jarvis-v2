@@ -245,6 +245,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 "action": "reminder_delete" if operation == "delete" else "reminder_modify",
                 "operation": operation,
                 "minutes": a.get("minutes"),
+                "weekday": a.get("weekday"),
                 "owner": runtime.profile.slug,
                 "event_id": event["id"],
                 "title": event["title"],
@@ -257,6 +258,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             }
             intent_text = ("silmemi" if operation == "delete" else
                            "sıradaki tekrarını atlamamı" if operation == "skip" else
+                           "seçtiğin haftanın gününe kaydırmamı" if operation == "move" else
                            f"{a['minutes']} dakika sonraya ertelememi")
             return (f"'{event['title']}' Jarvis hatırlatmasını {intent_text} onaylıyor musun? "
                     "Evet ya da hayır de. Google Takvim'e dokunmam.")
