@@ -136,10 +136,6 @@ def _plain(runtime, text: str) -> str:
     from modules import main_planner
     return main_planner._plain(runtime, text)
 
-def _note_text(runtime, command: str, cmd_lower: str) -> str:
-    from modules import main_planner
-    return main_planner._note_text(runtime, command, cmd_lower)
-
 def _add_note(runtime, text: str, photo: str | None = None) -> dict:
     from modules import main_planner
     return main_planner._add_note(runtime, text, photo)
@@ -147,10 +143,6 @@ def _add_note(runtime, text: str, photo: str | None = None) -> dict:
 def _fix_word(runtime, text: str, right: str) -> str | None:
     from modules import main_planner
     return main_planner._fix_word(runtime, text, right)
-
-def _note_fix(runtime, command: str, cmd_lower: str) -> str | None:
-    from modules import main_planner
-    return main_planner._note_fix(runtime, command, cmd_lower)
 
 def _keep_photo(runtime, src: str) -> str:
     from modules import main_documents
