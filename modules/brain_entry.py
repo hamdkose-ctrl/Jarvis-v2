@@ -1122,8 +1122,9 @@ def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: 
     if (brain_precedence.explicit_desktop_owner_protocol(command)
             or brain_precedence.explicit_workflow_owner_protocol(command)):
         return True
+    from modules import main_documents
     match = getattr(runtime, "_FILE_CMD", None)
-    if callable(getattr(match, "match", None)) and match.match(command.strip()):
+    if main_documents.explicit_ui_file_command(command, match):
         return True
     # Explicit updater/publisher commands retain their existing exact,
     # idempotence and permission contracts; no substring or fuzzy matching.
