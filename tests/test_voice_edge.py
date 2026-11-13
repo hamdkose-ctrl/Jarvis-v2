@@ -159,12 +159,19 @@ class EdgeSynthesizerTests(unittest.TestCase):
 class FakeMCI:
     """Records MCI commands and simulates a mode timeline; never touches winmm."""
 
-    def __init__(self, modes, open_code=0, play_code=0, status_code=263):
+    def __init__(self, modes, open_code=0, play_code=0, status_code=263,
+                 stop_code=0, close_code=0, after_stop=None):
         self.commands = []
         self.modes = list(modes)
         self.open_code = open_code
         self.play_code = play_code
         self.status_code = status_code
+        self.stop_code = stop_code
+        self.close_code = close_code
+        # Mode forced on every status read once "stop" was sent: a mode string, or
+        # "error" for a driver that stops answering the status command at all.
+        self.after_stop = after_stop
+        self._stop_sent = False
         self.path = None
 
     def __call__(self, command, buffer, length, hwnd):
@@ -175,7 +182,18 @@ class FakeMCI:
             return self.open_code
         if command.startswith("play "):
             return self.play_code
+        if command.startswith("stop "):
+            self._stop_sent = True
+            return self.stop_code
+        if command.startswith("close "):
+            return self.close_code
         if command.startswith("status "):
+            if self._stop_sent and self.after_stop is not None:
+                if self.after_stop == "error":
+                    return self.status_code
+                if buffer is not None:
+                    buffer.value = self.after_stop
+                return 0
             if self.modes and self.modes[0] is None:
                 self.modes.pop(0)         # the status read itself failed
                 return self.status_code
@@ -301,6 +319,81 @@ class EdgePlayerTests(unittest.TestCase):
         self.assertEqual(started, [True])
         self.assertEqual(mci.commands[-1], "close jarvis_tts")
         self.assertFalse(os.path.exists(mci.path))
+
+    def cut_player(self, stop_code=0, after_stop=None, modes=None):
+        """A player that really starts, then receives a stop signal mid-stream.
+
+        The returned callback both records the real ``playing`` boundary and
+        raises the stop there, so "sus" is proven to arrive while sound is live
+        rather than before it ever started.
+        """
+        cancel = threading.Event()
+        started = []
+        mci = FakeMCI(modes if modes is not None else ["playing"] * 200,
+                      stop_code=stop_code, after_stop=after_stop)
+        self.enterContext(patch.object(voice_edge, "_mci_send", return_value=mci))
+        player = voice_edge.EdgePlayer(poll_seconds=0, grace_seconds=0.05,
+                                       wait_seconds=1.0, stop_verify_seconds=0.1)
+
+        def on_start():
+            started.append(True)
+            cancel.set()          # "sus" arrives while the speaker is running
+
+        return player, mci, cancel, started, on_start
+
+    def test_stop_refused_and_still_playing_is_a_typed_cut_failure(self):
+        # §P1: winmm rejected the stop AND the device still reports "playing", so
+        # the audio is live on the speaker. The old code returned normally, which
+        # let the coordinator file a user interrupt, free the mic handoff and show
+        # an idle orb over sound nobody stopped.
+        player, mci, cancel, started, on_start = self.cut_player(
+            stop_code=263, after_stop="playing")
+        with self.assertRaises(voice_edge.EdgePlaybackStopUnconfirmed) as caught:
+            player(b"mp3", cancel, on_start)
+        self.assertEqual(started, [True])               # it really did start
+        self.assertIn("stop jarvis_tts", mci.commands)  # the cut was requested…
+        self.assertEqual(caught.exception.speech_status, "failed")
+        self.assertEqual(caught.exception.speech_reason, "VOICE_STOP_UNCONFIRMED")
+        self.assertEqual(mci.commands[-1], "close jarvis_tts")   # alias still released
+        self.assertFalse(os.path.exists(mci.path))               # temp file removed
+
+    def test_refused_stop_that_went_silent_anyway_is_a_confirmed_cut(self):
+        # The proof is the device mode, not the return code alone: a driver that
+        # answers the stop with an error code but is genuinely silent must not be
+        # turned into a false failure (which would also keep the mic locked).
+        player, mci, cancel, _, on_start = self.cut_player(stop_code=263, after_stop="stopped")
+        player(b"mp3", cancel, on_start)                # no raise
+        self.assertIn("stop jarvis_tts", mci.commands)
+
+    def test_silent_driver_mode_after_stop_is_a_confirmed_cut(self):
+        player, mci, cancel, _, on_start = self.cut_player(stop_code=0, after_stop="notplaying")
+        player(b"mp3", cancel, on_start)
+        self.assertIn("stop jarvis_tts", mci.commands)
+
+    def test_unreadable_mode_after_stop_is_never_a_confirmed_cut(self):
+        # A device that stops answering "status" leaves the outcome unknown.
+        # Unknown is a typed cut failure, never a completed interrupt.
+        player, _, cancel, _, on_start = self.cut_player(stop_code=0, after_stop="error")
+        with self.assertRaises(voice_edge.EdgePlaybackStopUnconfirmed):
+            player(b"mp3", cancel, on_start)
+
+    def test_refused_close_is_recorded_without_rewriting_a_finished_playback(self):
+        # The alias stays allocated and the next open's best-effort close reclaims
+        # it; the already-proven playback outcome must not change.
+        started, recorded = [], []
+        mci = FakeMCI(["playing", "playing", "stopped"], close_code=614)
+        self.enterContext(patch.object(voice_edge, "_mci_send", return_value=mci))
+        self.enterContext(patch.object(voice_edge, "_record_failure",
+                                       lambda tag, *a, **k: recorded.append(tag)))
+        voice_edge.EdgePlayer(poll_seconds=0, grace_seconds=0.05, wait_seconds=1.0)(
+            b"mp3", threading.Event(), lambda: started.append(True))   # no raise
+        self.assertEqual(started, [True])
+        self.assertEqual(recorded, ["modules/voice_edge.py:mci_close"])
+
+    def test_cut_verification_wait_is_bounded_by_accepted_limits(self):
+        for bad in (-0.1, 11.0):
+            with self.assertRaises(ValueError):
+                voice_edge.EdgePlayer(stop_verify_seconds=bad)
 
 
 if __name__ == "__main__":

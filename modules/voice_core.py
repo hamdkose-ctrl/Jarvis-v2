@@ -191,7 +191,8 @@ class VoiceCoordinator:
     real playback start through ``on_start``; ready WAV bytes are not speech.
     Interrupting speech never signals cancellation to the caller's background
     GoalState/work queue. ``stages`` and ``validate`` must stay local and cheap:
-    no model, disk or network wait belongs on a control callback.
+    no model, disk or network wait belongs on a control callback. ``echo_note``
+    receives exactly the text whose audio the player just really started.
     """
 
     def __init__(
@@ -204,6 +205,7 @@ class VoiceCoordinator:
         max_pending: int = 8,
         stages: Callable[[SpeechRequest, str], None] | None = None,
         validate: Callable[[SpeechRequest], str] | None = None,
+        echo_note: Callable[[SpeechRequest, str], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         if max_pending < 1:
@@ -214,6 +216,7 @@ class VoiceCoordinator:
         self._report = report
         self._stages = stages
         self._validate = validate
+        self._echo_note = echo_note
         self._clock = clock
         self._pending: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_pending)
         self._lock = threading.Lock()
@@ -410,6 +413,21 @@ class VoiceCoordinator:
         except Exception:
             _record_failure('modules/voice_core.py:stage')
 
+    def _note_played(self, request: SpeechRequest, text: str) -> None:
+        """Hand the owning adapter the exact words whose audio really started.
+
+        A long answer is played in chunks, so only the chunk currently on the
+        speaker may suppress a matching microphone result. Registering the whole
+        utterance at its first start would silently discard the user's own words
+        taken from a part Jarvis has not read yet.
+        """
+        if self._echo_note is None:
+            return
+        try:
+            self._echo_note(request, text)
+        except Exception:
+            _record_failure('modules/voice_core.py:echo_note')
+
     def _cancelled_reason(self) -> str:
         with self._lock:
             return self._cancel_reason
@@ -464,11 +482,15 @@ class VoiceCoordinator:
                 announced_ready = False
                 announced_start = False
 
-                def on_start() -> None:
-                    nonlocal announced_start
-                    if not announced_start:
-                        announced_start = True
-                        self._stage(request, "playback_started")
+                def start_notifier(chunk: str):
+                    """The real player boundary for this chunk, not for the whole answer."""
+                    def on_start() -> None:
+                        nonlocal announced_start
+                        if not announced_start:
+                            announced_start = True
+                            self._stage(request, "playback_started")
+                        self._note_played(request, chunk)
+                    return on_start
 
                 try:
                     self._stage(request, "synthesizing")
@@ -497,16 +519,28 @@ class VoiceCoordinator:
                         if invalid:
                             status, reason = "cancelled", invalid
                             break
-                        self._play(audio, cancel, on_start)
+                        self._play(audio, cancel, start_notifier(chunk))
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
                     self._notify(request, status, reason, played=announced_start)
-                except Exception:
+                except Exception as exc:
                     _record_failure('modules/voice_core.py:adapter')
-                    self._notify(request, "cancelled" if cancel.is_set() else "failed",
-                                 self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED",
-                                 played=announced_start)
+                    # An adapter may declare the exact outcome it could not prove
+                    # (a stop the device never confirmed). That declaration can only
+                    # downgrade the receipt: an adapter can never claim "played",
+                    # so an unproven cut cannot be filed as a user interrupt the
+                    # microphone handoff or the UI would then trust.
+                    declared = getattr(exc, "speech_status", "")
+                    declared_reason = getattr(exc, "speech_reason", "")
+                    if (declared in {"failed", "cancelled", "rejected"}
+                            and isinstance(declared_reason, str) and declared_reason.strip()):
+                        self._notify(request, declared, declared_reason,
+                                     played=announced_start)
+                    else:
+                        self._notify(request, "cancelled" if cancel.is_set() else "failed",
+                                     self._cancelled_reason() if cancel.is_set() else "VOICE_ADAPTER_FAILED",
+                                     played=announced_start)
             finally:
                 with self._lock:
                     if self._current_cancel is cancel:

@@ -81,18 +81,24 @@ def _load() -> None:
         _set("failed", "Gerekli parça kurulu değil; Jarvis klasöründeki kurulum.bat'ı bir kez çalıştır. "
                        f"({type(e).__name__}: {e})")
         return
+    prepared = ""
     try:
         try:
             from modules.wakeword_models import ensure_models
             ensure_models()
-        except Exception:       # noqa: BLE001
+        except Exception as e:       # noqa: BLE001
             _record_failure('modules/wakeword.py:_load')
-            pass                # internet yoksa: daha önce indiyse yine çalışır
+            # Yok sayılan bu neden daha önce yalnız "dinleyici başlatılamadı" olarak
+            # görünüyordu: ağ yok, klasör yazılamıyor ve bozuk dosya aynı mesajı
+            # veriyordu. Modeller zaten inmişse yükleme yine de başarılı olur, o
+            # yüzden neden ancak Model de kurulamazsa gösterilir. Anahtar, token ya
+            # da kullanıcı metni bu metnin parçası değildir.
+            prepared = f"Model hazırlanamadı ({type(e).__name__}: {str(e)[:120]}). "
         _model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
         _set("ready")
     except Exception as e:      # noqa: BLE001
         _record_failure('modules/wakeword.py:_load')
-        _set("failed", f"İnternetsiz dinleyici başlatılamadı ({type(e).__name__}: {e})")
+        _set("failed", prepared + f"İnternetsiz dinleyici başlatılamadı ({type(e).__name__}: {e})")
 
 
 def status() -> dict:
