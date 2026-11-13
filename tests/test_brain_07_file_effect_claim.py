@@ -361,6 +361,62 @@ class FileEffectClaimTests(unittest.TestCase):
         finally:
             self.close_holder(child)
 
+    def test_noncooperating_writer_cannot_be_clobbered_after_preflight(self):
+        """A process outside Jarvis locks can still race the destination."""
+        source = self.folder / 'source-race.txt'
+        target = self.folder / 'renamed-race.txt'
+        source.write_text('source bytes', encoding='utf-8')
+        original = file_ops.files._move_create_only
+
+        def external_wins(src, dst):
+            dst.write_text('external writer', encoding='utf-8')
+            return original(src, dst)
+
+        with patch.object(file_ops.files, '_move_create_only', side_effect=external_wins):
+            result = file_ops.execute_typed(
+                'rename', owner='alice', path=str(source), name=target.name,
+            )
+        self.assertIn('güvenli biçimde', result)
+        self.assertEqual(target.read_text(encoding='utf-8'), 'external writer')
+        self.assertEqual(source.read_text(encoding='utf-8'), 'source bytes')
+        receipt = file_ops._undo_path('alice')
+        import json
+        self.assertEqual(json.loads(receipt.read_text(encoding='utf-8'))[0][3], 'intent')
+        # A subsequent command must not overwrite the unresolved receipt.
+        self.assertIn('belirsiz', file_ops.execute_typed(
+            'rename', owner='alice', path=str(source), name='next.txt',
+        ))
+        self.assertFalse((self.folder / 'next.txt').exists())
+
+    def test_crash_after_move_does_not_enable_blind_undo(self):
+        """A persisted intent survives a failed post-effect journal write."""
+        import json
+        source = self.folder / 'before.txt'
+        target = self.folder / 'after.txt'
+        source.write_text('verified bytes', encoding='utf-8')
+        saved = file_ops._record
+        writes = 0
+
+        def fail_second(rows, owner=''):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError('power failure after physical effect')
+            return saved(rows, owner)
+
+        with patch.object(file_ops, '_record', side_effect=fail_second):
+            result = file_ops.execute_typed(
+                'rename', owner='alice', path=str(source), name=target.name,
+            )
+        self.assertIn('güvenli biçimde', result)
+        self.assertFalse(source.exists())
+        self.assertEqual(target.read_text(encoding='utf-8'), 'verified bytes')
+        receipt = file_ops._undo_path('alice')
+        self.assertEqual(json.loads(receipt.read_text(encoding='utf-8'))[0][3], 'intent')
+        self.assertIn('dokunmadım', file_ops.undo('alice'))
+        self.assertTrue(target.exists())
+        self.assertFalse(source.exists())
+
     def test_symlink_destination_is_rejected_without_writing(self):
         source = self.folder / 'source.txt'
         source.write_text('safe', encoding='utf-8')

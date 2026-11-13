@@ -9,7 +9,6 @@ import json
 from contextlib import contextmanager
 import os
 import re
-import shutil
 from pathlib import Path
 
 import release_guard
@@ -31,6 +30,10 @@ def _with_file_claims(paths, operation, owner=''):
     """
     try:
         with file_resource_guard.claim_paths(*paths, _undo_path(owner)):
+            try:
+                _require_safe_receipt(owner)
+            except ValueError as exc:
+                return str(exc)
             return operation()
     except resource_leases.LeaseConflict:
         return _FILE_BUSY
@@ -144,6 +147,66 @@ def _record(pairs: list[list[str]], owner: str = "") -> None:
     release_guard.atomic(_undo_path(owner), json.dumps(pairs, ensure_ascii=False).encode('utf-8'))
 
 
+def _require_safe_receipt(owner: str) -> None:
+    """An unverified/half-written previous effect must not be overwritten."""
+    receipt = _undo_path(owner)
+    if receipt.is_symlink():
+        raise ValueError('Önceki dosya makbuzu güvenilir değil; yeni işlem yapılmadı.')
+    if not receipt.exists():
+        return
+    try:
+        rows = json.loads(receipt.read_text(encoding='utf-8'))
+    except (OSError, ValueError, UnicodeError):
+        raise ValueError('Önceki dosya makbuzu okunamadı; yeni işlem yapılmadı.') from None
+    if (not isinstance(rows, list)
+            or any(not isinstance(row, list) or len(row) != 3
+                   or not all(isinstance(v, str) for v in row)
+                   or not re.fullmatch(r'[a-f0-9]{64}', row[2])
+                   for row in rows)):
+        raise ValueError(
+            'Önceki dosya işleminin sonucu belirsiz; '
+            'makbuz incelenmeden yeni işlem yapılmadı.'
+        )
+
+
+def _move_verified(source: Path, target: Path, owner: str) -> None:
+    """Write intent BEFORE a no-clobber same-volume physical move."""
+    if (source.is_symlink() or not source.is_file() or target.is_symlink()
+            or target.exists() or source == target):
+        raise OSError('Kaynak veya hedef değişti; dosya taşınmadı.')
+    digest = _digest(source)
+    row = [str(target), str(source), digest]
+    _record([row + ['intent']], owner)
+    # Atomic destination creation: a noncooperating process cannot be overwritten.
+    # A crash after os.link but before unlink stays as an unresolved intent.
+    files._move_create_only(source, target)
+    _record([row], owner)
+
+
+def _create_verified(target: Path, text: str, owner: str) -> None:
+    """Build a complete temp file, then publish with no-replace under claim."""
+    import hashlib
+    import tempfile
+    payload = text.encode('utf-8', errors='strict')
+    digest = hashlib.sha256(payload).hexdigest()
+    if target.exists() or target.is_symlink():
+        raise FileExistsError('Dosya hedefi zaten kullanılıyor.')
+    row = [str(target), '', digest]
+    _record([row + ['intent']], owner)
+    with tempfile.NamedTemporaryFile(
+            mode='wb', dir=target.parent, prefix='.jarvis-file-',
+            suffix='.tmp', delete=False) as stream:
+        tmp = Path(stream.name)
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.link(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
+    _record([row], owner)
+
+
 def _valid_name(new: str, old: Path) -> tuple[str | None, str]:
     new = _clean(new)
     if not new or len(new) > 120 or _BAD_NAME.search(new) or new.endswith((" ", ".")):
@@ -190,8 +253,7 @@ def _move(command: str, owner: str = "") -> str | None:
             requested = folder / source.name
             final = files._free_name(requested)
             with _claim_chosen_file_target(requested, final):
-                shutil.move(str(source), str(final))
-                _record([[str(final), str(source), _digest(final)]], owner)
+                _move_verified(source, final, owner)
         except OSError as exc:
             return f"Dosyayı taşıyamadım: {exc}"
         return f"{source.name} dosyasını {label} klasörüne taşıdım. İstersen “son dosya işlemini geri al” de."
@@ -226,10 +288,9 @@ def _rename(command: str, owner: str = "") -> str | None:
         if reason := _permission_decision(owner, 'Yeniden adlandır', str(source)):
             return reason
         try:
-            source.rename(target)
+            _move_verified(source, target, owner)
         except OSError as exc:
             return f"Adı değiştiremedim: {exc}"
-        _record([[str(target), str(source), _digest(target)]], owner)
         return f"{source.name} dosyasının adını {new} yaptım. İstersen “son dosya işlemini geri al” de."
     return _with_file_claims((source, target), apply, owner)
 
@@ -258,9 +319,7 @@ def _create(command: str, owner: str = "") -> str | None:
             final = files._free_name(requested)
             # Reserve the *actual* suffix, not only the original basename.
             with _claim_chosen_file_target(requested, final):
-                with final.open('x', encoding='utf-8') as stream:
-                    stream.write(content + ("\n" if content else ""))
-                _record([[str(final), "", _digest(final)]], owner)
+                _create_verified(final, content + ("\n" if content else ""), owner)
         except OSError as exc:
             return f"Dosyayı oluşturamadım: {exc}"
         return (f"{label} klasöründe {final.name} dosyasını oluşturdum" + (" ve içine yazdım." if content else ".")
@@ -290,6 +349,12 @@ def _undo_claimed(owner: str) -> str:
     done = 0
     pending = []
     for entry in reversed(pairs):
+        # Legacy two-field and interrupted four-field intents lack authority.
+        if (not isinstance(entry, list) or len(entry) != 3
+                or not all(isinstance(value, str) for value in entry)
+                or not re.fullmatch(r'[a-f0-9]{64}', entry[2])):
+            pending.append(entry)
+            continue
         new, old = entry[0], entry[1]
         try:
             # Undo must participate in the SAME path ownership as the
@@ -311,7 +376,7 @@ def _undo_claimed(owner: str) -> str:
                 elif os.path.exists(old):
                     pending.append(entry)
                 else:
-                    shutil.move(new, old)
+                    files._move_create_only(Path(new), Path(old))
                     done += 1
         except (OSError, resource_leases.LeaseConflict):
             pending.append(entry)
@@ -363,8 +428,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
                     requested = destination / source.name
                     target = files._free_name(requested)
                     with _claim_chosen_file_target(requested, target):
-                        shutil.move(str(source), str(target))
-                        _record([[str(target), str(source), _digest(target)]], owner)
+                        _move_verified(source, target, owner)
                 except OSError:
                     return "Dosyayı güvenli biçimde taşıyamadım."
                 return f"{source.name} dosyasını {label} klasörüne taşıdım."
@@ -381,8 +445,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
             if reason := _permission_decision(owner, "Yeniden adlandır", str(source)):
                 return reason
             try:
-                source.rename(target)
-                _record([[str(target), str(source), _digest(target)]], owner)
+                _move_verified(source, target, owner)
             except OSError:
                 return "Dosyanın adını güvenli biçimde değiştiremedim."
             return f"{source.name} dosyasının adını {new} yaptım."
@@ -405,9 +468,7 @@ def execute_typed(operation: str, *, owner: str = "", path: str = "",
             requested = destination / filename
             target = files._free_name(requested)
             with _claim_chosen_file_target(requested, target):
-                with target.open('x', encoding='utf-8', errors='strict') as stream:
-                    stream.write(content + ("\n" if content else ""))
-                _record([[str(target), "", _digest(target)]], owner)
+                _create_verified(target, content + ("\n" if content else ""), owner)
         except OSError:
             return "Metin dosyasını güvenli biçimde oluşturamadım."
         return f"{label} klasöründe {target.name} dosyasını oluşturdum."
