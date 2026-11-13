@@ -38,121 +38,35 @@ def explicit_workflow_owner_protocol(text: str) -> bool:
     return isinstance(text, str) and _EXPLICIT_WORKFLOW_OWNER.match(text.strip()) is not None
 
 
-# Order is the contract. This table is its only owner.
-FRONT_GATES: tuple[str, ...] = (
-    "file_command",
-    "user_controls",
-    "planner_command",
-    "macro_run",
-    "extra_commands",
-)
-
-# The range ``engine_commands.handle`` delegates instead of re-listing: shortcuts, then the
-# domain cascade. PR3B §11/§25 B: the surface may not carry a second copy of this order.
-TAIL_GATES: tuple[str, ...] = ("macro_run", "extra_commands")
-
-
-def _gates(runtime: Any, command: str, lowered: str, plan: tuple[str, dict] | None = None) -> dict[str, Callable[[], Any]]:
-    def planner_gate():
-        # An accepted Core plan is not a new raw note/calendar instruction.
-        # Only the established reminder creator has a bounded compatibility
-        # exception for explicit note-add and pending-answer ownership.
-        if plan is not None:
-            if plan[0] != "reminder":
-                return None
-            from modules import main_planner
-            with main_planner.core_reminder(plan[1]):
-                return runtime._planner_command(command, lowered)
-        return runtime._planner_command(command, lowered)
-
-    def extra_commands():
-        # The general raw cascade cannot reclassify a validated Core payload
-        # into a second domain action for the same user turn.
-        return None if plan is not None else runtime._extra_commands(command, lowered)
-
-    def macro_gate():
-        if plan is not None:
-            # A user-saved exact trigger remains authoritative. The legacy
-            # fuzzy suffix aliases are NOT evidence to override a typed plan.
-            profile = getattr(runtime, "profile", None)
-            data = getattr(profile, "data", None)
-            macros = data.get("macros") if isinstance(data, dict) else None
-            keyer = getattr(runtime, "_macro_key", None)
-            if not isinstance(macros, dict) or not callable(keyer):
-                return None
-            if keyer(lowered) not in macros:
-                return None
-        return runtime._macro_run(lowered)
-
-    def file_gate():
-        # The explicit quoted-path UI protocol still outranks a Core plan.
-        # A normal typed plan must not fall into workbench.followup, which
-        # searches raw text and may re-create the last document as a side effect.
-        if plan is not None:
-            explicit = getattr(runtime, "_FILE_CMD", None)
-            if explicit is None or explicit.match(command.strip()) is None:
-                return None
-        return runtime._file_command(command)
-
-    return {
-        "file_command": file_gate,
-        # All accepted Core plans can carry user data. Only truly
-        # unplanned turns may invoke this raw share/camera/voice recognizer.
-        "user_controls": lambda: (None if plan is not None else runtime._user_controls(command, lowered)),
-        "planner_command": planner_gate,
-        "macro_run": macro_gate,
-        "extra_commands": extra_commands,
-    }
+# Only machine-addressed UI syntax and a saved, exact trigger remain.
+# Neither branch classifies natural language or scans domain handlers.
+FRONT_GATES: tuple[str, ...] = ("file_command", "macro_run")
 
 
 def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
-    """Return (gate_name, reply) of the first legacy front gate that answers, else None."""
+    """Bounded explicit owner protocol, never a secondary semantic authority."""
     if plan is not None and plan[0] in {"photo_action", "user_manage", "macro_teach", "macro_manage"}:
-        # A validated photo plan targets a canonical artifact, not a raw-text phrase: legacy
-        # mutation gates must not reinterpret the same utterance.
         return None
-    lowered = _lowered(runtime, command)
-    return _claim_range(runtime, command, lowered, FRONT_GATES, plan)
+    match = getattr(runtime, "_FILE_CMD", None)
+    exact_file = callable(getattr(match, "match", None)) and match.match(command.strip()) is not None
+    if exact_file:
+        handle = getattr(runtime, "_file_command", None)
+        if callable(handle):
+            output = handle(command)
+            if output is not None:
+                return "file_command", output
 
-
-def claim_tail(runtime: Any, command: str, lowered: str | None = None) -> tuple[str, Any] | None:
-    """``engine_commands.handle``'ın devrettiği kuyruk aralığı: kısayollar, sonra domain cascade'i.
-
-    Yüzey kendi handler tuple'ını artık taşımıyor (§25 B); sıra ve argüman biçimi yalnız bu
-    tablodan gelir. Erken efekt gate'leri (dosya/ayyarlar/sayfa/planner) burada ikinci kez
-    çalışmaz: bu aralık onları yüzeyin kendisine bırakır, yoksa aynı taşıma/yayın iki kez olur.
-    Cascade'in kendisi (BRAIN-MIG-052) kanonical capability parity kazanan kollara bölünene kadar
-    domain-owned kalır; PR3C satırı budur, bu fonksiyon değil."""
-    if lowered is None:
-        lowered = _lowered(runtime, command)
-    return _claim_range(runtime, command, lowered, TAIL_GATES)
-
-
-def _lowered(runtime: Any, command: str) -> str:
-    lower = getattr(runtime, "_tr_lower", None)
-    return lower(command) if callable(lower) else command.casefold()
-
-
-def _claim_range(runtime: Any, command: str, lowered: str, names: tuple[str, ...],
-                 plan: tuple[str, dict] | None = None) -> tuple[str, Any] | None:
-    table = _gates(runtime, command, lowered, plan)
-    for name in names:
-        try:
-            reply = table[name]()
-        except AttributeError:
-            if _present(runtime, name):
-                raise
-            continue  # minimal runtime (acceptance harness stub) without that legacy gate
-        if reply is not None:
-            return name, reply
+    data = getattr(getattr(runtime, "profile", None), "data", None)
+    macros = data.get("macros") if isinstance(data, dict) else None
+    keyer = getattr(runtime, "_macro_key", None)
+    runner = getattr(runtime, "_macro_run", None)
+    if isinstance(macros, dict) and callable(keyer) and callable(runner):
+        lower = getattr(runtime, "_tr_lower", None)
+        normalized = lower(command) if callable(lower) else command.casefold()
+        # The exact key stored in the user's profile is the entire trigger;
+        # fuzzy/suffix aliases are not a bypass of the Brain/Core decision.
+        if keyer(normalized) in macros:
+            output = runner(normalized)
+            if output is not None:
+                return "macro_run", output
     return None
-
-
-_ATTRS = {
-    "file_command": ("_file_command",),
-    "user_controls": ("_user_controls",), "planner_command": ("_planner_command",), "macro_run": ("_macro_run",), "extra_commands": ("_extra_commands",),
-}
-
-
-def _present(runtime: Any, name: str) -> bool:
-    return all(hasattr(runtime, attr) for attr in _ATTRS[name])
