@@ -47,8 +47,9 @@ def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> t
     """Bounded explicit owner protocol, never a secondary semantic authority."""
     if plan is not None and plan[0] in {"photo_action", "user_manage", "macro_teach", "macro_manage"}:
         return None
+    from modules import main_documents
     match = getattr(runtime, "_FILE_CMD", None)
-    exact_file = callable(getattr(match, "match", None)) and match.match(command.strip()) is not None
+    exact_file = main_documents.explicit_ui_file_command(command, match)
     if exact_file:
         handle = getattr(runtime, "_file_command", None)
         if callable(handle):
