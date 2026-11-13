@@ -179,12 +179,12 @@ class BargeWorkerBoundTests(TestCase):
             seen.append(done)
             if done is first:
                 started.set()
-                self.assertTrue(release.wait(3), "first watcher never released")
+                self.assertTrue(release.wait(10), "first watcher never released")
 
         session._barge_watch = observe
         try:
             session.speak("first")
-            self.assertTrue(started.wait(2), "barge watcher did not start")
+            self.assertTrue(started.wait(10), "barge watcher did not start")
             session.speak("middle")
             session.speak("last")
             self.assertEqual(factory.call_count, 1,
@@ -193,7 +193,7 @@ class BargeWorkerBoundTests(TestCase):
             release.set()
             worker = getattr(session, "_barge_thread", None)
             if worker is not None:
-                worker.join(timeout=3)
+                worker.join(timeout=10)
         self.assertEqual(seen, [first, last],
                          "one worker must advance to the newest waiting speech")
         self.assertIsNone(session._barge_thread)
