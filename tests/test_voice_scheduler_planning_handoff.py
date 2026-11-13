@@ -123,6 +123,38 @@ class DeferredPlannerTests(TestCase):
             SimpleNamespace(slug=self.owner), job_id))
         self.assertEqual(self.ask.call_count, 1)
 
+    def test_unsupported_job_requires_exact_one_shot_foreground_reauthorization(self):
+        job_id, _ = self.claim()
+        self.ask.return_value = '{"tasks":[]}'
+        self.assertEqual(canonical_planning_queue.execute(
+            SimpleNamespace(slug=self.owner), job_id), "review")
+        self.assertIn("hedef ön plan " + job_id,
+                      canonical_planning_queue.status(self.owner, job_id))
+        self.assertIsNone(canonical_planning_queue.take_foreground(
+            self.owner, "normal conversation"))
+        identity, text = canonical_planning_queue.take_foreground(
+            self.owner, "hedef ön plan " + job_id)
+        self.assertEqual((identity, text), (job_id, self.text))
+        self.assertIn("tek seferlik", canonical_planning_queue.status(self.owner, job_id))
+        with self.assertRaises(ValueError):
+            canonical_planning_queue.take_foreground(
+                self.owner, "hedef ön plan " + job_id)
+        with self.assertRaises(ValueError):
+            canonical_planning_queue.take_foreground(
+                "other-voice", "hedef ön plan " + job_id)
+        self.assertEqual(self.ask.call_count, 1)
+
+    def test_uncertain_timeout_cannot_use_foreground_shortcut(self):
+        job_id, _ = self.claim()
+        self.ask.side_effect = TimeoutError("simulated")
+        self.assertEqual(canonical_planning_queue.execute(
+            SimpleNamespace(slug=self.owner), job_id), "review")
+        self.assertNotIn("hedef ön plan " + job_id,
+                         canonical_planning_queue.status(self.owner, job_id))
+        with self.assertRaises(ValueError):
+            canonical_planning_queue.take_foreground(
+                self.owner, "hedef ön plan " + job_id)
+
     def test_cancelled_queued_job_parks_without_provider_call(self):
         job_id, _ = self.claim()
         self.cancelled.return_value = True
