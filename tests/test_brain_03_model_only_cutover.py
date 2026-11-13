@@ -35,6 +35,33 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
         share.assert_not_called()
         return entry, output
 
+    def test_model_outage_keeps_explicit_pc_and_workflow_but_not_questions(self):
+        from modules import brain_precedence
+        from modules import brain_model_understanding
+        self.assertTrue(brain_precedence.explicit_workflow_owner_protocol(
+            "görev akışı kod: test sonucunu denetle"))
+        for phrase in ("görev akışı nedir?", "görev akışı nasıl çalışıyor?",
+                       "görev akışı kod nedir?"):
+            self.assertFalse(brain_precedence.explicit_workflow_owner_protocol(phrase))
+        with patch.object(brain_model_understanding, "propose", return_value=None):
+            for command in ("PC görev: hesap makinesini kontrol et",
+                            "görev akışı kod: test sonucunu denetle"):
+                with self.subTest(command=command):
+                    bounded = Mock(return_value="BOUNDED RESULT")
+                    entry, out, handler, result = self.turn(
+                        command, handler=bounded, model_understanding=True)
+                    self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                    self.assertEqual(out, "BOUNDED RESULT")
+                    self.assertEqual(result.reason_code, "EXACT_PROTOCOL_HANDLED")
+                    bounded.assert_called_once_with(command)
+            for command in ("görev akışı nedir?", "notumu silme"):
+                with self.subTest(command=command):
+                    forbidden = Mock(side_effect=AssertionError("raw fallback must not run"))
+                    entry, out, handler, result = self.turn(
+                        command, handler=forbidden, model_understanding=True)
+                    self.assertEqual(result.reason_code, "BRAIN_MODEL_UNAVAILABLE")
+                    forbidden.assert_not_called()
+
     def test_production_passes_no_legacy_intent_or_slots_to_primary_model(self):
         seen = []
         def inspect(*, owner, text, current, **kwargs):
