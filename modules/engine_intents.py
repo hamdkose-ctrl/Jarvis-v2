@@ -288,8 +288,17 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             try:
                 lesson = hoca.start(runtime.profile, a["topic"], level=a.get("level", ""))
                 requests_state.check()
-                return (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım.\n\n"
-                        + hoca._lesson_text(runtime.profile))
+                message = (f"Hoca modu: {lesson['topic']}, {len(lesson['steps'])} adım.\n\n"
+                           + hoca._lesson_text(runtime.profile))
+                # Preserve the existing Hoca full-speech preference after the
+                # semantic start parser was retired. The same Voice Front still
+                # owns the actual playback and selected voice identity.
+                if load_settings().get("hoca_voice_full"):
+                    try:
+                        runtime._session().speech_override = runtime.richtext.speakable(message)
+                    except Exception:
+                        runtime._record_failure("modules.engine_intents:hoca_start_voice")
+                return message
             except hoca.HocaError as exc:
                 return str(exc)
         case "tasks_manage":
