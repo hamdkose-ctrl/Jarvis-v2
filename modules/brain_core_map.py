@@ -1003,10 +1003,10 @@ def _tasks_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     if set(arguments) - {"original_text", "operation", "text"}:
         return None
     operation = arguments.get("operation")
-    if type(operation) is not str or operation not in {"list", "add", "complete", "delete"}:
+    if type(operation) is not str or operation not in {"list", "add", "complete", "delete", "clear_done"}:
         return None
-    if operation == "list":
-        return {"operation": "list"} if arguments.get("text") is None else None
+    if operation in {"list", "clear_done"}:
+        return {"operation": operation} if arguments.get("text") is None else None
     text = arguments.get("text")
     if not isinstance(text, str) or not text.strip() or "\x00" in text or len(text) > 500:
         return None

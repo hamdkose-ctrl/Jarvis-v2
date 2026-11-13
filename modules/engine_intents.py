@@ -163,7 +163,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # envelope and length/nonempty value by Core. Old note timestamp,
             # profile save and last-note correction remain in domain owner.
             item_text = a["text"]
-            runtime._add_note(item_text)
+            note = runtime._add_note(item_text)
+            from modules import main_planner
+            main_planner.remember_note_target(runtime, note)
             return f"Not aldım: {item_text}"
         case "agenda_read":
             # Calendar reader remains the original Google+Jarvis read worker;
@@ -291,6 +293,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             operation = a["operation"]
             if operation == "list":
                 return tasks.list_text(runtime.profile)
+            if operation == "clear_done":
+                return tasks.clear_done_preview(runtime.profile, runtime._session())
             if operation == "add":
                 task = tasks.add(runtime.profile, a["text"])
                 return f"Görev ekledim: {task['text']}."
@@ -618,6 +622,9 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                 return main_planner.notes_summary(runtime, a.get("id"))
             if a.get("which") == "one":
                 note = next((n for n in runtime.profile.data["items"] if str(n.get("id")) == str(a.get("id"))), None)
+                if note is not None:
+                    from modules import main_planner
+                    main_planner.remember_note_target(runtime, note)
                 return f"Notun: {note['text']}" if note else "Bu notu bulamadım."
             return runtime._notes_text()
         case "notes_write":
@@ -641,6 +648,8 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                     old = str(note["text"])
                     if not runtime.profile.delete_note_item(note["id"]):
                         return ActionOutcome("Not silme işlemi doğrulanamadı; silindi demiyorum.", False)
+                    from modules import session_state
+                    session_state.clear_note(runtime._session())
                     return f"Notu sildim: {old}"
                 if a.get("operation") == "update":
                     text = a.get("text")
@@ -654,6 +663,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
                         runtime._record_failure("modules/engine_intents.py:notes_write_save")
                         note["text"] = old_text
                         raise
+                    main_planner.remember_note_target(runtime, note)
                     return f"Düzelttim: {note['text']}"
                 return ActionOutcome("Bu not işlemi Core tarafından doğrulanmadı.", False)
         case "weather":

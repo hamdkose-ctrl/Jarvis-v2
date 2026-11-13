@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
+import time
 from datetime import datetime
 from functools import wraps
 from modules.personalization import _LOCK
@@ -83,6 +86,41 @@ def clear_done(profile) -> int:
     return before - len(profile.data["tasks"])
 
 
+def completed_digest(profile) -> str:
+    rows = [dict(task) for task in _tasks(profile) if task.get("done")]
+    return hashlib.sha256(json.dumps(rows, ensure_ascii=False, sort_keys=True,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def clear_done_preview(profile, session) -> str:
+    if session.pending_confirm or session.pending_action:
+        return "Önce açık onayı tamamla veya iptal et; görev silme onayı başlatılmadı."
+    count = sum(bool(task.get("done")) for task in _tasks(profile))
+    if not count:
+        return "Temizlenecek tamamlanmış görevin yok."
+    session.pending_confirm = {"action": "tasks_clear_done", "owner": profile.slug,
+                               "digest": completed_digest(profile), "expires": time.time() + 90}
+    return f"{count} tamamlanmış görevi silmemi onaylıyor musun? Açık görevlerin korunacak."
+
+
+def clear_done_confirmed(profile, proposal) -> str:
+    from modules import requests_state
+    requests_state.check()
+    if (not isinstance(proposal, dict) or proposal.get("owner") != profile.slug
+            or type(proposal.get("expires")) not in (int, float)
+            or not time.time() <= proposal["expires"] <= time.time() + 90
+            or proposal.get("digest") != completed_digest(profile)):
+        return "Görev silme onayı geçersiz, süresi dolmuş veya tamamlanan görevler değişmiş; silmedim."
+    before = list(_tasks(profile))
+    try:
+        requests_state.check()
+        count = clear_done(profile)
+    except BaseException:
+        profile.data["tasks"] = before
+        raise
+    return f"{count} tamamlanmış görevi sildim."
+
+
 def counts(profile) -> tuple[int, int]:
     ts = _tasks(profile)
     return sum(1 for t in ts if t["done"]), len(ts)
@@ -142,5 +180,8 @@ toggle = _locked(toggle)
 complete_exact = _locked(complete_exact)
 delete = _locked(delete)
 clear_done = _locked(clear_done)
+completed_digest = _locked(completed_digest)
+clear_done_preview = _locked(clear_done_preview)
+clear_done_confirmed = _locked(clear_done_confirmed)
 counts = _locked(counts)
 handle = _locked(handle)

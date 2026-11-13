@@ -2,13 +2,19 @@
 
 13 Kasım 2026 · Issue #545 · **yalnız PR #613**
 
-## Kabul kararı: AÇIK — merge edilmez
+## Kabul kararı: AÇIK — faz kapatılmaz
 
 Bu belge, ilk 32 kalemli *başlangıç envanteri* yerine PR #613'ün mevcut
 üretim bağlantılarını kaydeder. Buradaki "kod bağlı" ifadesi **PASS** değildir.
 Kapanış için SON DEĞİŞİKLİK SHA'sında Windows CI completed/success,
 aynı SHA'da gerçek PC watcher Genel+Validation PASS ve canlı birincil model
 Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
+
+Hamdi son talimatında testleri uygun PR'ın merge edilmesine ve eksiklerin aynı
+PR'da veya takip PR'ında tamamlanmasına izin verdi. Kod entegrasyonu bu yetkiyle
+CI/PC kontrolleri üzerinden değerlendirilebilir; merge, canlı Full kabulü veya
+#545 kapanışı sayılmaz. Bu ortamın ön denetiminde yalnız Ollama adayı vardı;
+ücretsiz bulut hesap teyidi bulunmadığı için canlı Full **UNMEASURED** kalır.
 
 ## Tek semantik karar, tek yürütme
 
@@ -52,6 +58,7 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 - Görev silme tam owner başlığından mevcut State onayına; tema değişimi mevcut UI ayar sahibine bağlıdır. Geliştirme request/control ve owner ek bağlama paritesi ayrı typed sözleşmeyle korunur; hiçbir model alanı özgün onay metnini değiştiremez.
 - Not sırası düzeltmesi: `N numaralı`, `N.`, sıra sözcüğü ve `son not` güncel Profile liste konumundan bağlanır; ortak kalıcı ID ile karışmaz. `#ID`/`id: ID` açık kimliktir. Önceki tur konumu atılır, taze Profile gözlemi aynı notu yeniler; bütçeyle kesilmiş listede son/sıralı hedef tahmin edilmez. Referans çözümü işlem yetkisi değildir: CHAT veya model hatası not değiştirmez.
 - Eski testler raw fallback yerine açık model önerisiyle gerçek prepare/handoff/Core/domain hattını sürer. Bounded `boşver` hedef yokken `job.empty_cancel` no-op olarak ölçülür; eski baseline sonuçları yeniden yazılmaz.
+- Son incelemenin beş açığı aynı PR'da bağlandı: açık dosya/belge referansında boş/bayat envanter mevcut cache sahibinden tazelenir; toplam aday sınırı türler arasında paylaştırılır; tek not sonucunun owner/ID/digest/zaman referansı sonraki tura taşınır ve adla okuma çözülür; tamamlanmış görev temizliği süreli snapshot onayından mevcut işçiye gider; hedef/zarf reddi sağlayıcı yokluğundan ayrılır. Sıradan sohbet disk taramaz, yeni semantik parser/fallback açılmaz. Geçmişte aynı komutun bulunması adlandırılmış kaynak hedefini gölgelemez. `tests/test_brain_03_observation_parity.py` üretim zarf decoder/Core/domain hattında bu bağlantıları ve yanlış owner/değişmiş kapsam/ret/reset sınırlarını sınar.
 - Saf eski `understand` fonksiyonu `model_understanding=False` karakterizasyon yüzeyinde kalır. Talimatsız fotoğrafın “ne yapayım?” meta bekleme turu da model çağırmaz; burada kullanıcı komutu yürütülmez. Serbest talimat içeren üretim text/live/photo ve iç adımlar birincil modele gider; kaynak/caller guard'ları bu sınırı denetler.
 
 ## Gerçek test/kanıt kapıları
@@ -68,5 +75,6 @@ Full holdout ölçümü ayrı ayrı gerekir. Hiçbiri tahminle doldurulmaz.
 - BRAIN-04/05 mevcut batch ve Goal continuation adaptörleri kullanılır;
   BRAIN-07 worker/Scheduler yürütme sahipliği ve diğer açık PR'lar genişletilmez.
 
-**Son karar:** CI/PC/Full holdout doğrulanana ve regresyonlar kapatılana
-kadar #613 Draft, #545 açık, merge yok.
+**Son karar:** Son kodun CI/PC sonucu olmadan entegrasyon yapılmaz.
+Kullanıcının merge yetkisi canlı Full ölçümü yerine geçmez; Full kabulü
+doğrulanana kadar #545 ve BRAIN-03 faz kapanışı açıktır.

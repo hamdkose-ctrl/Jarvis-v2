@@ -207,6 +207,9 @@ def handle(runtime, command: str):
                 if isinstance(action, dict) and action.get('action') == 'notes_clear':
                     from modules import main_planner
                     return main_planner.clear_notes_confirmed(runtime, action)
+                if isinstance(action, dict) and action.get('action') == 'tasks_clear_done':
+                    from modules import tasks
+                    return tasks.clear_done_confirmed(runtime.profile, action)
                 if isinstance(action, dict) and action.get('action') == 'reminder_modify':
                     from modules import main_planner
                     return main_planner.modify_reminder_confirmed(runtime, action)

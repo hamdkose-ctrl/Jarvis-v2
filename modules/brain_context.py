@@ -248,6 +248,23 @@ def _session_refs(owner: str, state: Any) -> tuple[list[ContextReference], list[
     return pending, artifacts, recent
 
 
+def _session_note_ref(owner: str, state: Any, profile: Any) -> ContextReference | None:
+    """Re-observe a just-delivered note; an old ID alone is never context authority."""
+    from modules import main_planner, personalization, session_state
+    observed = session_state.fresh_note(state, owner)
+    if observed is None or str(getattr(profile, "slug", "")) != owner:
+        return None
+    with personalization._LOCK:
+        data = getattr(profile, "data", {})
+        rows = [row for row in data.get("items", ()) if isinstance(row, dict)
+                and str(row.get("id")) == observed["id"]]
+        if len(rows) != 1 or main_planner.note_snapshot_digest(rows[0]) != observed["digest"]:
+            return None
+        return _ref(owner=owner, ident=observed["id"], kind="note", source="profile.items",
+                    provenance={"collection": "items", **{key: rows[0].get(key)
+                                for key in ("text", "title", "ts", "photo")}})
+
+
 def _history_refs(
     owner: str,
     reader: Callable[[str, int], Iterable[Mapping[str, Any]]],
@@ -505,6 +522,9 @@ def build_active_context(
     pending.extend(session_pending)
     artifacts.extend(session_artifacts)
     recent.extend(session_recent)
+    note_ref = _session_note_ref(owner, state, profile)
+    if note_ref is not None:
+        recent.append(note_ref)
     if session_status is not None:
         recent.append(session_status)
 

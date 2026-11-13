@@ -2,6 +2,8 @@
 
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
 
+- Son parite: `tasks.manage.clear_done` yalnız tamamlanmış görevleri mevcut `tasks.clear_done` işçisine bağlar. Önce mevcut `pending_confirm` sahibi sorar; owner, 90 sn süre ve tamamlanmış kayıtların exact snapshot digest'i onayda kilit altında kontrol edilir. Sonradan tamamlanan/değişen kayıt kapsamı onayı geçersiz kılar; yeni açık görev silinmez. Başarısız save belleği geri alır. Model zarfı/hedef reddi, rota veya taşıma yokluğundan ayrılır; `MODEL_PROPOSAL_REJECTED` de ham cepheleri açmaz.
+
 - Üretim text/live/nested girişler nötr gözlemden tek model kararı alır. Genel raw cascade, ikinci typo/sequence yorumlayıcısı ve Study callback'i emeklidir. `model_understanding=False` eski saf karakterizasyon ve talimatsız fotoğrafın “ne yapayım?” bekleme metadatası içindir; serbest kullanıcı talimatını yürütmez.
 - `tasks.manage.delete` yalnız tam metinle tek owner görevini seçer; mevcut `app_actions.voice(task_delete)` State onayı olmadan silmez. Tema seçimi `jarvis.selfctl` kapalı `nx_theme` değeriyle mevcut `nxapi.ui_set` sahibine gider.
 - Core kataloğunun her yeteneği modele alan/enum/kısıt sözleşmesiyle sunulur. Şehir set/reset için eski deterministik istisna kalmaz; set alanı kullanıcı sözünden alıntılı dayanak ister. Geçmiş konuşma ID'leri ve yerel güncel saat Core gözlemidir; model önerisi kimlik/izin üretmez.

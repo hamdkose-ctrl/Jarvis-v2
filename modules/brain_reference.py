@@ -22,6 +22,9 @@ _NOTE_MUTATION = re.compile(
 _NOTE_SUMMARY = re.compile(
     r"^(?P<target>.+?)\s+(?:(?:başlıklı|baslikli)\s+)?not\w*\s+(?:özetle|ozetle|özet|ozet)\w*$"
 )
+_NOTE_READ = re.compile(
+    r"^(?P<target>.+?)\s+(?:(?:başlıklı|baslikli)\s+)?not\w*\s+(?:göster|goster|oku|getir)\w*$"
+)
 _NOTE_ORDINALS = {
     "ilk": 1, "birinci": 1, "ikinci": 2, "üçüncü": 3, "ucuncu": 3, "dördüncü": 4, "dorduncu": 4,
     "beşinci": 5, "besinci": 5, "altıncı": 6, "altinci": 6, "yedinci": 7,
@@ -128,7 +131,8 @@ def _file_signals(candidate: ContextReference) -> tuple[str, ...]:
 def _note_target_words(text: str) -> tuple[str, ...]:
     """Named note target; list positions and active deictics resolve separately."""
     stripped = text.strip(" .!?")
-    match = _NOTE_MUTATION.fullmatch(stripped) or _NOTE_SUMMARY.fullmatch(stripped)
+    match = (_NOTE_MUTATION.fullmatch(stripped) or _NOTE_SUMMARY.fullmatch(stripped)
+             or _NOTE_READ.fullmatch(stripped))
     if match is None:
         return ()
     words = tuple(re.findall(r"[\wçğıöşü]+", match.group("target")))
@@ -137,6 +141,20 @@ def _note_target_words(text: str) -> tuple[str, ...]:
     if any(word.isdecimal() or word in _NOTE_TARGET_STOP for word in words):
         return ()
     return words
+
+
+def file_observation_requested(text: str) -> bool:
+    """Bounded resource mentions, never an intent/operation decision.
+
+    Ordinary chat must not synchronously walk the PC. An explicit document
+    noun or a supported filename can request read-only inventory discovery.
+    """
+    from modules import nxapi
+    text = _norm(text)
+    if re.search(r"(?<!\w)(?:dosya|belge)\w*", text):
+        return True
+    extensions = "|".join(re.escape(ext.lstrip(".")) for ext in sorted(nxapi._ALL))
+    return re.search(r"(?<!\w)[\w-]+\.(?:" + extensions + r")(?!\w)", text) is not None
 
 
 def _note_candidate_matches(candidate: ContextReference, target_words: tuple[str, ...]) -> bool:
@@ -243,16 +261,6 @@ def resolve_references(
     if explicit:
         return explicit
 
-    exact_fields: list[ContextReference] = []
-    for candidate in usable:
-        for key in _TEXT_FIELDS:
-            signal = _norm(candidate.provenance.get(key))
-            if signal and normalized == signal:
-                exact_fields.append(candidate)
-                break
-    if exact_fields:
-        return tuple(exact_fields)
-
     note_target = _note_target_words(normalized)
     if note_target:
         note_matches = tuple(candidate for candidate in usable if _note_candidate_matches(candidate, note_target))
@@ -267,6 +275,18 @@ def resolve_references(
     )
     if file_matches:
         return file_matches
+
+    # A repeated command can equal a prior user history row verbatim. That
+    # history text must not hide its explicitly named note/file target.
+    exact_fields: list[ContextReference] = []
+    for candidate in usable:
+        for key in _TEXT_FIELDS:
+            signal = _norm(candidate.provenance.get(key))
+            if signal and normalized == signal:
+                exact_fields.append(candidate)
+                break
+    if exact_fields:
+        return tuple(exact_fields)
 
     if any(_phrase(normalized, phrase) for phrase in _FILE_DEICTICS):
         return tuple(candidate for candidate in usable if candidate.kind == "file")

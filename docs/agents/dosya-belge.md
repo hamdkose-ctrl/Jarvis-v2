@@ -1,5 +1,7 @@
 # Dosya, belge ve klasör (AGENTS.md alan notları)
 
+- **BRAIN-03 #613 son gözlem bağlantısı:** Üretim turunda açık dosya/belge sözü veya desteklenen dosya adı salt-okunur envanter keşfine izin verir; bu gözlem intent/operation seçmez. Boş/bayat cache mevcut `nxapi._background_refresh` generation çitiyle yenilenir ve tekrar kullanılır; sıradan sohbet senkron disk taramaz. Candidate Builder toplam sınırı korurken türleri sırayla paylaştırır; görev/geçmiş sayısı tek dosyayı tamamen gizlemez. Dosya varlığı/izin sınırı Core ve mevcut işçide yeniden doğrulanır. Aynı komutun geçmiş metni, adı belirtilmiş dosya hedefinin önüne geçmez. Üretim regresyonu: `tests/test_brain_03_observation_parity.py`.
+
 ## BRAIN-03 son karar — #613, 13 Kasım 2026
 
 - `files.read` modelden operasyon ve izinli target/format alır; yollar yalnız owner'a ait sunulmuş `file_N` slotlarından bağlanır. Çeviri/dönüştürme ve özet/analiz çıktısı mevcut worker'dadır.

@@ -478,6 +478,8 @@ def notes_search(runtime, query: str, window: str | None = None) -> str:
     if not hits:
         return f'“{what}” için bir not bulamadım ({len(items)} notun var).'
     head = 'Bulduğum not' if len(hits) == 1 else f'Bulduğum {len(hits)} not'
+    if len(hits) == 1:
+        remember_note_target(runtime, hits[0][1])
     return f"{head}{' (yazımı benzeyen)' if fuzzy else ''}: {_note_listing(hits)}"
 
 
@@ -503,6 +505,8 @@ def notes_summary(runtime, note_id: str | None = None) -> str:
         "Aşağıdaki notları Türkçe, en fazla 6 madde halinde kısaca özetle. Notlarda olmayan bilgi ekleme, "
         "işlem yapma, dosya oluşturma.\n\n" + "\n".join(lines)
     ) or '').strip()
+    if text and note_id is not None:
+        remember_note_target(runtime, rows[0])
     return text or 'Notları özetleyemedim.'
 
 
@@ -530,6 +534,13 @@ def note_snapshot_digest(note) -> str | None:
         return None
     raw = json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def remember_note_target(runtime, note) -> None:
+    from modules import session_state
+    digest = note_snapshot_digest(note)
+    if digest is not None:
+        session_state.remember_note(runtime._session(), runtime.profile.slug, note["id"], digest)
 
 
 def _notes_snapshot_digest(runtime) -> str:

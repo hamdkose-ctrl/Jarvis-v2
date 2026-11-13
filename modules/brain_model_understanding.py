@@ -374,10 +374,11 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                               "Core fetches a bounded public source, never accept model URL, file or course ID; "
                               "ordinary lesson research=false"}
     if capability_id == "tasks.manage":
-        return {"operation": ["list", "add", "complete", "delete"],
-                "text": "verbatim user-provided task title; omit on list",
+        return {"operation": ["list", "add", "complete", "delete", "clear_done"],
+                "text": "verbatim user-provided task title; omit on list/clear_done",
                 "argument_sources": ["text"],
-                "constraint": "complete only exactly one currently open task title; do not infer by substring"}
+                "constraint": "complete only exactly one currently open task title; do not infer by substring; "
+                              "clear_done only for explicitly deleting completed tasks, always snapshot-bound Core confirmation"}
     if capability_id == "kb.query":
         return {"question": "verbatim user's question about their indexed documents",
                 "argument_sources": ["question"]}
@@ -1305,6 +1306,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
     telefon) modelden gelebilir ama ancak cümlenin kendisinden alıntılanmış bir dayanakla.
     """
     proposal_diagnostic(clear=True)
+    response_received = False
     if not owner or not isinstance(text, str) or not text.strip():
         return _reject('INPUT_INVALID')
     try:
@@ -1494,6 +1496,8 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             return llm._send_provider(provider, prompt, system, _RESPONSE_MAX_TOKENS, None, model=model)
 
         def validate_response(raw: str) -> None:
+            nonlocal response_received
+            response_received = True
             proposal = _build(_decode(raw), owner=owner, text=text, current=current,
                               deterministic_arguments=arguments, protected_relation=protected_relation,
                               file_operation_hint=file_operation_hint, goal_candidates=goal_candidates,
@@ -1509,6 +1513,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
                 exclude_providers={"ollama"}, include_model=True, validator=validate_response, deadline=deadline,
             )
             requests_state.check()
+        response_received = True
         row = _decode(raw)
         # Retain only closed protocol enums, never arbitrary response fields/arguments.
         detail = {}
@@ -1546,7 +1551,7 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             # Yerel süre aşımı ile sağlayıcının yanıt vermemesi ayrı kök nedenlerdir.
             code = 'LOCAL_DEADLINE_EXCEEDED'
         else:
-            code = 'MODEL_CALL_OR_VALIDATION_ERROR'
+            code = 'MODEL_RESPONSE_INVALID' if response_received else 'MODEL_CALL_ERROR'
         if proposal_diagnostic().get('status') != 'rejected':
             _reject(code)
         if isinstance(exc, requests_state.Cancelled):

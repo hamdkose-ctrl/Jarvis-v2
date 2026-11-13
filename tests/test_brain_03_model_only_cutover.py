@@ -241,7 +241,8 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
                 entry, response, _handler, feedback = self._proposed_note_turn(
                     "market notunu sil", operation="delete", selected_slot=slot)
                 self.assertEqual(feedback.result_status, "failed")
-                self.assertIn("model", response.casefold())
+                self.assertIn("MODEL_PROPOSAL_REJECTED", entry.understanding.reason_codes)
+                self.assertIn("doğrulayamadım", response.casefold())
                 self.assertEqual(self.ctx.profile.data["items"], before)
         self.assertNotEqual(first["id"], second["id"])
 

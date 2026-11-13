@@ -197,7 +197,7 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
         entry, _rid = self.prepare_photo("Bunu analiz et", transport=raw)
         self.assertIsNone(brain_entry.core_plan(entry))
         self.executor.assert_not_called()
-        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.assertIn("MODEL_PROPOSAL_REJECTED", entry.understanding.reason_codes)
 
     def test_photo_action_without_operation_cannot_inherit_old_regex_guess(self):
         raw = photo_envelope(
@@ -205,7 +205,7 @@ class PhotoTurnEnvelopeTests(_PhotoHarness):
         entry, _rid = self.prepare_photo("Bunu analiz et", transport=raw)
         self.assertIsNone(brain_entry.core_plan(entry))
         self.executor.assert_not_called()
-        self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+        self.assertIn("MODEL_PROPOSAL_REJECTED", entry.understanding.reason_codes)
 
     def test_quota_exhaustion_fails_closed_without_photo_execution(self):
         error = failure_policy.ProviderExhaustedError(

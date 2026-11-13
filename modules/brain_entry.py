@@ -477,13 +477,14 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         if native.source == "desktop_agent" and native.provenance.get("status") == "question":
             active = _append_pending(active, native)
 
+    from modules.brain_reference import file_observation_requested
     candidates, references, semantic = _semantic_pass(
         runtime,
         owner=owner,
         request_id=request_id,
         text=text,
         active=active,
-        allow_file_scan=False,
+        allow_file_scan=model_understanding and file_observation_requested(text),
         model_only=model_understanding,
     )
     if not model_understanding and _needs_file_discovery(references, semantic):
@@ -501,10 +502,19 @@ def prepare(runtime: Any, *, owner: str, request_id: str, text: str, source: str
         # proposals, and a NEW immutable result only on accepted proposals.
         # Tests can supply a model adapter without forging authority flags.
         evidence = semantic
+        from modules.brain_model_understanding import proposal_diagnostic
+        proposal_diagnostic(clear=True)
         semantic = apply_model_understanding(evidence, text, active_context=active)
         if semantic is evidence:
+            diagnostic = proposal_diagnostic()
+            reason = diagnostic.get("reason_code")
+            unavailable = (not diagnostic or reason in {
+                "PROVIDER_UNAVAILABLE", "PROVIDER_ROUTE_DISABLED", "MODEL_CALL_ERROR",
+                "MODEL_CALL_OR_VALIDATION_ERROR", "LOCAL_DEADLINE_EXCEEDED", "REQUEST_CANCELLED",
+            })
             semantic = replace(
-                evidence, reason_codes=evidence.reason_codes + ("MODEL_UNAVAILABLE",))
+                evidence, reason_codes=evidence.reason_codes + (
+                    "MODEL_UNAVAILABLE" if unavailable else "MODEL_PROPOSAL_REJECTED",))
         elif "MODEL_DECIDED" not in semantic.reason_codes:
             semantic = replace(
                 semantic, reason_codes=semantic.reason_codes + ("MODEL_DECIDED",))
@@ -1357,8 +1367,15 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
         session_reader = getattr(runtime, "_session", None)
         if callable(session_reader):
             session_state.clear_property(session_reader())
+    if semantic is None or semantic.capability_hint != "notes.write":
+        from modules import session_state
+        session_reader = getattr(runtime, "_session", None)
+        if callable(session_reader):
+            # Reads/adds must publish their own successful result. Other turns
+            # close the previous referent instead of letting it drift topics.
+            session_state.clear_note(session_reader())
     if (entry.stage == "understanding" and semantic is not None
-            and "MODEL_UNAVAILABLE" in semantic.reason_codes):
+            and {"MODEL_UNAVAILABLE", "MODEL_PROPOSAL_REJECTED"}.intersection(semantic.reason_codes)):
         # State and Fast lanes have their own exact Core protocols. They never
         # depend on the general semantic model's availability.
         # Only explicit UI-path and exact user-registered shortcut protocols
@@ -1383,8 +1400,13 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
                 row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
                 _LAST_FEEDBACK.set(row)
                 return output, row, None
-        row = feedback(entry, result_status="failed", reason_code="BRAIN_MODEL_UNAVAILABLE")
+        rejected = "MODEL_PROPOSAL_REJECTED" in semantic.reason_codes
+        row = feedback(entry, result_status="failed", reason_code=(
+            "BRAIN_MODEL_PROPOSAL_REJECTED" if rejected else "BRAIN_MODEL_UNAVAILABLE"))
         _LAST_FEEDBACK.set(row)
+        if rejected:
+            return ("İstenen hedefi veya işlem bilgilerini güvenli biçimde doğrulayamadım; "
+                    "hiçbir işlem başlatmadım.", row, None)
         return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
                 "güvenlik için işlem başlatmadım.", row, None)
     question = clarification(entry)
