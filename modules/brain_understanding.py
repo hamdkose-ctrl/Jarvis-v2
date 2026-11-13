@@ -2701,7 +2701,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 result.pending_owner is not None
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
-            file_operation_hint=_file_operation(_norm(text)),
+            file_operation_hint=None,
             # BRAIN-05: modelin adresleyebileceği tek hedef kümesi, Core'un bu tur için
             # owner'ın kendi kayıtlarından gözlemlediği açık kartlardır; resolver aynı
             # ActiveContext alanını sonradan yeniden doğrular.
@@ -2741,10 +2741,6 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             return result
         request_kind = REQUEST_KIND_BY_OPERATION[proposal.operation]
         goal_control = request_kind is RequestKind.GOAL_CONTROL
-        # Typed bir görsel isteği ürün niyetidir: model bağlamı yorumlayabilir ama onu
-        # istenen resmi sohbete çeviremez.
-        if result.capability_hint == VISUAL_CAPABILITY and request_kind is not RequestKind.CAPABILITY:
-            return result
         action = proposal.actions[0] if proposal.actions else None
         batch = proposal.operation == "action_batch"
         # A batch never collapses into its first action: Core receives every validated action,
@@ -2757,9 +2753,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         next_hint = None if batch or action is None else action.capability_id
         next_arguments = {"original_text": text} if batch else (
             dict(action.arguments) if action is not None else {"original_text": text})
-        next_preview = result.preview
+        next_preview = None
         next_references = proposal.references if proposal.references else result.references
-        next_ambiguities = result.ambiguities
+        # A valid model decision replaces the old lexical guess. Its ambiguity
+        # is not inherited; only an explicit model clarify or missing Core
+        # target may ask another question.
+        next_ambiguities = ()
         # Only an accepted, schema-validated model proposal may authorize free
         # language. Deterministic Understanding is evidence, never the fallback
         # decision maker when the model does not produce a valid proposal.
@@ -2770,12 +2769,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         # This marker carries no model text, permission or effect authority.
         if proposal.operation == "chat":
             next_reason_codes = next_reason_codes + ("MODEL_CHAT_DECIDED",)
-        next_needs_input = result.needs_input
+        next_needs_input = False
 
         if request_kind is RequestKind.CLARIFY:
             next_arguments = {"original_text":text, "question":proposal.clarification_question}
-            next_ambiguities = result.ambiguities or ("MODEL_CLARIFICATION_REQUIRED",)
-            next_reason_codes = result.reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
+            next_ambiguities = ("MODEL_CLARIFICATION_REQUIRED",)
+            next_reason_codes = next_reason_codes + ("MODEL_CLARIFICATION_REQUIRED",)
             next_needs_input = True
 
         if proposal.references and request_kind is not RequestKind.CLARIFY:
@@ -2795,6 +2794,9 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             result,
             request_kind=request_kind,
             conversation_relation=proposal.conversation_relation,
+            pending_owner=(result.pending_owner if
+                           proposal.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
+                           else None),
             temporal_need=proposal.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,
