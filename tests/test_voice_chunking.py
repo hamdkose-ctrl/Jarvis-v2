@@ -4,7 +4,7 @@ import time
 import unittest
 
 from modules.voice_core import (
-    SPEECH_CHUNK_CHARS, SpeechRequest, VoiceCatalog,
+    SPEECH_CHUNK_CHARS, SPEECH_FIRST_CHUNK_CHARS, SpeechRequest, VoiceCatalog,
     VoiceCoordinator, VoiceSpec, split_speech_text,
 )
 
@@ -64,6 +64,52 @@ class ChunkedSpeechTests(unittest.TestCase):
         self.assertEqual(len(parts), 12000 // SPEECH_CHUNK_CHARS)
         self.assertEqual("".join(parts), "ğ" * 12000)
         self.assertTrue(all(len(p) == SPEECH_CHUNK_CHARS for p in parts))
+
+    def test_a_long_answer_is_spoken_after_its_first_short_sentence_not_its_first_window(self):
+        # The reinstall symptom was the voice arriving seconds after the text: the
+        # device could only start once a whole 600-character window had been
+        # synthesized. The opening chunk now stops at the first sentence end, so the
+        # first sound comes after one sentence and every later chunk keeps the
+        # ordinary bound. Nothing is dropped and no character is rewritten.
+        sentences = [f"Bu {n}. deneme cümlesidir." for n in range(40)]
+        text = " ".join(sentences)
+        self.assertGreater(len(text), SPEECH_CHUNK_CHARS)
+        parts = split_speech_text(text)
+        self.assertLessEqual(len(parts[0]), SPEECH_FIRST_CHUNK_CHARS)
+        self.assertTrue(parts[0].rstrip().endswith("."))
+        self.assertTrue(all(len(p) <= SPEECH_CHUNK_CHARS for p in parts[1:]))
+        self.assertEqual(" ".join(p.strip() for p in parts), text)
+
+    def test_a_reply_that_fits_one_chunk_is_still_exactly_one_provider_call(self):
+        # Quota and stability rule: the early boundary may not turn an ordinary
+        # answer into two synthesis calls. Only text that really needs more than one
+        # chunk is opened early.
+        for text in ("Kurulu üç ses var. Yazılı sonuçta liste hazır.",
+                     "Cümle. " * 60, ("Uzun " * 90) + "cümle bitiş."):
+            with self.subTest(chars=len(text)):
+                self.assertLessEqual(len(text), SPEECH_CHUNK_CHARS)
+                self.assertEqual(split_speech_text(text), (text,))
+
+    def test_an_early_boundary_never_loses_or_rewrites_a_character(self):
+        # A long answer without a sentence end opens on the ordinary window: the
+        # measurement must never buy speed with a missing word.
+        sentenceless = "söz " * 200
+        parts = split_speech_text(sentenceless)
+        self.assertGreater(len(sentenceless), SPEECH_CHUNK_CHARS)
+        self.assertEqual("".join(parts), sentenceless)
+        self.assertTrue(all(len(p) <= SPEECH_CHUNK_CHARS for p in parts))
+        dotted = ("12.34 ile 5.6 toplandı. " * 40).strip()   # decimal points, not ends
+        self.assertEqual("".join(split_speech_text(dotted)), dotted)
+
+    def test_first_chunk_bounds_are_validated_like_the_ordinary_one(self):
+        for limit in (31, 12001, True, 0):
+            with self.subTest(first=limit), self.assertRaises(ValueError):
+                split_speech_text("Merhaba dünya.", first_max_chars=limit)
+        # A caller that lowers the ordinary bound lowers the opening with it.
+        text = "Abcdefghijklmnop qrstu. vwxyzabcde fghijklm. " * 8
+        parts = split_speech_text(text, max_chars=40, first_max_chars=200)
+        self.assertTrue(all(len(p) <= 40 for p in parts))
+        self.assertEqual("".join(parts), text)
 
     def test_bad_chunk_contract_rejected_without_playback(self):
         for bad in ("", "  ", "x" * 12001, None):

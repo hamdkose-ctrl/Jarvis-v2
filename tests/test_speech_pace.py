@@ -81,5 +81,49 @@ class SpeechPace(unittest.TestCase):
         self.assertEqual([call.args for call in emit.call_args_list], [('state', 'idle')])
 
 
+class SpokenLengthBound(unittest.TestCase):
+    """What a long answer reaches the speaker as: measured, not hoped for.
+
+    `_short_for_speech` is the engine's own cut before speech (engine_loop:458) and
+    the phone's written view (phone.py:928). It has always preferred a sentence end;
+    when it found none the fallback was a raw character cut, so the last thing the
+    user heard was half a word ("…birka"). Nothing here rewrites the answer.
+    """
+
+    def short(self, text, limit=400):
+        from unittest.mock import Mock
+        from modules.engine_output import _short_for_speech
+        return _short_for_speech(Mock(), text, limit)
+
+    def test_a_short_answer_is_spoken_whatever_its_shape(self):
+        for text in ("Merhaba.", "a" * 400, "Tam cümle, kesinti yok."):
+            with self.subTest(text=text[:12]):
+                self.assertEqual(self.short(text), text)
+
+    def test_a_complete_sentence_is_cut_at_its_end(self):
+        spoken = self.short("abc def. " * 120)
+        self.assertTrue(spoken.endswith("abc def."), repr(spoken[-12:]))
+        self.assertLess(len(spoken), 400)
+
+    def test_an_answer_without_a_sentence_end_never_stops_mid_word(self):
+        # The defect measured on 13 Kasım 2026: 400 characters of words with no "."
+        # at all used to be read as "…kelime" cut into "…keli".
+        spoken = self.short("kelime " * 200)
+        self.assertTrue(spoken.endswith("kelime"), repr(spoken[-12:]))
+        self.assertLess(len(spoken), 400)
+
+    def test_the_cut_only_shortens_and_never_rewrites(self):
+        for text in ("abc def. " * 120, "kelime " * 200, "x" * 900):
+            spoken = self.short(text)
+            with self.subTest(text=text[:10]):
+                self.assertTrue(text.startswith(spoken))
+                self.assertLessEqual(len(spoken), 400)
+
+    def test_a_single_unbroken_token_is_still_bounded(self):
+        # A URL or a base64 blob has no space either; it must not be read forever,
+        # so this one case keeps the character bound and says so rather than lying.
+        self.assertEqual(self.short("x" * 900), "x" * 400)
+
+
 if __name__ == "__main__":
     unittest.main()
