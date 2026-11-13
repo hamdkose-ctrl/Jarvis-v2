@@ -446,8 +446,41 @@ def dependent_research_worker(
             )
         else:
             if current['version'] != expected['expected_job_version']:
-                raise ReadOnlyAdmissionError(
-                    'Dependent research GoalState changed during worker.'
+                # A dependent first-attempt read may overlap another
+                # *independent* root. Its Core CAS advance does not revoke
+                # our pinned parents. Never adopt another child result, a
+                # user edit, a revision, a failure without canonical audit,
+                # or our own duplicate worker result.
+                pinned = expected['expected_job_version']
+                advances = current['audit'][pinned + 1:]
+                if (current['version'] < pinned or not advances
+                        or any(row['op'] != 'append_evidence'
+                               or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                               for row in advances)
+                        or len(current['evidence']) < len(advances)):
+                    raise ReadOnlyAdmissionError(
+                        'Dependent research changed after non-worker mutation.'
+                    )
+                nodes = {
+                    node['id']: node
+                    for node in current['goal_plan']['nodes']
+                }
+                for row in current['evidence'][-len(advances):]:
+                    if (not isinstance(row, dict)
+                            or row.get('kind') != 'worker_result'
+                            or row.get('owner') != selected.owner
+                            or row.get('job_id') != selected.job_id
+                            or row.get('plan_version') != selected.plan_version
+                            or row.get('step_id') == selected.node_id
+                            or row.get('step_id') not in nodes
+                            or nodes[row['step_id']]['depends_on']):
+                        raise ReadOnlyAdmissionError(
+                            'Only independent worker progress can overlap a dependent.'
+                        )
+                # Audit, node digest, command identity, attempt and input
+                # proof are checked against the current canonical plan.
+                goal_plan_gate.ready_read_only_candidates(
+                    current, owner=selected.owner, job_id=selected.job_id,
                 )
             if allow_verify:
                 refreshed = goal_plan_gate.validate_dependent_verify_attempt(
