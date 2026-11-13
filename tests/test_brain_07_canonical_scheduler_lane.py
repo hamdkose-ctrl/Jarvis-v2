@@ -21,7 +21,7 @@ from modules import (
     canonical_output_projection, canonical_plan_evidence, canonical_restart_audit,
     canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
-    goal_executor, goal_state, goal_state_store, goal_tools,
+    goal_executor, goal_plan_gate, goal_state, goal_state_store, goal_tools,
     runtime_worker_result, scheduler_resource_gate, task_agents, task_results, untrusted_flow,
     worker_result_hook,
 )
@@ -82,6 +82,22 @@ class SchedulerOfferTests(unittest.TestCase):
 
     def offers(self):
         return canonical_scheduler_lane.ready_offers(OWNER, JOB)
+
+    def test_fresh_canonical_root_never_accepts_manufactured_retry_attempt(self):
+        # Readiness cannot authorize attempt 2 before any first-attempt
+        # WorkerResult exists in the canonical GoalState audit.
+        state = goal_state_store.load(self.path)
+        selected = goal_plan_gate.candidate(
+            state, owner=OWNER, job_id=JOB, node_id='left',
+        )
+        self.assertEqual(
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=1)['id'],
+            'left',
+        )
+        with self.assertRaises(goal_plan_gate.PlanFenceError):
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=2)
+        with self.assertRaises(goal_plan_gate.PlanFenceError):
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=999999)
 
     def test_scheduler_discovery_reads_both_snapshots_inside_existing_job_lock(self):
         """Deterministic regression: a Windows reader may not race os.replace."""
