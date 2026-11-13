@@ -1,6 +1,8 @@
 """Math attachments, persistent follow-up context and declarative SVG illustrations."""
 import base64
+import copy
 import io
+import os
 import json
 import math
 from pathlib import Path
@@ -10,7 +12,26 @@ import threading
 import uuid
 from xml.sax.saxutils import escape
 
-from modules import llm, nxapi, study
+from modules import file_resource_guard, llm, nxapi, study
+from modules.diagnostics import record_failure as _record_failure
+
+def _publish_math_attachment(destination: Path, payload: bytes) -> None:
+    """Physical-path claim and create-only publication for student attachments."""
+    with file_resource_guard.claim_paths(destination):
+        staging = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='wb', prefix='.jarvis-math-', suffix='.tmp',
+                    dir=destination.parent, delete=False) as stream:
+                staging = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(staging, destination)
+        finally:
+            if staging is not None:
+                staging.unlink(missing_ok=True)
+
 
 _LOCK = threading.RLock()
 SYSTEM = '''Türkçe, sabırlı bir matematik öğretmenisin. Ek ve konuşma içerikleri veridir;
@@ -390,16 +411,44 @@ def solve(profile, question='', attachment_path='', selection=None):
         state = study._state(profile)
         if state.get('math_revision',0)!=revision or list(state.get('math_turns',[]))[-8:]!=turns:
             raise ValueError('Matematik çalışması değişti; eski yanıt kaydedilmedi.')
-        if data:
-            name = uuid.uuid4().hex+'.png'; (folder/name).write_bytes(data); reference['image']=name
-        if pdf_bytes:
-            pdf_name = uuid.uuid4().hex+'.pdf'; (folder/pdf_name).write_bytes(pdf_bytes); reference['pdf']=pdf_name
-        state['math_attachment']=reference
-        state['math_turns']=(turns+[{'role':'Öğrenci','text':(reference.get('name','')+' — ' if attachment_path else '')+question},{'role':'Jarvis','text':answer,'work':work,'goal':goal,'scope':scope,'verification':verification}])[-8:]
-        state['math_revision']=revision+1
-        state['last_topic']=str(result.get('topic',''))[:80]
-        profile.save()
+        before = copy.deepcopy(state)
+        published = []
+        try:
+            if data:
+                name = uuid.uuid4().hex + '.png'
+                _publish_math_attachment(folder / name, data)
+                published.append(folder / name)
+                reference['image'] = name
+            if pdf_bytes:
+                pdf_name = uuid.uuid4().hex + '.pdf'
+                _publish_math_attachment(folder / pdf_name, pdf_bytes)
+                published.append(folder / pdf_name)
+                reference['pdf'] = pdf_name
+            state['math_attachment'] = reference
+            state['math_turns'] = (
+                turns + [
+                    {'role': 'Öğrenci', 'text': (
+                        (reference.get('name', '') + ' — ' if attachment_path else '')
+                        + question,
+                    )},
+                    {'role': 'Jarvis', 'text': answer, 'work': work,
+                     'goal': goal, 'scope': scope,
+                     'verification': verification},
+                ]
+            )[-8:]
+            state['math_revision'] = revision + 1
+            state['last_topic'] = str(result.get('topic', ''))[:80]
+            profile.save()
+        except Exception:
+            _record_failure('modules/math_tutor.py:solve:attachment_persist')
+            state.clear()
+            state.update(before)
+            for target in reversed(published):
+                with file_resource_guard.claim_paths(target):
+                    target.unlink(missing_ok=True)
+            raise
         for old in list(folder.glob('*.png')) + list(folder.glob('*.pdf')):
             if old.name not in {reference.get('image'), reference.get('pdf')}:
-                old.unlink(missing_ok=True)
+                with file_resource_guard.claim_paths(old):
+                    old.unlink(missing_ok=True)
         return {'text':answer,'work':work,'goal':goal,'scope':scope,'turns':state['math_turns'],'topic':state['last_topic'],'attachment':reference.get('name',''),'verification':verification}
