@@ -110,7 +110,7 @@ def resolve(runtime: Any, entry: Any) -> Resolution:
         # Only real typed-entry turns opt into the supported canonical read-only
         # background lane. Unsupported DAGs remain on the existing permissioned
         # legacy path; this is a transport boundary, not a free-text classifier.
-        if getattr(entry, 'source', None) == 'yazı':
+        if getattr(entry, 'source', None) in {'yazı', 'ses', 'telefon', 'canlı'}:
             from modules import canonical_goal_flow
             queued = canonical_goal_flow.try_create(owner, str(entry.request_id), text)
             if queued is not None:
@@ -220,6 +220,22 @@ def _dispatch(runtime: Any, goal_executor: Any, owner: str, operation: GoalOpera
     # `create_goal` buraya hiç ulaşmaz: yeni kaydın hedeflenecek bir kimliği yoktur ve o
     # geçiş `resolve` kendi dalından yürür. Buradaki her kol mevcut bir kayıttadır.
     if operation in {GoalOperation.CONTINUE, GoalOperation.RESUME}:
+        # A canonical-born DAG is exclusively driven by the background Scheduler.
+        # Sending "continue" into the legacy planner would create a second
+        # execution authority for the same persisted job. Read status only;
+        # never reopen a worker, call a model, or mutate either journal here.
+        from modules import goal_state
+        canonical = goal_executor.goal_job_control.canonical(
+            goal_executor._owner_root(owner), owner, ident,
+        )
+        if (canonical is not None
+                and goal_state.authority(canonical) == 'canonical'
+                and canonical.get('goal_plan') is not None):
+            return (
+                goal_executor.status_summary(goal_executor.read_job(owner, ident))
+                + '\n\nBu canonical arka plan hedefini Scheduler yürütüyor; '
+                  'devam komutu ikinci bir çalışma başlatmadı.'
+            )
         return goal_executor.run(runtime, _CONTINUE_TOKEN, resume=True, job_id=ident,
                                  expected_job_id=ident, expected_control=snapshot.get('control_key'))
     if operation is GoalOperation.REVISE:

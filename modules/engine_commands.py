@@ -163,7 +163,9 @@ def handle(runtime, command: str):
                         return f"{job['label']} klasöründe düzenlenecek dosya yok."
                     runtime._session().pending_organize = dict(job, plan=current, stamp=fresh)
                     return engine_intents.organize_preview_question(job["label"], current)
-                moved = runtime.files.apply_organize(job["plan"], runtime.profile.slug)
+                moved = runtime.files.apply_organize(
+                    job["plan"], runtime.profile.slug, expected_stamp=job.get("stamp"),
+                )
                 runtime.privacy.audit("klasör düzenleme", f"{job['label']}: {moved} dosya")
                 return f"{job['label']} klasöründe {moved} dosyayı düzenledim. Beğenmezsen “düzenlemeyi geri al” de."
             if approval is False:
