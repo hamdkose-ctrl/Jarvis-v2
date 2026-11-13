@@ -802,3 +802,12 @@ Dilim4 exact-head kabulü (9 Kasım 2026, `bb85f9b64a34b1c87449d5985210db4740c1a
 - **Açık kabul kısıtları:** Gerçek OAuth verified provider/connection ID henüz yok; provider-wide hesap claim güvenli ama kaba. Kooperatif 300 s worker deadline bloke olmuş sağlayıcı thread'ini zorla bitiremez. 15 otomatik Windows matrisi, 15 insan tarafından cihazda yapılan testle eşdeğer değil. Harici etki unknown/partial-success için exactly-once vaat edilmez. #613 BRAIN-03 ve #605 VOICE bu PR'dan ayrı kalır.
 
 **Kapanış kuralı:** PR #615 için SON source SHA'da Windows CI başarı, aynı SHA'da gerçek PC watcher `Genel durum: passed` ve `Validation: passed`, mergeable/review/doğrulama sonrası merge. Bu kanıtlar olmadan BRAIN-07 tamamlanmış işaretlenmez.
+
+
+### BRAIN-07 #617 — file_ops native effect parity (13 Kasım 2026; DRAFT, kabul bekliyor)
+
+PR #615 kaynak HEAD `8281c48006ed`, exact-head Windows CI + gerçek PC watcher kabulünden sonra `main`e squash merge edildi (`1bbe74c656a9`). Yukarıda #615 için yer alan "DRAFT/merge edilmedi" ifadeleri tarihsel taslak durumunu anlatır, güncel durum değildir.
+
+Kapanışta bulunan somut canlı fark: `engine_intents.file_mutate → file_ops.execute_typed` ve eski tekil dosya girişi, `files.apply_organize` yolunun aksine `shutil.move`/`Path.rename` kullanıyordu; aynı fiziksel kaynak claim'i tek başına dış süreçlerin hedef ezme yarışını engellemez. Bu PR her iki girişi tek var olan `files._move_create_only` create-only taşımaya taşır, hedefi `os.link` ile no-replace yayımlar, hareket/oluşturma öncesi kalıcı `intent` kaydı ve sonrasında SHA-256 bağlı tamamlanmış undo makbuzu kullanır. Yeni metin dosyası önce fsync'li geçici dosyada tamamlanır. Doğrulanmamış eski 2-alanlı undo makbuzu ve çökme sırasında kalan 4-alanlı intent otomatik geri alınmaz; başka dosya işleminde de belirsiz makbuz üzerine yazılmaz. Cross-volume/Hardlink desteklenmeyen dosya sisteminde güvenli biçimde reddedilir; bu bir hareket paritesi değişikliğidir ve test gerektirir.
+
+**Durum:** #617 kod+regresyon testleri draft; CI'nin ilk çalışması sadece roadmap drift yüzünden reddedildi, bu kayıtla guard gerekliliği sağlanıyor. YENİ HEAD için Windows CI ve gerçek PC watcher henüz doğrulanmadı, bu PR merge/issue kapanışı için kanıt değildir. BRAIN-08 dış etki idempotency, güvenilir sağlayıcı kimliği ve gerçek 15 manuel Windows senaryosu ayrıca açık kanıt gerektirir.

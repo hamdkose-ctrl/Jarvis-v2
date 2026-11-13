@@ -193,17 +193,19 @@ def _create_verified(target: Path, text: str, owner: str) -> None:
         raise FileExistsError('Dosya hedefi zaten kullanılıyor.')
     row = [str(target), '', digest]
     _record([row + ['intent']], owner)
-    with tempfile.NamedTemporaryFile(
-            mode='wb', dir=target.parent, prefix='.jarvis-file-',
-            suffix='.tmp', delete=False) as stream:
-        tmp = Path(stream.name)
-        stream.write(payload)
-        stream.flush()
-        os.fsync(stream.fileno())
+    tmp = None
     try:
+        with tempfile.NamedTemporaryFile(
+                mode='wb', dir=target.parent, prefix='.jarvis-file-',
+                suffix='.tmp', delete=False) as stream:
+            tmp = Path(stream.name)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.link(tmp, target)
     finally:
-        tmp.unlink(missing_ok=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     _record([row], owner)
 
 
