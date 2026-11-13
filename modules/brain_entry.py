@@ -1124,17 +1124,8 @@ def _use_existing_handler(entry: EntryResult) -> bool:
     return False
 
 
-def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: str) -> bool:
-    """Keep bounded user-addressed command protocols even if model says CHAT.
-
-    The predicates are pre-existing exact/explicit protocols, not a new
-    natural-language classifier. Unmapped free-form legacy effects cannot
-    override an accepted no-effect model decision.
-    """
-    semantic = entry.understanding
-    if (semantic is None or semantic.request_kind is not RequestKind.CHAT
-            or not ({"MODEL_DECIDED", "MODEL_CHAT_DECIDED"} & set(semantic.reason_codes))):
-        return False
+def _is_explicit_owner_protocol(runtime: Any, command: str) -> bool:
+    """Exact user-addressed owner commands; never a raw NL fallback."""
     from modules import brain_precedence
     if (brain_precedence.explicit_desktop_owner_protocol(command)
             or brain_precedence.explicit_workflow_owner_protocol(command)):
@@ -1143,13 +1134,20 @@ def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: 
     match = getattr(runtime, "_FILE_CMD", None)
     if main_documents.explicit_ui_file_command(command, match):
         return True
-    # Explicit updater/publisher commands retain their existing exact,
-    # idempotence and permission contracts; no substring or fuzzy matching.
     from modules import git_publish
     if git_publish.requested(command):
         return True
     import updater
     return updater.command_request(command) is not None
+
+
+def _explicit_owner_after_model_chat(runtime: Any, entry: EntryResult, command: str) -> bool:
+    """An explicit bounded command survives an accepted model CHAT verdict."""
+    semantic = entry.understanding
+    if (semantic is None or semantic.request_kind is not RequestKind.CHAT
+            or not ({"MODEL_DECIDED", "MODEL_CHAT_DECIDED"} & set(semantic.reason_codes))):
+        return False
+    return _is_explicit_owner_protocol(runtime, command)
 
 
 def _drop_stale_clarify(runtime: Any, entry: EntryResult) -> None:
@@ -1336,6 +1334,20 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
             row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
             _LAST_FEEDBACK.set(row)
             return exact[1], row, None
+        # Independent exact PC/workflow/git/updater owner protocols must remain
+        # operational without the semantic model. Do not admit any raw natural
+        # language fallback; only a whole explicit protocol can enter the
+        # existing bounded handler and its permission checks.
+        if _is_explicit_owner_protocol(runtime, command):
+            if not callable(handler):
+                raise ValueError("Exact protocol handler callable olmalı.")
+            _install_core_guards(runtime)
+            with bind(entry):
+                output = handler(command)
+            if output is not None:
+                row = feedback(entry, result_status="handled", reason_code="EXACT_PROTOCOL_HANDLED")
+                _LAST_FEEDBACK.set(row)
+                return output, row, None
         row = feedback(entry, result_status="failed", reason_code="BRAIN_MODEL_UNAVAILABLE")
         _LAST_FEEDBACK.set(row)
         return ("Doğal dil isteğini doğrulayacak model şu anda kullanılamıyor; "
