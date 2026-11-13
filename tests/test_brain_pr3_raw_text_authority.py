@@ -347,13 +347,13 @@ class AppTargetAuthorityTests(_CanonicalAuthorityHarness):
                 self.assertIn("kaydedilmemiş", out, text)
 
     def test_close_grammar_does_not_outrank_the_notes_front_gate(self):
-        # "Not Defteri kapat" baseline'de de not planner'ına düşüyordu (ham app-close dalı
-        # handle'da planner'ın SONRASINDAYDI). PR3A bu sıralamayı değiştirmez: front gate
-        # cevabı Core app.close planını gölger, hiçbir kapatma onayı açılmaz.
+        # A canonical app.close proposal is not the old accidental note-planner
+        # shadow. It asks for confirmation, but cannot close without approval.
         entry, out, handle, _ = self.turn("Not Defteri kapat")
         self.assertEqual(entry.understanding.capability_hint, "app.close")
-        self.assertIsNone(self.ctx._session().pending_confirm, out)
-        self.assertNotIn("kaydedilmemiş", out)
+        self.assertEqual(self.ctx._session().pending_confirm,
+                         {"action": "close_app", "name": "not defteri"})
+        self.assertIn("kaydedilmemiş", out)
         self.ctx.system_control.close_application.assert_not_called()
         handle.assert_not_called()
 
