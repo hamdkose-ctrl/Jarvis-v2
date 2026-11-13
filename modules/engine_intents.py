@@ -254,6 +254,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
         case "filesend_transfer":
             from modules import filesend
             return filesend.transfer_typed(runtime.profile.slug, a["operation"], a.get("query", ""))
+        case "pc_guide_start":
+            from modules import pc_guide
+            # The only model-owned effect is starting the existing read-only
+            # guided-overlay worker. The goal stays user-grounded, while the
+            # domain retains profile, screen privacy and Windows checks.
+            return pc_guide.handle(runtime.profile, "PC yardımı: " + a["goal"])
         case "notify_manage":
             from modules import notify
             operation = a["operation"]
