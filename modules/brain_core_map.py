@@ -1241,7 +1241,8 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     # kümede yeniden doğrular ve HİÇ yol görmez. Diskteki gerçek kimliği yalnız yürütücü çözer.
     FOLDER_ANALYSIS_CAPABILITY: ("folder_analyze", _folder_analysis_args),
     WATCHER_CAPABILITY: ("watcher_manage", _watcher_args),
-    # Reminder creation; edit/snooze/calendar stay in the planner (see brain_precedence).
+    # Creation uses the existing reminder worker; edits/deletes/skips use the
+    # separately typed reminders.manage contract and bound confirmation.
     "reminder.propose": ("reminder", _reminder_args),
     "notes.read": ("notes_read", _notes_args),
     NOTES_WRITE_CAPABILITY: ("notes_write", _notes_write_args),
