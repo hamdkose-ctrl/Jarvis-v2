@@ -88,6 +88,13 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         privacy.assert_any_call("screen")
         ocr.assert_not_called()
 
+    def test_screen_text_single_executor_rejects_unsupported_operation_without_capture(self):
+        with patch.object(self.ctx, "_screen_ocr",
+                          side_effect=AssertionError("OCR without validated operation")) as ocr:
+            reply = engine_intents.execute_screen_text(self.ctx, "delete_all")
+        self.assertIn("doğrulanmadı", reply)
+        ocr.assert_not_called()
+
     def test_share_starts_via_existing_vision_permission_owner(self):
         with patch.object(self.ctx, "set_share", return_value="KAMERA") as share:
             entry, output, feedback = self.typed(
