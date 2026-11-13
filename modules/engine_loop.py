@@ -416,6 +416,21 @@ def main(runtime, ui=None):
                     # it cannot invoke Brain, model, worker or direct fanout.
                     from modules import canonical_goal_flow
                     explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
+                    if explicit_read is None:
+                        # Exact user-confirmed foreground handoff for a task
+                        # whose first canonical plan was unsupported. The
+                        # background worker never executes an effect. Claim its
+                        # one-shot identity BEFORE invoking the existing
+                        # permissioned foreground goal executor.
+                        from modules import canonical_planning_queue
+                        try:
+                            claimed = canonical_planning_queue.take_foreground(owner, cmd)
+                        except (ValueError, PermissionError, OSError):
+                            explicit_read = ('Bu hedef için güvenli ön plan devri yapılamadı; '
+                                             'başka bir hedef veya worker başlatılmadı.')
+                        else:
+                            if claimed is not None:
+                                explicit_read = ('__foreground_goal__', claimed[0], claimed[1])
                     entry = None
                     if explicit_read is None:
                         # The primary semantic model may wait before handoff.
@@ -440,7 +455,14 @@ def main(runtime, ui=None):
                         if explicit_read is None:
                             runtime._llm.take_route()
                         try:
-                            if explicit_read is not None:
+                            if isinstance(explicit_read, tuple) and explicit_read[0] == '__foreground_goal__':
+                                from modules import goal_executor
+                                out = _turn_with_listening_foreground(
+                                    voice_session,
+                                    lambda: goal_executor.run(runtime, explicit_read[2]),
+                                )
+                                brain_feedback, brain_job_id = None, None
+                            elif explicit_read is not None:
                                 out, brain_feedback, brain_job_id = explicit_read, None, None
                             else:
                                 out, brain_feedback, brain_job_id = _turn_with_listening_foreground(
