@@ -1306,7 +1306,10 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     if _runtime_owner(runtime) != entry.owner:
         raise ValueError("Core handoff owner eşleşmiyor.")
     semantic = entry.understanding
-    if semantic is not None and "MODEL_UNAVAILABLE" in semantic.reason_codes:
+    if (entry.stage == "understanding" and semantic is not None
+            and "MODEL_UNAVAILABLE" in semantic.reason_codes):
+        # State and Fast lanes have their own exact Core protocols. They never
+        # depend on the general semantic model's availability.
         # Only explicit UI-path and exact user-registered shortcut protocols
         # survive a model outage. A synthetic non-reminder plan closes all
         # raw front gates (planner/camera/cascade/fuzzy macro) in precedence.
