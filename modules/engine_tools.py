@@ -277,7 +277,7 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
             result = "Mesaj gönderim işlemi tamamlanamadı: " + user_message(exc)
         runtime._emit_for(owner, "assistant", result)
         if owner.slug == runtime.pc_profile().slug:
-            runtime.events.put(("say", result, owner.slug))
+            runtime.events.put(("say", result, owner.slug, {"turn_id": task_id}))
 
     try:
         runtime.threading.Thread(target=lambda: captured_context.run(work), daemon=True).start()
