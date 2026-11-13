@@ -78,7 +78,7 @@ def restore_original(profile, doc_id, path):
     import re
     import tempfile
     from pathlib import Path
-    from modules import nxapi, study
+    from modules import file_resource_guard, nxapi, study
     allowed = nxapi.allowed(path)
     if allowed is None or not allowed.is_file() or allowed.suffix.lower() != '.pdf':
         raise ValueError('İzinli klasörden özgün PDF dosyasını seç.')
@@ -93,7 +93,10 @@ def restore_original(profile, doc_id, path):
     with tempfile.TemporaryDirectory(prefix='jarvis-original-pdf-') as tmp:
         import shutil
         snapshot = Path(tmp) / 'source.pdf'
-        shutil.copyfile(allowed, snapshot)
+        # A source file being changed by a cooperating Jarvis writer may
+        # not be treated as the verified PDF original.
+        with file_resource_guard.claim_paths(allowed):
+            shutil.copyfile(allowed, snapshot)
         digest = hashlib.sha256(snapshot.read_bytes()).hexdigest()
         if expected_hash:
             matches = digest == expected_hash
@@ -109,13 +112,37 @@ def restore_original(profile, doc_id, path):
             if state.get('source_generation', 0) != generation or not any(d is item for d in state.get('docs', [])):
                 raise ValueError('Kaynak değişti; yeniden seç.')
             target = study._dir(profile) / f"{int(item['id'])}.source.pdf"
-            staging = target.with_suffix('.pdf.pending')
-            try:
-                shutil.copyfile(snapshot, staging)
-                os.replace(staging, target)
-            finally:
-                staging.unlink(missing_ok=True)
-            item['original_pdf'] = True
-            item['source_hash'] = digest
-            profile.save()
+            # Only install missing originals. An existing PDF (including an
+            # unreadable one) is not authority to overwrite a possibly foreign
+            # or concurrently modified file.
+            with file_resource_guard.claim_paths(target):
+                with tempfile.NamedTemporaryFile(
+                        mode='wb', prefix='.jarvis-original-',
+                        suffix='.tmp', dir=target.parent, delete=False) as stream:
+                    staging = Path(stream.name)
+                    with snapshot.open('rb') as verified:
+                        shutil.copyfileobj(verified, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                try:
+                    os.link(staging, target)
+                    before_flag = item.get('original_pdf')
+                    before_hash = item.get('source_hash')
+                    try:
+                        item['original_pdf'] = True
+                        item['source_hash'] = digest
+                        profile.save()
+                    except Exception:
+                        if before_flag is None:
+                            item.pop('original_pdf', None)
+                        else:
+                            item['original_pdf'] = before_flag
+                        if before_hash is None:
+                            item.pop('source_hash', None)
+                        else:
+                            item['source_hash'] = before_hash
+                        target.unlink(missing_ok=True)
+                        raise
+                finally:
+                    staging.unlink(missing_ok=True)
     return {'ok': True, 'id': int(item['id'])}
