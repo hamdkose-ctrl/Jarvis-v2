@@ -120,6 +120,63 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(self.ctx.profile.data["items"], original)
         raw_handler.assert_not_called()
 
+    def _proposed_note_turn(self, utterance, *, operation, replacement=None,
+                            selected_slot="note_0"):
+        from test_brain_primary_understanding import envelope
+        item = {"action_id": "a1", "capability_id": "notes.write",
+                "arguments": {"operation": operation},
+                "reference_slots": [selected_slot], "depends_on": []}
+        if replacement is not None:
+            item["arguments"]["text"] = replacement
+            item["argument_sources"] = {"text": replacement}
+        raw = envelope(actions=[item])
+        with patch("modules.llm.current_user", return_value=self.owner), \
+             patch("modules.llm.provider", return_value="groq"), \
+             patch("modules.llm.privacy.mode", return_value="normal"), \
+             patch("modules.smart_router.selection",
+                   return_value={"candidates": ["groq"]}), \
+             patch("modules.smart_router.run", return_value=raw):
+            return self.turn_real(utterance, model_understanding=True)
+
+    def test_primary_model_updates_one_observed_note_via_core_not_raw_lookup(self):
+        original = self.ctx.profile.add_note_item("market listesi süt")
+        other = self.ctx.profile.add_note_item("kitap listesi")
+        entry, output, handler, feedback = self._proposed_note_turn(
+            "market notunu düzelt: süt ve ekmek",
+            operation="update", replacement="süt ve ekmek")
+        self.assertEqual(entry.understanding.capability_hint, "notes.write")
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertEqual(entry.understanding.arguments["notes"]["id"],
+                         str(original["id"]))
+        self.assertEqual(original["text"], "süt ve ekmek")
+        self.assertEqual(other["text"], "kitap listesi")
+        self.assertIn("Düzelttim", output)
+        self.assertFalse(handler.called)
+
+    def test_primary_model_deletes_only_exact_resolved_note(self):
+        original = self.ctx.profile.add_note_item("market listesi süt")
+        other = self.ctx.profile.add_note_item("kitap listesi")
+        entry, output, handler, feedback = self._proposed_note_turn(
+            "market notunu sil", operation="delete")
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertIn("Notu sildim", output)
+        self.assertEqual([note["id"] for note in self.ctx.profile.data["items"]],
+                         [other["id"]])
+        self.assertFalse(handler.called)
+
+    def test_ambiguous_or_forged_note_slot_never_mutates(self):
+        first = self.ctx.profile.add_note_item("market listesi süt")
+        second = self.ctx.profile.add_note_item("market listesi ekmek")
+        before = [dict(n) for n in self.ctx.profile.data["items"]]
+        for slot in ("note_0", "note_7"):
+            with self.subTest(slot=slot):
+                entry, response, _handler, feedback = self._proposed_note_turn(
+                    "market notunu sil", operation="delete", selected_slot=slot)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("model", response.casefold())
+                self.assertEqual(self.ctx.profile.data["items"], before)
+        self.assertNotEqual(first["id"], second["id"])
+
     def test_voice_identity_selects_existing_profile_writer_with_closed_key(self):
         self.assertEqual(
             brain_core_map.core_plan("voice.select", {"key": "tr_kadin"}),
