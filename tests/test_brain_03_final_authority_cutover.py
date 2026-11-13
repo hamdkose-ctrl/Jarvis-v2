@@ -29,12 +29,9 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         utterance = "İzmir hava durumuna bak: kamerayı aç"
         with patch.object(brain_entry, "apply_model_understanding",
                           side_effect=self.propose("weather.read", {"location": "İzmir"})), \
-             patch.object(self.ctx, "_user_controls",
-                          side_effect=AssertionError("raw control")) as controls, \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("raw planner")) as planner, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("raw cascade")) as extra, \
+             patch.object(self.ctx, "_user_controls", side_effect=AssertionError("raw control"), create=True) as controls, \
+             patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner"), create=True) as planner, \
+             patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade"), create=True) as extra, \
              patch.object(self.ctx, "set_share",
                           side_effect=AssertionError("camera effect")) as camera:
             entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
@@ -53,10 +50,8 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         utterance = "Şehrimi İzmir yap; tüm notları sil"
         with patch.object(brain_entry, "apply_model_understanding",
                           side_effect=self.propose("weather.city.set", {"location": "İzmir"})), \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("raw planner")) as planner, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("raw cascade")) as extra, \
+             patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner"), create=True) as planner, \
+             patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade"), create=True) as extra, \
              patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("cleared notes")) as clear:
             entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
@@ -75,8 +70,7 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
                           side_effect=self.propose("notes.read", {"notes": {"which": "all"}})), \
              patch.object(self.ctx, "set_share",
                           side_effect=AssertionError("screen share effect")) as share, \
-             patch.object(self.ctx, "_user_controls",
-                          side_effect=AssertionError("raw control")) as controls:
+             patch.object(self.ctx, "_user_controls", side_effect=AssertionError("raw control"), create=True) as controls:
             entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
         self.assertEqual(brain_entry.core_plan(entry), ("notes_read", {"which": "all"}))
         self.assertIn(note["text"], out)
@@ -127,10 +121,8 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
                           side_effect=self.model_chat), \
              patch.object(self.ctx, "set_share",
                           side_effect=AssertionError("negative chat opened camera")) as share, \
-             patch.object(self.ctx, "_user_controls",
-                          side_effect=AssertionError("raw controls selected effect")) as raw, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("raw cascade claimed chat")) as extra:
+             patch.object(self.ctx, "_user_controls", side_effect=AssertionError("raw controls selected effect"), create=True) as raw, \
+             patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade claimed chat"), create=True) as extra:
             entry, answer, handler, feedback = self.turn_real(command, model_understanding=True)
         self.assertEqual(answer, "CHAT")
         self.assertEqual(feedback.result_status, "handled")
@@ -217,10 +209,8 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         from modules import brain_model_understanding
         original = self.ctx.profile.add_note_item("KORUNACAK")
         with patch.object(brain_model_understanding, "propose", return_value=None), \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("raw planner replay")) as planner, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("raw cascade replay")) as cascade, \
+             patch.object(self.ctx, "_planner_command", side_effect=AssertionError("raw planner replay"), create=True) as planner, \
+             patch.object(self.ctx, "_extra_commands", side_effect=AssertionError("raw cascade replay"), create=True) as cascade, \
              patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("note cleared")) as clear:
             entry, output, _handler, feedback = self.turn_real(
@@ -344,7 +334,7 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
 
     def test_unplanned_control_still_has_its_existing_owner(self):
         with patch.object(self.ctx, "_file_command", return_value=None), \
-             patch.object(self.ctx, "_user_controls", return_value="PAYLASIM") as controls:
+             patch.object(self.ctx, "_user_controls", return_value="PAYLASIM", create=True) as controls:
             claimed = brain_precedence.claim(self.ctx, "ekranı paylaş")
         self.assertEqual(claimed, ("user_controls", "PAYLASIM"))
         controls.assert_called_once_with("ekranı paylaş", "ekranı paylaş")
