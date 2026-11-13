@@ -19,7 +19,8 @@ class FileSystemGateTests(unittest.TestCase):
         self.enterContext(patch.object(permission_policy, 'ROOT', self.home / 'policy'))
         self.enterContext(patch.object(permission_audit, 'DATA_DIR', self.home))
         self.enterContext(patch.object(pc_contracts, 'ROOT', self.home / 'pc'))
-        self.endpoint = Mock(GetMute=Mock(return_value=0))
+        self.endpoint = Mock(GetMute=Mock(return_value=0),
+                             GetMasterVolumeLevelScalar=Mock(return_value=0.30))
         self.enterContext(patch.object(system_control, '_volume_endpoint', return_value=self.endpoint))
 
     def deny(self, via):
@@ -70,6 +71,19 @@ class FileSystemGateTests(unittest.TestCase):
         with patch('modules.permission_classify.classify_detail', return_value=('system_config', False)):
             self.assertTrue(system_control.set_volume(30))
         self.endpoint.SetMasterVolumeLevelScalar.assert_called_once_with(0.3, None)
+
+    def test_volume_setter_refuses_success_without_matching_windows_readback(self):
+        with patch('modules.permission_classify.classify_detail',
+                   return_value=('system_config', False)):
+            self.endpoint.GetMasterVolumeLevelScalar.return_value = 0.25
+            self.assertFalse(system_control.set_volume(30))
+            self.endpoint.SetMasterVolumeLevelScalar.assert_called_once_with(0.3, None)
+            self.endpoint.GetMasterVolumeLevelScalar.assert_called_once()
+            self.endpoint.GetMute.return_value = 1
+            self.endpoint.GetMasterVolumeLevelScalar.return_value = 0.30
+            self.assertFalse(system_control.set_volume(30))
+            self.endpoint.GetMute.return_value = 0
+            self.assertTrue(system_control.set_volume(30))
 
     def test_recognized_system_setting_asks_and_policy_cannot_unlock_it(self):
         with patch('modules.permission_classify.classify_detail', return_value=('system_config', True)):
