@@ -88,13 +88,13 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             'confidence': 'HIGH',
         })
 
-    def typed_turn(self, request='İki kaynağı araştır ve karşılaştır.', rid=None):
+    def typed_turn(self, request='İki kaynağı araştır ve karşılaştır.', rid=None, *, source='yazı'):
         rid = rid or ('brain07-' + uuid.uuid4().hex[:12])
         requests_state.register(self.owner, rid)
         with requests_state.activate(self.owner, rid):
             entry = brain_entry.prepare(
                 self.ctx, owner=self.owner, request_id=rid,
-                text=request, source='yazı', model_understanding=True,
+                text=request, source=source, model_understanding=True,
             )
             result, feedback, job_id = brain_entry.handoff(
                 self.ctx, entry, Mock(return_value='LEGACY_HANDLER'), request,
@@ -154,6 +154,35 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(journal['request_id'], rid)
         self.assertEqual(canonical_scheduler_dispatch.discover(self.owner)[0].selection.job_id, job_id)
         self.run_goal.assert_not_called()
+
+    def test_voice_goal_uses_same_canonical_background_lane_as_text(self):
+        # The transport source must not silently select the foreground legacy
+        # executor when Brain proposed the same read-only typed goal.
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, reply, feedback, job_id = self.typed_turn(source='ses')
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertIn('arka plana', reply)
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['authority'], 'canonical')
+        self.assertEqual(record['steps'][0]['state'], 'queued')
+        self.run_goal.assert_not_called()
+
+    def test_canonical_goal_continue_does_not_reenter_legacy_planner(self):
+        from modules import goal_resolver
+        from modules.brain_contracts import GoalOperation
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        before = self.persisted(job_id)
+        with patch.object(goal_executor, 'run',
+                          side_effect=AssertionError('legacy executor must not resume DAG')):
+            reply = goal_resolver._dispatch(
+                self.ctx, goal_executor, self.owner,
+                GoalOperation.CONTINUE, job_id, 'hedef devam', {},
+            )
+        self.assertIn('ikinci bir çalışma başlatmadı', reply)
+        self.assertEqual(self.persisted(job_id), before)
 
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
         with patch.object(model_wait, 'ask',
