@@ -356,7 +356,8 @@ def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> s
     cur = datetime.strptime(str(ev['when'])[:16], '%Y-%m-%dT%H:%M')
     base = ev.get('base') or cur.strftime('%H:%M')
     out = new_when.strftime('%Y-%m-%dT%H:%M')
-    runtime.profile.reschedule_event(ev['id'], out, base=None if out[11:16] == base else base)
+    if not runtime.profile.reschedule_event(ev['id'], out, base=None if out[11:16] == base else base):
+        return "Hatırlatmanın yeni zamanını kaydedemedim; erteledim demiyorum."
     _drop_queued_reminder_speech(runtime, ev)
     after = datetime.combine(cur.date(), datetime.strptime(base, '%H:%M').time())
     following = runtime.whenmod.next_occurrence(ev['repeat'], after, int(base[:2]), int(base[3:]))
@@ -588,7 +589,8 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
                 clock.hour, clock.minute)
             new_when = following.strftime("%Y-%m-%dT%H:%M")
             requests_state.check()
-            runtime.profile.reschedule_event(ev["id"], new_when)
+            if not runtime.profile.reschedule_event(ev["id"], new_when):
+                return "Hatırlatmanın sıradaki tekrarını değiştiremedim; atladım demiyorum."
             return (f"{ev['title']}: sıradaki tekrarı atladım. "
                     f"Sıradaki: {runtime.whenmod.describe(new_when, now)}.")
         if allday and minutes % 1440:
@@ -599,7 +601,8 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         if ev.get("repeat"):
             return _edit_repeating(runtime, ev, shifted, f"{minutes} dakika", "erteledim", now)
         new_when = shifted.strftime("%Y-%m-%d" if allday else "%Y-%m-%dT%H:%M")
-        runtime.profile.reschedule_event(ev["id"], new_when)
+        if not runtime.profile.reschedule_event(ev["id"], new_when):
+            return "Hatırlatmanın yeni zamanını kaydedemedim; erteledim demiyorum."
         return f"{ev['title']} kaydını erteledim: {runtime.whenmod.describe(new_when, now)}."
     except (ValueError, TypeError, KeyError):
         return "Hatırlatma tarihi veya tekrarı doğrulanamadı; hiçbir değişiklik yapılmadı."
