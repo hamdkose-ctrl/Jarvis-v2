@@ -202,13 +202,16 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         note = self.ctx.profile.add_note_item("Market alışverişi")
         snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
         with patch.object(brain_model_understanding, "propose", return_value=None), \
-             patch.object(self.ctx.profile, "save",
-                          side_effect=AssertionError("negated update persisted a note")) as save:
+             patch.object(self.ctx.profile, "add_note_item",
+                          side_effect=AssertionError("negative update added a note")) as add, \
+             patch.object(self.ctx.profile, "delete_note_item",
+                          side_effect=AssertionError("negative update deleted a note")) as delete:
             self.turn_real("market notunu düzeltme: süt al", model_understanding=True)
         self.assertEqual(self.ctx.profile.data["items"], snapshot)
         self.assertEqual(next(row["text"] for row in self.ctx.profile.data["items"]
                               if row["id"] == note["id"]), "Market alışverişi")
-        save.assert_not_called()
+        add.assert_not_called()
+        delete.assert_not_called()
 
     def test_note_mutation_grammar_requires_whole_imperative_not_negative(self):
         from modules.brain_understanding import _note_write_request
