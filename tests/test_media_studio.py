@@ -54,7 +54,11 @@ class StudioTests(unittest.TestCase):
                 with self.assertRaises(resource_leases.LeaseConflict):
                     media_studio.run('alice', data, 'ffmpeg', output)
             self.assertFalse(final.exists())
-            self.assertEqual(video.call_count, 2)
+            # Studio now claims sources AND final output before any FFmpeg
+            # effect. An occupied output must fail before the first render,
+            # not after two completed synthetic encoder calls.
+            self.assertEqual(video.call_count, 0)
+            self.assertEqual(list(output.iterdir()), [])
 
     def test_invalid_storyboard_never_calls_renderer(self):
         for data in ({'scenes':[]},{'scenes':[{'duration':1}]},{'scenes':[{'caption':'x','duration':True}]},

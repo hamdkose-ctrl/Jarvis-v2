@@ -181,24 +181,24 @@ class IndependentRootResultTests(unittest.TestCase):
 
     def test_concurrent_attempts_of_same_root_do_not_rebase(self):
         first = self._prepared('left', state='failed')
-        duplicate = self._prepared('left', attempt=2, state='done')
+        # A second generation cannot be prepared before the first is durably
+        # resolved. The production gate now refuses it before any worker starts.
+        with self.assertRaisesRegex(ValueError, 'first attempt'):
+            self._prepared('left', attempt=2, state='done')
         self._commit(first)
-        with self.assertRaisesRegex(ValueError, 'stale'):
-            self._commit(duplicate)
         saved = goal_state_store.load(self.path)
         self.assertEqual(len(saved['evidence']), 1)
         self.assertEqual(saved['evidence'][0]['status'], 'failed')
 
     def test_already_succeeded_root_rejects_a_new_attempt(self):
         first = self._prepared('left')
-        # In-flight second attempt may already have been prepared when the
-        # first result wins canonical CAS. It must still fail at commit.
-        another = self._prepared('left', attempt=2)
+        # An invented concurrent retry is rejected at preparation, not merely
+        # after a competing WorkerResult has entered Core CAS.
+        with self.assertRaisesRegex(ValueError, 'first attempt'):
+            self._prepared('left', attempt=2)
         self._commit(first)
         with self.assertRaisesRegex(ValueError, 'tamamlanmış'):
             self._prepared('left', attempt=3)
-        with self.assertRaisesRegex(ValueError, 'önceki başarılı'):
-            self._commit(another)
         self.assertEqual(len(goal_state_store.load(self.path)['evidence']), 1)
 
     def test_failed_root_may_be_explicitly_retried_on_current_version(self):

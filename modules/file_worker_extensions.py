@@ -90,6 +90,12 @@ def create_pptx(destination: str, slides: list[dict], *, writer=None) -> dict:
                     temporary = Path(opened.name)
                 try:
                     presentation.save(str(temporary))
+                    # ZIP writer has closed the archive, but durable publish
+                    # still requires flushing those bytes before its name
+                    # becomes visible. Never link a half-written document.
+                    with temporary.open('r+b') as completed:
+                        completed.flush()
+                        os.fsync(completed.fileno())
                     os.link(temporary, target)  # atomic create-only, same volume
                 finally:
                     temporary.unlink(missing_ok=True)

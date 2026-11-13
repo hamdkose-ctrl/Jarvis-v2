@@ -9,18 +9,19 @@ import copy
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import release_guard
 from modules import (
     canonical_output_projection, canonical_plan_evidence, canonical_restart_audit,
     canonical_scheduler_dispatch,
     canonical_scheduler_lane, core_state_reducer, execution_record,
-    goal_executor, goal_state, goal_state_store, goal_tools,
+    goal_executor, goal_plan_gate, goal_state, goal_state_store, goal_tools,
     runtime_worker_result, scheduler_resource_gate, task_agents, task_results, untrusted_flow,
     worker_result_hook,
 )
@@ -81,6 +82,22 @@ class SchedulerOfferTests(unittest.TestCase):
 
     def offers(self):
         return canonical_scheduler_lane.ready_offers(OWNER, JOB)
+
+    def test_fresh_canonical_root_never_accepts_manufactured_retry_attempt(self):
+        # Readiness cannot authorize attempt 2 before any first-attempt
+        # WorkerResult exists in the canonical GoalState audit.
+        state = goal_state_store.load(self.path)
+        selected = goal_plan_gate.candidate(
+            state, owner=OWNER, job_id=JOB, node_id='left',
+        )
+        self.assertEqual(
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=1)['id'],
+            'left',
+        )
+        with self.assertRaises(goal_plan_gate.PlanFenceError):
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=2)
+        with self.assertRaises(goal_plan_gate.PlanFenceError):
+            goal_plan_gate.validate_root_attempt(state, selected, attempt=999999)
 
     def test_scheduler_discovery_reads_both_snapshots_inside_existing_job_lock(self):
         """Deterministic regression: a Windows reader may not race os.replace."""
@@ -288,6 +305,111 @@ class SchedulerOfferTests(unittest.TestCase):
                 )
         self.assertFalse(any(row.get('kind') == 'worker_result'
                              for row in goal_state_store.load(self.path)['evidence']))
+
+    def test_restart_never_replays_started_unknown_after_os_lock_release(self):
+        """A new Scheduler process cannot infer retry authority from OS unlock.
+
+        The journal is persisted as started with no Core output. After a
+        simulated restart its original worker is gone, yet no duplicate
+        provider call, Core evidence or completion callback may be minted.
+        """
+        from types import SimpleNamespace
+        from modules import service_store, task_queue
+
+        journal = execution_record.load(self.owner_root, OWNER, JOB)
+        for step in journal['steps']:
+            step['state'] = 'running'
+            step['started'] = True
+            step['attempts'] = 1
+        release_guard.atomic(self.record_path, execution_record.encode(journal))
+        snapshot = canonical_restart_audit.inspect(OWNER, JOB)
+        self.assertEqual({row.status for row in snapshot.nodes},
+                         {'started_unknown'})
+        self.assertEqual(self.offers(), ())
+
+        class RapidStop:
+            def __init__(self):
+                self.event = threading.Event()
+            def wait(self, _timeout):
+                return self.event.wait(.015)
+            def is_set(self):
+                return self.event.is_set()
+            def set(self):
+                self.event.set()
+
+        stop = RapidStop()
+        worker = Mock(side_effect=AssertionError('unknown worker restarted'))
+        notified = Mock(side_effect=AssertionError('unknown goal completed'))
+        with ExitStack() as stack:
+            for module, name, value in (
+                (service_store, 'ROOT', self.store / 'no-sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+            ):
+                stack.enter_context(patch.object(module, name, value))
+            with patch.object(canonical_scheduler_dispatch, 'discover',
+                              wraps=canonical_scheduler_dispatch.discover) as scan:
+                task_queue.start(
+                    stop, allowed_owners=lambda: {OWNER},
+                    canonical_profile_resolver=lambda name: SimpleNamespace(slug=name),
+                    canonical_result_notify=notified,
+                )
+                try:
+                    until = time.monotonic() + 3
+                    while scan.call_count == 0 and time.monotonic() < until:
+                        time.sleep(.02)
+                    self.assertGreater(scan.call_count, 0)
+                    worker.assert_not_called()
+                    notified.assert_not_called()
+                    self.assertEqual(self.offers(), ())
+                    self.assertEqual(canonical_restart_audit.inspect(
+                        OWNER, JOB).nodes[0].status, 'started_unknown')
+                    self.assertEqual(goal_state_store.load(self.path)['state'],
+                                     'pending')
+                finally:
+                    stop.set()
+                    task_queue._THREAD.join(10)
+                    for active in tuple(task_queue._CANONICAL_WORKERS.values()):
+                        active.join(10)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+
+    def test_scheduler_stop_and_unknown_provider_fail_closed_with_distinct_receipts(self):
+        """A stopped attempt and an uncertain provider do not create evidence."""
+        from types import SimpleNamespace
+        failures = (
+            ('left', runtime_worker_result.CanonicalSchedulerStopped(
+                'Canonical Scheduler stopped'),
+             'CANONICAL_SCHEDULER_STOPPED_UNACCEPTED'),
+            ('right', OSError('provider response lost'),
+             'CANONICAL_PROVIDER_RESULT_UNKNOWN_UNACCEPTED'),
+        )
+        for node_id, failure, reason in failures:
+            offer = next(offer for offer in self.offers()
+                         if offer.selection.node_id == node_id)
+            with patch('modules.specialist_orchestrator.execute_step',
+                       side_effect=failure):
+                with self.assertRaises(type(failure)):
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=OWNER), offer,
+                    )
+            record = execution_record.load(self.owner_root, OWNER, JOB)
+            step = next(row for row in record['steps'] if row['id'] == node_id)
+            self.assertEqual(step['state'], 'failed')
+            self.assertEqual(record['outputs'][node_id]['reason_code'], reason)
+            self.assertNotIn(
+                node_id, [row.selection.node_id for row in self.offers()],
+                'A failed first attempt must never be blindly reoffered',
+            )
+        self.assertFalse(any(
+            row.get('kind') == 'worker_result'
+            for row in goal_state_store.load(self.path)['evidence']
+        ))
 
     def test_completed_step_or_started_step_is_never_offered(self):
         job = execution_record.load(self.owner_root, OWNER, JOB)
@@ -1197,55 +1319,62 @@ class SchedulerOfferTests(unittest.TestCase):
         )
 
     def test_two_independent_goals_same_owner_overlap_on_real_scheduler(self):
-        """Read-only canonical goals run concurrently without legacy _ACTIVE.
+        self._assert_independent_goal_capacity(2)
 
-        One existing Scheduler and two separate on-disk GoalState/records;
-        only the external research provider transport is synthetic.
+    def test_three_independent_goals_same_owner_overlap_on_real_scheduler(self):
+        self._assert_independent_goal_capacity(3)
+
+    def _assert_independent_goal_capacity(self, count):
+        """Real single Scheduler, Core CAS and on-disk projections; provider mocked.
+
+        Three independent goals from one owner must overlap while the global
+        pool still has a free slot for another owner. No legacy _ACTIVE gate.
         """
         from types import SimpleNamespace
         from modules import service_store, task_queue
 
-        first = goal_state_store.load(self.path)
-        one_node = [node('left')]
-        updated = core_state_reducer.apply(first, {
+        self.assertGreaterEqual(task_queue._MAX_CANONICAL_PER_OWNER, 3)
+        self.assertGreaterEqual(task_queue._MAX_CANONICAL_WORKERS -
+                                task_queue._MAX_CANONICAL_PER_OWNER, 1)
+        initial = goal_state_store.load(self.path)
+        updated = core_state_reducer.apply(initial, {
             'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
-            'expected_version': first['version'],
-            'plan': {'plan_version': 2, 'nodes': one_node},
+            'expected_version': initial['version'],
+            'plan': {'plan_version': 2, 'nodes': [node('left')]},
         })
         goal_state_store.compare_and_swap(
-            self.path, expected_version=first['version'], next_state=updated,
+            self.path, expected_version=initial['version'], next_state=updated,
         )
-        first_record = execution_record.load(self.owner_root, OWNER, JOB)
-        first_record['steps'] = first_record['steps'][:1]
-        release_guard.atomic(self.record_path, execution_record.encode(first_record))
+        record = execution_record.load(self.owner_root, OWNER, JOB)
+        record['steps'] = record['steps'][:1]
+        release_guard.atomic(self.record_path, execution_record.encode(record))
 
-        second_id = 'fedcba9876543210'
-        second_node = node('other')
-        second_state = goal_state.new(
-            owner=OWNER, job_id=second_id, goal='Read a different source',
-            authority='canonical',
-        )
-        second_state = core_state_reducer.apply(second_state, {
-            'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
-            'expected_version': second_state['version'],
-            'plan': {'plan_version': 1, 'nodes': [second_node]},
-        })
-        goal_state_store.create(
-            self.owner_root / (second_id + '.goalstate.json'), second_state,
-        )
-        second_record = {
-            'id': second_id, 'owner': OWNER,
-            'request': 'Read a different source', 'state': 'running',
-            'goals': [], 'outputs': {},
-            'steps': [{
-                'id': 'other', 'tool': 'research', 'input': dict(DATA),
-                'depends': [], 'state': 'queued',
-            }],
-        }
-        release_guard.atomic(
-            execution_record.path_for(self.owner_root, second_id),
-            execution_record.encode(second_record),
-        )
+        identities = [(JOB, 'left')]
+        for index, name in enumerate(('other', 'third')[:count - 1]):
+            ident = f'fedcba987654321{index}'
+            request = 'Read independent source ' + str(index)
+            state = goal_state.new(
+                owner=OWNER, job_id=ident, goal=request, authority='canonical',
+            )
+            state = core_state_reducer.apply(state, {
+                'op': 'set_goal_plan', 'reason_code': 'TEST_INDEPENDENT_GOAL',
+                'expected_version': state['version'],
+                'plan': {'plan_version': 1, 'nodes': [node(name)]},
+            })
+            goal_state_store.create(
+                self.owner_root / (ident + '.goalstate.json'), state,
+            )
+            release_guard.atomic(
+                execution_record.path_for(self.owner_root, ident),
+                execution_record.encode({
+                    'id': ident, 'owner': OWNER, 'request': request,
+                    'state': 'running', 'goals': [], 'outputs': {},
+                    'steps': [{'id': name, 'tool': 'research',
+                               'input': dict(DATA), 'depends': [],
+                               'state': 'queued'}],
+                }),
+            )
+            identities.append((ident, name))
 
         class RapidStop:
             def __init__(self):
@@ -1258,7 +1387,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.event.set()
 
         stop = RapidStop()
-        barrier = threading.Barrier(2, timeout=12)
+        barrier = threading.Barrier(count, timeout=15)
         observed = []
         lock = threading.Lock()
 
@@ -1287,58 +1416,48 @@ class SchedulerOfferTests(unittest.TestCase):
             ):
                 stack.enter_context(patch.object(module, attribute, value))
             task_queue.start(
-                stop,
-                allowed_owners=lambda: {OWNER},
+                stop, allowed_owners=lambda: {OWNER},
                 canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
             )
             try:
-                # Two overlapping provider returns are not durable Core
-                # acceptance. Give the loaded Windows runner a bounded
-                # interval for both real Scheduler dispatches and projections.
-                # Do not silently pass just because both workers were entered.
+                # All workers must reach the provider barrier before any one
+                # can complete; a 2-slot owner cap would deadlock this test.
                 for _ in range(600):
-                    one = execution_record.load(self.owner_root, OWNER, JOB)
-                    two = execution_record.load(self.owner_root, OWNER, second_id)
-                    if (one['steps'][0]['state'] == 'done'
-                            and two['steps'][0]['state'] == 'done'
-                            and 'left' in one['outputs']
-                            and 'other' in two['outputs']):
+                    records = [
+                        execution_record.load(self.owner_root, OWNER, ident)
+                        for ident, _ in identities
+                    ]
+                    if all(row['steps'][0]['state'] == 'done' and
+                           name in row['outputs']
+                           for row, (_, name) in zip(records, identities)):
                         break
                     threading.Event().wait(.05)
-                self.assertEqual(set(observed), {'left', 'other'})
-                self.assertEqual(
-                    one['steps'][0]['state'], 'done',
-                    'First goal has no durable worker projection: '
-                    + repr((one['steps'], list(one['outputs']))),
-                )
-                self.assertEqual(
-                    two['steps'][0]['state'], 'done',
-                    'Second goal has no durable worker projection: '
-                    + repr((two['steps'], list(two['outputs']))),
-                )
-                self.assertIn('left', one['outputs'])
-                self.assertIn('other', two['outputs'])
-                self.assertEqual(
-                    {row['step_id'] for row in
-                     goal_state_store.load(self.path)['evidence']
-                     if row.get('kind') == 'worker_result'},
-                    {'left'},
-                )
-                self.assertEqual(
-                    {row['step_id'] for row in goal_state_store.load(
-                        self.owner_root / (second_id + '.goalstate.json')
-                    )['evidence'] if row.get('kind') == 'worker_result'},
-                    {'other'},
-                )
+                self.assertEqual(set(observed), {name for _, name in identities})
+                self.assertEqual(len(observed), count)
+                for record, (ident, name) in zip(records, identities):
+                    self.assertEqual(
+                        record['steps'][0]['state'], 'done',
+                        'Canonical worker output not projected: ' +
+                        repr((ident, record['steps'], list(record['outputs']))),
+                    )
+                    self.assertIn(name, record['outputs'])
+                    state = goal_state_store.load(
+                        self.owner_root / (ident + '.goalstate.json'),
+                    )
+                    self.assertEqual(
+                        {row['step_id'] for row in state['evidence']
+                         if row.get('kind') == 'worker_result'},
+                        {name},
+                    )
             finally:
                 stop.set()
                 barrier.abort()
                 task_queue._THREAD.join(10)
-                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
-                    thread.join(10)
+                for worker in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    worker.join(10)
                 self.assertFalse(any(
-                    thread.is_alive()
-                    for thread in task_queue._CANONICAL_WORKERS.values()
+                    worker.is_alive()
+                    for worker in task_queue._CANONICAL_WORKERS.values()
                 ), 'Canonical goal worker leaked after stop')
 
     def test_canonical_workers_pin_owner_and_profile_before_delayed_thread_start(self):
@@ -1437,7 +1556,7 @@ class SchedulerOfferTests(unittest.TestCase):
                 self.assertFalse(task_queue._THREAD.is_alive())
 
     def test_registered_canonical_owner_gets_fair_next_slot(self):
-        """An unserved fourth owner must beat a repeatedly runnable first owner.
+        """An unserved fifth owner must beat a repeatedly runnable first owner.
 
         Workers and the tick clock are synthetic; actual Scheduler thread
         admission and owner ordering are exercised without provider calls.
@@ -1461,15 +1580,15 @@ class SchedulerOfferTests(unittest.TestCase):
         stop = RapidStop()
         release_first = threading.Event()
         first_finished = threading.Event()
-        fourth_polled = threading.Event()
-        fourth_admitted = threading.Event()
+        fifth_polled = threading.Event()
+        fifth_admitted = threading.Event()
         started = []
         lock = threading.Lock()
         first_owner_runs = [0]
 
         def resolver(owner):
-            if owner == 'donna':
-                fourth_polled.set()
+            if owner == 'ella':
+                fifth_polled.set()
             return SimpleNamespace(slug=owner)
 
         def discover(owner, **_):
@@ -1498,8 +1617,8 @@ class SchedulerOfferTests(unittest.TestCase):
                 release_first.wait(10)
                 first_finished.set()
                 return True
-            if owner == 'donna':
-                fourth_admitted.set()
+            if owner == 'ella':
+                fifth_admitted.set()
             stop.event.wait(10)
             return True
 
@@ -1518,21 +1637,21 @@ class SchedulerOfferTests(unittest.TestCase):
                 stack.enter_context(patch.object(module, name, replacement))
             task_queue.start(
                 stop,
-                allowed_owners=lambda: {'alice', 'bob', 'charlie', 'donna'},
+                allowed_owners=lambda: {'alice', 'bob', 'charlie', 'donna', 'ella'},
                 canonical_profile_resolver=resolver,
             )
             try:
-                self.assertTrue(fourth_polled.wait(10), 'Fourth owner not polled')
-                # Three blocked workers filled the global pool on first poll.
-                self.assertFalse(fourth_admitted.is_set())
+                self.assertTrue(fifth_polled.wait(10), 'Fifth owner not polled')
+                # Four blocked workers filled the global pool on first poll.
+                self.assertFalse(fifth_admitted.is_set())
                 release_first.set()
                 self.assertTrue(first_finished.wait(10), 'First slot not released')
                 self.assertTrue(
-                    fourth_admitted.wait(10),
+                    fifth_admitted.wait(10),
                     'Repeated first owner starved an unserved owner',
                 )
                 with lock:
-                    self.assertIn('donna', started)
+                    self.assertIn('ella', started)
             finally:
                 stop.set()
                 release_first.set()

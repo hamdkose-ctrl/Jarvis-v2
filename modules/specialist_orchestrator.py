@@ -258,6 +258,18 @@ def _execute_step(runtime,job,step,identity,*,approval=None):
             return commit_checked(research_output)
 
     if (expected is not None and 'plan_version' in expected
+            and step['tool'] == 'verify'):
+        from modules import goal_executor, scheduler_resource_gate, worker_result_hook
+        with scheduler_resource_gate.dependent_verify_worker(
+            goal_executor._RESOURCE_LEASES, identity, expected,
+        ) as commit_checked:
+            verified = worker_result_hook.execute(
+                runtime, step['tool'], step['input'], deps, identity,
+                approval=worker_approval,
+            )
+            return commit_checked(verified)
+
+    if (expected is not None and 'plan_version' in expected
             and step['tool'] == 'account'):
         # The existing durable goal executor owns one in-process lease table.
         # Only this explicitly supported, read-only canonical capability is

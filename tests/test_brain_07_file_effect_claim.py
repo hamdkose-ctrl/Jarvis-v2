@@ -155,11 +155,244 @@ class FileEffectClaimTests(unittest.TestCase):
         accepted = produce()
         self.assertEqual(accepted['state'], 'done')
         self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+        self.assertEqual(list(destination.parent.iterdir()), [destination],
+                         'Report staging bytes must not survive publication')
         # Same generated name is never overwritten, even after the OS lock
         # was released. A preexisting artifact is an effect, not a retry slot.
         with self.assertRaises(FileExistsError):
             produce()
         self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+
+    def test_report_writer_failure_removes_only_new_partial_file(self):
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        destination = root / 'Jarvis Görevler' / 'alice' / '01234567-rapor.md'
+        task = {'agent': 'writer', 'input': {
+            'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
+        }}
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(model_wait, 'ask', return_value='Verified report'), \
+             patch.object(task_workers.uuid, 'uuid4',
+                          return_value=SimpleNamespace(hex='0123456789abcdef')), \
+             patch.object(task_workers.os, 'fsync', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                task_agents.worker('alice', task, {})
+        self.assertFalse(destination.exists(), 'Failed report must not leave a partial file')
+        self.assertEqual(list(destination.parent.iterdir()), [],
+                         'Failed report must not leave a staging file')
+        # A later valid invocation can safely create the same generated path.
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(model_wait, 'ask', return_value='Verified report'), \
+             patch.object(task_workers.uuid, 'uuid4',
+                          return_value=SimpleNamespace(hex='0123456789abcdef')):
+            result = task_agents.worker('alice', task, {})
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+
+    def test_report_writer_refuses_symlink_owner_directory(self):
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        outside = self.base / 'outside'
+        outside.mkdir()
+        link = root / 'Jarvis Görevler' / 'alice'
+        link.parent.mkdir(parents=True)
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Directory symlinks unavailable')
+        task = {'agent': 'writer', 'input': {
+            'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
+        }}
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(model_wait, 'ask', return_value='Verified report'):
+            with self.assertRaises(PermissionError):
+                task_agents.worker('alice', task, {})
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_studio_scene_source_is_claimed_before_frame_render(self):
+        """Storyboard must not read a scene from a concurrently held file."""
+        from modules import media_studio, nxapi
+        root = self.base / 'studio-source-claims'
+        root.mkdir()
+        image = root / 'scene.png'
+        image.write_bytes(b'verified source')
+        digest = media_studio.task_results.file_digest(image)
+        output = root / 'Jarvis Görevler' / 'alice'
+        output.mkdir(parents=True)
+        frame_calls = []
+        child = self.holder(image, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_studio, '_frame',
+                              side_effect=lambda *args: frame_calls.append(args)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_studio.run('alice', {
+                        'scenes': [{'image': str(image),
+                                    'image_sha256': digest, 'duration': 1}],
+                    }, 'ffmpeg', output)
+            self.assertEqual(frame_calls, [], 'A claimed scene was read before locking')
+            self.assertEqual(image.read_bytes(), b'verified source')
+            self.assertEqual(list(output.iterdir()), [])
+        finally:
+            self.close_holder(child)
+
+    def test_studio_audio_source_is_claimed_before_ffmpeg(self):
+        """A second process owning the audio source must block studio render."""
+        from modules import media_studio, nxapi
+        root = self.base / 'studio-audio-claims'
+        root.mkdir()
+        audio = root / 'voice.wav'
+        audio.write_bytes(b'verified source audio')
+        digest = media_studio.task_results.file_digest(audio)
+        output = root / 'Jarvis Görevler' / 'alice'
+        output.mkdir(parents=True)
+        calls = []
+        child = self.holder(audio, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_studio.subprocess, 'run',
+                              side_effect=lambda *args, **kwargs: calls.append(args)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_studio.run('alice', {
+                        'scenes': [{'caption': 'Hello', 'duration': 1}],
+                        'audio': str(audio), 'audio_sha256': digest,
+                    }, 'ffmpeg', output)
+            self.assertEqual(calls, [], 'FFmpeg started before audio claim')
+            self.assertEqual(audio.read_bytes(), b'verified source audio')
+        finally:
+            self.close_holder(child)
+
+    def test_studio_final_publish_failure_leaves_no_partial_video(self):
+        """A failed final copy is never a successful video artifact."""
+        from modules import media_studio
+        output = self.base / 'studio'
+        output.mkdir()
+        data = {'scenes': [{'caption': 'Hello', 'duration': 1}]}
+
+        def fake_ffmpeg(command, **kwargs):
+            # A real ffmpeg process would produce these temporary media files.
+            Path(command[-1]).write_bytes(b'synthetic temporary video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        def failed_copy(source, target, *args, **kwargs):
+            target.write(b'partial')
+            raise OSError('simulated interrupted final copy')
+
+        with patch.object(media_studio, '_frame',
+                          side_effect=lambda scene, size, path: path.write_bytes(b'frame')), \
+             patch.object(media_studio.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_studio.media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}), \
+             patch('shutil.copyfileobj', side_effect=failed_copy):
+            with self.assertRaises(OSError):
+                media_studio.run('alice', data, 'ffmpeg', output)
+        self.assertEqual(list(output.iterdir()), [], 'Partial studio video survived')
+
+    def test_studio_publishes_one_complete_video_without_staging_files(self):
+        from modules import media_studio
+        output = self.base / 'studio-success'
+        output.mkdir()
+        data = {'scenes': [{'caption': 'Hello', 'duration': 1}]}
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'synthetic complete video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        physical_claim = file_resource_guard.claim_paths
+        with patch.object(file_resource_guard, 'claim_paths', wraps=physical_claim) as claims, \
+             patch.object(media_studio, '_frame',
+                          side_effect=lambda scene, size, path: path.write_bytes(b'frame')), \
+             patch.object(media_studio.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_studio.media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}):
+            result = media_studio.run('alice', data, 'ffmpeg', output)
+        self.assertEqual(claims.call_count, 1,
+                         'Studio reacquired one non-reentrant Windows OS claim')
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(Path(result['file']).read_bytes(), b'synthetic complete video')
+        self.assertEqual(list(output.iterdir()), [Path(result['file'])])
+        self.assertEqual(result['sha256'],
+                         media_studio.task_results.file_digest(result['file']))
+
+    def test_ffmpeg_source_is_claimed_during_full_encoder_window(self):
+        """A second Jarvis process holding the image prevents unsafe render."""
+        from modules import media_tools, nxapi
+        root = self.base / 'media-source-claims'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'verified source')
+        digest = media_tools.task_results.file_digest(image)
+        calls = []
+        child = self.holder(image, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_tools.service_store, 'identity'), \
+                 patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+                 patch.object(media_tools.requests_state, 'check'), \
+                 patch.object(media_tools.subprocess, 'run',
+                              side_effect=lambda *a, **k: calls.append(a)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_tools.run('alice', {
+                        'image': str(image), 'image_sha256': digest, 'duration': 1,
+                    })
+            self.assertEqual(calls, [], 'FFmpeg started before source claim')
+            self.assertEqual(image.read_bytes(), b'verified source')
+        finally:
+            self.close_holder(child)
+
+    def test_ffmpeg_single_video_failed_render_never_publishes_partial_output(self):
+        from modules import media_tools, nxapi
+        root = self.base / 'media-files'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'synthetic image')
+        digest = media_tools.task_results.file_digest(image)
+        destination = root / 'Jarvis Görevler' / 'alice'
+
+        def fail_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'incomplete video')
+            raise OSError('encoder interrupted')
+
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(media_tools.service_store, 'identity'), \
+             patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+             patch.object(media_tools.requests_state, 'check'), \
+             patch.object(media_tools.subprocess, 'run', side_effect=fail_ffmpeg):
+            with self.assertRaises(OSError):
+                media_tools.run('alice', {'image': str(image),
+                                          'image_sha256': digest, 'duration': 1})
+        self.assertEqual(list(destination.iterdir()), [],
+                         'No incomplete public video or staging dir may remain')
+
+    def test_ffmpeg_single_video_publishes_verified_complete_output(self):
+        from modules import media_tools, nxapi
+        root = self.base / 'media-files-success'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'synthetic image')
+        digest = media_tools.task_results.file_digest(image)
+        destination = root / 'Jarvis Görevler' / 'alice'
+
+        def fake_ffmpeg(command, **kwargs):
+            Path(command[-1]).write_bytes(b'complete video')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(media_tools.service_store, 'identity'), \
+             patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+             patch.object(media_tools.requests_state, 'check'), \
+             patch.object(media_tools.subprocess, 'run', side_effect=fake_ffmpeg), \
+             patch.object(media_tools, 'probe',
+                          return_value={'width': 1280, 'height': 720,
+                                        'duration': 1, 'has_audio': False}):
+            result = media_tools.run('alice', {'image': str(image),
+                                              'image_sha256': digest, 'duration': 1})
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(Path(result['file']).read_bytes(), b'complete video')
+        self.assertEqual(list(destination.iterdir()), [Path(result['file'])])
+        self.assertEqual(result['sha256'], media_tools.task_results.file_digest(result['file']))
 
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
@@ -360,6 +593,62 @@ class FileEffectClaimTests(unittest.TestCase):
             self.assertFalse(chosen.exists())
         finally:
             self.close_holder(child)
+
+    def test_noncooperating_writer_cannot_be_clobbered_after_preflight(self):
+        """A process outside Jarvis locks can still race the destination."""
+        source = self.folder / 'source-race.txt'
+        target = self.folder / 'renamed-race.txt'
+        source.write_text('source bytes', encoding='utf-8')
+        original = file_ops.files._move_create_only
+
+        def external_wins(src, dst):
+            dst.write_text('external writer', encoding='utf-8')
+            return original(src, dst)
+
+        with patch.object(file_ops.files, '_move_create_only', side_effect=external_wins):
+            result = file_ops.execute_typed(
+                'rename', owner='alice', path=str(source), name=target.name,
+            )
+        self.assertIn('güvenli biçimde', result)
+        self.assertEqual(target.read_text(encoding='utf-8'), 'external writer')
+        self.assertEqual(source.read_text(encoding='utf-8'), 'source bytes')
+        receipt = file_ops._undo_path('alice')
+        import json
+        self.assertEqual(json.loads(receipt.read_text(encoding='utf-8'))[0][3], 'intent')
+        # A subsequent command must not overwrite the unresolved receipt.
+        self.assertIn('belirsiz', file_ops.execute_typed(
+            'rename', owner='alice', path=str(source), name='next.txt',
+        ))
+        self.assertFalse((self.folder / 'next.txt').exists())
+
+    def test_crash_after_move_does_not_enable_blind_undo(self):
+        """A persisted intent survives a failed post-effect journal write."""
+        import json
+        source = self.folder / 'before.txt'
+        target = self.folder / 'after.txt'
+        source.write_text('verified bytes', encoding='utf-8')
+        saved = file_ops._record
+        writes = 0
+
+        def fail_second(rows, owner=''):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError('power failure after physical effect')
+            return saved(rows, owner)
+
+        with patch.object(file_ops, '_record', side_effect=fail_second):
+            result = file_ops.execute_typed(
+                'rename', owner='alice', path=str(source), name=target.name,
+            )
+        self.assertIn('güvenli biçimde', result)
+        self.assertFalse(source.exists())
+        self.assertEqual(target.read_text(encoding='utf-8'), 'verified bytes')
+        receipt = file_ops._undo_path('alice')
+        self.assertEqual(json.loads(receipt.read_text(encoding='utf-8'))[0][3], 'intent')
+        self.assertIn('dokunmadım', file_ops.undo('alice'))
+        self.assertTrue(target.exists())
+        self.assertFalse(source.exists())
 
     def test_symlink_destination_is_rejected_without_writing(self):
         source = self.folder / 'source.txt'

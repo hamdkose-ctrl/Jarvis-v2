@@ -2,6 +2,28 @@
 from __future__ import annotations
 import contextlib
 
+def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
+    """Existing owner event sink for an already-reserved canonical event.
+
+    Neither an arbitrary worker nor a model may choose the event identity,
+    result authority or destination owner. Only the durable Core/ExecutionRecord
+    adapter decides which question/completion may be sent.
+    """
+    from modules import canonical_goal_flow, event_channels
+    kind, event_id, title = canonical_goal_flow.delivery_metadata(owner, job_id)
+    result = event_channels.deliver(
+        runtime, owner,
+        {'source': 'canonical_goal', 'kind': kind,
+         'payload': {'text': message, 'job_id': job_id, 'event_id': event_id}},
+        title=title,
+    )
+    if result is None:
+        raise PermissionError('Canonical result owner is not registered.')
+    if canonical_goal_flow._accepted_user_channel(result) is None:
+        raise RuntimeError('Canonical event was not accepted by an owner-facing channel.')
+    return result
+
+
 def _log_core_feedback(runtime, entry):
     """Log the real Core outcome (failed/cancelled) that handoff correlated before re-raising.
 
@@ -164,19 +186,12 @@ def main(runtime, ui=None):
 
     def canonical_result_notice(owner, job_id):
         from modules import canonical_goal_flow
-        def deliver_verified(verified_owner, verified_job, text):
-            result = event_channels.deliver(
-                runtime, verified_owner,
-                {'source': 'canonical_goal', 'kind': 'completed',
-                 'payload': {'text': text, 'job_id': verified_job,
-                             'event_id': 'canonical:' + verified_job}},
-                title='Jarvis araştırma sonucu',
-            )
-            if result is None:
-                raise PermissionError('Canonical result owner is not registered.')
-            if result.get('ui') != 'delivered':
-                raise RuntimeError('Canonical result was not delivered to the owner UI.')
-        canonical_goal_flow.complete_and_deliver(owner, job_id, deliver_verified)
+        canonical_goal_flow.complete_and_deliver(
+            owner, job_id,
+            lambda verified_owner, verified_job, text: _deliver_verified_canonical_goal(
+                runtime, verified_owner, verified_job, text,
+            ),
+        )
 
     task_queue.start(runtime.stop_event,queue_notice,
                      lambda:{runtime._get_profile(name).slug for name in runtime.list_users()},
@@ -375,8 +390,9 @@ def main(runtime, ui=None):
                     print(f"Sen ({source}): {cmd}")
                     runtime.log.info("İşlem kaydı: %s", 'main.py:main')
                     runtime.emit("user", cmd, source)
-                    # Explicit owner + 16-hex job ID is a read-only protocol.
-                    # It must not invoke Brain, a model, Scheduler or fanout.
+                    # Bounded owner + 16-hex job-ID result read / pending-question
+                    # answer. The answer writes only the existing ExecutionRecord;
+                    # it cannot invoke Brain, model, worker or direct fanout.
                     from modules import canonical_goal_flow
                     explicit_read = canonical_goal_flow.read_result_command(owner, cmd)
                     entry = None
