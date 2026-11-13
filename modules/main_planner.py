@@ -925,9 +925,10 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
     events = runtime.profile.data.get("events", [])
     same_id = [event for event in events if isinstance(event, dict) and event.get("id") == proposal["event_id"]]
+    from modules.turkish_text import lower
     same_title = [event for event in events if isinstance(event, dict)
                   and isinstance(event.get("title"), str)
-                  and event["title"].casefold() == proposal["title"].casefold()]
+                  and lower(event["title"]) == lower(proposal["title"])]
     if len(same_id) != 1 or len(same_title) != 1:
         return "Hatırlatma hedefi artık tek değil; hiçbir kayıt değiştirilmedi."
     ev = same_id[0]
@@ -984,9 +985,10 @@ def delete_reminder_confirmed(runtime, proposal: dict) -> str:
                and e.get("when") == expected["when"]
                and e.get("repeat") == expected["repeat"]
                and e.get("base") == expected["base"]]
+    from modules.turkish_text import lower
     same_title = [e for e in runtime.profile.data.get("events", [])
                   if isinstance(e, dict) and isinstance(e.get("title"), str)
-                  and e["title"].casefold() == expected["title"].casefold()]
+                  and lower(e["title"]) == lower(expected["title"])]
     if len(matches) != 1 or len(same_title) != 1:
         return "Hatırlatma onayından sonra kayıt değişti veya hedef belirsiz; hiçbir kayıt silinmedi."
     requests_state.check()

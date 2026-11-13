@@ -174,10 +174,11 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             # model decision cannot delete without a second user confirmation.
             from modules import requests_state
             requests_state.check()
-            wanted = a["title"].casefold()
+            from modules.turkish_text import lower
+            wanted = lower(a["title"])
             matched = [event for event in runtime.profile.data["events"]
                        if isinstance(event, dict) and isinstance(event.get("title"), str)
-                       and event["title"].casefold() == wanted]
+                       and lower(event["title"]) == wanted]
             if not matched:
                 return "Bu adla bir Jarvis hatırlatması bulamadım; hiçbir kayıt değiştirilmedi."
             if len(matched) != 1:

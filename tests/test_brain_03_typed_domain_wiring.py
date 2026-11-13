@@ -572,6 +572,23 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         advance.assert_called_once_with(self.ctx.profile)
         teach.assert_called_once_with(self.ctx.profile)
 
+    def test_turkish_casefold_reminder_title_uses_existing_tr_lower_contract(self):
+        from modules import main_planner
+        self.ctx.profile.data["events"] = [
+            {"id": 49, "title": "İlaç", "when": "2026-11-15T09:00"},
+        ]
+        with patch.object(self.ctx.profile, "delete_event", return_value=True) as delete:
+            entry, reply, feedback = self.typed(
+                "ilaç hatırlatmasını sil", "reminders.manage",
+                {"operation": "delete", "title": "ilaç"})
+            pending = self.ctx._session().pending_confirm
+            self.assertIsNotNone(pending)
+            self.assertEqual(pending["event_id"], 49)
+            self.assertIn("onaylıyor musun", reply)
+            done = main_planner.delete_reminder_confirmed(self.ctx, pending)
+        self.assertIn("Sildim: İlaç", done)
+        delete.assert_called_once_with(49)
+
     def test_reminder_postpone_requires_exact_confirmation_and_valid_delay(self):
         from modules import main_planner
         event = {"id": 12, "title": "Rapor", "when": "2026-11-15T09:00"}
