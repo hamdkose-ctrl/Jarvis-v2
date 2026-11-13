@@ -2,14 +2,45 @@
 from __future__ import annotations
 from modules.diagnostics import record_failure as _record_failure
 
+import re
+
+# A quoted file path is evidence of a selected UI target, not permission to
+# interpret arbitrary language as an effect. These are closed, whole-command
+# action labels of the existing file panel. Questions and paraphrases belong to
+# model-proposed files.read, not a second lexical effect chooser.
+_EXPLICIT_UI_FILE_ACTION = re.compile(
+    r"(?:"
+    r"(?:yerel\\s+)?ocr(?:\\s+ile)?\\s+(?:oku|metni\\s+çıkar)"
+    r"|(?:dosyasını\\s+)?(?:özetle|özet|incele|analiz(?:\\s+et)?)"
+    r"|(?:dosyasını\\s+)?metni\\s+çıkar"
+    r"|(?:dosyasını\\s+)?(?:görselleştir|zaman\\s+çizelgesi\\s+olarak\\s+görselleştir)"
+    r"|(?:(?:iki|bu)\\s+)?(?:şartnameyi|dosyayı|belgeyi|dosyaları|belgeleri)\\s+karşılaştır"
+    r"|(?:tablo\\s+(?:yap|oluştur|hazırla)|önemli\\s+yerleri\\s+tablo\\s+yap)"
+    r"|(?:dosyasını\\s+)?(?:türkçeye|ingilizceye|almancaya|fransızcaya|ispanyolcaya|arapçaya|rusçaya)\\s+çevir"
+    r"|(?:dosyasını\\s+)?(?:excel(?:'e)?|word(?:'e)?|pdf(?:'e)?)\\s+dönüştür"
+    r"|(?:telefonuma|telefona)\\s+(?:gönder|yolla)"
+    r")[.!]*",
+    re.I,
+)
+
+
+def explicit_ui_file_command(command: str, file_pattern) -> bool:
+    """Closed selected-path UI protocol; never infer intent from a substring."""
+    if not isinstance(command, str) or len(command) > 4400:
+        return False
+    match = file_pattern.fullmatch(command.strip()) if hasattr(file_pattern, "fullmatch") else None
+    if match is None:
+        return False
+    action = match.group(2).strip()
+    return bool(action and len(action) <= 100 and _EXPLICIT_UI_FILE_ACTION.fullmatch(action))
+
 def _file_command(runtime, command: str) -> str | None:
     """Yeni arayüzün dosya düğmeleri: tırnak içindeki tam yol + işlem. Yol yoksa/izinsizse açık hata döner."""
     from modules import nxapi, workbench
-    m = runtime._FILE_CMD.match(command.strip())
-    if not m:
-        # Natural-language revisions are exclusively model-proposed and
-        # Core-bound to the owner/revision digest via workbench_followup.
+    if not explicit_ui_file_command(command, runtime._FILE_CMD):
+        # Non-UI language and questions must pass through model → Core.
         return None
+    m = runtime._FILE_CMD.fullmatch(command.strip())
     raw_paths = runtime.re.findall(r'"([^"]{4,400})"', m.group(1))
     paths = [nxapi.allowed(r) for r in raw_paths]
     if len(paths) == 1 and paths[0] is not None and paths[0].is_dir() and not paths[0].is_file():   # '"…\\Proje" klasörünü incele'
@@ -43,7 +74,7 @@ def _file_command(runtime, command: str) -> str | None:
     p = paths[0]
     path = str(p)
     is_img = path.lower().endswith(runtime._IMG_EXT)
-    if 'telefon' in act:
+    if runtime.re.fullmatch(r"(?:telefonuma|telefona)\\s+(?:gönder|yolla)[.!]*", act):
         from modules import filesend
         return filesend.send(p)
     if 'metni çıkar' in act or ('metin' in act and is_img):
