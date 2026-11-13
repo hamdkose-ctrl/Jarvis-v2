@@ -62,7 +62,23 @@ def run_checks(root=None, *, python=None):
                 output = cp.stdout + cp.stderr
                 logs.append(name + '\n' + output)
                 if cp.returncode:
-                    return False, '\n'.join(logs)[-16000:]
+                    if name == 'Python testleri':
+                        # Keep error names even when the test suite output is too long
+                        # for the standard validation log tail.
+                        from collections import Counter
+                        failures = re.findall(r'^(?:FAIL|ERROR): (.+)$', output, re.MULTILINE)
+                        modules = Counter()
+                        for item in failures:
+                            match = re.search(r'\\((test_[A-Za-z0-9_]+)\\.', item)
+                            modules[match.group(1) if match else 'unclassified'] += 1
+                        index = '\\n'.join(
+                            f'  {module}: {count}' for module, count in modules.most_common()
+                        )
+                        headline = (f'CI failure index: {len(failures)} cases in {len(modules)} test modules.\\n'
+                                    + index + '\\nFirst failures:\\n'
+                                    + '\\n'.join(failures[:20]))
+                        return False, headline + '\\nLast failure details:\\n' + output[-16000:]
+                    return False, '\\n'.join(logs)[-16000:]
                 if name == 'Python testleri':
                     count = re.search(r'Ran (\d+) tests?', output)
                     if not count or int(count[1]) == 0:
