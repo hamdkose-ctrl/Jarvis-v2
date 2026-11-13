@@ -532,7 +532,7 @@ def _current_output(session_artifacts: Any) -> dict[str, Any]:
     outputs = [row for row in rows if row.get("slot") in _KNOWN_OUTPUT_SLOTS]
     labels = [str(row.get("label")) for row in outputs
               if isinstance(row.get("label"), str) and row.get("label")]
-    available = len(rows) == 1 and len(outputs) == 1
+    available = len(outputs) == 1  # unrelated Workbench slots do not hide last_doc
     return {
         "available": available,
         "slot": _KNOWN_OUTPUT_SLOTS[0] if available else None,
