@@ -1415,6 +1415,17 @@ def handoff(runtime: Any, entry: EntryResult, handler: Any, command: str):
     goal_resolution = None
     try:
         with bind(entry):
+            # A model-accepted independent request supersedes an unanswered
+            # reminder creation/conflict prompt. Without this fence, a later
+            # unrelated "evet" can create an old event the user has left behind.
+            # A true ANSWER_TO_PENDING still belongs to the existing State owner.
+            if (entry.stage == "understanding" and semantic is not None
+                    and "MODEL_DECIDED" in semantic.reason_codes
+                    and semantic.conversation_relation in {
+                        ConversationRelation.NEW_REQUEST, ConversationRelation.TOPIC_CHANGE
+                    }
+                    and semantic.capability_hint != "reminder.propose"):
+                runtime._session().pending_event_title = None
             if plan is not None or not _use_existing_handler(entry) or _relation_supersedes_clarify(entry):
                 _drop_stale_clarify(runtime, entry)
             _photo_lifecycle(runtime, entry)
