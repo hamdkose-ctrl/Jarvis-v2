@@ -201,6 +201,18 @@ class FileOpsTests(unittest.TestCase):
         self.assertFalse(file_ops._undo_path(b).exists())
         self.assertEqual(old.read_text(encoding='utf-8'),
                          '[["not-known","not-owned"]]')
+        with patch.object(files, 'DATA_DIR', self.home):
+            old_bulk = files._legacy_undo_file(a)
+            old_bulk.write_text('[["unknown","foreign"]]', encoding='utf-8')
+            destination = self.documents / 'long-owner.txt'
+            with self.assertRaisesRegex(ValueError, 'sahibi belirsiz'):
+                files.apply_organize([(source, destination)], a)
+            self.assertTrue(source.exists())
+            self.assertFalse(destination.exists())
+            self.assertFalse(files._undo_file(a).exists())
+            self.assertFalse(files._undo_file(b).exists())
+            self.assertEqual(old_bulk.read_text(encoding='utf-8'),
+                             '[["unknown","foreign"]]')
 
     def test_typed_file_mutation_executor_moves_renames_creates_and_undoes(self):
         source = self.write(self.downloads, 'typed.pdf', 'typed original')
