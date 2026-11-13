@@ -24,23 +24,18 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
                 current, request_kind=RequestKind.CAPABILITY,
                 capability_hint=capability, arguments=arguments,
                 ambiguities=(), needs_input=False,
+                reason_codes=current.reason_codes + ("MODEL_DECIDED",),
             )
         return choose
 
     def typed(self, utterance, capability, arguments):
+        self.assertFalse(hasattr(self.ctx, "_user_controls"))
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
+        self.assertFalse(hasattr(self.ctx, "_extra_commands"))
         with patch.object(brain_entry, "apply_model_understanding",
-                          side_effect=self.adopt(capability, arguments)), \
-             patch.object(self.ctx, "_user_controls",
-                          side_effect=AssertionError("legacy controls invoked")) as controls, \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("raw planner invoked")) as planner, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("raw cascade invoked")) as cascade:
+                          side_effect=self.adopt(capability, arguments)):
             entry, output, _handler, feedback = self.turn_real(
                 utterance, model_understanding=True)
-        controls.assert_not_called()
-        planner.assert_not_called()
-        cascade.assert_not_called()
         return entry, output, feedback
 
     def test_screen_text_read_is_typed_and_read_only(self):
@@ -248,9 +243,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertFalse(hasattr(engine_context, "_user_command"))
 
     def test_new_note_is_created_by_core_and_uses_existing_note_owner(self):
-        with patch.object(self.ctx, "_add_note", return_value={"id": 20}) as save, \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("raw notes parser ran")) as planner:
+        with patch.object(self.ctx, "_add_note", return_value={"id": 20}) as save:
             entry, output, feedback = self.typed(
                 "Not al: Uçuş kodunu sakla", "notes.add",
                 {"text": "Uçuş kodunu sakla"})
@@ -259,7 +252,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(output, "Not aldım: Uçuş kodunu sakla")
         self.assertEqual(feedback.result_status, "handled")
         save.assert_called_once_with("Uçuş kodunu sakla")
-        planner.assert_not_called()
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
 
     def test_calendar_today_agenda_reads_existing_owner_only(self):
         with patch.object(self.ctx, "_agenda_text", return_value="AJANDA") as agenda:
@@ -337,18 +330,15 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
 
     def test_exact_undo_uses_fast_gate_and_no_raw_cascade(self):
         with patch.object(self.ctx.files, "undo_organize", return_value=3) as undo, \
-             patch.object(self.ctx, "_extra_commands",
-                          side_effect=AssertionError("old undo parser called")) as cascade, \
-             patch.object(self.ctx, "_planner_command",
-                          side_effect=AssertionError("old planner called")):
-            entry, output, handler, feedback = self.turn_real(
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, output, _handler, feedback = self.turn_real(
                 "düzenlemeyi geri al", model_understanding=False)
         self.assertEqual(entry.fast_gate.protocol, "fast.file.organize.undo")
         self.assertEqual(output, "3 dosyayı eski yerine taşıdım.")
         self.assertEqual(feedback.result_status, "handled")
         undo.assert_called_once_with(self.owner)
-        cascade.assert_not_called()
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
+        self.assertFalse(hasattr(self.ctx, "_extra_commands"))
 
     def test_nonexact_or_negated_undo_cannot_use_fast_undo_effect(self):
         from modules import brain_gates
@@ -614,13 +604,14 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.ctx.profile.data["hoca"] = {"lesson": lesson}
         with patch.object(hoca, "advance", return_value=True) as advance, \
              patch.object(hoca, "_lesson_text", return_value="İKİNCİ") as teach, \
-             patch("config.load_settings", return_value={"hoca_enabled": True}):
-            entry, output, handler, feedback = self.turn_real(
+             patch("config.load_settings", return_value={"hoca_enabled": True}), \
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, output, _handler, feedback = self.turn_real(
                 "sonraki adım", model_understanding=False)
         self.assertEqual(entry.state_gate.protocol, "hoca.lesson.control")
         self.assertEqual(output, "İKİNCİ")
         self.assertEqual(feedback.result_status, "handled")
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
         advance.assert_called_once_with(self.ctx.profile)
         teach.assert_called_once_with(self.ctx.profile)
 
