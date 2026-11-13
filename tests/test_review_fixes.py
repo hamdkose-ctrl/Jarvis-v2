@@ -9,9 +9,9 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from modules import google_api
+from modules import brain_core_map, engine_intents, google_api
 from modules import when as whenmod
-from test_day_plan import _google
+from test_day_plan import _google, typed_calendar
 from test_mail_awaiting import DAY, FakeGmail, ME, _msg
 from test_mail_calendar_fixes import ProfileCase, _runtime, say
 
@@ -54,8 +54,12 @@ class EveryTwoDaysTests(ProfileCase):
             with self.subTest(text=text):
                 rule, _ = whenmod.parse_repeat(text)
                 self.assertEqual(rule, 'unknown')
-        reply = say(_runtime(self, self.profile, self.now), "her 2 günde 9'da ilaç hatırlat")
-        self.assertIn('anlayamadım', reply)
+        # Unsupported recurrence must be rejected by Core, never silently
+        # reinterpreted as a single occurrence by a raw-language fallback.
+        plan = brain_core_map.core_plan("reminder.propose", {
+            "reminder": {"title": "ilaç", "when": "2026-10-17T09:00",
+                         "repeat": "unknown"}})
+        self.assertIsNone(plan)
         self.assertEqual(self.reload().data['events'], [])
 
     def test_plain_every_day_still_works(self):
@@ -81,7 +85,7 @@ class RecurringInPlanTests(ProfileCase):
         self.profile.add_event('İlaç', '2026-10-17T21:00', repeat='daily')
         self.profile.add_event('Spor', '2026-10-19T07:00', repeat='weekly:0')        # pazartesi
         self.profile.add_event('Kira', '2026-11-01T09:00', repeat='monthly:1')
-        reply = say(self.rt(), 'yarın planım ne')
+        reply = typed_calendar(self.rt(), 'yarın planım ne', period="tomorrow")
         self.assertIn('21:00 İlaç', reply)
         self.assertNotIn('Spor', reply)
         self.assertNotIn('Kira', reply)
@@ -103,9 +107,14 @@ class RecurringInPlanTests(ProfileCase):
 
     def test_conflict_with_recurring_reminder(self):
         self.profile.add_event('İlaç', '2026-10-17T21:00', repeat='daily')
-        reply = say(self.rt(), "yarın 21:10'da toplantı hatırlat")
+        rt = self.rt()
+        plan = brain_core_map.core_plan("reminder.propose", {
+            "reminder": {"title": "toplantı", "when": "2026-10-18T21:10", "repeat": None}})
+        self.assertIsNotNone(plan)
+        reply = engine_intents.dispatch(rt, plan[0], plan[1],
+                                        "yarın 21:10'da toplantı hatırlat", "")
         self.assertIn('İlaç', reply)
-        self.assertEqual(len(self.reload().data['events']), 1)          # sormadan eklemedi
+        self.assertEqual(len(self.reload().data['events']), 1)  # no unapproved insert
 
 
 class LateTasksTests(ProfileCase):
@@ -120,7 +129,7 @@ class LateTasksTests(ProfileCase):
         for k, v in _google(connected=False).items():
             setattr(rt.google_api, k, v)
         with patch('modules.handoff.brief_line', return_value=None):
-            reply = say(rt, 'yarın planım ne')
+            reply = typed_calendar(rt, 'yarın planım ne', period="tomorrow")
         self.assertIn('1 gecikmiş (Fatura öde)', reply)
         self.assertIn('yarın 1 (Sunum)', reply)
         self.assertIn('bugün bitmezse yarına kalır 1 (Raporu bitir)', reply)
@@ -129,7 +138,7 @@ class LateTasksTests(ProfileCase):
 class PlanAsciiTests(ProfileCase):
     now = datetime(2026, 10, 17, 10, 0)
 
-    def test_ascii_and_typo_variants_reach_plan(self):
+    def test_model_selected_ascii_plan_variants_use_the_same_core_worker(self):
         rt = _runtime(self, self.profile, self.now)
         for k, v in _google(connected=False).items():
             setattr(rt.google_api, k, v)
@@ -138,17 +147,17 @@ class PlanAsciiTests(ProfileCase):
                          'bugun ne yapacagim', 'gunumu planla', 'gunumun plani', 'planimi soyle', 'planimi goster',
                          'bugunun planini soyle', 'bugun plan ne'):
                 with self.subTest(text=text):
-                    self.assertIn('Bugünün planı', say(rt, text))
+                    self.assertIn('Bugünün planı', typed_calendar(rt, text))
             for text in ('yarinin plani', 'yarin planim ne', 'yarinki plan', 'yarinin planini goster'):
                 with self.subTest(text=text):
-                    self.assertIn('Yarının planı', say(rt, text))
+                    self.assertIn('Yarının planı', typed_calendar(rt, text, period="tomorrow"))
 
     def test_other_plans_not_caught(self):
         rt = _runtime(self, self.profile, self.now)
         for text in ('proje planim', 'calisma planim', 'yarin plan yapalim', 'bugun ne var'):
             with self.subTest(text=text):
                 try:
-                    reply = say(rt, text)
+                    reply = typed_calendar(rt, text)
                 except Exception:
                     reply = ''
                 self.assertNotIn('Bugünün planı', reply or '')
