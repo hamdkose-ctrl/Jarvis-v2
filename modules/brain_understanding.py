@@ -2709,6 +2709,22 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 ref for ref in (() if active_context is None else active_context.goal_candidates)
                 if ref.owner == result.owner
             ),
+            # Recent turns are owner-bound observations, not instructions to
+            # the model. Keep the latest eight, short and role-labelled; never
+            # ship the full history or credentials through this context path.
+            recent_turns=tuple(
+                {"role": str(ref.provenance.get("role")), "text": ref.provenance["text"][:350]}
+                for ref in (() if active_context is None else active_context.recent_references)
+                if ref.owner == result.owner and ref.kind == "conversation_turn"
+                and ref.source == "history"
+                and ref.provenance.get("role") in {"user", "assistant"}
+                and isinstance(ref.provenance.get("text"), str)
+            )[-8:],
+            pending_context=tuple(
+                str(ref.provenance.get("field") or ref.id)
+                for ref in (() if active_context is None else active_context.pending_references)
+                if ref.owner == result.owner and ref.kind == "pending_state"
+            )[:8],
             session_artifacts=tuple(
                 {"slot": "last_doc", "label": str(ref.provenance.get("label") or "")[:120]}
                 for ref in (() if active_context is None else active_context.active_artifacts)
