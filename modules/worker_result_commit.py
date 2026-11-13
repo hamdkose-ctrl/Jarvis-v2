@@ -209,7 +209,7 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         )
         node = goal_plan_gate.revalidate(current, selection)
         if ((node['depends_on'] and node['capability_id']
-             not in ('task.research', 'task.account'))
+             not in ('task.research', 'task.account', 'task.verify'))
                 or node['capability_id'] != accepted['capability_id']
                 or selection.plan_version != accepted['plan_version']
                 or selection.node_digest != accepted['node_digest']
@@ -287,6 +287,13 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
                 )
                 dependency_evidence.require_persisted_account_dependencies(pinned, node)
                 # Account result lease is independently checked below.
+            elif node['capability_id'] == 'task.verify':
+                goal_plan_gate.validate_dependent_verify_attempt(
+                    current, selection, attempt=accepted['attempt'],
+                )
+                dependency_evidence.require_persisted_verify_dependencies(pinned, node)
+                from modules import scheduler_resource_gate
+                scheduler_resource_gate.require_dependent_verify_result_lease(accepted)
             else:
                 raise goal_plan_gate.PlanFenceError('Dependent tool unsupported.')
         else:

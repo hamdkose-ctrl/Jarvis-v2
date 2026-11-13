@@ -246,6 +246,11 @@ def prepare(identity: dict, kind: str, data: dict, *, expected_job_version: int 
                     snapshot, selection, attempt=attempt,
                 )
                 dependency_evidence.require_persisted_account_dependencies(identity, node)
+            elif node['capability_id'] == 'task.verify':
+                goal_plan_gate.validate_dependent_verify_attempt(
+                    snapshot, selection, attempt=attempt,
+                )
+                dependency_evidence.require_persisted_verify_dependencies(identity, node)
             else:
                 raise goal_plan_gate.PlanFenceError('Dependent worker not supported.')
         if node['capability_id'] != row['id'] or node['input'] != data:

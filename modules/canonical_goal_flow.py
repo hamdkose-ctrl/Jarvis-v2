@@ -28,7 +28,7 @@ from modules import (
 _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
-_READ_ONLY = frozenset({'research', 'account'})
+_READ_ONLY = frozenset({'research', 'account', 'verify'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
 _REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
@@ -43,7 +43,17 @@ def _canonical_plan(tasks):
         deps = task.get('depends', [])
         if kind not in _READ_ONLY:
             raise ValueError('Only supported read-only task nodes may be admitted.')
-        if deps and kind != 'research':
+        if kind == 'verify':
+            # Only a first-attempt, no-effect verification of existing
+            # research/account results; writer remains outside this lane.
+            parents = [next((p for p in tasks if p['id'] == dep), None)
+                       for dep in deps]
+            if (not 1 <= len(deps) <= 6 or any(
+                    not isinstance(p, dict)
+                    or p.get('agent') not in ('research', 'account')
+                    for p in parents)):
+                raise ValueError('Verify requires read-only predecessor nodes.')
+        if deps and kind not in ('research', 'verify'):
             # Developer-approved, exact Gmail chain only: a verified unread
             # list can select ONE message by index. No arbitrary account DAG.
             source = next((row for row in tasks if row['id'] == deps[0]), None) if len(deps) == 1 else None
@@ -246,7 +256,10 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     system = (
         task_agents._SYSTEM +
         '\nBu tur canonical arka plan araştırma önerisidir. Yalnız research '
-        've salt-okunur account görevleri öner; desteklenmeyen etkiyi planlama. '
+        've salt-okunur account görevleri öner; kanıtları birleştirmek '
+        'için yalnız doğrulanmış research/account bağımlı verify görevini kullan. '
+        'Writer dosyaya yazdığı için canonical salt-okunur kapsamda değildir. '
+        'Desteklenmeyen etkiyi planlama. '
         'Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme.'
     )
     token = llm._key_context.set(owner)

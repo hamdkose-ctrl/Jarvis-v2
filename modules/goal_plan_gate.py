@@ -293,6 +293,26 @@ def validate_dependent_research_attempt(
     return node
 
 
+def validate_dependent_verify_attempt(
+    state: dict, selection: NodeCandidate, *, attempt: int,
+) -> dict:
+    """First-attempt verify of already Core-accepted, read-only predecessors."""
+    if type(attempt) is not int or attempt != 1:
+        raise PlanFenceError('Dependent verify cannot automatically retry.')
+    node = revalidate(state, selection)
+    parents = {row['id']: row for row in state['goal_plan']['nodes']}
+    if (node['capability_id'] != 'task.verify'
+            or not 1 <= len(node['depends_on']) <= 6
+            or any(parents.get(dep, {}).get('capability_id')
+                   not in ('task.research', 'task.account')
+                   for dep in node['depends_on'])
+            or selection not in ready_read_only_candidates(
+                state, owner=selection.owner, job_id=selection.job_id,
+            )):
+        raise PlanFenceError('Verify requires accepted read-only predecessor proofs.')
+    return node
+
+
 def supported_gmail_indexed_dependency(plan: dict, node: dict) -> bool:
     """Structural allowlist, not completion proof or dispatch authority.
 

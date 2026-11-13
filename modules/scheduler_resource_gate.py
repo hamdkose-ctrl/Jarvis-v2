@@ -344,6 +344,7 @@ _DEPENDENT_RESEARCH_RESULT_LEASE = ContextVar(
 def dependent_research_worker(
     leases: resource_leases.LeaseTable, identity: dict, expected: dict,
     *, ttl: float = 60.0, allow_root: bool = False,
+    allow_verify: bool = False,
 ):
     """Own one canonical research command from dispatch through Core CAS.
 
@@ -354,7 +355,8 @@ def dependent_research_worker(
     if (not isinstance(leases, resource_leases.LeaseTable)
             or not isinstance(identity, dict)
             or not isinstance(expected, dict)
-            or expected.get('capability_id') != 'task.research'
+            or expected.get('capability_id') != ('task.verify' if allow_verify else 'task.research')
+            or (allow_verify and allow_root)
             or type(expected.get('plan_version')) is not int
             or expected.get('owner') != identity.get('owner')
             or expected.get('job_id') != identity.get('job_id')
@@ -381,6 +383,11 @@ def dependent_research_worker(
         goal_plan_gate.validate_root_attempt(
             state, selected, attempt=expected['attempt'],
         )
+    elif allow_verify:
+        goal_plan_gate.validate_dependent_verify_attempt(
+            state, selected, attempt=expected['attempt'],
+        )
+        dependency_evidence.require_persisted_verify_dependencies(identity, node)
     else:
         goal_plan_gate.validate_dependent_research_attempt(
             state, selected, attempt=expected['attempt'],
@@ -442,12 +449,20 @@ def dependent_research_worker(
                 raise ReadOnlyAdmissionError(
                     'Dependent research GoalState changed during worker.'
                 )
-            refreshed = goal_plan_gate.validate_dependent_research_attempt(
-                current, chosen, attempt=expected['attempt'],
-            )
-            dependency_evidence.require_persisted_research_dependencies(
-                identity, refreshed,
-            )
+            if allow_verify:
+                refreshed = goal_plan_gate.validate_dependent_verify_attempt(
+                    current, chosen, attempt=expected['attempt'],
+                )
+                dependency_evidence.require_persisted_verify_dependencies(
+                    identity, refreshed,
+                )
+            else:
+                refreshed = goal_plan_gate.validate_dependent_research_attempt(
+                    current, chosen, attempt=expected['attempt'],
+                )
+                dependency_evidence.require_persisted_research_dependencies(
+                    identity, refreshed,
+                )
 
     def pulse() -> None:
         while not stop.wait(ttl / 3):
@@ -509,6 +524,24 @@ def root_research_worker(
         leases, identity, expected, ttl=ttl, allow_root=True,
     ) as commit_checked:
         yield commit_checked
+
+
+@contextmanager
+def dependent_verify_worker(
+    leases: resource_leases.LeaseTable, identity: dict, expected: dict,
+    *, ttl: float = 60.0,
+):
+    """Reuse the existing exact command lease and Core CAS, no second Scheduler."""
+    with dependent_research_worker(
+        leases, identity, expected, ttl=ttl, allow_verify=True,
+    ) as commit_checked:
+        yield commit_checked
+
+
+def require_dependent_verify_result_lease(accepted: dict) -> None:
+    if not isinstance(accepted, dict) or accepted.get('capability_id') != 'task.verify':
+        raise ReadOnlyAdmissionError('Verify Core lease capability mismatched.')
+    require_dependent_research_result_lease(accepted)
 
 
 def require_dependent_research_result_lease(accepted: dict) -> None:
