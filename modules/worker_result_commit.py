@@ -98,12 +98,15 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
     if active is None:
         return False
     if active['depends_on'] and not (
-            accepted['capability_id'] == 'task.account'
-            and active['capability_id'] == 'task.account'
-            and len(active['depends_on']) == 1):
-        # Other dependent workers deliberately retain their strict CAS
-        # version fence. This narrow Gmail child gets a fresh full
-        # predecessor/lease recheck later in _commit_once().
+            accepted['attempt'] == 1
+            and accepted['capability_id'] == active['capability_id']
+            and (active['capability_id'] in ('task.research', 'task.verify')
+                 or (active['capability_id'] == 'task.account'
+                     and len(active['depends_on']) == 1))):
+        # Only approved first-attempt read-only dependents can adopt
+        # unrelated independent-root CAS advances. The final short Core
+        # lock rechecks the exact persisted parent output/domain evidence
+        # and the live scoped lease before accepting this WorkerResult.
         return False
     canonical = json.dumps(
         active['input'], ensure_ascii=False, sort_keys=True,
@@ -160,7 +163,7 @@ def _independent_worker_only_advance(current: dict, accepted: dict) -> bool:
                    f"{step_id}:{attempt}:p{accepted['plan_version']}"):
             return False
         passed_child = passed_child or supported_child
-    if passed_child:
+    if passed_child or active['depends_on']:
         # Revalidate all Core audit/evidence rows including the accepted
         # dependency's own first attempt and its predecessor. This is still
         # only a read-only structural rebase, never worker launch authority.
@@ -209,7 +212,7 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
         )
         node = goal_plan_gate.revalidate(current, selection)
         if ((node['depends_on'] and node['capability_id']
-             not in ('task.research', 'task.account'))
+             not in ('task.research', 'task.account', 'task.verify'))
                 or node['capability_id'] != accepted['capability_id']
                 or selection.plan_version != accepted['plan_version']
                 or selection.node_digest != accepted['node_digest']
@@ -287,6 +290,13 @@ def _commit_once(accepted: dict, evidence: dict, path, *, retries: int) -> dict:
                 )
                 dependency_evidence.require_persisted_account_dependencies(pinned, node)
                 # Account result lease is independently checked below.
+            elif node['capability_id'] == 'task.verify':
+                goal_plan_gate.validate_dependent_verify_attempt(
+                    current, selection, attempt=accepted['attempt'],
+                )
+                dependency_evidence.require_persisted_verify_dependencies(pinned, node)
+                from modules import scheduler_resource_gate
+                scheduler_resource_gate.require_dependent_verify_result_lease(accepted)
             else:
                 raise goal_plan_gate.PlanFenceError('Dependent tool unsupported.')
         else:

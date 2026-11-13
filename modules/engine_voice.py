@@ -142,6 +142,20 @@ class VoiceSession:
                 runtime.pause_listening.clear()
                 runtime.emit("state", "idle")
 
+    def speech_blocks_mic(self) -> bool:
+        """True while this machine's speaker may still be carrying audio.
+
+        `is_busy` means an utterance is handed to the one output owner; the
+        unconfirmed cut means the device never admitted it stopped. The microphone
+        handoff (`voice_runtime.handoff_to_listen`) and the UI idle claim already
+        read both, so every gate that opens the microphone has to read the same
+        proof. Otherwise the always-on wake-word listener transcribes Jarvis's own
+        voice while push-to-talk stays protected, and the two paths disagree about
+        the same speaker.
+        """
+        lane = getattr(self, "voice_lane", None)
+        return lane is not None and (lane.is_busy() or lane.stop_unconfirmed())
+
     @contextlib.contextmanager
     def mic_open_during_model_wait(self):
         """VOICE P3: waiting on a provider is not a reason to be deaf.
@@ -155,10 +169,9 @@ class VoiceSession:
         """
         runtime = self.runtime
         from config import load_settings
-        lane = self.voice_lane
         if not self.listening_enabled or self.manual_local_stt or not runtime.flags["mic"] \
                 or not load_settings().get("voice_mic_during_model_wait", True) \
-                or (lane is not None and lane.is_busy()):
+                or self.speech_blocks_mic():
             yield
             return
         was_paused = runtime.pause_listening.is_set()
@@ -274,9 +287,8 @@ class VoiceSession:
             return False                  # hazırlanırken / kurulamadıysa Google yöntemi
 
         def should_stop() -> bool:
-            lane = getattr(self, "voice_lane", None)
             return runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                or (lane is not None and lane.is_busy()) or not wakeword.wanted(runtime.WAKE_WORD)
+                or self.speech_blocks_mic() or not wakeword.wanted(runtime.WAKE_WORD)
 
         with runtime.audio_lock:
             if should_stop():
@@ -292,7 +304,8 @@ class VoiceSession:
             # Komut duyulmadı ya da yalnızca "Jarvis"in sonu duyuldu ("servis"): sormadan bir kez daha dinle
             runtime.emit("state", "listening")
             with runtime.audio_lock:
-                again = runtime.voice.listen(timeout=5, announce_fail=False, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel))
+                raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel))
+            again = runtime.voice.recognize(raw or b"", announce_fail=False)
             cmd = runtime._strip_wake(again or "")
             audio = audio or (b"x" if again else b"")
         if should_stop():
@@ -321,7 +334,7 @@ class VoiceSession:
         while not runtime.stop_event.is_set():
             lane = getattr(self, "voice_lane", None)
             if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                    or (lane is not None and lane.is_busy()):
+                    or self.speech_blocks_mic():
                 runtime.stop_event.wait(0.1)
                 continue
 
@@ -357,16 +370,19 @@ class VoiceSession:
             try:
                 with runtime.audio_lock:
                     if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
-                            or (lane is not None and lane.is_busy()):
+                            or self.speech_blocks_mic():
                         continue
                     in_session = runtime.time.time() < self.state["awake_until"]
                     abort = runtime._AnyAbort(
                         runtime.pause_listening, runtime.mic_cancel,
                         *( (lane.busy_event,) if lane is not None else () ),
                     )
-                    heard = runtime.voice.listen(timeout=2, announce_fail=False, abort=abort,
-                                         cheap=not in_session,      # ad aranırken ücretsiz yöntem
-                                         gate=in_session)           # sohbet sürerken gürültüyü komut sanma
+                    raw = runtime.voice.capture(timeout=2, abort=abort)
+                # The recording is only bytes now, so the STT wait runs after the
+                # capture lock instead of holding the microphone through a provider.
+                heard = runtime.voice.recognize(raw or b"", announce_fail=False,
+                                                cheap=not in_session,   # ad aranırken ücretsiz yöntem
+                                                gate=in_session)        # sohbet sürerken gürültüyü komut sanma
             except Exception as exc:
                 runtime._record_failure('main.py:listen_for_wake_word')
                 if runtime.stop_event.is_set():
@@ -433,7 +449,8 @@ class VoiceSession:
                 runtime.emit("state", "listening")
                 try:
                     with runtime.audio_lock:
-                        cmd = runtime.voice.listen(timeout=4, announce_fail=True, verbose=True, abort=runtime.mic_cancel)
+                        raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime.mic_cancel)
+                    cmd = runtime.voice.recognize(raw or b"", announce_fail=True)
                 except Exception:
                     runtime._record_failure('main.py:listen_for_wake_word')
                     cmd = None

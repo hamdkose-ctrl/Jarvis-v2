@@ -12,13 +12,16 @@ human-audible Windows output.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import shutil
 import threading
 import time
 
 from modules.diagnostics import record_failure as _record_failure
-from modules.voice_core import SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec
+from modules.voice_core import (
+    SpeechRequest, VoiceCatalog, VoiceCoordinator, VoiceSpec, speech_pace_note,
+)
 from modules.voice_edge import EdgePlayer, EdgeSynthesizer
 from modules.voice_offline import OfflineVoiceUnavailable, PiperSynthesizer, WavePlayer
 
@@ -33,6 +36,11 @@ _BLOCK_LEGACY = False  # explicit configuration fault must not trigger a second 
 # A recency bound on "whose speech was last audible", so the record cannot grow
 # with uptime; the mute scope of "sus" only ever consults the current owner.
 _LAST_AUDIBLE_OWNERS_KEPT = 8
+# In-flight utterances whose output boundaries are still being timed. A receipt
+# always clears its own record, so this only bounds requests that never produced
+# one; the number is a memory ceiling, not a delivery guarantee.
+_PACE_RECORDS_KEPT = 32
+_log = logging.getLogger("jarvis")
 
 
 class VoiceConfigurationError(ValueError):
@@ -234,7 +242,11 @@ def on_owner_switch(previous_owner: str, timeout: float = 0.6) -> bool:
     deadline = time.monotonic() + max(0.0, timeout)
     while lane.outstanding_owner(previous_owner) and time.monotonic() < deadline:
         time.sleep(0.01)
-    if lane.outstanding_owner(previous_owner):
+    # The receipt completes as soon as the player returns, so an empty outstanding
+    # set alone is not proof of silence: a driver can confirm the request and still
+    # carry live audio. The switch therefore has to require the same proof the
+    # microphone handoff requires, or it claims a stop the device never made.
+    if lane.outstanding_owner(previous_owner) or lane.stop_unconfirmed():
         _record_failure("modules/voice_runtime.py:owner_switch_stop")
         return False
     return True
@@ -293,6 +305,9 @@ class VoiceLane:
         self._lock = threading.RLock()
         self._outstanding = {}
         self._last_audible = {}  # owner -> turn id of the speech it last heard
+        # request id -> the real output boundaries this utterance crossed, kept only
+        # until its receipt reports how long the whole thing took.
+        self._pace = {}
         # True while a cut the device never confirmed is the newest word about the
         # speaker; the mic handoff and the UI idle claim both consult it.
         self._stop_unconfirmed = False
@@ -320,6 +335,52 @@ class VoiceLane:
         except Exception:
             _record_failure("modules/voice_runtime.py:echo")
 
+    def _pace_mark(self, request: SpeechRequest, stage: str) -> None:
+        """Record when this utterance really crossed each output boundary, by request id.
+
+        "The voice arrives seconds after the text" cannot be fixed by guessing, and
+        the stage events are the boundaries themselves: the queue hand-off, the
+        provider synthesis, the first ready audio and the player's own admission. The
+        marks carry identifiers and numbers only — never the words, the asset name or
+        the user — and a bounded FIFO keeps a never-played request from growing with
+        uptime.
+        """
+        with self._lock:
+            entry = self._pace.get(request.request_id)
+            if entry is None:
+                entry = self._pace[request.request_id] = {"voice": request.voice_id,
+                                                          "chars": len(request.text),
+                                                          "marks": {}}
+            entry["marks"].setdefault(stage, time.monotonic())
+            while len(self._pace) > _PACE_RECORDS_KEPT:
+                self._pace.pop(next(iter(self._pace)))
+
+    def _pace_report(self, receipt) -> None:
+        """One log line per finished utterance: the waits it went through, in ms."""
+        with self._lock:
+            entry = self._pace.pop(receipt.request_id, None)
+        if entry is None:
+            return
+        marks = entry["marks"]
+
+        def span(start: str, end: str):
+            if start not in marks or end not in marks:
+                return None
+            return int((marks[end] - marks[start]) * 1000)
+
+        note = speech_pace_note(
+            request_id=receipt.request_id, voice_id=receipt.voice_id,
+            chars=entry["chars"], status=receipt.status, reason=receipt.reason_code,
+            queue_ms=span("accepted", "synthesizing"),
+            synth_ms=span("synthesizing", "audio_ready"),
+            first_audio_ms=span("accepted", "playback_started"),
+            total_ms=None if "accepted" not in marks
+            else int((time.monotonic() - marks["accepted"]) * 1000))
+        try:
+            _log.info(note)
+        except Exception:
+            _record_failure("modules/voice_runtime.py:pace")
+
     def _stage_event(self, request: SpeechRequest, stage: str) -> None:
         """Present the real player boundary, never enqueue/WAV readiness, as speech.
 
@@ -331,6 +392,7 @@ class VoiceLane:
         """
         if self._closed:
             return
+        self._pace_mark(request, stage)
         if stage == "playback_started":
             # Remember whose speech the speaker last carried: "sus" may only mute
             # the turn the user actually heard, never a job that never spoke.
@@ -501,12 +563,20 @@ class VoiceLane:
         # stopped-but-unconfirmed cut cannot be answered with an "idle" UI state or
         # an open microphone while audio may still be on the speaker. A later
         # playback the device did acknowledge clears it: the newest word wins.
+        #
+        # Only a receipt whose audio really reached the player is news about the
+        # speaker. An utterance that never started (a queued notice whose TTL
+        # expired, a cancel accepted before its first chunk) says nothing about
+        # whether the cut that is still audible ever went silent, so it must not
+        # erase that proof — which is exactly how the microphone used to be handed
+        # over over live audio again.
         with self._lock:
             if receipt.reason_code == "VOICE_STOP_UNCONFIRMED":
                 self._stop_unconfirmed = True
-            elif receipt.status in {"played", "cancelled"}:
+            elif receipt.played and receipt.status in {"played", "cancelled"}:
                 self._stop_unconfirmed = False
         self._forget(receipt.request_id)
+        self._pace_report(receipt)
         if self._closed:
             return
         try:
@@ -557,6 +627,7 @@ class VoiceLane:
         global _ACTIVE, _BLOCK_LEGACY
         with self._lock:
             self._closed = True
+            self._pace.clear()
         self._coordinator.close()
         with _ACTIVE_LOCK:
             if _ACTIVE is self:

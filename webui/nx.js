@@ -1397,11 +1397,15 @@ function speechEvent(m){
 }
 function speechStateEvent(state){if(state==='speaking'||!S.speech)return;S.speech=null;applySpeechHighlight()}
 function speechClassFor(m){return S.speech&&m&&m.rid&&S.speech.turn_id===m.rid?' saying':''}
-function speechTaskClass(){return S.speech&&S.speech.goal_id?' saying':''}
+function taskGoalId(item){const area=String((item||{}).area||'');const match=/^Görev (\S+)/.exec(area);return match?match[1]:''}
+function speechTaskClass(goal){const id=S.speech||{};return goal&&(id.goal_id===goal||id.event_id===goal)?' saying':''}
 function applySpeechHighlight(){
   const id=S.speech||{};
   $$('.m.a').forEach(el=>el.classList.toggle('saying',!!id.turn_id&&el.dataset.rid===id.turn_id));
-  const task=$('#cside .task');if(task)task.classList.toggle('saying',!!id.goal_id);
+  // Görev kartı yalnız kendi işi seslendirildiğinde işaretlenir: kartın kimliği
+  // çizimdeki aktivite kaydından gelir, seslendirmenin sonuç kimliğiyle (iş/hedef)
+  // karşılaştırılır. Kimliksiz seslendirme hiçbir kartı boyamaz.
+  const task=$('#cside .task');if(task)task.classList.toggle('saying',!!task.dataset.goal&&(task.dataset.goal===id.goal_id||task.dataset.goal===id.event_id));
 }
 // SPEECH HIGHLIGHT END
 function msgHtml(m){
@@ -1542,8 +1546,9 @@ function drawSide(){
   const run=(sn.activity||[]).slice().reverse().find(a=>a.status==='start'),last=(sn.activity||[]).slice().reverse().find(a=>a.status!=='start'&&!/Aktivite ekranı/.test(a.text));
   const ms=curMsgs();const fl=[...new Set(ms.flatMap(m=>m.role==='user'?msgFiles(m.text).paths:[]))].map(p=>({path:p,name:p.split(/[\\/]/).pop(),cat:catOf(p)}));
   const files=fl.length?fl:(S.files&&S.files.files||[]).slice(0,3);
+  const goal=taskGoalId(run||last);   // kartın kendi iş kimliği; aktivite kaydından gelir
   el.innerHTML=`<section class="card"><div class="ch"><span class="ct" style="display:flex;gap:8px;align-items:center"><span class="ib sm purple">${ic('file')}</span>Mevcut Görev</span></div>
-     <div class="task${speechTaskClass()}"><span class="ib ${run?'orange':'navy'}" style="width:50px;height:50px">${ic(run?'activity':'check')}</span><div style="min-width:0"><b>${esc(run?run.text.replace(/^Komut alındı:\s*/,'').slice(0,40):last?(last.area||'Son işlem'):'Görev yok')}</b><small>${files.length} dosya</small>
+     <div class="task${speechTaskClass(goal)}" data-goal="${esc(goal)}"><span class="ib ${run?'orange':'navy'}" style="width:50px;height:50px">${ic(run?'activity':'check')}</span><div style="min-width:0"><b>${esc(run?run.text.replace(/^Komut alındı:\s*/,'').slice(0,40):last?(last.area||'Son işlem'):'Görev yok')}</b><small>${files.length} dosya</small>
       <div class="okk" style="${run?'color:var(--orange)':''}">${ic(run?'clock':'check')} ${run?'Çalışıyor…':last?(last.status==='error'?'Başarısız':'Tamamlandı'):'Hazır'}</div></div></div></section>
    <section class="card"><div class="ch"><span class="ct">Dosyalar</span><button class="link" data-go="files">Tümünü Gör</button></div>
      ${files.length?files.map(f=>`<div class="frow" data-act="fpick" data-p="${esc(f.path)}"><span class="fi ${f.cat}">${(extOf(f.path)||'?').toUpperCase().slice(0,3)}</span><span>${esc(f.name)}</span><small>${f.size?fmtSize(f.size):''}</small></div>`).join(''):'<div class="empty">Dosya yok.</div>'}</section>
@@ -2077,7 +2082,8 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
       field('Uyanma hassasiyeti',sel('wsens',[[1,'1 · Zor uyanır'],[2,'2'],[3,'3 · Dengeli'],[4,'4'],[5,'5 · Çok kolay uyanır']],st.wake_sensitivity||3),'“Hey Jarvis”i kaçırıyorsa artır; kendi kendine uyanıyorsa azalt.')+save)
    +sbox('vol','Sesli Yanıt','Cevapları sesli okuma ve konuşma sesi.',
       srow('vol','Sesli yanıt','Cevapları sesli oku',sw1('speak',f.speak))+
-      (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+save)
+      (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
+      vresField(st,sel)+save)
    +sbox('user','Asistanın Adı','Uyanma ve konuşmada kullanılan ad.',
       field('Asistanın adı',inp('aname','Jarvis',st.assistant_name))+save)
    +sbox('check','Yerel Ses Tanıma','Konuş düğmesinde internetsiz ses tanıma.',
@@ -2090,6 +2096,9 @@ function sesBoxes({st,vo,devs,ls,sel,f,u,sn}){
       field('Özel kelimeler',inp('swords','Nevzat Bey, EAE',st.stt_words),'Sık söylediğin adlar/terimler, virgülle.')+save)
    +sbox('target','Konuşma Tarzı','Yanıtların uzunluğu.',
       field('Yanıt uzunluğu',`<div class="seg">${[['kısa','Kısa'],['orta','Dengeli'],['uzun','Detaylı']].map(([v,t])=>`<button class="${(((sn||{}).prefs||{}).verbosity||'orta')===v?'on':''}" data-act="verb" data-v="${v}">${t}</button>`).join('')}</div>`))}
+// Sonuç bildiriminin sesli okunması tek satırdan yönetilir: yan sayfa bölümleri ile Ayarlar
+// sayfası aynı alanı, aynı kimlikle ve aynı açıklamayla gösterir.
+function vresField(st,sel){return field('Sonuç bildirimi sesli okunsun',sel('vres',[[0,'Kapalı · yazılı kalsın (varsayılan)'],[1,'Açık · biten görev ve araştırma sonucu da seslendirilsin']],st.voice_announce_results?1:0),'Uzun işin sonucu ekranda yazılı kalır; bu açıkken ses kuyruğunda yanıtının arkasına sıraya girer, beş dakikadan eski sonuç yüksek sesle okunmaz.');}
 // GitHub bölümü yan sayfada üç bölüm olur: bağlantı, yükle/al, güncelleme ve paketler (Ayarlar sayfası eski tek kutuyu korur).
 function githubBoxes(up,dep){const msg=`<div class="mut" style="margin-top:8px;white-space:pre-wrap">${esc(SX.gh||up.sync_msg||'')}</div>`;
   return sbox('key','GitHub Bağlantısı','GitHub tek ana geliştirme kaynağıdır; Ev ve İş PC eşittir.',
@@ -2199,6 +2208,7 @@ async function drawSettings(){
       srow('mic','Mikrofon','“Hey Jarvis” dinlemesi',`<button class="sw ${f.mic?'on':''}" data-act="sflag" data-k="mic" data-v="${f.mic?0:1}"></button>`)+
       srow('vol','Sesli yanıt','Cevapları sesli oku',`<button class="sw ${f.speak?'on':''}" data-act="sflag" data-k="speak" data-v="${f.speak?0:1}"></button>`)+
       (vo.voices.length?field('Konuşma sesi',sel('vsel',vo.voices.map(v=>[v.key,v.name]),vo.voice)):'')+
+      vresField(st,sel)+
       field('Asistanın adı',inp('aname','Jarvis',st.assistant_name))+
       '<details class="sdet"><summary>Gelişmiş ses ayarları</summary>'+
       srow('bell','Uyanma sesi','Dinlemeye geçince yumuşak bir ses',sw('wake_beep',u.wake_beep))+
@@ -2360,7 +2370,7 @@ ACT.gprodopen=async()=>{const r=await tryApi('google_oauth_console');SX.g=msgOf(
 ACT.gprodok=async ()=>{if(!await ask('Google Cloud’da OAuth yayın durumunu gerçekten “In production” yaptın mı?'))return;const r=await tryApi('google_oauth_production',true);SX.g=msgOf(r);drawSettings()};
 ACT.hoplace=el=>sAfter(api('handoff_place',el.dataset.v));
 ACT.hoconn=async()=>{SX.ho='Tarayıcıda Google izin ekranı açılıyor…';drawSettings();SX.ho=msgOf(await tryApi('handoff_connect'));sAfter(0)};
-ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value,voice_mic_during_model_wait:$('#mmic').value==='1'});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
+ACT.vsave=async()=>{SX.v='Kaydediliyor…';try{await api('settings_save',{local_stt_enabled:$('#lstt').value==='1',local_stt_model:$('#lsttmodel').value,local_stt_beam:+$('#lsttbeam').value||5,assistant_name:$('#aname').value,wake_sensitivity:+$('#wsens').value,stt_fixes:$('#sfix').value,stt_words:$('#swords').value,input_device:$('#micdev').value,voice_mic_during_model_wait:$('#mmic').value==='1',voice_announce_results:$('#vres').value==='1'});SX.v='✓ Kaydedildi. Ses tanıma seçimini değiştirdiysen Jarvis’i yeniden başlat.'}catch(e){SX.v='✗ '+e.message}S.ui=null;await loadUi();drawSettings()};
 ACT.pmode=el=>sAfter(api('privacy_set',{mode:el.dataset.k}));
 ACT.ptog=el=>sAfter(api('privacy_set',{[el.dataset.k]:el.dataset.v==='1'}));
 ACT.odata=()=>api('open_folder','data');

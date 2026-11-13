@@ -14,6 +14,7 @@ comes back while the provider is answering, and the identity lock, the owner's q
 the "sus"/"dur" scopes, the deadline and the late-answer fence are unchanged.
 """
 import contextlib
+import inspect
 import os
 import sys
 import threading
@@ -240,7 +241,10 @@ class MicrophoneGate(unittest.TestCase):
 
     def test_playback_manual_stt_text_mode_and_muted_mic_never_reopen_the_gate(self):
         for name, kwargs, lane in [
-            ('speaker busy', {}, SimpleNamespace(is_busy=lambda: True)),
+            ('speaker busy', {}, SimpleNamespace(is_busy=lambda: True,
+                                                 stop_unconfirmed=lambda: False)),
+            ('cut not confirmed', {}, SimpleNamespace(is_busy=lambda: False,
+                                                      stop_unconfirmed=lambda: True)),
             ('local stt', {'manual': True}, None),
             ('text mode', {'listening': False}, None),
             ('mic flag off', {}, None),
@@ -253,6 +257,26 @@ class MicrophoneGate(unittest.TestCase):
                 session = _session(runtime, lane=lane, **kwargs)
                 with session.mic_open_during_model_wait():
                     self.assertTrue(self.pause.is_set())
+
+    def test_every_microphone_gate_reads_the_same_speaker_proof(self):
+        """The wake-word loop, its capture window and the P3 wait all read one predicate.
+
+        A cut the device never admitted (`stop_unconfirmed`) is news about the
+        speaker that `is_busy()` alone does not carry, and the handoff/UI idle
+        paths already read both. If one of the three gates keeps its own private
+        condition, the always-on listener goes deaf or hears Jarvis while
+        push-to-talk behaves differently about the same speaker.
+        """
+        for kind in ('offline_wake_step', 'listen_for_wake_word'):
+            with self.subTest(gate=kind):
+                source = inspect.getsource(getattr(VoiceSession, kind))
+                self.assertIn('speech_blocks_mic()', source)
+        self.assertNotIn('is_busy()', inspect.getsource(VoiceSession.mic_open_during_model_wait))
+        lane = SimpleNamespace(is_busy=lambda: False, stop_unconfirmed=lambda: True)
+        self.assertTrue(_session(self.runtime, lane=lane).speech_blocks_mic())
+
+    def test_no_speech_lane_means_the_speaker_is_not_occupied(self):
+        self.assertFalse(_session(self.runtime).speech_blocks_mic())
 
 
 class TurnWiring(unittest.TestCase):
@@ -318,11 +342,14 @@ class LongJobStaysHeard(unittest.TestCase):
             _execution_lock=threading.RLock())
         captured = []
 
-        def listen(timeout=0, **kwargs):
+        def capture(timeout=0, **kwargs):
             captured.append(time.monotonic())
+            return b''                     # the device is free again: only bytes so far
+
+        def recognize(raw, *args, **kwargs):
             return ''                      # nothing recognisable: the loop keeps listening
 
-        runtime.voice = SimpleNamespace(listen=listen, last_noise=1)
+        runtime.voice = SimpleNamespace(capture=capture, recognize=recognize, last_noise=1)
         runtime.captured = captured
         return runtime
 
@@ -431,7 +458,8 @@ class LongJobStaysHeard(unittest.TestCase):
     def test_sus_still_mutes_immediately_while_the_planner_waits(self):
         from modules import engine_queue
         runtime = self._runtime()
-        runtime.voice = SimpleNamespace(listen=lambda **k: '', last_noise=1, stop_speaking=Mock())
+        runtime.voice = SimpleNamespace(capture=lambda **k: b'', recognize=lambda *a, **k: '',
+                                        last_noise=1, stop_speaking=Mock())
         runtime._tr_lower = lambda text: text.lower()
         session = _session(runtime)
         runtime.pause_listening.set()

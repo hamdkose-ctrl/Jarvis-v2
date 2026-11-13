@@ -159,15 +159,60 @@ class FileOpsTests(unittest.TestCase):
         self.assertEqual(remaining[0][0], str(second))
 
 
-    def test_legacy_undo_record_without_digest_remains_backward_compatible(self):
+    def test_legacy_undo_record_without_digest_never_moves_unverified_file(self):
         moved = self.documents / 'legacy.txt'
         original = self.downloads / 'legacy.txt'
         moved.write_text('legacy content', encoding='utf-8')
         file_ops._record([[str(moved), str(original)]], 'alice')
-        self.assertIn('geri aldım', file_ops.undo('alice'))
-        self.assertEqual(original.read_text(encoding='utf-8'), 'legacy content')
-        self.assertFalse(moved.exists())
+        self.assertIn('dokunmadım', file_ops.undo('alice'))
+        self.assertFalse(original.exists())
+        self.assertEqual(moved.read_text(encoding='utf-8'), 'legacy content')
+        self.assertTrue(file_ops._undo_path('alice').exists())
 
+
+    def test_long_owner_receipts_are_unique_and_old_shared_alias_fails_closed(self):
+        """Two distinct valid owner IDs cannot share a truncated undo journal."""
+        from modules import file_resource_guard
+        prefix = 'longowner' * 8
+        a, b = prefix + '-alpha', prefix + '-beta'
+        self.assertLessEqual(len(a), 100)
+        self.assertLessEqual(len(b), 100)
+        self.assertNotEqual(file_ops._undo_path(a), file_ops._undo_path(b))
+        self.assertEqual(file_ops._legacy_undo_path(a),
+                         file_ops._legacy_undo_path(b))
+        self.assertNotEqual(files._undo_file(a), files._undo_file(b))
+        self.assertEqual(files._legacy_undo_file(a),
+                         files._legacy_undo_file(b))
+        self.assertEqual(file_resource_guard.receipt_owner_suffixes('alice'),
+                         ('alice', 'alice'))
+        self.assertEqual(file_ops._undo_path('alice'),
+                         self.home / 'file_op_undo_alice.json')
+        old = file_ops._legacy_undo_path(a)
+        old.write_text('[["not-known","not-owned"]]', encoding='utf-8')
+        source = self.write(self.desktop, 'long-owner.txt')
+        with patch.object(file_ops, '_permission_decision', return_value=None):
+            reply = file_ops.execute_typed(
+                'rename', owner=a, path=str(source), name='new-name',
+            )
+        self.assertIn('sahibi belirsiz', reply)
+        self.assertTrue(source.exists())
+        self.assertFalse((self.desktop / 'new-name.txt').exists())
+        self.assertFalse(file_ops._undo_path(a).exists())
+        self.assertFalse(file_ops._undo_path(b).exists())
+        self.assertEqual(old.read_text(encoding='utf-8'),
+                         '[["not-known","not-owned"]]')
+        with patch.object(files, 'DATA_DIR', self.home):
+            old_bulk = files._legacy_undo_file(a)
+            old_bulk.write_text('[["unknown","foreign"]]', encoding='utf-8')
+            destination = self.documents / 'long-owner.txt'
+            with self.assertRaisesRegex(ValueError, 'sahibi belirsiz'):
+                files.apply_organize([(source, destination)], a)
+            self.assertTrue(source.exists())
+            self.assertFalse(destination.exists())
+            self.assertFalse(files._undo_file(a).exists())
+            self.assertFalse(files._undo_file(b).exists())
+            self.assertEqual(old_bulk.read_text(encoding='utf-8'),
+                             '[["unknown","foreign"]]')
 
     def test_typed_file_mutation_executor_moves_renames_creates_and_undoes(self):
         source = self.write(self.downloads, 'typed.pdf', 'typed original')

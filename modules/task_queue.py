@@ -17,14 +17,15 @@ _THREAD=None
 _OWNER_TICKS={}
 _LAST_ADMITTED={}
 # Read-only canonical workers belong to this same scheduler loop, not another
-# background poller. No owner may monopolize the bounded global pool.
+# background poller. One owner may run at least three independent jobs while
+# a fourth global slot is reserved for another owner under sustained load.
 _CANONICAL_WORKERS={}
 # A recovered completion is attempted once per Scheduler process/snapshot.
 # No repeated model billing every five seconds on semantic rejection/failure.
 _CANONICAL_RESUME_ATTEMPTED=set()
 _LAST_CANONICAL_ADMITTED={}
-_MAX_CANONICAL_WORKERS=3
-_MAX_CANONICAL_PER_OWNER=2
+_MAX_CANONICAL_WORKERS=4
+_MAX_CANONICAL_PER_OWNER=3
 # Soft timeout for each read-only worker. Expiry fences Core CAS but cannot
 # forcibly abort a provider call; keep its OS resource claim until return.
 _CANONICAL_WORKER_DEADLINE_SECONDS=300
@@ -412,7 +413,12 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                                 pinned_profile, candidate, stop_event=deadline,
                             )
                             if completed and canonical_result_notify is not None:
-                                canonical_result_notify(pinned_owner, candidate.selection.job_id)
+                                # Keep this attempt's stop/deadline active until
+                                # the semantic decision and owner event are fenced.
+                                with runtime_worker_result.scheduler_stop_scope(deadline):
+                                    canonical_result_notify(
+                                        pinned_owner, candidate.selection.job_id,
+                                    )
                     except Exception:
                         _record_failure('modules/task_queue.py:canonical_dispatch')
                     finally:
@@ -453,9 +459,14 @@ def start(stop_event, notify=None, allowed_owners=None, source_notify=None,
                     token = llm._key_context.set(pinned_owner)
                     try:
                         if not stop_event.is_set():
-                            # Callback owns the existing proof recheck, Core CAS,
-                            # and owner-targeted delivery. Never launch workers.
-                            canonical_result_notify(pinned_owner, offer.job_id)
+                            from modules import runtime_worker_result
+                            # A restarted completion owns one bounded model
+                            # attempt; it cannot re-execute a provider worker.
+                            deadline = runtime_worker_result.CanonicalWorkerDeadline(
+                                stop_event, _CANONICAL_WORKER_DEADLINE_SECONDS,
+                            )
+                            with runtime_worker_result.scheduler_stop_scope(deadline):
+                                canonical_result_notify(pinned_owner, offer.job_id)
                     except Exception:
                         _record_failure('modules/task_queue.py:completion_recovery')
                     finally:

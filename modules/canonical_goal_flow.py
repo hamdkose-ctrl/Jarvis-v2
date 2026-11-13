@@ -28,8 +28,9 @@ from modules import (
 _COMPLETING = set()
 _RECHECK = set()
 _COMPLETING_LOCK = threading.Lock()
-_READ_ONLY = frozenset({'research', 'account'})
+_READ_ONLY = frozenset({'research', 'account', 'verify'})
 _RESULT_QUERY = re.compile(r'hedef sonucu\s+([a-f0-9]{16})\s*[.!?]?\Z', re.IGNORECASE)
+_REPLY_QUERY = re.compile(r'hedef cevap\s+([a-f0-9]{16})\s+(.{1,2000})\Z', re.IGNORECASE | re.DOTALL)
 
 
 def _canonical_plan(tasks):
@@ -42,7 +43,17 @@ def _canonical_plan(tasks):
         deps = task.get('depends', [])
         if kind not in _READ_ONLY:
             raise ValueError('Only supported read-only task nodes may be admitted.')
-        if deps and kind != 'research':
+        if kind == 'verify':
+            # Only a first-attempt, no-effect verification of existing
+            # research/account results; writer remains outside this lane.
+            parents = [next((p for p in tasks if p['id'] == dep), None)
+                       for dep in deps]
+            if (not 1 <= len(deps) <= 6 or any(
+                    not isinstance(p, dict)
+                    or p.get('agent') not in ('research', 'account')
+                    for p in parents)):
+                raise ValueError('Verify requires read-only predecessor nodes.')
+        if deps and kind not in ('research', 'verify'):
             # Developer-approved, exact Gmail chain only: a verified unread
             # list can select ONE message by index. No arbitrary account DAG.
             source = next((row for row in tasks if row['id'] == deps[0]), None) if len(deps) == 1 else None
@@ -201,13 +212,15 @@ def _legacy_duplicate_reply():
     )
 
 
-def try_create(owner: str, request_id: str, text: str):
+def try_create(owner: str, request_id: str, text: str, *, legacy_plan_sink=None):
     """Admit one request ID to canonical or one-shot legacy fallback.
 
     An unsupported first plan returns None only AFTER a durable single
     fallback claim. Subsequent identical attempts return a no-op reply.
     No worker is authorized by the planner or this receipt.
     """
+    if legacy_plan_sink is not None and not callable(legacy_plan_sink):
+        raise TypeError('Legacy plan sink must be callable.')
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         return None
     if not isinstance(request_id, str) or not request_id.strip():
@@ -221,10 +234,12 @@ def try_create(owner: str, request_id: str, text: str):
     # The per-request planning gate is independent of Core/Scheduler locks,
     # and is held only for this request's one admission/planning window.
     with _planning_once(root, job_id):
-        return _try_create_planned(owner, request_id, text, job_id, root)
+        return _try_create_planned(owner, request_id, text, job_id, root,
+                                   legacy_plan_sink=legacy_plan_sink)
 
 
-def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root):
+def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, root,
+                        *, legacy_plan_sink=None):
     # Ordinary client retries must not spend model tokens.
     with goal_job_control.locked(root, job_id):
         prior = _existing_request(root, owner, job_id, request_id, text)
@@ -241,7 +256,10 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
     system = (
         task_agents._SYSTEM +
         '\nBu tur canonical arka plan araştırma önerisidir. Yalnız research '
-        've salt-okunur account görevleri öner; desteklenmeyen etkiyi planlama. '
+        've salt-okunur account görevleri öner; kanıtları birleştirmek '
+        'için yalnız doğrulanmış research/account bağımlı verify görevini kullan. '
+        'Writer dosyaya yazdığı için canonical salt-okunur kapsamda değildir. '
+        'Desteklenmeyen etkiyi planlama. '
         'Kullanıcının istediği kapsamı karşılayamıyorsan uydurma kaynak verme.'
     )
     token = llm._key_context.set(owner)
@@ -264,6 +282,17 @@ def _try_create_planned(owner: str, request_id: str, text: str, job_id: str, roo
             if prior is not None:
                 return prior
             _claim_legacy_once(root, owner, request_id, text, job_id)
+        # Reuse the SAME first proposal only when the legacy executor's
+        # strict parser deems it replay-safe. This transfers no permission.
+        if legacy_plan_sink is not None and isinstance(locals().get('tasks'), list):
+            try:
+                safe_call = goal_executor._parse(json.dumps(
+                    {'tasks': tasks}, ensure_ascii=False,
+                ))
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                legacy_plan_sink(copy.deepcopy(safe_call))
         return None
 
     record_path = execution_record.path_for(root, job_id)
@@ -323,6 +352,13 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
         'request': job['request'], 'goals': job['goals'],
         'verified_steps': evidence,
         'required_evidence': list(node_ids),
+        'user_clarification': (
+            {'question': job['_canonical_dialog']['question'],
+             'answer': job['_canonical_dialog']['answer']}
+            if isinstance(job.get('_canonical_dialog'), dict)
+               and job['_canonical_dialog'].get('state') == 'answered'
+            else None
+        ),
     }, ensure_ascii=False)
     system = (
         goal_executor.SYSTEM +
@@ -344,8 +380,151 @@ def _semantic_proposal(owner: str, job: dict, node_ids: tuple[str, ...]):
     return goal_executor._parse(answer)
 
 
+def _accepted_user_channel(receipt) -> str | None:
+    """Return an acknowledged owner-facing sink, never log-only success.
+
+    The channel reported sink acceptance, NOT human read/open and NOT an
+    end-to-end exactly-once transport guarantee. Other channel failures do
+    not erase an already accepted owner-visible delivery.
+    """
+    if not isinstance(receipt, dict):
+        return None
+    for channel in ('ui', 'ntfy'):
+        if receipt.get(channel) == 'delivered':
+            return channel
+    return None
+
+
+def _ask_for_clarification(owner: str, job_id: str, proof, question: str, notify) -> None:
+    """Persist one owner-bound pending question; never mark Goal done or replay a worker.
+
+    A question is reserved before fanout. Unknown external delivery is NEVER
+    auto-replayed, but its text remains readable through goal status. The
+    user answers with a bounded explicit job-ID protocol, not an NL classifier.
+    """
+    if not isinstance(question, str) or not question.strip() or len(question) > 600:
+        return
+    from modules import runtime_worker_result
+    runtime_worker_result.require_scheduler_active()
+    root = goal_executor._owner_root(owner)
+    record_path = execution_record.path_for(root, job_id)
+    state_path = root / (job_id + '.goalstate.json')
+    with goal_job_control.locked(root, job_id):
+        runtime_worker_result.require_scheduler_active()
+        state = goal_state_store.load(state_path)
+        current = execution_record.load(root, owner, job_id)
+        if (state['owner'] != owner or state['job_id'] != job_id
+                or state['state'] not in ('pending', 'running')
+                or state['version'] != proof.goal_version
+                or current.get('state') != 'running'
+                or current.get('_canonical_delivery')
+                or goal_job_control.fingerprint(current) != proof.record_digest):
+            return
+        previous = current.get('_canonical_dialog')
+        if previous is not None and (not isinstance(previous, dict)
+                                    or previous.get('state') != 'answered'):
+            return
+        round_number = 1 if previous is None else previous.get('round', 0) + 1
+        if type(round_number) is not int or not 1 <= round_number <= 3:
+            return
+        event_id = f'canonical-question:{job_id}:{round_number}'
+        current['_canonical_dialog'] = {
+            'state': 'waiting', 'question': question.strip(),
+            'round': round_number, 'event_id': event_id,
+            'delivery': 'reserved', 'created': time.time(),
+        }
+        release_guard.atomic(record_path, execution_record.encode(current))
+    message = ('Bu hedefi tamamlamak için ek bilgi gerekiyor: ' + question.strip()
+               + f'\nYanıtlamak için: hedef cevap {job_id} <yanıt>')
+    runtime_worker_result.require_scheduler_active()
+    try:
+        receipt = notify(owner, job_id, message)
+    except Exception:
+        _record_failure('modules/canonical_goal_flow.py:question_delivery')
+        return
+    accepted_channel = _accepted_user_channel(receipt)
+    if accepted_channel is None:
+        return
+    with goal_job_control.locked(root, job_id):
+        current = execution_record.load(root, owner, job_id)
+        dialog = current.get('_canonical_dialog')
+        if (isinstance(dialog, dict) and dialog.get('event_id') == event_id
+                and dialog.get('state') == 'waiting'
+                and dialog.get('delivery') == 'reserved'):
+            dialog['delivery'] = accepted_channel + '_accepted'
+            evidence = {
+                'event_id': event_id, 'channel': accepted_channel,
+                'status': 'accepted', 'recorded_at': time.time(),
+            }
+            dialog['delivery_receipt'] = evidence
+            if accepted_channel == 'ui':
+                dialog['ui_receipt'] = evidence
+            release_guard.atomic(record_path, execution_record.encode(current))
+
+
+def submit_clarification(owner: str, job_id: str, answer: str) -> str:
+    """Durably answer an existing question; only the one Scheduler may resume."""
+    from modules import requests_state, goal_state
+    requests_state.check()
+    if (not isinstance(answer, str) or not answer.strip()
+            or len(answer) > 2000):
+        raise ValueError('Hedef cevabı boş veya çok uzun.')
+    root = goal_executor._owner_root(owner)
+    record_path = execution_record.path_for(root, job_id)
+    with goal_job_control.locked(root, job_id):
+        state = goal_state_store.load(root / (job_id + '.goalstate.json'))
+        if ((state['owner'], state['job_id']) != (owner, job_id)
+                or goal_state.authority(state) != 'canonical'
+                or not isinstance(state.get('goal_plan'), dict)
+                or state['state'] not in ('pending', 'running')):
+            raise ValueError('Hedef artık açıklama kabul etmiyor.')
+        current = execution_record.load(root, owner, job_id)
+        dialog = current.get('_canonical_dialog')
+        if (current.get('state') != 'running'
+                or current.get('_canonical_delivery')
+                or not isinstance(dialog, dict)
+                or dialog.get('state') != 'waiting'
+                or not isinstance(dialog.get('question'), str)
+                or not dialog.get('question').strip()):
+            raise ValueError('Bu hedefin açık bir kullanıcı sorusu bulunmuyor.')
+        updated = copy.deepcopy(current)
+        updated['_canonical_dialog']['state'] = 'answered'
+        updated['_canonical_dialog']['answer'] = answer.strip()
+        updated['_canonical_dialog']['answered_at'] = time.time()
+        release_guard.atomic(record_path, execution_record.encode(updated))
+    return ('Yanıt bu hedefe kaydedildi. Var olan kanıtlar korunuyor; '
+            'Scheduler tamamlanma kararını yeniden değerlendirecek, '
+            'hiçbir worker tekrar başlatılmadı.')
+
+
+def delivery_metadata(owner: str, job_id: str) -> tuple[str, str, str]:
+    """Read one durable notification identity for the existing event sink."""
+    root = goal_executor._owner_root(owner)
+    with goal_job_control.locked(root, job_id):
+        state = goal_state_store.load(root / (job_id + '.goalstate.json'))
+        current = execution_record.load(root, owner, job_id)
+        if (state['owner'], state['job_id']) != (owner, job_id):
+            raise PermissionError('Bildirim sahibi eşleşmiyor.')
+        dialog = current.get('_canonical_dialog')
+        if (current.get('state') == 'running'
+                and state['state'] in ('pending', 'running')
+                and isinstance(dialog, dict)
+                and dialog.get('state') == 'waiting'
+                and dialog.get('delivery') == 'reserved'
+                and isinstance(dialog.get('event_id'), str)):
+            return 'question', dialog['event_id'], 'Jarvis hedef sorusu'
+        if (current.get('state') == 'done'
+                and state['state'] == 'done'
+                and current.get('_canonical_delivery') == 'reserved'
+                and current.get('_canonical_result_event_id') == 'canonical:' + job_id):
+            return 'completed', 'canonical:' + job_id, 'Jarvis araştırma sonucu'
+    raise ValueError('Doğrulanmış bekleyen bildirimin kimliği bulunamadı.')
+
+
 def _complete_once(owner: str, job_id: str, notify) -> bool:
     """Attempt only one evidence-verified Core completion and event delivery."""
+    from modules import runtime_worker_result
+    runtime_worker_result.require_scheduler_active()
     try:
         proof = canonical_plan_evidence.certify_projected_plan(owner, job_id)
     except (canonical_plan_evidence.PlanEvidenceError, ValueError, OSError):
@@ -356,12 +535,26 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         if (goal_job_control.fingerprint(job) != proof.record_digest
                 or job.get('state') != 'running' or job.get('_canonical_delivery')):
             return False
+    dialog = job.get('_canonical_dialog')
+    if dialog is not None and (
+            not isinstance(dialog, dict)
+            or dialog.get('state') != 'answered'
+            or not isinstance(dialog.get('answer'), str)
+            or not dialog['answer'].strip()):
+        # A waiting question is not a fresh model prompt after restart.
+        return False
     node_ids = tuple(node_id for node_id, _ in proof.output_digests)
     try:
         proposal = _semantic_proposal(owner, job, node_ids)
     except Exception:
         _record_failure('modules/canonical_goal_flow.py:semantic_completion')
         # A model/provider failure never becomes a successful Goal.
+        return False
+    # The model may have finished after stop/deadline. Its proposed success
+    # does not grant a terminal Core transition or a new user question.
+    runtime_worker_result.require_scheduler_active()
+    if proposal.get('action') == 'ask':
+        _ask_for_clarification(owner, job_id, proof, proposal.get('question'), notify)
         return False
     if (proposal.get('action') != 'complete'
             or type(proposal.get('goal')) is not int
@@ -395,6 +588,7 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
     state_path = root / (job_id + '.goalstate.json')
     record_path = execution_record.path_for(root, job_id)
     with goal_job_control.locked(root, job_id):
+        runtime_worker_result.require_scheduler_active()
         state = goal_state_store.load(state_path)
         current = execution_record.load(root, owner, job_id)
         if (state['owner'] != owner or state['job_id'] != job_id
@@ -433,16 +627,30 @@ def _complete_once(owner: str, job_id: str, notify) -> bool:
         completed['_canonical_delivery'] = 'reserved'
         completed['updated'] = time.time()
         release_guard.atomic(record_path, execution_record.encode(completed))
+    runtime_worker_result.require_scheduler_active()
     try:
-        notify(owner, job_id, message)
+        receipt = notify(owner, job_id, message)
     except Exception:
         _record_failure('modules/canonical_goal_flow.py:result_delivery')
         # Could have reached one sink already. Never resend blindly.
+        return False
+    # Log-only success is not user delivery; UI or user-configured ntfy
+    # acceptance is recorded separately from user read/open acknowledgments.
+    accepted_channel = _accepted_user_channel(receipt)
+    if accepted_channel is None:
         return False
     with goal_job_control.locked(root, job_id):
         saved = execution_record.load(root, owner, job_id)
         if saved.get('_canonical_delivery') == 'reserved':
             saved['_canonical_delivery'] = 'delivered'
+            evidence = {
+                'event_id': 'canonical:' + job_id,
+                'channel': accepted_channel,
+                'status': 'accepted', 'recorded_at': time.time(),
+            }
+            saved['_canonical_delivery_receipt'] = evidence
+            if accepted_channel == 'ui':
+                saved['_canonical_ui_receipt'] = evidence
             saved['updated'] = time.time()
             release_guard.atomic(record_path, execution_record.encode(saved))
     return True
@@ -535,8 +743,16 @@ def read_completed_result(owner: str, job_id: str) -> str:
 
 
 def read_result_command(owner: str, text: str) -> str | None:
-    """A bounded explicit result-ID protocol; never an NL intent classifier."""
-    match = _RESULT_QUERY.fullmatch(text.strip()) if isinstance(text, str) else None
+    """Bounded exact-ID result read or user answer; never an NL classifier."""
+    if not isinstance(text, str):
+        return None
+    reply = _REPLY_QUERY.fullmatch(text.strip())
+    if reply is not None:
+        try:
+            return submit_clarification(owner, reply.group(1).lower(), reply.group(2))
+        except (FileNotFoundError, ValueError, PermissionError, OSError, TypeError, KeyError):
+            return 'Bu hedef açıklama kabul etmiyor; başka hedefe veya workera dokunulmadı.'
+    match = _RESULT_QUERY.fullmatch(text.strip())
     if match is None:
         return None
     try:

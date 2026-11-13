@@ -12,9 +12,15 @@ from config import DATA_DIR
 
 def _undo_file(owner: str = "") -> Path:
     """Toplu düzenleme geri alması yalnız onaylayan kullanıcıya aittir."""
-    # `\\w` karakter sınıfı değil, ters bölü + "w" demektir: her ad aynı dosyaya düşerdi.
-    safe = re.sub(r"[^\w-]", "_", owner)[:60] or "ortak"
+    from modules import file_resource_guard
+    safe, _old = file_resource_guard.receipt_owner_suffixes(owner)
     return DATA_DIR / f"organize_undo_{safe}.json"
+
+
+def _legacy_undo_file(owner: str = "") -> Path:
+    from modules import file_resource_guard
+    _safe, old = file_resource_guard.receipt_owner_suffixes(owner)
+    return DATA_DIR / f"organize_undo_{old}.json"
 
 # (söylenen kök) -> (klasör adaylar, klasör sözcüğü gerekir mi)
 _FOLDERS = (
@@ -239,9 +245,14 @@ def apply_organize(plan: list[tuple[Path, Path]], owner: str = "",
             not isinstance(expected_stamp, str) or len(expected_stamp) != 64):
         raise ValueError('Düzenleme onayı geçersiz.')
     receipt = _undo_file(owner)
+    legacy = _legacy_undo_file(owner)
     receipt.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with file_resource_guard.claim_paths(receipt):
+        with file_resource_guard.claim_paths(receipt, legacy):
+            if receipt != legacy and (legacy.exists() or legacy.is_symlink()):
+                raise ValueError(
+                    'Önceki düzenleme makbuzunun sahibi belirsiz; işlem yapılmadı.'
+                )
             if receipt.exists():
                 try:
                     previous = _validated_undo_entries(json.loads(
@@ -308,10 +319,14 @@ def undo_organize(owner: str = "") -> int | None:
     from modules import file_resource_guard, resource_leases
 
     receipt = _undo_file(owner)
-    if not receipt.exists() and not receipt.is_symlink():
+    legacy = _legacy_undo_file(owner)
+    if not receipt.exists() and not receipt.is_symlink() and not legacy.exists() and not legacy.is_symlink():
         return None
     try:
-        with file_resource_guard.claim_paths(receipt):
+        with file_resource_guard.claim_paths(receipt, legacy):
+            if receipt != legacy and (legacy.exists() or legacy.is_symlink()):
+                # Owner is ambiguous after historical truncation.
+                return None
             try:
                 moved = _validated_undo_entries(json.loads(
                     receipt.read_text(encoding='utf-8')))

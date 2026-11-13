@@ -82,45 +82,85 @@ def run(owner,data,ffmpeg,output):
     data=validate(data);size=SIZES[data.get('layout','landscape')]
     total=sum(s.get('duration',5) for s in data['scenes'])
     final=output/(__import__('uuid').uuid4().hex[:12]+'-studio.mp4')
-    with tempfile.TemporaryDirectory(prefix='studio-',dir=output) as folder:
-        folder=Path(folder);audio=None;backend=None
-        if 'audio' in data:audio=media_tools._source(data['audio'],data['audio_sha256'],('.wav','.mp3','.ogg','.m4a'))
-        if 'narration' in data:
-            audio=folder/'narration.wav'
-            try:backend=local_narration.render(owner,data['narration'],audio)
-            except local_narration.Unavailable as exc:return {'state':'unavailable','text':str(exc)}
-            tool=__import__('shutil').which('ffprobe')
-            result=subprocess.run([tool,'-v','error','-show_format','-of','json',str(audio)],capture_output=True,text=True,timeout=30,check=True)
-            seconds=float(json.loads(result.stdout).get('format',{}).get('duration',0))
-            if seconds<=0 or seconds>300:raise ValueError('Anlatım sesinin süresi geçersiz.')
-            if seconds>total:
-                ratio=seconds/total
-                for scene in data['scenes']:scene['duration']=scene.get('duration',5)*ratio
-                total=seconds
-        concat=[]
-        for index,scene in enumerate(data['scenes']):
-            requests_state.check();image=folder/(str(index)+'.png');clip=folder/(str(index)+'.mp4')
-            _frame(scene,size,image)
-            subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-loop','1','-i',str(image),'-t',str(scene.get('duration',5)),
-                '-r','25','-c:v','libx264','-threads','2','-preset','veryfast','-pix_fmt','yuv420p',str(clip)],capture_output=True,timeout=180,check=True)
-            concat.append("file '"+clip.name+"'")
-        manifest=folder/'concat.txt';manifest.write_text('\n'.join(concat),encoding='utf-8')
-        joined=folder/'joined.mp4'
-        subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-f','concat','-safe','1','-i',str(manifest),'-c','copy',str(joined)],capture_output=True,timeout=90,check=True)
-        completed=joined
-        if audio:
-            completed=folder/'with-audio.mp4'
-            subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-i',str(joined),'-i',str(audio),'-map','0:v','-map','1:a','-af','apad',
-                '-t',str(total),'-c:v','copy','-c:a','aac','-ar','48000','-b:a','128k','-movflags','+faststart',str(completed)],capture_output=True,timeout=180,check=True)
-        requests_state.check();metadata=media_tools.probe(completed)
-        if (metadata['width'],metadata['height'])!=size or abs(metadata['duration']-total)>1 or metadata['has_audio']!=bool(audio):raise ValueError('Stüdyo video kontrolü başarısız.')
-        # No other Jarvis process may race this destination; exclusive create
-        # and digest are inside the same OS-account physical file claim.
-        with file_resource_guard.claim_paths(final):
+    # One physical claim covers every external scene/audio input and the
+    # future public output from first frame read through final publication.
+    # Without this, a separate Jarvis file worker can replace a source
+    # between its digest check and a later storyboard frame/FFmpeg read.
+    inputs=[Path(scene['image']) for scene in data['scenes'] if 'image' in scene]
+    if 'audio' in data:
+        inputs.append(Path(data['audio']))
+    with file_resource_guard.claim_paths(final, *inputs):
+        for scene in data['scenes']:
+            if 'image' in scene:
+                media_tools._source(scene['image'], scene['image_sha256'],
+                                    ('.png','.jpg','.jpeg','.webp'))
+        if 'audio' in data:
+            media_tools._source(data['audio'], data['audio_sha256'],
+                                ('.wav','.mp3','.ogg','.m4a'))
+        with tempfile.TemporaryDirectory(prefix='studio-',dir=output) as folder:
+            folder=Path(folder);audio=None;backend=None
+            if 'audio' in data:audio=media_tools._source(data['audio'],data['audio_sha256'],('.wav','.mp3','.ogg','.m4a'))
+            if 'narration' in data:
+                audio=folder/'narration.wav'
+                try:backend=local_narration.render(owner,data['narration'],audio)
+                except local_narration.Unavailable as exc:return {'state':'unavailable','text':str(exc)}
+                tool=__import__('shutil').which('ffprobe')
+                result=subprocess.run([tool,'-v','error','-show_format','-of','json',str(audio)],capture_output=True,text=True,timeout=30,check=True)
+                seconds=float(json.loads(result.stdout).get('format',{}).get('duration',0))
+                if seconds<=0 or seconds>300:raise ValueError('Anlatım sesinin süresi geçersiz.')
+                if seconds>total:
+                    ratio=seconds/total
+                    for scene in data['scenes']:scene['duration']=scene.get('duration',5)*ratio
+                    total=seconds
+            concat=[]
+            for index,scene in enumerate(data['scenes']):
+                requests_state.check();image=folder/(str(index)+'.png');clip=folder/(str(index)+'.mp4')
+                _frame(scene,size,image)
+                subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-loop','1','-i',str(image),'-t',str(scene.get('duration',5)),
+                    '-r','25','-c:v','libx264','-threads','2','-preset','veryfast','-pix_fmt','yuv420p',str(clip)],capture_output=True,timeout=180,check=True)
+                concat.append("file '"+clip.name+"'")
+            manifest=folder/'concat.txt';manifest.write_text('\n'.join(concat),encoding='utf-8')
+            joined=folder/'joined.mp4'
+            subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-f','concat','-safe','1','-i',str(manifest),'-c','copy',str(joined)],capture_output=True,timeout=90,check=True)
+            completed=joined
+            if audio:
+                completed=folder/'with-audio.mp4'
+                subprocess.run([ffmpeg,'-nostdin','-v','error','-n','-i',str(joined),'-i',str(audio),'-map','0:v','-map','1:a','-af','apad',
+                    '-t',str(total),'-c:v','copy','-c:a','aac','-ar','48000','-b:a','128k','-movflags','+faststart',str(completed)],capture_output=True,timeout=180,check=True)
+            requests_state.check();metadata=media_tools.probe(completed)
+            if (metadata['width'],metadata['height'])!=size or abs(metadata['duration']-total)>1 or metadata['has_audio']!=bool(audio):raise ValueError('Stüdyo video kontrolü başarısız.')
+            # No other Jarvis process may race this destination; exclusive create
+            # and digest are inside the same OS-account physical file claim.
+            # The outer claim already owns the public target and inputs;
+            # reacquiring it here can fail on Windows non-reentrant OS locks.
             if final.exists() or final.is_symlink():
                 raise resource_leases.LeaseConflict('Studio output already exists.')
-            with completed.open('rb') as src,final.open('xb') as dst:
-                __import__('shutil').copyfileobj(src,dst)
-                dst.flush();os.fsync(dst.fileno())
-            return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
-                    'file':str(final),'sha256':task_results.file_digest(final),'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+            # Stage complete bytes on the SAME filesystem before publishing
+            # the final name via an atomic, no-overwrite hard link. A power
+            # loss during copy can leave only a private temp file, never a
+            # misleading partial public video. Keep this inside the existing
+            # OS-account physical-file claim (not a new scheduler).
+            staged = None
+            published = False
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=output, prefix='.jarvis-studio-', suffix='.mp4',
+                    delete=False,
+                ) as dst:
+                    staged = Path(dst.name)
+                    with completed.open('rb') as src:
+                        __import__('shutil').copyfileobj(src, dst)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                os.link(staged, final)
+                published = True
+                digest = task_results.file_digest(final)
+                return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
+                        'file':str(final),'sha256':digest,'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+            except BaseException:
+                if published:
+                    final.unlink(missing_ok=True)
+                raise
+            finally:
+                if staged is not None:
+                    staged.unlink(missing_ok=True)
