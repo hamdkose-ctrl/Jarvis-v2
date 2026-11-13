@@ -10,15 +10,15 @@ import re
 # model-proposed files.read, not a second lexical effect chooser.
 _EXPLICIT_UI_FILE_ACTION = re.compile(
     r"(?:"
-    r"(?:yerel\\s+)?ocr(?:\\s+ile)?\\s+(?:oku|metni\\s+çıkar)"
-    r"|(?:dosyasını\\s+)?(?:özetle|özet|incele|analiz(?:\\s+et)?)"
-    r"|(?:dosyasını\\s+)?metni\\s+çıkar"
-    r"|(?:dosyasını\\s+)?(?:görselleştir|zaman\\s+çizelgesi\\s+olarak\\s+görselleştir)"
-    r"|(?:(?:iki|bu)\\s+)?(?:şartnameyi|dosyayı|belgeyi|dosyaları|belgeleri)\\s+karşılaştır"
-    r"|(?:tablo\\s+(?:yap|oluştur|hazırla)|önemli\\s+yerleri\\s+tablo\\s+yap)"
-    r"|(?:dosyasını\\s+)?(?:türkçeye|ingilizceye|almancaya|fransızcaya|ispanyolcaya|arapçaya|rusçaya)\\s+çevir"
-    r"|(?:dosyasını\\s+)?(?:excel(?:'e)?|word(?:'e)?|pdf(?:'e)?)\\s+dönüştür"
-    r"|(?:telefonuma|telefona)\\s+(?:gönder|yolla)"
+    r"(?:yerel\s+)?ocr(?:\s+ile)?\s+(?:oku|metni\s+çıkar)"
+    r"|(?:dosyasını\s+)?(?:özetle|özet|incele|analiz(?:\s+et)?)"
+    r"|(?:dosyasını\s+)?metni\s+çıkar"
+    r"|(?:dosyasını\s+)?(?:görselleştir|zaman\s+çizelgesi\s+olarak\s+görselleştir)"
+    r"|(?:(?:iki|bu)\s+)?(?:şartnameyi|dosyayı|belgeyi|dosyaları|belgeleri)\s+karşılaştır"
+    r"|(?:tablo\s+(?:yap|oluştur|hazırla)|önemli\s+yerleri\s+tablo\s+yap)"
+    r"|(?:dosyasını\s+)?(?:türkçeye|ingilizceye|almancaya|fransızcaya|ispanyolcaya|arapçaya|rusçaya)\s+çevir"
+    r"|(?:dosyasını\s+)?(?:excel(?:'e)?|word(?:'e)?|pdf(?:'e)?)\s+dönüştür"
+    r"|(?:telefonuma|telefona)\s+(?:gönder|yolla)"
     r")[.!]*",
     re.I,
 )
@@ -74,7 +74,7 @@ def _file_command(runtime, command: str) -> str | None:
     p = paths[0]
     path = str(p)
     is_img = path.lower().endswith(runtime._IMG_EXT)
-    if runtime.re.fullmatch(r"(?:telefonuma|telefona)\\s+(?:gönder|yolla)[.!]*", act):
+    if runtime.re.fullmatch(r"(?:telefonuma|telefona)\s+(?:gönder|yolla)[.!]*", act):
         from modules import filesend
         return filesend.send(p)
     if 'metni çıkar' in act or ('metin' in act and is_img):
