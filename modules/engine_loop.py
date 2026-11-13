@@ -261,10 +261,13 @@ def main(runtime, ui=None):
                 runtime.emit("state", "listening")
                 try:
                     with runtime.audio_lock:
-                        heard = runtime.voice.listen(timeout=6, announce_fail=True, verbose=True, abort=runtime.mic_cancel,
-                                                     local=voice_session.manual_local_stt,
-                                                     on_captured=(lambda: runtime.emit("state", "thinking"))
-                                                     if voice_session.manual_local_stt else None)
+                        raw = runtime.voice.capture(timeout=6, verbose=True, abort=runtime.mic_cancel,
+                                                    on_captured=(lambda: runtime.emit("state", "thinking"))
+                                                    if voice_session.manual_local_stt else None)
+                    # The STT wait is not a reason to keep the only capture device:
+                    # the stream is closed, so the lock is released before the text.
+                    heard = runtime.voice.recognize(raw or b"", announce_fail=True,
+                                                    local=voice_session.manual_local_stt)
                 except ValueError as exc:
                     runtime.emit('system', str(exc))
                     heard = None
