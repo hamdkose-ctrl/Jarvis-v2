@@ -219,6 +219,24 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         self.assertIs(rejected, base, "Forged recipient must not become a model-owned action")
         self.assertIsNone(core_plan("mail.draft", {"operation": "send", "index": 1}))
 
+    def test_model_grounded_pc_guide_goal_is_owned_and_unquoted_goal_is_rejected(self):
+        utterance = "adım adım wifi nasıl açılır"
+        accepted = action(capability_id="pc.guide.start",
+                          arguments={"goal": "wifi nasıl açılır"})
+        accepted["argument_sources"] = {"goal": "wifi nasıl açılır"}
+        base, semantic = applied(
+            utterance, envelope(actions=[accepted], confidence="HIGH"))
+        self.assertIs(semantic.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(semantic.capability_hint, "pc.guide.start")
+        self.assertEqual(core_plan(semantic.capability_hint, semantic.arguments),
+                         ("pc_guide_start", {"goal": "wifi nasıl açılır"}))
+        forged = action(capability_id="pc.guide.start",
+                        arguments={"goal": "tüm dosyaları sil"})
+        forged["argument_sources"] = {"goal": "wifi nasıl açılır"}
+        base, rejected = applied(
+            utterance, envelope(actions=[forged], confidence="HIGH"))
+        self.assertIs(rejected, base)
+
     def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
         utterance = "Not al: Raporu teslim et"
         raw_action = action(capability_id="notes.add",
