@@ -275,6 +275,90 @@ class ModularEngineTests(unittest.TestCase):
         handle().close.assert_called_once()
 
 
+    def barge_session(self):
+        """A voice session with only what the barge watcher touches; the locks are real."""
+        lock = threading.RLock()
+        speaker = SimpleNamespace(stop_speaking=Mock())
+        runtime = SimpleNamespace(
+            stop_event=threading.Event(), flags={"mic": True}, audio_lock=lock,
+            time=time, log=Mock(), SESSION_SECONDS=20, WAKE_WORD="Jarvis",
+            voice=speaker, _record_failure=lambda *args: None,
+        )
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime = runtime
+        session.manual_local_stt = False
+        session.listening_enabled = True
+        session.state = {"awake_until": 0.0}
+        return session, lock, speaker
+
+    def test_barge_watch_holds_the_wake_microphone_under_the_audio_lock(self):
+        # §P2: Jarvis speaking plus the user opening the mic used to mean two
+        # PortAudio capture streams on one device, with the wake model hearing the
+        # speaker. The watch now owns the device the way the recorder does, and in
+        # bounded slices, so a recording can win the lock between slices instead of
+        # waiting out one 600-second grab.
+        from modules import wakeword
+        session, lock, speaker = self.barge_session()
+        done = threading.Event()
+        beside_a_free_stream, slices = [], []
+
+        def fake_wait(should_stop, capture=True, max_seconds=None, min_threshold=None):
+            opened = []
+
+            def try_open():
+                opened.append(lock.acquire(blocking=False))
+                if opened[0]:
+                    lock.release()
+
+            tester = threading.Thread(target=try_open)
+            tester.start()
+            tester.join(1)
+            beside_a_free_stream.append(bool(opened and opened[0]))
+            slices.append(max_seconds)
+            return b"" if len(slices) == 3 else None     # third slice: "Hey Jarvis"
+
+        with patch.object(wakeword, "wanted", return_value=True), \
+                patch.object(wakeword, "ready", return_value=True), \
+                patch.object(wakeword, "wait", side_effect=fake_wait):
+            session._barge_watch(done)
+        self.assertEqual(beside_a_free_stream, [False, False, False])
+        self.assertEqual(set(slices), {2.0})
+        speaker.stop_speaking.assert_called_once_with()
+        self.assertGreater(session.state["awake_until"], time.time())
+
+    def test_barge_hit_after_the_utterance_ended_does_not_cut_the_next_answer(self):
+        # A wake word heard while the receipt was already landing belongs to the
+        # next turn; cutting then would silence an answer that had not started.
+        from modules import wakeword
+        session, _lock, speaker = self.barge_session()
+        done = threading.Event()
+
+        def late_hit(should_stop, **kwargs):
+            done.set()                    # the speech finished during the same slice
+            return b""
+
+        with patch.object(wakeword, "wanted", return_value=True), \
+                patch.object(wakeword, "ready", return_value=True), \
+                patch.object(wakeword, "wait", side_effect=late_hit):
+            session._barge_watch(done)
+        speaker.stop_speaking.assert_not_called()
+        self.assertEqual(session.state["awake_until"], 0.0)
+
+    def test_typed_dur_keeps_the_authoritative_cancel_entry_point(self):
+        # §P2: the keyboard had its own stop-word shortcut that turned "dur" into
+        # "sus" — speech-only, with no Core cancellation — while the same words
+        # from the UI and the phone kept their different authorities. One entry
+        # point now owns the vocabulary, so the keyboard cannot silently re-scope it.
+        runtime = SimpleNamespace(stop_event=threading.Event(), submit=Mock(),
+                                  voice=SimpleNamespace(stop_speaking=Mock()))
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime = runtime
+        with patch("builtins.input", side_effect=["Dur.", EOFError]):
+            session.read_keyboard()
+        runtime.submit.assert_called_once_with("Dur.", "yazı")
+        runtime.voice.stop_speaking.assert_not_called()
+
+
 class UserSwitchAudibleStopTests(unittest.TestCase):
     """_switch_user must connect the user change to the real audible stop."""
 
