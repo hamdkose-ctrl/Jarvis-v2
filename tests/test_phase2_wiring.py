@@ -147,22 +147,90 @@ class RuntimeSubscriptionProductionTests(OwnerFixture):
 class EventChannelTests(unittest.TestCase):
     def runtime(self, prefs):
         profile = SimpleNamespace(slug='alice', data={'prefs': prefs})
+        spoken = []
         return SimpleNamespace(list_users=lambda: ['Alice'], _get_profile=lambda name: profile,
-                               _emit_for=Mock(), notify=SimpleNamespace(send=Mock(return_value=True)), log=Mock())
+                               _emit_for=Mock(), notify=SimpleNamespace(send=Mock(return_value=True)),
+                               log=Mock(), events=SimpleNamespace(put=Mock(side_effect=spoken.append)),
+                               spoken=spoken)
+
+    def silence(self, on):
+        # The switch is the user's, read from the real settings seam; the test fixes
+        # its value so no run depends on the developer's own Ayarlar › Ses choice.
+        return patch('config.load_settings', return_value={'voice_announce_results': on})
 
     def test_one_event_reaches_ui_phone_and_log(self):
         runtime = self.runtime({'ntfy_topic': 'jarvis-x'})
-        result = event_channels.deliver(runtime, 'alice', {'source': 'webhook:github', 'kind': 'incoming', 'payload': {'text': 'Yeni PR'}})
+        with self.silence(False):
+            result = event_channels.deliver(runtime, 'alice', {'source': 'webhook:github', 'kind': 'incoming', 'payload': {'text': 'Yeni PR'}})
         self.assertEqual(result, {'ui': 'delivered', 'ntfy': 'delivered', 'log': 'delivered'})
         runtime._emit_for.assert_called_once()
         runtime.notify.send.assert_called_once()
 
     def test_phone_is_skipped_without_topic_and_total_failure_raises(self):
         runtime = self.runtime({})
-        self.assertNotIn('ntfy', event_channels.deliver(runtime, 'alice', {'source': 's', 'kind': 'k', 'payload': {}}))
+        with self.silence(False):
+            self.assertNotIn('ntfy', event_channels.deliver(runtime, 'alice', {'source': 's', 'kind': 'k', 'payload': {}}))
         runtime = self.runtime({'event_channels': ['ui']}); runtime._emit_for.side_effect = RuntimeError('ui yok')
-        with self.assertRaises(RuntimeError):
+        with self.silence(False), self.assertRaises(RuntimeError):
             event_channels.deliver(runtime, 'alice', {'source': 's', 'kind': 'k', 'payload': {}})
+
+    def test_a_finished_result_is_spoken_only_when_the_user_asked_for_it(self):
+        event = {'source': 'canonical_goal', 'kind': 'completed',
+                 'payload': {'text': 'Araştırma bitti.', 'job_id': 'job-1',
+                             'event_id': 'canonical:job-1'}}
+        runtime = self.runtime({})
+        with self.silence(False):
+            self.assertNotIn('voice', event_channels.deliver(runtime, 'alice', event))
+        self.assertEqual(runtime.spoken, [])
+        with self.silence(True):
+            self.assertEqual(event_channels.deliver(runtime, 'alice', event)['voice'], 'delivered')
+        # The words travel on the seam the engine loop already consumes for a
+        # reminder: owner-bound, so a background notice never speaks over another
+        # user's turn and the single lane, not this module, decides when.
+        self.assertEqual(runtime.spoken, [('say', 'Araştırma bitti.', 'alice', {
+            'event_id': 'canonical:job-1', 'ttl_seconds': event_channels.SPEECH_TTL_SECONDS})])
+
+    def test_a_spoken_result_names_the_record_it_announces(self):
+        # Without a record id the queue could not tell a retry from new news, and an
+        # empty identity would silence deduplication altogether.
+        def identity_for(payload, source='task_queue', kind='done'):
+            runtime = self.runtime({})
+            with self.silence(True):
+                event_channels.deliver(runtime, 'alice', {'source': source, 'kind': kind,
+                                                          'payload': {'text': 'Bitti.', **payload}})
+            return runtime.spoken[0][3]
+
+        self.assertEqual(identity_for({'job_id': 'job-9'})['event_id'], 'job-9')
+        self.assertEqual(identity_for({'queue_id': 'q-3'})['event_id'], 'q-3')
+        self.assertEqual(identity_for({})['event_id'], 'task_queue:done')
+        self.assertTrue(all(item['event_id'] for item in
+                            [identity_for({'job_id': 'job-9'}), identity_for({})]))
+        named = identity_for({'event_id': 'canonical:job-1', 'goal_id': 'hedef-1',
+                              'state_version': 4})
+        self.assertEqual((named['event_id'], named['goal_id'], named['state_version']),
+                         ('canonical:job-1', 'hedef-1', 4))
+
+    def test_a_speech_failure_never_costs_the_written_notice(self):
+        # The user must still see the result even if the speaker path is broken;
+        # channel isolation is the existing fanout contract, voice included.
+        runtime = self.runtime({})
+        runtime.events.put.side_effect = RuntimeError('kuyruk kapalı')
+        with self.silence(True):
+            result = event_channels.deliver(runtime, 'alice', {'source': 's', 'kind': 'k',
+                                                               'payload': {'text': 'Yazılı kalır'}})
+        self.assertEqual(result['ui'], 'delivered')
+        self.assertTrue(result['voice'].startswith('failed:'))
+
+    def test_a_stale_result_expires_on_the_way_instead_of_being_read_late(self):
+        # The user may be nowhere near the PC when a long job finishes: the written
+        # notice stands on its own, so the audio carries a bound the queue obeys
+        # (the lane's own TTL behaviour is proven in test_voice_runtime_bridge).
+        identity = event_channels.speech_identity(
+            {'source': 'canonical_goal', 'kind': 'completed',
+             'payload': {'text': 'Araştırma bitti.', 'event_id': 'canonical:job-1'}})
+        self.assertEqual(identity['ttl_seconds'], event_channels.SPEECH_TTL_SECONDS)
+        self.assertGreater(identity['ttl_seconds'], 0)
+        self.assertLess(identity['ttl_seconds'], 3600)
 
 
 class EventWebhookTests(OwnerFixture):

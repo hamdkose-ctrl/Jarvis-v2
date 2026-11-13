@@ -95,7 +95,12 @@ def _short_for_speech(runtime, text: str, limit: int = 400) -> str:
         return text
     cut = text[:limit]
     idx = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind("\n"))
-    return cut[: idx + 1] if idx > 100 else cut
+    if idx > 100:
+        return cut[: idx + 1]
+    # Cümle sonu bulunamazsa yarım sözcükte kesmek de okunur değil: son boşluğa
+    # kadar söylenir, tamamı tek bir uzun diziyse (URL, kod) karakterde kesilir.
+    space = max(cut.rfind(" "), cut.rfind("\t"))
+    return cut[:space] if space > 100 else cut
 
 def _finalize(runtime, out: str) -> str:
     """LaTeX işaretlerini okunur düz metne çevirir (kod blokları hariç); son analiz kaydını da eşler."""
