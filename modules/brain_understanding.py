@@ -2722,6 +2722,25 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
     """
     try:
         from modules.brain_model_understanding import REQUEST_KIND_BY_OPERATION, propose
+        # An existing photo is evidence, not a semantic decision. The
+        # model must NEVER supply a path; the current request's immutable
+        # owner-scoped photo artifact is bound internally and Core verifies it
+        # again before any effect. A non-unique observation stays unresolved.
+        photo_rows = tuple(
+            ref for ref in (() if active_context is None else active_context.active_artifacts)
+            if ref.owner == result.owner and ref.kind == "photo"
+            and ref.source == "engine_queue.photo"
+            and isinstance(ref.provenance.get("path"), str)
+            and ref.provenance.get("path")
+        )
+        current_photo = tuple(
+            ref for ref in photo_rows
+            if ref.provenance.get("origin_request_id") == result.request_id
+        )
+        photo_pool = current_photo if current_photo else photo_rows
+        photo_path = (photo_pool[0].provenance["path"]
+                      if len({ref.provenance["path"] for ref in photo_pool}) == 1
+                      else None)
         proposal = propose(
             owner=result.owner,
             text=text,
@@ -2732,6 +2751,7 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
                 or result.conversation_relation is not ConversationRelation.NEW_REQUEST
             ),
             file_operation_hint=None,
+            photo_path=photo_path,
             # BRAIN-05: modelin adresleyebileceği tek hedef kümesi, Core'un bu tur için
             # owner'ın kendi kayıtlarından gözlemlediği açık kartlardır; resolver aynı
             # ActiveContext alanını sonradan yeniden doğrular.
