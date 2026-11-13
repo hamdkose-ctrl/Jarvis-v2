@@ -708,6 +708,7 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
                 "wake_sensitivity": int(s.get("wake_sensitivity") or 3), "stt_engine": s.get("stt_engine") or "gemini",
                 "local_stt_enabled": bool(s.get('local_stt_enabled', False)), "local_stt_model": s.get('local_stt_model') or 'small', "local_stt_beam": local_stt.beam_size(),
                 "stt_words": s.get("stt_words") or "", "followup_no_wake": bool(s.get("followup_no_wake")), "hoca_enabled": bool(s.get("hoca_enabled", True)),
+                "voice_mic_during_model_wait": bool(s.get("voice_mic_during_model_wait", True)),
                 "hoca_voice_full": bool(s.get("hoca_voice_full")),
                 "wake_beep": bool(s.get("wake_beep", True)), "stt_fixes": s.get("stt_fixes") if s.get("stt_fixes") is not None else stt_fixes.DEFAULT_FIXES,
                 "saved": public_saved, "data_dir": str(DATA_DIR)}
@@ -766,6 +767,8 @@ class Bridge(WebStudy, WebMemory, WebPhone, WebFiles, WebChat, WebModels, WebInt
             ch["stt_fixes"] = stt_fixes.format_fixes(stt_fixes.parse_fixes(str(data["stt_fixes"])))
         if "wake_beep" in data:
             ch["wake_beep"] = bool(data["wake_beep"])      # kapalı da kaydedilir: varsayılan açık
+        if "voice_mic_during_model_wait" in data:
+            ch["voice_mic_during_model_wait"] = bool(data["voice_mic_during_model_wait"])      # kapalı da kaydedilir: varsayılan açık
         config.save_settings(**ch)
         _aname_cache["t"] = 0.0
         # Uyandırma ayarlarını hemen uygula (yeniden başlatmaya gerek yok; mikrofon seçimi hariç)

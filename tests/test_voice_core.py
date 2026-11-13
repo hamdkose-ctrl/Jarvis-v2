@@ -69,6 +69,43 @@ class VoiceCoreTests(unittest.TestCase):
         self.assertEqual(self.receipts[0].status, "failed")
         self.assertEqual(self.receipts[0].reason_code, "VOICE_ADAPTER_FAILED")
 
+    def test_adapter_declaration_can_never_upgrade_a_failure_to_played(self):
+        # The adapter-side outcome seam exists to make an unproven Windows cut
+        # honest, so it must be downgrade-only: an adapter that declares "played"
+        # (or any status outside the failure vocabulary) while raising cannot make
+        # the coordinator sign off audio that never provably finished.
+        class Boastful(OSError):
+            speech_status = "played"
+            speech_reason = "VOICE_STOP_UNCONFIRMED"
+
+        def play(audio, cancel, on_start):
+            on_start()
+            raise Boastful("claiming success from the failure path")
+
+        coordinator = self.start(lambda spec, text, cancel: b"audio", play)
+        self.assertTrue(coordinator.submit(request(1)))
+        self.until(1)
+        self.assertEqual(self.receipts[0].status, "failed")
+        self.assertEqual(self.receipts[0].reason_code, "VOICE_ADAPTER_FAILED")
+
+    def test_adapter_declared_typed_failure_is_the_receipt_reason(self):
+        # A stop the device never confirmed knows its own reason code. Honoring it
+        # keeps the receipt, the mic handoff and the UI notice telling one story
+        # instead of a generic adapter fault that hides the live speaker.
+        class UnconfirmedCut(OSError):
+            speech_status = "failed"
+            speech_reason = "VOICE_STOP_UNCONFIRMED"
+
+        def play(audio, cancel, on_start):
+            on_start()
+            raise UnconfirmedCut("Windows ses kesintisi doğrulanamadı")
+
+        coordinator = self.start(lambda spec, text, cancel: b"audio", play)
+        self.assertTrue(coordinator.submit(request(1)))
+        self.until(1)
+        self.assertEqual(self.receipts[0].status, "failed")
+        self.assertEqual(self.receipts[0].reason_code, "VOICE_STOP_UNCONFIRMED")
+
     def test_foreground_speech_precedes_waiting_background_notice(self):
         entered = threading.Event()
         release = threading.Event()

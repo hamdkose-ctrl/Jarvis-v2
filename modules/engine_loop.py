@@ -248,6 +248,9 @@ def main(runtime, ui=None):
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()
                     lane = getattr(voice_session, "voice_lane", None)
+                    # "idle" may only be claimed when nothing is outstanding AND the
+                    # newest cut was confirmed by the device: an unconfirmed stop can
+                    # still be audible, so the orb must not go quiet over live speech.
                     if lane is None or (not lane.is_busy() and not lane.stop_unconfirmed()):
                         runtime.emit("state", "idle")
                 continue

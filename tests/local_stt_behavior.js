@@ -12,9 +12,10 @@ const src=fs.readFileSync(require('node:path').join(__dirname,'../webui/nx.js'),
  assert(c.localSttText({installed:true,ready:true}).includes('hazır'));
  calls.length=0;c.api=async()=>{throw Error('Normal moda geç')};await c.ACT.lsttprepare();
  assert.equal(calls.length,0);assert(messages.at(-1).includes('Normal'));
- calls.length=0;c.api=async(...a)=>{calls.push(a)};c.$=s=>({value:s==='#lsttbeam'?'2':s==='#lstt'?'1':'base'});c.SX={};c.S={};c.loadUi=async()=>{};
+ calls.length=0;c.api=async(...a)=>{calls.push(a)};c.$=s=>({value:s==='#lsttbeam'?'2':(s==='#lstt'||s==='#mmic')?'1':'base'});c.SX={};c.S={};c.loadUi=async()=>{};
  const vs=src.indexOf('ACT.vsave=');vm.runInContext(src.slice(vs,src.indexOf('\n',vs)),c);
  await c.ACT.vsave();assert.equal(calls[0][0],'settings_save');assert.equal(calls[0][1].local_stt_beam,2);assert.equal(calls[0][1].local_stt_model,'base');
- c.$=s=>({value:s==='#lsttbeam'?'':'base'});await c.ACT.vsave();assert.equal(calls[1][1].local_stt_beam,5);
+ assert.equal(calls[0][1].voice_mic_during_model_wait,true,'Kaydet düğmesi model beklemesinde dinleme seçimini taşır');
+ c.$=s=>({value:s==='#lsttbeam'?'':s==='#mmic'?'0':'base'});await c.ACT.vsave();assert.equal(calls[1][1].local_stt_beam,5);assert.equal(calls[1][1].voice_mic_during_model_wait,false,'kapalı seçim de kaydedilir');
  console.log('Yerel ses UI: indirme onayı, iptal, model seçimi, durum ve hata gösterimi geçti.');
 })().catch(e=>{console.error(e);process.exit(1)});

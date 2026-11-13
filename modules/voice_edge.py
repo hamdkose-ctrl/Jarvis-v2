@@ -25,6 +25,23 @@ class EdgeVoiceUnavailable(ValueError):
     """The selected exact Edge voice could not be produced; identity is kept."""
 
 
+class EdgePlaybackStopUnconfirmed(OSError):
+    """The device never confirmed the cut, so the stop is not a completed interrupt.
+
+    Declared to the coordinator as a failed outcome (never `played` and never a
+    user interrupt) so neither the receipt, the mic handoff nor the UI can claim
+    silence that was not proven. The selected voice is not changed and no second
+    player is opened.
+    """
+
+    speech_status = "failed"
+    speech_reason = "VOICE_STOP_UNCONFIRMED"
+
+
+# Modes that mean the speaker is not currently producing this alias's audio.
+_SILENT_MODES = frozenset({"stopped", "paused", "notplaying"})
+
+
 def _mci_send():
     return ctypes.windll.winmm.mciSendStringW
 
@@ -114,19 +131,22 @@ class EdgePlayer:
     """Play one MP3 through Windows MCI, reporting the real playback boundary.
 
     Only the coordinator worker calls this, so one fixed MCI alias is owned by a
-    single playback at a time. Cancellation stops MCI cooperatively; the temporary
-    file is always removed and no second player is opened. A playback that never
-    started is a typed failure, never a success receipt.
+    single playback at a time. Cancellation stops MCI and the silence is then read
+    back from the device; an unconfirmed cut is a typed failure, never a completed
+    interrupt. The temporary file is always removed and no second player is
+    opened. A playback that never started is a typed failure, never a success
+    receipt.
     """
 
     def __init__(self, poll_seconds: float = 0.02, grace_seconds: float = 1.0,
-                 wait_seconds: float = 120.0):
+                 wait_seconds: float = 120.0, stop_verify_seconds: float = 1.0):
         if (not 0 <= poll_seconds <= 0.5 or not 0 <= grace_seconds <= 10
-                or not 0 < wait_seconds <= 300):
+                or not 0 < wait_seconds <= 300 or not 0 <= stop_verify_seconds <= 10):
             raise ValueError("Edge player bounds are outside accepted limits.")
         self._poll = poll_seconds
         self._grace = grace_seconds
         self._wait_seconds = wait_seconds
+        self._stop_verify = stop_verify_seconds
 
     def __call__(self, audio: bytes, cancel: threading.Event, on_start: Callable[[], None]) -> None:
         if cancel.is_set():
@@ -151,7 +171,11 @@ class EdgePlayer:
             self._wait(mci, cancel, on_start)
         finally:
             if opened:
-                mci("close jarvis_tts", None, 0, 0)
+                # A refused close leaves the alias allocated; the next open's
+                # best-effort close reclaims it. Recorded as a device fault, never
+                # rewritten into the outcome of audio that already played.
+                if mci("close jarvis_tts", None, 0, 0):
+                    _record_failure("modules/voice_edge.py:mci_close")
             if path:
                 try:
                     os.remove(path)
@@ -198,9 +222,33 @@ class EdgePlayer:
                 raise OSError("Windows ses oynatma tamamlanmadan zaman aşımına uğradı.")
             time.sleep(self._poll)
         # Only a stop signal can leave the loop without a terminal mode, so this
-        # is the cooperative interrupt path: never a played, never a failure.
-        mci("stop jarvis_tts", None, 0, 0)
+        # is the cooperative interrupt path: never a played, never a silent success.
+        code = mci("stop jarvis_tts", None, 0, 0)
+        if not self._cut_confirmed(mci):
+            _record_failure("modules/voice_edge.py:playback_stop")
+            raise EdgePlaybackStopUnconfirmed(
+                f"Windows ses kesintisi doğrulanamadı (MCI hata kodu: {code}).")
         return "interrupted"
+
+    def _cut_confirmed(self, mci) -> bool:
+        """Bounded, device-read proof that the stopped alias really went silent.
+
+        A zero return code only says winmm accepted the stop request; a driver
+        that ignores it still reports ``playing``, and a device that stops
+        answering at all yields an unreadable mode. Both are unknown, so the cut
+        stays unconfirmed instead of becoming a completed interrupt the mic
+        handoff could safely run against. The wait is bounded and happens in the
+        single output worker: it holds no Core lock, never blocks the queue and
+        cancels no GoalState or work item.
+        """
+        deadline = time.monotonic() + self._stop_verify
+        while True:
+            mode = self._mode(mci)
+            if mode in _SILENT_MODES:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(self._poll)
 
     @staticmethod
     def _mode(mci) -> str | None:

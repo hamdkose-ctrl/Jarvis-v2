@@ -141,6 +141,33 @@ class VoiceSession:
                 runtime.pause_listening.clear()
                 runtime.emit("state", "idle")
 
+    @contextlib.contextmanager
+    def mic_open_during_model_wait(self):
+        """VOICE P3: waiting on a provider is not a reason to be deaf.
+
+        An engine turn holds `pause_listening` for its whole duration, so a bounded
+        model wait (the canonical planner waits up to 60 s) closed the microphone even
+        though the answer it produces tells the user to keep talking. Only this wait
+        window re-opens the existing gate: the owner identity lock, the speech window,
+        capture ownership and every cancel path are untouched, and the previous state
+        is restored exactly when the wait ends.
+        """
+        runtime = self.runtime
+        from config import load_settings
+        lane = self.voice_lane
+        if not self.listening_enabled or self.manual_local_stt or not runtime.flags["mic"] \
+                or not load_settings().get("voice_mic_during_model_wait", True) \
+                or (lane is not None and lane.is_busy()):
+            yield
+            return
+        was_paused = runtime.pause_listening.is_set()
+        runtime.pause_listening.clear()
+        try:
+            yield
+        finally:
+            if was_paused:
+                runtime.pause_listening.set()
+
     def _barge_watch(self, done: threading.Event) -> None:
         runtime = self.runtime
         """Jarvis konuşurken "Hey Jarvis" denirse susup dinlemeye geçer (internetsiz dinleyici hazırsa)."""
@@ -149,9 +176,28 @@ class VoiceSession:
             return
         if done.wait(1.2):                 # konuşmanın ilk anı: hoparlör sesi yankı yapıp uyandırmasın
             return
+
+        def stopped() -> bool:
+            return done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"]
+
+        # The wake microphone is the same capture device the recorder uses, and the
+        # engine owns it under audio_lock. Opening this second stream outside that
+        # lock let a background notice start capturing while a push-to-talk or web
+        # recording was already running: two PortAudio streams on one device, with
+        # the speaker feeding Jarvis's own wake model. Listening in short slices
+        # keeps the handover bounded — wait returns within one frame of the stop
+        # signal, the recorder wins the lock between slices, and the watch resumes.
+        deadline = runtime.time.time() + 600
+        hit = None
         try:
-            hit = wakeword.wait(lambda: done.is_set() or runtime.stop_event.is_set() or not runtime.flags["mic"], capture=False, max_seconds=600,
-                                min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
+            while not stopped() and runtime.time.time() < deadline:
+                with runtime.audio_lock:
+                    if stopped():
+                        break
+                    hit = wakeword.wait(stopped, capture=False, max_seconds=2.0,
+                                        min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
+                if hit is not None:
+                    break
         except Exception:
             runtime._record_failure('main.py:_barge_watch')
             return
@@ -411,7 +457,8 @@ class VoiceSession:
                 runtime.stop_event.set()
                 break
             if text:
-                if runtime._tr_lower(text).strip(" .!") in ("dur", "sus", "yeter", "stop"):
-                    runtime.voice.stop_speaking()   # okunan yanıtı hemen keser
-                    continue
+                # The keyboard is not a second cancel authority: engine_queue owns the
+                # vocabulary, so a typed "dur" keeps the Core cancellation the same word
+                # has from the UI and the phone, while "sus" alone stays speech-only.
+                # The private shortcut here used to make both words mean "stop talking".
                 runtime.submit(text, "yazı")

@@ -14,9 +14,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from modules import requests_state, voice_runtime
+from modules import requests_state, voice_edge, voice_runtime
 from modules.engine_voice import VoiceSession
-from modules.voice_core import VoiceCatalog, VoiceSpec
+from modules.voice_core import (
+    VoiceCatalog, VoiceSpec, split_speech_text,
+)
 
 
 def runtime(tmp, voice="tr_kadin"):
@@ -39,6 +41,45 @@ def runtime(tmp, voice="tr_kadin"):
         }),
         emitted=emitted, events=events,
     )
+
+
+class CutWinmm:
+    """Fake winmm whose mode is a statement about the speaker, not a script.
+
+    ``status mode`` always answers the current mode, so the player sees a stable
+    device: ``playing`` means sound is live, ``stopped`` means the speaker is
+    silent. ``stop_code`` decides whether winmm accepts the cut command and
+    ``after_stop`` is the mode the device reports afterwards, which is exactly
+    the difference between a proven interrupt and one that was never confirmed.
+    """
+
+    def __init__(self, mode="playing", stop_code=0, after_stop=None, ends_after=None):
+        self.mode = mode
+        self.stop_code = stop_code
+        self.after_stop = after_stop
+        self.ends_after = ends_after      # status reads after which a playback ends
+        self.commands = []
+        self.path = None
+        self._reads = 0
+
+    def __call__(self, command, buffer, length, hwnd):
+        self.commands.append(command)
+        if command.startswith("open "):
+            self.path = command.split('"')[1]
+            return 0
+        if command.startswith("stop "):
+            if self.after_stop is not None:
+                self.mode = self.after_stop
+            return self.stop_code
+        if command.startswith("status "):
+            self._reads += 1
+            if (self.ends_after is not None and self._reads > self.ends_after
+                    and self.mode == "playing"):
+                self.mode = "stopped"     # the stream reached its real end
+            if buffer is not None:
+                buffer.value = self.mode
+            return 0
+        return 0
 
 
 class VoiceRuntimeBridgeTests(unittest.TestCase):
@@ -825,6 +866,47 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
             self.assertTrue(done.wait(2))
         note.assert_not_called()
 
+    def test_cut_long_answer_keeps_the_unplayed_tail_out_of_the_echo_guard(self):
+        # Quoting a part Jarvis had not read yet is a new command, not the
+        # speaker's own voice returning to the mic: only the audible chunk
+        # may suppress a matching microphone result.
+        from modules import stt_guard
+        stt_guard._said.clear()
+        self.addCleanup(stt_guard._said.clear)
+        head = "Ekran paylaşımını şimdi kapatıyorum."
+        tail = "Sessiz modu da etkinleştiriyorum."
+        phrases = " ".join([head] * 30) + " " + tail
+        chunks = split_speech_text(phrases)
+        self.assertGreater(len(chunks), 1)
+        self.assertNotIn(tail, chunks[0])
+        self.assertIn(tail, chunks[-1])
+        started, released = threading.Event(), threading.Event()
+
+        def play(audio, cancel, on_start):
+            on_start()
+            if not started.is_set():
+                started.set()
+                self.assertTrue(released.wait(3))
+
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            lambda spec, text, cancel: b"audio", play,
+        )
+        voice_runtime.register(lane)
+        with patch.object(stt_guard, "enabled", return_value=True):
+            try:
+                done = lane.say("alice", "tr_kadin", phrases)
+                self.assertTrue(started.wait(2))
+                self.assertEqual(stt_guard.reject(head), "echo")
+                self.assertIsNone(stt_guard.reject(tail))
+                lane.interrupt()
+            finally:
+                released.set()
+            self.assertTrue(done.wait(3))
+        self.assertEqual([s for _t, s in stt_guard._said],
+                         [stt_guard._norm(chunks[0])])
+        self.assertIsNone(stt_guard.reject(tail))
+
     def test_push_to_talk_handoff_cuts_speech_and_verifies_output_stopped(self):
         started, stopped = threading.Event(), threading.Event()
 
@@ -1279,6 +1361,75 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertTrue(voice_runtime.interrupt_active())
         self.assertEqual([False], stopped)
         self.assertFalse(lane.is_busy())
+
+    def cut_lane(self, mci):
+        """A lane whose speech runs on the production EdgePlayer against fake winmm."""
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "edge", "tr-TR-EmelNeural"),)),
+            lambda spec, text, cancel: b"mp3",
+            voice_edge.EdgePlayer(poll_seconds=0, grace_seconds=0.05,
+                                  wait_seconds=1.0, stop_verify_seconds=0.1),
+        )
+        voice_runtime.register(lane)
+        self.enterContext(patch.object(voice_edge, "_mci_send", return_value=mci))
+        return lane
+
+    def say_and_hear(self, lane, text):
+        done = lane.say("alice", "tr_kadin", text)
+        deadline = time.monotonic() + 2
+        while ("state", "speaking") not in self.rt.emitted and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertIn(("state", "speaking"), self.rt.emitted)   # real playback boundary
+        return done
+
+    def test_cut_the_device_never_confirms_keeps_the_mic_protected(self):
+        # §P1 end-to-end: the user says "sus", MCI refuses the stop and still
+        # reports "playing", so sound is live on the speaker. The old code filed a
+        # user interrupt, opened the microphone over that audio and told the UI it
+        # was idle. Now the receipt says the cut failed, the notice is written, the
+        # mic stays closed and no idle is claimed; the queue itself is still freed,
+        # so nothing is locked and no Core work is touched.
+        mci = CutWinmm(stop_code=263, after_stop="playing")
+        lane = self.cut_lane(mci)
+        done = self.say_and_hear(lane, "Kesilmeyi reddeden ses")
+        lane.interrupt()
+        self.assertTrue(done.wait(2))
+        self.assertIn("stop jarvis_tts", mci.commands)          # the cut was asked for
+        self.assertFalse(lane.is_busy())                        # worker/queue not stuck
+        self.assertTrue(lane.stop_unconfirmed())
+        self.assertFalse(voice_runtime.handoff_to_listen(timeout=0.2))  # mic stays protected
+        self.assertNotIn(("state", "idle"), self.rt.emitted)    # no silence claim
+        self.assertTrue(any(k == "system" and "kesilemedi" in m for k, m in self.rt.emitted))
+
+    def test_confirmed_cut_still_frees_the_mic_and_claims_idle(self):
+        # The protection must not become a permanent lock: when the device does
+        # report silence after the stop, the same flow hands the microphone over
+        # and the orb goes idle exactly as before.
+        mci = CutWinmm(stop_code=0, after_stop="stopped")
+        lane = self.cut_lane(mci)
+        done = self.say_and_hear(lane, "Kesilebilen ses")
+        lane.interrupt()
+        self.assertTrue(done.wait(2))
+        self.assertFalse(lane.stop_unconfirmed())
+        self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.5))
+        self.assertIn(("state", "idle"), self.rt.emitted)
+
+    def test_next_playback_that_ends_clears_an_unconfirmed_cut(self):
+        # The flag describes the newest word about the speaker, not a latch: a
+        # following utterance that provably ends must restore the normal mic and
+        # idle behaviour, or one driver fault would keep Jarvis deaf forever.
+        lane = self.cut_lane(CutWinmm(stop_code=263, after_stop="playing"))
+        done = self.say_and_hear(lane, "Kesilmedi")
+        lane.interrupt()
+        self.assertTrue(done.wait(2))
+        self.assertTrue(lane.stop_unconfirmed())
+        self.assertFalse(voice_runtime.handoff_to_listen(timeout=0.2))
+        # The next utterance plays and the device reports the end on its own.
+        self.enterContext(patch.object(voice_edge, "_mci_send",
+                                       return_value=CutWinmm(ends_after=2)))
+        self.assertTrue(lane.say("alice", "tr_kadin", "Sonraki yanıt").wait(2))
+        self.assertFalse(lane.stop_unconfirmed())
+        self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.5))
 
     def test_unstarted_mci_playback_is_a_failed_receipt_not_a_spoken_answer(self):
         # §4-D at the real user flow: the production EdgePlayer runs against a
