@@ -1,8 +1,7 @@
 """BRAIN-03: a Core-validated reminder title cannot authorize note mutations.
 
-The unchanged legacy planner order still handles exact note-add syntax and
-non-reminder calendar/pending operations. Only the destructive raw note paths
-are fenced when Core has already validated a reminder plan.
+All raw reminder/note mutation selectors have been retired. A Core plan is
+the sole writer; a quoted reminder title can never become another effect.
 """
 from __future__ import annotations
 
@@ -11,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import test_brain_pr3_raw_text_authority as pr3a
-from modules import brain_entry, main_planner
+from modules import brain_entry, brain_core_map, brain_model_understanding, engine_intents, main_planner
 from modules.brain_contracts import RequestKind
 
 
@@ -36,10 +35,6 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
                           side_effect=AssertionError("bulk notes cleared")) as bulk, \
              patch.object(self.ctx.profile, "delete_note_item",
                           side_effect=AssertionError("note deleted")) as delete, \
-             patch.object(self.ctx, "_note_fix",
-                          side_effect=AssertionError("raw note correction")) as fix, \
-             patch.object(main_planner, "_edit_reminder",
-                          side_effect=AssertionError("raw reminder edit")) as edit, \
              patch.object(main_planner, "_reminder_or_confirm",
                           return_value="HATIRLATMA OLUSTURULDU") as create:
             entry, result, _handler, feedback = self.turn_real(
@@ -51,8 +46,9 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             create.assert_called_once_with(self.ctx, title, "2026-11-13T09:00")
             bulk.assert_not_called()
             delete.assert_not_called()
-            fix.assert_not_called()
-            edit.assert_not_called()
+            self.assertFalse(hasattr(self.ctx, "_note_fix"))
+            self.assertFalse(hasattr(self.ctx, "_planner_command"))
+            self.assertFalse(hasattr(main_planner, "_edit_reminder"))
 
     def test_quoted_bulk_delete_is_only_reminder_title(self):
         self.ctx.profile.add_note_item("Hassas not")
@@ -107,11 +103,15 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
         )
         self.assertIsNone(self.ctx._session().pending_voice)
 
-    def test_unplanned_legacy_sharing_still_uses_its_existing_owner(self):
-        with patch.object(self.ctx, "set_share", return_value="PAYLASIM ACILDI") as share:
-            reply = self.ctx._user_controls("ekranı paylaş", "ekranı paylaş")
-            self.assertEqual(reply, "PAYLASIM ACILDI")
-            share.assert_called_once_with("screen")
+    def test_typed_screen_sharing_uses_the_existing_single_worker(self):
+        plan = brain_core_map.core_plan("device.share", {"action": "screen"})
+        self.assertEqual(plan, ("share_control", {"action": "screen"}))
+        with patch.object(self.ctx, "set_share", return_value="PAYLASIM ACILDI") as share, \
+             patch("modules.requests_state.check"):
+            reply = engine_intents.dispatch(self.ctx, *plan, "ekranı paylaş", "ekranı paylaş")
+        self.assertEqual(reply, "PAYLASIM ACILDI")
+        share.assert_called_once_with("screen")
+        self.assertFalse(hasattr(self.ctx, "_user_controls"))
 
     def test_typed_reminder_quote_cannot_start_previous_table_followup(self):
         # The early file gate must not run workbench.followup on title data.
@@ -161,13 +161,16 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             "Kahve al",
         )
 
-    def test_unplanned_legacy_reminder_delete_keeps_existing_behavior(self):
+    def test_model_outage_cannot_delete_existing_reminder_via_legacy_nlp(self):
         self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
-        reply = self.ctx._planner_command(
-            "ilaç hatırlatmasını sil", "ilaç hatırlatmasını sil",
-        )
-        self.assertIn("Sildim: İlaç", reply)
-        self.assertEqual(self.ctx.profile.data["events"], [])
+        before = [dict(row) for row in self.ctx.profile.data["events"]]
+        with patch.object(brain_model_understanding, "propose", return_value=None):
+            _entry, reply, _handler, feedback = self.turn_real(
+                "ilaç hatırlatmasını sil", model_understanding=True)
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertIn("model", reply.casefold())
+        self.assertEqual(self.ctx.profile.data["events"], before)
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
 
     def test_direct_core_reminder_dispatch_does_not_reclassify_raw_edit(self):
         self.ctx.profile.add_event("İlaç", "2026-11-15T09:00")
@@ -182,13 +185,17 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
             create.assert_called_once_with(self.ctx, "ilaç hatırlatmasını sil", "2026-11-13T09:00")
         self.assertEqual(len(self.ctx.profile.data["events"]), 1)
 
-    def test_without_core_plan_exact_legacy_notes_delete_requires_confirmation(self):
-        from modules import main_planner
+    def test_typed_notes_clear_requires_snapshot_bound_confirmation(self):
         self.ctx.profile.add_note_item("Not")
-        # No model path still recognizes the exact user request, but bulk
-        # deletion cannot execute before a bounded State approval.
-        reply = self.ctx._planner_command("notları sil", "notları sil")
+        def choose_clear(current, _text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="notes.manage", arguments={"operation": "clear_all"},
+                           ambiguities=(), needs_input=False)
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=choose_clear):
+            _entry, reply, _handler, feedback = self.turn_real(
+                "notları sil", model_understanding=True)
         self.assertIn("onaylıyor musun", reply)
+        self.assertEqual(feedback.result_status, "needs_input")
         self.assertEqual(len(self.ctx.profile.data["items"]), 1)
         approval = self.ctx._session().pending_confirm
         self.assertEqual(approval["owner"], self.owner)
@@ -197,16 +204,22 @@ class ReminderNoteMutationFenceTests(pr3a._CanonicalAuthorityHarness):
                       main_planner.clear_notes_confirmed(self.ctx, approval))
         self.assertEqual(self.ctx.profile.data["items"], [])
 
-    def test_explicit_note_add_still_precedes_reminder_until_parity_cutover(self):
-        # This is an existing contracted exception, not a new note classifier.
-        with patch.object(brain_entry, "apply_model_understanding",
-                          side_effect=self._model_reminder("ilaç")):
-            entry, reply, _handler, _feedback = self.turn_real(
-                "not al: yarın 9'da ilaç hatırlat", model_understanding=True,
-            )
-        self.assertEqual(entry.understanding.capability_hint, "reminder.propose")
-        self.assertTrue(reply.startswith("Not aldım"), reply)
+    def test_model_selected_note_add_does_not_create_a_second_reminder(self):
+        def choose_note(current, _text, *, active_context=None):
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="notes.add",
+                           arguments={"text": "yarın 9'da ilaç hatırlat"},
+                           ambiguities=(), needs_input=False)
+        with patch.object(brain_entry, "apply_model_understanding", side_effect=choose_note), \
+             patch.object(main_planner, "_reminder_or_confirm",
+                          side_effect=AssertionError("second reminder write")) as remind:
+            entry, reply, _handler, feedback = self.turn_real(
+                "not al: yarın 9'da ilaç hatırlat", model_understanding=True)
+        self.assertEqual(entry.understanding.capability_hint, "notes.add")
+        self.assertEqual(reply, "Not aldım: yarın 9'da ilaç hatırlat")
+        self.assertEqual(feedback.result_status, "handled")
         self.assertEqual(self.ctx.profile.data["events"], [])
+        remind.assert_not_called()
 
 
 if __name__ == "__main__":
