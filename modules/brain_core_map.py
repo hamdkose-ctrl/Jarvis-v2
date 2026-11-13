@@ -844,13 +844,23 @@ def _browser_page_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
-    if set(arguments) - {"original_text", "service", "query"}:
+    """Model chooses site vs Windows app; Core owns closed browser preference."""
+    if set(arguments) - {"original_text", "service", "query", "browser"}:
         return None
     service = arguments.get("service")
     if type(service) is not str or service not in {"youtube", "spotify", "music_home", "youtube_home"}:
         return None
     query = arguments.get("query")
-    if service.endswith("_home"):
+    browser = arguments.get("browser", "default")
+    if service == "youtube_home":
+        if query is not None or type(browser) is not str or browser not in {"default", "chrome", "firefox"}:
+            return None
+        return {"service": service, "browser": browser}
+    # Explicit browser selection is only supported for the YouTube web-home
+    # route. It must never silently change another media capability.
+    if "browser" in arguments:
+        return None
+    if service == "music_home":
         return {"service": service} if query is None else None
     if not isinstance(query, str) or not query.strip() or "\x00" in query or len(query) > 200:
         return None
