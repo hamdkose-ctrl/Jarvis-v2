@@ -116,15 +116,16 @@ def restore_original(profile, doc_id, path):
             # unreadable one) is not authority to overwrite a possibly foreign
             # or concurrently modified file.
             with file_resource_guard.claim_paths(target):
-                with tempfile.NamedTemporaryFile(
-                        mode='wb', prefix='.jarvis-original-',
-                        suffix='.tmp', dir=target.parent, delete=False) as stream:
-                    staging = Path(stream.name)
-                    with snapshot.open('rb') as verified:
-                        shutil.copyfileobj(verified, stream)
-                    stream.flush()
-                    os.fsync(stream.fileno())
+                staging = None
                 try:
+                    with tempfile.NamedTemporaryFile(
+                            mode='wb', prefix='.jarvis-original-',
+                            suffix='.tmp', dir=target.parent, delete=False) as stream:
+                        staging = Path(stream.name)
+                        with snapshot.open('rb') as verified:
+                            shutil.copyfileobj(verified, stream)
+                        stream.flush()
+                        os.fsync(stream.fileno())
                     os.link(staging, target)
                     before_flag = item.get('original_pdf')
                     before_hash = item.get('source_hash')
@@ -144,5 +145,6 @@ def restore_original(profile, doc_id, path):
                         target.unlink(missing_ok=True)
                         raise
                 finally:
-                    staging.unlink(missing_ok=True)
+                    if staging is not None:
+                        staging.unlink(missing_ok=True)
     return {'ok': True, 'id': int(item['id'])}
