@@ -184,6 +184,35 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertIn('ikinci bir çalışma başlatmadı', reply)
         self.assertEqual(self.persisted(job_id), before)
 
+    def test_direct_bounded_legacy_resume_cannot_reenter_canonical_goal(self):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        before = self.persisted(job_id)
+        control = goal_executor.control_key(
+            goal_executor.read_job(self.owner, job_id),
+        )
+        with patch.object(goal_executor, '_loop',
+                          side_effect=AssertionError('legacy model worker replay')):
+            reply = goal_executor.handle(
+                self.ctx, f'hedef devam {job_id} {control}',
+            )
+        self.assertIn('ikinci bir yürütme başlatılmadı', reply)
+        self.assertEqual(self.persisted(job_id), before)
+
+    def test_direct_executor_approval_cannot_start_canonical_worker(self):
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        before = self.persisted(job_id)
+        with patch.object(goal_executor, '_loop',
+                          side_effect=AssertionError('legacy approve replay')):
+            reply = goal_executor.run(
+                self.ctx, 'hedef onayla', approve=True, job_id=job_id,
+            )
+        self.assertIn('Scheduler yürütür', reply)
+        self.assertEqual(self.persisted(job_id), before)
+
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
         with patch.object(model_wait, 'ask',
                           return_value=json.dumps(research_tasks('first'))) as planner:
