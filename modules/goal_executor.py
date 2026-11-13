@@ -586,10 +586,11 @@ def _resume_news_recovery(runtime,job,started_steps):
     return news_policy.resume_recovery(runtime,job,started_steps,_save)
 
 
-def _loop(runtime,job,answer=None,resume=False):
+def _loop(runtime,job,answer=None,resume=False,initial_legacy_call=None):
     token=_TURN_DEADLINE.set(time.monotonic()+TURN_SECONDS)
     try:
-        return _loop_steps(runtime,job,answer,resume=resume)
+        return _loop_steps(runtime,job,answer,resume=resume,
+                           initial_legacy_call=initial_legacy_call)
     except _TurnBudget as exc:
         job['state']='paused';job['blocker']=str(exc);_save(job)
         runtime.emit('activity','Hedef duraklatıldı','error|Hedef|'+job['blocker'])
@@ -598,7 +599,7 @@ def _loop(runtime,job,answer=None,resume=False):
         _TURN_DEADLINE.reset(token)
 
 
-def _loop_steps(runtime,job,answer=None,resume=False):
+def _loop_steps(runtime,job,answer=None,resume=False,initial_legacy_call=None):
     with _LOCK:
         if job['owner'] in _ACTIVE:_ACTIVE_JOBS[job['owner']]=job['id']
     requests_state.allow_long_operation(600)
@@ -685,7 +686,12 @@ def _loop_steps(runtime,job,answer=None,resume=False):
         planner_pending=True
         completed_before={key for key,value in job["outputs"].items() if value.get("state")=="done"}
         try:
-            call=_planner(runtime,job,prompt,system)
+            # Consume a validated, same-request canonical handoff only once.
+            if initial_legacy_call is None:
+                call=_planner(runtime,job,prompt,system)
+            else:
+                call=initial_legacy_call
+                initial_legacy_call=None
             planner_pending=False
             model_down=None;job.pop('model_free',None)
             _ensure(runtime,job)
@@ -885,15 +891,16 @@ def _quota_wait():
         return 0
 
 
-def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
+def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None,initial_legacy_call=None):
     owner=runtime.profile.slug
     from modules import research_evidence
     # Kota beklemesi yalnız model isteyen işleri durdurur: tarihli haber işi modelsiz hattını çalıştırır.
-    if not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.publication_news_requested(request):
+    if initial_legacy_call is None and not resume and not approve and (wait:=_quota_wait())>0 and not research_evidence.publication_news_requested(request):
         return f'Model kotası şu an dolu; yaklaşık {wait} sn sonra tekrar dene. İş kaydı açılmadı.'
     try:
         result=_run(runtime,request,resume=resume,approve=approve,initial_failure=initial_failure,
-                    expected_job_id=expected_job_id,expected_control=expected_control,job_id=job_id)
+                    expected_job_id=expected_job_id,expected_control=expected_control,job_id=job_id,
+                    initial_legacy_call=initial_legacy_call)
     except BaseException:
         llm.discard_success_routes()
         raise
@@ -902,10 +909,18 @@ def run(runtime,request,*,resume=False,approve=False,initial_failure=None,expect
     return result
 
 
-def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None):
+def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expected_job_id=None,expected_control=None,job_id=None,initial_legacy_call=None):
     if not isinstance(request,str) or not request.strip() or len(request)>20000:raise ValueError('Somut hedef gerekli.')
     if job_id is not None and not resume and not approve:
         raise ValueError('Hedef seçimi yalnız sürdürme ve onay için geçerlidir; yeni hedef seçilerek açılmaz.')
+    if initial_legacy_call is not None:
+        if (resume or approve or not isinstance(initial_legacy_call, dict)
+                or initial_legacy_call.get('action') != 'legacy_plan'
+                or not isinstance(initial_legacy_call.get('tasks'), list)):
+            raise ValueError('İlk planın execution handoff sözleşmesi geçersiz.')
+        initial_legacy_call=_parse(json.dumps(
+            {'tasks': initial_legacy_call['tasks']}, ensure_ascii=False,
+        ))
     with _owned(runtime) as owner:
         # Seçilen hedef kendi kimliğinden okunur; `latest.json` tek hedef seçicisi değildir.
         job=read_job(owner,job_id) if job_id is not None else latest(owner)
@@ -920,11 +935,9 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             # "hedef devam <id> <control>" can bypass Goal Resolver entirely.
             # Canonical-born DAGs belong to the background Scheduler; neither
             # this direct legacy command nor a retry may enter its model loop.
-            from modules import goal_state
-            state = goal_job_control.canonical(_owner_root(owner), owner, job['id'])
-            if (state is not None and goal_state.authority(state) == 'canonical'
-                    and state.get('goal_plan') is not None):
-                return (status_summary(job)
+            canonical_status = canonical_scheduler_status(owner, job['id'], job)
+            if canonical_status is not None:
+                return (canonical_status
                         + '\n\nBu arka plan hedefini Scheduler yürütür; '
                           'ikinci bir yürütme başlatılmadı.')
         if job and job['state']=='review' and job['steps']:
@@ -959,7 +972,7 @@ def _run(runtime,request,*,resume=False,approve=False,initial_failure=None,expec
             if initial_failure:job['feedback']=[privacy.redact(initial_failure,force=True)[:1600]]
             _save(job)
         try:return _loop(runtime,job,answer=request if resume and request.casefold().strip(' .!?') not in RESUME_COMMANDS else None,
-                         resume=resume)
+                         resume=resume,initial_legacy_call=initial_legacy_call)
         except requests_state.Cancelled:
             # The original cancellation might be a durable terminal decision
             # made by another process. Do not attempt a stale journal write:
@@ -1052,7 +1065,12 @@ def cancel_job(owner,identity,*,expected_snapshot=None):
         if not job:raise ValueError('Seçilen hedef bulunamadı veya sana ait değil; başka hedefe işlem uygulanmadı.')
         _check_offered(job,expected_snapshot)
         if job['state'] in {'done','cancelled'}:return 'Hedef zaten kapanmış.'
-        if owner in _ACTIVE:
+        # The legacy owner-wide _ACTIVE flag only owns its own legacy goal.
+        # A DIFFERENT canonical-born Scheduler job belongs to Core and may
+        # be cancelled immediately even while unrelated legacy work runs.
+        # The canonical CAS then fences its next worker step/result, without
+        # modifying the legacy active job or its in-memory cancel request.
+        if owner in _ACTIVE and not canonical_scheduler_owned(owner,identity,root=root):
             if _ACTIVE_JOBS.get(owner)!=identity:raise ValueError('Başka bir hedef çalışıyor.')
             _CANCEL_REQUESTED.add((owner,identity))
             return 'İptal istendi; devam eden araç döndüğünde sonraki adıma geçilmeyecek.'
@@ -1157,6 +1175,38 @@ def _canonical_recovery_status(job):
     return '\n'.join(lines)
 
 
+def canonical_scheduler_owned(owner, identity, *, root=None):
+    """The single Core authority answer for a planned canonical job.
+
+    This is an owner+job-ID test, NOT an owner-global busy flag and not
+    permission to execute an unknown legacy worker.
+    """
+    from modules import goal_state
+    source = root if root is not None else _owner_root(owner)
+    state = goal_job_control.canonical(source, owner, identity)
+    return bool(state is not None
+                and goal_state.authority(state) == 'canonical'
+                and isinstance(state.get('goal_plan'), dict))
+
+
+def canonical_scheduler_status(owner, identity, job=None):
+    """One read-only authority check shared by both legacy and typed entries.
+
+    Canonical-born planned goals belong only to the existing Scheduler and
+    Core. An independent legacy goal still uses the old executor until that
+    tool's feature parity is proven. This checks durable owner/plan authority;
+    it never mutates a GoalState or launches any worker.
+    """
+    if not canonical_scheduler_owned(owner, identity):
+        return None
+    current = job if job is not None else read_job(owner, identity)
+    if (not isinstance(current, dict)
+            or current.get('owner') != owner
+            or current.get('id') != identity):
+        raise ValueError('Canonical hedef kaydı sahibi doğrulanamadı.')
+    return status_summary(current)
+
+
 def status_summary(job):
     states = {'running': 'çalışıyor', 'done': 'bitti', 'cancelled': 'iptal edildi',
               'approval': 'onay bekliyor', 'question': 'soru bekliyor',
@@ -1185,6 +1235,14 @@ def status_summary(job):
     details = _canonical_recovery_status(job)
     if details:
         summary += '\n' + details
+    dialog = job.get('_canonical_dialog')
+    if isinstance(dialog, dict) and dialog.get('state') == 'waiting':
+        question = dialog.get('question')
+        if isinstance(question, str) and question.strip():
+            summary += ('\nKullanıcı yanıtı bekleniyor: ' + question[:600]
+                        + '\nYanıt: hedef cevap ' + str(job.get('id')) + ' <yanıt>')
+    elif isinstance(dialog, dict) and dialog.get('state') == 'answered':
+        summary += '\nKullanıcı yanıtı alındı; Scheduler tamamlanmayı kontrol edecek.'
     return ('Hedef: ' + request + '\n' if request else '') + summary
 
 

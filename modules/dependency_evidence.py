@@ -257,7 +257,7 @@ def _require_persisted_dependencies(
 ) -> dict[str, dict]:
     """Bind already accepted, projected predecessor bytes from the journal."""
     from modules import execution_record, goal_executor
-    if (capability not in ('task.research', 'task.account')
+    if (capability not in ('task.research', 'task.account', 'task.verify')
             or not isinstance(identity, dict) or not isinstance(node, dict)
             or node.get('capability_id') != capability
             or not isinstance(node.get('depends_on'), list)
@@ -300,3 +300,8 @@ def require_persisted_research_dependencies(identity: dict, node: dict) -> dict[
 def require_persisted_account_dependencies(identity: dict, node: dict) -> dict[str, dict]:
     """Reverify exact projected account parents before Gmail indexed read."""
     return _require_persisted_dependencies(identity, node, 'task.account')
+
+
+def require_persisted_verify_dependencies(identity: dict, node: dict) -> dict[str, dict]:
+    """Validate all parent SHA-256 commitments and domain receipts."""
+    return _require_persisted_dependencies(identity, node, 'task.verify')

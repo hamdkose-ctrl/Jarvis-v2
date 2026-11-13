@@ -344,6 +344,7 @@ _DEPENDENT_RESEARCH_RESULT_LEASE = ContextVar(
 def dependent_research_worker(
     leases: resource_leases.LeaseTable, identity: dict, expected: dict,
     *, ttl: float = 60.0, allow_root: bool = False,
+    allow_verify: bool = False,
 ):
     """Own one canonical research command from dispatch through Core CAS.
 
@@ -354,7 +355,8 @@ def dependent_research_worker(
     if (not isinstance(leases, resource_leases.LeaseTable)
             or not isinstance(identity, dict)
             or not isinstance(expected, dict)
-            or expected.get('capability_id') != 'task.research'
+            or expected.get('capability_id') != ('task.verify' if allow_verify else 'task.research')
+            or (allow_verify and allow_root)
             or type(expected.get('plan_version')) is not int
             or expected.get('owner') != identity.get('owner')
             or expected.get('job_id') != identity.get('job_id')
@@ -381,6 +383,11 @@ def dependent_research_worker(
         goal_plan_gate.validate_root_attempt(
             state, selected, attempt=expected['attempt'],
         )
+    elif allow_verify:
+        goal_plan_gate.validate_dependent_verify_attempt(
+            state, selected, attempt=expected['attempt'],
+        )
+        dependency_evidence.require_persisted_verify_dependencies(identity, node)
     else:
         goal_plan_gate.validate_dependent_research_attempt(
             state, selected, attempt=expected['attempt'],
@@ -439,15 +446,56 @@ def dependent_research_worker(
             )
         else:
             if current['version'] != expected['expected_job_version']:
-                raise ReadOnlyAdmissionError(
-                    'Dependent research GoalState changed during worker.'
+                # A dependent first-attempt read may overlap another
+                # *independent* root. Its Core CAS advance does not revoke
+                # our pinned parents. Never adopt another child result, a
+                # user edit, a revision, a failure without canonical audit,
+                # or our own duplicate worker result.
+                pinned = expected['expected_job_version']
+                advances = current['audit'][pinned + 1:]
+                if (current['version'] < pinned or not advances
+                        or any(row['op'] != 'append_evidence'
+                               or row['reason_code'] != 'WORKER_RESULT_ACCEPTED'
+                               for row in advances)
+                        or len(current['evidence']) < len(advances)):
+                    raise ReadOnlyAdmissionError(
+                        'Dependent research changed after non-worker mutation.'
+                    )
+                nodes = {
+                    node['id']: node
+                    for node in current['goal_plan']['nodes']
+                }
+                for row in current['evidence'][-len(advances):]:
+                    if (not isinstance(row, dict)
+                            or row.get('kind') != 'worker_result'
+                            or row.get('owner') != selected.owner
+                            or row.get('job_id') != selected.job_id
+                            or row.get('plan_version') != selected.plan_version
+                            or row.get('step_id') == selected.node_id
+                            or row.get('step_id') not in nodes
+                            or nodes[row['step_id']]['depends_on']):
+                        raise ReadOnlyAdmissionError(
+                            'Only independent worker progress can overlap a dependent.'
+                        )
+                # Audit, node digest, command identity, attempt and input
+                # proof are checked against the current canonical plan.
+                goal_plan_gate.ready_read_only_candidates(
+                    current, owner=selected.owner, job_id=selected.job_id,
                 )
-            refreshed = goal_plan_gate.validate_dependent_research_attempt(
-                current, chosen, attempt=expected['attempt'],
-            )
-            dependency_evidence.require_persisted_research_dependencies(
-                identity, refreshed,
-            )
+            if allow_verify:
+                refreshed = goal_plan_gate.validate_dependent_verify_attempt(
+                    current, chosen, attempt=expected['attempt'],
+                )
+                dependency_evidence.require_persisted_verify_dependencies(
+                    identity, refreshed,
+                )
+            else:
+                refreshed = goal_plan_gate.validate_dependent_research_attempt(
+                    current, chosen, attempt=expected['attempt'],
+                )
+                dependency_evidence.require_persisted_research_dependencies(
+                    identity, refreshed,
+                )
 
     def pulse() -> None:
         while not stop.wait(ttl / 3):
@@ -509,6 +557,24 @@ def root_research_worker(
         leases, identity, expected, ttl=ttl, allow_root=True,
     ) as commit_checked:
         yield commit_checked
+
+
+@contextmanager
+def dependent_verify_worker(
+    leases: resource_leases.LeaseTable, identity: dict, expected: dict,
+    *, ttl: float = 60.0,
+):
+    """Reuse the existing exact command lease and Core CAS, no second Scheduler."""
+    with dependent_research_worker(
+        leases, identity, expected, ttl=ttl, allow_verify=True,
+    ) as commit_checked:
+        yield commit_checked
+
+
+def require_dependent_verify_result_lease(accepted: dict) -> None:
+    if not isinstance(accepted, dict) or accepted.get('capability_id') != 'task.verify':
+        raise ReadOnlyAdmissionError('Verify Core lease capability mismatched.')
+    require_dependent_research_result_lease(accepted)
 
 
 def require_dependent_research_result_lease(accepted: dict) -> None:

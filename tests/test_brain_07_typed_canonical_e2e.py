@@ -248,6 +248,30 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
         self.run_goal.assert_not_called()
 
+    def test_canonical_cancel_ignores_unrelated_legacy_active_owner(self):
+        """A legacy busy owner is not authority over another canonical job."""
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn()
+        self.assertTrue(goal_executor.canonical_scheduler_owned(self.owner, job_id))
+        other = 'unrelated-legacy-goal'
+        with patch('modules.service_store.identity', return_value=self.owner), \
+             patch.object(goal_executor, '_ACTIVE', {self.owner}), \
+             patch.object(goal_executor, '_ACTIVE_JOBS',
+                          {self.owner: other}), \
+             patch.object(goal_executor, '_CANCEL_REQUESTED', set()):
+            reply = goal_executor.cancel_job(self.owner, job_id)
+            self.assertIn('İptal kaydedildi', reply)
+            self.assertEqual(goal_executor._ACTIVE_JOBS[self.owner], other)
+            self.assertNotIn((self.owner, job_id),
+                             goal_executor._CANCEL_REQUESTED)
+            self.assertIn(self.owner, goal_executor._ACTIVE)
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['state'], 'cancelled')
+        self.assertEqual(record['state'], 'cancelled')
+        self.assertEqual(canonical_scheduler_dispatch.discover(self.owner), ())
+        self.run_goal.assert_not_called()
+
     def test_duplicate_typed_request_cannot_publish_second_attempt(self):
         with patch.object(model_wait, 'ask',
                           return_value=json.dumps(research_tasks('first'))) as planner:
@@ -392,11 +416,11 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         original = canonical_goal_flow.try_create
         guard = threading.Lock()
 
-        def observe(*args):
+        def observe(*args, **kwargs):
             with guard:
                 if first_entered.is_set():
                     started_second.set()
-            return original(*args)
+            return original(*args, **kwargs)
 
         def planned(*args, **kwargs):
             with guard:
@@ -445,10 +469,10 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 return json.dumps(effectful)
             return json.dumps(research_tasks('first'))
 
-        def observed(*args):
+        def observed(*args, **kwargs):
             if entered.is_set():
                 second_entered.set()
-            return original_try(*args)
+            return original_try(*args, **kwargs)
 
         with patch.object(model_wait, 'ask', side_effect=planned), \
                 patch.object(canonical_goal_flow, 'try_create', side_effect=observed):
@@ -904,7 +928,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 raise OSError('simulated process death after Core terminal CAS')
             return original(path, data)
 
-        sink = Mock()
+        sink = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={
                               'action': 'complete', 'goal': 0,
@@ -948,7 +972,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
     def test_pre_core_cas_crash_cannot_expose_uncompleted_result(self):
         """RED: pre-CAS prepared record is durable but never a completion."""
         job_id = self._accepted_canonical_research_for_crash_test()
-        sink = Mock()
+        sink = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={
                               'action': 'complete', 'goal': 0,
@@ -1063,7 +1087,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             _, _, _, job_id = self.typed_turn()
         with patch.object(canonical_plan_evidence, 'certify_projected_plan',
                           side_effect=canonical_plan_evidence.PlanEvidenceError('no complete proof')):
-            notified = Mock()
+            notified = Mock(return_value={'ui': 'delivered'})
             self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notified))
         self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
         notified.assert_not_called()
@@ -1086,6 +1110,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         def notify(owner, ident, text):
             messages.append((owner, ident, text))
             completed.set()
+            return {'ui': 'delivered'}
         def finished(owner, ident):
             try:
                 callback_results.append(canonical_goal_flow.complete_and_deliver(
@@ -1157,6 +1182,126 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 worker.join(10)
 
 
+    def test_real_scheduler_clarification_answer_completes_without_worker_replay(self):
+        """One actual Scheduler for question→answer→Core completion.
+
+        The model and external provider are mocked. The existing on-disk
+        Scheduler/GoalState/CAS/projected evidence and callback lanes are live.
+        """
+        with patch.object(model_wait, 'ask',
+                          return_value=json.dumps(research_tasks('first'))):
+            _, _, _, job_id = self.typed_turn(
+                request='Compare these sources and ask if anything is unclear.',
+            )
+        stop = RapidStop()
+        question_seen = threading.Event()
+        completion_seen = threading.Event()
+        calls = []
+        errors = []
+        provider_calls = []
+        lock = threading.Lock()
+
+        def worker(owner, task, dependencies):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(dependencies, {})
+            with lock:
+                provider_calls.append(task['id'])
+            return task_results.seal('research', {
+                'state': 'done', 'text': 'Verified source for comparison',
+                'source': 'https://example.test/article', 'source_chars': 200,
+            })
+
+        def semantic(owner, journal, nodes):
+            self.assertEqual(nodes, ('first',))
+            dialog = journal.get('_canonical_dialog')
+            if dialog is None:
+                return {'action': 'ask', 'question': 'Which period should be compared?'}
+            self.assertEqual(dialog.get('state'), 'answered')
+            self.assertEqual(dialog.get('answer'), '2024 and 2025')
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        def sink(owner, ident, message):
+            self.assertEqual((owner, ident), (self.owner, job_id))
+            with lock:
+                calls.append(message)
+            if 'hedef cevap ' + job_id in message:
+                question_seen.set()
+            else:
+                completion_seen.set()
+            return {'ui': 'delivered'}
+
+        def on_completion(owner, ident):
+            try:
+                canonical_goal_flow.complete_and_deliver(owner, ident, sink)
+            except Exception as exc:
+                with lock:
+                    errors.append(repr(exc))
+                raise
+
+        with ExitStack() as patches:
+            for module, name, replacement in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+                (canonical_goal_flow, '_semantic_proposal', semantic),
+            ):
+                patches.enter_context(patch.object(module, name, replacement))
+            def close_scheduler():
+                stop.set()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(10)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+                for thread in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    thread.join(10)
+                    self.assertFalse(thread.is_alive())
+            patches.callback(close_scheduler)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=on_completion,
+            )
+            self.assertTrue(question_seen.wait(25), 'Scheduler did not ask')
+            # Notification may precede the final durable ack write.
+            until = time.monotonic() + 12
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                dialog = journal.get('_canonical_dialog')
+                if isinstance(dialog, dict) and dialog.get('delivery') == 'ui_accepted':
+                    break
+                time.sleep(.025)
+            self.assertEqual(dialog['state'], 'waiting')
+            self.assertEqual(dialog['delivery'], 'ui_accepted')
+            self.assertEqual(state['state'], 'pending')
+            self.assertEqual(provider_calls, ['first'])
+            self.assertFalse(completion_seen.is_set())
+            explicit = canonical_goal_flow.read_result_command(
+                self.owner, 'hedef cevap ' + job_id + ' 2024 and 2025',
+            )
+            self.assertIn('Yanıt bu hedefe kaydedildi', explicit)
+            self.assertTrue(completion_seen.wait(25), 'Scheduler did not resume answer')
+            until = time.monotonic() + 12
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                if journal.get('_canonical_delivery') == 'delivered':
+                    break
+                time.sleep(.025)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal['_canonical_delivery'], 'delivered')
+            self.assertEqual(journal['_canonical_ui_receipt']['event_id'],
+                             'canonical:' + job_id)
+            self.assertEqual(provider_calls, ['first'], 'Worker was replayed')
+            self.assertEqual(len(calls), 2, 'Question/result delivered twice')
+            self.assertEqual(errors, [])
+            self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+                self.owner), ())
+
     def test_scheduler_restart_resumes_verified_completion_without_worker_replay(self):
         # A process may die after the last accepted output projection but
         # before its one-shot completion callback. No worker may be repeated.
@@ -1187,6 +1332,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         def sink(owner, ident, text):
             sent.append((owner, ident, text))
             completed.set()
+            return {'ui': 'delivered'}
         def finished(owner, ident):
             canonical_goal_flow.complete_and_deliver(owner, ident, sink)
 
@@ -1415,7 +1561,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         accepted = [r['step_id'] for r in state['evidence']
                     if r.get('kind') == 'worker_result' and r.get('status') == 'succeeded']
         self.assertEqual(accepted, ['unread', 'read'])
-        notified = Mock()
+        notified = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
             'action': 'complete', 'goal': 0, 'evidence': ['unread', 'read'],
         }):
@@ -1567,7 +1713,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             {'unread', 'research', 'read'},
         )
         self.assertTrue(all(row['state'] == 'done' for row in record['steps']))
-        received = Mock()
+        received = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
             'action': 'complete', 'goal': 0,
             'evidence': ['unread', 'research', 'read'],
@@ -1578,6 +1724,300 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         received.assert_called_once()
         self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
         self.run_goal.assert_not_called()
+
+    def test_verify_child_survives_unrelated_root_acceptance_without_replay(self):
+        """A verified dependent may overlap a distinct, still-running root.
+
+        Real Scheduler/worker/CAS/projection are used; only transport is
+        mocked. The dependent starts from an accepted Gmail predecessor,
+        independent research commits while verify is in flight, then verify
+        must still commit exactly once without accepting any nonworker edit.
+        """
+        from modules import worker_result_hook
+        tasks = {'tasks': [
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread',
+                       'limit': 5}},
+            {'id': 'other', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article',
+                       'question': 'independent'}},
+            {'id': 'joined', 'agent': 'verify',
+             'depends': ['unread'], 'input': {}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'E-postamı doğrula ve bağımsız araştırmayı tamamla.',
+            )
+        self.assertEqual(feedback.reason_code,
+                         'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        other_started = threading.Event()
+        other_release = threading.Event()
+        verify_started = threading.Event()
+        verify_release = threading.Event()
+        results, errors, threads = {}, [], []
+
+        def worker(owner, task, predecessors):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(predecessors, {})
+            if task['id'] == 'other':
+                other_started.set()
+                self.assertTrue(other_release.wait(15),
+                                'Independent root never released')
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Independent verified research',
+                    'source': 'https://example.test/article', 'source_chars': 200,
+                })
+            self.assertEqual(task['id'], 'unread')
+            snapshot = {
+                'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                'limit': 5,
+                'items': [{'id': 'mail-001', 'from': 'source@example.test',
+                           'subject': 'Verified subject'}],
+                'query': 'is:unread in:inbox', 'fetched_at': time.time(),
+                'has_more': False,
+            }
+            return task_results.seal('account', {
+                'state': 'done', 'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot, 'sha256': account_tools.digest(snapshot),
+            })
+
+        original_hook = worker_result_hook.execute
+
+        def hold_verify(*args, **kwargs):
+            output = original_hook(*args, **kwargs)
+            if args[1] == 'verify':
+                verify_started.set()
+                self.assertTrue(verify_release.wait(15),
+                                'Verify worker never released')
+            return output
+
+        def dispatch(offer):
+            try:
+                results[offer.selection.node_id] = (
+                    canonical_scheduler_dispatch.execute_offer(
+                        SimpleNamespace(slug=self.owner), offer,
+                    )
+                )
+            except Exception as exc:
+                errors.append(repr(exc))
+
+        def offer_for(node_id):
+            return next(
+                candidate for candidate in
+                canonical_scheduler_dispatch.discover(self.owner, max_offers=3)
+                if candidate.selection.node_id == node_id
+            )
+
+        with patch.object(task_agents, 'worker', side_effect=worker), \
+             patch.object(worker_result_hook, 'execute',
+                          side_effect=hold_verify), \
+             patch.object(untrusted_flow, 'observe', lambda *_: None):
+            try:
+                # First persist the real Gmail root using the canonical CAS.
+                self.assertTrue(canonical_scheduler_dispatch.execute_offer(
+                    SimpleNamespace(slug=self.owner), offer_for('unread'),
+                ))
+                research_thread = threading.Thread(
+                    target=dispatch, args=(offer_for('other'),),
+                )
+                threads.append(research_thread)
+                research_thread.start()
+                self.assertTrue(other_started.wait(10))
+                dependent_thread = threading.Thread(
+                    target=dispatch, args=(offer_for('joined'),),
+                )
+                threads.append(dependent_thread)
+                dependent_thread.start()
+                self.assertTrue(verify_started.wait(10))
+                other_release.set()
+                research_thread.join(15)
+                self.assertFalse(research_thread.is_alive())
+                self.assertTrue(results.get('other'), repr(errors))
+                verify_release.set()
+                dependent_thread.join(15)
+                self.assertFalse(dependent_thread.is_alive())
+                self.assertTrue(results.get('joined'), repr(errors))
+                self.assertEqual(errors, [])
+            finally:
+                other_release.set()
+                verify_release.set()
+                for thread in threads:
+                    thread.join(15)
+                    self.assertFalse(thread.is_alive(),
+                                     'Worker still owns canonical command claim')
+        state, journal = self.persisted(job_id)
+        self.assertEqual(
+            {row['step_id'] for row in state['evidence']
+             if row.get('kind') == 'worker_result'
+             and row.get('status') == 'succeeded'},
+            {'unread', 'other', 'joined'},
+        )
+        self.assertEqual(journal['outputs']['joined']['checks'],
+                         {'unread': True})
+        self.assertTrue(all(row['state'] == 'done'
+                            for row in journal['steps']))
+
+    def test_real_scheduler_verify_joins_research_and_gmail_without_writer(self):
+        """Two concurrent roots → verified join → one Core completion.
+
+        Real Scheduler, on-disk journals, OS resource leases, worker adapters,
+        Core WorkerResult CAS, projection, completion and delivery. The
+        external research/Gmail transport and the semantic model are mocked.
+        """
+        tasks = {'tasks': [
+            {'id': 'research', 'agent': 'research', 'depends': [],
+             'input': {'url': 'https://example.test/article',
+                       'question': 'compare'}},
+            {'id': 'unread', 'agent': 'account', 'depends': [],
+             'input': {'service': 'gmail', 'operation': 'list_unread',
+                       'limit': 5}},
+            {'id': 'joined', 'agent': 'verify',
+             'depends': ['research', 'unread'], 'input': {}},
+        ]}
+        with patch.object(model_wait, 'ask', return_value=json.dumps(tasks)):
+            _, _, feedback, job_id = self.typed_turn(
+                'Araştırma ve Gmail verisini doğrula, özetle.',
+            )
+        self.assertEqual(feedback.reason_code, 'GOAL_CANONICAL_BACKGROUND_QUEUED')
+        self.assertEqual(
+            {o.selection.node_id for o in canonical_scheduler_dispatch.discover(
+                self.owner, max_offers=3,
+            )}, {'research', 'unread'},
+        )
+        stop = RapidStop()
+        provider_barrier = threading.Barrier(2, timeout=20)
+        completed = threading.Event()
+        calls = []
+        sink_calls = []
+        errors = []
+        lock = threading.Lock()
+
+        def worker(owner, task, predecessors):
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(predecessors, {})
+            with lock:
+                calls.append(task['id'])
+            provider_barrier.wait()
+            if task['agent'] == 'research':
+                return task_results.seal('research', {
+                    'state': 'done', 'text': 'Verified public research',
+                    'source': 'https://example.test/article', 'source_chars': 200,
+                })
+            self.assertEqual(task['agent'], 'account')
+            snapshot = {
+                'owner': owner, 'service': 'gmail', 'operation': 'list_unread',
+                'limit': 5,
+                'items': [{'id': 'mail-001', 'from': 'source@example.test',
+                           'subject': 'Verified subject'}],
+                'query': 'is:unread in:inbox', 'fetched_at': time.time(),
+                'has_more': False,
+            }
+            return task_results.seal('account', {
+                'state': 'done',
+                'text': account_tools.render_snapshot(snapshot),
+                'snapshot': snapshot,
+                'sha256': account_tools.digest(snapshot),
+            })
+
+        def notify(owner, ident, text):
+            self.assertEqual((owner, ident), (self.owner, job_id))
+            with lock:
+                sink_calls.append(text)
+            completed.set()
+            return {'ui': 'delivered'}
+
+        def on_complete(owner, ident):
+            try:
+                return canonical_goal_flow.complete_and_deliver(owner, ident, notify)
+            except Exception as exc:
+                with lock:
+                    errors.append(repr(exc))
+                raise
+
+        with ExitStack() as patches:
+            for obj, attr, value in (
+                (service_store, 'ROOT', Path(self.temp.name) / 'missing_sqlite'),
+                (task_queue, '_THREAD', None),
+                (task_queue, '_OWNER_TICKS', {}),
+                (task_queue, '_CANONICAL_WORKERS', {}),
+                (task_queue, '_CANONICAL_RESUME_ATTEMPTED', set()),
+                (task_queue, '_LAST_ADMITTED', {}),
+                (task_queue, '_LAST_CANONICAL_ADMITTED', {}),
+                (task_queue, '_DAILY_NOTIFY', None),
+                (task_agents, 'worker', worker),
+                (untrusted_flow, 'observe', lambda *_: None),
+                (model_wait, 'ask', lambda *a, **kw: json.dumps({
+                    'action': 'complete', 'goal': 0,
+                    'evidence': ['research', 'unread', 'joined'],
+                })),
+            ):
+                patches.enter_context(patch.object(obj, attr, value))
+
+            def close():
+                stop.set()
+                provider_barrier.abort()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(12)
+                    self.assertFalse(task_queue._THREAD.is_alive())
+                for running in tuple(task_queue._CANONICAL_WORKERS.values()):
+                    running.join(12)
+                    self.assertFalse(running.is_alive())
+            patches.callback(close)
+            task_queue.start(
+                stop, allowed_owners=lambda: {self.owner},
+                canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                canonical_result_notify=on_complete,
+            )
+            self.assertTrue(completed.wait(35),
+                            'Verified DAG join did not deliver via real Scheduler')
+            until = time.monotonic() + 10
+            while time.monotonic() < until:
+                state, journal = self.persisted(job_id)
+                if journal.get('_canonical_delivery') == 'delivered':
+                    break
+                time.sleep(.03)
+            self.assertEqual(state['state'], 'done')
+            self.assertEqual(journal['_canonical_delivery'], 'delivered')
+            self.assertEqual(journal['_canonical_delivery_receipt']['channel'], 'ui')
+            self.assertEqual(
+                {row['step_id'] for row in state['evidence']
+                 if row.get('kind') == 'worker_result'},
+                {'research', 'unread', 'joined'},
+            )
+            self.assertEqual(journal['outputs']['joined']['checks'],
+                             {'research': True, 'unread': True})
+            self.assertEqual({row['id']: row['state'] for row in journal['steps']},
+                             {'research': 'done', 'unread': 'done', 'joined': 'done'})
+            self.assertEqual(set(calls), {'research', 'unread'})
+            self.assertEqual(len(calls), 2,
+                             'No second provider call or synthetic verify worker')
+            self.assertEqual(len(sink_calls), 1)
+            self.assertEqual(errors, [])
+
+    def test_verify_only_joins_read_only_parents_and_never_grants_writer(self):
+        base = {'id': 'source', 'agent': 'research', 'depends': [],
+                'input': {'url': 'https://example.test/article'}}
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                {'id': 'verify', 'agent': 'verify', 'depends': [], 'input': {}},
+            ])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                base, {'id': 'file', 'agent': 'writer', 'depends': ['source'],
+                       'input': {'instruction': 'Write a file'}},
+            ])
+        with self.assertRaises(ValueError):
+            canonical_goal_flow._canonical_plan([
+                base, {'id': 'verify1', 'agent': 'verify',
+                       'depends': ['source'], 'input': {}},
+                {'id': 'verify2', 'agent': 'verify',
+                 'depends': ['verify1'], 'input': {}},
+            ])
+        from modules import scheduler_resource_gate
+        with self.assertRaises(scheduler_resource_gate.ReadOnlyAdmissionError):
+            scheduler_resource_gate.require_dependent_verify_result_lease({
+                'capability_id': 'task.verify',
+            })
 
     def test_real_scheduler_gmail_child_completes_before_running_research_root(self):
         """Production Scheduler: root research + Gmail list overlap, Gmail
@@ -1662,6 +2102,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             with lock:
                 sink_calls.append((owner, ident, text))
             delivered.set()
+            return {'ui': 'delivered'}
 
         def complete(owner, ident):
             try:
@@ -1912,7 +2353,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             ))
         proof = canonical_plan_evidence.certify_projected_plan(self.owner, job_id)
         self.assertEqual(proof.job_id, job_id)
-        notified = Mock()
+        notified = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={'action': 'ask', 'question': 'Not enough evidence'}):
             self.assertFalse(canonical_goal_flow.complete_and_deliver(
@@ -1921,4 +2362,321 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         state, journal = self.persisted(job_id)
         self.assertEqual(state['state'], 'pending')
         self.assertEqual(journal['state'], 'running')
+        self.assertEqual(journal['_canonical_dialog']['state'], 'waiting')
+        self.assertEqual(journal['_canonical_dialog']['delivery'], 'ui_accepted')
+        notified.assert_called_once()
+        self.assertIn('hedef cevap ' + job_id, notified.call_args.args[2])
+        self.assertFalse(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner,
+        ))
+
+    def test_owner_question_answer_rechecks_same_dag_without_worker_replay(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        notified = Mock(return_value={'ui': 'delivered'})
+        question = 'Hangi karşılaştırmayı istiyorsun?'
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask', 'question': question}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        dialog = journal['_canonical_dialog']
+        self.assertEqual(dialog['state'], 'waiting')
+        self.assertEqual(dialog['delivery'], 'ui_accepted')
+        self.assertEqual(dialog['round'], 1)
+        self.assertEqual(notified.call_count, 1)
+        self.assertIn('hedef cevap ' + job_id, notified.call_args.args[2])
+        self.assertIn(question, goal_executor.status_summary(journal))
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner,
+        ), ())
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.delivery_metadata(self.owner, job_id)
+        before = self.persisted(job_id)
+        self.assertIn('açıklama kabul etmiyor',
+                      canonical_goal_flow.read_result_command(
+                          'other-owner', 'hedef cevap ' + job_id + ' yanlış',
+                      ))
+        self.assertEqual(before, self.persisted(job_id))
+        answer = canonical_goal_flow.read_result_command(
+            self.owner, 'hedef cevap ' + job_id + ' Tarihleri karşılaştır',
+        )
+        self.assertIn('Yanıt bu hedefe kaydedildi', answer)
+        self.assertIn('açıklama kabul etmiyor',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' bir daha',
+                      ))
+        self.assertEqual([x.job_id for x in
+                          canonical_scheduler_dispatch.recoverable_completions(
+                              self.owner)], [job_id])
+
+        def semantic_after_answer(owner, job, node_ids):
+            self.assertEqual(job['_canonical_dialog']['state'], 'answered')
+            self.assertEqual(job['_canonical_dialog']['answer'],
+                             'Tarihleri karşılaştır')
+            self.assertEqual(node_ids, ('first',))
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        with patch.object(task_agents, 'worker',
+                          side_effect=AssertionError('worker replay')) as worker, \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=semantic_after_answer):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+            worker.assert_not_called()
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'delivered')
+        self.assertEqual(journal['_canonical_ui_receipt']['event_id'],
+                         'canonical:' + job_id)
+        self.assertEqual(notified.call_count, 2)
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, notified,
+        ))
+        self.assertEqual(notified.call_count, 2)
+
+    def test_engine_owner_event_adapter_connects_question_and_completion(self):
+        """Real BRAIN-07 engine event path, not just a synthetic notify stub."""
+        from modules import engine_loop, event_channels
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sent = []
+
+        def owner_sink(runtime, owner, event, *, title):
+            self.assertIs(runtime, self.ctx)
+            self.assertEqual(owner, self.owner)
+            self.assertEqual(event['source'], 'canonical_goal')
+            self.assertEqual(event['payload']['job_id'], job_id)
+            self.assertEqual(event['payload']['event_id'],
+                             ('canonical-question:' + job_id + ':1'
+                              if event['kind'] == 'question'
+                              else 'canonical:' + job_id))
+            sent.append((event, title))
+            return {'ui': 'delivered', 'log': 'delivered'}
+
+        def deliver(owner, identity, message):
+            return engine_loop._deliver_verified_canonical_goal(
+                self.ctx, owner, identity, message,
+            )
+
+        with patch.object(event_channels, 'deliver', side_effect=owner_sink), \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask',
+                                        'question': 'Which date range?'}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, deliver,
+            ))
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0][0]['kind'], 'question')
+        self.assertEqual(sent[0][1], 'Jarvis hedef sorusu')
+        self.assertIn('hedef cevap ' + job_id, sent[0][0]['payload']['text'])
+        self.assertIn('Yanıt bu hedefe kaydedildi',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' November',
+                      ))
+        with patch.object(event_channels, 'deliver', side_effect=owner_sink), \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, deliver,
+            ))
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(sent[1][0]['kind'], 'completed')
+        self.assertEqual(sent[1][1], 'Jarvis araştırma sonucu')
+        state, record = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(record['_canonical_delivery'], 'delivered')
+        self.assertEqual(record['_canonical_delivery_receipt']['channel'], 'ui')
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, deliver,
+        ))
+        self.assertEqual(len(sent), 2)
+
+    def test_ntfy_only_delivery_has_exact_channel_receipt(self):
+        """The user may enable phone ntfy without the desktop UI channel."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        phone_sink = Mock(return_value={'ui': 'unavailable',
+                                        'ntfy': 'delivered', 'log': 'delivered'})
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, phone_sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'delivered')
+        receipt = journal['_canonical_delivery_receipt']
+        self.assertEqual(receipt['channel'], 'ntfy')
+        self.assertEqual(receipt['event_id'], 'canonical:' + job_id)
+        self.assertNotIn('_canonical_ui_receipt', journal)
+        phone_sink.assert_called_once()
+
+    def test_log_only_delivery_cannot_claim_owner_acceptance(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        log_sink = Mock(return_value={'log': 'delivered',
+                                      'ui': 'failed:RuntimeError'})
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, log_sink,
+            ))
+        _, journal = self.persisted(job_id)
+        self.assertEqual(journal['_canonical_delivery'], 'reserved')
+        self.assertNotIn('_canonical_delivery_receipt', journal)
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, log_sink,
+        ))
+        log_sink.assert_called_once()
+
+    def test_unknown_ui_delivery_never_claims_delivered_or_resends(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sink = Mock(return_value=None)
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'reserved')
+        self.assertNotIn('_canonical_ui_receipt', journal)
+        sink.assert_called_once()
+        self.assertIn(job_id, canonical_goal_flow.read_completed_result(
+            self.owner, job_id,
+        ))
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, sink,
+        ))
+        sink.assert_called_once()
+
+    def test_question_delivery_unknown_is_durable_and_never_replayed(self):
+        """A UI failure must not silently become delivered or a repeated wake."""
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sink = Mock(return_value=None)
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask',
+                                        'question': 'Which range should be compared?'}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['_canonical_dialog']['state'], 'waiting')
+        self.assertEqual(journal['_canonical_dialog']['delivery'], 'reserved')
+        sink.assert_called_once()
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner), ())
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, sink,
+        ))
+        sink.assert_called_once()
+        self.assertIn('Which range', goal_executor.status_summary(journal))
+        # A user may still answer; neither a worker nor the uncertain
+        # notification is replayed to obtain the clarification.
+        self.assertIn('Yanıt bu hedefe kaydedildi',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' last month',
+                      ))
+        self.assertEqual(self.persisted(job_id)[1]['_canonical_dialog']['state'],
+                         'answered')
+
+    def test_scheduler_stop_during_semantic_model_never_completes_or_notifies(self):
+        """An accepted model response after shutdown cannot commit Goal success."""
+        from modules import runtime_worker_result
+        job_id = self._accepted_canonical_research_for_crash_test()
+        stop = threading.Event()
+        delivered = Mock(return_value={'ui': 'delivered'})
+
+        def stopped_semantic(owner, journal, nodes):
+            stop.set()
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=stopped_semantic):
+            with runtime_worker_result.scheduler_stop_scope(stop):
+                with self.assertRaises(
+                        runtime_worker_result.CanonicalSchedulerStopped):
+                    canonical_goal_flow.complete_and_deliver(
+                        self.owner, job_id, delivered,
+                    )
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        self.assertNotIn('_canonical_delivery', journal)
+        delivered.assert_not_called()
+        with patch.object(task_agents, 'worker',
+                          side_effect=AssertionError('worker replay')) as worker, \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, delivered,
+            ))
+            worker.assert_not_called()
+        self.assertEqual(self.persisted(job_id)[0]['state'], 'done')
+        delivered.assert_called_once()
+
+    def test_scheduler_stop_during_semantic_ask_never_notifies_or_waits(self):
+        """An interrupted semantic question may not enter user-wait state."""
+        from modules import runtime_worker_result
+        job_id = self._accepted_canonical_research_for_crash_test()
+        stop = threading.Event()
+        notified = Mock(return_value={'ui': 'delivered'})
+
+        def interrupted_ask(owner, journal, nodes):
+            stop.set()
+            return {'action': 'ask', 'question': 'Which period?'}
+
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=interrupted_ask):
+            with runtime_worker_result.scheduler_stop_scope(stop):
+                with self.assertRaises(
+                        runtime_worker_result.CanonicalSchedulerStopped):
+                    canonical_goal_flow.complete_and_deliver(
+                        self.owner, job_id, notified,
+                    )
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        self.assertNotIn('_canonical_dialog', journal)
         notified.assert_not_called()
+
+    def test_first_legacy_safe_plan_is_forwarded_without_second_model_plan(self):
+        """A read-only/replay-safe but non-canonical worker stays permissioned.
+
+        Its first model plan is passed to legacy once. No parallel canonical
+        job exists, and a repeated request ID never runs that worker again.
+        """
+        proposal = {'tasks': [{
+            'id': 'report', 'agent': 'writer', 'depends': [],
+            'input': {'instruction': 'Produce summary', 'filename': 'report.md'},
+        }]}
+        rid = 'safe-first-legacy-handoff'
+        with patch.object(model_wait, 'ask', return_value=json.dumps(proposal)) as model:
+            _, _, feedback, job_id = self.typed_turn(
+                'Kaynakları kullanıp rapor oluştur.', rid=rid,
+            )
+        self.assertIsNone(job_id)
+        self.assertEqual(feedback.reason_code, 'GOAL_CREATE')
+        model.assert_called_once()
+        self.run_goal.assert_called_once()
+        forwarded = self.run_goal.call_args.kwargs.get('initial_legacy_call')
+        self.assertIsInstance(forwarded, dict)
+        self.assertEqual(forwarded.get('action'), 'legacy_plan')
+        self.assertEqual(forwarded.get('tasks'), proposal['tasks'])
+        # Claim is durable before any legacy worker can run.
+        with patch.object(model_wait, 'ask',
+                          side_effect=AssertionError('duplicate model decision')):
+            _, _, duplicate, _ = self.typed_turn(
+                'Kaynakları kullanıp rapor oluştur.', rid=rid,
+            )
+        self.assertEqual(duplicate.reason_code,
+                         'GOAL_LEGACY_DUPLICATE_NOT_RESTARTED')
+        self.run_goal.assert_called_once()
+

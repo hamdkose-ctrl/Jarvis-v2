@@ -17,7 +17,7 @@ from unittest.mock import Mock, patch
 from modules import requests_state, voice_edge, voice_runtime
 from modules.engine_voice import VoiceSession
 from modules.voice_core import (
-    VoiceCatalog, VoiceSpec, split_speech_text,
+    SpeechRequest, VoiceCatalog, VoiceSpec, split_speech_text,
 )
 
 
@@ -1431,6 +1431,46 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertFalse(lane.stop_unconfirmed())
         self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.5))
 
+    def test_an_utterance_that_never_started_keeps_the_unconfirmed_cut_proof(self):
+        # Measured 13 Kasım 2026: a notice queued while the player was still inside
+        # its stop verification expired without ever reaching the speaker, and its
+        # "cancelled" receipt erased the proof that the cut was never confirmed. The
+        # microphone was then handed over over live audio. A receipt only speaks for
+        # the speaker when its audio really started.
+        lane = self.cut_lane(CutWinmm(stop_code=263, after_stop="playing"))
+        self.say_and_hear(lane, "Kesilmeyi reddeden ses")
+        lane.interrupt()
+        notice = lane.say("alice", "tr_kadin", "Kuyruktaki bildirim", ttl_seconds=0.05)
+        self.assertTrue(notice.wait(3))                       # processed, never audible
+        self.assertTrue(lane.stop_unconfirmed())
+        self.assertFalse(voice_runtime.handoff_to_listen(timeout=0.2))
+
+    def test_owner_switch_never_claims_a_stop_the_device_did_not_confirm(self):
+        # Measured 13 Kasım 2026: the switch waited only on the outstanding set, so
+        # a driver that acknowledges the request and keeps the audio live let it
+        # return "stopped". The handoff it is meant to protect then greeted the new
+        # user over the previous user's voice, and the switch claimed a cut it never
+        # saw. It now requires the same proof the microphone handoff requires.
+        lane = self.cut_lane(CutWinmm(stop_code=263, after_stop="playing"))
+        done = self.say_and_hear(lane, "Kesilmeyi reddeden ses")
+        self.rt.pc_profile = lambda: SimpleNamespace(slug="bob", data={"prefs": {}})
+        with patch.object(voice_runtime, "_record_failure") as failure:
+            stopped = voice_runtime.on_owner_switch("alice", timeout=2)
+        self.assertTrue(done.wait(2))
+        self.assertFalse(stopped)
+        self.assertTrue(lane.stop_unconfirmed())
+        failure.assert_called_with("modules/voice_runtime.py:owner_switch_stop")
+
+    def test_owner_switch_still_reports_a_confirmed_cut(self):
+        # The new proof must not become a permanent refusal: when winmm accepts the
+        # stop and reports silence, the same switch keeps returning True.
+        lane = self.cut_lane(CutWinmm(stop_code=0, after_stop="stopped"))
+        done = self.say_and_hear(lane, "Kesilebilen ses")
+        self.rt.pc_profile = lambda: SimpleNamespace(slug="bob", data={"prefs": {}})
+        self.assertTrue(voice_runtime.on_owner_switch("alice", timeout=2))
+        self.assertTrue(done.wait(2))
+        self.assertFalse(lane.stop_unconfirmed())
+
     def test_unstarted_mci_playback_is_a_failed_receipt_not_a_spoken_answer(self):
         # §4-D at the real user flow: the production EdgePlayer runs against a
         # winmm that accepts "play" but never reports "playing". The utterance
@@ -1469,6 +1509,119 @@ class VoiceRuntimeBridgeTests(unittest.TestCase):
         self.assertFalse(lane.is_busy())
         self.assertTrue(voice_runtime.handoff_to_listen(timeout=0.5))
         self.assertFalse(os.path.exists(winmm.path))         # temp file released on the error path
+
+    def pace_lane(self, synthesize, play):
+        lane = voice_runtime.VoiceLane(
+            self.rt, VoiceCatalog((VoiceSpec("tr_kadin", "K", "piper", "a.onnx"),)),
+            synthesize, play)
+        voice_runtime.register(lane)
+        return lane
+
+    def measure(self, lane, text):
+        notes = []
+        with patch.object(voice_runtime, "_log", Mock(info=notes.append)):
+            done = lane.say("alice", "tr_kadin", text)
+            self.assertTrue(done.wait(3))
+        return notes
+
+    def test_a_spoken_answer_records_its_waits_without_recording_its_words(self):
+        # The audit's first step is measurement, not a guessed sleep: "the voice
+        # arrives 3-4 seconds after the text" is answered by the real boundaries one
+        # request id crossed. The receipt is the only place all of them are known, so
+        # exactly one note per utterance is written there, and it carries durations,
+        # never the sentence, the asset name or the user.
+        notes = self.measure(
+            self.pace_lane(lambda spec, text, cancel: text.encode("utf-8"),
+                           lambda audio, cancel, on_start: on_start()),
+            "Gizli bir cümle burada")
+        self.assertEqual(len(notes), 1)
+        for token in ("speech_pace id=", "queue_ms=", "synth_ms=", "first_audio_ms=",
+                      "total_ms=", "status=played"):
+            self.assertIn(token, notes[0])
+        for word in ("Gizli", "cümle", "burada", "a.onnx", "alice"):
+            self.assertNotIn(word, notes[0])
+
+    def test_an_utterance_that_never_reached_the_player_is_still_measured(self):
+        # A wait that never happened must not be reported as a fast one: the player
+        # boundary is absent, so the note says "-" and the cut is still measured.
+        entered, released = threading.Event(), threading.Event()
+
+        def synthesize(spec, text, cancel):
+            entered.set()
+            released.wait(3)
+            return b"audio"
+
+        lane = self.pace_lane(synthesize, lambda audio, cancel, on_start: on_start())
+        notes = []
+        with patch.object(voice_runtime, "_log", Mock(info=notes.append)):
+            done = lane.say("alice", "tr_kadin", "Kesilen uzun yanıt")
+            self.assertTrue(entered.wait(2))
+            lane.interrupt()
+            released.set()
+            self.assertTrue(done.wait(3))
+        self.assertEqual(len(notes), 1)
+        self.assertIn("status=cancelled", notes[0])
+        self.assertIn("queue_ms=", notes[0])
+        self.assertIn("first_audio_ms=-", notes[0])
+
+    def test_a_finished_research_result_is_spoken_once_on_the_real_lane(self):
+        # Measured 13 Kasım 2026: a finished canonical job reached the assistant
+        # view, the phone and the log, and never the speaker — the user heard
+        # nothing about the work they had asked for. The audio is now the same
+        # notice handed to the single lane with the record's own identity, so a
+        # retry cannot read it a second time and the written notice stays the
+        # authority when speech is off.
+        from modules import event_channels
+
+        heard = []
+        lane = self.pace_lane(lambda spec, text, cancel: heard.append(text) or b"audio",
+                              lambda audio, cancel, on_start: on_start())
+        session = VoiceSession.__new__(VoiceSession)
+        session.runtime, session.speak_enabled = self.rt, True
+        session.voice_lane, session.voice_core_fault = lane, None
+        self.enterContext(patch.object(VoiceSession, "_barge_watch", Mock()))
+        person = SimpleNamespace(slug="alice", data={"prefs": {}})
+        spoken = []
+        notifier = SimpleNamespace(list_users=lambda: ["Alice"],
+                                    _get_profile=lambda name: person, _emit_for=Mock(),
+                                    notify=SimpleNamespace(send=Mock(return_value=True)),
+                                    log=Mock(), events=SimpleNamespace(put=spoken.append))
+        event = {"source": "canonical_goal", "kind": "completed",
+                 "payload": {"text": "Araştırma bitti.", "event_id": "canonical:job-1"}}
+
+        def announce():
+            with patch("config.load_settings", return_value={"voice_announce_results": True}):
+                event_channels.deliver(notifier, "alice", event)
+            kind, text, owner, identity = spoken[-1]
+            # The loop's own gate: an owner-bound notice only speaks for the
+            # foreground user, and the lane keeps deciding when audio starts.
+            self.assertEqual(owner, self.rt.pc_profile().slug)
+            session.speak(text, shown=True, identity=identity)
+            deadline = time.monotonic() + 2
+            while lane.is_busy() and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        announce()
+        self.assertEqual(heard, ["Araştırma bitti."])
+        announce()
+        self.assertEqual(heard, ["Araştırma bitti."])          # the same job, once out loud
+        self.assertFalse(lane.is_busy())
+        self.assertFalse(any(kind == "system" for kind, _ in self.rt.emitted))
+
+    def test_the_pace_records_do_not_grow_with_uptime(self):
+        # A request whose receipt never arrives (a lane closed mid-flight) would
+        # otherwise leave its marks forever, so the map is a bounded FIFO: the
+        # oldest utterance is dropped, the newest waits are kept.
+        lane = self.pace_lane(lambda spec, text, cancel: b"audio",
+                              lambda audio, cancel, on_start: on_start())
+        for index in range(voice_runtime._PACE_RECORDS_KEPT + 12):
+            lane._pace_mark(SpeechRequest("alice", f"istek-{index}", "tr_kadin",
+                                          "kullanıcının cümlesi", "foreground"), "accepted")
+        with lane._lock:
+            self.assertEqual(len(lane._pace), voice_runtime._PACE_RECORDS_KEPT)
+            self.assertIn("istek-43", lane._pace)
+            self.assertNotIn("istek-11", lane._pace)
+        self.assertNotIn("cümlesi", json.dumps(list(lane._pace)))
 
 
 if __name__ == "__main__":

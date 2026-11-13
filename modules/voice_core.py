@@ -15,6 +15,11 @@ from modules.diagnostics import record_failure as _record_failure
 
 
 SPEECH_CHUNK_CHARS = 600
+# A long answer must not wait for 600 characters to be synthesized before the
+# first sound: its opening chunk stops at the first sentence end inside this
+# bound. Text that fits one chunk is never re-cut, so a normal reply keeps
+# exactly one provider call.
+SPEECH_FIRST_CHUNK_CHARS = 200
 SPEECH_REQUEST_SCHEMA = "speech.request.v2"
 # Event type is provenance for presentation, not an urgency the model may choose.
 SPEECH_KINDS = frozenset({"reply", "notice", "reminder", "progress", "privacy", "preview"})
@@ -43,19 +48,57 @@ def delivery_key(request: SpeechRequest) -> tuple | None:
     return ((request.owner, *result), request.text.strip()) if any(result) else None
 
 
-def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS) -> tuple[str, ...]:
+def _first_sentence_end(text: str, limit: int) -> int:
+    """Where the first complete sentence of `text[:limit]` ends, or 0 when it has none.
+
+    A sentence shorter than twelve characters is not worth a synthesis call of its
+    own, so the search keeps going from it; a dot inside a word (an abbreviation or
+    a decimal) is not a sentence end. Nothing found means the caller opens the
+    utterance with its ordinary window, exactly as before.
+    """
+    bound = min(limit, len(text))
+    pos = 0
+    while pos < bound:
+        if text[pos] in ".!?;:。！？":
+            after = pos + 1
+            if after == len(text) or text[after].isspace():
+                end = after
+                while end < len(text) and text[end].isspace():
+                    end += 1
+                if end <= bound and end >= 12:
+                    return end
+                pos = end
+                continue
+        pos += 1
+    return 0
+
+
+def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS,
+                      first_max_chars: int = SPEECH_FIRST_CHUNK_CHARS) -> tuple[str, ...]:
     """Split a bounded utterance without dropping or rewriting any characters.
 
     Prefer complete sentence ends, then word boundaries, and hard-cut only when
     a single word itself exceeds the limit. The same selected voice is used
     for every chunk; callers may cooperatively stop between chunks.
+
+    Only an answer that really needs more than one chunk is opened early: its
+    first chunk stops at the first sentence end inside `first_max_chars`, so the
+    speaker starts after one short sentence instead of after the whole ordinary
+    window has been synthesized. Text that fits one chunk is returned untouched —
+    a normal reply still costs exactly one provider call.
     """
     if not isinstance(text, str) or not text.strip() or len(text) > 12000:
         raise ValueError("Speech text invalid or too long.")
-    if type(max_chars) is not int or not 32 <= max_chars <= 12000:
-        raise ValueError("Speech chunk size outside supported bounds.")
+    for name, value in (("chunk", max_chars), ("first chunk", first_max_chars)):
+        if type(value) is not int or not 32 <= value <= 12000:
+            raise ValueError(f"Speech {name} size outside supported bounds.")
     parts: list[str] = []
     cursor = 0
+    if len(text) > max_chars:
+        opening = _first_sentence_end(text, min(first_max_chars, max_chars))
+        if opening:
+            parts.append(text[:opening])
+            cursor = opening
     while len(text) - cursor > max_chars:
         window = text[cursor:cursor + max_chars]
         first = max(12, max_chars // 3)
@@ -88,6 +131,29 @@ def split_speech_text(text: str, *, max_chars: int = SPEECH_CHUNK_CHARS) -> tupl
     if cursor < len(text):
         parts.append(text[cursor:])
     return tuple(parts)
+
+
+def speech_pace_note(*, request_id: str, voice_id: str, chars: int, status: str,
+                     reason: str = "", queue_ms: int | None = None,
+                     synth_ms: int | None = None, first_audio_ms: int | None = None,
+                     total_ms: int | None = None) -> str:
+    """One line about how long one utterance took: identifiers and durations, never words.
+
+    "The voice arrives seconds after the text" is a timing question, so the log
+    answers it with the waits the user actually feels — how long the request sat in
+    the single output queue, how long the provider took to produce the first audio,
+    how long until the device admitted it started playing, and how long the whole
+    utterance took. A wait that never happened is reported as "-", never as zero.
+    No text, voice asset name or user identity travels in it, so it is safe to keep.
+    """
+    parts = [f"speech_pace id={request_id}", f"voice={voice_id}", f"chars={chars}",
+             f"status={status}"]
+    if reason:
+        parts.append(f"reason={reason}")
+    for name, value in (("queue_ms", queue_ms), ("synth_ms", synth_ms),
+                        ("first_audio_ms", first_audio_ms), ("total_ms", total_ms)):
+        parts.append(f"{name}={'-' if value is None else value}")
+    return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -182,6 +248,11 @@ class SpeechReceipt:
     event_id: str = ""
     goal_id: str = ""
     kind: str = "reply"
+    # Did any audio of this utterance really reach the player? The microphone
+    # handoff and the owner switch may only treat a receipt as news about the
+    # speaker when it does: an utterance that never started says nothing about
+    # whether a cut the device did not confirm went silent.
+    played: bool = False
 
 
 class VoiceCoordinator:
@@ -444,7 +515,7 @@ class VoiceCoordinator:
                     self._delivered.pop(key, None)
         receipt = SpeechReceipt(request.request_id, request.owner, request.voice_id, status, reason,
                                 turn_id=request.turn_id, event_id=request.event_id,
-                                goal_id=request.goal_id, kind=request.kind)
+                                goal_id=request.goal_id, kind=request.kind, played=played)
         try:
             self._report(receipt)
         except Exception:

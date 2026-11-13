@@ -141,7 +141,7 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
             node("read_mail", "task.account", payload=params),
         ])
         ticket = scheduler_resource_gate.admit(
-            self.leases, owner, candidate(owner, "read_mail"), attempt=2,
+            self.leases, owner, candidate(owner, "read_mail"), attempt=1,
         )
         self.assertTrue(ticket.keys[0].startswith("gmail_account:"))
         self.assertEqual(ticket.keys, ("gmail_account:shared",))
@@ -200,28 +200,28 @@ class ReadOnlyLeaseAdmissionTests(unittest.TestCase):
         state = snapshot()
         selected = candidate(state)
         lease = scheduler_resource_gate.admit(
-            self.leases, state, selected, attempt=3, ttl=5,
+            self.leases, state, selected, attempt=1, ttl=5,
         )
         with self.assertRaises(AdmissionError):
             scheduler_resource_gate.validate_before_dispatch(
-                self.leases, state, selected, lease, attempt=4,
+                self.leases, state, selected, lease, attempt=2,
             )
         with self.assertRaises(AdmissionError):
             scheduler_resource_gate.validate_before_dispatch(
-                self.leases, state, selected, replace(lease, owner="mallory"), attempt=3,
+                self.leases, state, selected, replace(lease, owner="mallory"), attempt=1,
             )
         renewed = self.leases.heartbeat(lease, ttl=10)
         with self.assertRaises(AdmissionError):
             scheduler_resource_gate.validate_before_dispatch(
-                self.leases, state, selected, lease, attempt=3,
+                self.leases, state, selected, lease, attempt=1,
             )
         scheduler_resource_gate.validate_before_dispatch(
-            self.leases, state, selected, renewed, attempt=3,
+            self.leases, state, selected, renewed, attempt=1,
         )
         self.now[0] = 111
         with self.assertRaises(AdmissionError):
             scheduler_resource_gate.validate_before_dispatch(
-                self.leases, state, selected, renewed, attempt=3,
+                self.leases, state, selected, renewed, attempt=1,
             )
 
     def test_dependent_node_never_uses_lease_without_predecessor_proof(self):

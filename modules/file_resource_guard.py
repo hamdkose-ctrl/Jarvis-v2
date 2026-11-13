@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack, contextmanager
 import hashlib
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -18,6 +19,22 @@ from modules import resource_leases
 # JARVIS_DATA_DIR a running Jarvis instance uses. Keep per-instance journals
 # in DATA_DIR; only live resource arbitration belongs here.
 _FILE_EFFECT_CLAIM_ROOT = Path.home() / '.jarvis' / 'file-effect-claims'
+
+
+def receipt_owner_suffixes(owner: str) -> tuple[str, str]:
+    """Distinct owner identities stay distinct, even after 60-char truncation.
+
+    The second value is the historical filename suffix. Never interpret a
+    historical truncated shared receipt as belonging to either long owner.
+    Short, already-unambiguous owner paths stay backward compatible.
+    """
+    if not isinstance(owner, str) or len(owner) > 100:
+        raise ValueError('File receipt owner invalid.')
+    safe = re.sub(r'[^\w-]', '_', owner) or 'ortak'
+    old = safe[:60]
+    if len(safe) <= 60:
+        return old, old
+    return safe[:43] + '-' + hashlib.sha256(owner.encode('utf-8')).hexdigest()[:16], old
 
 
 @contextmanager

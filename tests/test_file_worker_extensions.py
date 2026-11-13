@@ -31,6 +31,51 @@ class FileWorkerExtensionsTests(unittest.TestCase):
             self.assertEqual(calls, [])
             self.assertEqual(target.read_bytes(), b'original artifact')
 
+    def test_pptx_complete_temp_is_fsynced_before_atomic_publish(self):
+        try:
+            from pptx import Presentation
+        except ImportError:
+            self.skipTest('python-pptx is unavailable in this environment')
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'report.pptx'
+            real_fsync = ext.os.fsync
+            real_link = ext.os.link
+            calls = []
+
+            def observed_fsync(fd):
+                calls.append('fsync')
+                return real_fsync(fd)
+
+            def observed_link(src, dst):
+                self.assertIn('fsync', calls, 'Publishing before flush is forbidden')
+                calls.append('publish')
+                return real_link(src, dst)
+
+            with patch.object(ext.os, 'fsync', side_effect=observed_fsync), \
+                 patch.object(ext.os, 'link', side_effect=observed_link):
+                result = ext.create_pptx(str(target), [
+                    {'title': 'Evidence', 'body': 'Verified report'},
+                ])
+            self.assertEqual(result['state'], 'written')
+            self.assertEqual(calls, ['fsync', 'publish'])
+            self.assertEqual(Presentation(str(target)).slides[0].shapes.title.text,
+                             'Evidence')
+            self.assertEqual(list(Path(folder).iterdir()), [target])
+
+    def test_pptx_failed_atomic_link_leaves_no_document_or_temp(self):
+        try:
+            import pptx
+        except ImportError:
+            self.skipTest('python-pptx is unavailable in this environment')
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'report.pptx'
+            with patch.object(ext.os, 'link', side_effect=OSError('link failed')):
+                with self.assertRaises(OSError):
+                    ext.create_pptx(str(target), [
+                        {'title': 'Evidence', 'body': 'Verified report'},
+                    ])
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
     def test_text_patch_does_not_truncate_original_when_atomic_write_fails(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / 'original.txt'
