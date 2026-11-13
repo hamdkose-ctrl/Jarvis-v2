@@ -557,9 +557,10 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
     operation = proposal.get("operation")
     minutes = proposal.get("minutes")
-    if operation not in {"postpone", "skip"}:
+    if operation not in {"postpone", "skip", "snooze"}:
         return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
-    if operation == "postpone" and (type(minutes) is not int or not 1 <= minutes <= 10080):
+    if operation in {"postpone", "snooze"} and (type(minutes) is not int
+            or not 1 <= minutes <= (1440 if operation == "snooze" else 10080)):
         return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
     if type(proposal.get("event_id")) is not int or not isinstance(proposal.get("title"), str):
         return "Hatırlatma hedefi doğrulanamadı; değiştirmedim."
@@ -577,6 +578,33 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
     now = runtime.datetime.now()
     when = str(ev["when"])
     allday = len(when) == 10
+    if operation == "snooze":
+        # Validate the exact fired/notified/snooze state captured at approval,
+        # not merely the title/when snapshot. A second notification or snooze
+        # makes this approval stale, so it cannot mutate the newer occurrence.
+        if (any(ev.get(field) != proposal.get(field)
+                for field in ("fired", "snooze"))
+                or ev.get("notified", False) != proposal.get("notified", False)):
+            return "Hatırlatma onayından sonra çalma durumu değişmiş; ertelemedim."
+        fired = (ev.get("fired") if ev.get("repeat") else
+                 ev.get("when") if ev.get("notified") else None)
+        try:
+            fired_at = datetime.strptime(str(fired)[:16], "%Y-%m-%dT%H:%M")
+        except ValueError:
+            return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
+        if not timedelta(0) <= now - fired_at <= timedelta(hours=6):
+            return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
+        new_when = (now + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M")
+        requests_state.check()
+        if ev.get("repeat"):
+            accepted = runtime.profile.snooze_event(ev["id"], new_when)
+        else:
+            accepted = runtime.profile.reschedule_event(ev["id"], new_when)
+        if not accepted:
+            return "Hatırlatmayı yeniden planlayamadım; erteledim demiyorum."
+        return (f"{ev['title']} hatırlatmasını {minutes} dakika sonra yeniden "
+                f"hatırlatacağım ({new_when[11:16]}).")
+
     try:
         if operation == "skip":
             if not ev.get("repeat") or allday:
