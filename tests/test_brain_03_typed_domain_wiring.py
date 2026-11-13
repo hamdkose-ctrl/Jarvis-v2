@@ -502,7 +502,8 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         with patch.object(hoca, "active", return_value=lesson), \
              patch.object(hoca, "grade", return_value={
                  "correct": False, "feedback": "Yanlış", "expected": "Bir yapı"}) as grade, \
-             patch("config.load_settings", return_value={"hoca_enabled": True}):
+             patch("config.load_settings", return_value={"hoca_enabled": True}), \
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
             entry, output, handler, feedback = self.turn_real(
                 "cevap: test", model_understanding=False)
         self.assertTrue(entry.state_gate.matched)
@@ -510,7 +511,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(entry.state_gate.selection, "answer:test")
         self.assertIn("Doğrusu", output)
         self.assertEqual(feedback.result_status, "handled")
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
         grade.assert_called_once_with(self.ctx.profile, "test")
         with patch.object(hoca, "active", return_value={
                  **lesson, "pending": {"step": 1, "question": "Başka soru"}}), \
@@ -652,7 +653,8 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         with patch.object(filesend, "_folders", return_value=[root]), \
              patch.object(filesend, "find", return_value=candidates), \
              patch.object(filesend, "_score_gap", return_value=False), \
-             patch.object(filesend, "send", return_value="TRANSFER_OK") as send:
+             patch.object(filesend, "send", return_value="TRANSFER_OK") as send, \
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
             entry, reply, feedback = self.typed(
                 "Rapor dosyasını telefonuma gönder", "filesend.transfer",
                 {"operation": "search", "query": "Rapor"})
@@ -664,7 +666,7 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(result, "TRANSFER_OK")
         self.assertEqual(resume_feedback.result_status, "handled")
         send.assert_called_once_with(candidates[1])
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
 
     def test_notes_full_clear_typed_core_requires_existing_state_yes_protocol(self):
         from modules import main_planner
