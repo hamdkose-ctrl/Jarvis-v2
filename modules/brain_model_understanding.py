@@ -294,8 +294,11 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
     if capability_id == "hoca.lesson.start":
         return {"topic": "the verbatim requested lesson subject",
                 "level": ["başlangıç", "orta", "ileri", None],
+                "research": [True, False],
                 "argument_sources": ["topic", "level"],
-                "constraint": "new plain-topic lesson; no guessed course_id, source, URL, local file or bulk action"}
+                "constraint": "research=true only for explicitly spoken 'hoca modu: araştır KONU'; "
+                              "Core fetches a bounded public source, never accept model URL, file or course ID; "
+                              "ordinary lesson research=false"}
     if capability_id == "tasks.manage":
         return {"operation": ["list", "add", "complete"],
                 "text": "verbatim user-provided task title; omit on list",
