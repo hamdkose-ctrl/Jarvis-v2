@@ -1059,6 +1059,19 @@ class CascadeReachabilityTests(_RawDoorHarness):
         self.assertIn("KISAYOL ÇALIŞTI", str(out))
         self.seams["modules.handoff.handle"].assert_not_called()
 
+    def test_daily_brief_model_outage_fallback_is_exact_and_not_a_substring(self):
+        from modules import engine_tools
+        self.ctx._daily_briefing = Mock(return_value="GÜNLÜK ÖZET")
+        _entry, reply, _handler, _feedback = self.turn("günlük özet")
+        self.assertEqual(reply, "GÜNLÜK ÖZET")
+        self.ctx._daily_briefing.assert_called_once()
+        self.ctx._daily_briefing.reset_mock()
+        for text in ("günlük özet istemiyorum", "bugün ne var demedim",
+                     "arkadaşım 'bugün ne var' dedi", "brifing nasıl çalışıyor"):
+            with self.subTest(text=text):
+                self.assertFalse(engine_tools._daily_brief_fallback_request(text))
+        self.ctx._daily_briefing.assert_not_called()
+
     def test_model_outage_ocr_exact_fallback_uses_same_privacy_checked_executor(self):
         from modules import engine_intents
         self.ctx._screen_ocr = Mock(return_value="GERÇEK EKRAN METNİ")
