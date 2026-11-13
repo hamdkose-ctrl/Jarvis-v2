@@ -562,8 +562,10 @@ def _research_arguments(original: str, normalized: str) -> dict[str, object]:
 _NOTES_PLURAL = ("notlar", "notları", "notlari", "notlarım", "notlarim", "notlarımı", "notlarimi")
 _NOTES_SINGULAR = ("not", "notu", "notunu", "notum", "notumu")
 _NOTES_READ_VERBS = ("göster", "goster", "oku", "say", "listele")
+# Match only complete imperative verbs: Turkish negative -me/-ma (silme, kaldırma)
+# must never be promoted to a note mutation by the old model fallback.
 _NOTES_WRITE_RE = re.compile(
-    r"^(?P<target>.+?)\s+not\w*\s+(?P<verb>sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)\w*"
+    r"^(?P<target>.+?)\s+not\w*\s+(?P<verb>sil|kaldır|kaldir|iptal\s+et|düzelt|duzelt|değiştir|degistir|güncelle|guncelle)"
     r"(?:\s*[:,]\s*(?P<new>.*))?$"
 )
 _NOTES_WRITE_STOP = frozenset({
