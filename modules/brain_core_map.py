@@ -853,6 +853,17 @@ def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"service": service, "query": query.strip()}
 
 
+def _mail_read_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Read-only mail source contract; no recipients, drafts, sends or raw parsing."""
+    if set(arguments) - {"original_text", "source"}:
+        return None
+    source = arguments.get("source")
+    if type(source) is not str or source not in {
+            "inbox", "important", "work", "work_important", "combined"}:
+        return None
+    return {"source": source}
+
+
 def _finance_alert_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Validate fields, never classify raw alarm language or accept model rule IDs."""
     if set(arguments) - {"original_text", "operation", "asset", "value",
@@ -1261,6 +1272,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "worktrack.read": ("worktrack_read", _worktrack_read_args),
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
     "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
+    "mail.read": ("mail_read", _mail_read_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),
     "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
