@@ -429,7 +429,7 @@ def solve(profile, question='', attachment_path='', selection=None):
                 turns + [
                     {'role': 'Öğrenci', 'text': (
                         (reference.get('name', '') + ' — ' if attachment_path else '')
-                        + question,
+                        + question
                     )},
                     {'role': 'Jarvis', 'text': answer, 'work': work,
                      'goal': goal, 'scope': scope,
