@@ -323,12 +323,15 @@ def draft_typed(ask, *, index: int | None = None, sender: str | None = None) -> 
         key = _fold(sender.strip())
         matches = [mail for mail in mails
                    if isinstance(mail.get("sender"), str)
-                   and (_fold(mail["sender"]) == key
-                        or _fold(mail["sender"]).startswith(key + " "))]
+                   and _fold(mail["sender"]).startswith(key)]
         if not matches:
             return f"“{sender}” adına ait okunmamış iş maili bulamadım."
         if len(matches) != 1:
             return "Hangisi? Birden fazla iş maili eşleşti; göndereni daha açık söyle veya sıra numarası seç."
+        # A unique short fragment is not authority to read one private mail.
+        if not (_fold(matches[0]["sender"]) == key
+                or _fold(matches[0]["sender"]).startswith(key + " ")):
+            return "Gönderenin adını tam söyle; kısmi eşleşmeyle mail seçmedim."
         selected = matches[0]
     else:
         if index > len(mails):
