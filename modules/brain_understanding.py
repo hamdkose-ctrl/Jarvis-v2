@@ -2679,6 +2679,36 @@ def understand(
     )
 
 
+def _observed_pending_owner(active_context: ActiveContext | None, owner: str) -> PendingOwner | None:
+    """Read one actual owner-local session slot, never infer intent from words.
+
+    The model chooses ANSWER_TO_PENDING; this observation only binds that
+    decision to the one existing slot. Multiple open answer slots stay
+    unresolved rather than guessing which mutable session to consume.
+    """
+    if active_context is None:
+        return None
+    observed: set[PendingOwner] = set()
+    for ref in active_context.pending_references:
+        if ref.owner != owner or ref.source != "session_state":
+            continue
+        field = ref.provenance.get("field") or ref.id
+        if field == "pending_weather_location":
+            observed.add(PendingOwner.WEATHER_LOCATION)
+        elif field == "pending_msg":
+            state = ref.provenance.get("value")
+            stage = state.get("stage") if isinstance(state, Mapping) else None
+            if stage == "to":
+                observed.add(PendingOwner.MESSAGE_TO)
+            elif stage == "text":
+                observed.add(PendingOwner.MESSAGE_TEXT)
+        elif field == "pending_action":
+            state = ref.provenance.get("value")
+            if isinstance(state, Mapping) and state.get("stage") == "clarify":
+                observed.add(PendingOwner.APP_CLARIFY)
+    return next(iter(observed)) if len(observed) == 1 else None
+
+
 def apply_model_understanding(result: UnderstandingResult, text: str, *,
                               active_context: ActiveContext | None = None) -> UnderstandingResult:
     """Birincil model zarfını kanonikal anlama sonucuna işler.
@@ -2722,6 +2752,12 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             )[-8:],
             pending_context=tuple(
                 str(ref.provenance.get("field") or ref.id)
+                + (
+                    ":" + str(ref.provenance["value"].get("stage"))
+                    if isinstance(ref.provenance.get("value"), Mapping)
+                    and isinstance(ref.provenance["value"].get("stage"), str)
+                    else ""
+                )
                 for ref in (() if active_context is None else active_context.pending_references)
                 if ref.owner == result.owner and ref.kind == "pending_state"
             )[:8],
@@ -2790,13 +2826,19 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
             # kimlikler ve (yalnız create) kart etiketi. Yürütme yetkisi burada değil,
             # goal_resolver'ın Core'dan yeniden doğruladığı yerde.
             next_reason_codes = next_reason_codes + (MODEL_GOAL_OPERATION,)
+        model_pending_owner = None
+        if proposal.conversation_relation is ConversationRelation.ANSWER_TO_PENDING:
+            model_pending_owner = _observed_pending_owner(active_context, result.owner)
+            if model_pending_owner is None and request_kind not in {
+                RequestKind.CHAT, RequestKind.GOAL_CONTROL, RequestKind.CLARIFY
+            }:
+                next_needs_input = True
+                next_ambiguities = ("PENDING_OWNER_NOT_UNIQUE",)
         return replace(
             result,
             request_kind=request_kind,
             conversation_relation=proposal.conversation_relation,
-            pending_owner=(result.pending_owner if
-                           proposal.conversation_relation is ConversationRelation.ANSWER_TO_PENDING
-                           else None),
+            pending_owner=model_pending_owner,
             temporal_need=proposal.temporal_need,
             capability_hint=next_hint,
             arguments=next_arguments,
