@@ -1,9 +1,110 @@
-"""Hatırlatma silme ve erteleme (18 Ekim 2026): modelsiz, gerçek profil JSON'u, gerçek EngineContext.handle."""
-import unittest
-from datetime import datetime
-from unittest.mock import patch
+"""Historical reminder behavior, now exercised through typed Brain/Core and State approval.
 
-from test_mail_calendar_fixes import ProfileCase, _runtime, say
+The old direct raw-language reminder handler is retired. The mapping below is
+explicit TEST MODEL OUTPUT for fixed historical utterances: it is not a
+production phrase parser and does not prove live Turkish recognition. Every
+positive mutation runs the same existing worker and a separate "evet" turn.
+Canonical no-mutation-before-consent tests live in test_brain03_reminder_canonical.
+"""
+import uuid
+import unittest
+from dataclasses import replace
+from datetime import datetime
+from unittest.mock import Mock, patch
+
+from test_mail_calendar_fixes import (ProfileCase, _runtime, say as raw_say,
+    bounded_reminder_answer, typed_reminder_create)
+from modules import brain_entry, requests_state
+from modules.brain_contracts import ConversationRelation, RequestKind
+
+# Semantic fixtures only. These strings are NOT runtime grammar.
+_MODEL_REMINDER_CASES = {
+    "ilaç hatırlatmasını sil": ("delete", "İlaç", None, None),
+    "dişçi randevusunu kaldır": ("delete", "Dişçi", None, None),
+    "dişçi hatırlatmasını iptal et": ("delete", "Dişçi", None, None),
+    "disci hatirlatmasini sil": ("delete", "Dişçi", None, None),
+    "kitap hatırlatmasını sil": ("delete", "Kitap", None, None),
+    "sunum hatırlatmasını 10 dakika ertele": ("postpone", "Sunum", "10 dakika", None),
+    "sunumu 2 saat ertele": ("postpone", "Sunum", "2 saat", None),
+    "sunum randevusunu yarına ertele": ("postpone", "Sunum", "yarına", None),
+    "sunum hatırlatmasını yarım saat ertele": ("postpone", "Sunum", "yarım saat", None),
+    "hediye hatırlatmasını 10 dakika ertele": ("postpone", "Hediye", "10 dakika", None),
+    "hediye hatırlatmasını 2 gün ertele": ("postpone", "Hediye", "2 gün", None),
+    "yarınki ilaç hatırlatmasını 1 saat ertele": ("postpone", "İlaç", "1 saat", None),
+    "yarinki ilac hatirlatmasini 1 saat otele": ("postpone", "İlaç", "1 saat", None),
+    "yarınki ilacı 1 saat ertele": ("postpone", "İlaç", "1 saat", None),
+    "YARINKİ İlaç hatırlatmasını bir saat ertele": ("postpone", "İlaç", "bir saat", None),
+    "bu haftaki toplantı hatırlatmasını cumaya kaydır": ("move", "Toplantı", None, "cuma"),
+    "toplantıyı pazartesiye kaydir": ("move", "Toplantı", None, "pazartesi"),
+    "ilaç hatırlatmasını cumaya kaydır": ("move", "İlaç", None, "cuma"),
+    "sunumu cumaya kaydır": ("move", "Sunum", None, "cuma"),
+    "toplantıyı cumaya kaydır": ("move", "Toplantı", None, "cuma"),
+    "toplantı hatırlatmasını atla": ("skip", "Toplantı", None, None),
+    "ilaç hatırlatmasını atla": ("skip", "İlaç", None, None),
+    "yarınki ilacı atla": ("skip", "İlaç", None, None),
+    "dişçi hatırlatmasını atla": ("skip", "Dişçi", None, None),
+    "ertele": ("snooze", None, None, None),
+    "ilaç hatırlatmasını yarım saat ertele": ("snooze", "İlaç", "yarım saat", None),
+    "ilaci 1 saat otele": ("snooze", "İlaç", "1 saat", None),
+    "10 dk sonra tekrar çal": ("snooze", None, "10 dk", None),
+    "5 dakika sonra yine hatırlat": ("snooze", None, "5 dakika", None),
+    "10 dakika sonra bir daha çal": ("snooze", None, "10 dakika", None),
+    "1 saat sonra tekrar çal": ("snooze", None, "1 saat", None),
+    "beni 10 dakika sonra tekrar uyar": ("snooze", None, "10 dakika", None),
+    "ilaç hatırlatmasını 10 dk sonra tekrar çal": ("snooze", "İlaç", "10 dk", None),
+    "daha sonra hatırlat": ("snooze", None, None, None),
+    "sonra tekrar hatırlat": ("snooze", None, None, None),
+    "10 dakika sonra tekrar hatırlat": ("snooze", None, "10 dakika", None),
+    "ilaç hatırlatmasını 10 dakika ertele": ("postpone", "İlaç", "10 dakika", None),
+    "ilaç hatırlatmasını 30 dakika ertele": ("postpone", "İlaç", "30 dakika", None),
+    "ilaç hatırlatmasını 1 gün ertele": ("postpone", "İlaç", "1 gün", None),
+}
+
+_MODEL_CREATION_CASES = {
+    "yarın 10da dişçi hatırlat": ("Dişçi", "2026-10-18T10:00", None),
+    "toplantıyı 10 dakika sonra hatırlat": ("toplantı", "2026-10-17T10:10", None),
+    "ilacı yarın sabah hatırlat": ("ilaç", "2026-10-18T09:00", None),
+    "2 saat sonra su iç hatırlat": ("su iç", "2026-10-17T12:00", None),
+}
+
+def say(rt, text):
+    if text in _MODEL_CREATION_CASES:
+        title, when, repeat = _MODEL_CREATION_CASES[text]
+        return typed_reminder_create(rt, text, title=title, when=when, repeat=repeat)
+    params = _MODEL_REMINDER_CASES.get(text)
+    if params is None:
+        return raw_say(rt, text)
+    operation, title, duration, weekday = params
+    arguments = {"operation": operation}
+    if title is not None:
+        arguments["title"] = title
+    if duration is not None:
+        arguments["duration"] = duration
+    if weekday is not None:
+        arguments["weekday"] = weekday
+    owner = rt.profile.slug
+    request = "historical-reminder-" + uuid.uuid4().hex[:12]
+    assert requests_state.register(owner, request)
+    def model(current, utterance, *, active_context=None):
+        assert utterance == text
+        return replace(
+            current, request_kind=RequestKind.CAPABILITY,
+            conversation_relation=ConversationRelation.NEW_REQUEST,
+            capability_hint="reminders.manage",
+            arguments={"original_text": text, **arguments},
+            ambiguities=(), needs_input=False, actions=(),
+            reason_codes=current.reason_codes + ("MODEL_DECIDED",),
+        )
+    forbidden = Mock(side_effect=AssertionError("historical reminder called retired NLP"))
+    with requests_state.activate(owner, request), \
+         patch.object(brain_entry, "apply_model_understanding", side_effect=model):
+        entry = brain_entry.prepare(rt, owner=owner, request_id=request,
+                                    text=text, source="yazı", model_understanding=True)
+        reply, feedback, _ = brain_entry.handoff(rt, entry, forbidden, text)
+    forbidden.assert_not_called()
+    if feedback.result_status == "needs_input" and rt._session().pending_confirm is not None:
+        return bounded_reminder_answer(rt, "evet")
+    return str(reply)
 
 
 class ReminderEditTests(ProfileCase):
