@@ -642,9 +642,26 @@ class DispatchArmFenceTests(_RawDoorHarness):
         self.assertNotIn("Kullanım:", str(out))
 
     def test_advisory_guidance_keeps_its_canonical_owner(self):
-        # PR3B soru-fencesi rehberlik kolunu kapatmaz: "adım adım" kanonical advisory isteğidir.
-        self.turn("adım adım wifi nasıl açılır")
-        self.assertTrue(self.seams["modules.pc_guide.handle"].called)
+        # A model proposal, not the retired raw "adım adım" keyword
+        # classifier, owns the single existing PC-guide worker effect.
+        from dataclasses import replace
+        text = "adım adım wifi nasıl açılır"
+        def selected(current, utterance, *, active_context=None):
+            self.assertEqual(utterance, text)
+            return replace(current, request_kind=RequestKind.CAPABILITY,
+                           capability_hint="pc.guide.start",
+                           arguments={"original_text": text, "goal": "wifi nasıl açılır"},
+                           needs_input=False, ambiguities=(), actions=())
+        self.seams["modules.pc_guide.handle"].return_value = "GUIDANCE"
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=selected):
+            entry, reply, _handler, feedback = self.turn(
+                text, model_understanding=True)
+        self.assertEqual(reply, "GUIDANCE")
+        self.assertEqual(feedback.result_status, "handled")
+        self.seams["modules.pc_guide.handle"].assert_called_once_with(
+            self.ctx.profile, "PC yardımı: wifi nasıl açılır")
+        self.door.assert_not_called()
 
     def test_an_explicit_task_still_reaches_its_current_owner(self):
         _entry, out, _handle, _ = self.turn("görev: raporu özetle")
