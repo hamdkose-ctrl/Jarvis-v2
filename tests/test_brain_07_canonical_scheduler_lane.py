@@ -141,6 +141,64 @@ class SchedulerOfferTests(unittest.TestCase):
         runtime_worker_result.accept_and_commit(wrapped, expected)
         return output
 
+    def test_windows_transient_projection_contention_retries_only_journal_write(self):
+        # A Windows reader can briefly prevent os.replace AFTER the Core
+        # WorkerResult is accepted. Retry the same proven projection bytes;
+        # never repeat the provider or create a second WorkerResult.
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        output = self.accept('left')
+        accepted_before = goal_state_store.load(self.path)
+        actual_write = release_guard.atomic
+        calls = []
+
+        def transient(path, data):
+            calls.append(path)
+            if len(calls) == 1:
+                raise PermissionError('Windows sharing violation')
+            return actual_write(path, data)
+
+        with patch.object(canonical_output_projection, '_WINDOWS', True), \
+             patch.object(canonical_output_projection, '_PROJECTION_RETRY_DELAYS',
+                          (0.0, 0.0)), \
+             patch.object(release_guard, 'atomic', side_effect=transient):
+            self.assertTrue(canonical_output_projection.project_accepted(
+                OWNER, JOB, 'left', output,
+            ))
+        self.assertEqual(len(calls), 2)
+        saved = execution_record.load(self.owner_root, OWNER, JOB)
+        self.assertEqual(saved['steps'][0]['state'], 'done')
+        self.assertEqual(saved['outputs']['left'], output)
+        self.assertEqual(goal_state_store.load(self.path), accepted_before)
+        self.assertEqual(canonical_restart_audit.inspect(
+            OWNER, JOB,
+        ).nodes[0].status, 'accepted_projected')
+
+    def test_persistent_windows_projection_denial_stays_unprojected(self):
+        job = execution_record.load(self.owner_root, OWNER, JOB)
+        job['steps'][0].update(state='running', started=True, attempts=1)
+        release_guard.atomic(self.record_path, execution_record.encode(job))
+        output = self.accept('left')
+        prior = goal_state_store.load(self.path)
+        with patch.object(canonical_output_projection, '_WINDOWS', True), \
+             patch.object(canonical_output_projection, '_PROJECTION_RETRY_DELAYS',
+                          (0.0, 0.0)), \
+             patch.object(release_guard, 'atomic',
+                          side_effect=PermissionError('permanent deny')) as write:
+            with self.assertRaises(PermissionError):
+                canonical_output_projection.project_accepted(
+                    OWNER, JOB, 'left', output,
+                )
+        self.assertEqual(write.call_count, 2)
+        self.assertEqual(goal_state_store.load(self.path), prior)
+        self.assertEqual(canonical_restart_audit.inspect(
+            OWNER, JOB,
+        ).nodes[0].status, 'accepted_unprojected')
+        self.assertNotIn('left', execution_record.load(
+            self.owner_root, OWNER, JOB,
+        )['outputs'])
+
     def test_completion_recovery_never_wakes_unknown_or_unprojected_attempt(self):
         # No evidence means no completion callback, even on a fresh Scheduler.
         self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
@@ -1095,7 +1153,7 @@ class SchedulerOfferTests(unittest.TestCase):
         only external research transport and the wall-clock tick are synthetic.
         """
         from types import SimpleNamespace
-        from modules import llm, outbox, privacy, service_store, source_watch, task_queue
+        from modules import goal_job_control, llm, outbox, privacy, service_store, source_watch, task_queue
         from modules.voice_core import VoiceCatalog, VoiceCoordinator, VoiceSpec, SpeechRequest
 
         state = goal_state_store.load(self.path)
@@ -1251,12 +1309,16 @@ class SchedulerOfferTests(unittest.TestCase):
                 # outlive a two-second sleep; prove the final disk state
                 # instead of treating provider completion as acceptance.
                 for _ in range(300):
-                    saved = execution_record.load(self.owner_root, OWNER, JOB)
+                    # This PC test must not itself hold an unlocked Windows
+                    # read handle across the worker's atomic replacement.
+                    with goal_job_control.locked(self.owner_root, JOB):
+                        saved = execution_record.load(self.owner_root, OWNER, JOB)
                     if (all(step['state'] == 'done' for step in saved['steps'])
                             and set(saved['outputs']) == {'left', 'right', 'child'}):
                         break
                     threading.Event().wait(.05)
-                saved = execution_record.load(self.owner_root, OWNER, JOB)
+                with goal_job_control.locked(self.owner_root, JOB):
+                    saved = execution_record.load(self.owner_root, OWNER, JOB)
                 if set(saved['outputs']) != {'left', 'right', 'child'}:
                     frames = sys._current_frames()
                     worker_stacks = {

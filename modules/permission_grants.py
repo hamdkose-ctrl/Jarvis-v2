@@ -15,7 +15,7 @@ import threading
 import time
 
 from config import DATA_DIR
-from modules import service_store
+from modules import file_resource_guard, service_store
 
 ROOT = Path(os.environ.get('JARVIS_HOME') or DATA_DIR) / 'permission_grants'
 _LOCK = threading.RLock()
@@ -74,11 +74,11 @@ def _read(path):
         with path.open('rb') as handle:
             raw = handle.read(_MAX_BYTES + 1)
         if len(raw) > _MAX_BYTES:
-            return _empty()
+            raise ValueError('İzin kaydı boyut sınırı aşıldı.')
         data = json.loads(raw.decode('utf-8'))
         if (not isinstance(data, dict) or not isinstance(data.get('apps_never'), list) or len(data['apps_never']) > 50
                 or any(not isinstance(app, str) or len(app) > 320 for app in data['apps_never'])):
-            return _empty()
+            raise ValueError('Kalıcı izin/yasak kaydı geçersiz.')
         safe = {'message_out': {}, 'apps_never': data['apps_never']}
         if (set(data) != {'message_out', 'apps_never'} or not isinstance(data.get('message_out'), dict)
                 or len(data['message_out']) > _LIMIT):
@@ -93,8 +93,13 @@ def _read(path):
             # Differently cased duplicate email keys must not extend an earlier expiry.
             messages[target] = min(expiry, messages.get(target, expiry))
         return {'message_out': messages, 'apps_never': data['apps_never']}
-    except (OSError, UnicodeError, ValueError, TypeError, RecursionError, OverflowError):
-        return _empty()
+    except FileNotFoundError:
+        return _empty()  # A genuinely missing store has no saved grants or bans.
+    except (OSError, UnicodeError, ValueError, TypeError, RecursionError, OverflowError) as exc:
+        # A damaged/unreadable existing policy is NOT an empty allowed policy.
+        # In particular, never silently erase persistent apps_never bans or
+        # overwrite an unreadable file while granting a new permission.
+        raise PermissionError('İzin kaydı güvenli okunamadı; işlem durduruldu.') from exc
 
 
 def _write(path, data):
@@ -122,56 +127,65 @@ def _prune(data, now):
 
 
 def load(user):
-    """Yalnız geçerli izinleri döndürür; eksik/bozuk dosya boş, temizlik hatası fail-closed."""
+    """Read a stable permission snapshot; conflicting physical writers fail closed.
+
+    Returning an empty policy on a busy resource would erase apps_never bans
+    for this decision. The caller must treat LeaseConflict as no permission,
+    not as an empty allowed policy.
+    """
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        if _prune(data, _now(None)):
-            try:
-                _write(path, data)
-            except OSError:
-                pass  # Diskte temizlenemese bile dolmuş izin asla sonuçta bulunmaz.
-        return copy.deepcopy(data)
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            if _prune(data, _now(None)):
+                try:
+                    _write(path, data)
+                except OSError:
+                    pass  # Expired grants are never returned, even if write fails.
+            return copy.deepcopy(data)
 
 
 def grant_message(user, target, seconds, now=None):
-    """En fazla 24 saatlik kesin hedef iznini atomik saklar; dolu depoda yenileme mümkündür."""
+    """Atomically update an exact-target grant across Jarvis processes."""
     target, seconds, moment = _target(target), _number(seconds), _now(now)
     if not 0 < seconds <= _MAX_SECONDS:
         raise ValueError('İzin süresi 0 ile 24 saat arasında olmalı.')
     expiry = _number(moment + seconds)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        _prune(data, moment)
-        if target not in data['message_out'] and len(data['message_out']) >= _LIMIT:
-            raise ValueError('İzin listesi dolu (en fazla 50).')
-        data['message_out'][target] = expiry
-        _write(path, data)
-        return copy.deepcopy(data)
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            _prune(data, moment)
+            if target not in data['message_out'] and len(data['message_out']) >= _LIMIT:
+                raise ValueError('İzin listesi dolu (en fazla 50).')
+            data['message_out'][target] = expiry
+            _write(path, data)
+            return copy.deepcopy(data)
 
 
 def revoke(user, target):
-    """Bir kesin hedefin iznini kaldırır; kaldırılmışsa True döndürür."""
+    """Do not allow a concurrent process's stale grant to resurrect a revoke."""
     target = _target(target)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        if target not in data['message_out']:
-            return False
-        del data['message_out'][target]
-        _prune(data, _now(None))
-        _write(path, data)
-        return True
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            if target not in data['message_out']:
+                return False
+            del data['message_out'][target]
+            _prune(data, _now(None))
+            _write(path, data)
+            return True
 
 
 def purge(user, now=None):
-    """Süresi dolan mesaj kayıtlarını siler ve silinen sayıyı döndürür."""
+    """Prune under the same OS-level lock as grants, revokes and permission reads."""
     moment = _now(now)
     with _LOCK:
         path = _path(user)
-        data = _read(path)
-        removed = _prune(data, moment)
-        if removed:
-            _write(path, data)
-        return removed
+        with file_resource_guard.claim_paths(path):
+            data = _read(path)
+            removed = _prune(data, moment)
+            if removed:
+                _write(path, data)
+            return removed

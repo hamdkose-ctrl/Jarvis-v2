@@ -60,16 +60,28 @@ class QueueTests(OwnerFixture):
         qid = task_queue.enqueue_script('alice', self.VERIFY, cron='0 9 * * *')
         self.assertEqual(task_queue.rows('alice')[0]['id'], qid)
 
-    def test_cron_keeps_its_cadence_after_a_blocked_run(self):
+    def test_blocked_cron_never_replays_an_uncertain_prior_effect(self):
         qid = task_queue.enqueue('alice', self.VERIFY, 'kontrol', cron='*/5 * * * *')
         with service_store.database('alice') as db:
             db.execute('UPDATE queue SET due=0 WHERE id=?', (qid,))
         with patch.object(task_agents, 'execute', side_effect=RuntimeError('down')):
             task_queue.tick('alice')
         row = task_queue.rows('alice')[0]
+        self.assertEqual(row['state'], 'blocked')
+        self.assertEqual(row['error'], 'RuntimeError')
+        self.assertNotIn('Şimdi çalıştır:', task_queue.render_rows([row]))
+        with self.assertRaises(ValueError):
+            task_queue.run_now('alice', qid)
+
+    def test_successful_cron_still_schedules_next_occurrence(self):
+        qid = task_queue.enqueue('alice', self.VERIFY, 'kontrol', cron='*/5 * * * *')
+        with service_store.database('alice') as db:
+            db.execute('UPDATE queue SET due=0 WHERE id=?', (qid,))
+        with patch.object(task_agents, 'execute', return_value={'state': 'done'}):
+            task_queue.tick('alice')
+        row = task_queue.rows('alice')[0]
         self.assertEqual(row['state'], 'queued')
         self.assertGreater(row['due'], time.time())
-        self.assertEqual(row['error'], 'RuntimeError')
 
     def test_chat_commands_run_now_and_script_cron_without_model(self):
         with patch.object(llm, 'ask', side_effect=AssertionError('model çağrılmamalı')):

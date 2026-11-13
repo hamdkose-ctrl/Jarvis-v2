@@ -98,12 +98,47 @@ class PermissionGrantsTests(unittest.TestCase):
     def test_corrupt_schema_json_and_nonfinite_grants_fail_closed(self):
         self.root.mkdir()
         path = self.root / 'alice.json'
-        for raw in ('{bad', '[]', 'null', '{"message_out":{"chat":NaN},"apps_never":[]}',
-                    '{"message_out":{"chat":Infinity},"apps_never":[]}',
-                    '{"message_out":{"chat":true},"apps_never":[]}'):
+        for raw in ('{bad', '[]', 'null'):
             with self.subTest(raw=raw):
                 path.write_text(raw)
-                self.assertEqual(self.store.load('alice')['message_out'], {})
+                with self.assertRaises(PermissionError):
+                    self.store.load('alice')
+        # Bad *message* grants may be discarded if apps_never is verified.
+        for raw in ('{"message_out":{"chat":NaN},"apps_never":["terminal"]}',
+                    '{"message_out":{"chat":Infinity},"apps_never":["terminal"]}',
+                    '{"message_out":{"chat":true},"apps_never":["terminal"]}'):
+            with self.subTest(raw=raw):
+                path.write_text(raw)
+                self.assertEqual(self.store.load('alice'), {
+                    'message_out': {}, 'apps_never': ['terminal'],
+                })
+
+    def test_unreadable_existing_grants_fail_closed_for_all_operations(self):
+        self.store.grant_message('alice', 'chat', 60, now=100)
+        path = self.root / 'alice.json'
+        before = path.read_bytes()
+        with patch.object(Path, 'open', side_effect=OSError('access denied')):
+            for operation in (
+                lambda: self.store.load('alice'),
+                lambda: self.store.grant_message('alice', 'other', 60, now=100),
+                lambda: self.store.revoke('alice', 'chat'),
+                lambda: self.store.purge('alice', now=160),
+            ):
+                with self.subTest(operation=operation):
+                    with self.assertRaises(PermissionError):
+                        operation()
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_corrupt_standing_bans_cannot_be_silently_overwritten(self):
+        self.root.mkdir()
+        path = self.root / 'alice.json'
+        for raw in ('{bad', '[]', '{"message_out":{},"apps_never":42}',
+                    '{"message_out":{},"apps_never":["terminal", null]}'):
+            with self.subTest(raw=raw):
+                path.write_text(raw)
+                with self.assertRaises(PermissionError):
+                    self.store.grant_message('alice', 'chat', 60, now=100)
+                self.assertEqual(path.read_text(), raw)
 
     def test_apps_never_survives_message_updates_and_results_are_detached(self):
         self.root.mkdir()
@@ -113,6 +148,42 @@ class PermissionGrantsTests(unittest.TestCase):
         result['apps_never'].clear()
         result['message_out'].clear()
         self.assertEqual(self.store.load('alice'), before)
+
+    def test_busy_physical_grants_cannot_resurrect_or_leak_permissions(self):
+        from modules import file_resource_guard, resource_leases
+        self.store.grant_message('alice', 'chat', 60, now=100)
+        path = self.root / 'alice.json'
+        before = path.read_bytes()
+        with file_resource_guard.claim_paths(path):
+            for operation in (
+                lambda: self.store.load('alice'),
+                lambda: self.store.grant_message('alice', 'other', 60, now=100),
+                lambda: self.store.revoke('alice', 'chat'),
+                lambda: self.store.purge('alice', now=160),
+            ):
+                with self.subTest(operation=operation), self.assertRaises(
+                        resource_leases.LeaseConflict):
+                    operation()
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(self.store.load('alice')['message_out'], {'chat': 160})
+
+    def test_distinct_users_have_distinct_physical_permission_resources(self):
+        from modules import file_resource_guard
+        self.store.grant_message('alice', 'chat', 60, now=100)
+        with file_resource_guard.claim_paths(self.root / 'alice.json'):
+            # Use a properly switched owner instead of bypassing identity.
+            token = self.llm._key_context.set('bob')
+            try:
+                result = self.store.grant_message('bob', 'other', 60, now=100)
+                self.assertEqual(result['message_out'], {'other': 160})
+            finally:
+                self.llm._key_context.reset(token)
+        self.assertEqual(self.store.load('alice')['message_out'], {'chat': 160})
+        token = self.llm._key_context.set('bob')
+        try:
+            self.assertEqual(self.store.load('bob')['message_out'], {'other': 160})
+        finally:
+            self.llm._key_context.reset(token)
 
     def test_atomic_replace_failure_preserves_previous_and_cleans_temp(self):
         self.store.grant_message('alice', 'chat', 60, now=100)

@@ -35,6 +35,36 @@ class QueueClaimFenceTests(unittest.TestCase):
             fixture.start()
             self.addCleanup(fixture.stop)
 
+    def test_hung_queue_heartbeat_never_blocks_voice_or_releases_unknown_claim(self):
+        stop = threading.Event()
+        lost = threading.Event()
+        pulse = Mock()
+        pulse.is_alive.return_value = True
+        with patch.object(task_queue, '_record_failure') as diagnostic:
+            self.assertFalse(task_queue._stop_queue_heartbeat_without_voice_block(
+                stop, pulse, lost,
+            ))
+        self.assertTrue(stop.is_set())
+        self.assertTrue(lost.is_set())
+        pulse.join.assert_called_once_with(timeout=1.0)
+        diagnostic.assert_called_once_with(
+            'modules/task_queue.py:heartbeat_cleanup_busy',
+        )
+
+    def test_exited_queue_heartbeat_allows_exact_claim_finalization(self):
+        stop = threading.Event()
+        lost = threading.Event()
+        pulse = Mock()
+        pulse.is_alive.return_value = False
+        with patch.object(task_queue, '_record_failure') as diagnostic:
+            self.assertTrue(task_queue._stop_queue_heartbeat_without_voice_block(
+                stop, pulse, lost,
+            ))
+        self.assertTrue(stop.is_set())
+        self.assertFalse(lost.is_set())
+        pulse.join.assert_called_once_with(timeout=1.0)
+        diagnostic.assert_not_called()
+
     def test_stolen_token_cannot_finalize_or_notify_success(self):
         qid = task_queue.enqueue('alice', TASKS)
         callback = Mock()

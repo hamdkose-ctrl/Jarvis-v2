@@ -49,6 +49,23 @@ class GoogleNetworkUnavailableTests(unittest.TestCase):
             'gmail', 'v1', http=auth.return_value, cache_discovery=False,
         )
 
+    def test_google_tasks_service_uses_bounded_separate_scope(self):
+        with patch.object(google_api, '_creds') as creds, \
+             patch('httplib2.Http') as http, \
+             patch('google_auth_httplib2.AuthorizedHttp') as auth, \
+             patch('googleapiclient.discovery.build') as build:
+            self.assertIs(google_api.tasks_service(), build.return_value)
+        creds.assert_called_once_with(
+            google_api.TASKS_TOKEN, google_api.TASKS_SCOPES, False,
+        )
+        http.assert_called_once_with(
+            timeout=google_api._SERVICE_HTTP_TIMEOUT_SECONDS,
+        )
+        auth.assert_called_once_with(creds.return_value, http=http.return_value)
+        build.assert_called_once_with(
+            'tasks', 'v1', http=auth.return_value, cache_discovery=False,
+        )
+
     def test_non_network_error_still_propagates(self):
         with patch.object(account_tools.privacy,'blocked',return_value=None),patch.object(google_api,'_service',side_effect=ValueError('bozuk yanıt')):
             with self.assertRaisesRegex(ValueError,'bozuk yanıt'):

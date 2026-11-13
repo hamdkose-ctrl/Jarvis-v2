@@ -33,7 +33,7 @@ _MAX_OWNER_WORKERS=3
 _DAILY_NOTIFY=None
 _DAILY_NEXT=0.0
 # States a user may pull forward with "kuyruk çalıştır"; never cancelled/done.
-RUN_NOW_STATES=frozenset({'queued','paused','blocked'})
+RUN_NOW_STATES=frozenset({'queued','paused'})
 # Workers that never call a model (research/writer do).
 SCRIPT_AGENTS=frozenset({'account','verify','media'})
 
@@ -77,7 +77,7 @@ def rows(owner):
 def render_rows(items):
     from modules import privacy
     if not items:return 'Zamanlanmış görevin yok.'
-    labels={'paused':'Duraklatıldı; yeniden açılana kadar çalışmaz','running':'Çalışıyor','done':'Tamamlandı','cancelled':'İptal edildi','blocked':'Durdu; görev sonucunu incele'}
+    labels={'paused':'Duraklatıldı; yeniden açılana kadar çalışmaz','running':'Çalışıyor','done':'Tamamlandı','cancelled':'İptal edildi','blocked':'Durdu; sonucu incele. Belirsiz yürütme otomatik veya doğrudan tekrar başlatılmaz'}
     lines=[]
     for row in items:
         remaining=max(0,math.ceil(row['due']-time.time()))
@@ -96,7 +96,8 @@ def render_rows(items):
 def run_now(owner, qid):
     """Put one waiting schedule at the front without changing its definition.
 
-    Cancelled or finished one-shot entries are never revived.
+    Cancelled, blocked or finished entries are never revived: blocked may
+    contain a started-but-unknown effect and needs explicit reconciliation.
     """
     with service_store.database(owner) as db:
         row = db.execute('SELECT * FROM queue WHERE id=?', (qid,)).fetchone()
@@ -105,7 +106,7 @@ def run_now(owner, qid):
         if row['state'] == 'running':
             raise ValueError('Görev zaten çalışıyor; ikinci bir çalışma başlatılmadı.')
         if row['state'] not in RUN_NOW_STATES:
-            raise ValueError('İptal edilmiş veya bitmiş iş yeniden başlatılmaz; yeni görev olarak zamanla.')
+            raise ValueError('İptal, blocked veya bitmiş iş güvenli yeni deneme sayılmaz; önce eski sonucu incele, sonra yeni görev oluştur.')
         new_job_id = uuid.uuid4().hex[:12]
         db.execute(
             "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,error='',lease=0,lease_token='' WHERE id=?",
@@ -152,6 +153,17 @@ def configure(owner,qid,*,operation,repeat_seconds=None):
             db.execute("UPDATE queue SET state='queued',due=?,lease=0,lease_token='' WHERE id=?",(time.time(),qid))
         else:
             db.execute('UPDATE queue SET repeat_seconds=? WHERE id=?',(repeat_seconds,qid))
+    return True
+
+
+def _stop_queue_heartbeat_without_voice_block(stop, pulse, lost):
+    """Bound daemon cleanup; never mark an ambiguously live claim completed."""
+    stop.set()
+    pulse.join(timeout=1.0)
+    if pulse.is_alive():
+        lost.set()
+        _record_failure('modules/task_queue.py:heartbeat_cleanup_busy')
+        return False
     return True
 
 
@@ -280,11 +292,13 @@ def tick(owner, notify=None):
         state = 'blocked'
         error = type(exc).__name__
     finally:
-        heartbeat_stop.set()
-        # Close the heartbeat's SQLite connection before the queue run exits.
-        # On Windows, even a successful run must not leave the database file
-        # held by a daemon thread during owner shutdown/test cleanup.
-        pulse.join()
+        # Ordinary heartbeat exits before this bound; a hung SQLite/transport
+        # heartbeat must never hold the foreground voice lane forever. Keep
+        # the queue claim unresolved if it has not exited; old claim expires
+        # and the journal is reconciled, never blindly replayed.
+        _stop_queue_heartbeat_without_voice_block(
+            heartbeat_stop, pulse, lost,
+        )
 
     if lost.is_set():
         # A timed-out or stolen claim never announces success. Recovery will
@@ -301,7 +315,9 @@ def tick(owner, notify=None):
                 'INSERT OR IGNORE INTO queue_runs VALUES(?,?,?,?)',
                 (row['id'], row['job_id'], state, time.time()),
             )
-            if state in ('done', 'blocked') and row['cron']:
+            # A failed or unknown attempt must not spawn a fresh timed
+            # command merely because its CRON interval advanced.
+            if state == 'done' and row['cron']:
                 next_due = CronExpression(row['cron']).next_after(datetime.now()).timestamp()
                 db.execute(
                     "UPDATE queue SET state='queued',due=?,job_id=?,last_job_id=?,lease=0,lease_token='' "

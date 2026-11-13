@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from config import DATA_DIR
-from modules import turkish_text
+from modules import file_resource_guard, turkish_text
 from modules.diagnostics import record_failure as _record_failure
 
 _ROOT = DATA_DIR / 'finance_watchlists'
@@ -76,7 +76,11 @@ def _read(path):
     except (UnicodeError, json.JSONDecodeError, ValueError):
         _record_failure('modules/finance_watchlist.py:read')
         try:
-            path.replace(_backup_path(path))
+            # Create-only backup: a concurrent non-Jarvis writer may have
+            # created the suggested .bozuk name after our preflight.
+            backup = _backup_path(path)
+            os.link(path, backup)
+            path.unlink()
         except OSError:
             _record_failure('modules/finance_watchlist.py:backup')
             raise OSError('Bozuk takip listesi yedeklenemedi.') from None
@@ -120,43 +124,48 @@ def add(owner, kind, symbol):
     item = {'kind': kind, 'symbol': symbol}
     with _lock:
         path = _path(owner)
-        rows = _read(path)
-        for row in rows:
-            if row == item:
-                return dict(row)
-        if len(rows) >= _LIMIT:
-            raise ValueError('Takip listesi dolu (en fazla 20).')
-        rows.append(item)
-        _save(path, rows)
-        return dict(item)
+        with file_resource_guard.claim_paths(path):
+            rows = _read(path)
+            for row in rows:
+                if row == item:
+                    return dict(row)
+            if len(rows) >= _LIMIT:
+                raise ValueError('Takip listesi dolu (en fazla 20).')
+            rows.append(item)
+            _save(path, rows)
+            return dict(item)
 
 
 def remove(owner, kind, symbol):
     symbol = _normalise(kind, symbol)
     with _lock:
         path = _path(owner)
-        rows = _read(path)
-        kept = [row for row in rows if not (row['kind'] == kind and row['symbol'] == symbol)]
-        if len(kept) == len(rows):
-            return False
-        _save(path, kept)
-        return True
+        with file_resource_guard.claim_paths(path):
+            rows = _read(path)
+            kept = [row for row in rows if not (row['kind'] == kind and row['symbol'] == symbol)]
+            if len(kept) == len(rows):
+                return False
+            _save(path, kept)
+            return True
 
 
 def list_items(owner):
     with _lock:
-        return [dict(row) for row in _read(_path(owner))]
+        path = _path(owner)
+        with file_resource_guard.claim_paths(path):
+            return [dict(row) for row in _read(path)]
 
 
 def clear(owner):
     with _lock:
         path = _path(owner)
-        rows = _read(path)
-        if not path.exists():
+        with file_resource_guard.claim_paths(path):
+            rows = _read(path)
+            if not path.exists():
+                return len(rows)
+            try:
+                path.unlink()
+            except OSError:
+                _record_failure('modules/finance_watchlist.py:clear')
+                raise OSError('Takip listesi temizlenemedi.') from None
             return len(rows)
-        try:
-            path.unlink()
-        except OSError:
-            _record_failure('modules/finance_watchlist.py:clear')
-            raise OSError('Takip listesi temizlenemedi.') from None
-        return len(rows)

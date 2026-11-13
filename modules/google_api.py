@@ -214,9 +214,20 @@ def _service(name: str, version: str, interactive: bool = False):
 
 
 def tasks_service(interactive: bool = False):
-    """Google Görevler. interactive=False iken izin yoksa PermissionError (arka planda tarayıcı açılmasın)."""
+    """Google Tasks uses the same bounded REST transport as Gmail/Calendar.
+
+    An effect-capable provider is NOT given execution or retry authority here;
+    this only removes the previously unbounded httplib2 socket wait. The
+    existing authorization and permission gates stay responsible for writes.
+    """
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
     from googleapiclient.discovery import build
-    return build("tasks", "v1", credentials=_creds(TASKS_TOKEN, TASKS_SCOPES, interactive), cache_discovery=False)
+    creds = _creds(TASKS_TOKEN, TASKS_SCOPES, interactive)
+    client = AuthorizedHttp(
+        creds, http=httplib2.Http(timeout=_SERVICE_HTTP_TIMEOUT_SECONDS),
+    )
+    return build("tasks", "v1", http=client, cache_discovery=False)
 
 
 def connected() -> bool:
