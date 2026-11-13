@@ -365,7 +365,7 @@ def run(owner, task, dependencies):
         review=research_evidence.cross_source_review(dependencies)
         if review:text+=review['text']
         from modules import file_resource_guard
-        if not isinstance(owner, str) or not re.fullmatch(r'[\\w-]{1,100}', owner):
+        if not isinstance(owner, str) or not re.fullmatch(r'[\w-]{1,100}', owner):
             raise ValueError('Rapor sahibi geçersiz.')
         base=Path(nxapi.FILES_DIR)/'Jarvis Görevler'
         root=base/owner
