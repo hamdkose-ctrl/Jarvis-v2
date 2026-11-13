@@ -947,13 +947,14 @@ class CascadeRetirementTests(pr3a._CanonicalAuthorityHarness):
              patch.object(self.ctx, "_file_command",
                           side_effect=AssertionError("raw file command")) as file_worker, \
              patch.object(self.ctx, "_macro_run",
-                          side_effect=AssertionError("raw shortcut")) as macro:
-            entry, out, handler, feedback = self.turn_real(
+                          side_effect=AssertionError("raw shortcut")) as macro, \
+             patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, out, _handler, feedback = self.turn_real(
                 "maillerimi kontrol et", model_understanding=True)
         self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
         self.assertEqual(feedback.result_status, "failed")
         self.assertIn("model", out.casefold())
-        self.assertFalse(handler.called)
+        raw_handler.assert_not_called()
         file_worker.assert_not_called()
         macro.assert_not_called()
 
