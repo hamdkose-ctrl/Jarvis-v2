@@ -645,28 +645,28 @@ def main() -> int:
         return 0 if summary["state"] == "ok" else 1
     try:
         with single_watcher(local_dir / "pc_test_watcher.lock"):
-        print(f"Jarvis PC test watcher başladı: {root}")
-        print(f"İzlenen ref: {args.pattern}")
-        print(f"Sonuç: {report_path}")
-        while True:
-            try:
-                changed = once(
-                    root, state_path, report_path, args.pattern,
-                    desktop=args.desktop, news=args.news, local_model=args.local_model,
-                )
-                if not changed:
-                    print("Yalnız açık PR dallarında yeni test adayı yok.")
-            except KeyboardInterrupt:
-                return 0
-            except Exception as exc:
-                error = {"status": "watcher_error", "error": f"{type(exc).__name__}: {exc}", "time": time.time()}
-                save_json(report_path, error)
-                print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
+            print(f"Jarvis PC test watcher başladı: {root}")
+            print(f"İzlenen ref: {args.pattern}")
+            print(f"Sonuç: {report_path}")
+            while True:
+                try:
+                    changed = once(
+                        root, state_path, report_path, args.pattern,
+                        desktop=args.desktop, news=args.news, local_model=args.local_model,
+                    )
+                    if not changed:
+                        print("Yalnız açık PR dallarında yeni test adayı yok.")
+                except KeyboardInterrupt:
+                    return 0
+                except Exception as exc:
+                    error = {"status": "watcher_error", "error": f"{type(exc).__name__}: {exc}", "time": time.time()}
+                    save_json(report_path, error)
+                    print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
+                    if args.once:
+                        return 1
                 if args.once:
-                    return 1
-            if args.once:
-                return 0
-            time.sleep(max(10, args.interval))
+                    return 0
+                time.sleep(max(10, args.interval))
     
     except WatcherAlreadyRunning as exc:
         print(str(exc), file=sys.stderr)
