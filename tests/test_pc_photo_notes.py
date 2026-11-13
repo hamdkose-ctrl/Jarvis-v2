@@ -1,10 +1,12 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from PIL import Image
-from modules import note_images, personalization
+from types import SimpleNamespace
+from modules import main_documents, note_images, personalization
 
 
 class PhotoNotesTests(unittest.TestCase):
@@ -77,3 +79,47 @@ class PhotoNotesTests(unittest.TestCase):
         self.source.write_text('not an image')
         with self.assertRaises(OSError): note_images.add(self.profile, '', str(self.source))
         self.assertEqual(self.profile.data['items'], [])
+
+
+class PhonePhotoPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.source = self.root / 'incoming.png'
+        self.source.write_bytes(b'original incoming image')
+        self.runtime = SimpleNamespace(
+            _PHOTO_DIR=self.root / 'photos',
+            profile=SimpleNamespace(slug='owner', data={'items': []}),
+            time=SimpleNamespace(
+                strftime=lambda *_args: '20000101_000000',
+                time=time.time,
+            ),
+            secrets=SimpleNamespace(token_hex=lambda _size: 'test-nonce'),
+        )
+        self.target = (self.runtime._PHOTO_DIR / 'owner' /
+                       '20000101_000000_test-nonce.png')
+
+    def test_phone_photo_publishes_complete_file_then_releases_source(self):
+        path = main_documents._keep_photo(self.runtime, str(self.source))
+        self.assertEqual(path, str(self.target))
+        self.assertEqual(self.target.read_bytes(), b'original incoming image')
+        self.assertFalse(self.source.exists())
+        self.assertEqual(list(self.target.parent.glob('.jarvis-photo-*')), [])
+
+    def test_phone_photo_never_overwrites_a_concurrent_target(self):
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.write_bytes(b'other owner content')
+        with self.assertRaises(FileExistsError):
+            main_documents._keep_photo(self.runtime, str(self.source))
+        self.assertEqual(self.target.read_bytes(), b'other owner content')
+        self.assertEqual(self.source.read_bytes(), b'original incoming image')
+        self.assertEqual(list(self.target.parent.glob('.jarvis-photo-*')), [])
+
+    def test_phone_photo_failed_publish_exposes_no_partial_artifact(self):
+        with patch('os.link', side_effect=OSError('not supported')):
+            with self.assertRaises(OSError):
+                main_documents._keep_photo(self.runtime, str(self.source))
+        self.assertFalse(self.target.exists())
+        self.assertTrue(self.source.exists())
+        self.assertEqual(list(self.target.parent.glob('.jarvis-photo-*')), [])
