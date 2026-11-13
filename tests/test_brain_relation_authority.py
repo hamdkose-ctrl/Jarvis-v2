@@ -994,7 +994,8 @@ class FastTurnOwnershipTests(_CanonicalTurnHarness):
         self.ctx._message_step = self.message_step
 
         entry, out = self.turn("Ebru")
-        self.assertFalse(entry.fast_gate.matched)
+        self.assertFalse(entry.fast_gate is not None and entry.fast_gate.matched)
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
         self.assertEqual(out, "Ebru kişisine ne yazayım?")
         self.assertEqual(session.pending_msg, {"to": "Ebru", "text": "", "stage": "text"})
 
@@ -1673,7 +1674,9 @@ class MessageTextFreeFormTests(_CanonicalTurnHarness):
     def test_recipient_slot_still_takes_a_bounded_name(self):
         session, _pending = self.open_recipient()
         entry, out = self.turn("Ebru")
-        self.assertEqual(entry.understanding.pending_owner, "session.pending_msg.to")
+        self.assertEqual(entry.stage, "state")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
+        self.assertIsNone(entry.understanding)
         self.assertEqual(session.pending_msg["to"], "Ebru")
         self.assertIn("ne yazayım", out)
 
@@ -1703,8 +1706,9 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
         with patch.object(messaging, "send_whatsapp", Mock()) as sender:
             entry, out = self.turn(text)
             sender.assert_not_called()
-        self.assertIs(entry.understanding.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
-        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
+        self.assertEqual(entry.stage, "state")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
+        self.assertIsNone(entry.understanding)
         self.assertEqual(session.pending_msg["to"], text)
         self.assertEqual(session.pending_msg["stage"], "text")
         self.message_step.assert_called_once()
@@ -1713,10 +1717,12 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
         return session, entry, out
 
     def test_three_word_name_is_a_recipient_answer(self):
-        self.run_recipient("Mehmet Ali Yılmaz")
+        self.run_recipient("Mehmet Ali Yılmaz",
+                           contacts={"Mehmet Ali Yılmaz": "905001112233"})
 
     def test_four_part_name_is_not_blocked_by_a_word_count_rule(self):
-        self.run_recipient("Mehmet Ali Can Yılmaz")
+        self.run_recipient("Mehmet Ali Can Yılmaz",
+                           contacts={"Mehmet Ali Can Yılmaz": "905001112233"})
 
     def test_registered_multi_word_contact_is_a_recipient_answer(self):
         self.run_recipient("Mehmet Ali Yılmaz", contacts={"Mehmet Ali Yılmaz": "905001112233"})
@@ -1740,8 +1746,8 @@ class RecipientIdentityTests(_CanonicalTurnHarness):
         session.pending_weather_location = True
         with patch.object(messaging, "send_whatsapp", Mock()):
             entry, out = self.turn("İstanbul Ofis")
-        self.assertEqual(entry.understanding.pending_owner, self.MESSAGE_TO_OWNER)
-        self.assertNotIn(self.AMBIGUOUS, entry.understanding.ambiguities)
+        self.assertEqual(entry.stage, "state")
+        self.assertEqual(entry.state_gate.protocol, "session.pending_msg.recipient")
         self.assertEqual(session.pending_msg["to"], "İstanbul Ofis")
         self.assertIs(session.pending_weather_location, True)
         self.ctx._weather.assert_not_called()
