@@ -151,6 +151,34 @@ class TypedDomainWiringTests(baseline._CanonicalAuthorityHarness):
             "tablo yap. Ek istek: Tabloyu Word olarak ver", ".docx",
         )
 
+    def test_workbench_legacy_fallback_only_accepts_explicit_whole_revision_and_core_path(self):
+        source = self._record_recent_workbench()
+        with patch.object(workbench, "handle", return_value="NEW TABLE") as worker, \
+             patch("modules.nxapi.allowed", return_value=source) as allowed:
+            for utterance in (
+                    "tabloyu güncelleme", "şu sütunu ekleme",
+                    "tabloyu Word olarak ver demedim",
+                    "bu cümlede tabloyu Word olarak ver yazıyor",
+                    "tabloyu PDF olarak ver, notları sil",
+                    "tabloyu güncellemek nasıl çalışıyor?"):
+                with self.subTest(utterance=utterance):
+                    self.assertIsNone(workbench.followup(self.owner, utterance))
+            worker.assert_not_called()
+            allowed.assert_not_called()
+            self.assertEqual(workbench.followup(self.owner, "tutar sütunu ekle"), "NEW TABLE")
+        worker.assert_called_once_with(
+            self.owner, [str(source)], "tablo yap. Ek istek: tutar sütunu ekle", ".xlsx")
+        allowed.assert_called_once_with(str(source))
+
+    def test_workbench_legacy_fallback_permission_denial_has_no_file_effect(self):
+        self._record_recent_workbench()
+        with patch("modules.nxapi.allowed", return_value=None), \
+             patch.object(workbench, "handle",
+                          side_effect=AssertionError("unapproved workbench output")) as worker:
+            response = workbench.followup(self.owner, "tabloyu Word olarak ver")
+        self.assertIn("güvenli biçimde", response)
+        worker.assert_not_called()
+
     def test_workbench_missing_target_is_refused_before_raw_fallback(self):
         with patch.object(workbench, "handle",
                           side_effect=AssertionError("missing target executed")) as worker:
