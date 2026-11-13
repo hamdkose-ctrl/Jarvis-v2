@@ -24,7 +24,6 @@ from datetime import datetime, timedelta
 from modules import richtext, typo, weather, when as whenmod
 from modules import browser, plugins, privacy
 from modules import codegen, desktop, docs, files, google_api, agents, history, kb, media, messaging, notify, output, tasks, system_control, translate as tr, vision, voice
-from modules import live
 from modules.llm import ask, ask_image, chat
 from modules import llm as _llm
 import concurrent.futures as _cf
@@ -51,7 +50,7 @@ class _AnyAbort:
 
     def is_set(self) -> bool:
         return any(e.is_set() for e in self.events)
-_DEPENDENCIES = ['ANNOUNCE_UNKNOWN', 'ASSISTANT_NAME', 'DATA_DIR', 'MODEL', 'Profile', 'RotatingFileHandler', 'SESSION_SECONDS', 'SessionStore', 'WAKE_ALIASES', 'WAKE_WORD', '_AnyAbort', '_cf', '_llm', '_record_failure', 'agents', 'ask', 'ask_image', 'browser', 'chat', 'codegen', 'contextlib', 'datetime', 'delete_user', 'desktop', 'difflib', 'display_name', 'docs', 'files', 'get_active', 'google_api', 'history', 'json', 'kb', 'list_users', 'live', 'llm_transcribe', 'logging', 'media', 'messaging', 'migrate_legacy', 'notify', 'os', 'output', 'plugins', 'privacy', 'queue', 'quote_plus', 're', 'rename_user', 'requests_state', 'richtext', 'secrets', 'set_active', 'slugify', 'subprocess', 'sys', 'system_control', 'tasks', 'tempfile', 'threading', 'time', 'timedelta', 'tr', 'typo', 'vision', 'voice', 'weather', 'whenmod']
+_DEPENDENCIES = ['ANNOUNCE_UNKNOWN', 'ASSISTANT_NAME', 'DATA_DIR', 'MODEL', 'Profile', 'RotatingFileHandler', 'SESSION_SECONDS', 'SessionStore', 'WAKE_ALIASES', 'WAKE_WORD', '_AnyAbort', '_cf', '_llm', '_record_failure', 'agents', 'ask', 'ask_image', 'browser', 'chat', 'codegen', 'contextlib', 'datetime', 'delete_user', 'desktop', 'difflib', 'display_name', 'docs', 'files', 'get_active', 'google_api', 'history', 'json', 'kb', 'list_users', 'llm_transcribe', 'logging', 'media', 'messaging', 'migrate_legacy', 'notify', 'os', 'output', 'plugins', 'privacy', 'queue', 'quote_plus', 're', 'rename_user', 'requests_state', 'richtext', 'secrets', 'set_active', 'slugify', 'subprocess', 'sys', 'system_control', 'tasks', 'tempfile', 'threading', 'time', 'timedelta', 'tr', 'typo', 'vision', 'voice', 'weather', 'whenmod']
 _HANDLERS = {'engine_context': ('_get_profile',
                     '_session',
                     'pc_profile',
@@ -73,11 +72,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                    '_conversation_summary',
                    '_copy_text'),
  'engine_voice': ('_pc_context',
-                  '_live_prompt',
                   '_recent_turns',
-                  'live_session_opened',
-                  '_live_session_end',
-                  '_live_vocab',
                   '_sounds_like_wake',
                   'find_wake',
                   '_is_jarvis_name',
@@ -141,7 +136,7 @@ class EngineContext:
             for name in names:
                 setattr(self, name, partial(getattr(component, name), self))
         self.handle = self.handle_request   # tek giriş: bir request bir kez yürür
-        for name in ('_live_prompt', '_live_command'):
+        for name in ('_live_command',):
             setattr(self, name, self._pc_context(getattr(self, name)))
         from modules.pc_steps import ReportedControl
         # PC actions report visible steps to the chat; the actions themselves are unchanged.
