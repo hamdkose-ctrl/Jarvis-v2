@@ -177,7 +177,7 @@ class ShareAndClarifyTests(unittest.TestCase):
         for text in ('paylaşımı kapat', 'paylaşımı durdur', 'paylaşımı bitir', 'paylasimi kapat', 'paylaşımı kapatır mısın',
                      'paylaşmayı durdur'):
             control.reset_mock()
-            self.assertEqual(engine_context._user_command(runtime, text, text), 'kapatma sonucu', text)
+            self.assertEqual(engine_context._user_controls(runtime, text, text), 'kapatma sonucu', text)
             control.assert_called_once_with(None)
 
     def test_set_share_reports_real_result(self):
