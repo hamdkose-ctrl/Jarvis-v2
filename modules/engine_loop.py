@@ -93,7 +93,7 @@ def _turn_with_listening_foreground(voice_session, invoke):
         return invoke()
 
 
-def _queued_audio(runtime, event):
+def _queued_audio(runtime, event, voice_session=None):
     """Carry the accepted recording ID through transcription and command handoff."""
     _, aud_path, source, user, rid = (tuple(event) + (None,))[:5]
     owner = runtime.slugify(user or runtime.pc_profile().name)
@@ -137,7 +137,11 @@ def _queued_audio(runtime, event):
             runtime.os.remove(aud_path)
         except (OSError, TypeError):
             pass
-        runtime.emit("state", "idle")
+        if voice_session is None:
+            # Standalone helper callers do not have an active voice session.
+            runtime.emit("state", "idle")
+        else:
+            _emit_idle_if_silent(runtime, voice_session)
 
 def main(runtime, ui=None):
     from modules.engine_voice import VoiceSession
@@ -306,7 +310,7 @@ def main(runtime, ui=None):
                 continue
 
             if kind == "listen" and not runtime.flags.get("mic", True):
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
 
             if kind == "listen":
@@ -342,14 +346,14 @@ def main(runtime, ui=None):
                         voice_session.submit_voice(heard.strip())
                     else:
                         runtime.pause_listening.clear()
-                        runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
                 else:
                     runtime.pause_listening.clear()
-                    runtime.emit("state", "idle")
+                    _emit_idle_if_silent(runtime, voice_session)
                 continue
 
             if kind == "audio":
-                _queued_audio(runtime, event)
+                _queued_audio(runtime, event, voice_session)
                 continue
 
             if kind == "photo":
@@ -415,7 +419,7 @@ def main(runtime, ui=None):
                         out = runtime._finalize(out)
                         print("Jarvis:", out)
                         runtime.emit("assistant", out)
-                        runtime.emit("state", "idle")
+                        _emit_idle_if_silent(runtime, voice_session)
                 except ValueError:
                     runtime._record_failure('main.py:queued_photo')
                     runtime._reject_queued_input()
@@ -431,7 +435,7 @@ def main(runtime, ui=None):
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
             try:
                 with runtime.as_user(user), runtime.requests_state.activate(owner, runtime._cur_rid):
@@ -561,7 +565,7 @@ def main(runtime, ui=None):
                 runtime._cur_source = ""
                 runtime._cur_rid = None
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                _emit_idle_if_silent(runtime, voice_session)
                 continue
             except ValueError:
                 runtime._record_failure('main.py:queued_command')
