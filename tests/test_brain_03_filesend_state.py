@@ -42,7 +42,8 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
 
     def test_numbered_selection_is_a_state_core_effect_once(self):
         self.open_choice()
-        entry, result, handler, feedback = self.turn_real("2", model_understanding=False)
+        with patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, result, _handler, feedback = self.turn_real("2", model_understanding=False)
         self.assertTrue(entry.state_gate.matched)
         self.assertEqual(entry.state_gate.protocol, "filesend.pending.select")
         self.assertEqual(entry.state_gate.selection, 2)
@@ -51,18 +52,19 @@ class TaildropCanonicalStateTests(baseline._CanonicalAuthorityHarness):
         self.assertEqual(result, "TAILDROP_SENT")
         self.assertEqual(feedback.result_status, "handled")
         self.sent.assert_called_once_with(self.files[1])
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
         self.assertIsNone(filesend.pending_choices(self.owner))
         self.assertIn("süresi doldu", filesend.select_pending(self.owner, 2))
         self.sent.assert_called_once()
 
     def test_cancel_is_bounded_and_never_calls_raw_selector(self):
         self.open_choice()
-        entry, result, handler, feedback = self.turn_real("vazgeç", model_understanding=False)
+        with patch.object(self.ctx, "handle", wraps=self.ctx.handle) as raw_handler:
+            entry, result, _handler, feedback = self.turn_real("vazgeç", model_understanding=False)
         self.assertTrue(entry.state_gate.matched)
         self.assertEqual(entry.state_gate.protocol, "filesend.pending.cancel")
         self.assertIn("göndermiyorum", result)
-        handler.assert_not_called()
+        raw_handler.assert_not_called()
         self.sent.assert_not_called()
         self.assertIsNone(filesend.pending_choices(self.owner))
 
