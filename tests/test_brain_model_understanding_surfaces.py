@@ -211,8 +211,10 @@ class BrainAllTurnModelUnderstandingTests(unittest.TestCase):
         self.assertEqual(dict(resolved.actions[0].arguments), {
             "original_text": text, "operation": "summarize",
             "path": second.provenance["path"]})
-        # Yalnız bu kanıtlı, salt okunur hedef çözümü LOW'u MEDIUM'a taşıyabilir.
-        self.assertIs(resolved.confidence, Confidence.MEDIUM)
+        # The validated model chose HIGH; grounding the offered file slot
+        # must preserve its confidence rather than letting old heuristic
+        # confidence overwrite that decision. The path remains Core-bound.
+        self.assertIs(resolved.confidence, Confidence.HIGH)
 
         applied = asked_apply(raw, text, semantic)
         self.assertIs(applied.request_kind, RequestKind.CAPABILITY)
