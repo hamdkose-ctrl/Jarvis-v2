@@ -177,6 +177,14 @@ def handle(runtime, command: str):
             reply = runtime._message_step(command, cmd_lower)
             if reply is not None:
                 return reply
+    # An open reminder-title question is a bounded State continuation, not
+    # authority for a raw planner to scan every user utterance.
+    if session.pending_event_title is not None and brain_entry.pending_answer_owned("pending_event_title"):
+        from modules.main_planner import continue_pending_event_title
+        event_reply = continue_pending_event_title(runtime, command, cmd_lower)
+        if event_reply is not None:
+            return event_reply
+
     # Yeni WhatsApp mesajı ve rehber cümleleri artık ham cümleden seçilmez: Understanding
     # `message.send`/`contacts.manage` önerir, Core biçimi doğrular, etki `engine_intents`
     # sahibinde yürür. Buradaki dal yalnız açık `pending_msg` oturumunun devamını tüketir.
