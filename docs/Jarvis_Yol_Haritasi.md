@@ -808,7 +808,18 @@ Dilim4 exact-head kabulü (9 Kasım 2026, `bb85f9b64a34b1c87449d5985210db4740c1a
 **#615 kabul kaydı:** Son kaynak SHA Windows CI success ve gerçek PC watcher general/validation PASS olarak doğrulandı, sonra merge edildi. BRAIN-07'nin nihai kapanışı için kalan açık işlerin son SHA kabulü ve fiziksel senaryolar ayrıca gereklidir.
 
 
-### BRAIN-07 #617 — file_ops native effect parity (13 Kasım 2026; DRAFT, kabul bekliyor)
+### BRAIN-07 #617 — CANLI KABUL VE MERGE (13 Kasım 2026)
+
+**DOĞRULANDI:** [#617](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/617) kaynak SHA `195813952094d339c2ab0702229360114dfb2a35`, [Windows CI 43440628846](https://github.com/hamdkose-ctrl/Jarvis-v2/actions/runs/43440628846) completed SUCCESS (5.970 Python test, 7 skipped; 47 kararlılık testi). Gerçek Windows PC watcher **aynı SHA `195813952094` için `Genel durum: passed` ve `Validation: passed`** yorumunu #617'ye yayımladı. PR, `main` dalına squash merge `75aa6e96ea2ab12883f5ae0a9cdbc5125e2671d6` olarak alındı. Aşağıdaki #617 metinleri geliştirme anındaki **tarihsel DRAFT/CI bekleniyor kayıtlarıdır; artık geçerli PR durumu değildir**. Mevcut tek Scheduler, Core GoalState, Owner/CAS, üç eşzamanlı aynı-owner canonical görev, kanıtlı dependent `task.verify`, iptal/deadline/restart, kullanıcı cevap/teslim ve desteklenen dosya/media effect güvenliği #617'nin kabul edilen kapsamıdır.
+
+**KALAN GERÇEK SINIR:** Bloke dış sağlayıcı thread'inin zorla kesilmesi garanti değil; doğrulanmış external connection/OAuth subject ve unknown-effect reconciliation BRAIN-08, konuşma/duyulma BRAIN-10, final sistem E2E BRAIN-11; 15 otomatik Windows regresyonu 15 ayrı fiziksel kullanıcı senaryosu değildir. #584 geniş kapsamlı takip kaydı bu başlıklarda açık tutulur.
+
+### BRAIN-07 #621 — kalan native yazıcıların güvenliği (13 Kasım 2026; DRAFT, kabul bekliyor)
+
+[#621](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/621) yalnız son kod taramasında bulunan dört yerel dosya-effect girişini kapsar: `conversion.convert/save_text`, `visual_commands.create_visual`, `note_images.add` ve `main_documents._keep_photo`. Önceden `os.replace`, doğrudan `write_bytes` / PIL `save` veya claimsiz kopyalama çıktıyı yarış durumunda ezebilir/yarım bırakabilirdi. Tek mevcut `file_resource_guard` namespace'i altında kaynak/hedef claim, private same-volume staging, fsync ve atomic no-replace `os.link` kullanılır. Bu kod **#621 exact-SHA Windows CI ve gerçek PC watcher PASS olmadan kabul edilmez**; yeni Scheduler, effectful canonical yetki veya sağlayıcı idempotency eklenmez.
+
+### BRAIN-07 #617 — file_ops native effect parity (TARİHSEL DRAFT KAYDI)
+
 
 PR #615 kaynak HEAD `8281c48006ed`, exact-head Windows CI + gerçek PC watcher kabulünden sonra `main`e squash merge edildi (`1bbe74c656a9`). Yukarıda #615 için yer alan "DRAFT/merge edilmedi" ifadeleri tarihsel taslak durumunu anlatır, güncel durum değildir.
 
