@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from PIL import Image
 from modules import note_images, personalization
@@ -47,6 +48,29 @@ class PhotoNotesTests(unittest.TestCase):
             with self.assertRaises(OSError): note_images.add(self.profile, 'Örnek', str(self.source))
         self.assertEqual(self.profile.data['items'], [])
         self.assertEqual(list(note_images.folder(self.profile).glob('*.png')), [])
+
+    def test_existing_note_image_name_cannot_be_overwritten(self):
+        directory = note_images.folder(self.profile)
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / 'claimed-image.png'
+        target.write_bytes(b'foreign image content')
+        identity = SimpleNamespace(uuid4=lambda: SimpleNamespace(hex='claimed-image'))
+        with patch.object(note_images, 'uuid', identity):
+            with self.assertRaises(FileExistsError):
+                note_images.add(self.profile, 'Not', str(self.source))
+        self.assertEqual(target.read_bytes(), b'foreign image content')
+        self.assertEqual(self.profile.data['items'], [])
+        self.assertFalse(list(directory.glob('.jarvis-note-*')))
+
+    def test_failed_note_publish_does_not_leave_partial_file(self):
+        with patch.object(note_images.os, 'link',
+                          side_effect=OSError('no create-only publish')):
+            with self.assertRaises(OSError):
+                note_images.add(self.profile, 'Not', str(self.source))
+        directory = note_images.folder(self.profile)
+        self.assertFalse(list(directory.glob('*.png')))
+        self.assertFalse(list(directory.glob('.jarvis-note-*')))
+        self.assertEqual(self.profile.data['items'], [])
 
     def test_empty_and_invalid_image_are_rejected(self):
         with self.assertRaises(ValueError): note_images.add(self.profile, '')
