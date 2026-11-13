@@ -44,10 +44,11 @@ def _log_core_feedback(runtime, entry):
 def _turn_with_listening_foreground(voice_session, invoke):
     """Run one engine turn without letting a provider wait close the microphone.
 
-    `invoke()` is the existing Brain/Core handoff, so the owner identity lock, the
-    request fence, the cancel checks and the speech window are exactly the caller's.
-    The seam only tells `model_wait` that while THIS thread is blocked on a bounded
-    provider answer, the interaction layer may take the microphone back.
+    `invoke()` may be the primary semantic Brain proposal or its later Core
+    handoff. The owner identity lock, request fence, cancel checks and speech
+    window remain exactly the caller's. The seam only tells `model_wait` that
+    while THIS thread awaits a bounded provider answer, the interaction layer
+    may take the microphone back. It does not transfer a long job to Scheduler.
     """
     hook = getattr(voice_session, "mic_open_during_model_wait", None)
     if hook is None:
