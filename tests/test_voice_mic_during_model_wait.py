@@ -81,6 +81,45 @@ class ForegroundSeam(unittest.TestCase):
         self.failures.assert_not_called()
         self.assertIsNone(model_wait._FOREGROUND.get())
 
+    def test_primary_brain_smart_router_opens_actual_mic_wait_scope(self):
+        # The primary semantic model bypasses model_wait.ask and calls the
+        # Smart Router directly. This regression exercises its production seam,
+        # not just the wrapper around brain_entry.prepare.
+        from modules import brain_model_understanding as primary
+        from modules.brain_contracts import (
+            UnderstandingResult, RequestKind, ConversationRelation,
+            TemporalNeed, Confidence,
+        )
+        current = UnderstandingResult(
+            owner='voice-p3-tests', request_id='semantic-1',
+            request_kind=RequestKind.CHAT, capability_hint=None,
+            arguments={}, conversation_relation=ConversationRelation.NEW_REQUEST,
+            temporal_need=TemporalNeed.UNSURE, confidence=Confidence.MEDIUM,
+        )
+        phases = []
+
+        @contextlib.contextmanager
+        def scope():
+            phases.append('entered')
+            try:
+                yield
+            finally:
+                phases.append('exited')
+
+        def router(*args, **kwargs):
+            phases.append('provider-called')
+            return '{}'  # invalid model proposal, but no live provider used
+
+        with patch.object(llm, 'provider', return_value='groq'), \
+                patch.object(llm.privacy, 'mode', return_value='normal'), \
+                patch('modules.smart_router.selection', return_value={'candidates': ['groq']}), \
+                patch('modules.smart_router.run', side_effect=router):
+            with model_wait.foreground(scope):
+                primary.propose(owner='voice-p3-tests', text='Merhaba',
+                                current=current, arguments={})
+        self.assertEqual(phases, ['entered', 'provider-called', 'exited'])
+        self.assertIsNone(model_wait._FOREGROUND.get())
+
     def test_without_a_foreground_hook_the_wait_result_and_contracts_are_unchanged(self):
         with patch.object(llm, 'ask', return_value='answer') as model:
             self.assertEqual(model_wait.ask('question', seconds=5), 'answer')
