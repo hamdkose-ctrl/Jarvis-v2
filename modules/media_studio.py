@@ -119,8 +119,20 @@ def run(owner,data,ffmpeg,output):
         with file_resource_guard.claim_paths(final):
             if final.exists() or final.is_symlink():
                 raise resource_leases.LeaseConflict('Studio output already exists.')
-            with completed.open('rb') as src,final.open('xb') as dst:
-                __import__('shutil').copyfileobj(src,dst)
-                dst.flush();os.fsync(dst.fileno())
-            return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
-                    'file':str(final),'sha256':task_results.file_digest(final),'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+            # A failed copy, fsync or digest must not leave a partial final
+            # video that the next invocation could mistake for a completed
+            # artifact. Keep cleanup under the exact same physical-file claim.
+            created = False
+            try:
+                with completed.open('rb') as src, final.open('xb') as dst:
+                    created = True
+                    __import__('shutil').copyfileobj(src, dst)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                digest = task_results.file_digest(final)
+                return {'state':'done','text':'Sahne, yazı'+(' ve yerel ses' if audio else '')+' montajı üretildi.',
+                        'file':str(final),'sha256':digest,'media':metadata,'studio':{'scenes':len(data['scenes']),'narration_backend':backend}}
+            except BaseException:
+                if created:
+                    final.unlink(missing_ok=True)
+                raise
