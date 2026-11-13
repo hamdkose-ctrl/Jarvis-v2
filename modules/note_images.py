@@ -6,6 +6,7 @@ import tempfile
 import uuid
 from pathlib import Path
 from PIL import Image
+from modules.diagnostics import record_failure as _record_failure
 from config import DATA_DIR
 
 
@@ -67,6 +68,7 @@ def add(profile, text, source='', title=''):
                 title=str(title or '').strip(),
             )
         except Exception:
+            _record_failure('modules/note_images.py:add')
             # If the owner journal cannot commit, only our newly published
             # UUID image is removed; pre-existing images remain untouched.
             saved.unlink(missing_ok=True)
