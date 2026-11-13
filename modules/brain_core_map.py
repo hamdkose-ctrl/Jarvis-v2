@@ -876,8 +876,12 @@ def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
         result["level"] = level
     if research:
         original = arguments.get("original_text")
-        if not isinstance(original, str) or not re.fullmatch(
-                r"\s*hoca modu\s*:\s*araştır\s+.+", original.casefold()):
+        source = (re.fullmatch(r"\s*hoca modu\s*:\s*araştır\s+(.+?)\s*[.!]*",
+                               original.casefold())
+                  if isinstance(original, str) else None)
+        # The requested subject must be the complete spoken suffix, not a
+        # model-extracted fragment of a longer negative or quoted sentence.
+        if source is None or source.group(1).strip() != topic.strip().casefold():
             return None
         result["research"] = True
     return result
