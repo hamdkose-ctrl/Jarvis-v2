@@ -845,13 +845,11 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
             file_operation_hint=file_operation_hint, file_refs=file_refs, owner=owner)
     if slots:
         return None
-    # Model alan doldurmadıysa payload deterministik kanıttan gelir; model hiç argüman uydurmaz.
-    if capability_id in {"finance.read", "documents.export", "system.diagnose"}:
-        payload = dict(supplied)
-    elif supplied:
-        payload = dict(supplied)
-    else:
-        payload = dict(deterministic_arguments)
+    # Model alone decides free-language arguments. An empty model payload
+    # stays empty: feeding the legacy lexical parser's slots back into a typed
+    # action would silently make that parser a second semantic decision owner.
+    # Core validators must reject missing required values, not invent them.
+    payload = dict(supplied)
     if capability_id != "finance.read" and "original_text" not in payload:
         payload = {"original_text": text, **payload}
     return payload, ()
