@@ -752,6 +752,12 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             contacts[name] = phone
             runtime.profile.save()
             return f"{name} kişisini kaydettim. Artık WhatsApp mesajları daha güvenilir gider."
+        case "meeting_prepare":
+            from modules import meeting_prep
+            from modules import requests_state
+            requests_state.check()
+            return meeting_prep.handle_typed(
+                runtime.profile, runtime.datetime.now(), hint=a["hint"])
         case "mail_read":
             from modules import engine_tools
             return engine_tools.mail_read_typed(runtime, a["source"])
