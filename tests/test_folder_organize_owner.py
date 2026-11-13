@@ -6,6 +6,55 @@ from unittest.mock import patch
 
 
 class FolderOrganizeOwnerTests(unittest.TestCase):
+    def test_external_creation_during_apply_never_overwrites_target(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            source.parent.mkdir()
+            source.write_text('mine', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            real_link = files.os.link
+
+            def racing_link(first, second):
+                Path(second).write_text('someone else', encoding='utf-8')
+                return real_link(first, second)
+
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                with patch.object(files.os, 'link', side_effect=racing_link):
+                    with self.assertRaises(FileExistsError):
+                        files.apply_organize([(source, target)], 'alice')
+                self.assertEqual(source.read_text(encoding='utf-8'), 'mine')
+                self.assertEqual(target.read_text(encoding='utf-8'), 'someone else')
+                receipt = files._undo_file('alice')
+                self.assertEqual(
+                    json.loads(receipt.read_text(encoding='utf-8'))[0][3],
+                    'intent',
+                )
+                self.assertEqual(files.undo_organize('alice'), 0)
+
+    def test_external_creation_during_undo_never_overwrites_original(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            source.parent.mkdir()
+            source.write_text('mine', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                self.assertEqual(files.apply_organize([(source, target)], 'alice'), 1)
+                real_link = files.os.link
+
+                def racing_link(first, second):
+                    Path(second).write_text('someone else', encoding='utf-8')
+                    return real_link(first, second)
+
+                with patch.object(files.os, 'link', side_effect=racing_link):
+                    self.assertEqual(files.undo_organize('alice'), 0)
+                self.assertEqual(source.read_text(encoding='utf-8'), 'someone else')
+                self.assertEqual(target.read_text(encoding='utf-8'), 'mine')
+                self.assertTrue(files._undo_file('alice').exists())
+
     def setUp(self):
         from modules import file_resource_guard
         self.claim_tmp = tempfile.TemporaryDirectory()

@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 from pathlib import Path
 
 from config import DATA_DIR
@@ -181,6 +180,22 @@ def _free_name(dst: Path) -> Path:
     return dst
 
 
+def _move_create_only(source: Path, destination: Path) -> None:
+    """Same-volume file move without ever replacing another path.
+
+    An existing destination (including one created by a non-cooperating
+    process after our preflight) makes os.link fail atomically. Cross-volume
+    moves and filesystems without hard links fail closed rather than falling
+    back to shutil.copy2, which could overwrite a racing destination.
+    The caller writes the intent receipt before this operation: a crash
+    between link and unlink leaves an unknown effect, never an auto-retry.
+    """
+    os.link(source, destination)
+    if not os.path.samefile(source, destination):
+        raise OSError('Source identity changed during create-only move.')
+    source.unlink()
+
+
 def _content_digest(path: Path) -> str:
     """Content-bound undo identity, stable across a same-bytes restored file."""
     digest = hashlib.sha256()
@@ -270,7 +285,7 @@ def apply_organize(plan: list[tuple[Path, Path]], owner: str = "",
                             receipt, json.dumps(moved + [pending],
                                                 ensure_ascii=False).encode('utf-8'),
                         )
-                        shutil.move(str(source), str(final))
+                        _move_create_only(source, final)
                         pending[3] = 'moved'
                         moved.append(pending)
                         # Mark only a proven move. If this write fails, the
@@ -315,7 +330,7 @@ def undo_organize(owner: str = "") -> int | None:
                                 or _content_digest(source) != entry[2]):
                             blocked.append(entry)
                             continue
-                        shutil.move(str(source), str(destination))
+                        _move_create_only(source, destination)
                         restored += 1
                 except (OSError, resource_leases.LeaseConflict):
                     blocked.append(entry)
