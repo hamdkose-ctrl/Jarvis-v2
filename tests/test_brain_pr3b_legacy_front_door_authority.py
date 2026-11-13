@@ -923,7 +923,20 @@ def _source_calls(marker: str) -> list[str]:
             func = node.func
             name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else None)
             dotted = ast.unparse(func) if "." in marker else None
-            if name == marker or (dotted and dotted.split(".")[-2:] == marker.split(".")):
+            # A dynamic lookup can become a call after assignment:
+            # handler = getattr(runtime, "_extra_commands"); handler(text).
+            # Count it conservatively as a possible caller; do not certify
+            # caller-zero just because ast.Call.func is the name "getattr".
+            dynamic = False
+            if (name == "getattr" and len(node.args) >= 2
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)):
+                field = node.args[1].value
+                dynamic = field == marker if "." not in marker else (
+                    (ast.unparse(node.args[0]) + "." + field).split(".")[-2:]
+                    == marker.split(".")
+                )
+            if dynamic or name == marker or (dotted and dotted.split(".")[-2:] == marker.split(".")):
                 found.append(path.relative_to(ROOT).as_posix())
                 break
     return found
