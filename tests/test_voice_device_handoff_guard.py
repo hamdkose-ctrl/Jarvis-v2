@@ -211,3 +211,40 @@ class BargeWorkerBoundTests(TestCase):
         session._barge_closed.set()
         session._schedule_barge_watch(threading.Event())
         factory.assert_not_called()
+
+
+class LateWakeResultFenceTests(TestCase):
+    def test_shutdown_during_wake_capture_cannot_interrupt_future_speech(self):
+        from modules import wakeword
+        stop = threading.Event()
+        speaker = SimpleNamespace(stop_speaking=Mock())
+        runtime = SimpleNamespace(
+            flags={"mic": True}, stop_event=stop, voice=speaker,
+            time=SimpleNamespace(time=lambda: 10.0),
+            audio_lock=contextlib.nullcontext(), WAKE_WORD="Hey Jarvis",
+            SESSION_SECONDS=30, log=Mock(), _record_failure=Mock(),
+        )
+        session = engine_voice.VoiceSession.__new__(engine_voice.VoiceSession)
+        session.runtime = runtime
+        session.listening_enabled = True
+        session.manual_local_stt = False
+        session._barge_closed = threading.Event()
+        session.state = {"awake_until": 0.0}
+        done = Mock()
+        done.wait.return_value = False
+        done.is_set.return_value = False
+
+        def delayed_hit(*args, **kwargs):
+            stop.set()  # The old engine has exited before wake returns.
+            return b"late-wake"
+
+        with (
+            patch.object(wakeword, "wanted", return_value=True),
+            patch.object(wakeword, "ready", return_value=True),
+            patch.object(wakeword, "wait", side_effect=delayed_hit),
+            patch("modules.engine_voice._physical_mic_claim",
+                  return_value=contextlib.nullcontext()),
+        ):
+            session._barge_watch(done)
+        speaker.stop_speaking.assert_not_called()
+        self.assertEqual(session.state["awake_until"], 0.0)
