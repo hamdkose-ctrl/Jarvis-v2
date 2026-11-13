@@ -60,9 +60,9 @@ def enqueue(owner: str, request_id: str, text: str):
     """Durably admit one typed CREATE; never invoke a model in the engine turn."""
     if (not isinstance(owner, str) or not owner.strip()
             or not isinstance(request_id, str) or not request_id.strip()
-            or not isinstance(text, str) or not text.strip() or len(text) > 20000
-            or text != text.strip()):
+            or not isinstance(text, str) or not text.strip() or len(text) > 20000):
         raise ValueError("Background planning request invalid.")
+    text = text.strip()
     requests_state.check()
     job_id, planner_rid = _identity(owner, request_id)
     root = goal_executor._root(owner)
@@ -174,15 +174,19 @@ def execute(profile, job_id: str, *, stop_event=None):
                 or "goal_plan" in state):
             return False
         planner_rid = record["_planner_rid"]
-        if requests_state.is_cancelled(owner, planner_rid) or (
-                stop_event is not None and stop_event.is_set()):
-            # Do not run the model after the user cancelled or JARVIS stopped.
+        cancelled = requests_state.is_cancelled(owner, planner_rid)
+        if stop_event is not None and stop_event.is_set():
             return False
+        # Persist a one-shot dispatch claim before any external call. If a
+        # cancelled entry is discovered, park it instead of offering it forever.
         record["state"] = "planning_running"
         record["updated"] = time.time()
         release_guard.atomic(execution_record.path_for(root, job_id),
                              execution_record.encode(record))
         text = record["request"]
+    if cancelled:
+        _park(root, owner, job_id, reason="PLANNER_CANCELLED_BEFORE_START")
+        return "review"
 
     token = llm._key_context.set(owner)
     try:
