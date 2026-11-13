@@ -131,6 +131,26 @@ class OffPatternCapabilityProposalTests(unittest.TestCase):
         self.assertEqual(result.capability_hint, "notes.read")
         self.assertEqual(core_plan(result.capability_hint, result.arguments)[0], "notes_read")
 
+    def test_model_can_replace_legacy_app_guess_with_youtube_site_browser_target(self):
+        text = "Chrome'da YouTube aç"
+        raw = envelope(actions=[action(
+            capability_id="media.search",
+            arguments={"service": "youtube_home", "browser": "chrome"})],
+            confidence="HIGH")
+        base, decided = applied(text, raw)
+        self.assertIsNot(decided, base)
+        self.assertIs(decided.request_kind, RequestKind.CAPABILITY)
+        self.assertEqual(decided.capability_hint, "media.search")
+        self.assertEqual(core_plan(decided.capability_hint, decided.arguments),
+                         ("media_search", {"service": "youtube_home", "browser": "chrome"}))
+
+    def test_youtube_home_and_explicit_app_are_different_typed_core_operations(self):
+        site = core_plan("media.search", {"service": "youtube_home"})
+        app = core_plan("app.open", {"app": "youtube"})
+        self.assertEqual(site, ("media_search", {"service": "youtube_home"}))
+        self.assertEqual(app, ("app_open", {"name": "youtube"}))
+        self.assertNotEqual(site, app)
+
     def test_app_sentence_without_any_pattern_proposes_app_open(self):
         text = "spotify çalmaya başlasın artık"
         self.assert_no_regex_capability(text)
