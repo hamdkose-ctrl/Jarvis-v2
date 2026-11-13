@@ -265,9 +265,14 @@ def isolated_worktree_path(ref: str, sha: str, *, nonce: str | None = None) -> P
     nonce = secrets.token_hex(8) if nonce is None else nonce
     if not re.fullmatch(r"[0-9a-f]{16}", nonce):
         raise ValueError("PC validation attempt token invalid.")
-    name = safe_name(ref)
-    if not name or name.startswith((".", "-")) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
-        raise ValueError("Remote branch name invalid for isolated PC acceptance.")
+    # A valid Git branch may contain Unicode or '+'; sanitize only the local
+    # directory component instead of rejecting otherwise eligible open PRs.
+    raw = safe_name(ref)
+    if not raw or raw == ref:
+        raise ValueError("Remote branch ref invalid for isolated PC acceptance.")
+    name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._-")
+    if not name:
+        name = "branch"
     return (Path(tempfile.gettempdir()) / "jarvis-pc-acceptance" /
             (name[:48] + "-" + sha[:8] + "-" + nonce))
 
