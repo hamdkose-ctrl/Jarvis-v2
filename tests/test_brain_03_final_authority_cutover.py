@@ -207,6 +207,45 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertEqual(_note_write_request("market notunu sil"), ("delete", "market"))
         self.assertEqual(_note_write_request("market notunu düzelt: süt al"), ("update", "market"))
 
+    def test_single_typed_core_failure_is_never_reported_as_handled(self):
+        from modules.engine_intents import ActionOutcome
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=self.propose("device.share", {"action": "camera"})), \
+             patch("modules.engine_intents.dispatch",
+                   return_value=ActionOutcome("Kamera açılamadı.", False)) as dispatch, \
+             patch.object(self.ctx, "handle",
+                          side_effect=AssertionError("raw handler replay")) as fallback:
+            entry, output, _handler, feedback = self.turn_real(
+                "Kamerayı aç", model_understanding=True)
+        self.assertEqual(brain_entry.core_plan(entry),
+                         ("share_control", {"action": "camera"}))
+        self.assertEqual(output, "Kamera açılamadı.")
+        self.assertEqual(feedback.result_status, "failed")
+        self.assertEqual(feedback.reason_code, "CORE_ACTION_FAILED")
+        dispatch.assert_called_once()
+        fallback.assert_not_called()
+
+    def test_single_typed_core_success_preserves_success_feedback(self):
+        from modules.engine_intents import ActionOutcome
+        with patch.object(brain_entry, "apply_model_understanding",
+                          side_effect=self.propose("device.share", {"action": "camera"})), \
+             patch("modules.engine_intents.dispatch",
+                   return_value=ActionOutcome("Kamera açıldı.", True)) as dispatch:
+            _entry, output, _handler, feedback = self.turn_real(
+                "Kamerayı aç", model_understanding=True)
+        self.assertEqual(output, "Kamera açıldı.")
+        self.assertEqual(feedback.result_status, "handled")
+        dispatch.assert_called_once()
+
+    def test_document_output_is_not_hidden_by_other_session_artifacts(self):
+        from modules.brain_model_understanding import _current_output
+        doc = {"slot": "last_doc", "label": "Son rapor"}
+        workbench = {"slot": "last_workbench", "label": "Tablo"}
+        self.assertEqual(_current_output([doc, workbench])["slot"], "last_doc")
+        self.assertTrue(_current_output([doc, workbench])["available"])
+        self.assertFalse(_current_output([workbench])["available"])
+        self.assertFalse(_current_output([doc, doc])["available"])
+
     def test_failed_model_negated_note_delete_is_safe_in_real_production_turn(self):
         from modules import brain_model_understanding
         original = self.ctx.profile.add_note_item("KORUNACAK")
