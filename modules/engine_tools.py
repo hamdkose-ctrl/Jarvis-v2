@@ -38,65 +38,10 @@ def _file_command(runtime, command: str) -> str | None:
     from modules import main_documents
     return main_documents._file_command(runtime, command)
 
-def _study_media_topic(runtime, cmd_lower: str) -> str:
-    t = runtime.re.sub(r"\b(bununla|bunlarla|bu konuyla|konuyla|alakalı|ilgili|hakkında|bir|bana|birkaç|sağ\w*|sekme\w*|pencere\w*|"
-               r"görsel\w*|resim\w*|fotoğraf\w*|şekil\w*|video\w*|wikipedia\w*|vikipedi\w*|youtube\w*|göster\w*|aç\w*|"
-               r"ver\w*|bul\w*|getir\w*|misin|mısın|musun|müsün|lütfen|gösteren|arasındaki|farkı?|olabilir|mesela|örneğin|yani|"
-               r"sanki|şey|acaba|daha|olarak|şimdi|hemen|da|de)\b", " ", cmd_lower)
-    return runtime.re.sub(r"\s+", " ", t).strip(" .,?!")
-
-def _study_intent(runtime, cmd_lower: str) -> str | None:
-    # Hoca modu: yalnız açık söyleniş ("hoca modu: X", "X konusunu öğret") ve aktif dersin komut/cevapları; gerisi normal yol.
-    from modules import requests_state
-    try:
-        from config import load_settings
-        from modules import hoca
-        settings = load_settings()
-        reply = hoca.handle(runtime.profile, cmd_lower, enabled=bool(settings.get("hoca_enabled", True)))
-        if reply:
-            if settings.get("hoca_voice_full"):
-                # Sesli Hoca modu (6. adım): genel kısa okuma sınırı (400 karakter) ders anlatımını
-                # yarıda keser; bu ayar açıkken tam metin okunur. En iyi çaba — başarısız olursa
-                # yazılı cevap etkilenmez, yalnız sesli okuma normal kısa haline döner.
-                try:
-                    runtime._session().speech_override = runtime.richtext.speakable(reply)
-                except Exception:
-                    runtime._record_failure('main.py:_study_intent')
-            return reply
-    except (requests_state.Cancelled, PermissionError):
-        raise
-    except Exception:
-        runtime._record_failure('main.py:_study_intent')
-    if runtime.re.fullmatch(r"(?:ders )?çalışmaya başla[.! ]*", cmd_lower.strip()):
-        runtime.emit("study_start", "")
-        return "Çalışma ekranında seçili konu veya kaynaktan dersi hazırlıyorum."
-    # Çalışırken "görsel/video göster": tarayıcıda Google açmak yerine Çalışma ekranındaki yan pencerede göster
-    if runtime._MEDIA_Q.search(cmd_lower):
-        try:
-            from modules import study
-            if study._state(runtime.profile).get("docs"):
-                topic = runtime._study_media_topic(cmd_lower)
-                if len(topic) < 3:
-                    topic = study.last_topic(runtime.profile)
-                if topic:
-                    runtime.emit("nav", "study")
-                    runtime.emit("study_media", topic)
-                    return f"{topic} ile ilgili görselleri ve videoları sağdaki pencerede açtım."
-        except Exception:
-            runtime._record_failure('main.py:_study_intent')
-    plan_q = runtime.re.search(r"(?:ders|çalışma)\s+program|programım|bugün ne çalış|bugünkü çalışma", cmd_lower)
-    focus_q = runtime.re.search(r"(?:hangi|ne)\s+(?:konu\w*\s+|derse?\s+)?çalış|hangi\s.{0,25}konu\w*\s.{0,12}çalış|neye çalış|ne çalışay|sınav analiz\w*|"
-                        r"zayıf\s+(?:olduğum|konu)|eksik\s+(?:olduğum|konu)|eksiklerim|nereden başla", cmd_lower)
-    if not (plan_q or focus_q):
-        return None
-    return study_read(runtime, 'plan' if plan_q else 'focus', missing_reply=False)
-
-
 def study_read(runtime, view: str, *, missing_reply: bool = True) -> str | None:
     """Typed Core study read; never classifies a new natural-language request.
 
-    Existing Hoca mode/pending lesson state stays with hoca.handle. The old
-    raw entry may call this same worker during unavailable-model parity.
+    Lesson progression has a separate State and typed Hoca worker.
     """
     if view not in {'plan', 'focus'}:
         raise ValueError("Study view must be Core-validated.")
@@ -311,81 +256,3 @@ def _daily_briefing(runtime) -> str:
 def _morning_brief(runtime) -> None:
     from modules import main_planner
     return main_planner._morning_brief(runtime)
-
-def _important_mail(ga, outlook, cmd_lower: str) -> str:
-    """"Önemli maillerim": önem işareti yalnız Gmail'de var. Gmail bağlıysa o (Outlook da varsa iş maili yolunu söyler);
-    Gmail yoksa Outlook'un okunmamışları ve neden öyle olduğu; ikisi de yoksa neyin eksik olduğu."""
-    if ga._ready() is None:
-        reply = ga.important_text()
-        if outlook.installed():
-            reply += ' İş mailin (Outlook) için "iş maillerimi kontrol et" de.'
-        return reply
-    if outlook.installed():
-        return outlook.unread_mail(prefix="Gmail bağlı değil, o yüzden önemli işaretine bakamadım. "
-                                          + outlook.IMPORTANT_NOTE)
-    reply = ga.important_text()
-    if reply != ga.SETUP_HELP:
-        return reply
-    return reply + " Bu bilgisayarda klasik Outlook da kurulu değil, iş maili için o da kullanılamıyor."
-
-def _mail_handle(runtime, cmd_lower: str) -> str | None:
-    """İş maili (Outlook) açıkça istenirse yalnızca onu; genel 'maili kontrol et'te Gmail + açıksa Outlook.
-
-    BRAIN-MIG-051 (§12) envanteri: bu dört sıra (meeting prep → Outlook draft → Outlook okuma →
-    Gmail) provider/account değişmezlerinin domain sahibidir; "bu cümle mail mi?" hükmünü de
-    burada verir. Kanonical communication/mail capability ve Core eşlemesi gelene kadar bu hüküm
-    PR3C satırıdır (kilit: `CascadeRootTests.test_the_mail_owner_is_reached_only_from_the_cascade`
-    — yüzeylerden hiçbir yer doğrudan buraya bakamaz, tek giriş cascade kolu). Provider eklenmez,
-    Gmail/Outlook davranışı yeniden yazılmaz.
-    """
-    from modules import meeting_prep, outlook
-    if meeting_prep.asked(cmd_lower):
-        return meeting_prep.handle(cmd_lower, runtime.profile, runtime.datetime.now())
-    reply = outlook.draft_handle(cmd_lower, getattr(runtime, "ask", None))
-    if reply is not None:
-        return reply
-    reply = outlook.handle(cmd_lower)
-    if reply is not None:
-        return reply
-    ga = runtime.google_api
-    from modules import google_api as _g
-    if _g._IMPORTANT.search(cmd_lower) and not _g._MAIL_SEND.search(cmd_lower):
-        return _important_mail(_g, outlook, cmd_lower)
-    reply = ga.handle(cmd_lower)
-    if reply is not None and runtime.google_api._MAIL_CHECK.search(cmd_lower) and outlook.installed():
-        reply = "Gmail: " + reply + " İş (Outlook): " + outlook.unread_mail()
-    return reply
-
-def _screen_text_fallback_operation(normalized: str) -> str | None:
-    """Exact compatibility forms for model outage, not a second OCR effect owner.
-
-    Fail closed on negation, quotes, surrounding instructions or unrecognized
-    paraphrases; normal free-language requests belong to the model/Core.
-    """
-    import re
-    if not isinstance(normalized, str):
-        return None
-    phrase = normalized.strip(" .!?")
-    if re.fullmatch(r"ekrandaki\s+hata\w*\s+(?:not\s+al|kaydet|nota\s+ekle|not\s+et)", phrase):
-        return "error_note"
-    if re.fullmatch(r"(?:ekrandaki\s+(?:metn\w*|yaz\w*)|ekranın\s+metnini)\s+oku", phrase):
-        return "read"
-    if re.fullmatch(r"(?:ekrandaki\s+(?:metn\w*|yaz\w*)|ekranın\s+metnini)\s+(?:kopyala|al|çıkar)", phrase):
-        return "copy"
-    # Old exact standalone noun meant copy, not read; retain only this bounded form.
-    if phrase == "ekranın metnini":
-        return "copy"
-    return None
-
-
-_DAILY_BRIEF_FALLBACK = frozenset({
-    "günlük özet", "günlük özet ver", "bugünün özeti", "bugünün özetini ver",
-    "sabah özeti", "günümü özetle", "brifing", "gün özeti",
-    "bugün neler oldu", "bugün neler var", "bugün ne var", "neler var bugün",
-    "günüm nasıl", "bugünkü durum", "bugün ne yapıyoruz",
-})
-
-
-def _daily_brief_fallback_request(normalized: str) -> bool:
-    """Exact model-outage protocol, not a substring classifier over user data."""
-    return isinstance(normalized, str) and normalized.strip(" .!?") in _DAILY_BRIEF_FALLBACK
