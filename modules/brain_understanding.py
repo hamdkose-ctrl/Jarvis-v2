@@ -2744,7 +2744,10 @@ def apply_model_understanding(result: UnderstandingResult, text: str, *,
         next_preview = result.preview
         next_references = proposal.references if proposal.references else result.references
         next_ambiguities = result.ambiguities
-        next_reason_codes = result.reason_codes
+        # Only an accepted, schema-validated model proposal may authorize free
+        # language. Deterministic Understanding is evidence, never the fallback
+        # decision maker when the model does not produce a valid proposal.
+        next_reason_codes = result.reason_codes + ("MODEL_DECIDED",)
         # BRAIN-03: distinguish an accepted model CHAT decision from a model
         # failure returning the deterministic fallback. Otherwise the old raw
         # handler may turn a negative/quoted chat utterance into an effect.
