@@ -853,6 +853,42 @@ def _media_search_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     return {"service": service, "query": query.strip()}
 
 
+def _finance_alert_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate fields, never classify raw alarm language or accept model rule IDs."""
+    if set(arguments) - {"original_text", "operation", "asset", "value",
+                         "direction", "index"}:
+        return None
+    operation = arguments.get("operation")
+    if operation == "list":
+        return {"operation": "list"} if set(arguments) <= {"original_text", "operation"} else None
+    if operation == "delete":
+        index = arguments.get("index")
+        if type(index) is int and 1 <= index <= 20 and set(arguments) <= {
+                "original_text", "operation", "index"}:
+            return {"operation": "delete", "index": index}
+        return None
+    if operation != "add" or set(arguments) - {
+            "original_text", "operation", "asset", "value", "direction"}:
+        return None
+    asset, value, direction = (arguments.get("asset"), arguments.get("value"),
+                                arguments.get("direction"))
+    if not isinstance(asset, str) or not asset.strip() or len(asset) > 60:
+        return None
+    if direction not in ("above", "below") or not isinstance(value, str) or not re.fullmatch(
+            r"\d{1,8}(?:[.,]\d{1,4})?", value.strip()):
+        return None
+    parsed = float(value.replace(",", "."))
+    if not 0 < parsed <= 100_000_000:
+        return None
+    from modules import finance_alert_commands
+    try:
+        kind, symbol = finance_alert_commands._asset(asset)
+    except ValueError:
+        return None
+    return {"operation": "add", "kind": kind, "symbol": symbol,
+            "direction": direction, "value": parsed}
+
+
 def _hoca_start_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
     """Typed lesson target and explicit bounded public-source request.
 
@@ -1224,6 +1260,7 @@ CORE_INTENTS: dict[str, tuple[str, Callable[[Mapping[str, Any]], dict[str, Any] 
     "kb.query": ("kb_query", _kb_query_args),
     "worktrack.read": ("worktrack_read", _worktrack_read_args),
     "hoca.lesson.start": ("hoca_start", _hoca_start_args),
+    "finance.alert.manage": ("finance_alert_manage", _finance_alert_manage_args),
     "browser.page.read": ("browser_page", _browser_page_args),
     "media.search": ("media_search", _media_search_args),
     "filesend.transfer": ("filesend_transfer", _filesend_transfer_args),
