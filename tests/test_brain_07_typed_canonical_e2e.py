@@ -904,7 +904,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
                 raise OSError('simulated process death after Core terminal CAS')
             return original(path, data)
 
-        sink = Mock()
+        sink = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={
                               'action': 'complete', 'goal': 0,
@@ -948,7 +948,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
     def test_pre_core_cas_crash_cannot_expose_uncompleted_result(self):
         """RED: pre-CAS prepared record is durable but never a completion."""
         job_id = self._accepted_canonical_research_for_crash_test()
-        sink = Mock()
+        sink = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={
                               'action': 'complete', 'goal': 0,
@@ -1063,7 +1063,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             _, _, _, job_id = self.typed_turn()
         with patch.object(canonical_plan_evidence, 'certify_projected_plan',
                           side_effect=canonical_plan_evidence.PlanEvidenceError('no complete proof')):
-            notified = Mock()
+            notified = Mock(return_value={'ui': 'delivered'})
             self.assertFalse(canonical_goal_flow.complete_and_deliver(self.owner, job_id, notified))
         self.assertEqual(self.persisted(job_id)[0]['state'], 'pending')
         notified.assert_not_called()
@@ -1086,6 +1086,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         def notify(owner, ident, text):
             messages.append((owner, ident, text))
             completed.set()
+            return {'ui': 'delivered'}
         def finished(owner, ident):
             try:
                 callback_results.append(canonical_goal_flow.complete_and_deliver(
@@ -1187,6 +1188,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         def sink(owner, ident, text):
             sent.append((owner, ident, text))
             completed.set()
+            return {'ui': 'delivered'}
         def finished(owner, ident):
             canonical_goal_flow.complete_and_deliver(owner, ident, sink)
 
@@ -1415,7 +1417,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         accepted = [r['step_id'] for r in state['evidence']
                     if r.get('kind') == 'worker_result' and r.get('status') == 'succeeded']
         self.assertEqual(accepted, ['unread', 'read'])
-        notified = Mock()
+        notified = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
             'action': 'complete', 'goal': 0, 'evidence': ['unread', 'read'],
         }):
@@ -1567,7 +1569,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             {'unread', 'research', 'read'},
         )
         self.assertTrue(all(row['state'] == 'done' for row in record['steps']))
-        received = Mock()
+        received = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal', return_value={
             'action': 'complete', 'goal': 0,
             'evidence': ['unread', 'research', 'read'],
@@ -1662,6 +1664,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             with lock:
                 sink_calls.append((owner, ident, text))
             delivered.set()
+            return {'ui': 'delivered'}
 
         def complete(owner, ident):
             try:
@@ -1912,7 +1915,7 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
             ))
         proof = canonical_plan_evidence.certify_projected_plan(self.owner, job_id)
         self.assertEqual(proof.job_id, job_id)
-        notified = Mock()
+        notified = Mock(return_value={'ui': 'delivered'})
         with patch.object(canonical_goal_flow, '_semantic_proposal',
                           return_value={'action': 'ask', 'question': 'Not enough evidence'}):
             self.assertFalse(canonical_goal_flow.complete_and_deliver(
@@ -1922,3 +1925,93 @@ class TypedCanonicalFlowTests(_CanonicalAuthorityHarness):
         self.assertEqual(state['state'], 'pending')
         self.assertEqual(journal['state'], 'running')
         notified.assert_not_called()
+
+    def test_owner_question_answer_rechecks_same_dag_without_worker_replay(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        notified = Mock(return_value={'ui': 'delivered'})
+        question = 'Hangi karşılaştırmayı istiyorsun?'
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'ask', 'question': question}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'pending')
+        self.assertEqual(journal['state'], 'running')
+        dialog = journal['_canonical_dialog']
+        self.assertEqual(dialog['state'], 'waiting')
+        self.assertEqual(dialog['delivery'], 'ui_accepted')
+        self.assertEqual(dialog['round'], 1)
+        self.assertEqual(notified.call_count, 1)
+        self.assertIn('hedef cevap ' + job_id, notified.call_args.args[2])
+        self.assertIn(question, goal_executor.status_summary(journal))
+        self.assertEqual(canonical_scheduler_dispatch.recoverable_completions(
+            self.owner,
+        ), ())
+        with self.assertRaises(ValueError):
+            canonical_goal_flow.delivery_metadata(self.owner, job_id)
+        before = self.persisted(job_id)
+        self.assertIn('açıklama kabul etmiyor',
+                      canonical_goal_flow.read_result_command(
+                          'other-owner', 'hedef cevap ' + job_id + ' yanlış',
+                      ))
+        self.assertEqual(before, self.persisted(job_id))
+        answer = canonical_goal_flow.read_result_command(
+            self.owner, 'hedef cevap ' + job_id + ' Tarihleri karşılaştır',
+        )
+        self.assertIn('Yanıt bu hedefe kaydedildi', answer)
+        self.assertIn('açıklama kabul etmiyor',
+                      canonical_goal_flow.read_result_command(
+                          self.owner, 'hedef cevap ' + job_id + ' bir daha',
+                      ))
+        self.assertEqual([x.job_id for x in
+                          canonical_scheduler_dispatch.recoverable_completions(
+                              self.owner)], [job_id])
+
+        def semantic_after_answer(owner, job, node_ids):
+            self.assertEqual(job['_canonical_dialog']['state'], 'answered')
+            self.assertEqual(job['_canonical_dialog']['answer'],
+                             'Tarihleri karşılaştır')
+            self.assertEqual(node_ids, ('first',))
+            return {'action': 'complete', 'goal': 0, 'evidence': ['first']}
+
+        with patch.object(task_agents, 'worker',
+                          side_effect=AssertionError('worker replay')) as worker, \
+             patch.object(canonical_goal_flow, '_semantic_proposal',
+                          side_effect=semantic_after_answer):
+            self.assertTrue(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, notified,
+            ))
+            worker.assert_not_called()
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'delivered')
+        self.assertEqual(journal['_canonical_ui_receipt']['event_id'],
+                         'canonical:' + job_id)
+        self.assertEqual(notified.call_count, 2)
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, notified,
+        ))
+        self.assertEqual(notified.call_count, 2)
+
+    def test_unknown_ui_delivery_never_claims_delivered_or_resends(self):
+        job_id = self._accepted_canonical_research_for_crash_test()
+        sink = Mock(return_value=None)
+        with patch.object(canonical_goal_flow, '_semantic_proposal',
+                          return_value={'action': 'complete', 'goal': 0,
+                                        'evidence': ['first']}):
+            self.assertFalse(canonical_goal_flow.complete_and_deliver(
+                self.owner, job_id, sink,
+            ))
+        state, journal = self.persisted(job_id)
+        self.assertEqual(state['state'], 'done')
+        self.assertEqual(journal['_canonical_delivery'], 'reserved')
+        self.assertNotIn('_canonical_ui_receipt', journal)
+        sink.assert_called_once()
+        self.assertIn(job_id, canonical_goal_flow.read_completed_result(
+            self.owner, job_id,
+        ))
+        self.assertFalse(canonical_goal_flow.complete_and_deliver(
+            self.owner, job_id, sink,
+        ))
+        sink.assert_called_once()
