@@ -259,6 +259,32 @@ class FileEffectClaimTests(unittest.TestCase):
         self.assertEqual(result['sha256'],
                          media_studio.task_results.file_digest(result['file']))
 
+    def test_ffmpeg_source_is_claimed_during_full_encoder_window(self):
+        """A second Jarvis process holding the image prevents unsafe render."""
+        from modules import media_tools, nxapi
+        root = self.base / 'media-source-claims'
+        root.mkdir()
+        image = root / 'input.png'
+        image.write_bytes(b'verified source')
+        digest = media_tools.task_results.file_digest(image)
+        calls = []
+        child = self.holder(image, other_data_dir=True)
+        try:
+            with patch.object(nxapi, 'FILES_DIR', root), \
+                 patch.object(media_tools.service_store, 'identity'), \
+                 patch.object(media_tools.shutil, 'which', return_value='ffmpeg'), \
+                 patch.object(media_tools.requests_state, 'check'), \
+                 patch.object(media_tools.subprocess, 'run',
+                              side_effect=lambda *a, **k: calls.append(a)):
+                with self.assertRaises(file_resource_guard.resource_leases.LeaseConflict):
+                    media_tools.run('alice', {
+                        'image': str(image), 'image_sha256': digest, 'duration': 1,
+                    })
+            self.assertEqual(calls, [], 'FFmpeg started before source claim')
+            self.assertEqual(image.read_bytes(), b'verified source')
+        finally:
+            self.close_holder(child)
+
     def test_ffmpeg_single_video_failed_render_never_publishes_partial_output(self):
         from modules import media_tools, nxapi
         root = self.base / 'media-files'
