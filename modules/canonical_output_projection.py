@@ -190,8 +190,9 @@ def project_accepted(owner: str, job_id: str, step_id: str, output: dict) -> boo
         ))
         for attempt, delay in enumerate(
                 _PROJECTION_RETRY_DELAYS if _WINDOWS else (0.0,)):
-            if delay:
-                time.sleep(delay)
+            if attempt:
+                if delay:
+                    time.sleep(delay)
                 # This is the SAME accepted result, not a new attempt. Every
                 # retry must still belong to the live canonical plan, and no
                 # foreign writer may have changed the ExecutionRecord.
