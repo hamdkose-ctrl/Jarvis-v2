@@ -207,6 +207,11 @@ class VoiceSession:
                     self._barge_pending = None
                     return
 
+    def _idle_if_silent(self):
+        """Never claim a quiet UI while the actual speaker cut is unconfirmed."""
+        if not self.speech_blocks_mic():
+            self.runtime.emit("state", "idle")
+
     def submit_voice(self, command: str) -> bool:
         """Only an accepted command leaves listening paused for the event loop."""
         runtime = self.runtime
@@ -218,7 +223,7 @@ class VoiceSession:
         finally:
             if not accepted:
                 runtime.pause_listening.clear()
-                runtime.emit("state", "idle")
+                self._idle_if_silent()
 
     def speech_blocks_mic(self) -> bool:
         """True while this machine's speaker may still be carrying audio.
@@ -381,7 +386,7 @@ class VoiceSession:
             return True                   # "Hey Jarvis" duyulmadı; döngü yeniden dinler
         cmd = runtime._strip_wake(runtime.voice.recognize(audio) or "") if audio else ""
         if should_stop():
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if not cmd and not runtime.flags.get("sleep") and not should_stop():
             # Komut duyulmadı ya da yalnızca "Jarvis"in sonu duyuldu ("servis"): sormadan bir kez daha dinle
@@ -396,12 +401,12 @@ class VoiceSession:
             cmd = runtime._strip_wake(again or "")
             audio = audio or (b"x" if again else b"")
         if should_stop():
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if runtime.flags.get("sleep"):            # hazırda bekle: yalnızca "Hey Jarvis, uyan"
             if runtime.re.search(r"uyan|kalk|devam|hazır|aç", runtime._tr_lower(cmd)):
                 runtime.set_sleep(False)
-            runtime.emit("state", "idle")
+            self._idle_if_silent()
             return True
         if not cmd:
             self.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS    # adı duydu, komutu bekliyor
@@ -409,7 +414,7 @@ class VoiceSession:
                 runtime.pause_listening.set()
                 runtime.events.put(("say", "Anlayamadım, tekrar söyler misin?"))
             else:
-                runtime.emit("state", "idle")
+                self._idle_if_silent()
             return True
         self.submit_voice(cmd)
         return True
