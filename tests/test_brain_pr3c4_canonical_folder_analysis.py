@@ -113,9 +113,9 @@ class _FolderHarness(pr3b._RawDoorHarness):
         starter = patch("modules.llm.ask", ask)
         starter.start()
         self.addCleanup(starter.stop)
-        # Eski ham kapı gerçek cascade'i yürütür (pr3b onu Mock'lar): taşıma/geri alma kolları kalsın.
-        self.ctx._extra_commands = lambda command, lowered: engine_tools._extra_commands(
-            self.ctx, command, lowered)
+        # The removed raw cascade is not reinstated in this harness.
+        # Canonical folder analysis executes directly through its Core worker.
+        self.assertFalse(hasattr(engine_tools, "_extra_commands"))
         self.ctx._session().pending_organize = None
 
     def seed(self, folder, *names):
