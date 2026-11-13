@@ -663,37 +663,48 @@ def agenda_open_request(cmd_lower: str) -> bool:
 
 
 def continue_pending_event_title(runtime, command: str, cmd_lower: str) -> str | None:
-    """Only a canonical State-owned reminder-title answer may reach this worker.
+    """Consume only the current owner's canonical reminder-date or confirmation answer.
 
-    The old planner's free-language note/calendar/reminder selector is deleted;
-    this bounded pending confirmation/date value is not a new intent classifier.
+    Do not erase a pending question just because the user supplied an
+    incomplete date or an unrecognized yes/no. The model/State gate owns the
+    conversational decision; this worker only validates the bound answer.
     """
-    from modules import brain_entry
+    from modules import brain_entry, requests_state
     if not brain_entry.pending_answer_owned("pending_event_title"):
         return None
-    now = runtime.datetime.now()
-    if runtime._session().pending_event_title is not None:
-        from modules import brain_entry
-        # Açık başlık sorusu yalnız canonical olarak kendi cevabı olan turu tüketir (State zaman
-        # protokolü veya semantik ANSWER_TO_PENDING); bağımsız yeni istek soruyu ham metne çevirmez.
-        if brain_entry.pending_answer_owned("pending_event_title"):
-            title, runtime._session().pending_event_title = (runtime._session().pending_event_title, None)
-            if isinstance(title, dict):       # çakışma sorusunun cevabı
-                from modules.confirmation import decision
-                approval = decision(cmd_lower, extra=('ekle', 'yine de ekle', 'ekle gitsin'))
-                if approval is True:
-                    return _save_reminder(runtime, *title['confirm'])
-                if approval is False:
-                    return 'Tamam, eklemedim.'
-                title = None                  # başka bir komut geldi: soru düşer, normal akışa devam
-            elif brain_entry.matched_protocol("session.pending_event_title.cancel") \
-                    or cmd_lower in ('iptal', 'vazgeç', 'boşver'):
-                return 'Tamam, eklemedim.'
-            when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
-            if when:
-                return _reminder_or_confirm(runtime, title, when)
-
-    return None
+    session = runtime._session()
+    pending = session.pending_event_title
+    if pending is None:
+        return None
+    if (brain_entry.matched_protocol("session.pending_event_title.cancel")
+            or cmd_lower.strip() in ("iptal", "vazgeç", "boşver")):
+        session.pending_event_title = None
+        return "Tamam, eklemedim."
+    if isinstance(pending, dict):
+        from modules.confirmation import decision
+        approval = decision(cmd_lower, extra=("ekle", "yine de ekle", "ekle gitsin"))
+        if approval is None:
+            return "Çakışan hatırlatmayı yine de eklememi onaylıyor musun? Evet veya hayır de."
+        session.pending_event_title = None
+        if not approval:
+            return "Tamam, eklemedim."
+        confirmed = pending.get("confirm")
+        if not (isinstance(confirmed, (tuple, list)) and len(confirmed) == 3
+                and isinstance(confirmed[0], str) and confirmed[0].strip()
+                and isinstance(confirmed[1], str) and confirmed[1].strip()
+                and (confirmed[2] is None or isinstance(confirmed[2], str))):
+            return "Hatırlatma onayının hedefi geçersiz; kayıt eklemedim."
+        requests_state.check()
+        return _save_reminder(runtime, *confirmed)
+    if not isinstance(pending, str) or not pending.strip():
+        session.pending_event_title = None
+        return "Hatırlatma başlığı doğrulanamadı; kayıt eklemedim."
+    when, _rest = runtime.whenmod.parse_when(command, runtime.datetime.now())
+    if not when:
+        return f"'{pending}' için tarih ve saati anlayamadım. Örneğin 'yarın 10'da' de."
+    requests_state.check()
+    session.pending_event_title = None
+    return _reminder_or_confirm(runtime, pending, when)
 
 
 def _macro_key(runtime, text: str) -> str:
