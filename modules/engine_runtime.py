@@ -115,7 +115,6 @@ _HANDLERS = {'engine_context': ('_get_profile',
                   '_notes_text',
                   '_agenda_text',
                   '_add_event',
-                  '_planner_command',
                   'load_approve',
                   '_message_step',
                   '_macro_key',
@@ -124,8 +123,7 @@ _HANDLERS = {'engine_context': ('_get_profile',
                   '_brief_facts',
                   '_daily_briefing',
                   '_morning_brief',
-                  '_mail_handle',
-                  '_extra_commands')}
+                  '_mail_handle')}
 
 
 class EngineContext:
