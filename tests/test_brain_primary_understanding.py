@@ -194,10 +194,9 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         forged = action(capability_id="mail.draft",
                         arguments={"operation": "reply", "sender": "Zeynep"})
         forged["argument_sources"] = {"sender": "Ayşe"}
-        _base, rejected = applied(
+        base, rejected = applied(
             utterance, envelope(actions=[forged], confidence="HIGH"))
-        self.assertIs(rejected.request_kind, RequestKind.CHAT)
-        self.assertIsNone(rejected.capability_hint)
+        self.assertIs(rejected, base, "Forged recipient must not become a model-owned action")
         self.assertIsNone(core_plan("mail.draft", {"operation": "send", "index": 1}))
 
     def test_model_can_adopt_new_note_action_with_higher_confidence_than_legacy(self):
