@@ -45,7 +45,7 @@ SCENARIOS = (
     ("plan_edit", "Plan mutation invalidates running old attempt",
      "tests.test_brain_07_canonical_scheduler_lane.SchedulerOfferTests.test_live_canonical_plan_edit_fences_next_provider_step", "Plan version and Core CAS"),
     ("busy_wake", "One blocked owner does not stall another owner's wake",
-     "tests.test_brain_07_single_scheduler_owner_dispatch.SchedulerOwnerDispatchTests.test_blocked_first_owner_does_not_block_other_owners", "Bounded existing Scheduler"),
+     "tests.test_brain_07_single_scheduler_owner_dispatch.ExistingSchedulerOwnerDispatchTests.test_blocked_first_owner_does_not_block_other_owners", "Bounded existing Scheduler"),
     ("long_task_interleaving", "Foreground accepts another goal during background work",
      "tests.test_brain_07_typed_canonical_e2e.TypedCanonicalFlowTests.test_foreground_accepts_second_independent_goal_while_worker_is_running", "Model/provider mocked, no human hearing"),
     ("cross_owner_account", "Separate owners share trusted provider-wide OS claim",
@@ -120,7 +120,7 @@ def main() -> int:
         if status == "passed":
             observed = input(
                 "Did YOU observe this local PC run finish successfully? [yes/no]: "
-            ).strip().lower() == "yes"
+            ).strip().lower() in {"yes", "evet", "e", "y"}
         records.append({
             "id": case, "test": test_id, "status": status,
             "operator_observed": observed,
