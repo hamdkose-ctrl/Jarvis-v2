@@ -38,10 +38,11 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
              patch.object(self.ctx, "set_share",
                           side_effect=AssertionError("camera effect")) as camera:
             entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
-        self.assertEqual(brain_entry.core_plan(entry), ("weather", {"location": "İzmir"}))
-        self.assertEqual(out, "HAVA")
-        self.assertEqual(feedback.result_status, "handled")
-        self.ctx._weather.assert_called_once_with("İzmir")
+        # A single action cannot partially execute a multi-command utterance.
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertIn("işlem başlatılmadı", out)
+        self.assertEqual(feedback.result_status, "failed")
+        self.ctx._weather.assert_not_called()
         controls.assert_not_called()
         planner.assert_not_called()
         extra.assert_not_called()
@@ -59,9 +60,9 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
              patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("cleared notes")) as clear:
             entry, out, _handle, feedback = self.turn_real(utterance, model_understanding=True)
-        self.assertEqual(brain_entry.core_plan(entry), ("city_set", {"location": "İzmir"}))
-        self.assertIn("İzmir", out)
-        self.assertEqual(feedback.result_status, "handled")
+        self.assertIsNone(brain_entry.core_plan(entry))
+        self.assertIn("işlem başlatılmadı", out)
+        self.assertEqual(feedback.result_status, "failed")
         self.assertEqual([n["id"] for n in self.ctx.profile.data["items"]], [note["id"]])
         planner.assert_not_called()
         extra.assert_not_called()
@@ -195,6 +196,16 @@ class TypedPlanSecondEffectTests(pr3a._CanonicalAuthorityHarness):
         self.assertIn("Notu sildim", reply)
         delete.assert_called_once_with(first["id"])
         self.assertEqual([x["id"] for x in self.ctx.profile.data["items"]], [second["id"]])
+
+    def test_note_mutation_grammar_requires_whole_imperative_not_negative(self):
+        from modules.brain_understanding import _note_write_request
+        for utterance in ("market notunu silme", "market notunu kaldırma",
+                          "market notunu sil demedim", "market notunu siler misin",
+                          '"market notunu sil" ne demek?', "market notunu silmeli miyim?"):
+            with self.subTest(utterance=utterance):
+                self.assertIsNone(_note_write_request(utterance))
+        self.assertEqual(_note_write_request("market notunu sil"), ("delete", "market"))
+        self.assertEqual(_note_write_request("market notunu düzelt: süt al"), ("update", "market"))
 
     def test_failed_model_negated_note_delete_is_safe_in_real_production_turn(self):
         from modules import brain_model_understanding
