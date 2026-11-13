@@ -557,11 +557,18 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         return "Hatırlatma onayı başka kullanıcıya ait; değiştirmedim."
     operation = proposal.get("operation")
     minutes = proposal.get("minutes")
-    if operation not in {"postpone", "skip", "snooze", "move"}:
+    if operation not in {"postpone", "skip", "snooze", "move", "reschedule"}:
         return "Hatırlatma işlemi doğrulanamadı; değiştirmedim."
-    if operation in {"postpone", "snooze"} and (type(minutes) is not int
-            or not 1 <= minutes <= (1440 if operation == "snooze" else 10080)):
+    if operation == "postpone" and (type(minutes) is not int or not 1 <= minutes <= 10080):
         return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
+    if operation == "snooze":
+        if proposal.get("daypart") == "evening":
+            if minutes is not None:
+                return "Hatırlatma saati doğrulanamadı; ertelemedim."
+        elif type(minutes) is not int or not 1 <= minutes <= 1440:
+            return "Hatırlatma süresi doğrulanamadı; değiştirmedim."
+    if operation == "reschedule" and proposal.get("daypart") != "tomorrow_morning":
+        return "Hatırlatma için yeni zaman doğrulanamadı; değiştirmedim."
     if operation == "move" and (type(proposal.get("weekday")) is not int
                                 or not 0 <= proposal["weekday"] <= 6):
         return "Hatırlatma günü doğrulanamadı; değiştirmedim."
@@ -587,6 +594,25 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
         target = now.date() + timedelta(days=0 if proposal["period"] == "today" else 1)
         if when[:10] != target.isoformat():
             return "Hatırlatma onayından önce hedef gün değişmiş; atlamadım."
+    if operation == "reschedule":
+        # Closed UI policy: "tomorrow morning" is 09:00. The date is computed
+        # from the owner's clock, never taken from the semantic model.
+        if (any(ev.get(field) != proposal.get(field) for field in ("fired", "snooze"))
+                or ev.get("notified", False) != proposal.get("notified", False)):
+            return "Hatırlatma durumun değişmiş; yeniden planlamadım."
+        new_when = ((now + timedelta(days=1)).strftime("%Y-%m-%d") + "T09:00")
+        try:
+            if ev.get("repeat"):
+                requests_state.check()
+                return _edit_repeating(
+                    runtime, ev, datetime.strptime(new_when, "%Y-%m-%dT%H:%M"),
+                    "yarın sabah 09:00'a", "kaydırdım", now)
+            requests_state.check()
+            if not runtime.profile.reschedule_event(ev["id"], new_when):
+                return "Hatırlatmayı yeniden planlayamadım; kaydırdım demiyorum."
+            return f"{ev['title']} kaydını yarın 09:00'a kaydırdım."
+        except (ValueError, TypeError):
+            return "Hatırlatma tarihi doğrulanamadı; değişiklik yapılmadı."
     if operation == "move":
         # A weekday is a closed Core enum, not a path/ID or free-language
         # rewrite. Resolve the first future matching day from the current
@@ -626,7 +652,13 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
         if not timedelta(0) <= now - fired_at <= timedelta(hours=6):
             return "Bu hatırlatma yakın zamanda çalmamış; ertelemedim."
-        new_when = (now + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M")
+        if proposal.get("daypart") == "evening":
+            target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+            if now >= target:
+                return "Bugün akşam saati geçti; yeni saat belirtmeden ertelemedim."
+            new_when = target.strftime("%Y-%m-%dT%H:%M")
+        else:
+            new_when = (now + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M")
         requests_state.check()
         if ev.get("repeat"):
             accepted = runtime.profile.snooze_event(ev["id"], new_when)
@@ -634,7 +666,9 @@ def modify_reminder_confirmed(runtime, proposal: dict) -> str:
             accepted = runtime.profile.reschedule_event(ev["id"], new_when)
         if not accepted:
             return "Hatırlatmayı yeniden planlayamadım; erteledim demiyorum."
-        return (f"{ev['title']} hatırlatmasını {minutes} dakika sonra yeniden "
+        label = ("akşam 18:00'de" if proposal.get("daypart") == "evening"
+                 else f"{minutes} dakika sonra")
+        return (f"{ev['title']} hatırlatmasını {label} yeniden "
                 f"hatırlatacağım ({new_when[11:16]}).")
 
     try:
