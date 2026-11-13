@@ -40,6 +40,18 @@ def _permission_instrument(action, target):
     def guarded(*args, **kwargs):
         name = next((value for value in (*args, *kwargs.values()) if isinstance(value, str)), action)
         _permission_decision(action, name)
+        if action in {'window_action', 'window_shortcut'}:
+            # These native actions touch the same actual Windows foreground
+            # as desktop_agent. The legacy PC contract alone only records
+            # an outcome; it is not cross-process resource ownership.
+            from modules import desktop_agent
+            with desktop_agent._desktop_claim(run_handoff=True) as owned:
+                if not owned:
+                    return {
+                        'ok': False,
+                        'message': 'Başka bir masaüstü görevi çalışıyor; pencere değiştirilmedi.',
+                    }
+                return target(*args, **kwargs)
         return target(*args, **kwargs)
     return guarded
 
