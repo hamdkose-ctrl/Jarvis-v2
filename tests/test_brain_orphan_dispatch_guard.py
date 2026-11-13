@@ -139,10 +139,27 @@ def dispatch_call_sites(sources: dict[str, str]) -> dict[str, list[str]]:
     return inventory
 
 
+def state_intent_targets(source: str) -> set[str]:
+    """Find State-to-Core intent producers through AST, without an exception list."""
+    functions = [n for n in ast.parse(source).body
+                 if isinstance(n, ast.FunctionDef) and n.name == "state_plan"]
+    found: set[str] = set()
+    for function in functions:
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Tuple):
+                continue
+            if not node.value.elts:
+                continue
+            first = node.value.elts[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                found.add(first.value)
+    return found
+
+
 def producer_intents(sources: dict[str, str]) -> set[str]:
     """The complete living vocabulary dispatch may receive, derived from audited call sites only."""
     core_map = sources["modules/brain_core_map.py"]
-    producers = core_intent_targets(core_map) | fast_intent_targets(core_map)
+    producers = core_intent_targets(core_map) | fast_intent_targets(core_map) | state_intent_targets(core_map)
     for file_name in sorted(AUDITED_CALL_SITES):
         producers |= literal_intents_in(sources[file_name])
     producers.add("chat")  # engine_commands fallback when the projection carries no intent
@@ -179,7 +196,7 @@ class ProducerAndCaseExtractionTests(unittest.TestCase):
         core_map = self.sources["modules/brain_core_map.py"]
         self.assertEqual(
             producer_intents(self.sources),
-            core_intent_targets(core_map) | fast_intent_targets(core_map)
+            core_intent_targets(core_map) | fast_intent_targets(core_map) | state_intent_targets(core_map)
             | literal_intents_in(self.sources["modules/brain_entry.py"])
             | literal_intents_in(self.sources["modules/engine_commands.py"])
             | literal_intents_in(self.sources["modules/command_manager.py"])
