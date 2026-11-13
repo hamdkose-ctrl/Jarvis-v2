@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
+import os
 import uuid
 from modules import requests_state, task_results, service_store, file_resource_guard, resource_leases
 
@@ -82,21 +84,33 @@ def run(owner,data):
     command+=['-t',str(data.get('duration',10)),'-vf','scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
               '-r','25','-c:v','libx264','-preset','veryfast','-pix_fmt','yuv420p']
     if audio:command+=['-c:a','aac']
-    command+=['-movflags','+faststart',str(path)]
-    # Resource claim covers the entire FFmpeg write/verify window, not only
-    # name selection. On crash the OS releases the claim; the incomplete
-    # destination remains evidence for manual recovery, never a retry grant.
+    # Render into a private same-volume staging directory, never into the
+    # public artifact name. On crash, no partial public video is observable.
+    # Keep the existing OS-account file claim through final CAS-like publish.
     with file_resource_guard.claim_paths(path):
         if path.exists() or path.is_symlink():
             raise resource_leases.LeaseConflict('Video target already exists.')
-        try:
+        with tempfile.TemporaryDirectory(prefix='.jarvis-media-', dir=output) as tmp:
+            staged=Path(tmp)/'video.mp4'
+            command+=['-movflags','+faststart',str(staged)]
             subprocess.run(command,capture_output=True,timeout=180,check=True)
-            requests_state.check();metadata=probe(path)
+            requests_state.check();metadata=probe(staged)
             if metadata['width']!=1280 or metadata['height']!=720 or abs(metadata['duration']-data.get('duration',10))>1 or bool(audio)!=metadata['has_audio']:
                 raise ValueError('Video boyut/süre/ses kontrolünden geçmedi.')
-            return {'state':'done','text':'Yerel görsel'+(' ve ses' if audio else '')+' kaynağından video üretildi.',
-                    'file':str(path),'sha256':task_results.file_digest(path),'media':metadata}
-        except BaseException:
-            # Only the still-owned freshly-created path may be removed.
-            path.unlink(missing_ok=True)
-            raise
+            # The file was completely produced and structurally verified.
+            # Flush before a create-only hardlink; concurrent/non-cooperative
+            # writers cannot be overwritten by the generated output.
+            with staged.open('r+b') as finished:
+                finished.flush()
+                os.fsync(finished.fileno())
+            published=False
+            try:
+                os.link(staged,path)
+                published=True
+                digest=task_results.file_digest(path)
+                return {'state':'done','text':'Yerel görsel'+(' ve ses' if audio else '')+' kaynağından video üretildi.',
+                        'file':str(path),'sha256':digest,'media':metadata}
+            except BaseException:
+                if published:
+                    path.unlink(missing_ok=True)
+                raise
