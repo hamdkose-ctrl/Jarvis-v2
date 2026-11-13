@@ -177,8 +177,8 @@ class SecondSemanticAuthorityCensusTests(unittest.TestCase):
         "job_front.wants": {"modules/engine_commands.py"},
         "goal_executor.handle": {"modules/engine_commands.py"},
         "continue_app": {"modules/engine_commands.py"},
-        "_study_intent": {"modules/engine_commands.py"},
-        "hoca.handle": {"modules/engine_tools.py"},
+        "_study_intent": set(),  # Retired; typed Hoca start/study read owns semantics
+        "hoca.handle": set(),  # Old raw Hoca parser has no production caller
         # `_extra_commands` zincirinin kolları: tek üretim çağıranı zincirin kendisidir.
         "plugins.handle": set(),
         "handoff.handle": set(),
