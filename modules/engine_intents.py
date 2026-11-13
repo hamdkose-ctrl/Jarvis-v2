@@ -233,7 +233,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             if service == "music_home":
                 return media.open_music()
             if service == "youtube_home":
-                return media.youtube("")
+                return media.youtube("", browser=a.get("browser", "default"))
             if service == "youtube":
                 return media.youtube(a["query"])
             return media.spotify(a["query"])
