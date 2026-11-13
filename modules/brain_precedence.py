@@ -24,7 +24,10 @@ def explicit_desktop_owner_protocol(text: str) -> bool:
 
 # Explicit workflow prefix: like the PC task prefix, this exact protocol owns the full
 # utterance before any domain-specific proposal can claim words inside its payload.
-_EXPLICIT_WORKFLOW_OWNER = re.compile(r"^görev\s+akışı(?:\s|:|$)", re.I)
+_EXPLICIT_WORKFLOW_OWNER = re.compile(
+    r"^görev\s+akışı\s+(?:rapor|mail|kod|video)\s*:\s*\S.*$",
+    re.I | re.S,
+)
 
 
 def explicit_workflow_owner_protocol(text: str) -> bool:
