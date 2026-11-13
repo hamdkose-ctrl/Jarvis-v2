@@ -258,7 +258,7 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
         base, adopted = applied(utterance, raw, confidence=Confidence.LOW)
         self.assertIs(adopted, base)
 
-    def test_new_model_capability_does_not_steal_protected_pending_request(self):
+    def test_independent_model_capability_preserves_protected_pending_owner(self):
         from modules.brain_model_understanding import _apply_semantic_fences, ProposedAction, UnderstandingProposal
         utterance = "Kamerayı aç"
         base = deterministic(utterance)
@@ -273,9 +273,15 @@ class Brain03TypedModelAuthorityTests(unittest.TestCase):
                 action_id="a1", capability_id="device.share",
                 arguments={"action": "camera"}, reference_slots=(), depends_on=()),),
         )
-        self.assertIsNone(_apply_semantic_fences(
+        accepted = _apply_semantic_fences(
             proposal, guarded, protected_relation=True,
-            resolving_file_ambiguity=False, has_grounded_reference=False))
+            resolving_file_ambiguity=False, has_grounded_reference=False)
+        # An explicitly independent NEW_REQUEST must not be hijacked by an
+        # unrelated open message draft. The model decision can proceed through
+        # normal Core permission checks without consuming the pending owner.
+        self.assertIs(accepted, proposal)
+        self.assertIs(guarded.pending_owner, PendingOwner.MESSAGE_TEXT)
+        self.assertIs(guarded.conversation_relation, ConversationRelation.ANSWER_TO_PENDING)
 
 class Brain03FinanceAndMailModelProposalTests(unittest.TestCase):
     """The primary model must reach typed Core without reviving raw parsers."""
