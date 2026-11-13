@@ -176,9 +176,13 @@ class EndToEndTests(unittest.TestCase):
         translate.assert_called_once_with("kamerayı aç", "İngilizce")
 
     def test_verified_translation_does_not_enter_legacy_planner_or_cascade(self):
-        with patch.object(self.ctx, "_planner_command",
+        # Those raw parsers were physically removed by BRAIN-03. A typed
+        # translation must not resurrect them or call an injected trap.
+        self.assertFalse(hasattr(self.ctx, "_planner_command"))
+        self.assertFalse(hasattr(self.ctx, "_extra_commands"))
+        with patch.object(self.ctx, "_planner_command", create=True,
                           side_effect=AssertionError("raw planner ran")) as planner, \
-             patch.object(self.ctx, "_extra_commands",
+             patch.object(self.ctx, "_extra_commands", create=True,
                           side_effect=AssertionError("raw domain cascade ran")) as extra, \
              patch.object(self.ctx.tr, "translate", return_value="TRANSLATED"):
             _, out = self._real_translation("İngilizceye çevir: notları sil")
@@ -186,15 +190,24 @@ class EndToEndTests(unittest.TestCase):
         planner.assert_not_called()
         extra.assert_not_called()
 
-    def test_unplanned_bounded_legacy_note_clear_retains_owner(self):
+    def test_unplanned_typed_note_clear_retains_owner(self):
+        # A removed _planner_command is not a safety interface. The existing
+        # note-clear worker and State confirmation remain Core-owned.
+        from modules import engine_intents
         self.ctx.profile.add_note_item("Silinecek not")
         snapshot = [dict(row) for row in self.ctx.profile.data["items"]]
+        plan = brain_core_map.core_plan("notes.manage", {"operation": "clear_all"})
+        self.assertEqual(plan, ("notes_manage", {"operation": "clear_all"}))
         with patch.object(self.ctx.profile, "clear_note_items",
                           side_effect=AssertionError("deleted without confirmation")) as clear:
-            out = self.ctx._planner_command("notları sil", "notları sil")
+            out = engine_intents.dispatch(self.ctx, plan[0], plan[1],
+                                          "tüm notları sil", "tüm notları sil")
         self.assertIn("onaylıyor musun", out)
         self.assertEqual(self.ctx.profile.data["items"], snapshot)
-        self.assertEqual(self.ctx._session().pending_confirm["action"], "notes_clear")
+        pending = self.ctx._session().pending_confirm
+        self.assertEqual(pending["action"], "notes_clear")
+        self.assertEqual(pending["owner"], self.owner)
+        self.assertTrue(pending["digest"])
         clear.assert_not_called()
         # End-to-end yes/no State confirmation is covered by final_authority_cutover.
 
