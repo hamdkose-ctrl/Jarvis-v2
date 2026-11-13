@@ -1042,8 +1042,15 @@ def agenda_open_request(cmd_lower: str) -> bool:
     return _AGENDA_OPEN.search(cmd_lower) is not None
 
 
-def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
-    """Not defteri ve takvim komutları (kullanıcıya özel)."""
+def continue_pending_event_title(runtime, command: str, cmd_lower: str) -> str | None:
+    """Only a canonical State-owned reminder-title answer may reach this worker.
+
+    The old planner's free-language note/calendar/reminder selector is deleted;
+    this bounded pending confirmation/date value is not a new intent classifier.
+    """
+    from modules import brain_entry
+    if not brain_entry.pending_answer_owned("pending_event_title"):
+        return None
     now = runtime.datetime.now()
     if runtime._session().pending_event_title is not None:
         from modules import brain_entry
@@ -1065,97 +1072,9 @@ def _planner_command(runtime, command: str, cmd_lower: str) -> str | None:
             when, rest = runtime.whenmod.parse_when(command, now) if title else (None, '')
             if when:
                 return _reminder_or_confirm(runtime, title, when)
-    if runtime.re.fullmatch('(notlarım(ı (oku|göster|say))?|notlarımı (oku|göster|say)|notları (oku|göster|say)|notlar)', cmd_lower.strip(' .!?')):
-        return runtime._notes_text()
-    # A Core-validated reminder supplies the operation and title. Its quoted
-    # title can contain a note-deletion phrase; a raw-text note edit/delete
-    # must not reinterpret that title as authority to mutate notes.
-    # Keep legitimate unplanned note commands and exact note-add syntax intact.
-    core_reminder_active = _CORE_REMINDER.get() is not None
-    if not core_reminder_active:
-        # The old re.search accepted 'notları silme' (negative) and quoted
-        # instructions inside unrelated messages. These destructive legacy
-        # escape hatches must be full-utterance exact protocols, not semantic
-        # substrings. The canonical model/Core note writer stays primary.
-        exact = cmd_lower.strip(" .!?")
-        if exact.startswith(("lütfen ", "lutfen ")):
-            exact = exact.split(" ", 1)[1]
-        m = runtime.re.fullmatch(
-            r"\b(\d{1,3})\.?\s*(?:numaralı\s*)?notu?\s*sil\b"
-            r"|\bnotu?\s*(\d{1,3})\s*(?:'?i\s*)?sil\b", exact)
-        if m:
-            idx = int(m.group(1) or m.group(2))
-            items = runtime.profile.data["items"]
-            if 1 <= idx <= len(items):
-                gone = items[idx - 1]
-                runtime.profile.delete_note_item(gone["id"])
-                return f"Notu sildim: {gone['text']}"
-            return "Böyle bir numaralı not yok."
-        clear_words = {
-            "notları sil", "notları temizle", "notları hepsini sil",
-            "notlarımı sil", "notlarımı temizle",
-            "tüm notları sil", "tum notlari sil", "bütün notları sil",
-            "butun notlari sil", "notları tamamen sil",
-        }
-        if exact in clear_words:
-            if runtime._session().pending_confirm:
-                return "Önce açık onayı tamamla veya iptal et; yeni silme onayı başlatılmadı."
-            if not runtime.profile.data.get("items"):
-                return "Not defterin zaten boş."
-            runtime._session().pending_confirm = {
-                "action": "notes_clear",
-                "owner": runtime.profile.slug,
-                "digest": _notes_snapshot_digest(runtime),
-            }
-            return "Tüm notlarını silmemi onaylıyor musun? Evet veya hayır de."
-    # The indexed/named note lookup also contains update/delete effects.
-    looked = None if core_reminder_active else _note_lookup(runtime, command, cmd_lower)
-    if looked is not None:
-        return looked
-    # Note corrections (including last-note delete) are also raw-text effects.
-    fixed = None if core_reminder_active else runtime._note_fix(command, cmd_lower)
-    if fixed is not None:
-        return fixed
-    text = runtime._note_text(command, cmd_lower)
-    if text:
-        runtime._add_note(text)
-        return f'Not aldım: {text}'
-    core = _CORE_REMINDER.get()
-    if core is not None:
-        # A validated CREATE never turns an embedded quote like 'hatırlatmayı sil'
-        # or 'toplantıyı ertele' into a second raw-text event mutation.
-        # Preserve exact note-add and pending-answer ownership above this point.
-        return reminder_create(runtime, core)
-    tr = runtime.whenmod._turkish(cmd_lower)       # ASCII yazım: "yarin 9da ilac hatirlat"
-    edited = _edit_reminder(runtime, cmd_lower, now)
-    if edited is not None:
-        return edited
-    if reminder_parse.is_creation_request(cmd_lower):
-        return reminder_create(runtime, reminder_parse.parse(command, now))
-    read = agenda_read_request(cmd_lower, now)
-    if read is not None:
-        day_txt = runtime._agenda_text(*read)
-        if agenda_open_request(cmd_lower) and runtime.google_api._ready() is None:
-            import webbrowser
-            webbrowser.open('https://calendar.google.com')
-            return "Google Takvim'i tarayıcıda açtım. " + day_txt
-        return day_txt
-    week = _week_range(_fold(cmd_lower))
-    if week:
-        return _week_plan(runtime, week)
-    if _PLAN_ASK.search(_fold(cmd_lower)):
-        return _day_plan(runtime, 1 if runtime.re.search('\\byar[ıi]n', cmd_lower) else 0)
-    if runtime.re.search('\\b(bugün|yarın)\\b.*\\b(ne var|neler var|programım|takvimim|randevum)\\b|\\b(programım|takvimim|ajandam)\\b|\\bne işim var\\b', cmd_lower):
-        if 'yarın' in cmd_lower:
-            d = (now + __import__('datetime').timedelta(days=1)).strftime('%Y-%m-%d')
-            return runtime._agenda_text(d, 'Yarın')
-        return runtime._agenda_text(now.strftime('%Y-%m-%d'), 'Bugün')
-    if runtime.re.search('\\b(yaklaşan|sıradaki|önümüzdeki)\\b.*\\b(etkinlik|randevu|hatırlatma|program)\\w*', cmd_lower):
-        up = runtime.profile.upcoming(now, 5)
-        if not up:
-            return 'Yaklaşan bir kaydın yok.'
-        return 'Yaklaşanlar: ' + '; '.join((f"{runtime.whenmod.describe(e['when'], now)} {e['title']}" for e in up)) + '.'
+
     return None
+
 
 def _macro_key(runtime, text: str) -> str:
     return runtime.re.sub('\\s+', ' ', runtime.re.sub('[^\\w\\s]', ' ', runtime._tr_lower(text))).strip()
