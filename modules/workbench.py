@@ -35,12 +35,12 @@ _TABLE_OPS = re.compile(r"birleştir|birlestir|grupla|göre\s+topla|toplamını|
 # Legacy fallback is an explicit, whole-utterance compatibility protocol, not
 # a second semantic classifier. In particular, negative -ma/-me forms and quoted
 # requests embedded in discussion must not trigger a new file or model call.
-_FOLLOW_COLUMN = r"(?:[\\wçğıöşü]+\\s+){0,3}(?:sütun\\w*|kolon\\w*)\\s+(?:ekle|çıkar|kaldır|sil)"
-_FOLLOW_FORMAT = (r"tabloyu\\s+(?:excel|word|pdf)(?:['’]?(?:e|a|de|da))?"
-                  r"(?:\\s+olarak)?\\s+(?:ver|hazırla|kaydet|dönüştür)")
+_FOLLOW_COLUMN = r"(?:[\wçğıöşü]+\s+){0,3}(?:sütun\w*|kolon\w*)\s+(?:ekle|çıkar|kaldır|sil)"
+_FOLLOW_FORMAT = (r"tabloyu\s+(?:excel|word|pdf)(?:['’]?(?:e|a|de|da))?"
+                  r"(?:\s+olarak)?\s+(?:ver|hazırla|kaydet|dönüştür)")
 _FOLLOW = re.compile(
-    rf"(?:{_FOLLOW_COLUMN}|tabloya\\s+[\\wçğıöşü]+(?:\\s+[\\wçğıöşü]+){{0,3}}\\s+ekle|"
-    rf"tabloyu\\s+(?:güncelle|yenile|düzelt)|{_FOLLOW_FORMAT})(?:,\\s*{_FOLLOW_COLUMN})?",
+    rf"(?:{_FOLLOW_COLUMN}|tabloya\s+[\wçğıöşü]+(?:\s+[\wçğıöşü]+){{0,3}}\s+ekle|"
+    rf"tabloyu\s+(?:güncelle|yenile|düzelt)|{_FOLLOW_FORMAT})(?:,\s*{_FOLLOW_COLUMN})?",
     re.I,
 )
 FOLLOW_SECONDS = 1800   # "şu sütunu ekle" son tabloya 30 dakika bağlanır
@@ -594,6 +594,6 @@ def followup(owner: str, command: str) -> str | None:
     digest = snapshot_digest(owner)
     if digest is None:
         return None
-    requested_format = re.search(r"\\b(?:excel|word|pdf)\\b", command, re.I)
+    requested_format = re.search(r"\b(?:excel|word|pdf)\b", command, re.I)
     fmt = output_ext(command) if requested_format else None
     return followup_typed(owner, command, expected_digest=digest, fmt=fmt)
