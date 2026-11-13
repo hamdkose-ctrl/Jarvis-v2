@@ -142,7 +142,7 @@ _MODEL_OWNED_TYPED_CAPABILITIES = frozenset({
     "workbench.followup", "study.read",
     "notes.add", "notes.manage", "notes.write", "calendar.read", "reminders.manage",
     "tasks.manage", "kb.query", "worktrack.read", "hoca.lesson.start",
-    "finance.alert.manage",
+    "finance.alert.manage", "mail.read",
     "browser.page.read", "media.search", "filesend.transfer", "notify.manage", "handoff.manage",
 })
 
@@ -293,6 +293,10 @@ def _argument_shape(capability_id: str) -> dict[str, Any]:
                 "query": "verbatim music/video title supplied by user, except for home",
                 "argument_sources": ["query"],
                 "constraint": "opens user's media service search; not a claim that playback succeeded"}
+    if capability_id == "mail.read":
+        return {"source": ["inbox", "important", "work", "work_important", "combined"],
+                "constraint": "read-only mail summary; never draft, send, attach or change a provider account; "
+                              "select the requested Gmail/Outlook source explicitly"}
     if capability_id == "finance.alert.manage":
         return {"operation": ["list", "add", "delete"],
                 "asset": "verbatim finance asset name from user (add only)",
