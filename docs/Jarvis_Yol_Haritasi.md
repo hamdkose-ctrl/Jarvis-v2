@@ -816,7 +816,7 @@ Dilim4 exact-head kabulü (9 Kasım 2026, `bb85f9b64a34b1c87449d5985210db4740c1a
 
 ### BRAIN-07 #621 — kalan native yazıcıların güvenliği (13 Kasım 2026; DRAFT, kabul bekliyor)
 
-[#621](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/621) yalnız son kod taramasında bulunan dört yerel dosya-effect girişini kapsar: `conversion.convert/save_text`, `visual_commands.create_visual`, `note_images.add` ve `main_documents._keep_photo`. Önceden `os.replace`, doğrudan `write_bytes` / PIL `save` veya claimsiz kopyalama çıktıyı yarış durumunda ezebilir/yarım bırakabilirdi. Tek mevcut `file_resource_guard` namespace'i altında kaynak/hedef claim, private same-volume staging, fsync ve atomic no-replace `os.link` kullanılır. Bu kod **#621 exact-SHA Windows CI ve gerçek PC watcher PASS olmadan kabul edilmez**; yeni Scheduler, effectful canonical yetki veya sağlayıcı idempotency eklenmez.
+[#621](https://github.com/hamdkose-ctrl/Jarvis-v2/pull/621) yalnız son kod taramasında bulunan beş yerel dosya-effect girişini kapsar: `conversion.convert/save_text`, `translate.translate_excel_document`, `visual_commands.create_visual`, `note_images.add` ve `main_documents._keep_photo`. Önceden `os.replace`, doğrudan `write_bytes` / PIL `save` veya claimsiz kopyalama çıktıyı yarış durumunda ezebilir/yarım bırakabilirdi. Tek mevcut `file_resource_guard` namespace'i altında kaynak/hedef claim, private same-volume staging, fsync ve atomic no-replace `os.link` kullanılır. Bu kod **#621 exact-SHA Windows CI ve gerçek PC watcher PASS olmadan kabul edilmez**; yeni Scheduler, effectful canonical yetki veya sağlayıcı idempotency eklenmez.
 
 ### BRAIN-07 #617 — file_ops native effect parity (TARİHSEL DRAFT KAYDI)
 
