@@ -1,5 +1,4 @@
 """VOICE-02D: bounded speed is an immutable utterance setting, not a voice switch."""
-import re
 import threading
 import unittest
 from types import SimpleNamespace
@@ -7,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from modules.voice_core import VoiceCatalog, VoiceCoordinator, VoiceSpec, SpeechRequest
 from modules.voice_offline import piper_length_scale
-from modules.engine_context import _user_controls
+from modules import brain_core_map, engine_intents
 
 
 def voice_catalog():
@@ -68,19 +67,21 @@ class PiperRateTests(unittest.TestCase):
             set_pref=lambda key, val: (writes.append((key, val)),
                                        prefs.__setitem__(key, val)),
         )
-        session = SimpleNamespace(pending_voice=None)
-        runtime = SimpleNamespace(
-            re=re, profile=profile, _session=lambda: session,
-        )
+        runtime = SimpleNamespace(profile=profile)
         installed = Mock()
         installed.check_voice.return_value = VoiceSpec(
             "tr_kadin", "Test", "piper", "female.onnx",
         )
-        with patch("modules.voice_runtime.active", return_value=installed):
-            self.assertEqual(_user_controls(runtime, "yavaş konuş", "yavaş konuş"),
+        with patch("modules.voice_runtime.active", return_value=installed), \
+             patch("modules.requests_state.check"):
+            slow = brain_core_map.core_plan("voice.rate", {"direction": "slower"})
+            self.assertEqual(slow, ("voice_rate", {"direction": "slower"}))
+            self.assertEqual(engine_intents.dispatch(runtime, *slow, "yavaş konuş", "yavaş konuş"),
                              "Daha yavaş konuşuyorum.")
             self.assertEqual(prefs["rate"], 5)
-            self.assertEqual(_user_controls(runtime, "hızlı konuş", "hızlı konuş"),
+            fast = brain_core_map.core_plan("voice.rate", {"direction": "faster"})
+            self.assertEqual(fast, ("voice_rate", {"direction": "faster"}))
+            self.assertEqual(engine_intents.dispatch(runtime, *fast, "hızlı konuş", "hızlı konuş"),
                              "Daha hızlı konuşuyorum.")
             self.assertEqual(prefs["rate"], 15)
         self.assertEqual([key for key, _ in writes], ["rate", "rate"])
@@ -93,14 +94,13 @@ class PiperRateTests(unittest.TestCase):
             data={"prefs": prefs},
             set_pref=lambda key, value: writes.append((key, value)),
         )
-        runtime = SimpleNamespace(
-            re=re, profile=profile,
-            _session=lambda: SimpleNamespace(pending_voice=None),
-        )
+        runtime = SimpleNamespace(profile=profile)
         missing = Mock()
         missing.check_voice.side_effect = ValueError("Not installed")
-        with patch("modules.voice_runtime.active", return_value=missing):
-            answer = _user_controls(runtime, "yavaş konuş", "yavaş konuş")
+        with patch("modules.voice_runtime.active", return_value=missing), \
+             patch("modules.requests_state.check"):
+            plan = brain_core_map.core_plan("voice.rate", {"direction": "slower"})
+            answer = engine_intents.dispatch(runtime, *plan, "yavaş konuş", "yavaş konuş")
         self.assertIn("değiştirilmedi", answer)
         self.assertEqual(writes, [])
         self.assertEqual(prefs["rate"], 10)
