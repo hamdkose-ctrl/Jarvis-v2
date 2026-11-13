@@ -350,109 +350,6 @@ def _fold(text: str) -> str:
     return text.replace('İ', 'i').replace('I', 'ı').lower().translate(_FOLD)
 
 
-_EDIT_ASK = re.compile(r"\b(?:sil|kaldir|iptal|ertele|otele|kaydir)\w*|\batla\b|\batlar\s+misin|\batlayabilir")
-_EDIT_TOPIC = re.compile(r"\b(?:hatirlat|etkinli|randevu|takvim)\w*")
-_NUM = {"bir": 1, "iki": 2, "uc": 3, "dort": 4, "bes": 5, "on": 10, "yirmi": 20, "otuz": 30}
-_DAYS_FOLD = {"pazartesi": 0, "sali": 1, "carsamba": 2, "persembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
-_DAY_TO = r"\b(cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?\b"
-_EDIT_NOISE = (r"hatirlat\w*|etkinli\w*|randevu\w*|takvim\w*|sil\w*|kaldir\w*|iptal\w*|et|ertele\w*|otele\w*|bana|su|bu|"
-               r"son|ekledigim|ekledi\w*|lutfen|ve|\d+|dakika\w*|dk|saat\w*|gun\w*|yarin\w*|haftaya|bir|iki|uc|bes|on|"
-               r"yarim|ceyrek|dort|yirmi|otuz|bugun\w*|hafta\w*|seferlik|sadece|sonraki|atla\w*|kaydir\w*|"
-               r"(?:cumartesi|cuma|pazartesi|pazar|sali|carsamba|persembe)(?:ya|ye|a|e)?|beni|bunu")
-
-_DUR = r"(?:\d+|bir|iki|uc|dort|bes|on|yirmi|otuz)\s*(?:dakika|dk|saat)\w*|yarim saat|ceyrek saat"
-_DAYPART = re.compile(r"\b(sabah|ogleden sonra|oglen|aksam|gece)\w*")
-_DAYPART_HOUR = {"sabah": 9, "ogleden sonra": 14, "oglen": 12, "aksam": 18, "gece": 21}
-_DAYPART_TR = {"sabah": "sabah", "ogleden sonra": "öğleden sonra", "oglen": "öğle", "aksam": "akşam", "gece": "gece"}
-_SNOOZE_SAY = re.compile(r"(?:(?P<dur>" + _DUR + r")\s+sonra\s+|(?:biraz|daha)\s+sonra\s+)?"
-                         r"(?:tekrar|yine|bir daha|yeniden)\s+(?:cal|hatirlat|uyar)\w*")
-_SNOOZE_BARE = re.compile(r"^(?:lutfen\s+)?(?:(?:biraz|daha)\s+)?sonra\s+(?:tekrar\s+)?(?:hatirlat|cal|uyar)\w*$")
-_DAYPART_BARE = re.compile(r"^(?:lutfen\s+)?(?:yarin\s+)?(?:sabah|ogleden sonra|oglen|aksam|gece)\w*\s+(?:tekrar\s+)?hatirlat\w*$")
-
-
-def _say_to_postpone(tr: str) -> str:
-    """Erteleme sözü olmayan söyleyişleri ("10 dk sonra tekrar çal", "daha sonra hatırlat", "yarın sabah hatırlat")
-    mevcut erteleme yoluna çevirir; "… dk sonra hatırlat" (tekrar/yine yok) yeni hatırlatma eklemedir, buraya girmez."""
-    if re.search(r"\b(?:ertele|otele)", tr):
-        return tr
-    t = tr.strip(" .!?")
-    if _SNOOZE_BARE.match(t):
-        return "ertele"
-    if _DAYPART_BARE.match(t):
-        return re.sub(r"\s+", " ", re.sub(r"\btekrar\b", " ", re.sub(r"\b(?:hatirlat|cal|uyar)\w*", "ertele", t))).strip()
-    m = _SNOOZE_SAY.search(t)
-    if m:
-        return (t[:m.start()] + " " + (m.group("dur") or "") + " ertele " + t[m.end():]).strip()
-    return tr
-
-
-def _daypart_time(tr: str, now):
-    """"sabaha/akşama/öğleden sonraya": (zaman, söz). "yarın" varsa yarın, yoksa bugün (saat geçtiyse yarın)."""
-    from datetime import timedelta
-    m = _DAYPART.search(tr)
-    if not m:
-        return None
-    new = now.replace(hour=_DAYPART_HOUR[m.group(1)], minute=0, second=0, microsecond=0)
-    if re.search(r"\byarin", tr):
-        new += timedelta(days=1)
-    elif new <= now:
-        new += timedelta(days=1)
-    return new, _DAYPART_TR[m.group(1)]
-
-
-def _hint(runtime, tr: str) -> str:
-    hint = runtime.re.sub(r"\b(?:" + _EDIT_NOISE + r")\b", " ", tr)
-    return runtime.re.sub(r"\s+", " ", hint).strip(" ,.:-'’")
-
-
-def _word_in(w: str, title: str) -> bool:
-    """Başlık ipucu eşleşmesi: kelimenin ilk 5 harfi; "ilacı"/"ilaç" gibi tamlama ünlüsü de kabul."""
-    return w[:5] in title or (len(w) > 3 and w[-1] in "iuae" and w[:-1] in title)
-
-
-def _title_hits(runtime, tr: str) -> list:
-    hint = _hint(runtime, tr)
-    if not hint:
-        return []
-    return [e for e in runtime.profile.data['events'] if all(_word_in(w, _fold(e['title'])) for w in hint.split())]
-
-
-def _edit_target(runtime, tr: str, delete: bool, pool=None):
-    """(kayıt, mesaj): komuttaki başlık ipucuna göre tek kayıt; belirsizse kayıt None ve soru mesajı."""
-    events = list(pool if pool is not None else runtime.profile.data['events'])
-    if not events:
-        return None, 'Kayıtlı bir hatırlatman yok.'
-    hint = _hint(runtime, tr)
-    if hint:
-        hits = [e for e in events if all(_word_in(w, _fold(e['title'])) for w in hint.split())]
-        if not hits:
-            return None, f"'{hint}' adında bir kaydın yok."
-    elif pool is not None:
-        hits = events
-    elif runtime.re.search(r"\bson\b", tr) and delete:
-        hits = [max(events, key=lambda e: e['id'])]
-    elif not delete:
-        done = sorted((e for e in events if (e.get('notified') and not e.get('repeat')) or (e.get('repeat') and e.get('fired'))),
-                      key=lambda e: e['fired'] if e.get('repeat') else e['when'], reverse=True)
-        single = [e for e in events if not e.get('repeat')]
-        hits = done[:1] or (single if len(single) == 1 else [])
-    else:
-        hits = events if len(events) == 1 else []
-    if len(hits) == 1:
-        return hits[0], ''
-    pool = hits or events
-    shown = '; '.join(f"{runtime.whenmod.describe(e['when'])} {e['title']}" for e in sorted(pool, key=lambda e: e['when'])[:5])
-    return None, f"Hangisini kastettin? Kayıtların: {shown}. Başlığını söyleyerek tekrar dene."
-
-
-def _recently_fired(ev: dict, now) -> bool:
-    from datetime import datetime
-    try:
-        return 0 <= (now - datetime.strptime(str(ev.get('fired')), '%Y-%m-%dT%H:%M')).total_seconds() < 6 * 3600
-    except ValueError:
-        return False
-
-
 def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> str:
     """Tekrarlayan kaydın yalnız sıradaki oluşumunu kaydırır; kural ve sonraki oluşumların saati değişmez."""
     from datetime import datetime
@@ -473,12 +370,7 @@ def _edit_repeating(runtime, ev: dict, new_when, said: str, verb: str, now) -> s
 
 # ------------------------------------------------------------------ eski notu arama / düzeltme / silme
 _NOTE_DATE = re.compile(r"\b(?:bugunku|bugun|dunku|dun|gecen haftaki|gecen hafta|bu haftaki|bu hafta|gecen ayki|gecen ay|bu ayki|bu ay)\b")
-_NOTE_FILLER = re.compile(r"\b(?:benim|bana|aldigim|yazdigim|kaydettigim|tuttugum|ile ilgili|hakkindaki|hakkinda|icinde|icindeki|"
-                          r"olan|var mi|var|mi|mu|neydi|nelerdi|neler|nerede|ne|bir|su|bu|o|ara|bul|goster|oku|ya)\b")
-_NOTE_EDIT = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:(?:su|bu)\s+)?(?:duzelt|degistir|guncelle)\s*[:,]?\s*(?P<new>.*)$")
-_NOTE_DEL = re.compile(r"^(?P<ref>[^:]*?)\s*\bnot\w*\s+(?:sil|kaldir|iptal et)$")
 _MONTHS = ('Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara')
-_FOUND: dict = {}                     # kullanıcı -> (son bulunan notun kimliği, zaman): "o notu düzelt" için
 # Core hands a typed window label to the notes domain; this maps it to the legacy date phrase.
 _NOTE_WINDOW_WORDS = {
     'today': 'bugun',
@@ -557,34 +449,6 @@ def _note_listing(hits, limit=8) -> str:
     return '; '.join(parts) + more
 
 
-def _note_ref(runtime, ref: str, f_rest: str):
-    """Düzeltme/silme için hedef not: (not, mesaj). Tam biri bulunamazsa not None ve kullanıcıya söylenecek mesaj döner."""
-    items = runtime.profile.data['items']
-    ref = ref.strip(' .')
-    if not items:
-        return None, 'Not defterin boş.'
-    if re.fullmatch(r"\d{1,3}", ref):
-        idx = int(ref)
-        return (items[idx - 1], '') if 1 <= idx <= len(items) else (None, 'Böyle bir numaralı not yok.')
-    if ref in ('o', 'bu', 'su', 'bulundugum', 'buldugum', 'bulunan', 'az once buldugum'):
-        found = _FOUND.get(runtime.profile.slug)
-        if found and runtime.time.time() - found[1] <= 900:
-            for n in items:
-                if n['id'] == found[0]:
-                    return n, ''
-        return None, "Hangi notu kastettiğini anlayamadım. Önce “market notum” gibi ara ya da “2. notu düzelt: …” de."
-    window = _note_window(ref, runtime.datetime.now())
-    kws = _note_words(_NOTE_FILLER.sub(' ', _NOTE_DATE.sub(' ', ref)))
-    if not kws and not window:
-        return None, None
-    hits = _note_hits(items, kws, window) or _note_hits(items, kws, window, fuzzy=True)
-    if not hits:
-        return None, f"“{' '.join(kws) or ref}” ile eşleşen bir not bulamadım ({len(items)} notun var)."
-    if len(hits) > 1:
-        return None, 'Hangisini kastettin? ' + _note_listing(hits) + ' · Numarayla söyle, örn. “2. notu düzelt: …” ya da “2. notu sil”.'
-    return hits[0][1], ''
-
-
 def _note_window_by_label(label: str | None, now):
     phrase = _NOTE_WINDOW_WORDS.get(label or '')
     return _note_window(phrase, now) if phrase else None
@@ -605,8 +469,6 @@ def notes_search(runtime, query: str, window: str | None = None) -> str:
         hits, fuzzy = _note_hits(items, kws, bounds, fuzzy=True), True
     if not hits:
         return f'“{what}” için bir not bulamadım ({len(items)} notun var).'
-    if len(hits) == 1:
-        _FOUND[runtime.profile.slug] = (hits[0][1]['id'], runtime.time.time())
     head = 'Bulduğum not' if len(hits) == 1 else f'Bulduğum {len(hits)} not'
     return f"{head}{' (yazımı benzeyen)' if fuzzy else ''}: {_note_listing(hits)}"
 
