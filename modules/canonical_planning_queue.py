@@ -49,6 +49,7 @@ def _check_pair(root, owner: str, job_id: str, *, request_id=None, text=None):
             or goal_state.authority(state) != "canonical"
             or record.get("request") != state["goal"]
             or not isinstance(record.get("request_id"), str)
+            or job_id != _identity(owner, record["request_id"])[0]
             or record.get("_planner_rid") != _identity(owner, record["request_id"])[1]
             or (request_id is not None and record["request_id"] != request_id)
             or (text is not None and record["request"] != text)):
