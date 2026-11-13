@@ -264,7 +264,7 @@ class PhotoEnvelopeAuthorityTests(unittest.TestCase):
             ambiguities=(),
         )
 
-    def ask(self, raw):
+    def ask(self, raw, *, text="Bunu analiz et", photo_path=PHOTO):
         p1, p2, p3, p4 = (
             patch("modules.llm.current_user", return_value=self.OWNER),
             patch("modules.llm.provider", return_value="groq"),
@@ -272,11 +272,11 @@ class PhotoEnvelopeAuthorityTests(unittest.TestCase):
             patch("modules.smart_router.selection", return_value={"candidates": ["groq"]}),
         )
         with p1, p2, p3, p4, patch("modules.smart_router.run", return_value=raw):
-            return model.propose(owner=self.OWNER, text="Bunu analiz et",
+            return model.propose(owner=self.OWNER, text=text,
                                  current=self.photo_result(),
                                  arguments=self.photo_result().arguments,
                                  protected_relation=True,
-                                 photo_path=PHOTO)
+                                 photo_path=photo_path)
 
     def test_a_model_supplied_photo_target_is_not_a_valid_proposal(self):
         self.assertIsNone(self.ask(photo_envelope(
@@ -290,6 +290,24 @@ class PhotoEnvelopeAuthorityTests(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(dict(proposal.actions[0].arguments)["photo"], PHOTO)
         self.assertEqual(dict(proposal.actions[0].arguments)["operation"], "analyze")
+
+    def test_photo_note_text_is_grounded_in_user_utterance(self):
+        utterance = "bunu not et: garanti belgesi"
+        note = photo_action({"operation": "note", "note_text": "garanti belgesi"})
+        raw = photo_envelope("direct_action", confidence="HIGH", actions=[note])
+        self.assertIsNone(self.ask(raw, text=utterance),
+                          "Ungrounded note text may never be saved.")
+        note["argument_sources"] = {"note_text": "garanti belgesi"}
+        chosen = self.ask(photo_envelope(
+            "direct_action", confidence="HIGH", actions=[note]), text=utterance)
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen.actions[0].arguments["note_text"], "garanti belgesi")
+        self.assertEqual(chosen.actions[0].arguments["photo"], PHOTO)
+
+    def test_photo_action_without_bound_owner_artifact_cannot_run(self):
+        raw = photo_envelope("direct_action", confidence="HIGH",
+                             actions=[photo_action({"operation": "analyze"})])
+        self.assertIsNone(self.ask(raw, photo_path=None))
 
     def test_chat_is_non_executing_and_does_not_reclassify_an_image(self):
         proposal = self.ask(photo_envelope("chat", confidence="HIGH"))
