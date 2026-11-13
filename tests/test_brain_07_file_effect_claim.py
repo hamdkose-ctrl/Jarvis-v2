@@ -168,17 +168,17 @@ class FileEffectClaimTests(unittest.TestCase):
         task = {'agent': 'writer', 'input': {
             'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
         }}
-        with patch.object(nxapi, 'FILES_DIR', root), \\
-             patch.object(model_wait, 'ask', return_value='Verified report'), \\
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(model_wait, 'ask', return_value='Verified report'), \
              patch.object(task_workers.uuid, 'uuid4',
-                          return_value=SimpleNamespace(hex='0123456789abcdef')), \\
+                          return_value=SimpleNamespace(hex='0123456789abcdef')), \
              patch.object(task_workers.os, 'fsync', side_effect=OSError('disk full')):
             with self.assertRaises(OSError):
                 task_agents.worker('alice', task, {})
         self.assertFalse(destination.exists(), 'Failed report must not leave a partial file')
         # A later valid invocation can safely create the same generated path.
-        with patch.object(nxapi, 'FILES_DIR', root), \\
-             patch.object(model_wait, 'ask', return_value='Verified report'), \\
+        with patch.object(nxapi, 'FILES_DIR', root), \
+             patch.object(model_wait, 'ask', return_value='Verified report'), \
              patch.object(task_workers.uuid, 'uuid4',
                           return_value=SimpleNamespace(hex='0123456789abcdef')):
             result = task_agents.worker('alice', task, {})
@@ -199,7 +199,7 @@ class FileEffectClaimTests(unittest.TestCase):
         task = {'agent': 'writer', 'input': {
             'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
         }}
-        with patch.object(nxapi, 'FILES_DIR', root), \\
+        with patch.object(nxapi, 'FILES_DIR', root), \
              patch.object(model_wait, 'ask', return_value='Verified report'):
             with self.assertRaises(PermissionError):
                 task_agents.worker('alice', task, {})
