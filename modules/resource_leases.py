@@ -26,6 +26,9 @@ _RESOURCE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _ALLOWED_KINDS = frozenset((
     "file", "command", "window", "browser_session", "gmail_account", "provider",
+    # Trusted local call sites only. These names are NOT an effect permission and
+    # no model can acquire a device by supplying a free-form key.
+    "stt", "tts", "llm", "output_device",
 ))
 
 

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from modules.diagnostics import record_failure as _record_failure
 import threading
 import time
+import secrets
 from modules import llm,requests_state
 
 _LOCK=threading.Lock()
@@ -65,6 +66,19 @@ def _foreground_scope(boundary):
 
 
 
+@contextmanager
+def interactive_wait():
+    """Lend the mic to the listener during an in-thread Brain provider route.
+
+    Primary semantic understanding uses smart_router.run rather than ask().
+    This opt-in scope has the SAME failure-safe local foreground hook as ask,
+    but does not add a worker, change provider routing, or release as_user.
+    The model still runs synchronously: queued follow-ups are not executed here.
+    """
+    with _foreground_scope(_FOREGROUND.get()):
+        yield
+
+
 def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,ask_fn=None,**kwargs):
     seconds=DEFAULT_SECONDS if seconds is None else seconds
     owner=llm.current_user()
@@ -88,12 +102,18 @@ def ask(prompt,system='',max_tokens=2000,*,seconds=None,check=None,ask_fn=None,*
     def work():
         _FOREGROUND.set(None)      # the provider thread never owns the caller's foreground hook
         try:
-            with requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
-                if ask_fn is None:
-                    box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
-                else:
-                    box['answer']=ask_fn(prompt,system,max_tokens=max_tokens,**kwargs)
-                requests_state.check()
+            # This claim surrounds the actual provider thread, not the waiting
+            # foreground turn. A timed-out caller never releases an active model
+            # connection; model_wait._PENDING also fences late replies.
+            from modules import interactive_resource_gate
+            with interactive_resource_gate.claim(
+                    "llm", owner=owner, operation_id=secrets.token_hex(16)):
+                with requests_state.budget(max(.001,deadline-time.monotonic()),cancel=cancelled):
+                    if ask_fn is None:
+                        box['answer']=llm.ask(prompt,system=system,max_tokens=max_tokens,**kwargs)
+                    else:
+                        box['answer']=ask_fn(prompt,system,max_tokens=max_tokens,**kwargs)
+                    requests_state.check()
         except BaseException as exc:box['error']=exc
         finally:
             box['routes']=llm.take_route()

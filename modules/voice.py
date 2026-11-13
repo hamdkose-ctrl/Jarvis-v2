@@ -78,8 +78,17 @@ def capture(timeout: int = 6, phrase_limit: int = 12, verbose: bool = False,
     frames, started, silent = [], False, 0
     max_silent = int(1.0 * RATE / CHUNK)   # 1 sn sessizlik = cümle bitti (kısa duraksamada kesmesin)
 
-    with sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK,
-                           device=_input_device()) as stream:
+    # Actual PortAudio capture only: recognition waits never own the mic lease.
+    # Unit/synthetic captures without a registered hardware VoiceLane retain
+    # their existing no-device-lease behavior.
+    from contextlib import nullcontext
+    from modules import voice_runtime
+    resource_scope = nullcontext()
+    if voice_runtime.active() is not None:
+        from modules import interactive_resource_gate
+        resource_scope = interactive_resource_gate.claim("stt", owner="device")
+    with resource_scope, sd.RawInputStream(samplerate=RATE, channels=1, dtype="int16", blocksize=CHUNK,
+                                           device=_input_device()) as stream:
         noise = [_level(bytes(stream.read(CHUNK)[0])) for _ in range(3)]   # ~0.2 sn
         noise_avg = min(sum(noise) / len(noise), 600)   # konuşma hemen başlasa da eşik şişmesin
         threshold = max(noise_avg * 2.5, 400)

@@ -317,6 +317,24 @@ class VoiceLane:
             catalog, synthesize, play, self._receipt, max_pending=8,
             stages=self._stage_event, validate=self._privacy_gate,
             echo_note=self._echo_note,
+            resource_scope=self._resource_scope,
+        )
+
+    def _resource_scope(self, request: SpeechRequest, kind: str):
+        """Reserve only actual synth/play phases on the EXISTING Core LeaseTable.
+
+        Standalone test lanes never register as the active hardware owner; they
+        remain pure speech units. Production never invents a second voice lane.
+        A speaker resource is held until the adapter has actually returned,
+        including an unconfirmed hardware stop.
+        """
+        from contextlib import nullcontext
+        if active() is not self:
+            return nullcontext()
+        from modules import interactive_resource_gate
+        backend = self.catalog.require(request.voice_id).backend if kind == "tts" else None
+        return interactive_resource_gate.claim(
+            kind, owner=request.owner, operation_id=request.request_id, backend=backend,
         )
 
     def _echo_note(self, request: SpeechRequest, text: str) -> None:

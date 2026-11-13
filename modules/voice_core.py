@@ -277,6 +277,7 @@ class VoiceCoordinator:
         stages: Callable[[SpeechRequest, str], None] | None = None,
         validate: Callable[[SpeechRequest], str] | None = None,
         echo_note: Callable[[SpeechRequest, str], None] | None = None,
+        resource_scope: Callable[[SpeechRequest, str], object] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         if max_pending < 1:
@@ -288,6 +289,9 @@ class VoiceCoordinator:
         self._stages = stages
         self._validate = validate
         self._echo_note = echo_note
+        # Only the production VoiceLane supplies this callback. Independent
+        # VoiceCoordinator unit tests and the single output owner stay intact.
+        self._resource_scope = resource_scope
         self._clock = clock
         self._pending: queue.PriorityQueue = queue.PriorityQueue(maxsize=max_pending)
         self._lock = threading.Lock()
@@ -573,7 +577,11 @@ class VoiceCoordinator:
                             # Pure whitespace is a non-audio separator, never
                             # an extra Piper invocation or a fake failure.
                             continue
-                        audio = self._synthesize(spec, chunk, cancel)
+                        if self._resource_scope is None:
+                            audio = self._synthesize(spec, chunk, cancel)
+                        else:
+                            with self._resource_scope(request, "tts"):
+                                audio = self._synthesize(spec, chunk, cancel)
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break
@@ -590,7 +598,11 @@ class VoiceCoordinator:
                         if invalid:
                             status, reason = "cancelled", invalid
                             break
-                        self._play(audio, cancel, start_notifier(chunk))
+                        if self._resource_scope is None:
+                            self._play(audio, cancel, start_notifier(chunk))
+                        else:
+                            with self._resource_scope(request, "output_device"):
+                                self._play(audio, cancel, start_notifier(chunk))
                         if cancel.is_set():
                             status, reason = "cancelled", self._cancelled_reason()
                             break

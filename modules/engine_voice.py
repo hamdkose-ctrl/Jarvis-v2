@@ -3,6 +3,20 @@ from __future__ import annotations
 import contextlib
 import threading
 
+def _physical_mic_claim():
+    """One STT device identity shared by wake-word and ordinary capture.
+
+    The engine's audio_lock still orders local recorder use. This adds the
+    existing Scheduler/OS resource reservation while an actual wake stream is
+    open, never while an STT network/provider wait is pending.
+    """
+    from modules import voice_runtime
+    if voice_runtime.active() is None:
+        return contextlib.nullcontext()
+    from modules import interactive_resource_gate
+    return interactive_resource_gate.claim("stt", owner="device")
+
+
 def _pc_context(runtime, fn):
     from functools import wraps
     @wraps(fn)
@@ -208,8 +222,9 @@ class VoiceSession:
                 with runtime.audio_lock:
                     if stopped():
                         break
-                    hit = wakeword.wait(stopped, capture=False, max_seconds=2.0,
-                                        min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
+                    with _physical_mic_claim():
+                        hit = wakeword.wait(stopped, capture=False, max_seconds=2.0,
+                                            min_threshold=0.65)  # kendi sesinden uyanmasın diye çok daha sıkı eşik
                 if hit is not None:
                     break
         except Exception:
@@ -293,7 +308,8 @@ class VoiceSession:
         with runtime.audio_lock:
             if should_stop():
                 return True
-            audio = wakeword.wait(should_stop, on_wake=lambda: runtime.emit("state", "listening"))
+            with _physical_mic_claim():
+                audio = wakeword.wait(should_stop, on_wake=lambda: runtime.emit("state", "listening"))
         if audio is None:
             return True                   # "Hey Jarvis" duyulmadı; döngü yeniden dinler
         cmd = runtime._strip_wake(runtime.voice.recognize(audio) or "") if audio else ""
