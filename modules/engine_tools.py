@@ -277,6 +277,8 @@ def _message_step(runtime, command: str | None, cmd_lower: str) -> str | None:
             result = "Mesaj gönderim işlemi tamamlanamadı: " + user_message(exc)
         runtime._emit_for(owner, "assistant", result)
         if owner.slug == runtime.pc_profile().slug:
+            # The result belongs to this request id, so "sus" mutes its audio and a
+            # later re-offer of the same sentence is not announced twice.
             runtime.events.put(("say", result, owner.slug, {"turn_id": task_id}))
 
     try:
