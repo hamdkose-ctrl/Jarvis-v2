@@ -161,6 +161,50 @@ class FileEffectClaimTests(unittest.TestCase):
             produce()
         self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
 
+    def test_report_writer_failure_removes_only_new_partial_file(self):
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        destination = root / 'Jarvis Görevler' / 'alice' / '01234567-rapor.md'
+        task = {'agent': 'writer', 'input': {
+            'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
+        }}
+        with patch.object(nxapi, 'FILES_DIR', root), \\
+             patch.object(model_wait, 'ask', return_value='Verified report'), \\
+             patch.object(task_workers.uuid, 'uuid4',
+                          return_value=SimpleNamespace(hex='0123456789abcdef')), \\
+             patch.object(task_workers.os, 'fsync', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                task_agents.worker('alice', task, {})
+        self.assertFalse(destination.exists(), 'Failed report must not leave a partial file')
+        # A later valid invocation can safely create the same generated path.
+        with patch.object(nxapi, 'FILES_DIR', root), \\
+             patch.object(model_wait, 'ask', return_value='Verified report'), \\
+             patch.object(task_workers.uuid, 'uuid4',
+                          return_value=SimpleNamespace(hex='0123456789abcdef')):
+            result = task_agents.worker('alice', task, {})
+        self.assertEqual(result['state'], 'done')
+        self.assertEqual(destination.read_text(encoding='utf-8'), 'Verified report')
+
+    def test_report_writer_refuses_symlink_owner_directory(self):
+        from modules import task_agents, task_workers, nxapi, model_wait
+        root = self.base / 'reports'
+        outside = self.base / 'outside'
+        outside.mkdir()
+        link = root / 'Jarvis Görevler' / 'alice'
+        link.parent.mkdir(parents=True)
+        try:
+            link.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest('Directory symlinks unavailable')
+        task = {'agent': 'writer', 'input': {
+            'instruction': 'Rapor oluştur', 'filename': 'rapor.md',
+        }}
+        with patch.object(nxapi, 'FILES_DIR', root), \\
+             patch.object(model_wait, 'ask', return_value='Verified report'):
+            with self.assertRaises(PermissionError):
+                task_agents.worker('alice', task, {})
+        self.assertEqual(list(outside.iterdir()), [])
+
     def test_rename_same_source_is_rejected_then_released(self):
         target = self.folder / 'original.txt'
         target.write_text('original', encoding='utf-8')
