@@ -43,7 +43,7 @@ def append(slug, role, text, source=''):
             path=_path(slug)
             with file_resource_guard.claim_paths(path):
                 with path.open('a',encoding='utf-8') as f:
-                    f.write(json.dumps(row,ensure_ascii=False)+'\\n')
+                    f.write(json.dumps(row,ensure_ascii=False)+'\n')
                     f.flush()
                     os.fsync(f.fileno())
                 if path.stat().st_size > _MAX_BYTES:
@@ -120,7 +120,7 @@ def _trim_claimed(path):
     fd, temporary = tempfile.mkstemp(prefix='.history-trim-', dir=path.parent)
     try:
         with os.fdopen(fd, 'wb') as output:
-            output.write(b'\\n'.join(reversed(lines))+b'\\n')
+            output.write(b'\n'.join(reversed(lines))+b'\n')
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary,path)
