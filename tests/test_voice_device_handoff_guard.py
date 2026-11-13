@@ -114,11 +114,13 @@ class WakeFollowupRaceTests(TestCase):
             emit=Mock(), log=Mock(),
         )
         session = self.session(runtime, lane)
-        with patch.object(wakeword, "wanted", return_value=True), \\
-             patch.object(wakeword, "ready", return_value=True), \\
-             patch.object(wakeword, "wait", return_value=b"wake"), \\
-             patch("modules.engine_voice._physical_mic_claim",
-                   return_value=contextlib.nullcontext()):
+        with (
+            patch.object(wakeword, "wanted", return_value=True),
+            patch.object(wakeword, "ready", return_value=True),
+            patch.object(wakeword, "wait", return_value=b"wake"),
+            patch("modules.engine_voice._physical_mic_claim",
+                  return_value=contextlib.nullcontext()),
+        ):
             self.assertTrue(session.offline_wake_step())
         self.assertEqual(runtime.audio_lock.count, 2)
         runtime.voice.capture.assert_not_called()
