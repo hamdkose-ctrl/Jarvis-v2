@@ -1170,9 +1170,13 @@ def _core_rejected_proposal(entry: EntryResult) -> bool:
         return False
     if semantic.capability_hint not in brain_core_map.CORE_INTENTS:
         return False
+    if is_sequenced(entry.text):
+        # No partial execution when the model is unavailable or returned only
+        # one action for a multi-action utterance. Explicit State/Fast is above.
+        return True
     if not (set(semantic.arguments) - {"original_text"}):
         return False
-    return not _pending_owns_turn(entry)  # rejected partial multi-action proposals must fail closed
+    return not _pending_owns_turn(entry)
 
 
 def _lane_plan(runtime: Any, entry: EntryResult) -> tuple[str, dict[str, object]] | None:
