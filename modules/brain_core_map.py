@@ -1063,10 +1063,10 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
     not by IDs invented by the model. Every mutation still requires the
     snapshot-bound State confirmation.
     """
-    if set(arguments) - {"original_text", "operation", "title", "duration"}:
+    if set(arguments) - {"original_text", "operation", "title", "duration", "weekday"}:
         return None
     operation = arguments.get("operation")
-    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze"}:
+    if type(operation) is not str or operation not in {"delete", "postpone", "skip", "snooze", "move"}:
         return None
     title = arguments.get("title")
     if operation == "snooze" and title is None:
@@ -1077,7 +1077,19 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     if operation in {"delete", "skip"}:
         return {"operation": operation, "title": checked_title} if (
-            checked_title is not None and arguments.get("duration") is None) else None
+            checked_title is not None and arguments.get("duration") is None
+            and arguments.get("weekday") is None) else None
+    if operation == "move":
+        day = arguments.get("weekday")
+        weekday = {"pazartesi": 0, "salı": 1, "çarşamba": 2,
+                   "perşembe": 3, "cuma": 4, "cumartesi": 5, "pazar": 6}
+        if (checked_title is None or type(day) is not str
+                or day not in weekday or arguments.get("duration") is not None):
+            return None
+        return {"operation": "move", "title": checked_title,
+                "weekday": weekday[day]}
+    if arguments.get("weekday") is not None:
+        return None
     duration = arguments.get("duration")
     if operation == "snooze" and duration is None:
         return {"operation": operation, "title": checked_title, "minutes": 10}
@@ -1085,6 +1097,13 @@ def _reminder_manage_args(arguments: Mapping[str, Any]) -> dict[str, Any] | None
         return None
     if duration in {"yarına", "yarin", "yarına kadar"} and operation == "postpone":
         return {"operation": operation, "title": checked_title, "minutes": 1440}
+    named_delays = {"yarım saat": 30, "bir saat": 60, "bir gün": 1440,
+                    "iki gün": 2880}
+    if duration.casefold().strip() in named_delays:
+        minutes = named_delays[duration.casefold().strip()]
+        return {"operation": operation, "title": checked_title,
+                "minutes": minutes} if minutes <= (
+                    1440 if operation == "snooze" else 10080) else None
     parsed = re.fullmatch(r"([1-9]\d{0,2})\s*(dakika|dk|saat|gün|gun)", duration.casefold().strip())
     if parsed is None:
         return None
