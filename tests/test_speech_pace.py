@@ -44,22 +44,20 @@ class SpeechPace(unittest.TestCase):
         self.assertIn("ACT.dstop=", js)
 
     def notice_tail(self, lane):
-        """Run the production notice branch's own idle decision for one lane state."""
-        import ast
+        """Exercise the shared PRODUCTION idle emitter used by the real engine.
+
+        The old test extracted a Try.finalbody by looking for the literal
+        expression 'lane is None'. The safety fix correctly delegates to the
+        common speaker gate, so that syntax-shape probe was obsolete.
+        """
         from types import SimpleNamespace
         from unittest.mock import Mock
-        tree = engine_source.tree()
-        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
-        block = next(n for n in ast.walk(main) if isinstance(n, ast.Try) and any(
-            isinstance(node, ast.If) and 'lane is None' in ast.unparse(node.test)
-            for node in n.finalbody))
-        pause = SimpleNamespace(clear=Mock())
+        from modules import engine_loop
         emit = Mock()
-        ns = {'time': SimpleNamespace(sleep=Mock()), 'pause_listening': pause,
-              'voice_session': SimpleNamespace(voice_lane=lane), 'emit': emit}
-        exec(compile(ast.fix_missing_locations(
-            ast.Module(body=list(block.finalbody), type_ignores=[])),
-            'real-notice-idle-tail', 'exec'), ns)
+        engine_loop._emit_idle_if_silent(
+            SimpleNamespace(emit=emit),
+            SimpleNamespace(voice_lane=lane),
+        )
         return emit
 
     def idle_emit_for(self, busy, unconfirmed):
