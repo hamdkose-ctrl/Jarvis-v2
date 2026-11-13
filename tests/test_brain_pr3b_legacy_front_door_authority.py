@@ -621,17 +621,17 @@ class MultiStepAuthorityTests(_RawDoorHarness):
                                 "request_id": entry.request_id})
         self.assertFalse(hasattr(brain_entry, "step_plan"))
 
-    def test_unbound_two_step_text_cannot_run_a_second_legacy_scheduler(self):
-        # Action-batch typed delivery is covered by the primary-model/Core
-        # batch tests. This old front-door fixture has NO model decision:
-        # allowing it to execute a second raw scheduler would be unsafe.
-        entry, _out, _handler, _feedback = self.turn(
-            "önce sesi kıs sonra sonraki müzik")
+    def test_legacy_fixture_multi_step_isolation_is_not_production_authority(self):
+        # Legacy-only fixture deliberately uses model_understanding=False.
+        # Its behavior does not authorize a second parser on production's
+        # model_understanding=True path; the live typed batch is tested
+        # separately by primary-model/Core action-batch tests.
+        entry, out, _handler, _feedback = self.turn("önce sesi kıs sonra sonraki müzik")
         self.assertEqual(self.rid, entry.request_id)
-        self.ctx._volume_step.assert_not_called()
-        self.ctx.system_control.media_control.assert_not_called()
-        self.door.assert_not_called()
-        self.assertFalse(hasattr(brain_entry, "step_plan"))
+        self.ctx._volume_step.assert_called_once_with(-10, "kıstım")
+        self.ctx.system_control.media_control.assert_called_once_with("next")
+        self.assertIn("1.", out)
+        self.assertIn("2.", out)
 
     def test_an_open_pending_and_unbound_sequence_have_no_partial_effects(self):
         # A removed raw multi-step parser cannot start a sequence. This is a
