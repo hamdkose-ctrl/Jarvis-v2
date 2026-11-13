@@ -52,6 +52,45 @@ def organize_preview(runtime, folder: str) -> str:
     return organize_preview_question(label, plan)
 
 
+def execute_screen_text(runtime, operation: str) -> str:
+    """Shared typed/strict-fallback OCR executor; no natural-language selection.
+
+    Always enforce the same privacy, cancellation and clipboard/note effect
+    boundaries, regardless of whether the model or bounded compatibility
+    protocol selected this already Core-validated operation.
+    """
+    from modules import requests_state
+    requests_state.check()
+    if operation not in {"read", "copy", "error_note"}:
+        return "Ekran metni işlemi doğrulanmadı; işlem başlatılmadı."
+    if (blocked := runtime.privacy.blocked("screen")):
+        return blocked
+    if operation == "error_note":
+        text = runtime._screen_ocr(
+            "Ekranda bir hata ya da uyarı mesajı varsa, Türkçe olarak tek cümleyle ne olduğunu "
+            "ve olası çözümünü yaz. Hata yoksa sadece 'Hata görünmüyor' yaz."
+        )
+        requests_state.check()
+        if not text or "Hata görünmüyor" in text:
+            return "Ekranda bir hata görünmüyor."
+        normalized = " ".join(text.split())
+        runtime.profile.add_note_item("Ekran hatası: " + normalized)
+        return "Ekrandaki hatayı notlarına ekledim: " + normalized[:200]
+    text = runtime._screen_ocr(
+        "Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini "
+        "koruyarak yaz. Yorum, başlık ya da açıklama ekleme; yalnızca metin."
+    )
+    requests_state.check()
+    if not text:
+        return "Ekranda okunabilir bir metin bulamadım."
+    if operation == "read":
+        return text
+    copied = runtime._copy_text(text)
+    if not copied:
+        return "Metni çıkardım ama panoya kopyalayamadım."
+    return f"Ekrandaki metni panoya kopyaladım ({len(text)} karakter). Başı: “{' '.join(text[:80].split())}…”"
+
+
 def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str:
     from modules import app_actions, requests_state
     requests_state.check()
@@ -83,35 +122,7 @@ def dispatch(runtime, intent: str, a: dict, command: str, cmd_lower: str) -> str
             from modules import diagnose
             return diagnose.summary(diagnose.run(speak_flag=False, user_slug=runtime.profile.slug))
         case "screen_text":
-            # Model selected only a closed operation; the existing OCR owner
-            # still owns image capture. No raw-string OCR verb recognition here.
-            if (blocked := runtime.privacy.blocked("screen")):
-                return blocked
-            operation = a["operation"]
-            if operation == "error_note":
-                text = runtime._screen_ocr(
-                    "Ekranda bir hata ya da uyarı mesajı varsa, Türkçe olarak tek cümleyle ne olduğunu "
-                    "ve olası çözümünü yaz. Hata yoksa sadece 'Hata görünmüyor' yaz."
-                )
-                requests_state.check()
-                if not text or "Hata görünmüyor" in text:
-                    return "Ekranda bir hata görünmüyor."
-                normalized = " ".join(text.split())
-                runtime.profile.add_note_item("Ekran hatası: " + normalized)
-                return "Ekrandaki hatayı notlarına ekledim: " + normalized[:200]
-            text = runtime._screen_ocr(
-                "Bu ekran görüntüsündeki tüm okunabilir metni olduğu gibi, satır düzenini "
-                "koruyarak yaz. Yorum, başlık ya da açıklama ekleme; yalnızca metin."
-            )
-            requests_state.check()
-            if not text:
-                return "Ekranda okunabilir bir metin bulamadım."
-            if operation == "read":
-                return text
-            copied = runtime._copy_text(text)
-            if not copied:
-                return "Metni çıkardım ama panoya kopyalayamadım."
-            return f"Ekrandaki metni panoya kopyaladım ({len(text)} karakter). Başı: “{' '.join(text[:80].split())}…”"
+            return execute_screen_text(runtime, a["operation"])
         case "share_control":
             # set_share is the single permission/vision/UI/audit effect owner.
             return runtime.set_share({"screen": "screen", "camera": "camera", "stop": None}[a["action"]])
