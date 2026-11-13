@@ -6,6 +6,102 @@ from unittest.mock import patch
 
 
 class FolderOrganizeOwnerTests(unittest.TestCase):
+    def setUp(self):
+        from modules import file_resource_guard
+        self.claim_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.claim_tmp.cleanup)
+        stub = patch.object(
+            file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+            Path(self.claim_tmp.name) / 'os-claims',
+        )
+        stub.start()
+        self.addCleanup(stub.stop)
+
+    def test_bulk_organize_conflicts_with_existing_file_op_claim(self):
+        from modules import files, file_resource_guard
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            source.parent.mkdir()
+            source.write_text('safe', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                with file_resource_guard.claim_paths(source):
+                    with self.assertRaises(ValueError):
+                        files.apply_organize([(source, target)], 'alice')
+                self.assertTrue(source.is_file())
+                self.assertFalse(target.exists())
+                self.assertEqual(files.apply_organize([(source, target)], 'alice'), 1)
+
+    def test_bulk_undo_does_not_move_a_changed_file(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            source.parent.mkdir()
+            source.write_text('original', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                self.assertEqual(files.apply_organize([(source, target)], 'alice'), 1)
+                target.write_text('changed by user', encoding='utf-8')
+                self.assertEqual(files.undo_organize('alice'), 0)
+                self.assertFalse(source.exists())
+                self.assertEqual(target.read_text(encoding='utf-8'), 'changed by user')
+                self.assertTrue(files._undo_file('alice').is_file())
+
+    def test_legacy_two_field_undo_cannot_reverse_an_unverified_file(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            target.parent.mkdir(parents=True)
+            target.write_text('belongs to someone else', encoding='utf-8')
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                receipt = files._undo_file('alice')
+                receipt.parent.mkdir()
+                receipt.write_text(json.dumps([[str(target), str(source)]]), encoding='utf-8')
+                self.assertEqual(files.undo_organize('alice'), 0)
+                self.assertTrue(target.is_file())
+                self.assertTrue(receipt.is_file())
+
+    def test_approved_stamp_is_rechecked_inside_file_claim_before_move(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Desktop' / 'a.txt'
+            source.parent.mkdir()
+            source.write_text('old', encoding='utf-8')
+            target = root / 'Desktop' / 'Belgeler' / 'a.txt'
+            stamp = files.plan_stamp([(source, target)])
+            source.write_text('edited after preview', encoding='utf-8')
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                with self.assertRaises(ValueError):
+                    files.apply_organize([(source, target)], 'alice', expected_stamp=stamp)
+                self.assertTrue(source.is_file())
+                self.assertFalse(target.exists())
+
+    def test_second_organize_does_not_replace_an_unresolved_undo_receipt(self):
+        from modules import files
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / 'Desktop'
+            folder.mkdir()
+            a, b = folder / 'a.txt', folder / 'b.txt'
+            a.write_text('a', encoding='utf-8')
+            b.write_text('b', encoding='utf-8')
+            with patch.object(files, 'DATA_DIR', root / 'state'):
+                self.assertEqual(files.apply_organize(
+                    [(a, folder / 'Belgeler' / 'a.txt')], 'alice'), 1)
+                with self.assertRaises(ValueError):
+                    files.apply_organize(
+                        [(b, folder / 'Belgeler' / 'b.txt')], 'alice')
+                self.assertTrue(b.is_file())
+                self.assertEqual(files.undo_organize('alice'), 1)
+                self.assertEqual(files.apply_organize(
+                    [(b, folder / 'Belgeler' / 'b.txt')], 'alice'), 1)
+
+
     def test_bulk_organize_undo_is_owned_by_the_user_who_confirmed_it(self):
         from modules import files
         with tempfile.TemporaryDirectory() as temp:
