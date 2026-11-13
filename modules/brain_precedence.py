@@ -64,10 +64,13 @@ def claim(runtime: Any, command: str, plan: tuple[str, dict] | None = None) -> t
     if isinstance(macros, dict) and callable(keyer) and callable(runner):
         lower = getattr(runtime, "_tr_lower", None)
         normalized = lower(command) if callable(lower) else command.casefold()
-        # The exact key stored in the user's profile is the entire trigger;
-        # fuzzy/suffix aliases are not a bypass of the Brain/Core decision.
-        if keyer(normalized) in macros:
-            output = runner(normalized)
+        # A stored normalized key is the entire trigger, never a bag of
+        # significant words. Removing all punctuation with _macro_key would
+        # otherwise turn "sabah rutini?" or a quoted mention into an effect.
+        # Only whitespace folding and terminal command punctuation are allowed.
+        literal = " ".join(normalized.strip(" .!").split())
+        if literal and keyer(literal) == literal and literal in macros:
+            output = runner(literal)
             if output is not None:
                 return "macro_run", output
     return None
