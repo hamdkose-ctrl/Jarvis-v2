@@ -320,6 +320,10 @@ class VoiceSession:
             # Komut duyulmadı ya da yalnızca "Jarvis"in sonu duyuldu ("servis"): sormadan bir kez daha dinle
             runtime.emit("state", "listening")
             with runtime.audio_lock:
+                # A playback may begin after the pre-lock check. Never open
+                # the follow-up microphone over Jarvis's own unconfirmed audio.
+                if should_stop():
+                    return True
                 raw = runtime.voice.capture(timeout=5, abort=runtime._AnyAbort(runtime.pause_listening, runtime.mic_cancel))
             again = runtime.voice.recognize(raw or b"", announce_fail=False)
             cmd = runtime._strip_wake(again or "")
@@ -423,8 +427,9 @@ class VoiceSession:
                 continue
             last_error = None
 
-            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"]:
-                continue  # Discard recognition completed after shutdown/mute.
+            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                    or self.speech_blocks_mic():
+                continue  # Discard stale recognition after speaker/mute/shutdown.
 
             # Mikrofon tamamen sessizse (gürültü tam 0) kullanıcıyı bir kez uyar.
             if runtime.voice.last_noise == 0:
@@ -465,6 +470,12 @@ class VoiceSession:
                 runtime.emit("state", "listening")
                 try:
                     with runtime.audio_lock:
+                        # An output notification can start between recognizing
+                        # the wake name and opening the second capture stream.
+                        # Check speaker proof with physical mic ownership held.
+                        if runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                                or self.speech_blocks_mic():
+                            continue
                         raw = runtime.voice.capture(timeout=4, verbose=True, abort=runtime.mic_cancel)
                     cmd = runtime.voice.recognize(raw or b"", announce_fail=True)
                 except Exception:
@@ -475,7 +486,8 @@ class VoiceSession:
                     continue
                 cmd = cmd.strip()
 
-            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"]:
+            if runtime.stop_event.is_set() or runtime.pause_listening.is_set() or not runtime.flags["mic"] \
+                    or self.speech_blocks_mic():
                 continue
 
             self.submit_voice(cmd)
