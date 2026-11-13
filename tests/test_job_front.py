@@ -1,7 +1,8 @@
-"""Tek giriş (motor birleştirme adım 3): çıplak "devam"/"iptal" yalnız hedef işi yoksa açık görev işine gider.
+"""Bounded resume/cancel contracts through the real Brain State Gate -> Engine.
 
-Gerçek EngineContext.handle kullanılır; iş kayıtları taklit, model çağrılmaz. Önceki davranış (hedef önceliği, "görev …"
-ve "hedef …" önekleri, onay kelimeleri) aynen korunur.
+The old raw EngineContext.handle call without a bound Brain turn is not a
+production entry point. A real prepare/bind is mandatory in these tests;
+existing goal/job workers are mocked, and the general model must not be called.
 """
 import time
 import unittest
@@ -22,7 +23,7 @@ def _task(state, age=60):
 
 class JobFrontTests(ProfileCase):
     def _run(self, text, goal=None, task=None, pending=None, photo_pending=False, forbid_model=False,
-             canonical=False):
+             canonical=True):
         rt = _runtime(self, self.profile, datetime(2026, 10, 18, 9, 0))
         if photo_pending:
             rt._pending_photo[rt.profile.slug] = {'t': time.time(), 'path': 'fake-photo.jpg'}
