@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import test_brain_pr3b_legacy_front_door_authority as pr3b
-from modules import brain_entry, brain_precedence, engine_tools, files
+from modules import brain_entry, brain_precedence, engine_tools, files, file_resource_guard
 from modules.brain_contracts import RequestKind
 from modules.brain_understanding import ORGANIZE_CAPABILITY, ORGANIZE_TARGET_AMBIGUOUS
 
@@ -57,6 +57,12 @@ class _OrganizeHarness(pr3b._RawDoorHarness):
             starter = patch.object(target, attr, value)
             starter.start()
             self.addCleanup(starter.stop)
+        claim_patch = patch.object(
+            file_resource_guard, '_FILE_EFFECT_CLAIM_ROOT',
+            root / 'os-claims',
+        )
+        claim_patch.start()
+        self.addCleanup(claim_patch.stop)
         self.ctx.files = files
         # Geri alma kolunun gerçek sahibi cascade'de kalır: pr3b onu Mock'lar.
         extra = engine_tools._extra_commands
