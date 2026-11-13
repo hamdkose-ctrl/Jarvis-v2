@@ -874,7 +874,10 @@ def _action_arguments(*, capability_id: str, supplied: Mapping[str, Any], text: 
         if len(slots) != 1 or slots[0] not in by_slot:
             return None
         selected = by_slot[slots[0]]
-        if selected.kind != "note" or selected.owner != owner:
+        # More than one matching note is ambiguous, even if the model picked
+        # one slot. Require clarification instead of silently deleting one.
+        if (selected.kind != "note" or selected.owner != owner
+                or sum(ref.kind == "note" for ref in by_slot.values()) != 1):
             return None
         if set(supplied) - {"operation", "text"}:
             return None
