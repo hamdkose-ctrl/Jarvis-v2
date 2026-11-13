@@ -136,6 +136,29 @@ class OriginalPageTests(unittest.TestCase):
             sp.restore_original(self.profile, 1, str(self.path))
         self.assertFalse((study._dir(self.profile)/'1.source.pdf').exists())
 
+    def test_restore_existing_original_never_overwrites_a_foreign_file(self):
+        import hashlib
+        self.legacy_source(source_hash=hashlib.sha256(self.original).hexdigest())
+        target = study._dir(self.profile)/'1.source.pdf'
+        target.write_bytes(b'foreign existing original')
+        with self.assertRaises(FileExistsError):
+            sp.restore_original(self.profile, 1, str(self.path))
+        self.assertEqual(target.read_bytes(), b'foreign existing original')
+        self.assertFalse(self.profile.data['study']['docs'][0].get('original_pdf'))
+        self.assertFalse(list(target.parent.glob('.jarvis-original-*')))
+
+    def test_restore_failed_metadata_save_rolls_back_only_new_original(self):
+        import hashlib
+        item = self.legacy_source(source_hash=hashlib.sha256(self.original).hexdigest())
+        self.profile.save = lambda: (_ for _ in ()).throw(OSError('disk full'))
+        target = study._dir(self.profile)/'1.source.pdf'
+        with self.assertRaises(OSError):
+            sp.restore_original(self.profile, 1, str(self.path))
+        self.assertFalse(target.exists())
+        self.assertNotIn('original_pdf', item)
+        self.assertEqual(item['source_hash'], hashlib.sha256(self.original).hexdigest())
+        self.assertFalse(list(target.parent.glob('.jarvis-original-*')))
+
     def test_unreadable_original_keeps_text_and_restore_action(self):
         self.legacy_source()
         saved = study._dir(self.profile)/'1.source.pdf'
