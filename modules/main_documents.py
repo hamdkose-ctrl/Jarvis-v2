@@ -132,22 +132,21 @@ def _keep_photo(runtime, src: str) -> str:
     with file_resource_guard.claim_paths(source, dest):
         if not source.is_file():
             raise FileNotFoundError('Fotoğraf kaynağı bulunamadı.')
-        with tempfile.NamedTemporaryFile(
-                mode='wb', dir=d, prefix='.jarvis-photo-', suffix='.tmp',
-                delete=False) as stream:
-            staged = Path(stream.name)
-            try:
+        staged = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='wb', dir=d, prefix='.jarvis-photo-', suffix='.tmp',
+                    delete=False) as stream:
+                staged = Path(stream.name)
                 with source.open('rb') as incoming:
                     shutil.copyfileobj(incoming, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
-            except Exception:
-                staged.unlink(missing_ok=True)
-                raise
-        try:
             os.link(staged, dest)
         finally:
-            staged.unlink(missing_ok=True)
+            # Windows cannot unlink an open staging file.
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         try:
             source.unlink(missing_ok=True)
         except OSError:
