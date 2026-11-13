@@ -1067,13 +1067,17 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "response_schema": _response_schema(offered_capabilities),
             "utterance": text[:2000],
             "current": {
-                "request_kind": current.request_kind.value,
-                "conversation_relation": current.conversation_relation.value,
-                "temporal_need": current.temporal_need.value,
-                "capability_hint": current.capability_hint,
-                "needs_input": bool(getattr(current, "needs_input", False)),
-                "ambiguities": list(getattr(current, "ambiguities", ())),
-                "file_operation_hint": file_operation_hint,
+                # Legacy lexical hypotheses are intentionally not given to
+                # the semantic model as a suggested answer. Factual pending
+                # owners, recent turns, goal cards and file candidates below
+                # are the evidence the model is allowed to interpret.
+                "request_kind": "UNDECIDED",
+                "conversation_relation": "UNDECIDED",
+                "temporal_need": "UNDECIDED",
+                "capability_hint": None,
+                "needs_input": bool(pending_context),
+                "ambiguities": [],
+                "file_operation_hint": None,
                 "current_output": _current_output(session_artifacts),
             },
             "allowed": {
@@ -1141,10 +1145,10 @@ def propose(*, owner: str, text: str, current: Any, arguments: Mapping[str, Any]
             "target_goal_ids=[], actions=[]. Never invent a goal id; clarify when "
             "the target cannot be selected. CRUCIAL: the operation continue_goal "
             "or resume_goal describes an EXISTING GOAL, NOT the conversation relation. "
-            "For ALL goal operations COPY current.conversation_relation exactly. "
-            "If current.conversation_relation=NEW_REQUEST, keep NEW_REQUEST even for "
-            "continue_goal, resume_goal or add_task; CONTINUE_ACTIVE is only valid "
-            "when current.conversation_relation itself is CONTINUE_ACTIVE. "
+            "For every goal operation infer conversation_relation from the user's "
+            "utterance and owner-bound recent_turns, not from the operation name. "
+            "An existing goal operation can be a NEW_REQUEST, and CONTINUE_ACTIVE "
+            "must only describe an actual continuation in this conversation. "
             "A goal operation has no capability actions or arbitrary arguments. "
             "GOAL PRIORITY VS REVISION: prioritize_goal changes only relative priority, "
             "importance, ordering or which goal is first; it never edits goal text or "
