@@ -629,13 +629,19 @@ class MultiStepAuthorityTests(_RawDoorHarness):
         self.assertIn("1.", out)
         self.assertIn("2.", out)
 
-    def test_an_open_pending_still_blocks_a_new_sequence(self):
-        # Bounded state invariant'ı yüzeyde kalır: adım planı açıksa bile kısmi yürütme yok.
-        self.ctx._session().pending_confirm = ("silinsin mi?", "not")
-        _entry, out, _handle, _ = self.turn("önce sesi kıs sonra sonraki müzik")
-        self.assertIn("Açık bir mesaj/onay/düzenleme akışı varken", str(out))
+    def test_an_open_pending_and_unbound_sequence_have_no_partial_effects(self):
+        # A removed raw multi-step parser cannot start a sequence. This is a
+        # safety assertion, not a requirement to revive its legacy wording.
+        pending = ("silinsin mi?", "not")
+        self.ctx._session().pending_confirm = pending
+        entry, _out, _handler, feedback = self.turn(
+            "önce sesi kıs sonra sonraki müzik")
+        self.assertIs(entry.understanding.request_kind, RequestKind.CHAT)
+        self.assertEqual(self.ctx._session().pending_confirm, pending)
+        self.assertEqual(feedback.result_status, "handled")
         self.ctx._volume_step.assert_not_called()
         self.ctx.system_control.media_control.assert_not_called()
+        self.door.assert_not_called()
 
 
 class DispatchArmFenceTests(_RawDoorHarness):
