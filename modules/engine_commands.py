@@ -55,6 +55,17 @@ def handle(runtime, command: str):
     if control_result is not None:
         return control_result
     from modules import brain_entry
+    if brain_entry.matched_protocol("job.empty_cancel"):
+        from modules import job_front
+        # Preserve the old exact no-op message, but recheck active Goal/Job
+        # status at execution time. Never let an unrelated model invent an
+        # operation just because the user said "iptal".
+        empty = job_front.route(
+            runtime.profile.slug, lambda *a, **k: runtime.emit(*a, **k),
+            cmd_lower, session, bounded=True,
+            photo_pending=bool(getattr(runtime, "_pending_photo", {}).get(runtime.profile.slug)))
+        return empty if empty is not None else (
+            "İptal edilecek tek bir açık işlem doğrulayamadım; hiçbir şeyi iptal etmedim.")
     # Açık clarification'ın iptali canonical kapıda seçildiyse sahibi bu turdur; Goal/Job
     # çıplak "iptal"i ikinci kez yorumlayamaz.
     if brain_entry.matched_protocol("session.pending_action.clarify_cancel"):
