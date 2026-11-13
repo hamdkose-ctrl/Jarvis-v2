@@ -167,7 +167,7 @@ class DeferredPlannerTests(TestCase):
     def test_started_attempt_after_restart_can_never_be_redispatched(self):
         job_id, _ = self.claim()
         base = goal_executor._owner_root(self.owner)
-        from modules import release_guard
+        import release_guard
         _, record = self.persisted(self.owner, job_id)
         record["state"] = "planning_running"
         release_guard.atomic(base / (job_id + ".execution.json"),
@@ -196,3 +196,58 @@ class DeferredPlannerTests(TestCase):
 
     def test_actual_engine_scheduler_availability_is_not_an_unbounded_thread(self):
         self.assertFalse(task_queue.scheduler_active() and task_queue._THREAD is None)
+
+    def test_three_first_plans_run_through_same_real_scheduler_pool(self):
+        from modules import canonical_scheduler_dispatch, service_store
+        import time
+
+        class QuickStop:
+            def __init__(self):
+                self.signal = threading.Event()
+            def wait(self, seconds):
+                return self.signal.wait(min(seconds, .03))
+            def is_set(self):
+                return self.signal.is_set()
+            def set(self):
+                self.signal.set()
+
+        jobs = [self.claim("real-scheduler-" + str(i))[0] for i in range(3)]
+        barrier = threading.Barrier(3, timeout=8)
+        seen = []
+        def model(*args, **kwargs):
+            # Three real Scheduler-owned planner threads reach the provider
+            # seam together; there is no owner-global execution mutex here.
+            barrier.wait()
+            return research_plan()
+        self.ask.side_effect = model
+        stop = QuickStop()
+        workers = {}
+        with patch.object(task_queue, "_THREAD", None), \
+             patch.object(task_queue, "_CANONICAL_WORKERS", workers), \
+             patch.object(task_queue, "_LAST_CANONICAL_ADMITTED", {}), \
+             patch.object(task_queue, "_CANONICAL_RESUME_ATTEMPTED", set()), \
+             patch.object(service_store, "ROOT", self.root / "missing-service-store"), \
+             patch.object(canonical_scheduler_dispatch, "discover", return_value=()):
+            try:
+                task_queue.start(
+                    stop,
+                    allowed_owners=lambda: {self.owner},
+                    canonical_profile_resolver=lambda owner: SimpleNamespace(slug=owner),
+                    canonical_plan_notify=lambda owner, job, result: seen.append(
+                        (owner, job, result)),
+                )
+                deadline = time.monotonic() + 10
+                while len(seen) < 3 and time.monotonic() < deadline:
+                    time.sleep(.015)
+                self.assertEqual(set(seen), {(self.owner, job, "planned") for job in jobs})
+                self.assertEqual(self.ask.call_count, 3)
+                for job in jobs:
+                    state, record = self.persisted(self.owner, job)
+                    self.assertEqual(record["state"], "running")
+                    self.assertEqual(state["version"], 1)
+            finally:
+                stop.set()
+                if task_queue._THREAD is not None:
+                    task_queue._THREAD.join(timeout=1)
+                for worker in tuple(workers.values()):
+                    worker.join(timeout=2)
