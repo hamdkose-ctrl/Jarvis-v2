@@ -25,9 +25,9 @@ from modules.brain_contracts import ActiveContext, ContextReference, RequestKind
 SEARCH_QUERY_MISSING = "note search query missing"
 
 
-def note_ref(ident, text="market listesi"):
+def note_ref(ident, text="market listesi", **provenance):
     return ContextReference(id=str(ident), kind="note", source="profile.items", owner=fx.OWNER,
-                            provenance={"collection": "items", "text": text})
+                            provenance={"collection": "items", "text": text, **provenance})
 
 
 def understand(text, refs=(), *, active=None):
@@ -95,7 +95,8 @@ class UnderstandingSummaryTests(unittest.TestCase):
                 self.assertEqual(result.arguments.get("notes"), {"which": "summary"}, text)
 
     def test_ordinal_summary_resolves_through_candidate_reference(self):
-        refs = (note_ref("n1", "süt al"), note_ref("n2", "diş randevusu"))
+        refs = (note_ref("n1", "süt al", list_position=1, list_count=2),
+                note_ref("n2", "diş randevusu", list_position=2, list_count=2))
         resolved = resolve("ikinci notumu özetle", refs)
         self.assertEqual([ref.id for ref in resolved], ["n2"])
         result = understand("ikinci notumu özetle", resolved)

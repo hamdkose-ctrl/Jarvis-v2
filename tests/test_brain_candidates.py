@@ -67,6 +67,27 @@ class CandidateBuilderTests(unittest.TestCase):
         ref = self._build(profile=profile)[0]
         self.assertEqual((ref.id, ref.kind, ref.source), ("9", "note", "profile.items"))
 
+    def test_note_position_preserves_full_list_count_when_inventory_is_truncated(self):
+        profile = self._profile(items=[{"id": 9, "text": "Bir"}, {"id": 20, "text": "İki"}])
+        note = self._build(profile=profile, provider_limit=1)[0]
+        self.assertEqual((note.provenance["list_position"], note.provenance["list_count"]), (1, 2))
+
+    def test_profile_refreshes_note_content_and_position_hidden_by_active_duplicate(self):
+        old = ContextReference(id="9", kind="note", source="profile.items", owner="hamdi",
+                               provenance={"text": "Eski", "list_position": 1, "list_count": 1})
+        profile = self._profile(items=[{"id": 8, "text": "Bir"}, {"id": 9, "text": "Yeni"}])
+        refs = self._build(profile=profile, active_context=self._context(recent_references=(old,)))
+        refreshed = next(ref for ref in refs if ref.id == "9")
+        self.assertEqual(refreshed.provenance["text"], "Yeni")
+        self.assertEqual((refreshed.provenance["list_position"], refreshed.provenance["list_count"]), (2, 2))
+
+    def test_stored_note_position_is_not_reused_without_current_profile_evidence(self):
+        old = ContextReference(id="9", kind="note", source="profile.items", owner="hamdi",
+                               provenance={"text": "Eski", "list_position": 1, "list_count": 1})
+        note = self._build(active_context=self._context(recent_references=(old,)))[0]
+        self.assertNotIn("list_position", note.provenance)
+        self.assertNotIn("list_count", note.provenance)
+
     def test_event_stable_id_is_preserved(self):
         profile = self._profile(tasks=[], items=[], events=[{"id": 4, "title": "Toplantı", "when": "2026-10-31T10:00"}])
         ref = self._build(profile=profile)[0]

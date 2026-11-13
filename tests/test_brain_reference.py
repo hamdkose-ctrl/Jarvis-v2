@@ -145,11 +145,30 @@ class ReferenceResolverContractTests(unittest.TestCase):
             self.assertEqual(self.call(text, [one, two]), (one, two))
         self.assertEqual(self.call("son dosya", []), ())
 
-    def test_last_note_single_candidate_unique_multiple_ambiguous(self):
-        one = ref("n1", "note", title="Bir")
-        two = ref("n2", "note", title="İki")
-        self.assertEqual(self.call("son not", [one]), (one,))
-        self.assertEqual(self.call("son not", [one, two]), (one, two))
+    def test_note_positions_use_profile_order_not_ids_or_candidate_order(self):
+        one = ref("2", "note", source="profile.items", list_position=1, list_count=2, title="Bir")
+        two = ref("9", "note", source="profile.items", list_position=2, list_count=2, title="İki")
+        for text in ("2 numaralı notu sil", "2. notu düzelt: süt", "ikinci notumu özetle",
+                     "İkinci notu göster", "son not", "son notumu göster"):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text, [two, one]), (two,))
+        self.assertEqual(self.call("#2 notunu sil", [two, one]), (one,))
+        self.assertEqual(self.call("id: 2 notunu göster", [two, one]), (one,))
+
+    def test_note_position_missing_out_of_range_or_multiple_never_matches_an_id(self):
+        unpositioned = ref("2", "note", title="Bir")
+        first = ref("2", "note", source="profile.items", list_position=1, list_count=2)
+        for text in ("2 numaralı notu sil", "son notu sil", "0. notu sil",
+                     "ilk notu ve ikinci notu sil", "9. notu özetle"):
+            with self.subTest(text=text):
+                self.assertEqual(self.call(text, [unpositioned]), ())
+                self.assertEqual(self.call(text, [first]), ())
+        self.assertEqual(self.call("9" * 5000 + ". notu sil", [first]), ())
+
+    def test_note_position_words_in_a_filename_do_not_hide_the_file_target(self):
+        document = ref("C:/docs/ilk notu.pdf", "file", name="ilk notu.pdf")
+        note = ref("2", "note", source="profile.items", list_position=1, list_count=1)
+        self.assertEqual(self.call("ilk notu.pdf dosyasını aç", [note, document]), (document,))
 
     def test_last_answer_uses_only_assistant_conversation_candidates(self):
         user = ref("u1", "conversation_turn", source="history", role="user", text="sorum")
