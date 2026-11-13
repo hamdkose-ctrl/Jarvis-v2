@@ -163,7 +163,11 @@ class ModelOnlyCutoverTests(baseline._CanonicalAuthorityHarness):
              patch("modules.smart_router.selection",
                    return_value={"candidates": ["groq"]}), \
              patch("modules.smart_router.run", return_value=raw):
-            return self.turn_real(utterance, model_understanding=True)
+            # turn_real returns an ordinary bound method, not a Mock. Keep
+            # the real handler available but spy on it so tests can assert the
+            # accepted Core note path did not re-enter raw NLP.
+            raw_handler = Mock(wraps=self.ctx.handle)
+            return self.turn(utterance, handler=raw_handler, model_understanding=True)
 
     def test_primary_model_updates_one_observed_note_via_core_not_raw_lookup(self):
         original = self.ctx.profile.add_note_item("market listesi süt")
