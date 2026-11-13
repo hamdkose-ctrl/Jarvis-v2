@@ -284,17 +284,22 @@ class PendingPhotoCoreTests(_PhotoHarness):
         self.ctx._add_note.assert_not_called()
         self.assertNotIn(self.owner, self.ctx._pending_photo)
 
-    def test_unrelated_request_drops_pending_without_photo_execution(self):
+    def test_unrelated_model_chat_closes_pending_without_photo_execution(self):
         entry, _rid = self.prepare_pending("yarın toplantım var")
-        self.assertIs(entry.understanding.conversation_relation,
-                      brain_understanding.ConversationRelation.NEW_REQUEST)
         self.assertIsNone(brain_entry.core_plan(entry))
-        self.ctx._run_steps = Mock(return_value="CONTINUED")
-
-        with patch.object(brain_entry, "step_plan", return_value=("fallback-step",)):
-            result = self.handle_legacy(entry, "yarın toplantım var")
-
-        self.assertEqual(result, "CONTINUED")
+        # The semantic model, not a retired step_plan regex, owns the
+        # independent CHAT decision. The pending-photo lifecycle then closes.
+        decided = replace(entry, understanding=replace(
+            entry.understanding,
+            request_kind=RequestKind.CHAT,
+            capability_hint=None,
+            arguments={"original_text": entry.text},
+            conversation_relation=brain_understanding.ConversationRelation.NEW_REQUEST,
+            needs_input=False, ambiguities=(),
+            reason_codes=("MODEL_DECIDED", "MODEL_CHAT_DECIDED")))
+        output, feedback, _ = self.run_core(decided)
+        self.assertEqual(feedback.result_status, "handled")
+        self.assertEqual(output, "CHAT")
         self.executor.assert_not_called()
         self.assertNotIn(self.owner, self.ctx._pending_photo)
 
@@ -306,12 +311,9 @@ class PendingPhotoCoreTests(_PhotoHarness):
             state_gate=GateObservation(entry.owner, rid, "state", False, "MULTIPLE_BOUNDED_STATE_MATCHES"),
         )
         self.assertIsNone(brain_entry.core_plan(ambiguous))
-        self.ctx._run_steps = Mock(return_value="CONTINUED")
-
-        with patch.object(brain_entry, "step_plan", return_value=("fallback-step",)):
-            result = self.handle_legacy(ambiguous, "analiz et")
-
-        self.assertEqual(result, "CONTINUED")
+        self.assertFalse(hasattr(brain_entry, "step_plan"))
+        output, feedback, _ = self.run_core(ambiguous)
+        self.assertNotEqual(output, "PHOTO OK")
         self.executor.assert_not_called()
         self.ctx.ask_image.assert_not_called()
         self.assertIn(self.owner, self.ctx._pending_photo)
