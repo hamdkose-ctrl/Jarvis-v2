@@ -34,6 +34,45 @@ def _volume_step(runtime, delta: int, verb: str) -> str:
         return "Ses seviyesini değiştiremedim."
     return f"Ses seviyesini {verb}. Yeni seviye yüzde {new_vol}."
 
+def mail_read_typed(runtime, source: str) -> str:
+    """Read the model-selected account via the existing Gmail/Outlook workers.
+
+    No raw mail intent probe, sending, drafting or new account discovery.
+    Gmail's important/starred semantics and Outlook's unread-only limitation
+    remain owned by their current provider modules.
+    """
+    from modules import google_api, outlook, requests_state
+    requests_state.check()
+    if source == "work":
+        return outlook.unread_mail()
+    if source == "work_important":
+        return outlook.unread_mail(prefix=outlook.IMPORTANT_NOTE)
+    if source == "inbox":
+        return google_api.unread_mail()
+    if source == "combined":
+        gmail = google_api.unread_mail()
+        if outlook.installed():
+            requests_state.check()
+            return "Gmail: " + gmail + " İş (Outlook): " + outlook.unread_mail()
+        return gmail
+    if source != "important":
+        return "Mail kaynağını doğrulayamadım; hiçbir işlem yapmadım."
+    problem = google_api._ready()
+    if problem is None:
+        answer = google_api.important_text()
+        if outlook.installed():
+            answer += ' İş mailin (Outlook) için "iş maillerimi kontrol et" de.'
+        return answer
+    if outlook.installed():
+        return outlook.unread_mail(prefix="Gmail bağlı değil, o yüzden önemli işaretine bakamadım. "
+                                  + outlook.IMPORTANT_NOTE)
+    answer = google_api.important_text()
+    if answer != google_api.SETUP_HELP:
+        return answer
+    return (answer + " Bu bilgisayarda klasik Outlook da kurulu değil, "
+            "iş maili için o da kullanılamıyor.")
+
+
 def _file_command(runtime, command: str) -> str | None:
     from modules import main_documents
     return main_documents._file_command(runtime, command)
