@@ -59,6 +59,30 @@ class ConversationResetTests(unittest.TestCase):
             )
         self.assertEqual(self.temp_path.read_bytes(), before)
 
+    def test_recent_checks_disk_even_if_unclaimed_existence_check_would_miss(self):
+        # A peer can publish a reset after a naive path.exists() preflight.
+        # History must be checked under the actual cross-process claim.
+        self.temp_path.write_text(json.dumps({
+            'alice': '2026-01-01 11:00:00.000000',
+        }), encoding='utf-8')
+        original_exists = Path.exists
+        with patch.object(Path, 'exists', lambda path:
+                          False if path == self.temp_path else original_exists(path)):
+            self.assertEqual(conversation_reset.recent('alice', [
+                {'ts': '2026-01-01 10:00:00', 'text': 'old'},
+                {'ts': '2026-01-01 12:00:00', 'text': 'new'},
+            ]), [{'ts': '2026-01-01 12:00:00', 'text': 'new'}])
+
+    def test_external_file_disappearance_cannot_erase_known_cutoff(self):
+        conversation_reset.mark('alice')
+        cutoff = conversation_reset._resets['alice']
+        self.temp_path.unlink()
+        self.assertEqual(conversation_reset.recent('alice', [
+            {'ts': '2024-01-01', 'text': 'old'},
+        ]), [])
+        conversation_reset.mark('bob')
+        self.assertEqual(json.loads(self.temp_path.read_text())['alice'], cutoff)
+
     def test_active_context_default_filter_is_not_chat_translation(self):
         source = inspect.getsource(brain_context)
         self.assertNotIn("chat_translation", source)
