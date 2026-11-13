@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from PIL import Image
-from types import SimpleNamespace
 from modules import main_documents, note_images, personalization
 
 
