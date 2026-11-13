@@ -2,6 +2,35 @@
 from __future__ import annotations
 import contextlib
 
+def _speech_blocks_mic(voice_session):
+    """One speaker proof for manual listening and engine idle claims.
+
+    A failed physical stop is still potentially audible even after the output
+    queue became empty. Trust the already-installed VoiceSession gate when it
+    exists; standalone engine test sessions may expose only the lane.
+    """
+    gate = getattr(voice_session, "speech_blocks_mic", None)
+    if callable(gate):
+        return bool(gate())
+    lane = getattr(voice_session, "voice_lane", None)
+    return bool(lane and (lane.is_busy()
+                         or (callable(getattr(lane, "stop_unconfirmed", None))
+                             and lane.stop_unconfirmed())))
+
+
+def _prepare_manual_listen(runtime, voice_session):
+    """Fail closed on unverified speaker stop; do not start microphone capture."""
+    if not _speech_blocks_mic(voice_session):
+        return True
+    from modules import voice_runtime
+    if voice_runtime.handoff_to_listen():
+        return True
+    runtime.emit("system",
+                 "Jarvis sesi henüz doğrulanmış biçimde durmadı; "
+                 "mikrofon açılmadı.")
+    return False
+
+
 def _deliver_verified_canonical_goal(runtime, owner, job_id, message):
     """Existing owner event sink for an already-reserved canonical event.
 
@@ -265,11 +294,9 @@ def main(runtime, ui=None):
                 finally:
                     runtime.time.sleep(0.3)
                     runtime.pause_listening.clear()
-                    lane = getattr(voice_session, "voice_lane", None)
-                    # "idle" may only be claimed when nothing is outstanding AND the
-                    # newest cut was confirmed by the device: an unconfirmed stop can
-                    # still be audible, so the orb must not go quiet over live speech.
-                    if lane is None or (not lane.is_busy() and not lane.stop_unconfirmed()):
+                    # The same device proof protects every idle claim and
+                    # manual microphone handoff, not just queued notifications.
+                    if not _speech_blocks_mic(voice_session):
                         runtime.emit("state", "idle")
                 continue
 
@@ -277,15 +304,11 @@ def main(runtime, ui=None):
                 runtime.emit("state", "idle")
                 continue
 
-            if kind == "listen" and getattr(voice_session, "voice_lane", None) is not None \
-                    and voice_session.voice_lane.is_busy():
-                # Push-to-talk safe handoff: cut speech and verify the player stopped
-                # before opening the mic, so one-shot recording never transcribes
-                # Jarvis's own speaker output. If output does not stop in time, keep
-                # the protection. Barge-in wake detection is a separate channel.
-                from modules import voice_runtime
-                if not voice_runtime.handoff_to_listen():
-                    runtime.emit("system", "Jarvis konuşuyor; dinlemek için önce sesi durdurabilirsin.")
+            if kind == "listen":
+                # A finished queue is not evidence of an audible output stop.
+                # Both a live speaker and an unconfirmed stop require a verified
+                # physical handoff before capture can own the device.
+                if not _prepare_manual_listen(runtime, voice_session):
                     continue
 
 
@@ -528,8 +551,7 @@ def main(runtime, ui=None):
                             voice_session.state["awake_until"] = runtime.time.time() + runtime.SESSION_SECONDS
                         runtime.time.sleep(0.3)
                         runtime.pause_listening.clear()
-                        lane = getattr(voice_session, "voice_lane", None)
-                        if lane is None or not lane.is_busy():
+                        if not _speech_blocks_mic(voice_session):
                             runtime.emit("state", "idle")
             except runtime.requests_state.Cancelled:
                 runtime._cur_source = ""
