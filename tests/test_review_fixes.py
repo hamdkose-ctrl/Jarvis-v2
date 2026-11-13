@@ -152,14 +152,13 @@ class PlanAsciiTests(ProfileCase):
                 with self.subTest(text=text):
                     self.assertIn('Yarının planı', typed_calendar(rt, text, period="tomorrow"))
 
-    def test_other_plans_not_caught(self):
+    def test_unplanned_text_cannot_trigger_a_calendar_effect_by_raw_fallback(self):
+        # With no model decision, the unbound old natural-language path is
+        # fail-closed. This is NOT a live-language intent accuracy test.
         rt = _runtime(self, self.profile, self.now)
         for text in ('proje planim', 'calisma planim', 'yarin plan yapalim', 'bugun ne var'):
             with self.subTest(text=text):
-                try:
-                    reply = typed_calendar(rt, text)
-                except Exception:
-                    reply = ''
+                reply = say(rt, text)
                 self.assertNotIn('Bugünün planı', reply or '')
                 self.assertNotIn('Yarının planı', reply or '')
 
