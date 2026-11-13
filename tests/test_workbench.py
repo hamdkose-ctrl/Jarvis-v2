@@ -165,14 +165,23 @@ class DocumentTableTests(unittest.TestCase):
                    side_effect=lambda path: self.pdf if path == str(self.pdf) else None):
             workbench.handle("hamdi", [str(self.pdf)], "tablo yap sütunlar: Madde, Değer")
             self.assertIn('["Madde", "Değer"]', ask.call_args.args[0])
-            self.assertIsNone(workbench.followup("hamdi", "hava nasıl"))
-            self.assertIsNone(workbench.followup("ebru", "tutar sütunu ekle"))
-            answer = workbench.followup("hamdi", "tabloyu word olarak ver, açıklama sütunu ekle")
+            self.assertFalse(hasattr(workbench, "followup"))
+            self.assertIsNone(workbench.snapshot_digest("ebru"))
+            digest = workbench.snapshot_digest("hamdi")
+            self.assertEqual(len(digest), 64)
+            answer = workbench.followup_typed(
+                "hamdi", "tabloyu word olarak ver, açıklama sütunu ekle",
+                expected_digest=digest, fmt=".docx")
         self.assertTrue((self.tmp / "sartname_tablo.xlsx").exists())
         self.assertIn(str(self.tmp / "sartname_tablo.docx"), answer)
         self.assertIn("Ek istek: tabloyu word", ask.call_args.args[0])
+        current_digest = workbench.snapshot_digest("hamdi")
         workbench._LAST["hamdi"]["at"] -= workbench.FOLLOW_SECONDS + 1
-        self.assertIsNone(workbench.followup("hamdi", "tutar sütunu ekle"))
+        self.assertIsNone(workbench.snapshot_digest("hamdi"))
+        self.assertIn(
+            "süresi doldu",
+            workbench.followup_typed(
+                "hamdi", "tutar sütunu ekle", expected_digest=current_digest))
 
     def test_long_document_is_capped_with_a_note(self):
         long_text = "\f".join(f"Madde {i}: " + "x" * 11000 for i in range(20))
@@ -265,9 +274,9 @@ class FileCommandTests(unittest.TestCase):
         from modules import main_documents, nxapi
         with patch.object(nxapi, "allowed", return_value=None):
             self.assertIn("erişemiyorum", main_documents._file_command(self.runtime(), '"C:/gizli/a.pdf" "C:/x/b.pdf" tablo yap'))
-        with patch.object(workbench, "followup", return_value=None) as follow:
-            self.assertIsNone(main_documents._file_command(self.runtime(), "merhaba"))
-        follow.assert_called_once_with("hamdi", "merhaba")
+        # The raw language-followup adapter was physically retired.
+        self.assertFalse(hasattr(workbench, "followup"))
+        self.assertIsNone(main_documents._file_command(self.runtime(), "merhaba"))
 
 
 if __name__ == "__main__":
