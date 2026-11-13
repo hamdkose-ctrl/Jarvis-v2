@@ -86,8 +86,14 @@ def run(owner,data):
     if audio:command+=['-c:a','aac']
     # Render into a private same-volume staging directory, never into the
     # public artifact name. On crash, no partial public video is observable.
-    # Keep the existing OS-account file claim through final CAS-like publish.
-    with file_resource_guard.claim_paths(path):
+    # Hold the exact source(s) and destination under one sorted physical
+    # claim for the entire encoder run. Otherwise a concurrent Jarvis file
+    # move/patch could alter the image/audio AFTER the initial hash check but
+    # BEFORE ffmpeg reads it. Reverify both digests once claims are held.
+    with file_resource_guard.claim_paths(path, image, *([audio] if audio else [])):
+        _source(image, data['image_sha256'], ('.png','.jpg','.jpeg','.webp'))
+        if audio:
+            _source(audio, data['audio_sha256'], ('.wav','.mp3','.ogg','.m4a'))
         if path.exists() or path.is_symlink():
             raise resource_leases.LeaseConflict('Video target already exists.')
         with tempfile.TemporaryDirectory(prefix='.jarvis-media-', dir=output) as tmp:
