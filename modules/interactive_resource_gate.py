@@ -69,6 +69,10 @@ def claim(kind: str, *, owner: str, operation_id: str | None = None,
         with resource_leases.process_resource_claim(root, key):
             yield
     finally:
-        # The physical OS claim above stays held until the operation exits,
-        # even if an uncooperative provider outlives the in-process TTL.
-        leases.release(ticket)
+        # The physical OS claim stays held until the operation exits, even
+        # when a wake-word listener or stalled provider exceeds the in-process
+        # 300 s ticket TTL. An expired ticket was already revoked by the table;
+        # releasing it again must not turn a valid long microphone wait into
+        # a spurious failure or revive the stale lease.
+        if leases.validate(ticket):
+            leases.release(ticket)
