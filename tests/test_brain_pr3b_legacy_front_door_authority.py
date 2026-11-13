@@ -512,19 +512,22 @@ class ExplanationFenceOwnershipTests(_RawDoorHarness):
                 getattr(self.ctx, gate).reset_mock()
         return self.turn(text)[1]
 
-    def test_hoca_owning_sentences_stay_with_the_hoca_door(self):
-        # Ölçülen: bu cümlelerde çit ateşlenmiyor (state/fast/pend/hint ya da EXPLANATION değil)
-        # ve Hoca kapısının yanıtı kullanıcıya görünen sonuç.
-        self.ctx._study_intent = Mock(return_value="HOCA YANITI")
-        for text in ("hoca modu: hücre", "hücre konusunu öğret", "zayıf konularım",
-                     "bugün ne çalışayım", "hangi konuya çalışmalıyım", "çalışmaya başla"):
-            with self.subTest(text=text):
-                self.assertFalse(self.fence_of(text), "Hoca kapısının cümlesi açıklama turu sayılamaz")
+    def test_free_hoca_requests_never_reenter_retired_raw_study_parser(self):
+        # Hoca lesson.start is a model-selected typed capability. The old
+        # _study_intent is no longer an independent semantic authority.
+        from modules import brain_model_understanding
+        self.ctx._study_intent = Mock(
+            side_effect=AssertionError("retired Hoca parser executed"))
+        for text in ("hoca modu: hücre", "hücre konusunu öğret",
+                     "zayıf konularım", "bugün ne çalışayım"):
+            with self.subTest(text=text), \
+                 patch.object(brain_model_understanding, "propose", return_value=None):
                 self.ctx._study_intent.reset_mock()
-                out = self.with_fence(text)
-                self.assertEqual(out, "HOCA YANITI")
-                self.assertEqual(self.ctx._study_intent.call_args_list, [((text,), {})],
-                                 "kapı kendi ham cümlesiyle çağrılır")
+                entry, response, _handler, feedback = self.turn_real(
+                    text, model_understanding=True)
+                self.assertEqual(feedback.result_status, "failed")
+                self.assertIn("MODEL_UNAVAILABLE", entry.understanding.reason_codes)
+                self.ctx._study_intent.assert_not_called()
 
     def test_active_hoca_pending_answers_are_typed_state_not_raw_chat(self):
         from modules import hoca
@@ -1034,7 +1037,7 @@ class RepoWideAuthorityGuardTests(unittest.TestCase):
     def test_the_cascade_helper_is_called_only_from_the_order_contract(self):
         # §25 D: `_extra_commands` bir compat yardımcısı olarak yüzeye geri bağlanamaz; tek
         # çağıran `brain_precedence` sırası sözleşmesidir. Söküm BRAIN-MIG-052 (PR3C) satırıdır.
-        self.assertEqual(_source_calls("_extra_commands"), ["modules/brain_precedence.py"])
+        self.assertEqual(_source_calls("_extra_commands"), [])
 
     def test_the_typo_rewriter_is_consulted_from_exactly_one_production_site(self):
         # §25 A'nın repo geneli yarısı: düzeltilmiş görünümü başka bir modül de okuyamaz.
